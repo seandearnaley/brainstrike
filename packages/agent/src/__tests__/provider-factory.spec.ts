@@ -1,3 +1,4 @@
+import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { describe, expect, it } from 'vitest';
 import { isMastraAgentError } from '../mastra/mastra-agent-error';
 import {
@@ -51,17 +52,21 @@ describe('provider-factory', () => {
     });
 
     it('creates OpenRouter provider with default model', () => {
-      expect(createProvider('openrouter', 'test-key')).toEqual({
-        apiKey: 'test-key',
-        id: 'openrouter/openai/gpt-5.6-terra',
-      });
+      const model = createProvider('openrouter', 'test-key') as ModelRouterLanguageModel;
+      expect(model).toBeInstanceOf(ModelRouterLanguageModel);
+      expect(model.provider).toBe('openrouter');
+      expect(model.modelId).toBe('openai/gpt-5.6-terra');
     });
 
-    it('uses Mastra model-router config for an OpenRouter model', () => {
-      expect(createProvider('openrouter', 'test-key', 'z-ai/glm-5.2')).toEqual({
-        apiKey: 'test-key',
-        id: 'openrouter/z-ai/glm-5.2',
-      });
+    it('uses the Mastra model router for an OpenRouter model', () => {
+      const model = createProvider(
+        'openrouter',
+        'test-key',
+        'z-ai/glm-5.2'
+      ) as ModelRouterLanguageModel;
+      expect(model).toBeInstanceOf(ModelRouterLanguageModel);
+      expect(model.provider).toBe('openrouter');
+      expect(model.modelId).toBe('z-ai/glm-5.2');
     });
 
     it('creates Ollama provider with custom model', () => {

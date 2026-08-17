@@ -16,12 +16,19 @@ import type {
   StreamChunk,
 } from '@brainstrike/agent';
 import { createAssistantRunEvent, resolveToolTimeoutMs } from '@brainstrike/agent';
-import type { ScopedLogger } from '@brainstrike/utils';
+import type { ScopedLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from '../workspace-roots';
 import { getGlobalHooksPath, loadHooksConfig } from './config';
 import { createDesktopHookRunner } from './hook-runner-impl';
 import { HookManager, type HookRunEventInput } from './manager';
 import type { HookRunVerdict } from './run-verdict';
+
+/**
+ * Bound on the assistant text handed to Stop hooks as `assistant_message`.
+ * Tail, not head: an acceptance hook grades the final answer, which sits at
+ * the end of an oversized message. Matches the run-verdict stdout scan bound.
+ */
+const ASSISTANT_MESSAGE_TAIL_CHARS = 64 * 1024;
 
 /** Convert a manager run-event input into a full (unstamped) AssistantRunEvent. */
 export function hookRunEventToAssistant(input: HookRunEventInput): AssistantRunEvent {
@@ -222,11 +229,16 @@ export async function* withStopHook(
 ): AsyncIterable<StreamChunk> {
   let sawError = false;
   let stopRan = false;
+  let assistantText = '';
+  let textBoundaryPending = false;
   const runStopOnce = async (): Promise<void> => {
     if (stopRan) {
       return;
     }
     stopRan = true;
+    // Exact tail materialized ONCE here; the streaming loop only trims when
+    // the buffer exceeds 2× the bound (amortized — never a per-delta flatten).
+    const assistantMessageTail = assistantText.slice(-ASSISTANT_MESSAGE_TAIL_CHARS);
     // Allow-on-fault (mirrors applyToolHooks): the Stop phase runs in FRONT of
     // the terminal `message-finish` yield, so a runner-layer throw here would
     // otherwise unwind BEFORE the finish chunk is yielded — `consumeSource`
@@ -234,7 +246,8 @@ export async function* withStopHook(
     // Stop-hook failure must degrade to a lost notice, never a lost finish.
     try {
       const result = await manager.runStop(
-        signal.aborted ? 'aborted' : sawError ? 'error' : 'complete'
+        signal.aborted ? 'aborted' : sawError ? 'error' : 'complete',
+        assistantMessageTail.length > 0 ? assistantMessageTail : undefined
       );
       // Task Ledger source 'hook': a Stop hook reported a verdict for this run.
       // AWAITED here, still in front of the finish yield, so the label lands
@@ -255,6 +268,26 @@ export async function* withStopHook(
   };
   try {
     for await (const chunk of stream) {
+      if (chunk.type === 'text-delta') {
+        // Feed the Stop hooks' `assistant_message` stdin field: the RUN's
+        // accumulated assistant text (all generation steps), tail-bounded so
+        // an acceptance hook can grade the end of the final answer. Any
+        // non-text chunk (tool call, run event) marks a step boundary — a
+        // newline is inserted there so line-anchored graders never see step
+        // N's tail glued onto step N+1's first line.
+        if (textBoundaryPending && assistantText.length > 0 && !assistantText.endsWith('\n')) {
+          assistantText += '\n';
+        }
+        textBoundaryPending = false;
+        assistantText += chunk.value;
+        if (assistantText.length > ASSISTANT_MESSAGE_TAIL_CHARS * 2) {
+          // Amortized trim: keeps memory ≤ 2× the bound without flattening a
+          // 64 KiB string on every delta; the exact tail is cut in runStopOnce.
+          assistantText = assistantText.slice(-ASSISTANT_MESSAGE_TAIL_CHARS);
+        }
+      } else {
+        textBoundaryPending = true;
+      }
       if (chunk.type === 'message-finish') {
         if (chunk.finishReason === 'error') {
           sawError = true;

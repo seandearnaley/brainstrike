@@ -1,6 +1,11 @@
-import type { Command, CommandContext } from '@brainstrike/commands';
 import type { ContextTarget } from '@brainstrike/context-actions';
-import { addLogListener, configureLogger, createLogger, type LogRecord } from '@brainstrike/utils';
+import type { Command, CommandContext } from '@brainstrike/context-actions/commands';
+import {
+  addLogListener,
+  configureLogger,
+  createLogger,
+  type LogRecord,
+} from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAppCommandContext, createAppCommandRegistry } from '../command-registry';
 import { buildAppActionRegistryParts } from '../context-action-registry';
@@ -11,7 +16,12 @@ import {
   selectSlashCommandSource,
 } from '../slash-command-source';
 
-type MutableWindow = Window & { platform?: unknown };
+// Deliberately NOT `Window & {...}`: the ambient `Window['platform']` is
+// `Partial<PlatformBridge>`, and intersecting with it would reject the
+// `= undefined` reset under exactOptionalPropertyTypes.
+interface MutableWindow {
+  platform?: unknown;
+}
 
 afterEach(() => {
   (window as MutableWindow).platform = undefined;
@@ -34,6 +44,7 @@ function webParts() {
 
 function desktopParts() {
   (window as MutableWindow).platform = {
+    openExternal: vi.fn(),
     openPath: vi.fn(),
     showItemInFolder: vi.fn(),
   };

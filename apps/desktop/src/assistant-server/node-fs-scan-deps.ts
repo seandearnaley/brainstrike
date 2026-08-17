@@ -5,8 +5,8 @@
  * cross-module reach; the IPC handlers now import from here instead).
  */
 import path from 'node:path';
+import { createLogger } from '@brainstrike/logging';
 import { SecureRoot } from '@brainstrike/secure-fs-native';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   MAX_USER_COMMAND_FILE_BYTES,
   type UserSlashCommandScanDeps,
@@ -70,7 +70,10 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps & { dispose: ()
           MAX_USER_COMMAND_FILE_BYTES
         );
         if (result.status !== 'ok') {
-          return { ok: false, reason: result.status };
+          return {
+            ok: false,
+            reason: result.status === 'oversized' ? 'oversized' : 'unreadable',
+          };
         }
         return { content: result.content.toString('utf8'), ok: true };
       } catch {

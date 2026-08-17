@@ -2,7 +2,7 @@ import {
   LocalRuntimeDiscoveryService,
   LocalRuntimeModelCatalogService,
 } from '@brainstrike/local-runtime';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';

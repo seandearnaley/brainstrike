@@ -6,44 +6,62 @@ import {
 import type {
   WorkspaceIndexingQosInputs,
   WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { loggerInfoMock, registryStoreState, resolveWorkspaceIndexingQosPolicyMock } = vi.hoisted(
-  () => ({
-    loggerInfoMock: vi.fn(),
-    registryStoreState: {
-      setDownloading: vi.fn(),
-      setDownloadProgress: vi.fn(),
-    },
-    resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
-  })
-);
+const {
+  loggerDebugMock,
+  loggerInfoMock,
+  loggerWarnMock,
+  registryStoreState,
+  resolveWorkspaceIndexingQosPolicyMock,
+} = vi.hoisted(() => ({
+  loggerDebugMock: vi.fn(),
+  loggerInfoMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
+  registryStoreState: {
+    setDownloading: vi.fn(),
+    setDownloadProgress: vi.fn(),
+  },
+  resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
+}));
 
-vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
+vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
   useModelRegistryStore: {
     getState: () => registryStoreState,
   },
 }));
 
-vi.mock('@brainstrike/utils/logger', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
-    '@brainstrike/utils/logger'
-  );
+vi.mock('@brainstrike/logging', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
   return {
     ...actual,
     createLogger: () => ({
+      debug: loggerDebugMock,
       info: loggerInfoMock,
+      warn: loggerWarnMock,
     }),
   };
 });
 
-vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
+vi.mock('@brainstrike/indexing-contract/workspace-indexing-qos', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/indexing-contract/workspace-indexing-qos')>();
   const createMockQosPolicy = (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy => {
-    const foregroundYielding =
-      inputs.foregroundQueryActive ||
-      (inputs.dbPressure.available && inputs.dbPressure.foregroundPressure);
+    // Mirrors the real resolver: the starvation bypass downgrades
+    // foreground-DB-pressure yielding to constrained work, and NEVER bypasses a
+    // genuine in-flight foreground query embedding.
+    const dbPressureYielding =
+      inputs.dbPressure.available &&
+      inputs.dbPressure.foregroundPressure &&
+      inputs.foregroundDbPressureStarvationBypass !== true;
+    const foregroundYielding = inputs.foregroundQueryActive || dbPressureYielding;
+    const dbPressureStarvationConstrained =
+      !foregroundYielding &&
+      inputs.dbPressure.available &&
+      inputs.dbPressure.foregroundPressure &&
+      inputs.foregroundDbPressureStarvationBypass === true;
     const interactive = inputs.dbPressure.available && inputs.dbPressure.normalPressure;
     const memoryConstrained =
       inputs.pipeline.memory.available && inputs.pipeline.memory.pressure === 'high';
@@ -52,6 +70,7 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
       typeof inputs.pipeline.progress.stalledForMs === 'number' &&
       inputs.pipeline.progress.stalledForMs >= 120_000;
     const constrained =
+      dbPressureStarvationConstrained ||
       inputs.powerSource === 'battery' ||
       inputs.thermalState === 'serious' ||
       memoryConstrained ||
@@ -95,19 +114,21 @@ vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
       progressThrottleMs: 500,
       reason: foregroundYielding
         ? 'foreground-db-pressure'
-        : interactive
-          ? 'normal-db-pressure'
-          : constrained
-            ? memoryConstrained
-              ? 'memory-pressure'
-              : progressConstrained
-                ? 'progress-stalled'
-                : inputs.powerSource === 'battery'
-                  ? 'battery'
-                  : 'thermal-serious'
-            : acceleratorBoost
-              ? 'accelerator-idle'
-              : 'balanced',
+        : dbPressureStarvationConstrained
+          ? 'foreground-db-pressure'
+          : interactive
+            ? 'normal-db-pressure'
+            : constrained
+              ? memoryConstrained
+                ? 'memory-pressure'
+                : progressConstrained
+                  ? 'progress-stalled'
+                  : inputs.powerSource === 'battery'
+                    ? 'battery'
+                    : 'thermal-serious'
+              : acceleratorBoost
+                ? 'accelerator-idle'
+                : 'balanced',
       scanBatchSize: foregroundYielding ? 0 : 48,
       state: foregroundYielding
         ? 'foreground-yielding'
@@ -140,11 +161,15 @@ import { createEmbeddingWorkerConfig } from '../../../renderer/components/embedd
 function createScheduledTestDb(
   options: Parameters<typeof createDatabaseWorkScheduler>[0] = { foregroundQuietMs: 0 }
 ) {
-  const db = { query: vi.fn(async () => ({ rows: [] })) };
+  const db = { query: vi.fn(async () => ({ rows: [] as Array<{ count: number }> })) };
   const scheduler = createDatabaseWorkScheduler(options);
   return {
     db,
-    scheduledDb: createScheduledDbHandle(db, scheduler, 'background'),
+    scheduledDb: createScheduledDbHandle(
+      db as unknown as Parameters<typeof createScheduledDbHandle>[0],
+      scheduler,
+      'background'
+    ),
   };
 }
 
@@ -160,6 +185,7 @@ describe('createEmbeddingWorkerConfig', () => {
     import.meta.env['VITE_EMBED_MAX_PENDING_COMPLETION_CHUNKS'] = '';
     import.meta.env['VITE_EMBED_STREAM_BATCH_SIZE'] = '';
     import.meta.env['VITE_EMBED_MODEL_KEY'] = '';
+    import.meta.env['VITE_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS'] = '';
   });
 
   it('uses strict defaults when optional env vars are not configured', () => {
@@ -396,11 +422,10 @@ describe('createEmbeddingWorkerConfig', () => {
       throw new Error('Test scheduled DB handle did not expose its scheduler.');
     }
     const schedulerSnapshot = vi.fn(async () => snapshot);
-    Object.assign(window.electronAPI, {
-      db: {
+    (window.electronAPI as unknown as { db: { schedulerSnapshot: typeof schedulerSnapshot } }).db =
+      {
         schedulerSnapshot,
-      },
-    });
+      };
 
     const config = createEmbeddingWorkerConfig({
       query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
@@ -434,11 +459,11 @@ describe('createEmbeddingWorkerConfig', () => {
         .mockResolvedValueOnce(idleSnapshot)
         .mockRejectedValueOnce(new Error('scheduler unavailable'))
         .mockResolvedValueOnce(pressuredSnapshot);
-      Object.assign(window.electronAPI, {
-        db: {
-          schedulerSnapshot,
-        },
-      });
+      (
+        window.electronAPI as unknown as {
+          db: { schedulerSnapshot: typeof schedulerSnapshot };
+        }
+      ).db = { schedulerSnapshot };
 
       const config = createEmbeddingWorkerConfig({
         query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
@@ -459,11 +484,10 @@ describe('createEmbeddingWorkerConfig', () => {
     const schedulerSnapshot = vi.fn(() => {
       throw new Error('scheduler crashed synchronously');
     });
-    Object.assign(window.electronAPI, {
-      db: {
+    (window.electronAPI as unknown as { db: { schedulerSnapshot: typeof schedulerSnapshot } }).db =
+      {
         schedulerSnapshot,
-      },
-    });
+      };
 
     const config = createEmbeddingWorkerConfig({
       query: vi.fn(async () => ({ rows: [{ count: 0 }] })),
@@ -503,6 +527,80 @@ describe('createEmbeddingWorkerConfig', () => {
     await foregroundWork;
   });
 
+  // Regression: sustained foreground DB pressure used to hold the claim path at
+  // ZERO claims forever (the claim-size resolver returned null on every cycle and
+  // `waitForBackgroundPermit` polled without a maximum). Every main-window query
+  // defaults to `foreground` priority, so an active UI kept the embedding worker
+  // from claiming at all — `running` stayed 0, the queue only grew, and anything
+  // waiting on queue drain (a manual backfill's capacity wait) deadlocked against
+  // the very consumer it was waiting for.
+  it('claims constrained batches instead of stalling forever under sustained foreground database pressure', async () => {
+    import.meta.env['VITE_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS'] = '20';
+    const { scheduledDb } = createScheduledTestDb();
+    const scheduler = getDatabaseWorkScheduler(scheduledDb);
+    if (!scheduler) {
+      throw new Error('Test scheduled DB handle did not expose its scheduler.');
+    }
+    let releaseForegroundWork!: () => void;
+    const foregroundWork = scheduler.run(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseForegroundWork = resolve;
+        }),
+      { label: 'test foreground query', priority: 'foreground' }
+    );
+    await vi.waitFor(() => {
+      expect(scheduler.getSnapshot().runningPriority).toBe('foreground');
+    });
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    // First cycle still yields fully — the bound has not elapsed.
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
+
+    // The permit wait is bounded rather than parking forever, and it is what
+    // starts the starvation clock.
+    await config.waitForBackgroundPermit?.({ label: 'embedding claim' });
+
+    await vi.waitFor(
+      async () => {
+        await expect(config.resolveClaimBatchSize?.()).resolves.toBe(1);
+      },
+      { interval: 10, timeout: 5000 }
+    );
+    expect(resolveWorkspaceIndexingQosPolicyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ foregroundDbPressureStarvationBypass: true })
+    );
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.stringContaining('foreground-db-pressure starvation bound'),
+      expect.objectContaining({ starvationMs: expect.any(Number) })
+    );
+
+    releaseForegroundWork();
+    await foregroundWork;
+  });
+
+  it('never bypasses an in-flight foreground query embedding', async () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const gate = {
+      begin: vi.fn(),
+      end: vi.fn(),
+      isActive: vi.fn(() => true),
+      waitUntilInactive: vi.fn(async () => {}),
+    };
+
+    const config = createEmbeddingWorkerConfig(scheduledDb as never, gate);
+
+    // Repeated resolutions must keep returning null: the starvation bypass is
+    // scoped to foreground DB pressure and must never take the accelerator away
+    // from a live query embedding.
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
+    await expect(config.resolveClaimBatchSize?.()).resolves.toBeNull();
+    expect(resolveWorkspaceIndexingQosPolicyMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ foregroundDbPressureStarvationBypass: true })
+    );
+  });
+
   it('pauses desktop claims while a foreground query embedding is active', async () => {
     const { scheduledDb } = createScheduledTestDb();
     const gate = {
@@ -525,6 +623,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('pauses desktop claims after recent high-latency foreground database work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
+      elapsedNow: () => now,
       foregroundQuietMs: 0,
       now: () => now,
     });
@@ -589,6 +688,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('shrinks desktop claims after recent high-latency normal database work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
+      elapsedNow: () => now,
       foregroundQuietMs: 0,
       now: () => now,
     });
@@ -614,6 +714,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('pauses desktop claims at the foreground quiet-window boundary', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
+      elapsedNow: () => now,
       foregroundQuietMs: 50,
       now: () => now,
     });
@@ -636,6 +737,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('keeps the configured idle desktop claim batch after low-latency foreground work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
+      elapsedNow: () => now,
       foregroundQuietMs: 0,
       now: () => now,
     });
@@ -695,6 +797,23 @@ describe('createEmbeddingWorkerConfig', () => {
     expect(registryStoreState.setDownloading).toHaveBeenNthCalledWith(1, 'model-a', true);
     expect(registryStoreState.setDownloadProgress).toHaveBeenNthCalledWith(2, 'model-a', 100);
     expect(registryStoreState.setDownloading).toHaveBeenNthCalledWith(2, 'model-a', false);
+  });
+
+  it('logs the high-frequency per-batch embedding events at debug, not info', () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    config.log?.('embedding_pipeline_timing', { completionWaitMs: 90, inferenceMs: 10 });
+    config.log?.('embedding_completion_batch', { completedJobCount: 8 });
+
+    expect(loggerDebugMock).toHaveBeenNthCalledWith(1, 'embedding_pipeline_timing', {
+      completionWaitMs: 90,
+      inferenceMs: 10,
+    });
+    expect(loggerDebugMock).toHaveBeenNthCalledWith(2, 'embedding_completion_batch', {
+      completedJobCount: 8,
+    });
+    expect(loggerInfoMock).not.toHaveBeenCalled();
   });
 
   it('fails fast when embed concurrency is not a positive integer', () => {

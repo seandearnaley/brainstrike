@@ -4,14 +4,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppLayout } from '../app-layout';
 import type { AppShellConfig, NavigationItem } from '../types';
 
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/settings-ui/components/global-download-indicator', () => ({
   GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
+}));
+
+vi.mock('@brainstrike/app-state/hooks/use-database-status-sync', () => ({
   useDatabaseStatusSync: () => {},
 }));
-vi.mock('@brainstrike/preferences/components/global-download-indicator', () => ({
+vi.mock('@brainstrike/settings-ui/components/global-download-indicator', () => ({
   GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
 }));
-vi.mock('@brainstrike/preferences/hooks/use-database-status-sync', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-database-status-sync', () => ({
   useDatabaseStatusSync: () => {},
 }));
 

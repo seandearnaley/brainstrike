@@ -2,11 +2,13 @@
 
 ## Ownership
 
-Owns preview-pane rendering, preview table state, footer layout, token summary presentation, report actions, and workspace context curation surfaces.
+Owns the context preview surface: Tapestry composition and its grouping/pagination inputs, the natural-height summary, report actions, and workspace context curation.
+
+BST-1211 retired the Table View, so this slice owns exactly one preview surface. There is no tab strip, no column model and no sort state here — columns and per-directory sort belong to the Explorer grid (`../tree`).
 
 Top churn owned here:
 - `preview-panel.tsx`
-- `preview-table.tsx`
+- `preview-panel-summary.tsx`
 - `use-preview-panel-state.ts`
 
 ## Public surface
@@ -20,5 +22,5 @@ Allowed inward dependencies are indexing token state, file-explorer shell store 
 ## Focused local test
 
 ```bash
-pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/preview-panel.test.tsx src/__tests__/preview-panel.integration.test.tsx src/__tests__/preview-table.test.tsx src/__tests__/use-preview-panel-state.test.ts
+pnpm --filter @brainstrike/file-explorer-ui exec vitest run src/__tests__/preview-panel.test.tsx src/__tests__/preview-panel.integration.test.tsx src/__tests__/use-preview-panel-state.test.ts src/tapestry/__tests__/tapestry-view.test.tsx
 ```

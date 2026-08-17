@@ -58,6 +58,20 @@ const mockedFsp = vi.mocked(
   }
 );
 
+type WatchCallback = (eventType: string, filename?: string) => void;
+
+function getWatchCallback(): WatchCallback {
+  const watchCall = mockedFs.watch.mock.calls[0];
+  if (!watchCall) {
+    throw new Error('expected fs.watch call');
+  }
+  const callback = watchCall[1];
+  if (typeof callback !== 'function') {
+    throw new Error('expected fs.watch callback');
+  }
+  return callback as WatchCallback;
+}
+
 describe('mcp-loader comprehensive tests', () => {
   const expectedMcpDir = path.join('/mock/user/data', 'mcp');
   const expectedMcpConfigPath = path.join(expectedMcpDir, 'mcp.config.json');
@@ -225,8 +239,10 @@ describe('mcp-loader comprehensive tests', () => {
     it.each([
       ['headers', 'sse', '"url": "https://example.com/mcp",'],
       ['env', 'stdio', '"command": "node",'],
-    ] as const)('should reject duplicate properties in a nested %s object with source context', (recordName, transport, requiredProperty) => {
-      const json = `{
+    ] as const)(
+      'should reject duplicate properties in a nested %s object with source context',
+      (recordName, transport, requiredProperty) => {
+        const json = `{
   "servers": [
     {
       "transport": "${transport}",
@@ -240,13 +256,14 @@ describe('mcp-loader comprehensive tests', () => {
   ]
 }`;
 
-      expect(() => parseMcpConfig(json)).toThrow(
-        new RegExp(
-          `invalid_mcp_config: duplicate property "TOKEN" at line 9, column 9 \\(servers\\.0\\.${recordName}\\.TOKEN\\)`,
-          'u'
-        )
-      );
-    });
+        expect(() => parseMcpConfig(json)).toThrow(
+          new RegExp(
+            `invalid_mcp_config: duplicate property "TOKEN" at line 9, column 9 \\(servers\\.0\\.${recordName}\\.TOKEN\\)`,
+            'u'
+          )
+        );
+      }
+    );
 
     it('should reject the whole config when any server is invalid and report its path', () => {
       const json = JSON.stringify({
@@ -509,42 +526,42 @@ describe('mcp-loader comprehensive tests', () => {
       );
     });
 
-    it.each([
-      'sse',
-      'streamable-http',
-    ] as const)('should apply the same URL and header validation to %s', (transport) => {
-      const invalidUrl = JSON.stringify({
-        servers: [{ name: 'invalid-url', transport, url: 'file:///tmp/mcp.sock' }],
-      });
-      const invalidHeader = JSON.stringify({
-        servers: [
-          {
-            headers: { 'Invalid Header': 'value' },
-            name: 'invalid-header',
-            transport,
-            url: 'https://example.com/mcp',
-          },
-        ],
-      });
+    it.each(['sse', 'streamable-http'] as const)(
+      'should apply the same URL and header validation to %s',
+      (transport) => {
+        const invalidUrl = JSON.stringify({
+          servers: [{ name: 'invalid-url', transport, url: 'file:///tmp/mcp.sock' }],
+        });
+        const invalidHeader = JSON.stringify({
+          servers: [
+            {
+              headers: { 'Invalid Header': 'value' },
+              name: 'invalid-header',
+              transport,
+              url: 'https://example.com/mcp',
+            },
+          ],
+        });
 
-      expect(() => parseMcpConfig(invalidUrl)).toThrow(/invalid_mcp_config:.*servers\.0\.url/u);
-      expect(() => parseMcpConfig(invalidHeader)).toThrow(
-        /invalid_mcp_config:.*servers\.0\.headers\.Invalid Header: invalid HTTP header name/u
-      );
-    });
+        expect(() => parseMcpConfig(invalidUrl)).toThrow(/invalid_mcp_config:.*servers\.0\.url/u);
+        expect(() => parseMcpConfig(invalidHeader)).toThrow(
+          /invalid_mcp_config:.*servers\.0\.headers\.Invalid Header: invalid HTTP header name/u
+        );
+      }
+    );
 
-    it.each([
-      'https://user@example.com/mcp',
-      'https://user:password@example.com/mcp',
-    ])('should reject credentials in a remote URL: %s', (url) => {
-      const json = JSON.stringify({
-        servers: [{ name: 'remote', transport: 'sse', url }],
-      });
+    it.each(['https://user@example.com/mcp', 'https://user:password@example.com/mcp'])(
+      'should reject credentials in a remote URL: %s',
+      (url) => {
+        const json = JSON.stringify({
+          servers: [{ name: 'remote', transport: 'sse', url }],
+        });
 
-      expect(() => parseMcpConfig(json)).toThrow(
-        /invalid_mcp_config:.*servers\.0\.url: must not include credentials/u
-      );
-    });
+        expect(() => parseMcpConfig(json)).toThrow(
+          /invalid_mcp_config:.*servers\.0\.url: must not include credentials/u
+        );
+      }
+    );
 
     it('should reject unknown server keys instead of silently dropping misspelled settings', () => {
       const json = JSON.stringify({
@@ -638,7 +655,7 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(jsonWithCommentTokensInString);
       expect(result.servers).toHaveLength(1);
       const server = result.servers[0];
-      if (server.transport !== 'sse') {
+      if (server?.transport !== 'sse') {
         throw new Error('expected sse server');
       }
       expect(server.headers?.['X-Notes']).toBe('keep // text and /* markers */ in string');
@@ -661,7 +678,7 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(jsonWithEscapedQuotes);
       expect(result.servers).toHaveLength(1);
       const server = result.servers[0];
-      if (server.transport !== 'sse') {
+      if (server?.transport !== 'sse') {
         throw new Error('expected sse server');
       }
       expect(server.headers?.['X-Example']).toBe('value with escaped quote: " // still string');
@@ -684,7 +701,7 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(jsonWithUnicodeEscapes);
       expect(result.servers).toHaveLength(1);
       const server = result.servers[0];
-      if (server.transport !== 'sse') {
+      if (server?.transport !== 'sse') {
         throw new Error('expected sse server');
       }
       expect(server.headers?.['X-Example']).toBe('unicode: " and // remain string text');
@@ -808,7 +825,7 @@ describe('mcp-loader comprehensive tests', () => {
       };
 
       const result = await applyDecryptionToHeaders(headers);
-      expect(result?.Authorization).toBe('new');
+      expect(result?.['Authorization']).toBe('new');
     });
 
     it('should preserve own keys inherited by ordinary object prototypes', async () => {
@@ -899,29 +916,29 @@ describe('mcp-loader comprehensive tests', () => {
       });
     });
 
-    it.each([
-      'sse',
-      'streamable-http',
-    ] as const)('should reject invalid decrypted headers for %s', async (transport) => {
-      const config = {
-        servers: [
-          {
-            headers: {
-              AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString(
-                'base64'
-              ),
+    it.each(['sse', 'streamable-http'] as const)(
+      'should reject invalid decrypted headers for %s',
+      async (transport) => {
+        const config = {
+          servers: [
+            {
+              headers: {
+                AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString(
+                  'base64'
+                ),
+              },
+              name: 'test',
+              transport,
+              url: 'http://example.com/mcp',
             },
-            name: 'test',
-            transport,
-            url: 'http://example.com/mcp',
-          },
-        ],
-      } as McpConfig;
+          ],
+        } as McpConfig;
 
-      await expect(withDecryptedSecrets(config)).rejects.toThrow(
-        /invalid_mcp_config:.*invalid HTTP header value/u
-      );
-    });
+        await expect(withDecryptedSecrets(config)).rejects.toThrow(
+          /invalid_mcp_config:.*invalid HTTP header value/u
+        );
+      }
+    );
 
     it.each([
       {
@@ -936,25 +953,25 @@ describe('mcp-loader comprehensive tests', () => {
           AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString('base64'),
         },
       },
-    ])('should reject decrypted SSE headers with $expectedError', async ({
-      expectedError,
-      headers,
-    }) => {
-      const config: McpConfig = {
-        servers: [
-          {
-            headers,
-            name: 'test',
-            transport: 'sse',
-            url: 'http://example.com',
-          },
-        ],
-      };
+    ])(
+      'should reject decrypted SSE headers with $expectedError',
+      async ({ expectedError, headers }) => {
+        const config: McpConfig = {
+          servers: [
+            {
+              headers: headers as unknown as Record<string, string>,
+              name: 'test',
+              transport: 'sse',
+              url: 'http://example.com',
+            },
+          ],
+        };
 
-      await expect(withDecryptedSecrets(config)).rejects.toThrow(
-        new RegExp(`invalid_mcp_config:.*${expectedError}`, 'u')
-      );
-    });
+        await expect(withDecryptedSecrets(config)).rejects.toThrow(
+          new RegExp(`invalid_mcp_config:.*${expectedError}`, 'u')
+        );
+      }
+    );
 
     it('should reject case-insensitive duplicate HTTP header names created by decryption', async () => {
       const config: McpConfig = {
@@ -978,7 +995,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should reject a decrypted header name that becomes __proto__', async () => {
       const headers = Object.create(null) as Record<string, string>;
-      headers.__proto__Encrypted = Buffer.from('value').toString('base64');
+      headers['__proto__Encrypted'] = Buffer.from('value').toString('base64');
       const config: McpConfig = {
         servers: [
           {
@@ -997,7 +1014,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should reject a decrypted env name that becomes __proto__', async () => {
       const env = Object.create(null) as Record<string, string>;
-      env.__proto__Encrypted = Buffer.from('value').toString('base64');
+      env['__proto__Encrypted'] = Buffer.from('value').toString('base64');
       const config: McpConfig = {
         servers: [
           {
@@ -1100,7 +1117,11 @@ describe('mcp-loader comprehensive tests', () => {
       };
 
       const result = await withDecryptedSecrets(config);
-      expect('headers' in result.servers[0]).toBe(false);
+      const server = result.servers[0];
+      if (!server) {
+        throw new Error('expected decrypted server');
+      }
+      expect('headers' in server).toBe(false);
     });
 
     it('should remove undefined env after decryption', async () => {
@@ -1116,7 +1137,11 @@ describe('mcp-loader comprehensive tests', () => {
       };
 
       const result = await withDecryptedSecrets(config);
-      expect('env' in result.servers[0]).toBe(false);
+      const server = result.servers[0];
+      if (!server) {
+        throw new Error('expected decrypted server');
+      }
+      expect('env' in server).toBe(false);
     });
   });
 
@@ -1242,17 +1267,18 @@ describe('mcp-loader comprehensive tests', () => {
       const watcher = await watchMcpConfig(onChange);
 
       // Simulate file change
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
       watchCallback('change', 'mcp.config.json');
 
       // Advance timers to trigger debounced callback
       await vi.advanceTimersByTimeAsync(100);
 
       expect(onChange).toHaveBeenCalled();
-      const callArg = onChange.mock.calls[0][0];
+      const firstCall = onChange.mock.calls[0];
+      if (!firstCall) {
+        throw new Error('expected onChange call');
+      }
+      const callArg = firstCall[0];
       expect(callArg.exists).toBe(true);
       expect(callArg.config).toBeDefined();
 
@@ -1264,10 +1290,7 @@ describe('mcp-loader comprehensive tests', () => {
       const onChange = vi.fn();
       await watchMcpConfig(onChange);
 
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
       watchCallback('change', 'other-file.json');
 
       await vi.advanceTimersByTimeAsync(100);
@@ -1288,10 +1311,7 @@ describe('mcp-loader comprehensive tests', () => {
 
       await watchMcpConfig(onChange);
 
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
 
       watchCallback('change', 'mcp.config.json');
       await vi.advanceTimersByTimeAsync(100);
@@ -1318,10 +1338,7 @@ describe('mcp-loader comprehensive tests', () => {
 
       await watchMcpConfig(onChange);
 
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
 
       // Rapid changes
       watchCallback('change', 'mcp.config.json');
@@ -1340,10 +1357,7 @@ describe('mcp-loader comprehensive tests', () => {
       const onChange = vi.fn();
       await watchMcpConfig(onChange);
 
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
       watchCallback('change', undefined);
 
       await vi.advanceTimersByTimeAsync(100);

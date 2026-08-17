@@ -1,4 +1,5 @@
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type {
   ElectronAPI,
@@ -11,7 +12,6 @@ import type {
   WatcherRetryOutcome,
   WatcherRootHealthEvent,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('ElectronRendererAdapters');
 
@@ -165,14 +165,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   public readonly platform = 'electron' as const;
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
-    const api = requireElectronAPI().fileSystem;
-    const handle = await api.requestDirectoryAccess();
-
-    // Save the selected folder path for future auto-restore
-    if (handle?.path) {
-      await api.saveLastFolder(handle.path);
-    }
-    return handle;
+    // Main owns the last-folder preference: fs:requestDirectoryAccess routes
+    // through the registry's addRoot, which persists it on success.
+    return requireElectronAPI().fileSystem.requestDirectoryAccess();
   }
 
   async addRoot(): Promise<RootDescriptor> {
@@ -184,9 +179,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   }
 
   /**
-   * Disconnect a root by RootId. Disconnect ≠ delete — only the persisted
-   * rootsList entry (and a matching lastFolderPath) is forgotten; DB rows are
-   * deliberately KEPT so re-adding the same folder resumes without re-indexing.
+   * Disconnect a root by RootId. Main owns the authoritative transition:
+   * persistence and DB live-status converge together, while indexed rows remain
+   * retained so re-adding the folder resumes without re-indexing.
    */
   async removeRoot(rootId: string): Promise<void> {
     return requireElectronAPI().fileSystem.removeRoot(rootId);
@@ -201,8 +196,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   }
 
   /**
-   * Read a file directly by its absolute path.
-   * BST-307: Enables loading persisted file tabs before the file tree is available.
+   * Read by absolute path within a currently mounted root. This enables loading
+   * persisted tabs before their tree nodes exist without granting rootless disk
+   * access.
    */
   async readFileByPath(absolutePath: string): Promise<string> {
     return requireElectronAPI().fileSystem.readFileByPath(absolutePath);

@@ -9,7 +9,7 @@ import type {
   ResolvedChunkingStrategy,
 } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getChunkingStrategy } from './chunking-strategy';
 import type { FileImportChunkRepository, FileImportFileRecordRepository } from './repository-ports';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
@@ -385,13 +385,24 @@ async function prepareChunkingExecution(
 
   const fileRecord = preFetchedRecord || (await repository.findById(result.id));
   throwIfAborted(options.abortSignal);
-  if (!fileRecord?.content) {
-    logger.warn('File record not found or has no content', {
-      fileId: result.id,
-      hasContent: !!fileRecord?.content,
-      hasRecord: !!fileRecord,
-    });
+  if (!fileRecord) {
+    // No row to stamp — leave this transient (a later sync pass may re-import).
+    logger.warn('File record not found for chunking', { fileId: result.id });
     return { kind: 'skip', response: createSkipResult(result, fallbackStrategy) };
+  }
+  if (!fileRecord.content) {
+    // An empty file is a SETTLED chunking verdict (zero chunks), not a
+    // transient failure. Leaving chunks_processed_at NULL here re-queued the
+    // file on every background sync pass forever (`!hasCompletedChunking`
+    // re-dispatch in workspace-collection-sync-import): one 0-byte file
+    // produced ~2,000 durable warn records in a single session. Stamp it
+    // processed, mirroring the host-proxy skip path below.
+    const resolvedStrategy = getChunkingStrategy(fileRecord.path ?? result.id);
+    logger.debug('Skipping chunking for empty file record; stamping zero chunks', {
+      fileId: result.id,
+    });
+    await updateFileRecordWithChunkInfo(repository, result.id, 0, resolvedStrategy);
+    return { kind: 'skip', response: createSkipResult(result, resolvedStrategy) };
   }
 
   const autoStrategy = getChunkingStrategy(fileRecord.path);

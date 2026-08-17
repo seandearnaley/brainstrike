@@ -1,3 +1,4 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import type { IFileNode } from '@brainstrike/types';
 import {
   Button,
@@ -8,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@brainstrike/ui';
-import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { useCallback } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreSelector } from './shell/file-explorer-provider';

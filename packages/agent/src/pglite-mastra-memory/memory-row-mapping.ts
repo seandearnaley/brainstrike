@@ -7,7 +7,6 @@ import type {
   SwapBufferedToActiveResult,
 } from '@mastra/core/storage';
 import {
-  type MessageListArgs,
   parseJsonArray,
   parseJsonRecord,
   parseMessageContent,
@@ -86,16 +85,6 @@ export interface ObservationalMemoryRow {
   totalTokensObserved: number;
   updatedAt: Date | string;
   [key: string]: unknown;
-}
-
-export function messageRowMatchesListScope(row: MessageRow, args: MessageListArgs): boolean {
-  if (args.threadIds && !args.threadIds.includes(row.threadId)) {
-    return false;
-  }
-  if (args.resourceId && row.resourceId !== args.resourceId) {
-    return false;
-  }
-  return true;
 }
 
 export function threadFromRow(row: ThreadRow): StorageThreadType {

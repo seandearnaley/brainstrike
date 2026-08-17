@@ -19,7 +19,7 @@ const {
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
-} = await import('../vite');
+} = await import('../vite.js');
 
 afterEach(() => {
   vi.resetAllMocks();
@@ -83,7 +83,12 @@ describe('createCspQualifiedEvalWarningFilter', () => {
     },
     {
       code: 'EVAL',
-      id: '../../node_modules/.pnpm/@electric-sql+pglite@0.5.4/node_modules/@electric-sql/pglite/dist/index.js',
+      // Since BST-1063 this is the SHIPPED state, not a hypothetical: the
+      // catalog pins the current PGlite (0.5.5 since BST-1283) while the
+      // allowlist stays at 0.5.3, so PGlite EVAL warnings forward (visibly)
+      // in every build. Do not "fix" the noise by adding the current version
+      // to the allowlist without redoing the BST-573/594 CSP review.
+      id: '../../node_modules/.pnpm/@electric-sql+pglite@0.5.5/node_modules/@electric-sql/pglite/dist/index.js',
       message: 'A direct eval after an unreviewed dependency upgrade',
     },
     {
@@ -128,7 +133,6 @@ describe('assistant vite helpers', () => {
         'idb',
         'minimatch',
         'pino',
-        'react-helmet-async',
         'react-hotkeys-hook',
         'react-router-dom',
         'tiktoken',
@@ -165,9 +169,9 @@ describe('assistant vite helpers', () => {
   });
 
   test('returns database lazy-panel optimize-deps package ids', () => {
-    expect(getDatabaseOptimizeDepsInclude()).toEqual(
-      expect.arrayContaining(['jszip', 'file-saver', 'react-resizable-panels'])
-    );
+    // Exact match, not arrayContaining: reintroducing file-saver here must fail
+    // (platform-contracts.md calls it a regression).
+    expect(getDatabaseOptimizeDepsInclude()).toEqual(['jszip', 'react-resizable-panels']);
   });
 
   test('returns heavy runtime optimize-deps exclusions', () => {
@@ -188,8 +192,8 @@ describe('assistant vite helpers', () => {
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),
-      expect.stringContaining('/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx'),
-      expect.stringContaining('/packages/ui/src/assistant-ui-panel/markdown-text.tsx'),
+      expect.stringContaining('/packages/assistant-ui/src/assistant-ui-panel.tsx'),
+      expect.stringContaining('/packages/assistant-ui/src/markdown-text.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
       expect.stringContaining('/packages/db-explorer/src/database-demo-panel.tsx'),
     ]);
@@ -216,7 +220,11 @@ describe('assistant vite helpers', () => {
     expect(
       isContextActionSystemModule('/workspace/packages/db-explorer/src/context-actions/actions.ts')
     ).toBe(true);
-    expect(isContextActionSystemModule('/workspace/packages/commands/src/registry.ts')).toBe(true);
+    expect(
+      isContextActionSystemModule(
+        '/workspace/packages/context-actions/src/commands/command-registry.ts'
+      )
+    ).toBe(true);
     // node_modules and unrelated app code stay under default chunking.
     expect(isContextActionSystemModule('/workspace/node_modules/context-actions/index.js')).toBe(
       false
@@ -232,7 +240,7 @@ describe('assistant vite helpers', () => {
     expect(isBrowserEventsModule('/workspace/node_modules/utils/src/browser-events.js')).toBe(
       false
     );
-    expect(isBrowserEventsModule('/workspace/packages/utils/src/logger.ts')).toBe(false);
+    expect(isBrowserEventsModule('/workspace/packages/logging/src/logger.ts')).toBe(false);
   });
 
   test('classifies only the installed zustand package as its vendor chunk', () => {
@@ -244,12 +252,12 @@ describe('assistant vite helpers', () => {
   test('classifies only the shared sanitized persist merge helper', () => {
     expect(
       isSanitizedPersistMergeModule(
-        '/workspace/packages/preferences/src/stores/sanitized-persist-merge.ts'
+        '/workspace/packages/app-state/src/stores/sanitized-persist-merge.ts'
       )
     ).toBe(true);
     expect(
       isSanitizedPersistMergeModule(
-        String.raw`C:\workspace\packages\preferences\dist\stores\sanitized-persist-merge.js`
+        String.raw`C:\workspace\packages\app-state\dist\stores\sanitized-persist-merge.js`
       )
     ).toBe(true);
     expect(
@@ -259,7 +267,7 @@ describe('assistant vite helpers', () => {
     ).toBe(false);
     expect(
       isSanitizedPersistMergeModule(
-        '/workspace/packages/preferences/src/stores/diagnostics-retention-store.ts'
+        '/workspace/packages/app-state/src/stores/diagnostics-retention-store.ts'
       )
     ).toBe(false);
   });

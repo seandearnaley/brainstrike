@@ -1,14 +1,29 @@
-import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
-import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
-import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
-import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
-import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
-import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
-import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
+import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import {
   type PanelTab,
+  selectVisibleSurface,
   usePanelLayoutStore,
-} from '@brainstrike/preferences/stores/panel-layout-store';
+} from '@brainstrike/app-state/stores/panel-layout-store';
+import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import {
+  type ChangesReviewContextValue,
+  ChangesReviewProvider,
+  type RewindContextValue,
+  RewindProvider,
+} from '@brainstrike/assistant-ui';
+import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
+import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
+import {
+  RootDataDeletionProvider,
+  useFileSystem,
+  type WorkspaceApp,
+  WorkspaceBody,
+  WorkspaceOpenFileBridge,
+  WorkspaceTabStrip,
+  WorkspaceTabsProvider,
+} from '@brainstrike/file-explorer-ui/shell';
+import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
+import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   ActionRegistryProvider,
@@ -31,6 +46,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -42,12 +58,21 @@ import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
+import { buildWorkspaceApps } from './build-workspace-apps';
+import { useChangesNavigationStore } from './changes/changes-navigation-store';
+import { useRewindStore } from './changes/rewind-store';
+import { RewindConfirmDialogLazy } from './changes/ui/rewind-confirm-dialog-lazy';
 import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DatabasePanel } from './database-panel';
+import {
+  type RendererDiagnosticSurface,
+  rendererLongTaskTelemetry,
+} from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { QuickOpenHost } from './quick-open-host';
+import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
@@ -134,9 +159,36 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 }
 
 export interface RootLayoutContentProps {
+  /**
+   * Optional embedded browser pane surface (BST-1174), presence-gated on the
+   * desktop `window.browser` bridge (absent on web — no stub). Its own
+   * component reports native-view bounds/occlusion.
+   */
+  readonly browserPageContent?: ReactNode;
+  /**
+   * Optional Canvas surface (BST-1173), presence-gated like
+   * `changesPageContent`. Each app constructs it with its platform-specific
+   * shell URL; available on both targets.
+   */
+  readonly canvasPanelContent?: ReactNode;
+  /**
+   * Optional Changes surface (desktop-only). Supplied by the desktop wrapper
+   * when the `window.changes` bridge is present; web never constructs it
+   * (capability gating, not an isElectron check). Registered as a closable
+   * singleton workspace app tab (BST-1258 unified workspace tab panel), not
+   * as its own nav-rail page. When absent, no Changes tab or launcher card
+   * renders at all, and the "→ Review" assistant-turn footer link stays
+   * hidden (its provider binds to this same presence check).
+   */
+  readonly changesPageContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
+  /**
+   * Active flags from an authoritative app-owned feature-flag registry.
+   * Omit when the app has no such registry; diagnostics surfaces that absence.
+   */
+  readonly diagnosticFeatureFlags?: readonly string[];
   /**
    * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
    *
@@ -164,21 +216,119 @@ export interface RootLayoutContentProps {
   /**
    * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
    * when the `window.terminal` bridge is present; web never constructs it
-   * (capability gating, not an isElectron check). When absent, no Terminal nav
-   * item is rendered.
+   * (capability gating, not an isElectron check). Registered as a closable
+   * singleton workspace app tab (BST-1270); when absent, no Terminal tab,
+   * launcher card, or "+"-menu entry renders at all.
    */
   readonly terminalPageContent?: ReactNode;
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
+  '/browser': 'browser',
   '/git': 'git',
   '/notes': 'notes',
   '/settings': 'settings',
-  '/terminal': 'terminal',
+  // '/terminal' intentionally absent (BST-1270): Terminal is a workspace app
+  // now. activeTab is SESSION-ONLY (panel-layout-store partializes it away)
+  // and no call site can produce 'terminal' anymore; the PanelTab member is
+  // kept only to avoid churning its consumers — removing it is safe follow-up.
 };
 
 function resolveActiveTabForPath(path: string): PanelTab {
   return NAV_PATH_TO_TAB[path] ?? 'explorer';
+}
+
+/**
+ * A capability-gated route (git/changes/terminal/notes) that, once first
+ * opened, STAYS mounted and only toggles hidden — so its watchers/scan
+ * state/scroll position survive later tab switches. `content` is `undefined`
+ * when the app wrapper never constructed the surface at all (capability
+ * absent); this renders nothing in that case, same as an unopened tab.
+ * Extracted out of `RootLayoutContent`'s own JSX (rather than four inline
+ * ternaries) to keep that already-large component's cognitive complexity
+ * under the lint budget.
+ */
+function KeepMountedRoute({
+  content,
+  mountedTabs,
+  shellTab,
+  tab,
+}: {
+  readonly content: ReactNode | undefined;
+  readonly mountedTabs: ReadonlySet<PanelTab>;
+  readonly shellTab: PanelTab;
+  readonly tab: PanelTab;
+}): ReactElement | null {
+  if (!(content && mountedTabs.has(tab))) {
+    return null;
+  }
+  return (
+    <div
+      aria-hidden={shellTab !== tab}
+      className={shellTab === tab ? 'h-full' : 'hidden h-full'}
+      data-testid={`${tab}-route`}
+    >
+      {content}
+    </div>
+  );
+}
+
+/**
+ * The "→ Review" footer link's binding, or `null` when there is no Changes
+ * surface to navigate to. A dedicated hook (rather than inlined in
+ * `RootLayoutContent`) purely to keep that already-large component's
+ * cognitive complexity under the lint budget — the logic itself is a
+ * straight capability-presence gate, same shape as `gitPageContent`/etc.
+ *
+ * The Changes surface lives as a closable singleton workspace app tab
+ * (BST-1258 unified workspace tab panel), not its own top-level route, so
+ * opening it from here is two steps: bring the shell back to the `explorer`
+ * route (in case the user is on Settings/Git/etc — the workspace panel only
+ * exists on that route), and hand the changeset to `openChangeset`, which
+ * opens/activates the Changes app tab through
+ * `useWorkspaceTabSelectionStore.openApp` (see that store action's doc
+ * comment for why `openChangeset`, not `requestChangeset`, is the one
+ * external callers use).
+ */
+function useChangesReviewValue(
+  changesPageContent: ReactNode,
+  setActiveTab: (tab: PanelTab) => void
+): ChangesReviewContextValue | null {
+  const openChangeset = useChangesNavigationStore((state) => state.openChangeset);
+  return useMemo(() => {
+    if (!changesPageContent) {
+      return null;
+    }
+    return {
+      openChangesForRun: (runId: string, threadId: string) => {
+        openChangeset({ kind: 'agent-run', runId, threadId });
+        setActiveTab('explorer');
+      },
+    };
+  }, [changesPageContent, openChangeset, setActiveTab]);
+}
+
+/**
+ * Binds the assistant panel's "Restore to before this message" affordance
+ * (BST-1115) to the Changes package's confirm modal. Same capability gate as
+ * `useChangesReviewValue`: no `changesPageContent` means no `window.changes`
+ * bridge, so the affordance renders nothing rather than raising a modal that
+ * could never load a preview.
+ *
+ * Raising is not applying — the scope choice, the file preview and the conflict
+ * acknowledgment all live in the modal.
+ */
+function useRewindValue(changesPageContent: ReactNode): RewindContextValue | null {
+  const openRewind = useRewindStore((state) => state.openRewind);
+  return useMemo(() => {
+    if (!changesPageContent) {
+      return null;
+    }
+    return {
+      requestRewind: ({ composerText, messageId, threadId }) =>
+        openRewind({ composerText, target: { messageId, threadId } }),
+    };
+  }, [changesPageContent, openRewind]);
 }
 
 function useDebouncedPanelLayoutChange(options: {
@@ -264,9 +414,11 @@ const CONTEXT_EXPLORER_PANEL_CONSTRAINTS = {
 function ContextExplorerSurface({
   contextExplorerPanelContent,
   contextExplorerPageContent,
+  loadEmbeddingQueue,
 }: {
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
+  readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
 }): ReactElement {
   const setState = useContextExplorerLayoutStore((state) => state.setState);
   const panelState = useContextExplorerLayoutStore(
@@ -283,106 +435,150 @@ function ContextExplorerSurface({
     setState,
   });
   const resolvedPanelContent = useMemo(
-    () => contextExplorerPanelContent ?? <ExplorerSearchTabs />,
-    [contextExplorerPanelContent]
+    () =>
+      contextExplorerPanelContent ?? <ExplorerSearchTabs loadEmbeddingQueue={loadEmbeddingQueue} />,
+    [contextExplorerPanelContent, loadEmbeddingQueue]
   );
-  // Platform-injected markdown preview capabilities (external links, image src
-  // resolution). Detected by the `window.platform` bridge (capability presence,
-  // not isElectron); WorkspaceTabHost consumes this via the nullable hook.
-  const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
 
   return (
-    <FileTreeWrapper>
-      {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
-          the route-local context explorer panes inside that workspace surface. The
-          editor area itself hosts the Context Explorer app and any open file tabs;
-          there is no longer a south "console" panel. */}
-      <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
-          <IdeLayout
-            panelConstraints={CONTEXT_EXPLORER_PANEL_CONSTRAINTS}
-            panelIdPrefix="context-explorer"
-            rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
-            rightPanelContent={resolvedPanelContent}
-          >
-            {/* The ⌘P quick-open host mounts INSIDE IdeLayout so it can reach the
-                file-open seam (IdeFileEditorContext, registered by the tab host).
-                This subtree is always mounted (the explorer route is only toggled
-                hidden), so ⌘P works from any tab. */}
-            <QuickOpenHost />
-            {contextExplorerPageContent}
-          </IdeLayout>
-        </MarkdownPreviewCapabilitiesProvider>
-      </PanelLayoutProvider>
-    </FileTreeWrapper>
+    // The outer shell owns workspace-vs-assistant geometry; this nested provider owns
+    // the route-local context explorer panes inside the Files workspace app (BST-1258).
+    // File tabs no longer render here — they are siblings of this app in the outer
+    // workspace tab panel, so the nested layout INHERITS the outer file-open seam
+    // (a fresh IdeFileEditorContext here would strand the tree's openFileInTab calls).
+    <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+      <IdeLayout
+        inheritFileEditorContext
+        panelConstraints={CONTEXT_EXPLORER_PANEL_CONSTRAINTS}
+        panelIdPrefix="context-explorer"
+        rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
+        rightPanelContent={resolvedPanelContent}
+      >
+        {contextExplorerPageContent}
+      </IdeLayout>
+    </PanelLayoutProvider>
   );
 }
 
 const ExplorerAppSurface = memo(function ExplorerAppSurface({
+  canvasPanelContent,
+  changesPageContent,
   contextExplorerPanelContent,
   contextExplorerPageContent,
-  databaseTabChunkingMode,
   loadEmbeddingQueue,
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
+  terminalPageContent,
   visible,
 }: {
+  readonly canvasPanelContent?: ReactNode;
+  readonly changesPageContent?: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
-  readonly databaseTabChunkingMode: 'host-proxy' | 'local';
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
+  readonly terminalPageContent?: ReactNode;
   readonly visible: boolean;
 }): ReactElement {
-  return (
-    <div className="h-full min-h-0" data-testid="explorer-section">
-      <AgentWorkspaceLayout
-        assistantContent={
-          <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
-        }
-        sidebarContent={
-          <AgentSidebarPanel
-            databaseContent={
-              <DatabasePanel
-                chunkingMode={databaseTabChunkingMode}
-                loadEmbeddingQueue={loadEmbeddingQueue}
-              />
-            }
-            preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-            promptsContent={(isActive) => (
-              <Suspense
-                fallback={
-                  <div
-                    className="grid h-full place-items-center text-muted-foreground text-xs"
-                    data-testid="prompt-workbench-lazy-fallback"
-                    role="status"
-                  >
-                    Opening Prompt Workbench…
-                  </div>
-                }
-              >
-                <ConnectedPromptManagerLazy
-                  loadEmbeddingQueue={loadEmbeddingQueue}
-                  suggestionsEnabled={visible && isActive}
-                />
-              </Suspense>
-            )}
-            threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-          />
-        }
-        workspaceContent={
+  // Platform-injected markdown preview capabilities (external links, image src
+  // resolution). Detected by the `window.platform` bridge (capability presence,
+  // not isElectron); file tab bodies consume this via the nullable hook. Hoisted
+  // above the whole layout because file bodies now render at the workspace level.
+  const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
+
+  // The workspace app registry (BST-1258; Terminal joined as a workspace app
+  // in BST-1270, replacing its nav route). Construction is the pure
+  // buildWorkspaceApps helper — capability gating by omission.
+  const workspaceApps = useMemo<readonly WorkspaceApp[]>(
+    () =>
+      buildWorkspaceApps({
+        ...(canvasPanelContent ? { canvasPanelContent } : {}),
+        ...(changesPageContent ? { changesPageContent } : {}),
+        filesContent: (
           <ContextExplorerSurface
             contextExplorerPageContent={contextExplorerPageContent}
             contextExplorerPanelContent={contextExplorerPanelContent}
+            loadEmbeddingQueue={loadEmbeddingQueue}
           />
-        }
-      />
+        ),
+        ...(terminalPageContent ? { terminalPageContent } : {}),
+      }),
+    [
+      contextExplorerPageContent,
+      contextExplorerPanelContent,
+      loadEmbeddingQueue,
+      changesPageContent,
+      canvasPanelContent,
+      terminalPageContent,
+    ]
+  );
+
+  return (
+    <div className="h-full min-h-0" data-testid="explorer-section">
+      {/* FileTreeWrapper + markdown capabilities wrap the WHOLE layout (not just
+          the Files app) because the tab strip lives in the panel HEADER and file
+          bodies render at the workspace level — both need the file-explorer
+          context from a common ancestor. */}
+      <FileTreeWrapper>
+        <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
+          <WorkspaceTabsProvider apps={workspaceApps}>
+            {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
+                per thread and hydrates on switch. Inside FileTreeWrapper so it
+                reaches the file-explorer store; renders nothing. */}
+            <ThreadWorkspaceCoordinator />
+            <AgentWorkspaceLayout
+              assistantContent={
+                <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+              }
+              sidebarContent={
+                <AgentSidebarPanel
+                  databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                  promptsContent={(isActive) => (
+                    <Suspense
+                      fallback={
+                        <div
+                          className="grid h-full place-items-center text-muted-foreground text-xs"
+                          data-testid="prompt-workbench-lazy-fallback"
+                          role="status"
+                        >
+                          Opening Prompt Workbench…
+                        </div>
+                      }
+                    >
+                      <ConnectedPromptManagerLazy
+                        loadEmbeddingQueue={loadEmbeddingQueue}
+                        suggestionsEnabled={visible && isActive}
+                      />
+                    </Suspense>
+                  )}
+                  threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                />
+              }
+              workspaceContent={
+                <>
+                  {/* ⌘P quick-open + the open-file registration both mount INSIDE
+                      the outer IdeLayout so they reach its IdeFileEditorContext;
+                      the nested explorer layout inherits the same seam. */}
+                  <QuickOpenHost />
+                  <WorkspaceOpenFileBridge />
+                  <WorkspaceBody />
+                </>
+              }
+              workspaceHeaderContent={<WorkspaceTabStrip />}
+            />
+          </WorkspaceTabsProvider>
+        </MarkdownPreviewCapabilitiesProvider>
+      </FileTreeWrapper>
     </div>
   );
 });
 
 export function RootLayoutContent({
+  browserPageContent,
+  canvasPanelContent,
+  changesPageContent,
   contextExplorerPageContent,
   contextExplorerPanelContent,
   settingsPageContent,
@@ -392,6 +588,7 @@ export function RootLayoutContent({
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
+  diagnosticFeatureFlags,
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
@@ -413,6 +610,33 @@ export function RootLayoutContent({
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
+  // Capability gate mirrors gitPageContent/terminalPageContent/notesPageContent:
+  // the desktop wrapper only passes changesPageContent when the `window.changes`
+  // bridge exists, so its presence IS the capability check here — the "→ Review"
+  // footer link (packages/ui, gated on this same context) renders null without it.
+  const changesReviewValue = useChangesReviewValue(changesPageContent, setActiveTab);
+  const rewindValue = useRewindValue(changesPageContent);
+  // BST-1281: the settings-overlay precedence rule has exactly one definition,
+  // in the panel-layout store, so this shell and `useDocumentTitle` cannot drift
+  // apart — the tab chrome, the telemetry route and the document title are all
+  // derived from the same value.
+  const visibleSurface = selectVisibleSurface({ activeTab, settingsOpen });
+  const settingsVisible = visibleSurface === 'settings';
+  // Assignment (not a cast) so `PanelTab ⊆ RendererDiagnosticSurface` stays a
+  // compile-time check as either union gains members.
+  const diagnosticSurface: RendererDiagnosticSurface = visibleSurface;
+  const longTaskContext = useMemo(
+    () => ({ enabledFeatureFlags: diagnosticFeatureFlags ?? null, route: diagnosticSurface }),
+    [diagnosticFeatureFlags, diagnosticSurface]
+  );
+  const longTaskContextRef = useRef(longTaskContext);
+
+  useLayoutEffect(() => {
+    longTaskContextRef.current = longTaskContext;
+    rendererLongTaskTelemetry.updateContext(longTaskContext);
+  }, [longTaskContext]);
+
+  useEffect(() => rendererLongTaskTelemetry.observe(() => longTaskContextRef.current), []);
 
   useEffect(() => {
     setMountedTabs((currentTabs) => {
@@ -471,89 +695,102 @@ export function RootLayoutContent({
       {/* These providers now intentionally stay app-wide so background chunking and embedding
           work can continue across route switches. They remain inert on non-explorer routes
           unless a feature explicitly opts into them. */}
-      <ActionRegistryProvider registry={actionRegistry}>
-        {/* The ⌘K command palette mounts once at the visible-UI root. Only the
+      {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
+          Changes tab-switch + pending-changeset handoff. `null` value (no
+          changesPageContent) makes the link render nothing — same capability
+          gating as the git/notes nav items below. */}
+      <ChangesReviewProvider value={changesReviewValue}>
+        {/* Binds the assistant panel's "Restore to before this message"
+            affordance (BST-1115). The modal it raises is mounted below, as a
+            lexical SIBLING of the Settings dialog rather than inside any
+            surface, because both entry points (assistant panel, Changes
+            header) must land in the same one. */}
+        <RewindProvider value={rewindValue}>
+          <ActionRegistryProvider registry={actionRegistry}>
+            {/* The ⌘K command palette mounts once at the visible-UI root. Only the
             visible renderer mounts RootLayoutContent, so hidden hosts never
             instantiate it (structural gating — no role check needed here). */}
-        <CommandPaletteHost />
-        <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
-          <EmbeddingRuntimeProvider>
-            {/* One shared embedder cache for every semantic-search surface. The
+            <CommandPaletteHost />
+            <ChunkingWorkerProvider autoStart={false} mode={databaseTabChunkingMode}>
+              <EmbeddingRuntimeProvider>
+                {/* One shared embedder cache for every semantic-search surface. The
                 machinery is lazy (models load on first embed), so this
                 always-mounted provider is free until the first query. It
                 encloses BOTH the collection browser (sidebar DatabasePanel) and
                 the workspace-search panel (ExplorerSearchTabs) below. */}
-            <SearchEmbedderProvider>
-              <IndexingActivityCoordinator />
-              <div
-                aria-hidden={shellTab !== 'explorer'}
-                className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-                data-testid="explorer-route"
-              >
-                <PanelLayoutProvider
-                  controlledState={panelState}
-                  onChange={handlePanelLayoutChange}
-                >
-                  <ExplorerAppSurface
-                    contextExplorerPageContent={contextExplorerPageContent}
-                    contextExplorerPanelContent={contextExplorerPanelContent}
-                    databaseTabChunkingMode={databaseTabChunkingMode}
-                    loadEmbeddingQueue={loadEmbeddingQueue}
-                    {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                    visible={shellTab === 'explorer'}
+                <SearchEmbedderProvider>
+                  <IndexingActivityCoordinator />
+                  <div
+                    aria-hidden={shellTab !== 'explorer'}
+                    className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                    data-testid="explorer-route"
+                  >
+                    <PanelLayoutProvider
+                      controlledState={panelState}
+                      onChange={handlePanelLayoutChange}
+                    >
+                      <ExplorerAppSurface
+                        canvasPanelContent={canvasPanelContent}
+                        changesPageContent={changesPageContent}
+                        contextExplorerPageContent={contextExplorerPageContent}
+                        contextExplorerPanelContent={contextExplorerPanelContent}
+                        loadEmbeddingQueue={loadEmbeddingQueue}
+                        {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                        preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                        terminalPageContent={terminalPageContent}
+                        visible={shellTab === 'explorer'}
+                      />
+                    </PanelLayoutProvider>
+                  </div>
+                  <Dialog onOpenChange={handleSettingsOpenChange} open={settingsVisible}>
+                    <DialogContent
+                      aria-describedby={undefined}
+                      className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
+                      overlayClassName="bg-background/55 backdrop-blur-md"
+                    >
+                      <DialogTitle className="sr-only">Settings</DialogTitle>
+                      {settingsPageContent}
+                    </DialogContent>
+                  </Dialog>
+                  {/* Each keeps its content mounted-but-hidden once first opened — see
+                    KeepMountedRoute's own doc comment for why. */}
+                  <KeepMountedRoute
+                    content={gitPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="git"
                   />
-                </PanelLayoutProvider>
-              </div>
-              <Dialog
-                onOpenChange={handleSettingsOpenChange}
-                open={settingsOpen || activeTab === 'settings'}
-              >
-                <DialogContent
-                  aria-describedby={undefined}
-                  className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
-                  overlayClassName="bg-background/55 backdrop-blur-md"
-                >
-                  <DialogTitle className="sr-only">Settings</DialogTitle>
-                  {settingsPageContent}
-                </DialogContent>
-              </Dialog>
-              {gitPageContent && mountedTabs.has('git') ? (
-                <div
-                  aria-hidden={shellTab !== 'git'}
-                  className={shellTab === 'git' ? 'h-full' : 'hidden h-full'}
-                  data-testid="git-route"
-                >
-                  {gitPageContent}
-                </div>
-              ) : null}
-              {/* The terminal route stays MOUNTED once first opened (it is only
-                toggled hidden) so switching tabs never kills the running shell —
-                the pty is pinned to its cwd for the session's lifetime. */}
-              {terminalPageContent && mountedTabs.has('terminal') ? (
-                <div
-                  aria-hidden={shellTab !== 'terminal'}
-                  className={shellTab === 'terminal' ? 'h-full' : 'hidden h-full'}
-                  data-testid="terminal-route"
-                >
-                  {terminalPageContent}
-                </div>
-              ) : null}
-              {/* Stays mounted once opened so vault watchers, scan state, and
-                the viewer's scroll position survive tab switches. */}
-              {notesPageContent && mountedTabs.has('notes') ? (
-                <div
-                  aria-hidden={shellTab !== 'notes'}
-                  className={shellTab === 'notes' ? 'h-full' : 'hidden h-full'}
-                  data-testid="notes-route"
-                >
-                  {notesPageContent}
-                </div>
-              ) : null}
-            </SearchEmbedderProvider>
-          </EmbeddingRuntimeProvider>
-        </ChunkingWorkerProvider>
-      </ActionRegistryProvider>
+                  <KeepMountedRoute
+                    content={notesPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="notes"
+                  />
+                  {/* Embedded browser pane (BST-1174). The native
+                    WebContentsView follows this route's show/hide via the
+                    surface's own occlusion reporting — see BrowserPaneContent. */}
+                  <KeepMountedRoute
+                    content={browserPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="browser"
+                  />
+                </SearchEmbedderProvider>
+              </EmbeddingRuntimeProvider>
+            </ChunkingWorkerProvider>
+            {/* Conversation Rewind confirm modal. Mounted only when the
+                changes capability is present (`rewindValue`), so web never
+                loads its chunk, and lazily so the Changes tree/diff panes stay
+                out of the shell's entry chunk. Renders nothing visible until
+                an entry point writes a request to `useRewindStore`. */}
+            {rewindValue ? (
+              <Suspense fallback={null}>
+                <RewindConfirmDialogLazy />
+              </Suspense>
+            ) : null}
+          </ActionRegistryProvider>
+        </RewindProvider>
+      </ChangesReviewProvider>
     </AppLayout>
   );
 }

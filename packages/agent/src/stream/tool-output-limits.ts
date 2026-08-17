@@ -1,17 +1,33 @@
+import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
+import {
+  findLlmModelDefinition,
+  type ProviderId,
+} from '@brainstrike/assistant-contract/provider-registry';
+import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 
 import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '../tools/hook-runner';
 import { toJsonSafe } from './json';
 
+const logger = createLogger('ToolOutputLimits');
+
 export const TOOL_RESULT_TOO_LARGE_CODE = 'tool_result_too_large';
 export const TOOL_RESULT_TRUNCATED_CODE = 'tool_result_truncated';
 
 /** Mirrors countTokensHeuristic (ceil(chars / 4)) so budgets stay deterministic. */
-const APPROX_CHARS_PER_TOKEN = 4;
+export const APPROX_CHARS_PER_TOKEN = 4;
+
+export const TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW = 131_072;
+const DOMAIN_TOOL_RESULT_TOKEN_FLOOR = 500;
+const TRANSPORT_TOOL_RESULT_TOKEN_FLOOR = 1000;
+const DOMAIN_TOOL_RESULT_TOKEN_CEILING = 3000;
+const TRANSPORT_TOOL_RESULT_TOKEN_CEILING = 6000;
 
 /**
- * Tool result budgets are denominated in (heuristic) tokens — the unit the
- * model reasons in — and enforced deterministically on serialized characters
+ * The 128k-anchor transport definition used by
+ * {@link resolveScaledToolResultBudget}. Per-run defaults scale linearly from
+ * this value, round to the nearest token, and clamp to 1000..6000 tokens.
+ * Tool result budgets are enforced deterministically on serialized characters
  * via the chars-per-token approximation.
  */
 export const MAX_TOOL_RESULT_TOKENS = 3000;
@@ -20,13 +36,157 @@ export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;
 export const MAX_MODEL_TOOL_RESULT_CHAR_BUDGET =
   MAX_MODEL_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 /**
+ * The 128k-anchor domain definition used by
+ * {@link resolveScaledToolResultBudget}. Per-run defaults scale linearly from
+ * this value, round to the nearest token, and clamp to 500..3000 tokens.
  * Purpose-built domain projections must leave deterministic room for bounded
- * PostToolUse guidance inside the total model-result envelope.
+ * PostToolUse guidance inside the total model-result envelope. BST-1219 also
+ * threads the resolved per-run value into desktop's domain projectors, so this
+ * anchor remains only their backward-compatible default when no run budget is
+ * supplied.
  */
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS = 1500;
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET =
   MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 const TOOL_RESULT_PREVIEW_CHARS = 8000;
+
+export interface ScaledToolResultBudget {
+  readonly contextWindow: number;
+  readonly domainModelResultCharBudget: number;
+  readonly domainModelResultTokens: number;
+  readonly transportResultCharBudget: number;
+  readonly transportResultTokens: number;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+/**
+ * Resolve the two model-aware default tool-result budgets for one run.
+ * The 131,072-token anchor preserves the historical 1500/3000-token values;
+ * scaling is linear, rounded to the nearest token, and clamped to the fixed
+ * 500/1000 floors and 3000/6000 ceilings.
+ */
+export function resolveScaledToolResultBudget(contextWindow: number): ScaledToolResultBudget {
+  if (!(Number.isSafeInteger(contextWindow) && contextWindow > 0)) {
+    throw new TypeError(`contextWindow must be a positive safe integer, got ${contextWindow}`);
+  }
+  const scaleFactor = contextWindow / TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW;
+  const domainModelResultTokens = clamp(
+    Math.round(MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS * scaleFactor),
+    DOMAIN_TOOL_RESULT_TOKEN_FLOOR,
+    DOMAIN_TOOL_RESULT_TOKEN_CEILING
+  );
+  const transportResultTokens = clamp(
+    Math.round(MAX_TOOL_RESULT_TOKENS * scaleFactor),
+    TRANSPORT_TOOL_RESULT_TOKEN_FLOOR,
+    TRANSPORT_TOOL_RESULT_TOKEN_CEILING
+  );
+  return {
+    contextWindow,
+    domainModelResultCharBudget: domainModelResultTokens * APPROX_CHARS_PER_TOKEN,
+    domainModelResultTokens,
+    transportResultCharBudget: transportResultTokens * APPROX_CHARS_PER_TOKEN,
+    transportResultTokens,
+  };
+}
+
+/** Fixed replay-acceptance tier: stored projections may use any shipped budget. */
+export const CEILING_SCALED_TOOL_RESULT_BUDGET: ScaledToolResultBudget = Object.freeze({
+  contextWindow: TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW * 2,
+  domainModelResultCharBudget: DOMAIN_TOOL_RESULT_TOKEN_CEILING * APPROX_CHARS_PER_TOKEN,
+  domainModelResultTokens: DOMAIN_TOOL_RESULT_TOKEN_CEILING,
+  transportResultCharBudget: TRANSPORT_TOOL_RESULT_TOKEN_CEILING * APPROX_CHARS_PER_TOKEN,
+  transportResultTokens: TRANSPORT_TOOL_RESULT_TOKEN_CEILING,
+});
+
+/**
+ * Resolve a run's tool-result budget from its provider/model. `getLlmModelDefinition`
+ * is NOT a hard precondition for starting a run: a budget default is a
+ * best-effort convenience, not a capability the run actually needs, so an
+ * unknown provider/model id must never kill a run over it.
+ *
+ * - Runtime-discovered Ollama/LM Studio model ids are NEVER in the static
+ *   catalog by design (they're discovered live from a local server), so
+ *   falling back to the existing conservative `DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW`
+ *   declaration is expected, routine behavior for those two providers —
+ *   not logged, the same way it was not logged before this function existed.
+ * - Any OTHER unknown id — notably an OpenRouter metadata-only / auto-profile
+ *   model (`mergeOpenRouterAutoProfileModel`, no catalog entry by design) or a
+ *   persisted preference from a retired catalog entry — is a genuinely
+ *   unexpected miss for a provider whose models are normally catalog-backed,
+ *   so it falls back to the 128k ANCHOR (the exact pre-BST-1206 fixed-budget
+ *   behavior) WITH a visible log: not a silent fallback, the documented
+ *   default, logged so it stays visible.
+ *
+ * Uses the non-throwing `findLlmModelDefinition` rather than try/catch, so a
+ * genuine registry misconfiguration (e.g. a registered entry with a bad
+ * `contextWindow`) still throws through `resolveScaledToolResultBudget`
+ * instead of being silently swallowed as "unknown model".
+ */
+export function resolveToolResultBudgetForModel(
+  providerId: ProviderId,
+  modelId: string
+): ScaledToolResultBudget {
+  const definition = findLlmModelDefinition(providerId, modelId);
+  if (definition) {
+    return resolveScaledToolResultBudget(definition.contextWindow);
+  }
+  if (providerId === 'ollama' || providerId === 'lmstudio') {
+    return resolveScaledToolResultBudget(DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW);
+  }
+  logger.warn('Unknown model id for tool-result budget resolution; using fallback window', {
+    code: 'tool_result_budget_unknown_model_fallback',
+    fallbackContextWindow: TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
+    modelId,
+    providerId,
+  });
+  return resolveScaledToolResultBudget(TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW);
+}
+
+/**
+ * BST-1195: the decoded-text domain-projection ruler. Desktop's purpose-built
+ * TEXT projectors (`workspace-model-projection-helpers.ts`) and this
+ * package's own domain-projection runtime guards
+ * (`../mastra/tool-model-output.ts`: `assertDomainProjectionWithinBudget` and
+ * `composeHookContextWithProjection`) share this ONE measurement
+ * implementation. PR #2334 review caught exactly the earlier ruler
+ * divergence: the projectors switched to decoded length, but the runtime
+ * guard directly downstream kept measuring
+ * `JSON.stringify({type:'text',value}).length` — so a page that legitimately
+ * fit the domain budget
+ * could still throw a `RangeError` a moment later at the runtime gate,
+ * because JSON-escaping made it look oversized again. JSON/`content`-typed
+ * domain projections are unaffected by BST-1195 and keep measuring full
+ * serialized size — only `type: 'text'` outputs use this ruler.
+ *
+ * Value derivation for the reserve: the OLD ruler measured
+ * `JSON.stringify({ type: 'text', value }).length`, which for the empty
+ * string is exactly 26 (`{"type":"text","value":""}.length === 26`) — the
+ * fixed structural overhead of the envelope. JSON escaping can only ADD
+ * characters relative to the raw string (never remove), and code-point
+ * counting can only be <= UTF-16 length (astral pairs collapse). Therefore
+ * for ANY string X: codePointLength(X) + 26 <= JSON.stringify({type:'text',
+ * value:X}).length — a value that fit the old serialized budget is
+ * guaranteed to still fit this one, so a stored/replayed projection never
+ * newly throws. Do not "round up" this constant without re-deriving the
+ * proof above.
+ */
+export const PROJECTION_ENVELOPE_RESERVE_CHARS = 26;
+
+/**
+ * Decoded-text domain-projection char count: code points in the value the
+ * model actually reads, plus {@link PROJECTION_ENVELOPE_RESERVE_CHARS}. This
+ * is the ONE measurement a purpose-built TEXT domain projection (and the
+ * runtime guards that re-check its output) must use against its active
+ * domain-character budget — never site-local `JSON.stringify(...).length`
+ * math. {@link MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET} is the 128k anchor;
+ * active runs use {@link resolveScaledToolResultBudget}.
+ */
+export function decodedTextModelOutputChars(value: string): number {
+  return Array.from(value).length + PROJECTION_ENVELOPE_RESERVE_CHARS;
+}
 
 /**
  * Budget native tools should bound their own serialized output to. Kept under
@@ -62,6 +222,46 @@ export const SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET =
   MODEL_PROJECTION_STRUCTURAL_RESERVE_TOKENS;
 export const SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET =
   SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET * APPROX_CHARS_PER_TOKEN;
+
+/**
+ * Model-projection envelope for native tools that self-bound their result to
+ * {@link NATIVE_TOOL_RESULT_CHAR_BUDGET} and rely on the generic projection
+ * (runPython, runSkillScript, skill_read, skill_search, and the
+ * fitItemsToCharBudget default-budget callers without custom projectors:
+ * manageTaskList, readWorkspaceDirectory, queryDiagnostics; executeCommand
+ * has its own text projection since BST-1201 and uses this envelope only on
+ * the dispatcher fail-soft fallback). The
+ * tool's own bound — head+tail retention, truncation hints (BST-1189) — is the
+ * working limit; this envelope exists so the default projector passes that
+ * result through unmodified instead of re-truncating it at the tighter
+ * {@link MAX_MODEL_TOOL_RESULT_TOKENS} ceiling and replacing the carefully
+ * built fields with a generic prefix preview.
+ *
+ * The 2x escape reserve is a worst-case bound, not slack: the default
+ * projection embeds the serialized result as a JSON string value, and
+ * JSON-escaping an already-serialized payload at most doubles it (`"` → `\"`,
+ * `\` → `\\`; prior serialization leaves no raw control characters). Sizing
+ * the ceiling below that would let quote-heavy output — JSON logs are routine
+ * command output — silently lose its tail again.
+ *
+ * The reserve applies ONLY to these envelope budgets (measured on the
+ * re-escaped embedding). The projection's raw-output guard stays at
+ * {@link NATIVE_TOOL_RESULT_TOKEN_BUDGET}: a result whose single
+ * serialization exceeds the native budget violated its self-bound and is
+ * truncated with a visible hint, never passed through.
+ */
+const SELF_BOUND_ESCAPE_RESERVE_FACTOR = 2;
+export const NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS =
+  SELF_BOUND_ESCAPE_RESERVE_FACTOR * NATIVE_TOOL_RESULT_TOKEN_BUDGET;
+export const NATIVE_SELF_BOUND_DOMAIN_MODEL_RESULT_CHAR_BUDGET =
+  (NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS + MODEL_PROJECTION_STRUCTURAL_RESERVE_TOKENS) *
+  APPROX_CHARS_PER_TOKEN;
+export const NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET =
+  NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS +
+  Math.ceil(HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET / APPROX_CHARS_PER_TOKEN) +
+  MODEL_PROJECTION_STRUCTURAL_RESERVE_TOKENS;
+export const NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET =
+  NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET * APPROX_CHARS_PER_TOKEN;
 
 /**
  * Per-tool transport-guard budget overrides. Explicit and enumerated — every
@@ -293,6 +493,54 @@ function buildPreviewOutput(params: {
   };
 }
 
+function buildPreviewOmissionMarker(omittedChars: number): string {
+  return `…[${omittedChars} chars omitted]…`;
+}
+
+/** True when `codeUnit` is the leading half of a UTF-16 surrogate pair. */
+function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff;
+}
+
+/** True when `codeUnit` is the trailing half of a UTF-16 surrogate pair. */
+function isLowSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xdc_00 && codeUnit <= 0xdf_ff;
+}
+
+/**
+ * Arbitrary transport previews retain a balanced 50/50 head and tail. This
+ * differs from executeCommand's domain-specific 40/60 stream split because a
+ * generic output has no basis for prioritizing recent content over its start.
+ */
+const PREVIEW_HEAD_RATIO = 0.5;
+
+function splitPreviewHeadTail(source: string, maxChars: number): string {
+  const boundedMaxChars = Math.max(0, Math.floor(maxChars));
+  if (source.length <= boundedMaxChars) {
+    return source;
+  }
+
+  // The omitted count cannot have more digits than source.length, so reserve
+  // that widest marker before dividing the remaining room between content.
+  const reservedMarkerLength = buildPreviewOmissionMarker(source.length).length;
+  if (boundedMaxChars < reservedMarkerLength) {
+    return '';
+  }
+  const retainedBudget = boundedMaxChars - reservedMarkerLength;
+  const headBudget = Math.floor(retainedBudget * PREVIEW_HEAD_RATIO);
+  const tailBudget = retainedBudget - headBudget;
+  const rawHead = source.slice(0, headBudget);
+  const head =
+    rawHead.length > 0 && isHighSurrogate(rawHead.charCodeAt(rawHead.length - 1))
+      ? rawHead.slice(0, -1)
+      : rawHead;
+  const rawTail = tailBudget > 0 ? source.slice(-tailBudget) : '';
+  const tail =
+    rawTail.length > 0 && isLowSurrogate(rawTail.charCodeAt(0)) ? rawTail.slice(1) : rawTail;
+  const omittedChars = source.length - head.length - tail.length;
+  return `${head}${buildPreviewOmissionMarker(omittedChars)}${tail}`;
+}
+
 function createBoundedPreviewOutput(params: {
   readonly maxSerializedChars: number;
   readonly maxTokens: number;
@@ -307,7 +555,7 @@ function createBoundedPreviewOutput(params: {
   );
   const initial = buildPreviewOutput({
     ...params,
-    preview: sliceCodePoints(params.previewSource, initialPreviewChars),
+    preview: splitPreviewHeadTail(params.previewSource, initialPreviewChars),
   });
   if (stringifyJsonSafe(initial).length <= params.maxSerializedChars) {
     return initial;
@@ -320,17 +568,40 @@ function createBoundedPreviewOutput(params: {
   const availableChars = Math.max(0, params.maxSerializedChars - stringifyJsonSafe(empty).length);
   return buildPreviewOutput({
     ...params,
-    preview: sliceCodePoints(params.previewSource, Math.floor(availableChars / 6)),
+    preview: splitPreviewHeadTail(params.previewSource, Math.floor(availableChars / 6)),
   });
+}
+
+/**
+ * Resolve a per-tool transport override for the active run. Overrides are
+ * ceilings authored deliberately against the (implicit) anchor window, so a
+ * resolved budget AT OR ABOVE the anchor never scales them up. A resolved
+ * budget BELOW the anchor (e.g. local Ollama/Gemma) scales the override down
+ * by the same factor, floored at {@link TRANSPORT_TOOL_RESULT_TOKEN_FLOOR} —
+ * otherwise a per-tool override like `skill`'s 6000 tokens stays fixed
+ * regardless of the model, which on an 8192-token window is ~73% of the
+ * entire context for one activation.
+ */
+function resolveOverrideTokens(override: number, scaledDefaultTokens: number | undefined): number {
+  if (scaledDefaultTokens === undefined || scaledDefaultTokens >= MAX_TOOL_RESULT_TOKENS) {
+    return override;
+  }
+  const scaleFactor = scaledDefaultTokens / MAX_TOOL_RESULT_TOKENS;
+  return Math.max(TRANSPORT_TOOL_RESULT_TOKEN_FLOOR, Math.round(override * scaleFactor));
 }
 
 export function boundToolOutputForModel(
   toolName: string,
   output: unknown,
-  maxTokensOverride?: number
+  maxTokensOverride?: number,
+  scaledDefaultTokens?: number
 ): BoundedToolOutput {
+  const override = TOOL_RESULT_TOKEN_BUDGET_OVERRIDES[toolName];
   const maxTokens =
-    maxTokensOverride ?? TOOL_RESULT_TOKEN_BUDGET_OVERRIDES[toolName] ?? MAX_TOOL_RESULT_TOKENS;
+    maxTokensOverride ??
+    (override === undefined
+      ? (scaledDefaultTokens ?? MAX_TOOL_RESULT_TOKENS)
+      : resolveOverrideTokens(override, scaledDefaultTokens));
   const maxSerializedChars = maxTokens * APPROX_CHARS_PER_TOKEN;
   const jsonSafeOutput = toJsonSafe(output);
   const serialized = stringifyJsonSafe(jsonSafeOutput);

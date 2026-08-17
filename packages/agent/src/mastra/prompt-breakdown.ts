@@ -8,7 +8,7 @@
  * Counting method (deliberate): the shared chars/4 HEURISTIC
  * (`countTokensHeuristic`) — the same estimator the renderer's conversation
  * walk uses, so client and server figures are comparable. The accurate WASM
- * tokenizer (`countTokensAccurate` in @brainstrike/utils) is a lazy async
+ * tokenizer (`countTokensAccurate` in @brainstrike/tokenization) is a lazy async
  * facade owned by the RAG pipeline; prompt assembly is synchronous and
  * latency-sensitive, and the popover's provenance field already labels these
  * figures 'heuristic', so the async tokenizer buys precision the display does
@@ -18,7 +18,7 @@
  * ABSENT field, never a fabricated 0 (contract rule).
  */
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
-import { countTokensHeuristic } from '@brainstrike/utils/token-counting-heuristics';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { AgentMessage } from '../types';
 import type { ToolDefinitionContextBreakdown } from './token-measurement';
 

@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   observeDesktopAssistantRunEvents,
   persistDesktopChildRunUsage,
+  persistDesktopToolCallTelemetry,
 } from '../../assistant-server/run-persistence';
 
 // File-local double — the pre-split suite shared one across every describe.
@@ -129,6 +130,33 @@ describe('child-run-usage durable persistence (BST-953)', () => {
     );
   });
 
+  it('persists provider-attributed compaction-summary usage under the parent run', async () => {
+    const chunk = {
+      type: 'child-run-usage',
+      value: {
+        estimated: false,
+        inputTokens: 1200,
+        model: 'gpt-5.2',
+        outputTokens: 180,
+        provider: 'openai',
+        source: 'compaction-summary',
+      },
+    } as unknown as StreamChunk;
+
+    await drive([chunk], undefined);
+
+    expect(usageInsertCalls()[0]).toEqual(
+      expect.arrayContaining([
+        'run-child-usage',
+        'gpt-5.2',
+        'openai',
+        1200,
+        180,
+        'compaction-summary',
+      ])
+    );
+  });
+
   it('attributes an OM cycle row to the RESOLVED OBSERVER target, never the chat model', async () => {
     const chunk = {
       type: 'child-run-usage',
@@ -177,5 +205,103 @@ describe('child-run-usage durable persistence (BST-953)', () => {
     await drive([chunk], { model: 'gemma-3n', provider: 'local' });
 
     expect(usageInsertCalls()).toHaveLength(0);
+  });
+});
+
+describe('tool-call telemetry durable persistence (BST-1190)', () => {
+  it('batches every sample into ONE typed insert, consumes the internal chunk, and preserves other chunks', async () => {
+    mockDesktopDatabase.query.mockResolvedValue({
+      rows: [{ id: 'row-1' }, { id: 'row-2' }],
+    });
+    const privateText = 'PRIVATE_PATTERN:/PRIVATE_PATH:COMMAND_TEXT';
+    const grepOccurredAt = Date.UTC(2026, 7, 7, 10, 0, 0);
+    const execOccurredAt = Date.UTC(2026, 7, 7, 10, 0, 5);
+    const telemetryChunk = {
+      type: 'tool-call-telemetry',
+      value: [
+        {
+          isPaginationFollowup: true,
+          modelFacingChars: 321,
+          occurredAt: grepOccurredAt,
+          toolId: 'grepSearch',
+          truncated: true,
+          unsafeFixture: privateText,
+          zeroMatch: false,
+        },
+        {
+          isPaginationFollowup: true,
+          modelFacingChars: 99,
+          occurredAt: execOccurredAt,
+          toolId: 'executeCommand',
+          truncated: false,
+          unsafeFixture: privateText,
+          zeroMatch: true,
+        },
+      ],
+    } as unknown as StreamChunk;
+    const passthrough = { payload: { text: 'ok' }, type: 'text-delta' } as unknown as StreamChunk;
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield telemetryChunk;
+      yield passthrough;
+    }
+
+    const seen: StreamChunk[] = [];
+    for await (const chunk of persistDesktopToolCallTelemetry(
+      source(),
+      'run-telemetry',
+      async () => mockDesktopDatabase
+    )) {
+      seen.push(chunk);
+    }
+
+    expect(seen).toEqual([passthrough]);
+    const inserts = mockDesktopDatabase.query.mock.calls.filter((call) =>
+      String(call[0]).includes('INSERT INTO brainstrike_tool_call_telemetry')
+    );
+    // ONE round-trip for the whole batch (review fix), not one per sample.
+    expect(inserts).toHaveLength(1);
+    const [sql, params] = inserts[0] as [string, unknown[]];
+    // Every array parameter carries an explicit ::type[] cast so PGlite never
+    // resolves a bare `null` to `text` (review fix).
+    expect(sql).toContain('unnest(');
+    expect(sql).toContain('$5::integer[]');
+    expect(sql).toContain('$6::boolean[]');
+    expect(sql).toContain('$7::boolean[]');
+    expect(sql).toContain('$8::boolean[]');
+    expect(params[0]).toBe('run-telemetry');
+    expect(params[1]).toEqual([expect.any(String), expect.any(String)]);
+    expect(params[2]).toEqual(['grepSearch', 'executeCommand']);
+    expect(params[3]).toEqual([
+      new Date(grepOccurredAt).toISOString(),
+      new Date(execOccurredAt).toISOString(),
+    ]);
+    expect(params[4]).toEqual([321, 99]);
+    expect(params[5]).toEqual([true, false]);
+    // zero_match/is_pagination_followup are only ever populated for the two
+    // search tools; every other tool id forces them to null/false.
+    expect(params[6]).toEqual([false, null]);
+    expect(params[7]).toEqual([true, false]);
+    expect(JSON.stringify(inserts)).not.toContain(privateText);
+  });
+
+  it('is a no-op for an empty telemetry chunk (no INSERT, no thrown error)', async () => {
+    const telemetryChunk = { type: 'tool-call-telemetry', value: [] } as unknown as StreamChunk;
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield telemetryChunk;
+    }
+
+    const seen: StreamChunk[] = [];
+    for await (const chunk of persistDesktopToolCallTelemetry(
+      source(),
+      'run-telemetry',
+      async () => mockDesktopDatabase
+    )) {
+      seen.push(chunk);
+    }
+
+    expect(seen).toEqual([]);
+    expect(mockDesktopDatabase.query).not.toHaveBeenCalled();
   });
 });

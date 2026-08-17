@@ -1,11 +1,12 @@
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import type { AssistantEditCheckpointOp, RuntimeData } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import {
   type EditCheckpointCapture,
   type EditCheckpointDatabase,
   recordEditCheckpoint,
-  sha256Hex,
 } from './edit-checkpoint-journal';
 
 const logger = createLogger('EditCheckpointJournal');
@@ -24,31 +25,33 @@ function redactError(error: unknown): { code?: string | number; name: string; re
 }
 
 /**
- * Classification of a file's pre-mutation state, produced without leaning on the
- * text reader so binary/oversized files are recorded honestly (never a truncated
- * snapshot). Binary keeps the hash+size (before-content refused); oversized keeps
- * only the size (we never read past the cap).
+ * A file's pre-mutation identity for the ATTRIBUTION ledger (BST-1164 T4):
+ * existence + sha256 + size, never content. Restores come from the turn-start
+ * workspace snapshot (`checkpoint-snapshot-undo.ts`), so the content-era
+ * classifications — the 2 MB capture cap, `binary`, `too_large` — died with
+ * the content capture: every present file hashes the same way.
  */
 export type BeforeState =
   | { readonly kind: 'absent' }
-  | {
-      readonly kind: 'text';
-      readonly content: string;
-      readonly size: number;
-      readonly hash: string;
-    }
-  | { readonly kind: 'binary'; readonly size: number; readonly hash: string }
-  | { readonly kind: 'too_large'; readonly size: number };
+  | { readonly kind: 'present'; readonly hash: string; readonly size: number };
+
+/** Streaming sha256 — never buffers the whole file (deletes journal files of
+ * ANY size, and the old whole-file read existed only to store content). */
+function sha256HexOfFile(absolutePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    const stream = createReadStream(absolutePath);
+    stream.on('error', reject);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
 
 /**
- * Read the before-state of `absolutePath` for journaling. `maxBytes` mirrors the
- * write tools' 2 MB cap: a larger file is classified `too_large` WITHOUT being
- * read. A NUL byte in the first 4 KB marks `binary`. Anything else is `text`.
+ * Read the before-identity of `absolutePath` for journaling: `absent` for a
+ * missing path or non-file, otherwise the file's size and streaming sha256.
  */
-export async function captureBeforeState(
-  absolutePath: string,
-  maxBytes: number
-): Promise<BeforeState> {
+export async function captureBeforeState(absolutePath: string): Promise<BeforeState> {
   let stats: import('node:fs').Stats;
   try {
     stats = await fsPromises.stat(absolutePath);
@@ -61,66 +64,32 @@ export async function captureBeforeState(
   if (!stats.isFile()) {
     return { kind: 'absent' };
   }
-  const size = Number(stats.size);
-  if (size > maxBytes) {
-    return { kind: 'too_large', size };
-  }
-  const buffer = await fsPromises.readFile(absolutePath);
-  const probeLength = Math.min(buffer.length, 4096);
-  for (let index = 0; index < probeLength; index += 1) {
-    if (buffer[index] === 0) {
-      return { hash: sha256Hex(buffer), kind: 'binary', size };
-    }
-  }
-  return { content: buffer.toString('utf8'), hash: sha256Hex(buffer), kind: 'text', size };
+  return { hash: await sha256HexOfFile(absolutePath), kind: 'present', size: Number(stats.size) };
 }
 
 /**
- * Map a {@link BeforeState} to the journal's before-capture columns. `created`
- * (absent) and the two `skipped_*` degradations are visible-but-unrevertible;
- * only `text` yields a restorable before-content. `rename` is never routed here
- * (no content change).
+ * Map a {@link BeforeState} to the journal's before-identity columns.
+ * `created` (absent before) drives the undo semantics "this edit created the
+ * file"; everything else is `ok`. `rename` is never routed here (no content
+ * change to identify).
  */
 export function beforeStateToCapture(
   state: BeforeState
-): Pick<
-  EditCheckpointCapture,
-  'beforeExisted' | 'beforeHash' | 'beforeContent' | 'beforeSize' | 'captureStatus'
-> {
-  switch (state.kind) {
-    case 'absent':
-      return {
-        beforeContent: null,
-        beforeExisted: false,
-        beforeHash: null,
-        beforeSize: null,
-        captureStatus: 'created',
-      };
-    case 'text':
-      return {
-        beforeContent: state.content,
-        beforeExisted: true,
-        beforeHash: state.hash,
-        beforeSize: state.size,
-        captureStatus: 'ok',
-      };
-    case 'binary':
-      return {
-        beforeContent: null,
-        beforeExisted: true,
-        beforeHash: state.hash,
-        beforeSize: state.size,
-        captureStatus: 'skipped_binary',
-      };
-    default:
-      return {
-        beforeContent: null,
-        beforeExisted: true,
-        beforeHash: null,
-        beforeSize: state.size,
-        captureStatus: 'skipped_too_large',
-      };
+): Pick<EditCheckpointCapture, 'beforeExisted' | 'beforeHash' | 'beforeSize' | 'captureStatus'> {
+  if (state.kind === 'absent') {
+    return {
+      beforeExisted: false,
+      beforeHash: null,
+      beforeSize: null,
+      captureStatus: 'created',
+    };
   }
+  return {
+    beforeExisted: true,
+    beforeHash: state.hash,
+    beforeSize: state.size,
+    captureStatus: 'ok',
+  };
 }
 
 export interface EditCheckpointCaptureRequest {
@@ -128,7 +97,7 @@ export interface EditCheckpointCaptureRequest {
   readonly afterHash: string | null;
   readonly before: Pick<
     EditCheckpointCapture,
-    'beforeExisted' | 'beforeHash' | 'beforeContent' | 'beforeSize' | 'captureStatus'
+    'beforeExisted' | 'beforeHash' | 'beforeSize' | 'captureStatus'
   >;
   readonly fromPath?: string;
   readonly op: AssistantEditCheckpointOp;
@@ -150,11 +119,12 @@ async function resolveDesktopDatabase(): Promise<EditCheckpointDatabase> {
 }
 
 /**
- * Record a checkpoint for a completed mutation. GATED on an active memory context
- * (runId + threadId + resourceId) — a non-persisted run / web has no thread_runs
- * row to attach to, so it debug-logs and no-ops (a persistence boundary, not a
- * silent fallback). NON-FATAL to the tool: a DB-absent environment debug-logs; a
- * resolvable DB that then throws error-logs. The tool result is never affected.
+ * Record an attribution row for a completed mutation. GATED on an active
+ * memory context (runId + threadId + resourceId) — a non-persisted run / web
+ * has no thread_runs row to attach to, so it debug-logs and no-ops (a
+ * persistence boundary, not a silent fallback). NON-FATAL to the tool: a
+ * DB-absent environment debug-logs; a resolvable DB that then throws
+ * error-logs. The tool result is never affected.
  */
 export async function recordEditCheckpointForTool(
   request: EditCheckpointCaptureRequest,
@@ -184,7 +154,6 @@ export async function recordEditCheckpointForTool(
     await recordEditCheckpoint(db, {
       afterExisted: request.afterExisted,
       afterHash: request.afterHash,
-      beforeContent: request.before.beforeContent,
       beforeExisted: request.before.beforeExisted,
       beforeHash: request.before.beforeHash,
       beforeSize: request.before.beforeSize,

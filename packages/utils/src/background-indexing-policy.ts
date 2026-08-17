@@ -1,5 +1,5 @@
-import { getBaseFilename, isBinaryFile, isTextFile } from './file-utils';
-import { createPathFilterMatcher } from './filter-utils';
+import { getBaseFilename, isBinaryFile, isTextFile } from './file-utils.js';
+import { createPathFilterMatcher } from './filter-utils.js';
 
 export type BackgroundIndexingPolicyPreset = 'balanced' | 'full-root';
 
@@ -56,6 +56,7 @@ const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '.git',
   '.turbo',
   '.cache',
+  '.nyc_output',
   '.next',
   '.nuxt',
   '.svelte-kit',
@@ -86,6 +87,7 @@ const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '.git',
   '.turbo',
   '.cache',
+  '.nyc_output',
   '.next',
   '.nuxt',
   '.svelte-kit',
@@ -103,6 +105,19 @@ const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   'temp',
   'out',
   'target',
+]);
+
+/**
+ * BST-1246: the balanced policy's unconditional BY-NAME directory exclusions,
+ * exported for the live-grep ripgrep prefilter. rg may prune ONLY directories
+ * this policy hard-excludes by name at any depth — `resolveCandidate`
+ * re-applies the same policy to every rg candidate, so pruning these keeps the
+ * rg candidate set a strict SUPERSET of policy-kept files while cutting the
+ * scan volume that blew the rg timeout on artifact trees (.vite, dist, …).
+ * Frozen copy so live-grep cannot mutate the policy's own set.
+ */
+export const BALANCED_UNCONDITIONAL_EXCLUDED_DIRECTORY_SEGMENTS: readonly string[] = Object.freeze([
+  ...BALANCED_EXCLUDED_DIRECTORY_SEGMENTS,
 ]);
 
 const BALANCED_EXCLUDED_FILE_NAMES = new Set([
@@ -155,6 +170,14 @@ const SPECIAL_TEXT_PREFIXES = [
 // content decision, for full-root a safety exclusion like node_modules.
 const EXCLUDED_DIRECTORY_PATH_PREFIXES = ['.claude/worktrees'] as const;
 
+/**
+ * BST-1246 companion to the segments export: the nested-path exclusions the
+ * segment matcher can't express (`.claude/worktrees`), applied by both presets.
+ */
+export const UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES: readonly string[] = Object.freeze([
+  ...EXCLUDED_DIRECTORY_PATH_PREFIXES,
+]);
+
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 const HARD_EXCLUDED_DIRECTORY_SUFFIXES = ['.app', '.framework'];
 
@@ -163,6 +186,30 @@ function matchesExcludedPathPrefix(relativePath: string): boolean {
   return EXCLUDED_DIRECTORY_PATH_PREFIXES.some(
     (prefix) => lowerPath === prefix || lowerPath.startsWith(`${prefix}/`)
   );
+}
+
+/**
+ * The excluded-path rule on its own, for consumers that must honour the SAME
+ * exclusions without adopting the rest of an entry policy.
+ *
+ * The Explorer's token indexer is the motivating caller (BST-1207 widened it
+ * from selection-only to visible + expanded directories, which walks the whole
+ * display tree). It cannot use `shouldIncludeFile`: that gate also applies the
+ * preset's size, extension and text rules, and the Explorer must keep counting
+ * tokens for every row it actually SHOWS. Only the path exclusions are shared —
+ * they mark trees nothing should ever index, at any preset, for any consumer.
+ *
+ * Both are preset-independent by construction: `EXCLUDED_DIRECTORY_PATH_PREFIXES`
+ * is applied identically by the balanced and full-root file gates above, so
+ * exposing it without a preset cannot drift from them.
+ *
+ * `relativePath` must be ROOT-RELATIVE and `/`-separated (no leading slash) —
+ * the same contract as `BackgroundIndexingFileInput.relativePath`. An absolute
+ * path never matches, so passing one silently indexes everything; that is why
+ * callers build the path from the walk rather than trimming a prefix.
+ */
+export function isExcludedBackgroundIndexingPath(relativePath: string): boolean {
+  return matchesExcludedPathPrefix(relativePath);
 }
 
 const balancedPathMatcher = createPathFilterMatcher(

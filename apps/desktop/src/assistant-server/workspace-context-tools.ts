@@ -22,12 +22,12 @@ import {
   type UpdateWorkspaceContextSelectionInput,
   type UpdateWorkspaceTapestrySelectionsInput,
 } from '@brainstrike/agent';
-import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { createLogger } from '@brainstrike/logging';
+import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { getWindowRole } from '../window-role';
@@ -483,13 +483,13 @@ interface WorkspaceContextResolvedFile {
 async function readWorkspaceContextFile(args: {
   maxCharsPerFile: number;
   requestedPath: string;
-  rootPath: string;
+  root: RuntimeWorkspaceRoot;
   tapestryRanges: RuntimeWorkspaceContextRangeMetadata[] | undefined;
 }): Promise<WorkspaceContextResolvedFile> {
   if (args.tapestryRanges && args.tapestryRanges.length > 0) {
     const rawFile = await readWorkspaceTextFile({
       requestedPath: args.requestedPath,
-      rootPath: args.rootPath,
+      rootPath: args.root.path,
     });
     const ranged = buildRangedContextContent({
       content: rawFile.content,
@@ -516,7 +516,7 @@ async function readWorkspaceContextFile(args: {
       maxChars: args.maxCharsPerFile,
       path: args.requestedPath,
     },
-    { workspaceRootPath: args.rootPath },
+    { workspaceRootPath: args.root.path, workspaceRoots: [args.root] },
     null
   );
   return {
@@ -547,8 +547,8 @@ type WorkspaceContextBatchReadResult =
 async function readWorkspaceContextBatch(args: {
   batchPaths: readonly string[];
   maxCharsPerFile: number;
+  root: RuntimeWorkspaceRoot;
   tapestryRangesByPath: ReadonlyMap<string, RuntimeWorkspaceContextRangeMetadata[]>;
-  workspaceRootPath: string;
 }): Promise<WorkspaceContextBatchReadResult[]> {
   const batchResults = await Promise.allSettled(
     args.batchPaths.map(async (requestedPath) => {
@@ -556,7 +556,7 @@ async function readWorkspaceContextBatch(args: {
       const file = await readWorkspaceContextFile({
         maxCharsPerFile: args.maxCharsPerFile,
         requestedPath: normalizedRequestedPath,
-        rootPath: args.workspaceRootPath,
+        root: args.root,
         tapestryRanges: args.tapestryRangesByPath.get(normalizedRequestedPath),
       });
       return { file, requestedPath };
@@ -687,8 +687,8 @@ export async function runReadWorkspaceContext(
     const batchResults = await readWorkspaceContextBatch({
       batchPaths,
       maxCharsPerFile,
+      root,
       tapestryRangesByPath,
-      workspaceRootPath,
     });
     totalApproxTokens = appendWorkspaceContextBatch({
       batchResults,

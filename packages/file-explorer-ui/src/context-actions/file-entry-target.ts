@@ -8,7 +8,7 @@ import { resolveFileTargetIdentity } from './file-target-identity';
  * carry root-relative paths — the data itself tells us which.
  */
 export function fileNodeToTarget(node: IFileNode, rootPath?: string | null): ContextTarget | null {
-  if (node.type === 'loadMore') {
+  if (node.type === 'loadMore' || node.type === 'truncated') {
     return null;
   }
   return {

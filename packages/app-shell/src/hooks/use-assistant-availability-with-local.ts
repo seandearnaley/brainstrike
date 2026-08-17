@@ -1,7 +1,7 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { hasEnabledLocalLlmModels } from '@brainstrike/app-state/models/local-model-utils';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { hasEnabledLocalLlmModels } from '@brainstrike/preferences/models/local-model-utils';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useMemo } from 'react';
 import {
   type AssistantAvailabilityStatus,

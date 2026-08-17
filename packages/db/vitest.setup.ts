@@ -1,6 +1,12 @@
 import { Blob as NodeBlob } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, vi } from 'vitest';
+// Scales @testing-library/dom's waitFor/findBy budget by TEST_TIMEOUT_MULTIPLIER
+// (BST-1299). This package keeps its own setup rather than the shared one, but
+// its React db-provider/factory-reset suites use waitFor and would otherwise sit
+// on the library's unscalable 1s default. Side-effect import; registers no
+// hooks and touches no globals.
+import '@brainstrike/test-utils/vitest.timeouts.setup';
 
 // Increase global hook timeout to tolerate WASM warmup under parallel runs
 vi.setConfig({ hookTimeout: 30_000 });

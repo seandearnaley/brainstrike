@@ -5,7 +5,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { type MastraDBMessage, MessageList, type ToolsInput } from '@mastra/core/agent';
 import { ToolSearchProcessor } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY } from '@mastra/core/request-context';
@@ -276,6 +276,7 @@ export class BrainstrikeToolSearchProcessor {
   private readonly delegate: ToolSearchProcessor;
   private readonly loadPersistedMessages: (() => Promise<readonly MastraDBMessage[]>) | undefined;
   private readonly model: ToolSearchStepArgs['model'];
+  private readonly onToolsLoaded: ((tools: ToolsInput) => void) | undefined;
   private readonly previousLoadedByThread = new Map<string, ReadonlySet<string>>();
   private readonly searchObservers = new Set<ToolDiscoverySearchObserver>();
   private readonly toolNameMap: ReadonlyMap<string, string>;
@@ -284,6 +285,7 @@ export class BrainstrikeToolSearchProcessor {
     readonly deferredTools: ToolsInput;
     readonly loadPersistedMessages?: () => Promise<readonly MastraDBMessage[]>;
     readonly model: ToolSearchStepArgs['model'];
+    readonly onToolsLoaded?: (tools: ToolsInput) => void;
     readonly toolNameMap: ReadonlyMap<string, string>;
   }) {
     this.delegate = new ToolSearchProcessor({
@@ -293,6 +295,7 @@ export class BrainstrikeToolSearchProcessor {
     });
     this.loadPersistedMessages = options.loadPersistedMessages;
     this.model = options.model;
+    this.onToolsLoaded = options.onToolsLoaded;
     this.toolNameMap = options.toolNameMap;
   }
 
@@ -313,6 +316,54 @@ export class BrainstrikeToolSearchProcessor {
         });
       }
     }
+  }
+
+  private trackLoadedTools(
+    threadId: string | undefined,
+    loadedSanitizedIds: readonly string[],
+    tools: ToolSearchStepResult['tools']
+  ): void {
+    // Mastra's declared result shape names only its meta tools, while runtime
+    // keys also include every loaded catalog tool discovered via Object.keys.
+    const toolsById = tools as unknown as Record<string, ToolsInput[string]>;
+    if (!threadId) {
+      if (this.onToolsLoaded && loadedSanitizedIds.length > 0) {
+        // Without a thread key there is no safe cross-step de-duplication key;
+        // measure the full loaded set for this anonymous step.
+        this.onToolsLoaded(
+          Object.fromEntries(
+            loadedSanitizedIds.map((toolId) => [toolId, toolsById[toolId]])
+          ) as ToolsInput
+        );
+      }
+      return;
+    }
+
+    const previous = this.previousLoadedByThread.get(threadId);
+    const current = new Set(loadedSanitizedIds);
+    const invalidated = previous
+      ? Array.from(previous).filter((toolId) => !current.has(toolId))
+      : [];
+    if (invalidated.length > 0) {
+      throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
+        context: {
+          invalidatedToolIds: invalidated.map((toolId) => this.toolNameMap.get(toolId) ?? toolId),
+          phase: 'context-trimming',
+          threadId,
+        },
+        detail: 'context trimming invalidated loaded tool state during the active runtime',
+      });
+    }
+    const newlyLoadedIds = previous
+      ? loadedSanitizedIds.filter((toolId) => !previous.has(toolId))
+      : loadedSanitizedIds;
+    if (newlyLoadedIds.length > 0) {
+      const newlyLoadedTools = Object.fromEntries(
+        newlyLoadedIds.map((toolId) => [toolId, toolsById[toolId]])
+      ) as ToolsInput;
+      this.onToolsLoaded?.(newlyLoadedTools);
+    }
+    this.previousLoadedByThread.set(threadId, current);
   }
 
   async getLoadedToolsForRequestContext(
@@ -366,26 +417,7 @@ export class BrainstrikeToolSearchProcessor {
         });
       }
       const threadId = typeof threadIdValue === 'string' ? threadIdValue : undefined;
-      if (threadId) {
-        const previous = this.previousLoadedByThread.get(threadId);
-        const current = new Set(loadedSanitizedIds);
-        const invalidated = previous
-          ? Array.from(previous).filter((toolId) => !current.has(toolId))
-          : [];
-        if (invalidated.length > 0) {
-          throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
-            context: {
-              invalidatedToolIds: invalidated.map(
-                (toolId) => this.toolNameMap.get(toolId) ?? toolId
-              ),
-              phase: 'context-trimming',
-              threadId,
-            },
-            detail: 'context trimming invalidated loaded tool state during the active runtime',
-          });
-        }
-        this.previousLoadedByThread.set(threadId, current);
-      }
+      this.trackLoadedTools(threadId, loadedSanitizedIds, result.tools);
 
       logger.info('Mastra tool discovery step prepared', {
         activeDefinitionCount: Object.keys(result.tools).length,

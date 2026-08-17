@@ -17,7 +17,7 @@ const mockBrowserWindowInstance = {
   isFullScreen: vi.fn(() => false),
   isMaximized: vi.fn(() => false),
   loadFile: vi.fn(),
-  loadURL: vi.fn(),
+  loadURL: vi.fn<(url: string) => Promise<void>>(),
   maximize: vi.fn(),
   on: vi.fn(),
   once: vi.fn((event: string, handler: () => void) => {
@@ -129,7 +129,7 @@ const {
     level: 'info',
     redactPaths: [],
   })),
-  createLoggerMock: vi.fn(() => ({
+  createLoggerMock: vi.fn((_scope: string) => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),
@@ -147,11 +147,19 @@ vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
   return {
     ...actual,
+    isDevEnv: isDevEnvMock,
+  };
+});
+
+vi.mock('@brainstrike/logging', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
+  return {
+    ...actual,
     applyLoggingPreferences: applyLoggingPreferencesMock,
     createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
     createLogger: createLoggerMock,
     initializeLogging: initializeLoggingMock,
-    isDevEnv: isDevEnvMock,
     LogLevel: {
       DEBUG: 'debug',
       ERROR: 'error',
@@ -161,37 +169,6 @@ vi.mock('@brainstrike/utils', async () => {
       TRACE: 'trace',
       WARN: 'warn',
     },
-  };
-});
-
-vi.mock('@brainstrike/utils/logger', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
-    '@brainstrike/utils/logger'
-  );
-  return {
-    ...actual,
-    createLogger: createLoggerMock,
-  };
-});
-
-vi.mock('@brainstrike/utils/logging-initializer', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils/logging-initializer')>(
-    '@brainstrike/utils/logging-initializer'
-  );
-  return {
-    ...actual,
-    initializeLogging: initializeLoggingMock,
-  };
-});
-
-vi.mock('@brainstrike/utils/logging-preferences', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils/logging-preferences')>(
-    '@brainstrike/utils/logging-preferences'
-  );
-  return {
-    ...actual,
-    applyLoggingPreferences: applyLoggingPreferencesMock,
-    createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
   };
 });
 
@@ -304,9 +281,7 @@ describe('window setup', () => {
     const { createWindow } = await import('../../main');
     await createWindow();
 
-    const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map(
-      (call: [string]) => call[0]
-    );
+    const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map((call) => call[0]);
     expect(attemptedUrls).toContain(DESKTOP_DEV_RENDERER_URL);
     for (const url of attemptedUrls.filter((value) => !value.includes('?mode=embedding-host'))) {
       expect(url).toBe(DESKTOP_DEV_RENDERER_URL);

@@ -1,15 +1,15 @@
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import type {
   IndexingActivitySnapshot,
   IndexingManagedCollectionStatsState,
-} from '@brainstrike/preferences/stores/indexing-activity-store';
-import { useIndexingActivityStore } from '@brainstrike/preferences/stores/indexing-activity-store';
+} from '@brainstrike/app-state/stores/indexing-activity-store';
+import { useIndexingActivityStore } from '@brainstrike/app-state/stores/indexing-activity-store';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
   shouldShowWorkspaceCollectionSyncPauseControl,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-helpers';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   Accordion,
   AccordionContent,
@@ -138,6 +138,12 @@ function getDisplayStatus(args: {
       toneClassName: 'text-sky-800 dark:text-sky-300',
       value: formatSnapshotActivity(snapshot),
     };
+  }
+  // BST-1335: no root selected yet is unconfigured, not an error — must not
+  // fall through to the "Ready" default below, which would misreport a fresh,
+  // unconfigured setup as fully synced.
+  if (syncStatus.state === 'unconfigured') {
+    return { busy: false, toneClassName: 'text-muted-foreground', value: 'No root selected' };
   }
   if (snapshot.status === 'unavailable') {
     return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };

@@ -11,10 +11,8 @@ import { act, render } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import OptimizedFileTree, {
-  fileTreeTelemetry,
-  resetFileTreeTelemetry,
-} from '../tree/optimized-file-tree';
+import { fileTreeTelemetry, resetFileTreeTelemetry } from '../tree/file-tree-telemetry-counters';
+import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 type FileExplorerStore = ReturnType<typeof useFileExplorerStoreContext>;

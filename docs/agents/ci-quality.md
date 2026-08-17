@@ -27,32 +27,194 @@ Rules:
   a pass-on-retry is evidence of a defect, not a green required check.
 - Full web and desktop E2E regression runs on `schedule` or explicit
   `workflow_dispatch`.
-- Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
+- Pushes to `main` run static, unit, build, web smoke, and desktop smoke. A
+  failing static/unit/build verdict there opens a `main-broken` tracking issue,
+  and the next all-green push closes it — see "A red `main` announces itself"
+  below.
 
-### The package-boundary gate runs first in Static (BST-967)
+### Open PR to Linear conformance (BST-521)
 
-The `Static` job runs `pnpm exec turbo boundaries` as its first substantive
-step (right after the secret scan), and the ORDERING is the invariant, not a
-style choice: the analyzer scans build output as well as source, so any step
-that materializes `dist/` before it — `type-check` (whose turbo task
-`dependsOn: ["build"]`), any `pnpm build`/`pnpm --filter X build`, or a cache
-restore of real build outputs — reintroduces phantom violations from stale
-artifacts (observed live: `dist/turso/*` files from an unmerged branch flagged
-a dependency no source on `main` imports). On the fresh checkout the step sees,
-a non-zero exit means a REAL source violation.
+Every human-authored pull request description must contain a Brainstrike issue
+reference in the exact `BST-###` form. A title-only reference is insufficient:
+the description is the durable review handoff and should retain either the
+identifier or a Linear issue URL containing it. Run `pnpm check:pr-linear` to
+inspect every open PR. The command reports each missing PR number, title, URL,
+and suggested action, but exits successfully after findings because this is an
+advisory rollout; GitHub/API failures and malformed responses fail visibly.
+The script is read-only and never comments on or edits PRs. Dependabot and
+Renovate PRs are the only exclusions; human maintenance work still requires a
+tracker. PRs whose author account has been deleted remain in scope rather than
+aborting the audit. `.github/PULL_REQUEST_TEMPLATE.md` prompts authors for the
+required reference before they write the summary.
+
+Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
+scheduled workflow exactly. `memory-baseline` skips the unrelated broad
+regression job and runs only the desktop embedding memory spec with no
+max-failure truncation. Use the narrow mode for controlled, sequential
+same-head memory calibration runs; it is evidence collection, not a way to
+replace or route required PR checks.
+
+### Desktop Electron provisioning (BST-563)
+
+The Desktop E2E smoke job in `test.yml` and both regression jobs in
+`desktop-e2e.yml` download Electron directly from GitHub Releases and extract
+it immediately before launch. Electron 43 declares no install lifecycle;
+`install.js` is exposed only as the `install-electron` bin, so `pnpm install`
+does not provision the executable or populate `~/.cache/electron`. The former
+version lookup and Actions cache steps therefore persisted an unused path. Each
+download uses `${RUNNER_TEMP:-/tmp}/electron.zip`; the fallback is required
+because a future `container:` job may not define `RUNNER_TEMP`. The paired
+`desktop-electron-provisioning-contract.test.mjs` keeps all three sites aligned,
+pins the no-lifecycle premise, requires all three jobs to use the shared
+`setup-workspace` action, and fails if the unused cache or raw `RUNNER_TEMP`
+path returns.
+
+Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
+each `webContents.getOSProcessId()`. Electron 43 does not expose the older
+`webContents.getProcessMemoryInfo()` API on the CI runner; treating that
+absence as zero made the large-collection thresholds vacuous. Missing PID
+metrics now fail visibly. The older API remains optional only for its private
+and shared-memory diagnostics.
+
+The 50k collection and 50k file-list ceilings are calibrated, not inherited
+from the older Collection Browser measurement window. On 2026-08-11, three
+sequential `memory-baseline` dispatches at exact head `3d3209242` produced:
+
+| Scenario | Visible heap growth (MB) | Visible working-set growth (MB) |
+| --- | --- | --- |
+| 5k files / 50k chunks | `0.0`, `0.0`, `0.0` | `-3.5`, `-3.6`, `-4.1` |
+| 50k-file source-paginated list | `0.0`, `0.0`, `0.0` | `-4.7`, `-74.2`, `-77.3` |
+
+The paired heap and working-set limits are therefore positive floors of 16 MB
+and 32 MB. Those floors preserve 16 MB of heap noise headroom and at least
+35 MB of working-set headroom over the largest observed deltas while still
+failing a material full-collection hydration. Calibration evidence is in
+workflow runs `31458099061`, `31458469270`, and `31459112520`; replace this
+table and re-run three sequential same-head samples when changing the fixture,
+measurement window, or process-memory source.
+
+The AI Tools settings specs are deliberately part of both required PR smoke
+lanes. Their tool category/loading-tier assertions follow the shared assistant
+contract and previously drifted while every PR check stayed green. Web selects
+`settings-tools-and-diagnostics.test.ts` through its suite-level `@web-smoke`
+tag; desktop requires both the suite-level `@smoke` tag and the explicit
+`tools-settings.desktop.test.ts` allowlist entry. Both suites also remain in
+nightly regression: the web broad pass includes the suite, while desktop's
+regression project excludes `@smoke` and therefore chains the dedicated
+`test:e2e:lane:tools-settings-nightly` lane after its broad pass. That lane has a
+two-minute Playwright budget, and the scheduled workflow has a 40-minute job
+budget (30-minute broad cap plus lane and setup/build headroom). The measured
+incremental local cost when this ruling was made was about 5 seconds for web and
+28 seconds for desktop; the first Linux CI run after admission completed the
+entire desktop smoke step in 149 seconds against its 300-second Playwright
+budget. `ai-tools-e2e-pr-gate-contract.test.mjs` verifies every title has
+statically resolved tags, the desktop file remains PR-allowlisted and
+nightly-routed, and the pull-request E2E jobs still invoke both smoke scripts
+without PR-excluding conditions.
+
+### Development startup ordering (BST-1168)
+
+Root `pnpm dev` has a two-phase lifecycle: root `predev` synchronously prepares
+the complete app dependency graph, then the root `dev` wrapper marks the outer
+Turbo graph with `BRAINSTRIKE_DEV_DEPS_PREPARED=1`. Web and desktop `predev`
+hooks may skip their standalone preparation only when both `TURBO_HASH` and
+that explicit marker are present. A bare `turbo run dev` has no marker and must
+fail closed with guidance to use `pnpm dev`; it must never start nested builds
+beside persistent watchers. Direct package-level web or desktop `pnpm dev`
+invocations have no `TURBO_HASH`, so they still prepare dependencies
+synchronously. Do not replace this ordering with sleeps, polling, or `dist`
+existence sentinels.
+
+### The package-boundary gate (BST-967)
+
+The `Static` job runs `pnpm run boundaries` as its first substantive step
+(right after the secret scan). That script, `scripts/turbo-boundaries.mjs`,
+runs the real `turbo boundaries` and then judges only the findings in files
+git does not ignore.
+
+**Why the wrapper exists.** The analyzer walks every package directory and its
+only exclusion is `node_modules/**`: it reads `dist/` and every other emitted
+output, and it does not consult `.gitignore`. There is no way to narrow the
+walk — no CLI flag, no `turbo.json` key, no `.turboignore` — verified against
+turbo 2.10.8, 2.10.10, and 2.10.11-canary.3 (`--ignore` only offers to WRITE
+`@boundaries-ignore` comments into the files it scanned, which is useless for
+output regenerated on every build). Recheck that on the next Turbo bump — if
+the walk becomes configurable, the wrapper should shrink to that config. So
+the raw command is not idempotent on a developer machine: green on a clean
+tree, then red on the identical tree once anything has built, over files
+nobody wrote — `dist/turso/*` from an unmerged branch flagging a dependency no
+source on `main` imports; `apps/web/dist/assets/chunking.worker-*.ts` flagged
+for `@brainstrike/tokenization`. CI never saw it (fresh checkout, and the
+ordering below), which is exactly what let it sit.
+
+**Why git decides.** A hardcoded list of output directories would drift, and
+turbo's own `outputs` cannot serve as one: `packages/config` declares
+`tsconfig/**`, `biome/**`, and `tailwind/**` as build outputs and those are
+SOURCE. `git check-ignore` is index-aware, so a checked-in file is judged even
+if it matches an ignore pattern, and an uncommitted source file is judged too.
+That index-awareness is also what keeps this safe as a CI gate: on the fresh
+checkout Static runs against, every file a PR touches is TRACKED, so no
+contributor can suppress a finding by adding a `.gitignore` entry — the gate
+filters generated output, never repository content.
+Suppression applies ONLY to a finding whose file git confirms is ignored;
+everything else fails the gate, including a diagnostic with no file location, a
+turbo issue count the parser cannot account for, and git itself erroring. One
+stated local-vs-CI difference: personal excludes (`~/.config/git/ignore`,
+`.git/info/exclude`) count as ignored locally, so CI stays the stricter side.
+
+**The ordering is now about cost, not correctness.** Keep the step ahead of
+anything that materializes `dist/` — `type-check` (whose turbo task
+`dependsOn: ["build"]`), any `pnpm build`, or a cache restore of real build
+outputs — because a clean tree is roughly half the files to scan (~4,000 vs
+~8,000 here). It is no longer what makes the verdict trustworthy.
 
 Deliberate crossings carry inline `// @boundaries-ignore <reason>` comments at
 the import site. The contract tests in
 `scripts/__tests__/turbo-boundaries-gate.test.mjs` keep all of this honest:
 they prove the gate can fail (fixture workspace with a violation → non-zero
-exit, clean fixture → zero), assert the Static step stays ordered before any
-dist-producing step, and require every ignore comment to carry a substantive
-reason. Division of labor with the custom checker:
+exit, clean fixture → zero), that a violation living only in git-ignored build
+output passes while raw `turbo boundaries` on the same fixture fails, that
+build output cannot MASK a source violation, that a TRACKED file under `dist/`
+is still judged, assert the Static step stays ordered before any dist-producing
+step, and require every ignore comment to carry a substantive reason. Division
+of labor with the custom checker:
 `architecture-domain-boundaries.mjs` owns cross-DOMAIN direction rules; `turbo
 boundaries` owns package-escaping imports and undeclared dependencies. Known
 blind spots (tracked, not solved here): CLI-flag dependencies such as the
 coverage provider (BST-1017) and non-import reaches via `fileURLToPath` are
 invisible to the analyzer.
+
+The analyzer's reach widens across Turbo patch releases, so a Turbo bump can
+surface a pre-existing crossing with no source change: 2.10.8 reports
+`packages/chunking-worker/bench/tree-sitter-cost.mjs`'s relative
+`../../text-splitter/src/index.ts` dynamic import, which 2.10.5 did not (same
+tree, same 3705 files / 50 packages — 2.10.5 clean, 2.10.8 one issue). That one
+is annotated, not rewritten: the bench must measure current text-splitter
+SOURCE, and `@brainstrike/text-splitter` exports only `./dist`, so the package
+specifier would silently benchmark a stale build. Expect to triage new findings
+this way on the next bump rather than assuming the tree regressed.
+
+### App test-tsconfig programs (`tsconfig.test.json`)
+
+`apps/web` and `apps/desktop` type-check their test files through a dedicated
+`tsconfig.test.json` in the `type-check` chain. Both set `"paths": {}` so
+workspace deps resolve to built `dist` declarations (each produced under its
+own package's tsconfig) instead of recompiling foreign sources under the app's
+ambient shims. Two consequences to keep in mind:
+
+- `type-check:test` needs deps built first. Turbo's `type-check` task
+  (`dependsOn: ["build"]`) covers CI and `pnpm type-check`; a bare
+  `pnpm --filter <app> type-check` in a fresh clone will not have `dist/`.
+- The app's production `src` files reached from tests are checked TWICE under
+  two different resolution graphs (src-paths in the main program, dist in the
+  test program), so `type-check:main` passing does not imply `type-check:test`
+  passes on the same file. Desktop additionally excludes its renderer-only
+  PGlite shims (`src/types/pglite*.d.ts`) from the test program — an ambient
+  `declare module` would otherwise shadow the real `@electric-sql/pglite`
+  types for everything the tests pull in. The test programs also set
+  `declaration: false`: a `noEmit` program never emits d.ts, and inheriting
+  `declaration: true` makes exported `vi.fn()` mocks fail TS2883 portability
+  checks that vary with pnpm store layout.
 
 ### Vercel Preview is advisory
 
@@ -145,20 +307,189 @@ cancelled. `Test` represented roughly 92% of the modeled Actions bill. Paying
 about $0.004 to hold a PR head for two minutes is materially cheaper than
 starting the full fan-out during edit/push bursts.
 
-### Biome pinned at 2.5.2 — do NOT bump to 2.5.3/2.5.4 (2026-07-18)
+### A red `main` announces itself (BST-1301)
 
-`@biomejs/biome` is pinned to exactly 2.5.2 (root + `apps/web`). Biome
-2.5.3/2.5.4 hit a module-graph panic (`module_resolver.rs:500:33`,
-"index out of bounds") **deterministically 39 times** on this codebase —
-triggered by `nursery/noFloatingPromises` resolving cross-module callback
-return types (upstream biomejs/biome#10963, same class as #10885/#10940).
-2.5.2 contains the same panic site but only hits it via a rare
-scheduling-dependent race (#10953); if `pnpm run lint` ever spews these
-panics on 2.5.2, just re-run (or `RAYON_NUM_THREADS=1` as a one-off).
-The real fix is upstream commit `e62f6b6` (2026-07-16, unreleased as of
-2.5.4). Bump only to a release containing it, and verify with
-`pnpm exec biome check .` (zero "Biome encountered an unexpected error")
-before landing.
+`main` broke twice on 2026-08-15, and both times the only reason anyone found
+out was an unrelated PR tripping over it hours later:
+
+| Run | Failing step | Cause |
+| --- | --- | --- |
+| `31872259629`, `31872457744` | `Static` › `Lint` | `noUnsafeOptionalChaining` in `packages/app-shell/.../workspace-snapshot-io.test.ts` (#2437) |
+| `31894054632` | `Static` › `Lint` | formatter drift on `it.each` in `packages/file-system/src/__tests__/path-validation.test.ts` (#2440), fixed by #2452 |
+
+**The gate was never missing.** `test.yml` has always subscribed to
+`push: branches: [main]`, so Static/Unit/Build evaluate every merged commit,
+and all three runs above failed correctly. What did not exist was anyone being
+told — the red run sat in the Actions tab while every branch inherited the
+breakage.
+
+The mechanism is toolchain drift. A PR's CI judges it under the
+linter/formatter **on its base at the time that run happened**. Both PRs above
+were authored and went green under Biome 2.5.2, then merged after #2447 landed
+2.5.8, which narrowed one rule and changed one formatting decision. Nothing
+re-checks an already-approved PR against the post-merge toolchain, so the
+verdict goes quietly stale and the failure materialises for the first time on
+`main` — where it blocks every branch and looks unrelated to whoever hits it
+next. The same shape applies to any bump that can change a verdict: Biome,
+ESLint, TypeScript, or a lint-rule guard script.
+
+`test.yml`'s `notify-main-failure` job closes the reporting half. It fans in
+from `static`, `unit` and `build`; when any of them reports `failure` on a
+`push`, it opens (or comments on) a single `main-broken` tracking issue naming
+the failed checks, the commit, the run, and the toolchain-drift hypothesis to
+check first. Its sibling `notify-main-recovery` closes that issue on the next
+push where all three are green.
+
+#### The scope line is required-check status, not "important lanes"
+
+The ruleset requires exactly **Static, Unit, Build, Web E2E and Desktop E2E**.
+Those five are the only checks that can block *every* branch, which is the
+everyone-trips-over-it breakage class this job targets — so required-check
+status, not perceived importance, is where the line is drawn. The two E2E lanes
+are then excluded on a **second, independent** ground: they are the documented
+flaky-headless class, and a canary that cries wolf gets muted, which is the
+exact failure this job exists to prevent. Persistent E2E breakage is still
+caught within 24h by the scheduled notifiers in `web-e2e.yml` /
+`desktop-e2e.yml`.
+
+That leaves `Browser tests`, `Native Windows` and `Native Electron Package`,
+which also run on pushes to `main` and are also **not** notified. Not on
+flakiness grounds — `browser-tests` "must first prove itself deterministic"
+per its own header, which makes it *pending*, not excluded — but because none
+of them is a required check. A red one does not block anyone else's branch, so
+it is not this job's class of problem. If any of them is ever promoted into the
+ruleset, it belongs in the notifier's `needs:` at the same time.
+
+#### `== 'failure'` is necessary but NOT sufficient — `!cancelled()` is what makes cancelled runs silent
+
+This was previously documented the other way round, and the claim was wrong.
+`needs.<job>.result == 'failure'` does **not** by itself mean "the code
+failed", because neither watched job is a leaf verdict:
+
+- every admission-gated job (`static`, `build`, `unit-shard`, …) opens with a
+  `Require successful admission` step that `exit 1`s whenever
+  `needs.admission.result != 'success'`; and
+- `unit` is a ~5-minute fan-in over the `unit-shard` matrix whose check is
+  `[ "$SHARD_RESULT" != "success" ] && exit 1` — the very `!= 'success'` shape
+  the notifier's own condition avoids.
+
+Both therefore **launder a cancelled upstream into a `failure` result**. This
+is observed, not theoretical: on runs `31903009051`, `31900478128` and
+`31900226011` (all 2026-08-15) a cancel landed while `admission` was in its
+120-second sleep, `always()` still dispatched the downstream jobs, and Static,
+Unit **and** Build all reported `failure` on a run that tested nothing. Under
+`always()` the notifier would have filed *"main is red: Static, Unit, Build
+failed"* for a cancellation. (Those three were `pull_request` events that the
+push guard would also have caught — but the mechanism is not PR-specific, and
+leaning on the push guard for it would be an accident rather than a design.)
+
+The actual guard is therefore **`if: !cancelled()`**, not `always()`: it still
+runs when a need *failed*, which is the whole point, but never when the run was
+cancelled. `== 'failure'` is retained as the necessary half.
+
+Two related properties worth knowing:
+
+- `unit`'s `!= 'success'` check is **deliberately left alone**. Its shape is a
+  branch-protection contract (`test.yml`'s fan-in comment): anything but
+  success must fail the required `Unit` check *loudly* rather than grey out the
+  merge box. Compensating in the notifier is the change that does not alter
+  what a required check reports.
+- Residual, accepted, and deliberately not suppressed: if `admission` ever
+  genuinely **fails** on a push (never yet observed), all three gated jobs
+  report `failure` and the issue body blames the code. That is loud rather than
+  silent, "all three at once" is itself the tell, and the linked run shows the
+  real cause. Gating the notifier on admission success would trade a rare
+  wrong-hypothesis issue for a silent `main` with no verdict at all.
+
+#### Green `main` closes the issue
+
+Label-keyed de-duplication was copied from the nightly notifiers, but the
+**lifecycles differ**. For `web-e2e` / `nightly-coverage` the failure recurs on
+a 24h cadence and the issue closes when fixed, so the de-duplication window is
+roughly the incident window. A red `main` is the opposite: the incident is
+typically over within the hour (force-fix or revert) while the issue stays open
+until a human closes it.
+
+Left alone, that degrades into a stale-issue trap. Incident #1 leaves an open
+issue titled `main is red: Static failed (2026-08-15)`; incident #2 three weeks
+later — a Build failure, say — would open nothing and instead append a comment
+to that mistitled, wrong-dated issue. It would never surface in triage, and
+anyone who unsubscribed from the first would hear nothing. That is the canary
+getting muted: the same failure mode the E2E exclusion above argues against.
+
+`notify-main-recovery` closes the loop, so the de-duplication window equals the
+incident window and each incident gets its own correctly-titled issue. It
+closes *every* open `main-broken` issue rather than the first, so the
+"at most one open" invariant is self-healing. Push runs on `main` share the
+concurrency group `Test-refs/heads/main` with `cancel-in-progress: false` and
+are therefore serialized, so recovery cannot race the notifier.
+
+#### Prevention is out of scope
+
+This is detection only. Requiring branches to be up to date before merge would
+stop a stale-based PR from landing in the first place, but that is a
+branch-protection setting and therefore the repo owner's call, not a workflow's.
+
+#### Constraints any change must preserve
+
+It adds **no new trigger** to `test.yml` (see `coverage.yml`'s header for why a
+new trigger here greys out the merge box), neither job is a **required status
+check**, and both stay off the Ubicloud pool, which
+`ubicloud-runner-contract.test.mjs` limits to the five measured jobs. The `gh`
+steps are reporting rather than gating, so they are listed in
+`check-ci-parity.test.mjs`'s `PROVISIONING_STEPS` — `pnpm check` must not
+mirror them, because running them locally would file and close GitHub issues.
+
+The label step uses `gh label create --force` and **no** `2>/dev/null || true`,
+unlike the four sibling notifiers. That idiom absorbs the expected "label
+already exists" and a genuine failure (token not elevated, API 5xx, org label
+restrictions) indistinguishably; since the label does not exist until the first
+red `main`, a swallowed failure on that very first run makes the next step's
+`gh issue create --label` hard-fail and nothing gets filed — reproducing the
+"red run sits unseen in the Actions tab" outcome one level up. `--force`
+PATCHes an existing label instead of erroring, so a non-zero exit means only a
+genuine failure and is allowed to be fatal, loudly and at the step that caused
+it.
+
+Contract coverage lives in
+`scripts/__tests__/main-failure-notifier-contract.test.mjs` and runs in the
+Static job through `pnpm test:scripts`. Its control tests pin all four
+properties above: dropping a watched job, reverting `!cancelled()` to
+`always()`, restoring the `|| true` suppression, or deleting the recovery job
+each make the contract fail.
+
+### Biome pinned at 2.5.8 — the 2.5.3/2.5.4 module-graph panic is fixed (2026-08-15, BST-1273)
+
+`@biomejs/biome` is pinned to exactly 2.5.8 (root + `apps/web`; the two must
+stay in lockstep). History: Biome 2.5.3/2.5.4 hit a module-graph panic
+(`module_resolver.rs:500:33`, "index out of bounds") **deterministically 39
+times** on this codebase — triggered by `nursery/noFloatingPromises` resolving
+cross-module callback return types (upstream biomejs/biome#10963, same class as
+#10885/#10940). 2.5.2 contained the same panic site but only hit it via a rare
+scheduling-dependent race (#10953). The fix is upstream commit `e62f6b6`
+(2026-07-16), released after 2.5.4.
+
+The 2.5.2 → 2.5.8 bump cleared the standing gate condition: repeated full
+`pnpm exec biome check .` runs over all 4376 files produced **zero** "Biome
+encountered an unexpected error" / panic output. Keep that verification when
+bumping again.
+
+Two things the 2.5.3–2.5.8 window changed on this repo, both already absorbed:
+- **Formatter.** `it.each([...])('title', fn)` no longer hugs the callback when
+  the call head overflows `lineWidth`, so it breaks the arguments instead. This
+  is a test-only pattern; 76 test files reformatted, net −65 lines. Two files
+  that sat exactly at the 1000-line `noExcessiveLinesPerFile` cap
+  (`packages/embedding-worker/test/streaming-worker-client.spec.ts`,
+  `packages/queue/src/__tests__/browser-workerpool.test.ts`) were pushed over
+  and were shrunk by collapsing verbose literals — the cap was NOT raised and
+  neither file was added to the `noExcessiveLinesPerFile` override list.
+- **`lint/performance/noDelete` narrowed.** It no longer fires on
+  `delete process.env['X']`, so 11 `biome-ignore` directives for it went dead
+  and were demoted to plain rationale comments. 7 other `noDelete` suppressions
+  in the repo still fire — do not bulk-remove them.
+
+`nursery/noFloatingPromises` (the repo's only error-level nursery rule)
+surfaced **no** new violations at 2.5.8.
 
 ### Static and the Unit fan-in run on arm64 (Series C R9b)
 
@@ -207,7 +538,8 @@ deliberate:
 
 - quiet-head admission remains on GitHub `ubuntu-slim`
 - Static and the Unit fan-in remain on GitHub ARM
-- all three Unit shards use one fixed Ubicloud runner class
+- all four physical Unit rows use one fixed Ubicloud runner class (two DB
+  native shards plus the heavy and rest rows)
 - Native Windows remains on GitHub Windows
 - coverage, scheduled, review, and auxiliary workflows are unchanged
 
@@ -217,6 +549,18 @@ across two exact PR heads (runs 30158896583 and 30175303301 on 2026-07-25).
 Do not route individual shards to different providers: keeping one fixed
 runner contract avoids a provider-selection layer while preserving the exact
 partition, integration concurrency, and required `Unit` fan-in.
+
+The four physical rows still form three logical package partitions:
+`db`, `heavy`, and `rest`. Only `db` repeats its Turbo package filter; its two
+rows supply `DB_TEST_SHARD=1/2` and `DB_TEST_SHARD=2/2` to the single
+`@brainstrike/db#test` invocation, whose Vitest config applies the native
+shard. The variable is appended only to the package-level DB Turbo task:
+Turbo CLI passthrough is forbidden here because it also reaches dependency
+and transit tasks. `scripts/unit-shard-partition.mjs` rejects
+missing, duplicate, mixed-count, or divergent-filter rows, so duplicating the
+DB package cannot become a double-run or an empty half silently. Do not apply
+this pattern across packages: it is valid here because DB is one package and
+one Vitest project.
 
 Do not add a provider-selection layer or an automatic GitHub fallback. An
 Ubicloud provisioning failure must queue or fail visibly; rollback is an
@@ -271,6 +615,62 @@ per PR lifecycle: it runs on non-draft `opened`, `ready_for_review`, non-draft
 `reopened`, or an explicit `coverage` label add. It does NOT run on
 `synchronize`. `nightly-coverage.yml` remains the authoritative threshold gate;
 per-PR coverage is advisory Codecov patch signal only.
+
+When DB is directly changed, the advisory workflow isolates its coverage from
+the recursive package runner. It executes the same native Vitest `1/2` + `2/2`
+shard set as required Unit and nightly coverage, sequentially on the single
+2-vCPU host, then uses `--merge-reports`. Other affected packages retain
+`--workspace-concurrency=4` and explicitly exclude DB. This boundary is
+load-bearing: run 30704747207 let DB share the host with another package and a
+10-second type-contract test timed out after 24 minutes. Do not widen that test
+or serialize every package; keep only the PGlite-heavy DB task isolated.
+
+#### The embeddings integration lane is serialized (BST-1072, settled 2026-08-01)
+
+`packages/embeddings`'s `test:integration` runs
+`--maxWorkers=1 --no-file-parallelism`, following the `apps/desktop` precedent.
+It is NOT an instance of the "don't serialize every package" rule above: that
+rule is about CPU contention, this is about **memory**.
+
+The before-state, corrected (the first version of this section claimed the lane
+ran with "no cap of any kind" on "the 2-vCPU runner"; review caught both): the
+integration config inherits `pool: 'forks'` and `maxWorkers: '50%'` from
+`vitest.config.mts`, and `Unit (rest)` runs on the 4-vCPU/16-GB Ubicloud class
+(see the `unit-shard` comment in `test.yml`), so the lane ran **2 workers** and
+the serialization is 2 → 1. The 2-vCPU figure belongs to `coverage.yml`'s
+`ubuntu-latest` host in the section above, a different workflow.
+
+The in-lane flag is also not the only concurrency knob: `test.yml` invokes
+`pnpm turbo run test:integration … --concurrency=2`, so a SECOND integration
+lane from the SAME `rest` partition (agent, web, file-import…) can share the
+box with embeddings — desktop/ui/file-explorer-ui/app-shell cannot, they run
+in the separate `heavy` matrix row. The memory accounting is therefore 2 × the
+measured **~1.9 GB RSS per worker** (real PGlite plus WASM embedding heaps)
+PLUS the co-scheduled rest-partition lane's peak, against 16 GB. Anyone
+re-measuring must hold that cross-package factor constant.
+
+**What is proven vs. plausible.** Proven: the crash is concurrency-dependent
+and not a bug in one test — the victim VARIES (across two failing runs on
+PR #2213 the file that never reported was `embedding-worker-model-resolution`
+once and `embedding-worker-batch` the other time), and the serialized lane
+passes. The worker died with `[vitest-pool]: Worker exited unexpectedly` and
+the job reported `Test Files 11 passed (12)` — the twelfth file never reported
+at all. Supporting the MEMORY account specifically: the crash never reproduced
+on a developer Mac (74/74) even though a Mac runs `maxWorkers: '100%'` —
+strictly MORE concurrent workers than CI's 2 — with far more RAM, so worker
+count alone does not produce the crash; available memory does. NOT directly
+observed: the precise ceiling that killed the worker. Memory pressure from two
+workers plus a co-scheduled lane is the best-supported account, not a captured
+OOM kill.
+
+It surfaced on any PR marking embeddings as AFFECTED — which includes editing a
+widely-depended-on package such as `assistant-contract`, not just root config —
+so it repeatedly failed the required `Unit` check for changes that touch no
+embeddings code (5 of 6 observed runs).
+
+Do not remove these flags to speed the lane up without first re-measuring peak
+RSS against the runner's 16 GB with the turbo `--concurrency=2` co-lane held
+constant.
 
 #### Codecov statuses are non-gating (settled 2026-07-26 — do not relitigate)
 
@@ -330,17 +730,22 @@ effective config.
 context must be added to the ruleset. Doing one without the other re-creates the
 contradiction.
 
-Nightly package coverage uses six static GitHub Actions matrix shards plus a
-separate DB job. Five package shards isolate the measured heavyweight lanes;
-the sixth is a negative-filter remainder, so a new package with a
-`test:coverage` task is covered automatically instead of requiring registry
-maintenance. Each job uploads its raw JSON in a tar archive. The final
-`coverage` job fails closed unless all seven archives are present, restores
-them into one workspace, and is the only job that runs
+Nightly package coverage uses six static GitHub Actions matrix shards plus two
+native Vitest DB shards and a DB merge job. Five package shards isolate the
+measured heavyweight lanes; the sixth is a negative-filter remainder, so a new
+package with a `test:coverage` task is covered automatically instead of
+requiring registry maintenance. Each DB row uploads Vitest's blob report under
+its native `1/2` or `2/2` identity. The merge job requires exactly two blobs,
+runs Vitest's own `--merge-reports` coverage union, and uploads one DB JSON tar
+archive. The final `coverage` job still fails closed unless all seven package
+archives (six general plus the one natively merged DB archive) are present,
+restores them into one workspace, and is the only job that runs
 `coverage:prepare-workspace`, `coverage:enforce`, the merged report, and
-Codecov. Do not replace this with a generated planner or raise the original
-shared timeout: the split preserves one authoritative threshold decision while
-giving slow packages independent failure and timeout domains.
+Codecov. Each shard emits its blob plus a text summary; it does not render the
+unused HTML/Clover report tree. Do not replace this with a generated planner
+or raise the original shared timeout: the split preserves one authoritative
+threshold decision while giving slow packages independent failure and timeout
+domains.
 
 Native packages may retain a `test:coverage` alias that deliberately runs their
 real addon tests without instrumentation. The artifact-completeness check
@@ -384,8 +789,8 @@ CI whose divergences were silent:
   `pnpm -r --filter '!@brainstrike/db' --filter '!@brainstrike/embeddings' run test:coverage`.
   **A green `pnpm check` had never run `packages/db`** — the largest suite in
   the repo and the one turbo task that can never be replayed from a cache hit.
-- It omitted four Static gates: `pnpm secrets:scan`, `pnpm exec turbo
-  boundaries`, the two db lane checks, and **`pnpm test:scripts`** — i.e. the
+- It omitted three Static gates: `pnpm secrets:scan`, `pnpm exec turbo
+  boundaries`, and **`pnpm test:scripts`** — i.e. the
   gate that runs the guard-script tests did not run in the local gate that
   guard scripts exist to protect (BST-836 again, one level up).
 - `lint-all` = `pnpm lint && pnpm format`, which **writes** (`biome check .
@@ -422,6 +827,70 @@ survive future edits:
   `packages/vector-management`'s base vitest config switches on a 70% line
   threshold when `CI === 'true'`. It belongs to the four Playwright
   invocations and nowhere else; the parity test asserts both halves.
+- **Vitest timeout parity uses `TEST_TIMEOUT_MULTIPLIER=2`, not `CI=true`.** The
+  four Unit workflow steps, Nightly Coverage's Turbo steps, root Vitest battery
+  scripts (`test`, `test:fast`, browser and coverage), and every Vitest phase of
+  `pnpm check` set the dedicated variable explicitly. Turbo declares it in the
+  unit, integration, browser and coverage task families' `env` rather than
+  `passThroughEnv`: timeouts can change pass/fail, so the value must be part of
+  the cache key and must not disappear in strict environment mode. Using `2`
+  everywhere preserves cache sharing between official PR and push paths while
+  avoiding CI-conditioned coverage changes locally. The cacheable `test` task
+  also hashes `CI` itself: CI changes Vitest worker counts and some package
+  coverage workloads, so replaying a local green under CI would be unsound even
+  with the same timeout multiplier. Direct package/editor invocations
+  intentionally retain the unscaled base unless the caller opts into
+  `TEST_TIMEOUT_MULTIPLIER=2`; that keeps isolated iteration honest while
+  allowing a contention-bearing run to request the gate policy explicitly.
+  `getTimeoutMultiplier()` gives the explicit variable precedence, accepts only
+  a positive plain decimal no greater than 10, and throws on malformed or
+  runaway values; with no explicit value, the existing CI=2 and DEBUG=5
+  defaults remain. That validation contract applies where Vitest timeout policy
+  is consumed; native `node --test` tasks do not read this setting and are not
+  silently choosing a fallback timeout from it.
+- **The multiplier also governs `@testing-library/dom`'s async utilities**
+  (`waitFor`, `findBy*`), not only explicit Vitest timeouts (BST-1299). That
+  budget lives in library module state, so `configure({ asyncUtilTimeout })` is
+  the only way to set it and it must run in the test runtime — a Vitest setup
+  file, never Vitest config. The base stays the library's own 1000ms, so an
+  unscaled lane behaves exactly as before and a genuinely hung `waitFor` still
+  fails fast; `getAsyncUtilTimeout()` in `@brainstrike/test-utils` applies the
+  multiplier on top. **Every lane whose tests call `waitFor`/`findBy*` must load
+  one of the two timeout setups** — there is no lane that legitimately opts out
+  and still uses the async utilities. Node lanes on the shared `vitest.setup`
+  get it for free (it side-effect-imports `vitest.timeouts.setup`); lanes that
+  deliberately run without the shared setup load
+  `@brainstrike/test-utils/vitest.timeouts.setup` directly, which is hook-free
+  precisely so they can (`packages/settings-ui` and `packages/app-state`, which
+  want none of the shared `beforeEach`/`afterEach` hooks, and `packages/db`,
+  whose own `vitest.setup.ts` imports it). The browser lane cannot use either
+  (`process` does not exist in the page, and the shared setup imports
+  `node:buffer`), so `createBrowserProject` takes a REQUIRED `asyncUtilTimeout`,
+  publishes it via `test.provide`, and `vitest.browser.setup` `inject`s it —
+  required rather than defaulted because a browser project silently inheriting
+  an unscalable 1s budget is precisely the defect. `setupFiles` is required and
+  caller-owned for the same reason twice over: `@brainstrike/config` is
+  `tooling` and may depend on nothing (a hard-coded
+  `'@brainstrike/test-utils/…'` string is that dependency, merely invisible to
+  the domain-boundary contract because it is not an `import`), and a factory
+  default would be silently droppable by the `{ ...browserProject.test }` spread
+  every consumer writes. The factory also derives `testTimeout` as 5x that
+  budget — the ratio Vitest's and @testing-library's defaults happened to have —
+  so a failing `waitFor` always reports its last assertion instead of being cut
+  short by a bare Vitest timeout. Browser projects that build their own config
+  instead of calling `createBrowserProject` (`packages/db`, `packages/storage`)
+  use no @testing-library in their browser suites and are deliberately left out.
+  Paired tests:
+  `packages/test-utils/src/__tests__/testing-library-timeouts.test.ts`,
+  `packages/config/__tests__/vitest-browser.test.ts`, and one
+  `async-util-timeout-wiring.browser.test.ts` per browser lane
+  (`packages/assistant-ui`, `packages/ui`) built on the shared
+  `registerAsyncUtilTimeoutProof`. That proof times a real failing `waitFor`
+  against the configured budget — the one assertion a duplicated
+  @testing-library/dom instance cannot satisfy — and it is per-lane on purpose:
+  the duplicate is created by an individual lane's Vite dependency optimizer, so
+  a lane with a hand-curated `optimizeDeps.include` (both of these) must list
+  `@testing-library/dom` and prove the result itself.
 - **`--full` is additive**, not a swap: the required-check mirror plus
   `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
   `--fast` drops only the lanes CI fans out to separate runners (Browser tests,
@@ -495,10 +964,14 @@ decision. The arguments that actually carry a contract are asserted
 individually, read live from the workflow: the Unit lanes' `--concurrency=4`
 and `--concurrency=2`, and Build's `--continue=dependencies-successful`.
 
-Local-vs-CI difference that is stated rather than hidden: `turbo boundaries`
-scans build output as well as source and CI runs it on a checkout with no
-`dist/`, so a stale local artifact can produce a phantom violation. That is a
-loud failure — `pnpm clean` and re-run before treating it as a real finding.
+Local-vs-CI difference that is stated rather than hidden: the boundary gate
+(`pnpm run boundaries`) treats git-ignored files as generated rather than
+source, and a developer's personal excludes (`~/.config/git/ignore`,
+`.git/info/exclude`) count locally while CI's checkout has neither — so CI is
+the stricter side. This used to read the other way round, that a stale local
+`dist/` could produce a phantom violation the clean CI checkout never saw;
+scoping the verdict to non-ignored files removed that difference, and with it
+the `pnpm clean`-and-rerun ritual. See the BST-967 section above.
 
 ### Guard-script entrypoint contract (BST-836)
 
@@ -532,6 +1005,108 @@ tree than CI is a second, weaker verdict wearing the same name).
 shape exceptions: each inspects a build artifact, so it takes a bundle
 `directory` instead of a repo root.
 
+### Desktop E2E process-exit guard (BST-1087)
+
+Desktop E2E fixture teardown is a correctness boundary, not cleanup-only.
+Every process launched by `ElectronHarness` is registered with
+`ElectronProcessExitGuard`. Any exit before the fixture begins intentional
+close fails the owning Playwright test with the recorded code and signal, even
+when the test body already passed. Once intentional close begins, both graceful
+exit and the harness's bounded forced-termination path are accepted. Before
+marking a close intentional, the guard checks the child process's recorded exit
+state so a reaped process cannot be misclassified while its Node `exit` event is
+still pending. The anti-vacuity floor applies after a context successfully
+launches; a skipped test or a launch that already threw is not replaced by a
+fixture-teardown error. Restart uses the same close/guard path and must surface
+close failures; if close and process health both fail, both errors are retained.
+Do not restore the former warn-and-relaunch behavior.
+
+**A harness-owned app may only be closed through the harness.** Tests that seed
+on-disk userData (`electron-storage.json`) need the app down mid-test so no
+process owns the file; they must call `ElectronHarness.closeForStateSeeding()`,
+never `closeElectronApp(context)` directly. An out-of-band close is invisible to
+the guard, so the process's exit is recorded as unexpected and the *next*
+`restart()` fails the test — with `signal=SIGKILL`, which is just Playwright
+reaping the child after `app.close()`, plus a `TypeError` reading `_object` from
+the already-disposed `ElectronApplication`. That combination is a lifecycle-bypass
+signature, not a crash, not memory pressure, and not an orphaned process: read it
+as "somebody closed the app behind the harness's back". All ten
+`file-explorer-selection-restore.desktop.test.ts` specs failed this way the
+moment the desktop lane started loading again. Whether the failure surfaces as
+the bare guard error or as an `AggregateError` pairing it with the `_object`
+`TypeError` depends on whether Playwright has disposed the `ElectronApplication`
+yet — that run produced 7 of the latter and 3 of the former; both mean the same
+thing.
+
+The seeding helpers take `SeedableElectronHarness`, whose required
+`closeForStateSeeding` puts the guarded path in reach at every seeding call site.
+The type does not *prevent* an out-of-band close — `ensureContext()` still hands
+back the `ElectronApplication` — so this stays a convention backed by the paired
+test, not a compiler guarantee. `file-explorer-selection.shared.ts` deliberately
+does not re-export `loadElectronHelpers`, so the module that states the rule does
+not also hand out `closeElectronApp`. Specs that launch their own Electron app
+(`launchElectronDevAppInTest`) are unaffected — the harness never observes those
+processes. Paired test:
+`apps/desktop/src/__tests__/electron-harness-state-seeding.test.ts`.
+
+### E2E module-format contract (BST-1217)
+
+`scripts/e2e-module-format-contract.mjs` (paired test:
+`scripts/__tests__/e2e-module-format-contract.test.mjs`, run in the Static job
+via `pnpm test:scripts`) holds the module format of both Playwright graphs.
+
+Playwright picks a format per file from the nearest `package.json` `type`
+(`transform/esmLoader.js`: `isRequire ? 'commonjs' : fileIsModule(filename) ?
+'module' : 'commonjs'`). `apps/desktop` and `apps/web` are deliberately
+CommonJS — Electron main, electron-builder and the vite configs depend on it —
+so once BST-1014 moved the shared libraries to ESM-only `tsc -b` emit, every
+spec was CommonJS and every ESM-only library it reached was force-transpiled.
+`import.meta` cannot be represented in CommonJS (this took desktop spec
+collection to *0 tests in 0 files* for over a month), and `export *` becomes a
+runtime getter loop that cjs-module-lexer cannot see through, so static named
+imports of re-exported bindings fail to link. A dynamic `import()` avoids that
+specific named-export linking failure, which is what made it look selective;
+it does not make `import.meta` or a CommonJS `require()` of an ESM-only package
+safe.
+
+Three assertions, over every `apps/*/e2e` directory that holds specs:
+
+1. **The graph is ESM.** The nearest manifest must declare `"type": "module"` —
+   that is `apps/desktop/e2e/package.json` and `apps/web/e2e/package.json`,
+   neither of which is a workspace member (`pnpm-workspace.yaml` globs
+   `apps/*`, not `apps/*/e2e`).
+2. **The Playwright config shares that format.** Both configs are
+   `playwright.config.mts`, ESM by extension regardless of the app manifest. A
+   CommonJS config that imports a workspace library pulls it in through
+   `require`, forcing a CommonJS transform that then collides with any spec's
+   static import of the same library. This was live: web's config imported
+   `parsePositiveIntegerConfig` from `@brainstrike/platform-utils`, and removing
+   only that one import made the whole web suite collect again.
+3. **Runtime escaping imports stay CommonJS-safe.** A static runtime relative
+   import that leaves an e2e root lands under the app's CommonJS manifest, so it
+   is transpiled inside an otherwise-ESM graph. The contract walks that target's
+   complete static relative-import graph, with cycle protection, stopping when
+   it reaches an ESM manifest or re-enters an e2e root. Every CommonJS node must
+   contain no bare runtime dependency, no `export *`, and no `import.meta`.
+   Statement-level type-only imports do not create a runtime crossing and are
+   ignored; inline type modifiers are conservatively inspected. Today the only
+   crossing is desktop's `../../src/desktop-renderer-config`, an import-free
+   resolver leaf; web's apparent `web-e2e-test-hooks` edges are type-only.
+
+   This third assertion closes the Linux failure BST-1226 exposed after the
+   initial BST-1217 repair: `desktop-renderer-url.ts` was lexer-safe itself but
+   statically imported ESM-only `@brainstrike/logging`, so Node 24.18 tried to
+   require `packages/logging/dist/index.js` from the CommonJS-transpiled target
+   and Playwright collected zero tests. Main keeps the logging adapter in
+   `desktop-renderer-url.ts`; E2E imports only the shared, import-free resolver.
+
+The contract module is a **library** — importing it runs nothing. The test is
+the gate, and every real-tree assertion is paired with a synthetic control
+proving the predicate reports the defect when present. Placement in the Static
+job is deliberate: the original failure was not "the lane broke" but "the lane
+broke and nobody noticed for a week", because `desktop-e2e.yml` is
+schedule-only. Deleting either manifest fails this test in the PR-required job.
+
 ### E2E lane-coverage contract (BST-1010)
 
 `scripts/e2e-lane-coverage.mjs` (paired test:
@@ -555,7 +1130,16 @@ local embedding.
 
 Three assertions, over both apps: every `@web-*`/`@desktop-*` tag routes at
 least one title somewhere; every TEST is reachable from at least one lane; every
-lane's explicit file list names files that exist and selects a non-empty set.
+explicitly targeted `test:e2e*` package script and inline workflow lane names
+files that exist and selects a non-empty set. The third assertion intentionally
+does not claim to model broad package scripts with no file list: their default
+project selection can include suites outside this lane sweep (notably web
+performance), while targeted scripts must state `--project` so the answer is
+exact. The raw package-script floor protects discovery of the overall
+`test:e2e*` surface. A separate floor is applied to the list this assertion
+actually consumes: one explicitly targeted non-lane desktop invocation and none
+for web today. That applicable count is printed in every verdict, and the paired
+money test removes the desktop invocation and observes the floor fail.
 
 **Reachability is resolved per test title, not per spec file** (review finding on
 PR #2180). A file-granular answer marks a whole spec covered as soon as any ONE
@@ -607,10 +1191,8 @@ What holds it honest:
   scripts' real-repo verdicts are unchanged — but they are now correct for that
   shape rather than accidentally unexercised.
 - **Only CI-invoked lanes supply coverage.** A lane is CI-invoked if a scoped
-  workflow runs it or the `full-regression` `&&` chain reaches it. Desktop's
-  `db-storage`, `ipc-reset` and `runtime-hosts` lane scripts are reached by
-  nothing and therefore cannot mark a spec covered (their specs are covered by
-  full-regression's broad pass anyway).
+  workflow runs it or the `full-regression` aggregate runner references it. Detached
+  package scripts cannot mark a spec covered merely by existing.
 - **`LANE_WORKFLOW_FILES` is explicit, and that is the safe direction.** The
   `@desktop-embedding-*` lane is written inline in `desktop-e2e.yml` rather than
   as a package script, so workflows must be scanned. An inline lane in an
@@ -623,10 +1205,9 @@ What holds it honest:
   regression returning zero titles per file would leave the file count healthy
   while every reachability question went vacuous. `KNOWN_UNREACHABLE_SPECS`
   entries fail if the listed spec becomes reachable, becomes only partly dark, or
-  stops existing, so an exemption cannot rot into a permanent hole. It currently
-  holds one entry: `embedding-worker-renderer.crash-b.desktop.test.ts`, a
-  long-standing orphan (the inline embedding job's file list names crash-a but
-  not crash-b) whose fix is a one-line workflow edit.
+  stops existing, so an exemption cannot rot into a permanent hole. It is
+  currently empty after the inline desktop embedding lane adopted its former
+  crash-b orphan.
 - **The money test.** Per the BST-836 lesson below, the paired test drives the
   checker against a synthetic fixture repo carrying a planted orphan tag and
   orphan spec and asserts a non-zero exit, plus a clean control fixture, plus
@@ -636,23 +1217,28 @@ What holds it honest:
   control-tested against the pre-fix per-file logic and goes red there, which the
   other fixtures do not.
 
-**Chain position: the two rescued web lanes run LAST, deliberately.** Head
-position was tried and reverted on review. The tail-is-starved-first argument is
-real in isolation, but it loses to the budget: `web-e2e.yml` caps the job at
-`timeout-minutes: 45`, every lane restarts `webServer` from scratch
-(`reuseExistingServer: false`), and `production-csp` sets
-`test.setTimeout(180_000)` for a real local embedding. These two lanes have never
-executed in CI even once, so at the head one first-run flake blinds the eight
-downstream lanes that currently work; at the tail a failure costs only itself,
-and they run 0% of the time today, so tail is still a strict improvement.
-Revisit once they have a green track record. The position is pinned by a test
-whose message carries this reasoning.
+**Full-regression execution is fail-late, not shell-short-circuited (BST-1059).**
+`apps/web` names the broad pass and ten serialized stateful/destructive lanes as
+separate package scripts. `scripts/run-e2e-lane-sequence.mjs` invokes every one,
+records each result, and exits non-zero after the final lane if any failed. A
+failure in the broad or middle lanes therefore cannot starve tail lanes. The
+runner also appends a unique `--output=test-results/<lane>` argument to every
+Playwright invocation; later lanes may clean their own subdirectory but cannot
+erase an earlier failure's traces, and the workflow uploads the parent
+`test-results/` tree recursively.
 
-**What a green does NOT prove:** that a spec ran. `full-regression` is an
-`&&`-sequential chain, so a failing lane short-circuits every lane after it —
-the BST-1032 blind-window class. A spec at the tail of that chain is statically
-"covered" while never executing. That is why the two rescued lanes are chained
-FIRST. Detecting non-execution needs a run-artifact diff and is out of scope.
+The workflow remains bounded: lane-level Playwright global timeouts total 130
+minutes, eleven fresh web-server starts are capped at one minute each, and
+`web-e2e.yml` allows 165 minutes total, leaving 24 minutes for install/build
+overhead. Do not replace the runner with an `&&` chain or reduce the workflow
+timeout below the aggregate lane and startup budgets. The runner contract test
+derives that inequality from every invoked lane's declared timeout and the
+job-scoped workflow timeout.
+
+**What a green does NOT prove:** that an externally cancelled or job-timed-out
+run completed. The aggregate runner closes the ordinary lane-failure blind
+window and prints per-lane START/PASS/FAIL plus a final failure summary, but a
+static reachability verdict is not a run-artifact audit.
 
 ### The `__vitest_worker__` mutation guard (was: @vitest/runner teardown patch)
 
@@ -730,8 +1316,10 @@ removing it. `topo` hashes the FULL default inputs (no test-file exclusions —
 "never imported cross-package", so narrowing was reviewed out as a stale-green
 vector; test-only over-invalidation is the cheaper failure mode). Explicit build edges survive in per-package
 `turbo.json` where a test genuinely consumes a built artifact:
-`@brainstrike/utils#test` needs its own `build` (logger-dist-singleton test
-imports utils' `dist` by file URL); `@brainstrike/db#test`/`#test:coverage`
+`@brainstrike/logging#test` needs its own `build` (logger-dist-singleton test
+imports logging's `dist` by file URL); `@brainstrike/utils#test` needs its own
+`build` (typescript-build-contract test inspects emitted files);
+`@brainstrike/db#test`/`#test:coverage`
 need `@brainstrike/utils#build` (migration-runner-types test's nested
 `ts.createProgram` resolves utils types from `dist` — vitest aliases can't
 intercept tsc); `@brainstrike/secure-fs-native#test`/`#test:coverage` need
@@ -757,8 +1345,9 @@ lane of a native package.
 Because these lanes no longer build inline, invoking them OUTSIDE turbo and
 without a prior build (`pnpm --filter @brainstrike/secure-fs-native test`, or a
 bare `pnpm test:fast` / `test:coverage:base`, which use recursive `pnpm -r`
-rather than turbo) finds no addon. This matches `@brainstrike/utils`, whose
-dist-singleton tests fail the same way without a prior build, and the `check.mjs`
+rather than turbo) finds no addon. This matches `@brainstrike/logging` and
+`@brainstrike/utils`, whose built-artifact tests fail the same way without a
+prior build, and the `check.mjs`
 gate is safe because it runs `build` before the turbo test lanes sequentially
 (BST-1009 replaced its `test:fast`/`test:coverage:split` steps with the same
 `turbo run test` / `turbo run test:integration` invocations CI uses, so the
@@ -781,6 +1370,153 @@ guard findings. Desktop's agent-client-loader test keeps a mirror of the
 loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
 bypasses vitest aliases and needs dist, absent by default post-B4). See the
 Series B turbo-monorepo architecture review.
+
+Desktop main-process unit tests share observable Electron controls in
+`apps/desktop/src/__tests__/helpers/electron-main-test-harness.ts`. The harness
+layers `vi.fn()`-backed IPC registration and WebContents state over the inert
+default surface owned by `apps/desktop/src/__tests__/electron-test-stub.mts`;
+new Electron API defaults belong in the stub so the alias and global mock do
+not drift. Tests needing those observable controls import the harness instead
+of redeclaring `vi.mock('electron')` or patching missing cleanup methods.
+Narrow tests may still replace Electron deliberately when they exercise a
+different surface, but IPC-focused tests reset the shared harness in
+`beforeEach` so owned mock implementations, handler/listener registrations,
+and WebContents never leak across cases. The paired harness test pins surface
+parity, duplicate registration failure, multi-listener cleanup, and reset
+semantics.
+
+### TypeScript 7 CLI with the TypeScript 6 compatibility API (BST-1011)
+
+All bare `tsc` commands use the TypeScript 7 native compiler. The catalog's
+`@typescript/native` alias installs `typescript@7.0.2` at the root and owns the
+`tsc` bin. The catalog's existing `typescript` name resolves to the official
+`@typescript/typescript6@6.0.2` compatibility package: it owns `tsc6` and the
+classic programmatic API, but deliberately does not own `tsc`. This is the
+TypeScript team's supported side-by-side topology; do not replace it with two
+aliases of the ordinary `typescript` package, which recreate an ambiguous bin.
+
+Repository scripts, ESLint, Stryker, DB compiler tests, and the desktop
+runtime-host boundary import `typescript` as a library and must continue to
+resolve major 6. Type-check/build scripts execute `tsc` and must resolve major
+7 from both root and package scope. `scripts/__tests__/typescript-compiler-wiring.test.mjs`
+derives both the type-check-package and API-consumer sets dynamically, applies
+anti-vacuity floors, checks the installed package/bin identities, and executes
+both compilers. API-consumer discovery comes from `git ls-files`, so ignored
+build/coverage output cannot change the census between a developer tree and CI;
+an unresolvable consumer is reported as a violation instead of crashing test
+module initialization, and workspace-state collection is lazy so failures occur
+inside a named test. Package-manager subprocesses use the repository's
+cross-platform spawn helper; do not call extensionless `.bin` shims directly.
+Its mutation controls prove a swapped major, a native API consumer, an
+unresolvable consumer, a compiler patch bump without renewed parity evidence,
+editor TSDK drift, or a compatibility package shadowing `tsc` all fail loudly.
+The complete wiring file costs about 1.4 seconds locally (seven tests, including
+three compiler-version subprocesses) inside the roughly 14-second script-test
+phase; keep that cost explicit if more process probes are added.
+
+Desktop packaging is a separate boundary from workspace module resolution.
+`apps/desktop/src/__tests__/build-main-config.test.ts` requires the concrete
+TypeScript 6 implementation to be a production dependency and requires its
+Electron Builder unpack rule. Its mutation control removes both seams and
+asserts the exact violations, preventing a source-tree-only LSP green from
+hiding a packaged-app failure.
+
+`scripts/ts7-parity-check.mjs` compares every discoverable `--noEmit` command
+under `tsc6` and `tsc`, checking binary majors before discovery. It deliberately
+does not claim parity for `apps/web`'s emitting `tsc --build --force`; that path
+must be verified in a clean isolated worktree so one compiler's declarations
+cannot affect the other. The adoption evidence and reproduction commands live
+in `docs/series-c-ts7-parity-findings.md`.
+
+### Turbo 2.10 configuration audit and 3.0 preparation (BST-1013)
+
+The root config opts into Turbo 2.10's `futureFlags.globalConfiguration` and
+uses the Turbo 3.0 `global.concurrency` / `global.inputs` shape. This is a
+mechanical config migration: a before/after `turbo run build type-check lint
+test --dry=json` selected the same 47 packages and 235 task nodes. Under this
+future flag, Turbo no longer reports these files in `globalCacheInputs.files`;
+it injects them into each executable task's resolved inputs instead.
+`scripts/__tests__/turbo-global-configuration.test.mjs` therefore expands the
+configured globs, runs the pinned Turbo binary, and checks every executable
+task at that actual boundary. Its floors require at least 10 matched global
+files, 47 packages, 230 total task nodes, and 160 executable tasks. Mutation
+controls remove one real input from one task and empty the task selection, and
+prove both cases fail visibly. The structural tsconfig contract separately
+proves the future flag/layout and the load-bearing tsconfig globs; its controls
+reject the legacy layout and a missing preset input. Keep both controls when
+editing the global block. On the same machine and base revision, the complete
+script-test phase moved from 14.23 seconds / 781 tests to 15.00 seconds / 784
+tests: +0.77 seconds (+5.4%). The Turbo dry-run is memoized within the test file
+so the money controls do not spawn it twice.
+
+**`global.concurrency` is the build/test calibration; the dev floor lives on
+the dev script.** `turbo run dev` selects every workspace `dev` task and turbo
+refuses to start when concurrency is <= the number of persistent tasks in the
+selection — a property of that selection, not a parallelism budget. Raising the
+global value to satisfy it is what produced the 28 → 29 → 30 → 31 → 32 treadmill
+and, at 40 tasks vs. concurrency 40, a `pnpm dev` that failed outright. The
+global value stays pinned at 40 (structurally, in the tsconfig contract) and the
+root `dev` script carries `--concurrency=100`.
+
+Be precise about who inherits the global value: not every CI invocation caps
+itself. The Unit lanes pass `--concurrency=4` / `=2`, Type check sets
+`TURBO_CONCURRENCY=4`, native-electron and coverage pass `=4` — but the **Build**
+job (`test.yml`, `runs-on: ubicloud-standard-4`) runs `pnpm turbo run build`
+with no cap and inherits the global number, as do local `pnpm build` /
+`pnpm check`. Its effective parallelism is bounded by the build DAG's width, but
+the global value is the ceiling, so treat a change to it as a change to Build.
+
+`turbo-global-configuration.test.mjs` enforces the dev cap against a memoized
+`turbo run dev --dry=json`: it must exceed both the planned persistent-task
+count AND the workspace package count. The second bound is the one that retires
+the treadmill — turbo can never plan more `dev` tasks than there are packages,
+so a cap above the package count can never bind, and the guard goes red while
+`pnpm dev` still works rather than on the commit that breaks it. Controls cover
+a cap equal to the task count, a cap that clears the task count but not the
+package count, a collapsed dev sweep, and a dev script with no cap at all. The
+same file also pins `$schema` to the `package.json` Turbo version, so a bump
+cannot leave editors validating against the previous release's schema.
+
+Arithmetic over a planned graph assumes turbo enforces the rule at all, and
+neither `--dry` nor `--graph` exercises that check while the real `dev` graph
+cannot be run in a test (it launches every watcher). A money test therefore
+proves the rule on a two-package fixture at the pinned binary: concurrency 2
+against 2 persistent tasks must be rejected naming the floor, concurrency 3
+must succeed. That is the file's dominant cost — measured on one machine, it
+moved from 1.06 s / 2 tests to 5.88 s / 4 tests, roughly 3.7 s of which is the
+fixture's two real turbo runs. Keep the fixture if a future turbo changes the
+rule; without it the arithmetic could quietly guard nothing.
+
+The same audit found no active repository use of Turbo 2.9's deprecated
+`turbo-ignore`, `turbo scan`, `--parallel`, Turbo's `--no-cache`, daemon flags,
+non-HTML `--graph` output, legacy remote-cache flags/environment variables, or
+`prune --scope`. The only `--no-cache` match is Alpine's unrelated
+`apk add --no-cache` in `scripts/setup-headless-display.sh`. Do not enable the
+remaining 3.0 future flags speculatively: `filterUsingTasks` would change the
+settled explicit affected filters in `test.yml`; the affected/watch/prune flags
+have no adopted call site; `longerSignatureKey` needs the real remote-cache
+signing setup to validate; and the diagnostic-only flag has no CI benefit.
+
+Package-config composition was evaluated and deliberately not adopted. The ten
+package `turbo.json` files now represent seven behavior classes; five are
+unique cache-safety or cross-input contracts. Only app-shell/db-explorer/
+vector-management and secure-fs-native/windows-job-native repeat behavior.
+Introducing a config micro-package for groups of three and two would add graph
+and ownership surface, while extending an operational package would couple
+unrelated owners. Turbo's native `extends` is still the required mechanism if
+a stable repeated policy grows large enough to justify a shared owner; do not
+invent a merger or config registry.
+
+Turbo 2.9's stable `query affected` was also evaluated but is not a CI planner.
+Against `origin/main..HEAD` with no package change it correctly returned zero;
+against the BST-1011 root/lockfile change it returned 48 package nodes including
+the workspace root, or 46 with `--tasks test`. That offers no saving over the
+Unit job's explicit `...[origin/$BASE_REF]` filters, cannot weaken the always-on
+web/desktop smoke checks, and would create a second selection/reconciliation
+seam. `scripts/run-turbo-command.mjs` also appends `--cache-dir`, which run
+commands accept but `turbo query affected` rejects. Because no repository query
+entrypoint was adopted, the bounded run wrapper was not broadened for an
+unsupported command.
 
 ### Root clean orchestration
 
@@ -832,7 +1568,11 @@ emits files whose sources are in the current program, so the prune set is
 disjoint from its writes. That disjointness silently depends on tsup NOT
 code-splitting (hashed split chunks have no source counterpart and would be
 pruned out from under a sibling build), so the wiring contract statically
-requires `splitting: false` in every pruned package's tsup config. The pruner
+requires `splitting: false` in every pruned package's tsup config. After
+BST-1014, `agent` and `file-explorer` are the complete live intersection of
+pruned packages and real bundle boundaries; the paired test pins its
+anti-vacuity floor to both while continuing to discover and inspect every future
+intersection member. The pruner
 itself requires `tsconfig.json` with rootDir `src` and outDir `dist` and
 per-file emit — anything else throws, and such a package must clean instead. `ui`'s
 `pnpm run clean:generated` cleans stray compiled JS in `src`, not `dist` — it
@@ -842,8 +1582,86 @@ scripts only: `type-check`'s emitting `tsc --build --force` (apps/web) cannot
 create orphans or archives — only `build` has `dist/**` outputs, and the prune
 before every snapshot-producing build launders dist before archiving. The
 wiring contract, pruner behavior, entrypoint controls, and the `turbo.jsonc`
-`globalDependencies` hash entry for the pruner (editing it must invalidate
+`global.inputs` hash entry for the pruner (editing it must invalidate
 cached builds) are guarded by `scripts/__tests__/prune-stale-dist.test.mjs`.
+
+### Canonical package build strategies (BST-1014)
+
+Non-native typed packages have two JavaScript build classes, derived from
+`scripts.build` rather than from a package registry:
+
+- **Libraries use TypeScript emit.** A plain library builds JavaScript and
+  declarations together with `tsc -b`. All 30 libraries with the canonical
+  `rootDir: src` / `outDir: dist` layout prepend
+  `node ../../scripts/prune-stale-dist.mjs`; it removes deleted-source artifacts
+  without discarding `.tsbuildinfo`, so a normal build does not turn
+  TypeScript's project-reference builder into a forced clean rebuild. The sole
+  tsc-only layout exception is `workers`: its source files live at the package
+  root, outside the pruner's deliberately narrow safety contract, so it keeps an
+  explicit clean. This is derived from resolved compiler layout, not a package
+  allowlist. A TypeScript-emitted library does not retain a tsup config, tsup
+  dependency, or tsup watch command.
+- **tsup is for real bundle boundaries.** Eight packages require bundling:
+  `chunking-worker`, `embedding-worker`, `file-tree-worker`, and `token-cache`
+  package browser workers/WASM/assets; `agent` produces the self-contained
+  hosted-web boundary; `assistant-service` and `assistant-wire` retain the CJS
+  surface consumed by the Node16 web API project; and `file-explorer` emits the
+  renderer's worker-storage artifact. Adding a ninth bundler is an architectural
+  decision, not a convenient way to emit a second module format.
+  This is the compatibility boundary for BST-1014, not an endorsement of tsup as
+  the R10 endpoint: upstream marks tsup unmaintained and recommends tsdown. A
+  replacement must preserve the custom worker/WASM/assets and CJS contracts and
+  carry measured artifact and wall-clock evidence; swapping emitters inside the
+  library migration would combine those risks and make regressions unattributable.
+- **Native addons remain native builds.** `secure-fs-native` and
+  `windows-job-native` use `node-gyp`; the build-strategy guard recognizes that
+  structural class rather than pretending a TypeScript or tsup command owns the
+  native artifact.
+- **Node-compatible emitted ESM is compiler-enforced.** Libraries migrated from
+  tsup extend `packages/config/tsconfig/node-library.json`, whose `module` and
+  `moduleResolution` are `NodeNext`; declare `type: module`; expose the one emitted
+  runtime artifact through `types` + `default`; and spell local TypeScript imports
+  as `.js` in source. TypeScript therefore rejects extensionless relative imports,
+  directory imports, invalid package-export subpaths, and missing JSON attributes
+  during every editor/type-check/build pass. A `require` export condition is not a
+  synonym for “Node can require synchronous ESM”: it must point to a real CJS
+  artifact. A CommonJS composition boundary that consumes one of these libraries
+  uses native dynamic `import()` (and an explicit `resolution-mode: import` for
+  type-only imports) rather than forcing the library back into dual-format
+  bundling. The Vercel API's Node16 check proves both are load-bearing: a static
+  logger import fails TS1479 and a plain type-only import fails TS1541. The route
+  memoizes the import lazily inside the first request so a failed seam is observed
+  by that request, never left as a module-initialization rejection. Playwright's
+  TypeScript loader is a distinct CommonJS
+  transform boundary: a Node-side E2E helper imports the narrowest side-effect-
+  free contract subpath it needs instead of a package barrel that transitively
+  loads browser-oriented `import.meta` modules. Desktop assistant mocks pin this
+  through `@brainstrike/assistant-contract/assistant-stream-session`; the desktop
+  smoke lane is the runtime proof.
+- **Browser-only emit keeps Bundler resolution.** `file-explorer-hooks` is a
+  React/Vite library whose public surface imports the browser-only `ui` barrel.
+  That barrel's declarations intentionally model a bundler and contain
+  extensionless re-exports; consuming them under NodeNext loses named exports
+  behind `skipLibCheck` (TS2305 at the hook tests). The package therefore extends
+  the shared Bundler config while still using the same canonical `tsc -b` build.
+  Module resolution follows the runtime that loads the emitted graph; it is not
+  a second build strategy.
+
+`scripts/verify-package-build-strategies.mjs` (alias
+`lint:package-build-strategies`, present in both lint chains) enforces the two
+classes, the native-addon exception, the exact bundler budget, incremental-safe
+cleanup for every compatible src-to-dist library, removal of every supported tsup config-file
+shape/dependency/dev command, canonical `tsup.config.ts` for current bundles,
+NodeNext manifest conditions, and that every dist code export is an output of
+the package's parsed TypeScript program. TypeScript's config loader resolves
+array and indirect `extends`; the guard does not approximate inheritance or
+re-parse module syntax. Discovery comes from workspace manifests and resolved
+compiler configs; there is no identity mapping file. Its anti-vacuity floors
+cover typed build packages, tsc-only libraries, incremental-safe pruned
+libraries, and NodeNext consumers. The
+paired `scripts/__tests__/verify-package-build-strategies.test.mjs` money tests
+mutate each protected seam, while a real compiler control observes NodeNext
+rejecting an extensionless ESM import with TS2835.
 
 ### Agent declaration build split
 
@@ -878,27 +1696,26 @@ tsup emit declarations (the separate declaration-bundler worker duplicates
 `tsc -b` and causes severe build startup contention).
 
 BST-746 originally proposed a `createTsupConfig` factory in
-`@brainstrike/build-utils`. Measured and REJECTED — do not relitigate: only 9 of
-18 configs are simple, and they genuinely diverge on `sourcemap`, `format`,
-`target` and `splitting` (tsup defaults `splitting` to TRUE for ESM, so
-build-utils/embeddings/text-splitter really do split). A factory would also have
-added 8 build-graph edges (none of those packages depend on build-utils) or hit
-the config-load hash-gap class `verify-config-load-hash-coverage.mjs` guards —
-unifying the 4 fields that must stay different while doing nothing about the 2
-that must stay the same.
+`@brainstrike/build-utils`. Measured and REJECTED — do not relitigate: at that
+time only 9 of 18 configs were simple, and they genuinely diverged on
+`sourcemap`, `format`, `target` and `splitting`. A factory would also have added
+8 build-graph edges or hit the config-load hash-gap class
+`verify-config-load-hash-coverage.mjs` guards. BST-1014 resolved the ordinary
+library duplication by removing tsup from those packages, not by abstracting
+their obsolete configs; the eight remaining configs describe real, divergent
+bundle boundaries.
 
 The invariant is CONDITIONAL, and the class is DERIVED from each package's
-`build` script rather than hand-listed (a list would be a second copy of a fact
-already in the script, free to disagree with it). **TypeScript-owned** (17
-packages, 14 with a config file) runs `tsc -b`/`tsc --build` then tsup, and is
-governed. **tsup-owned** — exactly `chunking-worker`, `file-tree-worker`,
-`test-utils`, `token-cache` — runs tsup ALONE (`type-check` is a separate
-`tsc --noEmit`), so tsup is the only possible declaration emitter and `dts: true`
-is REQUIRED there. A flat "every config sets clean/dts false" rule would have
-been false for those 4 on the day it was written. The exemption carries the
-INVERSE obligation (a tsup-owned package that enables no declaration emit FAILS),
-so it cannot be used as a parking spot to silence a violation; a test pins the
-exempt set to those four names so growing it is a deliberate decision.
+`build` script rather than hand-listed. **TypeScript-owned** — `agent`,
+`assistant-service`, `assistant-wire`, `embedding-worker`, and `file-explorer` —
+runs `tsc -b`/`tsc --build` then tsup, and is governed. **tsup-owned** — exactly
+`chunking-worker`, `file-tree-worker`, and `token-cache` — runs tsup ALONE
+(`type-check` is a separate `tsc --noEmit`), so tsup is the only possible
+declaration emitter and `dts: true` is REQUIRED there. A flat "every config sets
+clean/dts false" rule is false for those three. The exemption carries the
+INVERSE obligation (a tsup-owned package that enables no declaration emit
+FAILS), so it cannot be used as a parking spot to silence a violation; a test
+pins the exempt set to those three names so growing it is deliberate.
 
 Three rulings, all enforced and all with failure-path tests:
 
@@ -915,9 +1732,9 @@ Three rulings, all enforced and all with failure-path tests:
    which is the problem: `text-splitter` set neither while the guard claimed all
    governed packages were "pinned", an unverified assertion (the vacuous-green
    class the discovery floors exist to prevent), and deleting `clean: false` from
-   a config would have been a silent no-op. Config-LESS packages (`queue`,
-   `types`, `worker-runtime`) are exempt from this — they have nothing to drift
-   and are covered by the CLI check instead.
+   a config would have been a silent no-op. The lower-level guard still models
+   config-less tsup CLI invocations so its own flag detector cannot be bypassed,
+   while the canonical package-build guard rejects that third real-tree shape.
 3. **Every declaration-emit spelling is modelled**, verified against the
    installed tsup 8.5.1 rather than from memory: config keys `dts` AND
    `experimentalDts`, plus four CLI flags — `--dts`, `--dts-only`,
@@ -926,10 +1743,11 @@ Three rulings, all enforced and all with failure-path tests:
    `--dts-resolve` each enable emit ON THEIR OWN; they are not modifiers of
    `--dts`. `experimentalDts` may be omitted but never enabled.
 
-Discovery floors (`MIN_TSUP_CONFIGS`, `MIN_TYPESCRIPT_OWNED_PACKAGES`) refuse to
-run rather than report a vacuous green — the second catches a collapsed
-classification, where discovery looks healthy but the governed class has emptied
-out. Config parsing is line-shaped with comments blanked (preserving line
+Discovery floors (`MIN_TSUP_CONFIGS` = 8,
+`MIN_TYPESCRIPT_OWNED_PACKAGES` = 5) refuse to run rather than report a vacuous
+green — the second catches a collapsed classification, where discovery looks
+healthy but the governed class has emptied out. Config parsing is line-shaped
+with comments blanked (preserving line
 numbers, which are printed in the report) after normalizing Windows CRLF input
 to LF; a permissive cross-check THROWS on any
 guarded token the line shape did not parse, so an unmodelled shape fails loudly
@@ -948,8 +1766,16 @@ The browser `o200k_base` table is resolved through Vite's `?url` asset contract
 and fetched only when an accurate-token-counting worker first initializes.
 Keep the table out of JavaScript chunks and out of both apps' initial HTML
 module-preload closure. Heuristic counting must not fetch the table. The
-runtime behavior and both app ceilings are pinned by the utils accurate-runtime
-tests and app Vite-config tests.
+runtime behavior and both app ceilings are pinned by the tokenization package's
+strict-counter/worker-lite tests and app Vite-config tests.
+
+`@brainstrike/tokenization` is an ordinary tsc-only library and the sole source
+owner. Its root exposes only synchronous constants, heuristics, and cost helpers;
+its only public subpaths are the strict-counter and worker-lite modules that have
+real consumers. Importing the root cannot pull tokenizer assets into an eager
+graph. `chunking-worker` and `token-cache` bundle those shared entrypoints into
+their own isolated artifacts; neither owns a source shim or imports the other
+worker package.
 
 The `chunking-worker` and `token-cache` tsup builds must install the shared
 `tokenizerAssetPlugin` so their published worker artifacts preserve that URL
@@ -968,14 +1794,19 @@ Never replace this with a code-only or package-wide warning suppression.
 
 ### Desktop development dependency freshness
 
-`apps/desktop` runs `scripts/ensure-desktop-dev-deps.mjs` before every
-development launch, including `dev:agent-debug`. Agent-debug runs that preflight
+`apps/desktop` invokes `scripts/ensure-desktop-dev-deps.mjs` for development,
+including `dev:agent-debug`. Under root `pnpm dev`, the root pre-script already
+completed that graph, so the desktop pre-script skips only when Turbo carries
+the explicit preparation marker described in
+[Development startup ordering (BST-1168)](#development-startup-ordering-bst-1168).
+Standalone desktop and agent-debug launches run the helper synchronously.
+Agent-debug runs that preflight
 to completion before loading the Windows Job Object addon, then starts the
 internal `dev:runtime` script under the initialized Job. This order is
 mandatory on Windows: a loaded native addon cannot be replaced by node-gyp, so
 loading the Job Object first would make a cold dependency build fail with
-`EPERM`. The helper must always ask Turbo to build the exact `build-utils` +
-`agent` + `ui` dependency graph.
+`EPERM`. When it is not inside a marked, already-prepared graph, the helper must ask
+Turbo to build the exact desktop dependency graph.
 Turbo's content hashes and cache are the freshness authority; checking only
 whether `dist` files exist is forbidden because branch updates can leave
 tool schemas, prompts, or provider code silently pinned to an older commit.
@@ -1009,7 +1840,12 @@ and accessibility title `BrainStrike Agent Debug`.
 The launcher re-enters the exact pnpm CLI recorded in `npm_execpath` through
 `process.execPath`. On Windows this is required because Corepack exposes a
 `pnpm.cmd` shim rather than an executable that `child_process.spawn` can invoke
-directly without a shell. Missing pnpm launch context fails before the
+directly without a shell. The recorded entrypoint must be an absolute
+`pnpm.cjs`, `pnpm.js`, or `pnpm.mjs` path — Corepack-managed pnpm resolves to
+the `.mjs` form under its cache (`.../corepack/v1/pnpm/<version>/bin/pnpm.mjs`)
+on every platform, so all three are accepted; `pnpm.cmd` stays rejected because
+re-entering a shim as a Node script is exactly what this contract prevents.
+Missing pnpm launch context fails before the
 disposable profile is created; child spawn errors are observed and flow through
 the normal owned-tree/profile cleanup path. Do not replace this with the shared
 shell-based spawn helper: the extra `cmd.exe` process would sit between the
@@ -1119,26 +1955,56 @@ running:
 ## REACT DOCTOR (LINT + DEAD CODE)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
-pinned `0.7.1`) on every PR and on push to `main`. It supersedes running standalone knip in
+pinned `0.9.11`) on every PR and on push to `main`. It supersedes running standalone knip in
 CI: React Doctor performs knip-style dead-code analysis (the bundled `deslop` engine) **and**
-~250 React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
+its React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
 Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`.
 
 Invariants (do not regress without updating this section, `doctor.config.ts`, and the doc):
 - **Telemetry OFF.** `noScore` + `share:false` in config; `REACT_DOCTOR_NO_TELEMETRY=1` in the
   workflow `env` (the Action exposes no flag). Nothing is sent to the hosted score API / Sentry.
 - **Gate = `scope: changed` + `blocking: error`.** Only NEWLY introduced error-severity issues
-  fail a PR; the pre-existing backlog is advisory and is burned down in stacked PRs.
+  fail a PR; the pre-existing backlog is advisory and is burned down in stacked PRs. Version
+  0.9.11 carries [upstream's rename-aware baseline comparison](https://github.com/millionco/react-doctor/pull/1376),
+  so moving unchanged code does not reclassify its diagnostics as new. CAVEAT (BST-981,
+  2026-08-06): that pairing failed on a ~200-file rename PR — byte-identical renamed files
+  had their pre-existing diagnostics reclassified as new, both in CI and in a local
+  `--scope changed` run. Precedent: prove pre-existence with a full scan of the base at the
+  old paths, then suppress narrowly via `ignore.overrides` with a follow-up ticket to fix
+  the findings and drop the override. BST-1182 completed that cleanup for the three
+  assistant-ui ref mutations and removed the temporary override; the caveat remains for
+  future large rename sets, not as an active exception.
+  `scripts/__tests__/react-doctor-version-contract.test.mjs` keeps the local and Action pins equal
+  and rejects downgrade below the 0.8.2 fix. It also pins the exact reviewed version in
+  `EXPECTED_REACT_DOCTOR_VERSION`, so a bump is a three-file change: root `package.json`,
+  `.github/workflows/react-doctor.yml`, and that constant.
+- **0.9.11 activates four error-severity rules that 0.9.3 did not** (2026-08-15, BST-1273).
+  Measured on the same tree, same 3366 scanned files: full-scan errors go 85 → 95 while total
+  issues go 641 → 594. The additions are `react-hooks-js/todo` (×4), `react-doctor/
+  no-prop-callback-in-render` (×3), `react-hooks-js/refs` (×1),
+  `react-doctor/effect-observer-needs-disconnect` (×1), plus one extra
+  `react-doctor/effect-needs-cleanup` hit (10 → 11). `no-ref-current-in-render` (×71) and
+  `no-impure-state-updater` (×4) are unchanged. All 10 are pre-existing code newly caught, so
+  under `scope: changed` they join the advisory backlog rather than blocking; none sit in a
+  file the bump itself touched. Concentrations to expect when burning them down:
+  `root-layout-content.tsx` (all three copies) and `hooks/use-resize-observer.ts`.
+- **Do NOT bump past 0.9.11 without re-measuring `react-doctor/no-multi-comp`** (2026-08-15,
+  BST-1273). 0.9.12 expands that rule toward a one-component-per-file contract: the id's
+  occurrence count in `dist/` goes 6 → 15 between 0.9.11 and 0.9.12. Under this repo's
+  `scope: changed` + `blocking: error` gate that would newly fail any changed file holding
+  two components, which is a common shape here. 0.9.11 was taken instead; before adopting
+  0.9.12+, scan the repo for multi-component files and decide the rule's severity
+  deliberately rather than discovering it as a red PR check.
 - **knip is retained, NOT replaced.** `deslop` is not knip: it reads knip's `entry`/`ignore`
   (only from strict-JSON `knip.json` or `package.json#knip`, never `knip.jsonc`) but ignores
   knip's `ignoreDependencies` and has no per-dependency allowlist. So `deslop/unused-dependency`
   + `deslop/unused-dev-dependency` are disabled in `doctor.config.ts`, and `pnpm knip`
   (driven by `knip.jsonc`, with the curated false-positive allowlist) stays the dependency auditor.
-- **Never set `ignore.files`** (verified against 0.5.5, re-verified against 0.7.1). A non-empty `ignore.files` flips
-  the lint pass to an explicit include-list and silently drops ~half the monorepo's real
-  source from linting (e.g. packages/hooks 34 → 0). Build artifacts are gitignored (never
-  listed) and test-file noise is handled natively (`test-noise`-tagged rules auto-suppress
-  in non-production files). Suppress findings via `ignore.overrides` / `rules`, not files.
+- **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped
+  roughly half the monorepo when that key was present. Upstream 0.9.11 fixes enumeration by
+  listing all supported sources before filtering, but Brainstrike still needs no whole-file
+  ignores: build artifacts are gitignored and test-file noise is handled natively. Prefer the
+  narrow `ignore.overrides` / `rules` surfaces for a proved exception.
 - **`Accessibility` + `Security` categories are OFF.** a11y is already enforced by the
   biome a11y rules (and react-doctor can't read `biome-ignore`, so it re-flagged every
   documented exception + custom ARIA widget — an audit of 28 findings found 1 genuine
@@ -1151,6 +2017,61 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   referential stability for consumers outside the compiled tree). The rule fired 1211× (54%
   of the original backlog) demanding removal — disabled per team decision.
   `react-hooks-js/preserve-manual-memoization` stays ON (it protects memo the compiler needs).
+- **An unimplemented rule id is accepted SILENTLY — 0 findings means "gone" OR "clean".**
+  `doctor.config.ts` emits no "unknown rule" error, so a config that believes it enabled
+  (or disabled) a rule is indistinguishable from one that did not, and that rule's zero
+  findings read as a passing gate. Proved on `react-doctor/only-export-components`
+  (2026-08-09, pinned 0.9.3; still true at 0.9.11): the id appears in the bundle ONLY as a *value* in the
+  oxlint→react-doctor alias tables (`react-refresh/only-export-components` and
+  `react/only-export-components` both map to it) with no rule implementation behind it,
+  and adding `rules: { 'react-doctor/only-export-components': 'warn' }` left counts
+  byte-identical (149 → 149 on `packages/file-explorer-ui`). **Before citing a
+  react-doctor rule id as a contract, prove it fires on a known violation** — a
+  package-scoped scan returning 0 is not evidence.
+  `scripts/__tests__/lint-rule-liveness-contract.test.mjs` mechanizes that proof — **for
+  ESLint rules only.** It drives `new ESLint({ cwd: repoRoot })` against `eslint.config.js`,
+  so it exercises **zero react-doctor rules** and confers no coverage on any
+  `react-doctor/*`, `react-hooks-js/*`, or `deslop/*` id. Do not read a green
+  `test:scripts` as evidence that a react-doctor id is live; that engine remains
+  unmechanized, and it is the one with the silent-acceptance defect.
+- **Two other cited react-doctor ids are also absent from the bundle** (2026-08-09,
+  #2372; re-measured unchanged at 0.9.11 on 2026-08-15, BST-1273).
+  `react-hooks-js/preserve-manual-memoization` — asserted above to "stay ON" — and
+  `react-doctor/async-parallel`, the rule in `doctor.config.ts`'s lone `ignore.overrides`
+  entry, each appear **0 times** across `node_modules/react-doctor/dist/`, while real ids
+  appear literally (`only-export-components` 12, `react-compiler-no-manual-memoization`
+  10). Those four counts are byte-identical on 0.9.3 and 0.9.11. Neither has been
+  *empirically* confirmed dead: a local `npx react-doctor packages/db`
+  emits no findings summary at all, which is BST-1142 (react-doctor local runs returning
+  zero analyzed files). **Nothing was changed on grep evidence alone** — the override stays
+  until BST-1142 unblocks a real before/after. Note the manual-memoization protection does
+  still exist, just not via the engine the bullet above names: eslint-plugin-react-hooks'
+  own `react-hooks/preserve-manual-memoization` is live, reporting 2 warnings, and is now
+  tracked in `eslint-warning-baseline.json`.
+- **The Fast Refresh module-boundary contract is NOT react-doctor's — it is
+  `react-refresh/only-export-components` in `eslint.config.js`** (BST-1220, #2372, plugin
+  `eslint-plugin-react-refresh`), riding the same `--max-warnings` ratchet as the
+  compiler diagnostics. It landed at 155 warnings across 77 files; burn it down and lower
+  its baseline entry, exactly as for the compiler wave.
+  **That ratchet is now PER RULE.** `eslint-warning-baseline.json` holds one budget per
+  rule id and `scripts/verify-eslint-warning-baselines.mjs` enforces it as `lint:eslint`.
+  A rule OVER its entry fails; a rule UNDER its entry also fails until the entry is
+  lowered, so every burn-down is banked instead of leaving headroom behind; a rule with
+  findings and no entry fails; error-severity findings never get a budget. This replaced a
+  single `--max-warnings=N` scalar, which could not tell the two warning families apart —
+  burning Fast Refresh warnings silently granted the same headroom to compiler
+  diagnostics. The scalar had already failed that way: #2372 found 186 actual warnings
+  under an unchanged 194 ceiling. Re-baseline with
+  `pnpm run lint:eslint --write-baseline`, and read the diff — an unexplained drop is a
+  rule going dark, not a win. Biome's `useComponentExportOnlyModules`
+  was evaluated and rejected for this job despite already being installed and already
+  blocking: measured against this repo it also flags unexported components (63 sites —
+  not a defect, since `@vitejs/plugin-react`'s `validateRefreshBoundaryAndEnqueueUpdate`
+  walks `moduleExports` only, so a private component never breaks the boundary) and
+  misreads `export default <Component>` aliases (29 false positives, e.g.
+  `logging-settings.tsx`, whose only exports are one component named and defaulted).
+  The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
+  without re-measuring both.
 
 Local: `pnpm run react-doctor` (full scan, telemetry off via config) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·

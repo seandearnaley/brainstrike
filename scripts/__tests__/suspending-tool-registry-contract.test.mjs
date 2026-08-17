@@ -65,6 +65,7 @@ const REPO_SWEEP_ROOTS = ['apps', 'packages'];
 /** The only modules allowed to declare a `suspendSchema`, repo-relative. */
 const REGISTERED_SUSPENDING_TOOL_MODULES = [
   'packages/agent/src/tools/ask-user-tool.ts',
+  'packages/agent/src/tools/run-python-tool.ts',
   'packages/agent/src/tools/submit-plan-tool.ts',
 ];
 
@@ -74,7 +75,12 @@ const REGISTERED_SUSPENDING_TOOL_MODULES = [
  * repo-wide sweep stays exact: a new entry here is a deliberate human decision,
  * never a silent widening.
  */
-const ACKNOWLEDGED_NON_DECLARING_MODULES = ['packages/agent/src/mastra/plan-mode-tool-gate.ts'];
+const ACKNOWLEDGED_NON_DECLARING_MODULES = [
+  // (permission-tool-gate.ts left this list at the @mastra/core 1.56 idiom
+  // adoption: the self-approving exception it read hasSuspendSchema for is
+  // gone — every ask tool takes the requireApproval clone.)
+  'packages/agent/src/mastra/plan-mode-tool-gate.ts',
+];
 
 const SUSPEND_SCHEMA_TOKEN = /\bsuspendSchema\b/;
 

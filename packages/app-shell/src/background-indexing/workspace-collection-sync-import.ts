@@ -10,10 +10,12 @@ import type {
 } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   createFileContentProcessor,
   type FileContentProcessor,
   type FileContentRequest,
+  type FileContentResult,
 } from '@brainstrike/file-explorer-hooks';
 import {
   backfillEmbeddingSetAssignments,
@@ -25,14 +27,13 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import { createLogger } from '@brainstrike/logging';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
-import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
+
 import { generateContentHash } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { buildRootFolderCacheIdentityKey } from './root-folder-cache-reconciliation';
 import {
   buildBatchImportErrors,
@@ -43,6 +44,131 @@ import {
 const logger = createLogger('WorkspaceCollectionSyncImport');
 const TRANSACTIONAL_CHUNK_JOB_ENQUEUE_REQUIRED_ERROR =
   'Workspace Index background import requires transactional chunk/job enqueue support.';
+export const DEFAULT_CHUNKING_REDISPATCH_ATTEMPT_CAP = 3;
+
+interface ChunkingRedispatchState {
+  attempts: number;
+  collectionId: string;
+  contentHash: string;
+  exhaustionReported: boolean;
+  fileRecordId: string;
+  relativePath: string;
+  rootId: string;
+}
+
+export interface ChunkingRedispatchTerminalError {
+  attempts: number;
+  fileRecordId: string;
+  message: string;
+  relativePath: string;
+}
+
+type ChunkingRedispatchDecision =
+  | { attempt: number; kind: 'retry' }
+  | { attempts: number; kind: 'exhausted' };
+
+export interface ChunkingRedispatchAttemptKey {
+  collectionId: string;
+  contentHash: string;
+  fileRecordId: string;
+  relativePath: string;
+  rootId: string;
+}
+
+function buildChunkingRedispatchIdentity(args: {
+  collectionId: string;
+  relativePath: string;
+  rootId: string;
+}): string {
+  return JSON.stringify([args.collectionId, args.rootId, args.relativePath]);
+}
+
+/**
+ * Per-service, in-memory retry state for hash-unchanged rows that still have no
+ * completed chunking stamp. A new content revision or file record resets the
+ * budget; a completed stamp clears it. This intentionally survives individual
+ * sync runs but creates no persistent sync machinery.
+ */
+export class ChunkingRedispatchTracker {
+  private readonly stateByIdentity = new Map<string, ChunkingRedispatchState>();
+
+  constructor(private readonly attemptCap: number = DEFAULT_CHUNKING_REDISPATCH_ATTEMPT_CAP) {
+    if (!(Number.isInteger(attemptCap) && attemptCap > 0)) {
+      throw new Error('Chunking redispatch attempt cap must be a positive integer.');
+    }
+  }
+
+  clear(collectionId: string, rootId: string, relativePath: string): void {
+    this.stateByIdentity.delete(
+      buildChunkingRedispatchIdentity({ collectionId, relativePath, rootId })
+    );
+  }
+
+  markExhaustionReported(args: ChunkingRedispatchAttemptKey): boolean {
+    const state = this.stateByIdentity.get(buildChunkingRedispatchIdentity(args));
+    if (!state || state.exhaustionReported) {
+      return false;
+    }
+    state.exhaustionReported = true;
+    return true;
+  }
+
+  pruneMissing(args: {
+    collectionId: string;
+    liveRelativePaths: ReadonlySet<string>;
+    rootId: string;
+  }): void {
+    for (const [identity, state] of this.stateByIdentity) {
+      if (
+        state.collectionId === args.collectionId &&
+        state.rootId === args.rootId &&
+        !args.liveRelativePaths.has(state.relativePath)
+      ) {
+        this.stateByIdentity.delete(identity);
+      }
+    }
+  }
+
+  inspect(args: ChunkingRedispatchAttemptKey): ChunkingRedispatchDecision {
+    const identity = buildChunkingRedispatchIdentity(args);
+    const current = this.stateByIdentity.get(identity);
+    const matchingRevision =
+      current?.contentHash === args.contentHash && current.fileRecordId === args.fileRecordId
+        ? current
+        : null;
+    if (matchingRevision && matchingRevision.attempts >= this.attemptCap) {
+      return { attempts: matchingRevision.attempts, kind: 'exhausted' };
+    }
+    const attempt = (matchingRevision?.attempts ?? 0) + 1;
+    return { attempt, kind: 'retry' };
+  }
+
+  recordDispatches(changes: readonly PreparedCacheChange[]): void {
+    for (const change of changes) {
+      if (change.chunkingRedispatch) {
+        this.register(change.chunkingRedispatch);
+      }
+    }
+  }
+
+  private register(args: ChunkingRedispatchAttemptKey): ChunkingRedispatchDecision {
+    const decision = this.inspect(args);
+    if (decision.kind === 'exhausted') {
+      return decision;
+    }
+    const identity = buildChunkingRedispatchIdentity(args);
+    this.stateByIdentity.set(identity, {
+      attempts: decision.attempt,
+      collectionId: args.collectionId,
+      contentHash: args.contentHash,
+      exhaustionReported: false,
+      fileRecordId: args.fileRecordId,
+      relativePath: args.relativePath,
+      rootId: args.rootId,
+    });
+    return decision;
+  }
+}
 
 interface FirstEmbedChunkJobEnqueueMarker {
   batchNumber: number;
@@ -102,6 +228,7 @@ type BackgroundManagedCacheBatchMutation =
     };
 
 export interface PreparedCacheChange {
+  chunkingRedispatch?: ChunkingRedispatchAttemptKey;
   compositeKey: string;
   contentHash: string;
   id: string;
@@ -130,6 +257,7 @@ export interface StatMetadataRefresh {
 export interface PreparedChangesSummary {
   changes: PreparedCacheChange[];
   excludedEntries: number;
+  inaccessiblePaths: string[];
   /**
    * Hash-confirmed-unchanged rows whose stored (size, mtimeMs) are missing or
    * stale. Unchanged files never take a write path, so without this stamp a
@@ -137,7 +265,15 @@ export interface PreparedChangesSummary {
    * sync forever — persisting these lets the next sync stat-skip them.
    */
   statRefreshes: StatMetadataRefresh[];
+  terminalChunkingErrors: ChunkingRedispatchTerminalError[];
   totalFiles: number;
+  /**
+   * Directories whose adapter listing was truncated (capped entry count).
+   * Only the tree-walk phase (workspace-collection-sync-scan) can observe
+   * truncation, so the content-batch phase always reports an empty list and
+   * the scan replaces it with what its traversal recorded.
+   */
+  truncatedDirectoryPaths: string[];
   unchangedCount: number;
 }
 
@@ -152,41 +288,63 @@ interface DiscoveredPreparedFile {
   size: number;
 }
 
-const INACCESSIBLE_CONTENT_PREFIXES = ['File not accessible', 'File too large:'] as const;
-const INACCESSIBLE_CONTENT_VALUES = new Set([BINARY_CONTENT_MESSAGE, 'Error accessing file']);
 const NULL_BYTE_CONTENT_ERROR = 'File contains null bytes and cannot be indexed.';
 
-export function getContentIndexingError(content: string): string | null {
-  if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
-    return content;
+export function getContentIndexingError(result: FileContentResult): string | null {
+  if (result.status === 'inaccessible') {
+    return result.message;
   }
-  const inaccessiblePrefix = INACCESSIBLE_CONTENT_PREFIXES.find((prefix) =>
-    content.startsWith(prefix)
-  );
-  if (inaccessiblePrefix) {
-    return content;
-  }
-  if (content.includes('\0')) {
+  if (result.content.includes('\0')) {
     return NULL_BYTE_CONTENT_ERROR;
   }
   return null;
 }
 
-function isContentAccessible(content: string): boolean {
-  return getContentIndexingError(content) === null;
+function assertFileContentResult(
+  result: unknown,
+  compositeKey: string
+): asserts result is FileContentResult {
+  if (typeof result !== 'object' || result === null || !('status' in result)) {
+    throw new Error(`File content processor returned malformed scan result for ${compositeKey}.`);
+  }
+  if (
+    (result.status === 'accessible' && 'content' in result && typeof result.content === 'string') ||
+    (result.status === 'inaccessible' && 'message' in result && typeof result.message === 'string')
+  ) {
+    return;
+  }
+  throw new Error(`File content processor returned malformed scan result for ${compositeKey}.`);
 }
 
 export function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
   const fileNodes: IFileNode[] = [];
-  for (const node of nodes) {
+  const pendingNodes: IFileNode[] = [];
+
+  const pushInReverse = (candidates: readonly IFileNode[]): void => {
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+      const candidate = candidates[index];
+      if (candidate) {
+        pendingNodes.push(candidate);
+      }
+    }
+  };
+
+  pushInReverse(nodes);
+
+  while (pendingNodes.length > 0) {
+    const node = pendingNodes.pop();
+    if (!node) {
+      continue;
+    }
     if (node.type === 'file') {
       fileNodes.push(node);
       continue;
     }
-    if (node.children && node.children.length > 0) {
-      fileNodes.push(...flattenFileNodes(node.children));
+    if (node.children) {
+      pushInReverse(node.children);
     }
   }
+
   return fileNodes;
 }
 
@@ -239,24 +397,29 @@ async function toMutableRecord(
 }
 
 async function collectDiscoveredPreparedFiles(args: {
-  fileContents: Record<string, string>;
+  fileContents: Record<string, FileContentResult>;
   metadataByKey: Map<string, FileBatchPreparation>;
   rootId: string;
 }): Promise<{
   excludedEntries: number;
   files: Array<DiscoveredPreparedFile | null>;
+  inaccessiblePaths: string[];
 }> {
   const discoveredFiles: Array<DiscoveredPreparedFile | null> = [];
   let excludedEntries = 0;
-  for (const [compositeKey, content] of Object.entries(args.fileContents)) {
-    const metadata = args.metadataByKey.get(compositeKey);
-    if (!metadata) {
-      discoveredFiles.push(null);
-      continue;
+  const inaccessiblePaths: string[] = [];
+  for (const [compositeKey, metadata] of args.metadataByKey) {
+    if (!Object.hasOwn(args.fileContents, compositeKey)) {
+      throw new Error(`File content processor omitted scan result for ${compositeKey}.`);
     }
-    const indexingError = getContentIndexingError(content);
-    if (indexingError) {
+    const result: unknown = args.fileContents[compositeKey];
+    assertFileContentResult(result, compositeKey);
+    const indexingError = getContentIndexingError(result);
+    if (indexingError !== null) {
       excludedEntries += 1;
+      if (result.status === 'inaccessible') {
+        inaccessiblePaths.push(metadata.relativePath);
+      }
       logger.debug('Workspace Index skipped file content that cannot be indexed', {
         reason: indexingError,
         relativePath: metadata.relativePath,
@@ -264,6 +427,10 @@ async function collectDiscoveredPreparedFiles(args: {
       discoveredFiles.push(null);
       continue;
     }
+    if (result.status !== 'accessible') {
+      throw new Error('Inaccessible file content result is missing an indexing error.');
+    }
+    const { content } = result;
     discoveredFiles.push({
       compositeKey,
       contentHash: await generateContentHash(content),
@@ -280,14 +447,81 @@ async function collectDiscoveredPreparedFiles(args: {
       size: metadata.size > 0 ? metadata.size : content.length,
     });
   }
-  return { excludedEntries, files: discoveredFiles };
+  return { excludedEntries, files: discoveredFiles, inaccessiblePaths };
+}
+
+function applyHashUnchangedPreparedFile(args: {
+  changes: PreparedCacheChange[];
+  chunkingRedispatchTracker: ChunkingRedispatchTracker;
+  discovered: DiscoveredPreparedFile;
+  existing: ManagedCacheEntryMetadata;
+  statRefreshes: StatMetadataRefresh[];
+  terminalChunkingErrors: ChunkingRedispatchTerminalError[];
+}): number {
+  if (!hasCompletedChunking(args.existing)) {
+    const redispatchKey = {
+      collectionId: args.existing.embeddingSetId,
+      contentHash: args.discovered.contentHash,
+      fileRecordId: args.existing.fileRecordId,
+      relativePath: args.discovered.relativePath,
+      rootId: args.discovered.rootId,
+    };
+    const decision = args.chunkingRedispatchTracker.inspect(redispatchKey);
+    if (decision.kind === 'exhausted') {
+      const message = `Workspace Index stopped re-dispatching "${args.discovered.relativePath}" after ${decision.attempts} redispatch attempts because its file record still has no completed chunking stamp. Edit the file or recreate the managed collection to retry.`;
+      args.terminalChunkingErrors.push({
+        attempts: decision.attempts,
+        fileRecordId: args.existing.fileRecordId,
+        message,
+        relativePath: args.discovered.relativePath,
+      });
+      if (args.chunkingRedispatchTracker.markExhaustionReported(redispatchKey)) {
+        logger.error('Workspace Index chunking redispatch attempt cap exhausted', {
+          attempts: decision.attempts,
+          collectionId: args.existing.embeddingSetId,
+          fileRecordId: args.existing.fileRecordId,
+          relativePath: args.discovered.relativePath,
+          rootId: args.discovered.rootId,
+        });
+      }
+      return 1;
+    }
+    args.changes.push({
+      ...args.discovered,
+      chunkingRedispatch: redispatchKey,
+      id: args.existing.fileRecordId,
+      mode: 'replace',
+    });
+    return 0;
+  }
+  args.chunkingRedispatchTracker.clear(
+    args.existing.embeddingSetId,
+    args.discovered.rootId,
+    args.discovered.relativePath
+  );
+  // Unchanged rows never write, so stamp missing/stale stats here or
+  // pre-migration rows miss the stat-cache on every future sync.
+  if (
+    args.discovered.mtimeMs !== null &&
+    (args.existing.mtimeMs !== args.discovered.mtimeMs ||
+      args.existing.size !== args.discovered.size)
+  ) {
+    args.statRefreshes.push({
+      fileRecordId: args.existing.fileRecordId,
+      mtimeMs: args.discovered.mtimeMs,
+      size: args.discovered.size,
+    });
+  }
+  return 1;
 }
 
 function applyDiscoveredPreparedFiles(args: {
   changes: PreparedCacheChange[];
+  chunkingRedispatchTracker: ChunkingRedispatchTracker;
   discoveredFiles: ReadonlyArray<DiscoveredPreparedFile | null>;
   existingByIdentity: Map<string, ManagedCacheEntryMetadata>;
   statRefreshes: StatMetadataRefresh[];
+  terminalChunkingErrors: ChunkingRedispatchTerminalError[];
   unchangedCount: number;
 }): number {
   let unchangedCount = args.unchangedCount;
@@ -306,29 +540,21 @@ function applyDiscoveredPreparedFiles(args: {
       continue;
     }
     if (existing.contentHash === discovered.contentHash) {
-      if (!hasCompletedChunking(existing)) {
-        args.changes.push({
-          ...discovered,
-          id: existing.fileRecordId,
-          mode: 'replace',
-        });
-        continue;
-      }
-      unchangedCount += 1;
-      // Unchanged rows never write, so stamp missing/stale stats here or
-      // pre-migration rows miss the stat-cache on every future sync.
-      if (
-        discovered.mtimeMs !== null &&
-        (existing.mtimeMs !== discovered.mtimeMs || existing.size !== discovered.size)
-      ) {
-        args.statRefreshes.push({
-          fileRecordId: existing.fileRecordId,
-          mtimeMs: discovered.mtimeMs,
-          size: discovered.size,
-        });
-      }
+      unchangedCount += applyHashUnchangedPreparedFile({
+        changes: args.changes,
+        chunkingRedispatchTracker: args.chunkingRedispatchTracker,
+        discovered,
+        existing,
+        statRefreshes: args.statRefreshes,
+        terminalChunkingErrors: args.terminalChunkingErrors,
+      });
       continue;
     }
+    args.chunkingRedispatchTracker.clear(
+      existing.embeddingSetId,
+      discovered.rootId,
+      discovered.relativePath
+    );
     args.changes.push({
       ...discovered,
       id: existing.fileRecordId,
@@ -476,13 +702,20 @@ async function applyBackgroundImportBatch(args: {
 
 function getSkippedBatchContentError(
   change: PreparedCacheChange,
-  batchContents: Readonly<Record<string, string>>
+  batchContents: Readonly<Record<string, FileContentResult>>
 ): string {
-  const content = batchContents[change.compositeKey];
-  if (content === undefined) {
+  const result = batchContents[change.compositeKey];
+  if (result === undefined) {
     return 'Background cache import descriptor is missing.';
   }
-  return getContentIndexingError(content) ?? content;
+  const indexingError = getContentIndexingError(result);
+  if (indexingError !== null) {
+    return indexingError;
+  }
+  if (result.status !== 'accessible') {
+    throw new Error('Inaccessible file content result is missing an indexing error.');
+  }
+  return result.content;
 }
 
 function buildBatchedEnhancedImportProgress(args: {
@@ -512,6 +745,19 @@ function buildBatchedEnhancedImportProgress(args: {
       return chunkingProgress ? { chunkingProgress } : {};
     })(),
   };
+}
+
+function selectImportedBatchChanges(
+  batch: readonly PreparedCacheChange[],
+  results: readonly FileImportResult[]
+): PreparedCacheChange[] {
+  const importedIds = new Set<string>();
+  for (const result of results) {
+    if (result.imported) {
+      importedIds.add(result.id);
+    }
+  }
+  return batch.filter((change) => importedIds.has(change.id));
 }
 
 function createFileBatchPreparations(
@@ -617,12 +863,15 @@ function hasCompletedChunking(existing: ManagedCacheEntryMetadata): boolean {
 
 export async function collectPreparedChangesInBatches(args: {
   abortSignal: AbortSignal;
+  chunkingRedispatchTracker?: ChunkingRedispatchTracker;
+  collectionId?: string;
   existingEntries: readonly ManagedCacheEntryMetadata[];
   fileContentProcessor?: FileContentProcessor;
   fileNodes: readonly IFileNode[];
   fileSystemAdapter: FileSystemAdapter;
   forceReadRelativePaths?: ReadonlySet<string>;
   onCurrentFile: (path: string | null) => void;
+  pruneMissingRedispatchEntries?: boolean;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
   // rootPath drives path normalization / composite keys; rootId is the durable
   // managed-cache dedup identity (since the source_root_path retirement).
@@ -631,12 +880,15 @@ export async function collectPreparedChangesInBatches(args: {
 }): Promise<PreparedChangesSummary> {
   const {
     abortSignal,
+    chunkingRedispatchTracker = new ChunkingRedispatchTracker(),
+    collectionId,
     existingEntries,
     fileContentProcessor,
     fileNodes,
     fileSystemAdapter,
     forceReadRelativePaths,
     onCurrentFile,
+    pruneMissingRedispatchEntries = false,
     qosPolicy,
     rootId,
     rootPath,
@@ -652,12 +904,33 @@ export async function collectPreparedChangesInBatches(args: {
       concurrency: qosPolicy.contentReadConcurrency,
     });
   const allPreparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
+  if (pruneMissingRedispatchEntries) {
+    if (!collectionId) {
+      throw new Error('A collection id is required to prune chunking redispatch state.');
+    }
+    chunkingRedispatchTracker.pruneMissing({
+      collectionId,
+      liveRelativePaths: new Set(allPreparations.map((preparation) => preparation.relativePath)),
+      rootId,
+    });
+  }
   const existingByIdentity = new Map(
     existingEntries.map((entry) => [
       buildRootFolderCacheIdentityKey(entry.rootId, entry.relativePath),
       entry,
     ])
   );
+  // Completed rows can exit through the stat-cache fast path without reaching
+  // applyDiscoveredPreparedFiles, so clear their retry state before partitioning.
+  for (const existing of existingEntries) {
+    if (hasCompletedChunking(existing)) {
+      chunkingRedispatchTracker.clear(
+        existing.embeddingSetId,
+        existing.rootId,
+        existing.relativePath
+      );
+    }
+  }
   // Stat-cache fast-path: drop files whose size+mtime already match the stored
   // entry before any content read, so unchanged files cost a stat lookup instead
   // of a full read + SHA-256 hash. Skipped files count as unchanged directly.
@@ -693,7 +966,9 @@ export async function collectPreparedChangesInBatches(args: {
     });
   }
   const changes: PreparedCacheChange[] = [];
+  const inaccessiblePaths: string[] = [];
   const statRefreshes: StatMetadataRefresh[] = [];
+  const terminalChunkingErrors: ChunkingRedispatchTerminalError[] = [];
   let excludedEntries = 0;
   let unchangedCount = skippedUnchanged.length;
 
@@ -718,12 +993,15 @@ export async function collectPreparedChangesInBatches(args: {
       rootId,
     });
     excludedEntries += discovered.excludedEntries;
+    inaccessiblePaths.push(...discovered.inaccessiblePaths);
     throwIfAborted(abortSignal);
     unchangedCount = applyDiscoveredPreparedFiles({
       changes,
+      chunkingRedispatchTracker,
       discoveredFiles: discovered.files,
       existingByIdentity,
       statRefreshes,
+      terminalChunkingErrors,
       unchangedCount,
     });
   }
@@ -731,8 +1009,11 @@ export async function collectPreparedChangesInBatches(args: {
   return {
     changes,
     excludedEntries,
+    inaccessiblePaths,
     statRefreshes,
+    terminalChunkingErrors,
     totalFiles: fileNodes.length,
+    truncatedDirectoryPaths: [],
     unchangedCount,
   };
 }
@@ -751,6 +1032,7 @@ export async function runRootFolderCacheImport(args: {
   db: DbHandle;
   fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: FileImportFileRecordRepository;
+  onChunkingBatchStart?: (batch: readonly PreparedCacheChange[]) => void;
   onProgress: (progress: EnhancedImportProgress) => void;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
   rootId?: string | null;
@@ -768,6 +1050,7 @@ export async function runRootFolderCacheImport(args: {
     db,
     fileContentProcessor,
     fileRecordRepository,
+    onChunkingBatchStart,
     onProgress,
     qosPolicy,
     rootId,
@@ -925,9 +1208,9 @@ export async function runRootFolderCacheImport(args: {
       const fileContents = Object.fromEntries(
         batch
           .map((change) => {
-            const content = batchContents[change.compositeKey];
-            return content !== undefined && isContentAccessible(content)
-              ? ([change.compositeKey, content] as const)
+            const result = batchContents[change.compositeKey];
+            return result?.status === 'accessible' && getContentIndexingError(result) === null
+              ? ([change.compositeKey, result.content] as const)
               : null;
           })
           .filter((entry): entry is readonly [string, string] => entry !== null)
@@ -1015,6 +1298,12 @@ export async function runRootFolderCacheImport(args: {
           enabled: true,
         },
         embedding: embeddingConfig,
+        onChunkingStart: (baseResults) => {
+          const importedBatch = selectImportedBatchChanges(batch, baseResults);
+          if (importedBatch.length > 0) {
+            onChunkingBatchStart?.(importedBatch);
+          }
+        },
         ports: {
           embeddingQueue,
           sql,

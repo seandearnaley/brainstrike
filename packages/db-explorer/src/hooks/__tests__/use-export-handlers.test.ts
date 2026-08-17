@@ -1,5 +1,6 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import type { useToast } from '@brainstrike/ui';
+import { downloadBlobFile } from '@brainstrike/utils/browser-download';
 import { renderHook } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,10 +20,14 @@ vi.mock('../../csv-export-utils', () => ({
   generateFilesWithChunksCSV: vi.fn(() => 'file,data'),
 }));
 
+// Mock the shared save path — the hook's contract is delegating to it, not
+// anchor mechanics (those live in the shared module's own tests).
+vi.mock('@brainstrike/utils/browser-download', () => ({
+  downloadBlobFile: vi.fn(),
+}));
+
 describe('useExportHandlers', () => {
   let mockToast: Mock<ToastFn>;
-  let mockLink: HTMLAnchorElement;
-  let originalCreateElement: typeof document.createElement;
 
   const createLoadExportData = (records: FileRecord[], chunks: FileChunk[]) =>
     vi.fn().mockResolvedValue({ chunks, records });
@@ -39,26 +44,8 @@ describe('useExportHandlers', () => {
     );
     vi.mocked(csvExportUtils.generateEmbeddingsCSV).mockReturnValue('embedding,data');
     vi.mocked(csvExportUtils.generateFilesWithChunksCSV).mockReturnValue('file,data');
+    vi.mocked(downloadBlobFile).mockResolvedValue({});
     mockToast = vi.fn() as Mock<ToastFn>;
-
-    // Save original createElement
-    originalCreateElement = document.createElement.bind(document);
-
-    // Create a real anchor element and spy on its click method
-    mockLink = originalCreateElement('a');
-    vi.spyOn(mockLink, 'click').mockImplementation(() => {});
-
-    // Spy on createElement to return our mockLink for anchor elements
-    vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) => {
-      if (tagName === 'a') {
-        return mockLink;
-      }
-      return originalCreateElement(tagName);
-    }) as typeof document.createElement);
-
-    // Mock URL methods
-    global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
-    global.URL.revokeObjectURL = vi.fn();
   });
 
   afterEach(() => {
@@ -98,7 +85,10 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateFilesWithChunksCSV).toHaveBeenCalledWith(records);
       expect(csvExportUtils.createCSVBlob).toHaveBeenCalled();
       expect(csvExportUtils.generateCSVFilename).toHaveBeenCalledWith('files');
-      expect(mockLink.click).toHaveBeenCalled();
+      expect(downloadBlobFile).toHaveBeenCalledWith({
+        blob: expect.any(Blob),
+        filename: 'files-export.csv',
+      });
       expect(mockToast).toHaveBeenCalledWith({
         description: 'Exported 2 files to files-export.csv',
         title: 'Export Successful',
@@ -152,6 +142,61 @@ describe('useExportHandlers', () => {
         variant: 'destructive',
       });
     });
+
+    it('names the file actually written when the desktop save counters a collision', async () => {
+      const records: FileRecord[] = [
+        {
+          createdAt: '2025-01-01T00:00:00Z',
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      vi.mocked(downloadBlobFile).mockResolvedValue({
+        path: '/Users/me/Downloads/files-export (1).csv',
+      });
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, []), mockToast)
+      );
+
+      await result.current.handleExportFiles();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        description: 'Exported 1 files to files-export (1).csv',
+        title: 'Export Successful',
+      });
+    });
+
+    it('surfaces a failed save from the shared download path', async () => {
+      const records: FileRecord[] = [
+        {
+          createdAt: '2025-01-01T00:00:00Z',
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      vi.mocked(downloadBlobFile).mockRejectedValue(new Error('Desktop save failed'));
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, []), mockToast)
+      );
+
+      await result.current.handleExportFiles();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        description: 'Desktop save failed',
+        title: 'Export Failed',
+        variant: 'destructive',
+      });
+    });
   });
 
   describe('handleExportChunks', () => {
@@ -193,7 +238,10 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateChunksCSV).toHaveBeenCalledWith(chunks);
       expect(csvExportUtils.createCSVBlob).toHaveBeenCalled();
       expect(csvExportUtils.generateCSVFilename).toHaveBeenCalledWith('chunks');
-      expect(mockLink.click).toHaveBeenCalled();
+      expect(downloadBlobFile).toHaveBeenCalledWith({
+        blob: expect.any(Blob),
+        filename: 'chunks-export.csv',
+      });
       expect(mockToast).toHaveBeenCalledWith({
         description: 'Exported 2 chunks to chunks-export.csv',
         title: 'Export Successful',
@@ -294,7 +342,10 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateEmbeddingsCSV).toHaveBeenCalledWith(chunks);
       expect(csvExportUtils.createCSVBlob).toHaveBeenCalled();
       expect(csvExportUtils.generateCSVFilename).toHaveBeenCalledWith('embeddings');
-      expect(mockLink.click).toHaveBeenCalled();
+      expect(downloadBlobFile).toHaveBeenCalledWith({
+        blob: expect.any(Blob),
+        filename: 'embeddings-export.csv',
+      });
       expect(mockToast).toHaveBeenCalledWith({
         description: 'Exported 2 embeddings to embeddings-export.csv',
         title: 'Export Successful',
@@ -632,78 +683,9 @@ describe('useExportHandlers', () => {
     });
   });
 
-  describe('URL and DOM lifecycle', () => {
-    it('revokes the object URL after a successful file export', async () => {
-      const records: FileRecord[] = [
-        {
-          createdAt: '2025-01-01T00:00:00Z',
-          id: '1',
-          name: 'test.txt',
-          path: '/test.txt',
-          size: 0,
-          updatedAt: '2025-01-01T00:00:00Z',
-        },
-      ];
-
-      const { result } = renderHook(() =>
-        useExportHandlers(createLoadExportData(records, []), mockToast)
-      );
-
-      await result.current.handleExportFiles();
-
-      expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
-    });
-
-    it('revokes the object URL after a successful chunk export', async () => {
-      const chunks: FileChunk[] = [
-        {
-          chunkIndex: 0,
-          chunkSize: 1,
-          chunkType: 'text',
-          content: 'x',
-          contentHash: 'h',
-          createdAt: '2025-01-01T00:00:00Z',
-          fileRecordId: '1',
-          id: '1',
-          tokenCount: 1,
-          updatedAt: '2025-01-01T00:00:00Z',
-        },
-      ];
-
-      const { result } = renderHook(() =>
-        useExportHandlers(createLoadExportData([], chunks), mockToast)
-      );
-
-      await result.current.handleExportChunks();
-
-      expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
-    });
-
-    it('appends then removes the anchor from the document body', async () => {
-      const appendSpy = vi.spyOn(document.body, 'appendChild');
-      const removeSpy = vi.spyOn(document.body, 'removeChild');
-
-      const records: FileRecord[] = [
-        {
-          createdAt: '2025-01-01T00:00:00Z',
-          id: '1',
-          name: 'test.txt',
-          path: '/test.txt',
-          size: 0,
-          updatedAt: '2025-01-01T00:00:00Z',
-        },
-      ];
-
-      const { result } = renderHook(() =>
-        useExportHandlers(createLoadExportData(records, []), mockToast)
-      );
-
-      await result.current.handleExportFiles();
-
-      expect(appendSpy).toHaveBeenCalledWith(mockLink);
-      expect(removeSpy).toHaveBeenCalledWith(mockLink);
-    });
-  });
+  // The object-URL/anchor lifecycle moved into the shared `downloadBlobFile`
+  // (`@brainstrike/utils`), which owns it for every export surface; its
+  // deferred-revoke contract is pinned by that module's own tests.
 
   describe('loadExportData rejection', () => {
     it('surfaces a toast when loadExportData itself rejects', async () => {

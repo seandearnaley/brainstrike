@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createLogger } from '@brainstrike/logging';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
-import { createLogger } from '@brainstrike/utils';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
@@ -13,6 +13,7 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
+import { canvasFrameShellPlugin } from './src/canvas-frame-plugin';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -144,6 +145,7 @@ export default defineConfig({
       '@electric-sql/pglite-pg_textsearch',
       '@brainstrike/types',
       '@brainstrike/hooks',
+      '@brainstrike/assistant-ui',
       '@brainstrike/ui',
       '@brainstrike/utils',
       '@brainstrike/file-explorer',
@@ -176,6 +178,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    canvasFrameShellPlugin(),
     fullReloadOnCompilerHotspots(),
     wasm(),
     topLevelAwait(),
@@ -249,6 +252,10 @@ export default defineConfig({
       {
         find: '@brainstrike/ui/styles.css',
         replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
+      },
+      {
+        find: '@brainstrike/assistant-ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/assistant-ui/styles.css'),
       },
       {
         find: '@brainstrike/ui/globals.css',
@@ -365,6 +372,7 @@ export default defineConfig({
         inline: [
           '@brainstrike/types',
           '@brainstrike/hooks',
+          '@brainstrike/assistant-ui',
           '@brainstrike/ui',
           '@brainstrike/utils',
         ],

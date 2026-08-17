@@ -139,16 +139,10 @@ describe('VectorStatus', () => {
     expect(screen.getByText(/device/i)).toBeInTheDocument();
   });
 
-  it('renders a device badge with a non-empty value', () => {
+  it('renders a device badge with the resolved device value', () => {
     render(<VectorStatus />);
-    // The Badge mock renders children as a <span>. getBestDevice returns
-    // a string (or 'unavailable' on catch) – either way a non-empty span
-    // next to the Device label must exist.
-    const deviceLabel = screen.getByText(/device/i);
-    expect(deviceLabel).toBeInTheDocument();
-    // Sibling badge rendered by the mocked Badge component
-    const deviceSection = deviceLabel.closest('div');
-    expect(deviceSection).not.toBeNull();
+    expect(screen.getByText(/device/i)).toBeInTheDocument();
+    expect(screen.getByText('wasm')).toBeInTheDocument();
   });
 });
 

@@ -2,7 +2,7 @@ import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrik
 import { createStorageAdapter } from '@brainstrike/storage';
 import type { IFileNode } from '@brainstrike/types';
 import type { ReactNode } from 'react';
-import { AdaptersProvider } from '../adapters-context';
+import { AdaptersProvider } from '../adapters-context.js';
 
 // Mock file system adapter for tests
 class MockFileSystemAdapter implements FileSystemAdapter {

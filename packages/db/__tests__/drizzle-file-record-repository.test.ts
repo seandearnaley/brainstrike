@@ -7,6 +7,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { databaseQueryTelemetry } from '../src/database-query-telemetry.js';
 import { DrizzleFileRecordRepository } from '../src/repositories/drizzle/file-record-repository.js';
 import * as schema from '../src/schema/index.js';
 import {
@@ -223,6 +224,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootId: 'root-c',
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       const entries = await repository.listManagedCacheEntries(
         '00000000-0000-0000-0000-000000000101'
       );
@@ -231,6 +233,9 @@ describe('DrizzleFileRecordRepository', () => {
         '00000000-0000-0000-0000-000000000021',
         '00000000-0000-0000-0000-000000000022',
       ]);
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 1
+      );
     });
 
     it('should list managed cache metadata without selecting content', async () => {
@@ -242,6 +247,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootId: 'root-a',
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       const entries = await repository.listManagedCacheEntryMetadata(
         '00000000-0000-0000-0000-000000000101'
       );
@@ -255,6 +261,9 @@ describe('DrizzleFileRecordRepository', () => {
           rootId: 'root-a',
         }),
       ]);
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 1
+      );
     });
   });
 
@@ -455,8 +464,12 @@ describe('DrizzleFileRecordRepository', () => {
         updatedAt: now,
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       expect(await repository.count()).toBe(2);
       expect(await repository.countWithContent()).toBe(1);
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 2
+      );
     });
   });
 
@@ -594,6 +607,7 @@ describe('DrizzleFileRecordRepository', () => {
         rootId: 'root-a',
       });
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().features['file-tree'].queryCount;
       const results = await repository.findByNameSubstring('read', 50);
 
       // Only the two 'read*' rows match; 'readme.md' (9 chars) sorts before
@@ -601,6 +615,9 @@ describe('DrizzleFileRecordRepository', () => {
       expect(results.map((row) => row.name)).toEqual(['readme.md', 'read-stream.ts']);
       expect(results[0]?.display_name).toBe('Alpha');
       expect(results[0]?.root_id).toBe('root-a');
+      expect(databaseQueryTelemetry.snapshot().features['file-tree'].queryCount).toBe(
+        telemetryBefore + 1
+      );
     });
 
     it('returns TWO distinct rows for the same relative path in two roots', async () => {

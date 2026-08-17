@@ -61,21 +61,25 @@ describe('desktop vite config alias contract', () => {
     expect(readDesktopViteConfig()).not.toMatch(/find:\s*'@brainstrike\/token-cache/);
   });
 
-  it('resolves each text-splitter subpath to its own distinct source file via the registry', () => {
-    for (const [specifier, sourcePath] of [
-      ['@brainstrike/text-splitter/chunking-core', 'chunking-core.ts'],
-      ['@brainstrike/text-splitter/token-counting-heuristics', 'token-counting-heuristics.ts'],
-      ['@brainstrike/text-splitter/token-constants', 'token-constants.ts'],
-      ['@brainstrike/text-splitter/token-utils-accurate-lite', 'token-utils-accurate-lite.ts'],
+  it('resolves text-splitter and tokenization subpaths from their owning packages', () => {
+    for (const [specifier, packageName, sourcePath] of [
+      ['@brainstrike/text-splitter/chunking-core', 'text-splitter', 'chunking-core.ts'],
+      [
+        '@brainstrike/tokenization/token-utils-accurate-lite',
+        'tokenization',
+        'token-utils-accurate-lite.ts',
+      ],
+      ['@brainstrike/tokenization/token-utils-lite', 'tokenization', 'token-utils-lite.ts'],
     ] as const) {
       expect(resolveThroughAliases(specifier, registryEntries)).toBe(
-        path.resolve(PACKAGES_DIR, `text-splitter/src/${sourcePath}`)
+        path.resolve(PACKAGES_DIR, `${packageName}/src/${sourcePath}`)
       );
     }
     expect(resolveThroughAliases('@brainstrike/text-splitter', registryEntries)).toBe(
       path.resolve(PACKAGES_DIR, 'text-splitter/src/index.ts')
     );
     expect(readDesktopViteConfig()).not.toMatch(/find:\s*'@brainstrike\/text-splitter/);
+    expect(readDesktopViteConfig()).not.toMatch(/find:\s*'@brainstrike\/tokenization/);
   });
 
   it('pins file-tree-worker to source so renderer dev does not load stale dist workers', () => {
@@ -123,18 +127,20 @@ describe('desktop vite config alias contract', () => {
     // circular chunk-init TDZ ("t is not a function") that hangs the BUILT
     // renderer on startup forever (dev is unaffected; caught only by live
     // built-app verification / the Desktop E2E smoke). They MUST resolve to src.
-    for (const pkg of ['context-actions', 'commands'] as const) {
-      const specifier = `@brainstrike/${pkg}`;
+    const systemEntrypoints = [
+      ['@brainstrike/context-actions', 'context-actions/src/index.ts'],
+      ['@brainstrike/context-actions/commands', 'context-actions/src/commands/index.ts'],
+    ] as const;
+    for (const [specifier, sourcePath] of systemEntrypoints) {
       const resolved = resolveThroughAliases(specifier, registryEntries);
-      expect(resolved).toBe(path.resolve(PACKAGES_DIR, `${pkg}/src/index.ts`));
+      expect(resolved).toBe(path.resolve(PACKAGES_DIR, sourcePath));
       expect(resolved).not.toMatch(/dist/);
     }
     // Both configs spread the shared registry and neither shadows these two
     // with a stale literal override.
     for (const config of [readDesktopViteConfig(), readWebViteConfig()]) {
       expect(config).toContain('workspaceSrcAliases(');
-      expect(config).not.toMatch(/find:\s*'@brainstrike\/context-actions'/);
-      expect(config).not.toMatch(/find:\s*'@brainstrike\/commands'/);
+      expect(config).not.toMatch(/find:\s*'@brainstrike\/context-actions/);
     }
   });
 

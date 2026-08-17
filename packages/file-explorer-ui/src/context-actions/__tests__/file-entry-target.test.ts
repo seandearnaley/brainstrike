@@ -97,4 +97,16 @@ describe('fileNodeToTarget', () => {
       })
     ).toBeNull();
   });
+
+  it('returns null for truncated pseudo-nodes', () => {
+    expect(
+      fileNodeToTarget({
+        ...baseNode,
+        name: 'Showing first 10,000 entries',
+        path: '/Users/dev/project/…truncated…',
+        rootFolderId: 'root-uuid',
+        type: 'truncated',
+      })
+    ).toBeNull();
+  });
 });

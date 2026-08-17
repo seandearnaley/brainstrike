@@ -21,9 +21,12 @@
 import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
-} from '@brainstrike/preferences/stores/token-preferences-store';
+} from '@brainstrike/app-state/stores/token-preferences-store';
+import { databaseQueryTelemetry } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import type {
   TokenCacheEntry,
+  TokenCacheLookupTelemetryRecord,
   TokenCountingMode,
   TokenCountRequest,
   TokenCountResult,
@@ -35,7 +38,6 @@ import {
   TokenCacheStore,
   useTokenCache,
 } from '@brainstrike/token-cache/cache-runtime';
-import { createLogger } from '@brainstrike/utils/logger';
 import {
   createContext,
   type ReactNode,
@@ -50,6 +52,14 @@ import {
 import { resolveTokenCacheWorkerUrlHref } from './resolve-token-cache-worker-url';
 
 const logger = createLogger('TokenCacheContext');
+const tokenCacheDatabaseQueryTelemetry = {
+  recordLookup(record: TokenCacheLookupTelemetryRecord): void {
+    databaseQueryTelemetry.recordQuery({
+      ...record,
+      feature: 'token-estimation',
+    });
+  },
+};
 
 /**
  * PGlite database type (subset of @electric-sql/pglite)
@@ -477,7 +487,8 @@ export function TokenCacheProvider({
     }
 
     const persistentStore = new TokenCacheStore(
-      db as unknown as ConstructorParameters<typeof TokenCacheStore>[0]
+      db as unknown as ConstructorParameters<typeof TokenCacheStore>[0],
+      { telemetry: tokenCacheDatabaseQueryTelemetry }
     );
     persistentStoreRef.current = {
       query: db.query,

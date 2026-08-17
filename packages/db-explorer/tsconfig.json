@@ -8,6 +8,9 @@
     "outDir": "dist",
     "declarationDir": "dist",
     "paths": {
+      "@brainstrike/file-explorer/*": [
+        "../file-explorer/dist/*.d.ts"
+      ],
       "@brainstrike/file-explorer-ui": [
         "../file-explorer-ui/dist/index.d.ts"
       ],
@@ -19,9 +22,6 @@
       ],
       "@brainstrike/utils/*": [
         "../utils/dist/*.d.ts"
-      ],
-      "@brainstrike/preferences/*": [
-        "../preferences/dist/*.d.ts"
       ]
     },
     "types": [
@@ -42,6 +42,9 @@
   ],
   "references": [
     {
+      "path": "../app-state"
+    },
+    {
       "path": "../assistant-contract"
     },
     {
@@ -52,6 +55,9 @@
     },
     {
       "path": "../embeddings"
+    },
+    {
+      "path": "../file-explorer"
     },
     {
       "path": "../file-explorer-hooks"
@@ -72,13 +78,13 @@
       "path": "../platform-utils"
     },
     {
-      "path": "../preferences"
-    },
-    {
       "path": "../pipeline"
     },
     {
       "path": "../text-splitter"
+    },
+    {
+      "path": "../tokenization"
     },
     {
       "path": "../vector-management"
@@ -88,6 +94,9 @@
     },
     {
       "path": "../ui"
+    },
+    {
+      "path": "../logging"
     },
     {
       "path": "../utils"

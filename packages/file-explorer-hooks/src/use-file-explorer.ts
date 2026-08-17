@@ -1,11 +1,10 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useFileFilters } from '@brainstrike/hooks';
-
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo } from 'react';
-import { useFileContentLoading } from './use-file-content-loading';
-import { useFileSystem } from './use-file-system';
-import { useFileTree } from './use-file-tree';
+import { useFileContentLoading } from './use-file-content-loading.js';
+import { useFileSystem } from './use-file-system.js';
+import { useFileTree } from './use-file-tree.js';
 
 export interface UseFileExplorerParams {
   onDisplayedFilePathsChange?: (paths: Set<string>) => void;

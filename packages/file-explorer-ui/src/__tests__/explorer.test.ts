@@ -1,10 +1,10 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import {
   createDirectoryNode,
   createFileNode,
   createNestedDirectoryStructure,
 } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('fileExplorer', () => {

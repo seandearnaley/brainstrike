@@ -1,19 +1,33 @@
 /**
- * Contract tests for the `turbo boundaries` CI gate (BST-967).
+ * Contract tests for the package-boundary gate (BST-967).
  *
- * The gate is a Static-job step running `pnpm exec turbo boundaries` BEFORE any
- * step that can materialize `dist/` (type-check's dependsOn: ["build"] builds
- * the workspace; a replayed turbo cache task writes outputs back). Ordering is
- * load-bearing: the analyzer scans build output too, so stale `dist/` from a
- * previous state of the tree produces phantom violations (observed live: the
- * unmerged turso branch's `dist/turso/*` files flagged `@tursodatabase/database`
- * imports that no source on main contains). On a fresh checkout with no dist,
- * the count is the SOURCE count — that is the number the gate enforces at zero.
+ * The gate is a Static-job step, `pnpm run boundaries` →
+ * `scripts/turbo-boundaries.mjs`, ordered BEFORE any step that can materialize
+ * `dist/` (type-check's dependsOn: ["build"] builds the workspace; a replayed
+ * turbo cache task writes outputs back).
  *
- * Per the BST-836 discipline, the gate itself is proven able to fail: a minimal
- * fixture workspace with an undeclared import must make `turbo boundaries` exit
- * non-zero, and the same fixture without the violation must exit zero. A gate
- * that cannot fail is not evidence.
+ * TWO THINGS ARE UNDER CONTRACT HERE.
+ *
+ * 1. The gate can fail. Per the BST-836 discipline: a minimal fixture
+ *    workspace with an undeclared import must exit non-zero, and the same
+ *    fixture without the violation must exit zero. A gate that cannot fail is
+ *    not evidence.
+ *
+ * 2. The gate is idempotent. `turbo boundaries` scans build output as well as
+ *    source and has no exclusion mechanism at any level — no CLI flag, no
+ *    `turbo.json` key, no `.turboignore`, and it does not consult `.gitignore`
+ *    (checked against 2.10.8, 2.10.10, and 2.10.11-canary.3). So the raw
+ *    command reports phantom violations against generated bundles the moment a
+ *    build has run: green on a clean checkout, red on the identical tree after
+ *    `pnpm build`, over files nobody wrote (observed live: the unmerged turso
+ *    branch's `dist/turso/*` flagged `@tursodatabase/database` imports that no
+ *    source on main contains; and `apps/web/dist/assets/chunking.worker-*.ts`
+ *    flagged for `@brainstrike/tokenization`). The wrapper judges only findings
+ *    in files git does not ignore, which is why the ordering above is now a
+ *    scan-cost property rather than the thing keeping the gate honest.
+ *
+ * The tests below hold both ends: generated output cannot fail the gate, and
+ * generated output cannot MASK a source violation either.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -23,6 +37,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { parseFindings, parseIssueCount, partitionFindings } from '../turbo-boundaries.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const turboBin = path.join(
@@ -31,17 +46,32 @@ const turboBin = path.join(
   '.bin',
   process.platform === 'win32' ? 'turbo.cmd' : 'turbo'
 );
+const gateScript = path.join(repoRoot, 'scripts', 'turbo-boundaries.mjs');
 
-function writeFixture(dir, { violating }) {
+const UNDECLARED_IMPORT = "import { thing } from 'undeclared-dep';\nexport const x = thing;\n";
+
+/**
+ * A one-package workspace, optionally with a violation in source, in generated
+ * output, or both. `dist/` is git-ignored exactly as it is in this repo — the
+ * fixture is a git repository because that is what the gate asks about.
+ */
+function writeFixture(
+  dir,
+  { generatedViolation = false, initGit = true, trackGenerated = false, violating }
+) {
   mkdirSync(path.join(dir, 'packages', 'alpha', 'src'), { recursive: true });
   writeFileSync(
     path.join(dir, 'package.json'),
     JSON.stringify({ name: 'boundaries-fixture', packageManager: 'pnpm@11.15.0', private: true })
   );
   writeFileSync(path.join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+  writeFileSync(path.join(dir, '.gitignore'), 'dist\n');
   writeFileSync(
     path.join(dir, 'turbo.json'),
-    JSON.stringify({ $schema: 'https://turborepo.dev/schema.json', tasks: { build: {} } })
+    JSON.stringify({
+      $schema: 'https://turborepo.dev/schema.json',
+      tasks: { build: { outputs: ['dist/**'] } },
+    })
   );
   writeFileSync(
     path.join(dir, 'packages', 'alpha', 'package.json'),
@@ -49,10 +79,28 @@ function writeFixture(dir, { violating }) {
   );
   writeFileSync(
     path.join(dir, 'packages', 'alpha', 'src', 'index.ts'),
-    violating
-      ? "import { thing } from 'undeclared-dep';\nexport const x = thing;\n"
-      : 'export const x = 1;\n'
+    violating ? UNDECLARED_IMPORT : 'export const x = 1;\n'
   );
+  if (initGit) {
+    git(dir, ['init', '-q']);
+  }
+  if (!generatedViolation) {
+    return;
+  }
+  mkdirSync(path.join(dir, 'packages', 'alpha', 'dist'), { recursive: true });
+  writeFileSync(path.join(dir, 'packages', 'alpha', 'dist', 'index.js'), UNDECLARED_IMPORT);
+  if (trackGenerated) {
+    // -f overrides .gitignore: this is the "someone committed it" case, where
+    // the file IS part of the repository and the gate must still judge it.
+    git(dir, ['add', '-f', 'packages/alpha/dist/index.js']);
+  }
+}
+
+function git(cwd, args) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  assert.equal(result.error, undefined, `could not spawn git: ${result.error?.message}`);
+  assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`);
+  return result;
 }
 
 function runBoundaries(cwd) {
@@ -65,39 +113,184 @@ function runBoundaries(cwd) {
   return result;
 }
 
-test('MONEY TEST: a fixture workspace with an undeclared import FAILS boundaries (exit != 0)', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'boundaries-money-'));
+/** The gate as Static runs it: the wrapper, over the fixture workspace. */
+function runGate(cwd) {
+  const result = spawnSync(process.execPath, [gateScript, '--skip-infer'], {
+    cwd,
+    encoding: 'utf8',
+  });
+  assert.equal(result.error, undefined, `could not spawn ${gateScript}: ${result.error?.message}`);
+  assert.notEqual(
+    result.status,
+    null,
+    `${gateScript} did not exit normally: ${result.stdout}\n${result.stderr}`
+  );
+  return result;
+}
+
+function withFixture(prefix, options, assertions) {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
   try {
-    writeFixture(dir, { violating: true });
-    const result = runBoundaries(dir);
+    writeFixture(dir, options);
+    assertions(dir);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
+test('MONEY TEST: a fixture workspace with an undeclared import FAILS the gate (exit != 0)', () => {
+  withFixture('boundaries-money-', { violating: true }, (dir) => {
+    const raw = runBoundaries(dir);
     assert.notEqual(
-      result.status,
+      raw.status,
       0,
-      `boundaries must exit non-zero on a violation; got ${result.status}\n${result.stdout}\n${result.stderr}`
+      `boundaries must exit non-zero on a violation; got ${raw.status}\n${raw.stdout}\n${raw.stderr}`
+    );
+    assert.match(`${raw.stdout}\n${raw.stderr}`, /issue/i, 'boundaries should report the issue');
+
+    const gate = runGate(dir);
+    assert.notEqual(
+      gate.status,
+      0,
+      `the gate must exit non-zero on a source violation; got ${gate.status}\n${gate.stdout}\n${gate.stderr}`
     );
     assert.match(
-      `${result.stdout}\n${result.stderr}`,
-      /issue/i,
-      'boundaries should report the issue it found'
+      `${gate.stdout}\n${gate.stderr}`,
+      /undeclared-dep/,
+      'the gate must report the offending import, not just a count'
     );
-  } finally {
-    rmSync(dir, { force: true, recursive: true });
-  }
+  });
 });
 
-test('control: the same fixture without the violation passes boundaries (exit 0)', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'boundaries-clean-'));
-  try {
-    writeFixture(dir, { violating: false });
-    const result = runBoundaries(dir);
+test('control: the same fixture without the violation passes the gate (exit 0)', () => {
+  withFixture('boundaries-clean-', { violating: false }, (dir) => {
+    const raw = runBoundaries(dir);
     assert.equal(
-      result.status,
+      raw.status,
       0,
-      `boundaries must exit 0 on a clean tree; got ${result.status}\n${result.stdout}\n${result.stderr}`
+      `boundaries must exit 0 on a clean tree; got ${raw.status}\n${raw.stdout}\n${raw.stderr}`
     );
-  } finally {
-    rmSync(dir, { force: true, recursive: true });
-  }
+    const gate = runGate(dir);
+    assert.equal(
+      gate.status,
+      0,
+      `the gate must exit 0 on a clean tree; got ${gate.status}\n${gate.stdout}\n${gate.stderr}`
+    );
+  });
+});
+
+test('MONEY TEST: a violation that exists ONLY in git-ignored build output passes the gate', () => {
+  withFixture('boundaries-generated-', { generatedViolation: true, violating: false }, (dir) => {
+    // The control is the whole point: raw `turbo boundaries` FAILS on this
+    // tree. Without it this test could pass because the fixture is empty
+    // rather than because the wrapper scoped the verdict — which is exactly
+    // the non-idempotent `pnpm check` this gate had.
+    const raw = runBoundaries(dir);
+    assert.notEqual(
+      raw.status,
+      0,
+      'raw `turbo boundaries` is expected to flag build output — if it no longer does, delete the wrapper instead of this test'
+    );
+    assert.match(raw.stderr, /dist/, 'the raw finding must be the dist file');
+
+    const gate = runGate(dir);
+    assert.equal(
+      gate.status,
+      0,
+      `generated output must not fail the gate; got ${gate.status}\n${gate.stdout}\n${gate.stderr}`
+    );
+    assert.match(
+      gate.stdout,
+      /Ignored 1 finding in generated output/,
+      'the gate must say what it ignored rather than silently passing'
+    );
+  });
+});
+
+test('MONEY TEST: build output cannot MASK a source violation', () => {
+  withFixture('boundaries-mixed-', { generatedViolation: true, violating: true }, (dir) => {
+    const gate = runGate(dir);
+    assert.notEqual(gate.status, 0, 'a source violation must still fail with dist present');
+    assert.match(gate.stdout, /1 source boundary violation\b/);
+    // The diagnostics stream carries exactly the findings being reported, so
+    // these two assertions are about what the gate blames — not about text
+    // that happens to appear somewhere in the combined output.
+    assert.match(gate.stderr, /src[\\/]index\.ts/, 'the source finding must be shown');
+    assert.doesNotMatch(
+      gate.stderr,
+      /dist[\\/]index\.js/,
+      'the generated finding must not be reprinted as a violation'
+    );
+  });
+});
+
+test('a TRACKED file under dist/ is still judged — the rule is git, not the directory name', () => {
+  withFixture(
+    'boundaries-tracked-',
+    { generatedViolation: true, trackGenerated: true, violating: false },
+    (dir) => {
+      const gate = runGate(dir);
+      assert.notEqual(
+        gate.status,
+        0,
+        `a committed file is part of the repository and must be judged; got ${gate.status}\n${gate.stdout}\n${gate.stderr}`
+      );
+      assert.match(`${gate.stdout}\n${gate.stderr}`, /1 source boundary violation\b/);
+    }
+  );
+});
+
+test('the parser accounts for every issue turbo reports (a mismatch fails the gate unfiltered)', () => {
+  withFixture('boundaries-parse-', { generatedViolation: true, violating: true }, (dir) => {
+    const raw = runBoundaries(dir);
+    const issueCount = parseIssueCount(raw.stdout);
+    assert.equal(issueCount, 2, `expected 2 issues from the fixture, got ${issueCount}`);
+    const { findings } = parseFindings(raw.stderr);
+    assert.equal(
+      findings.length,
+      issueCount,
+      'the diagnostic parser must keep up with turbo output format; the gate refuses to filter when these disagree'
+    );
+    for (const finding of findings) {
+      assert.equal(finding.paths.length, 1, `each finding should carry its file: ${finding.text}`);
+    }
+  });
+});
+
+test('when git cannot classify, the gate fails AND still hands back every finding', () => {
+  // No repository to ask (a tarball export, a copied tree). Failing is right —
+  // nothing is classifiable — but failing must not swallow the diagnostics the
+  // developer has to act on, the way the parse-mismatch branch does not.
+  withFixture('boundaries-nogit-', { initGit: false, violating: true }, (dir) => {
+    const gate = runGate(dir);
+    assert.notEqual(gate.status, 0, 'an unclassifiable run must fail');
+    assert.match(
+      `${gate.stdout}\n${gate.stderr}`,
+      /git check-ignore failed/,
+      'the gate must say why it could not classify'
+    );
+    assert.match(
+      gate.stderr,
+      /undeclared-dep/,
+      'turbo’s findings must survive a git failure, not be dropped on the floor'
+    );
+    assert.match(gate.stdout, /1 issue found/, "turbo's own summary must survive too");
+  });
+});
+
+test('a finding with no file location is never suppressed', () => {
+  // Tag-rule and cycle diagnostics need not point at a file. Unclassifiable is
+  // not the same as clean — NO SILENT FALLBACKS.
+  const { generated, source } = partitionFindings(
+    [
+      { paths: [], text: '  x boundaries rules cannot have `tags` key' },
+      { paths: ['/repo/packages/alpha/dist/index.js'], text: '  x generated' },
+    ],
+    new Set(['/repo/packages/alpha/dist/index.js'])
+  );
+  assert.equal(source.length, 1);
+  assert.match(source[0].text, /tags/);
+  assert.equal(generated.length, 1);
 });
 
 test('the Static job runs boundaries BEFORE any step that can materialize dist/', () => {
@@ -108,11 +301,20 @@ test('the Static job runs boundaries BEFORE any step that can materialize dist/'
   assert.ok(Array.isArray(steps), 'test.yml must have a static job with steps');
 
   const runs = steps.map((step) => step.run ?? '');
-  const boundariesIndex = runs.findIndex((run) => /turbo boundaries/.test(run));
-  assert.notEqual(boundariesIndex, -1, 'Static must run `turbo boundaries` (BST-967)');
+  // The gate is the wrapper, not the bare subcommand — Static must not go back
+  // to `turbo boundaries` directly, which cannot tell source from build output.
+  const boundariesIndex = runs.findIndex((run) => /\bpnpm run boundaries\b/.test(run));
+  assert.notEqual(boundariesIndex, -1, 'Static must run `pnpm run boundaries` (BST-967)');
+  assert.deepEqual(
+    runs.filter((run) => /(?:^|\s)(?:pnpm\s+exec\s+)?turbo\s+boundaries\b/.test(run)),
+    [],
+    'Static must go through scripts/turbo-boundaries.mjs, not raw `turbo boundaries`'
+  );
 
   // Any step invoking the turbo task graph (type-check depends on build) or a
-  // package build can write dist/ and reintroduce the phantom-violation class.
+  // package build can write dist/. That no longer produces phantom violations
+  // (the wrapper scopes the verdict to source), but a clean tree is roughly
+  // half the files to scan, so the ordering is still worth holding.
   // Word-boundary `build` also catches `pnpm build`, `pnpm build:web`,
   // `turbo build`, and `pnpm check` idioms (check.mjs runs the full build via
   // its `build` step name — the token appears in the command either way).
@@ -154,10 +356,24 @@ test('every @boundaries-ignore in the repo carries a reason', () => {
   // but a real error (exit > 1) must surface.
   assert.ok(grep.status === 0 || grep.status === 1, grep.stderr);
   const lines = grep.stdout.split('\n').filter(Boolean);
-  // This test file mentions the directive in prose; exempt exactly this file,
-  // not the whole scripts/__tests__ directory.
+  // Two files NAME the directive in prose instead of carrying one: this test,
+  // which explains what it enforces, and the gate script, whose header records
+  // that `turbo boundaries --ignore` would write these comments into scanned
+  // files. Exempt exactly those files, never the directories they live in.
+  const prosePaths = [
+    'scripts/__tests__/turbo-boundaries-gate.test.mjs:',
+    'scripts/turbo-boundaries.mjs:',
+  ];
+  // An exemption that stops matching is an exemption nobody is auditing — if
+  // the prose is reworded away, delete the entry rather than leaving it.
+  for (const prosePath of prosePaths) {
+    assert.ok(
+      lines.some((line) => line.startsWith(prosePath)),
+      `${prosePath} no longer mentions @boundaries-ignore — drop it from prosePaths`
+    );
+  }
   const annotations = lines.filter(
-    (line) => !line.startsWith('scripts/__tests__/turbo-boundaries-gate.test.mjs:')
+    (line) => !prosePaths.some((prosePath) => line.startsWith(prosePath))
   );
   for (const line of annotations) {
     const reason = line.split('@boundaries-ignore')[1]?.trim() ?? '';
@@ -166,49 +382,29 @@ test('every @boundaries-ignore in the repo carries a reason', () => {
       `@boundaries-ignore must carry a substantive reason (>=20 chars): ${line}`
     );
   }
-  // Anti-vacuous floor: the six sanctioned crossings (five from #2101 plus
-  // file-import/src/resolve-chunking-worker-url.ts) exist today.
+  // Anti-vacuous floor: the seven sanctioned crossings (five from #2101, plus
+  // file-import/src/resolve-chunking-worker-url.ts, plus chunking-worker's
+  // tree-sitter bench reaching text-splitter SOURCE — reported once Turbo
+  // 2.10.8 widened the analyzer) exist today.
   // If this number legitimately drops, update it alongside the removal.
   assert.ok(
-    annotations.length >= 6,
-    `expected at least 6 annotated crossings, found ${annotations.length} — did a sweep remove reasons?`
+    annotations.length >= 7,
+    `expected at least 7 annotated crossings, found ${annotations.length} — did a sweep remove reasons?`
   );
 });
 
 // In CI the workflow's own `Package boundaries` step (fresh checkout, no dist)
 // IS this verdict; re-scanning the repo here would only pay for a second full
-// analysis to assert nothing. The value is local, where stale dist would
-// otherwise hide a source violation behind the phantoms — hence skip-in-CI.
-test('the sanctioned-crossing count matches what boundaries actually tolerates', {
+// analysis to assert nothing. The value is local, on a tree that HAS been
+// built: the idempotency claim measured against the real repo rather than a
+// fixture — hence skip-in-CI.
+test('the gate reaches the same verdict on this working tree as on a clean checkout', {
   skip: Boolean(process.env.CI),
 }, () => {
-  // We cannot delete dist/ here (developers' builds live there), so this
-  // asserts the SOURCE-side count is zero by checking every reported
-  // violation path is inside a dist/ directory.
-  const result = spawnSync(turboBin, ['boundaries', '--skip-infer'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-  assert.equal(result.error, undefined, `could not spawn ${turboBin}: ${result.error?.message}`);
-  if (result.status === 0) {
-    return; // fully clean tree — nothing to inspect
-  }
-  const text = `${result.stdout}\n${result.stderr}`.replace(
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI color codes from turbo output
-    /\[[0-9;]*m/g,
-    ''
-  );
-  const paths = [...text.matchAll(/,-\[([^\]]+?):\d+:\d+\]/g)].map((match) => match[1]);
-  assert.ok(
-    paths.length > 0,
-    `boundaries failed but no violation paths were parseable from its output:\n${text}`
-  );
-  // (^|\/) so a root-level `dist/...` path (no leading segment) is classified
-  // as build output rather than misreported as a source violation.
-  const sourceViolations = paths.filter((violationPath) => !/(^|\/)dist\//.test(violationPath));
-  assert.deepEqual(
-    sourceViolations,
-    [],
-    `source-side boundary violations found (the gate would fail CI):\n${sourceViolations.join('\n')}`
+  const gate = runGate(repoRoot);
+  assert.equal(
+    gate.status,
+    0,
+    `source-side boundary violations found (the gate would fail CI):\n${gate.stdout}\n${gate.stderr}`
   );
 });

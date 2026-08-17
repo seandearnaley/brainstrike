@@ -14,6 +14,17 @@ export const MASTRA_MEMORY_TABLES = {
 export const MASTRA_VECTOR_TABLE = 'mastra_vectors';
 export const MASTRA_WORKFLOW_TABLE = TABLE_WORKFLOW_SNAPSHOT;
 
+/**
+ * Assistant-ui's client-owned branch topology layered over Mastra's durable
+ * message content (migration 055). Desktop main writes a root row (BST-1200
+ * M2's compaction summary) via raw SQL against this table name directly —
+ * NOT by importing `@brainstrike/assistant-data`, which is the renderer's
+ * bootstrap/repository package (built ESM-only, no `require` condition, and
+ * per `docs/agents/platform-contracts.md`'s BST-558 lesson, deliberately
+ * fragile to import from anywhere but the renderer's own module graph).
+ */
+export const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
+
 /** Title seeded on a thread before anyone (user or observer) has named it. */
 export const DEFAULT_THREAD_TITLE = 'New Thread';
 
@@ -160,6 +171,77 @@ export const MIND_OPS = ['delete'] as const;
 export type MindOp = (typeof MIND_OPS)[number];
 
 /**
+ * Soft-rewind tombstone sidecar (BST-1115, migration 080 in BOTH runners plus
+ * the app-shell bootstrap mirror — same sidecar-not-ALTER precedent as
+ * migration 055's message parents).
+ *
+ * A tombstone row hides its message from every Brainstrike-owned read path
+ * while Mastra keeps owning the content row. `message_id` is the primary key
+ * (a message is tombstoned at most once) and `rewind_id` groups the rows one
+ * rewind wrote, which is what makes redo an exact inverse: delete the newest
+ * batch and the messages reappear untouched. `revert_id` is separate and
+ * NULLABLE — it links the paired journal file revert, which a
+ * `conversation-only` rewind never performs.
+ */
+export const ASSISTANT_MESSAGE_TOMBSTONES_TABLE = 'brainstrike_assistant_message_tombstones';
+
+/**
+ * Shadow-git snapshot ledger (BST-1164 W7, migration 081 in BOTH runners plus
+ * the app-shell bootstrap mirror — keep every shape byte-identical to 081).
+ *
+ * One row per snapshot commit in a workspace root's shadow git repo
+ * (`userData/snapshots/<rootId>/git`); the row is the source of truth for the
+ * turn↔commit-oid mapping while shadow refs only keep objects alive for GC.
+ * Thread-keyed sidecar: rows cascade on thread delete via
+ * {@link THREAD_DELETE_SIDECAR_TABLES}. `run_id` is nullable provenance (a
+ * turn is not a run); `kind` is CHECK-constrained to
+ * 'turn-start' | 'turn-end' | 'pre-revert'.
+ */
+export const WORKSPACE_SNAPSHOTS_TABLE = 'brainstrike_workspace_snapshots';
+
+/**
+ * Persisted Canvas document version ledger (BST-1173, migration 082 in BOTH
+ * runners plus the app-shell bootstrap mirror). Rows sharing `canvas_id` form
+ * one document; the greatest version is current. Thread-keyed sidecar with an
+ * explicit delete stage and no Mastra foreign key.
+ */
+export const CANVAS_VERSIONS_TABLE = 'brainstrike_canvas_versions';
+
+/**
+ * Privacy-safe per-tool model-output telemetry (BST-1190, migration 083 in
+ * BOTH runners plus the app-shell bootstrap mirror). The mirror is required
+ * because the repository's thread-delete CTE references every registered
+ * sidecar unconditionally, even though only desktop main writes these rows.
+ */
+export const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
+
+/**
+ * Privacy-safe estimator/provider prompt-token pairs (BST-1205, migration 086
+ * in BOTH runners plus the app-shell bootstrap mirror). The mirror is required
+ * because thread deletion references every registered sidecar unconditionally,
+ * while desktop main owns normal writes.
+ */
+export const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
+
+/**
+ * Transient request-build overlays for superseded or recency-pruned native-tool
+ * projections (BST-1192/BST-1200, migrations 084 + 087 in BOTH runners plus
+ * the app-shell bootstrap mirror). The mirror is required because thread
+ * deletion references every registered sidecar unconditionally, while desktop
+ * main owns normal writes.
+ */
+export const ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE =
+  'brainstrike_assistant_tool_projection_rewrites';
+
+/**
+ * Exact-message overlays for durable conversation compaction summaries
+ * (BST-1200 Milestone 2, migration 088 in BOTH runners plus the app-shell
+ * bootstrap mirror). The mirror is required because thread deletion references
+ * every registered sidecar unconditionally, while desktop main owns writes.
+ */
+export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compaction_ranges';
+
+/**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
  * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
@@ -169,8 +251,21 @@ export type MindOp = (typeof MIND_OPS)[number];
  * ("threadId" OR "lookupKey") and stays inline at each site.
  */
 export const THREAD_DELETE_SIDECAR_TABLES = [
+  { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumn: 'thread_id' },
+  { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumn: 'thread_id' },
+  { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
+  { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumn: 'thread_id' },
+  { table: TOOL_CALL_TELEMETRY_TABLE, threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_edit_checkpoints', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_run_errors', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },
+  { table: 'brainstrike_assistant_message_tombstones', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_thread_placements', threadColumn: 'thread_id' },
+  // Per-thread workspace snapshots (BST-1268, migration 094): deleting a
+  // thread deletes its saved workspace.
+  { table: 'brainstrike_assistant_thread_workspaces', threadColumn: 'thread_id' },
+  // Shadow-git snapshot rows (BST-1164): deleting a thread deletes its
+  // turn↔oid ledger. The shadow refs/objects those rows point at live on the
+  // main-process filesystem and are pruned by SnapshotService GC, not by SQL.
+  { table: 'brainstrike_workspace_snapshots', threadColumn: 'thread_id' },
 ] as const;

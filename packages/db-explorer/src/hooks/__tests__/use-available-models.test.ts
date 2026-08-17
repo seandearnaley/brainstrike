@@ -1,5 +1,5 @@
+import type { DbModel, DbProvider } from '@brainstrike/app-state/stores/model-registry-store';
 import type { LocalRuntimeModelCatalogState } from '@brainstrike/local-runtime';
-import type { DbModel, DbProvider } from '@brainstrike/preferences';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { useAvailableModels, useAvailableProviders } from '../use-available-models';

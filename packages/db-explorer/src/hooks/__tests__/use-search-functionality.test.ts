@@ -1,3 +1,5 @@
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
   FileChunk,
   FileChunkRepository,
@@ -5,8 +7,6 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { EmbeddingProviderFactory } from '@brainstrike/embeddings/factory';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSearchFunctionality } from '../use-search-functionality';
@@ -359,43 +359,46 @@ describe('useSearchFunctionality', () => {
         runtime: 'hosted',
       },
     ],
-  ] as const)('builds %s hosted embedding config for semantic search', async (provider, modelId, expectedConfig) => {
-    const toast = vi.fn() as unknown as ToastFn;
-    const embed = vi.fn().mockResolvedValue({
-      ok: true,
-      value: { embedding: [0.7, 0.8] },
-    });
-    vi.mocked(EmbeddingProviderFactory.createProvider).mockResolvedValue({
-      ok: true,
-      value: { embed },
-    } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
-    mockDb.query.mockResolvedValue({
-      rows: [
-        {
-          dimensions: 768,
-          modelKey: `${provider}::${modelId}`,
-        },
-      ],
-    });
-    const searchSimilar = vi.fn().mockResolvedValue([]);
-    const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
+  ] as const)(
+    'builds %s hosted embedding config for semantic search',
+    async (provider, modelId, expectedConfig) => {
+      const toast = vi.fn() as unknown as ToastFn;
+      const embed = vi.fn().mockResolvedValue({
+        ok: true,
+        value: { embedding: [0.7, 0.8] },
+      });
+      vi.mocked(EmbeddingProviderFactory.createProvider).mockResolvedValue({
+        ok: true,
+        value: { embed },
+      } as unknown as Awaited<ReturnType<typeof EmbeddingProviderFactory.createProvider>>);
+      mockDb.query.mockResolvedValue({
+        rows: [
+          {
+            dimensions: 768,
+            modelKey: `${provider}::${modelId}`,
+          },
+        ],
+      });
+      const searchSimilar = vi.fn().mockResolvedValue([]);
+      const chunkRepository = { searchSimilar } as unknown as FileChunkRepository;
 
-    const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
+      const { result } = renderHook(() => useSearchFunctionality(chunkRepository, null, toast));
 
-    act(() => {
-      result.current.setSearchQuery(`${provider} query`);
-    });
+      act(() => {
+        result.current.setSearchQuery(`${provider} query`);
+      });
 
-    await act(async () => {
-      await result.current.handleSearch();
-    });
+      await act(async () => {
+        await result.current.handleSearch();
+      });
 
-    expect(EmbeddingProviderFactory.createProvider).toHaveBeenCalledWith(expectedConfig);
-    expect(embed).toHaveBeenCalledWith({
-      modelId,
-      text: `${provider} query`,
-    });
-  });
+      expect(EmbeddingProviderFactory.createProvider).toHaveBeenCalledWith(expectedConfig);
+      expect(embed).toHaveBeenCalledWith({
+        modelId,
+        text: `${provider} query`,
+      });
+    }
+  );
 
   it('surfaces hosted provider initialization failures through the search toast', async () => {
     const toast = vi.fn() as unknown as ToastFn;

@@ -1,12 +1,17 @@
 import { FileExplorerStrings } from '@brainstrike/types';
+import { downloadBlobFile } from '@brainstrike/utils/browser-download';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useReportManager } from '../use-report-manager';
+import { useReportManager } from '../use-report-manager.js';
 
-// Mock file-saver
-vi.mock('file-saver', () => ({
-  saveAs: vi.fn(),
+// Mock only the save half of the shared download path; the filename half stays
+// real so these tests pin the actual on-disk name.
+vi.mock('@brainstrike/utils/browser-download', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/utils/browser-download')>()),
+  downloadBlobFile: vi.fn(),
 }));
+
+const mockDownloadBlobFile = vi.mocked(downloadBlobFile);
 
 const clipboardMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
@@ -33,6 +38,7 @@ describe('useReportManager', () => {
     mockToast.mockReturnValue({ dismiss: mockDismiss });
     mockGenerateContextWithContent.mockResolvedValue('Test Report Content');
     clipboardMocks.writeText.mockResolvedValue({ ok: true });
+    mockDownloadBlobFile.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -164,8 +170,6 @@ describe('useReportManager', () => {
   });
 
   it('should handle download context', async () => {
-    const { saveAs } = await import('file-saver');
-
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
 
@@ -183,31 +187,14 @@ describe('useReportManager', () => {
 
     // Should call the context generation function
     expect(mockGenerateContextWithContent).toHaveBeenCalledTimes(1);
-    // Should call saveAs with the right parameters
-    expect(saveAs).toHaveBeenCalledTimes(1);
-    // First argument should be a Blob with the report content
-    const mockSaveAs = saveAs as unknown as {
-      mock: { calls: unknown[][] };
-    };
-
-    // Check the arguments passed to saveAs
-    const firstCallArgs = mockSaveAs.mock.calls[0];
-    expect(firstCallArgs).toBeDefined(); // Ensure the first call exists
-
-    const blobArgument = firstCallArgs?.[0];
-    expect(blobArgument).toBeInstanceOf(Blob); // Assert the first argument is a Blob
-
-    // Check Blob type, allowing for charset (now safely typed)
-    if (blobArgument instanceof Blob) {
-      expect(blobArgument.type).toEqual(expect.stringContaining('text/plain'));
-    } else {
-      // Should not happen if the above expect passed, but satisfies TS
-      throw new Error('Expected first argument to be a Blob');
-    }
-
-    // Check the filename argument
-    const filenameArgument = firstCallArgs?.[1];
-    expect(filenameArgument).toBe('context-Sample-Project-2025-06-08_18-03-18Z.txt');
+    // Should save through the shared download path with the report content
+    expect(mockDownloadBlobFile).toHaveBeenCalledTimes(1);
+    expect(mockDownloadBlobFile).toHaveBeenCalledWith({
+      blob: expect.any(Blob),
+      filename: 'context-Sample-Project-2025-06-08T18-03-18Z.txt',
+    });
+    const blobArgument = mockDownloadBlobFile.mock.calls[0]?.[0]?.blob;
+    expect(blobArgument?.type).toEqual(expect.stringContaining('text/plain'));
     // Should show a success toast
     expect(mockToast).toHaveBeenCalledWith({
       description: FileExplorerStrings.success.contextDownloaded,
@@ -215,9 +202,101 @@ describe('useReportManager', () => {
     });
   });
 
+  it('keeps the download filename inside the desktop-safe charset', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        generateContextWithContent: mockGenerateContextWithContent,
+        rootDirectoryHandle: { name: 'My Project (v2)!' } as FileSystemDirectoryHandle,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadContext();
+    });
+
+    // The desktop save bridge hard-rejects filenames outside [a-zA-Z0-9._-].
+    expect(mockDownloadBlobFile).toHaveBeenCalledWith({
+      blob: expect.any(Blob),
+      filename: 'context-My-Project-v2-2025-06-08T18-03-18Z.txt',
+    });
+  });
+
+  it('drops a root segment that sanitizes away instead of leaving a dangling hyphen', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        generateContextWithContent: mockGenerateContextWithContent,
+        rootDirectoryHandle: { name: '日本語' } as FileSystemDirectoryHandle,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadContext();
+    });
+
+    // Not `context--…`: emptiness is judged AFTER sanitizing.
+    expect(mockDownloadBlobFile).toHaveBeenCalledWith({
+      blob: expect.any(Blob),
+      filename: 'context-2025-06-08T18-03-18Z.txt',
+    });
+  });
+
+  it('truncates a long root segment so the filename stays under the desktop bridge cap', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        generateContextWithContent: mockGenerateContextWithContent,
+        rootDirectoryHandle: { name: 'a'.repeat(300) } as FileSystemDirectoryHandle,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadContext();
+    });
+
+    expect(mockDownloadBlobFile).toHaveBeenCalledWith({
+      blob: expect.any(Blob),
+      filename: `context-${'a'.repeat(64)}-2025-06-08T18-03-18Z.txt`,
+    });
+  });
+
+  it('does not leave a trailing hyphen when truncation cuts at a separator', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        generateContextWithContent: mockGenerateContextWithContent,
+        rootDirectoryHandle: {
+          name: `${'a'.repeat(63)} ${'b'.repeat(100)}`,
+        } as FileSystemDirectoryHandle,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadContext();
+    });
+
+    // 63 a's + hyphen is 64 chars; the cut lands on the hyphen, which must not survive.
+    expect(mockDownloadBlobFile).toHaveBeenCalledWith({
+      blob: expect.any(Blob),
+      filename: `context-${'a'.repeat(63)}-2025-06-08T18-03-18Z.txt`,
+    });
+  });
+
   it('should not download if context generation fails', async () => {
     mockGenerateContextWithContent.mockResolvedValue(null);
-    const { saveAs } = await import('file-saver');
 
     const { result } = renderHook(() =>
       useReportManager({
@@ -231,16 +310,12 @@ describe('useReportManager', () => {
       await result.current.handleDownloadContext();
     });
 
-    // Should not call saveAs if no context is generated
-    expect(saveAs).not.toHaveBeenCalled();
+    // Should not save if no context is generated
+    expect(mockDownloadBlobFile).not.toHaveBeenCalled();
   });
 
   it('shows an error toast when download save fails', async () => {
-    const { saveAs } = await import('file-saver');
-    const mockSaveAs = saveAs as unknown as { mockImplementationOnce: (fn: () => never) => void };
-    mockSaveAs.mockImplementationOnce(() => {
-      throw new Error('disk full');
-    });
+    mockDownloadBlobFile.mockRejectedValueOnce(new Error('disk full'));
 
     const { result } = renderHook(() =>
       useReportManager({

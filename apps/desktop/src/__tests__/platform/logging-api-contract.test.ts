@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
-import { createDefaultLoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import { createDefaultLoggingPreferences, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import {
   assertBufferedLogRecord,

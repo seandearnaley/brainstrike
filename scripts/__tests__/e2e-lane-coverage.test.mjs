@@ -50,20 +50,27 @@ const LANE_FLAGS =
  * `test:e2e:lane:*` scripts, a workflow that invokes them, and specs under
  * `e2e/`. `webExtras` injects the violations under test.
  */
-function createFixtureRepo({ extraWorkflowSteps = [], webExtras = {}, webLanes = {} } = {}) {
+function createFixtureRepo({
+  includeDesktopTargetedScript = true,
+  extraWorkflowSteps = [],
+  webExtras = {},
+  webLanes = {},
+  webScripts = {},
+} = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'bst1010-lane-fixture-'));
   temporaryRoots.push(root);
 
-  const lanes = {
+  const scripts = {
     'test:e2e:lane:covered': `pnpm exec playwright test e2e/covered.test.ts ${LANE_FLAGS} --grep "@web-covered"`,
     'test:e2e:lane:full-regression': `pnpm exec playwright test ${LANE_FLAGS} --workers=2 --grep-invert "@destructive|@stateful" && pnpm run test:e2e:lane:covered`,
     ...webLanes,
+    ...webScripts,
   };
 
   write(
     root,
     'apps/web/package.json',
-    JSON.stringify({ name: '@brainstrike/web', scripts: lanes }, null, 2)
+    JSON.stringify({ name: '@brainstrike/web', scripts }, null, 2)
   );
   write(
     root,
@@ -72,6 +79,12 @@ function createFixtureRepo({ extraWorkflowSteps = [], webExtras = {}, webLanes =
       {
         name: '@brainstrike/desktop',
         scripts: {
+          ...(includeDesktopTargetedScript
+            ? {
+                'test:e2e:backgrounding':
+                  'pnpm exec playwright test e2e/desktop.test.ts --project=regression',
+              }
+            : {}),
           'test:e2e:lane:full-regression': 'pnpm exec playwright test --project=regression',
         },
       },
@@ -119,8 +132,22 @@ function createFixtureRepo({ extraWorkflowSteps = [], webExtras = {}, webLanes =
 // floors would reject it. Analysing it with floors of 1 keeps the fixture legible
 // while leaving the real floors doing their job in the real run.
 const FIXTURE_MINIMUMS = {
-  desktop: { lanes: 1, laneTags: 0, specs: 1, titles: 1 },
-  web: { lanes: 1, laneTags: 1, specs: 2, titles: 2 },
+  desktop: {
+    e2eScripts: 1,
+    lanes: 1,
+    laneTags: 0,
+    specs: 1,
+    targetedE2eScripts: 1,
+    titles: 1,
+  },
+  web: {
+    e2eScripts: 2,
+    lanes: 1,
+    laneTags: 1,
+    specs: 2,
+    targetedE2eScripts: 0,
+    titles: 2,
+  },
 };
 
 function analyzeFixture(root, knownUnreachableSpecs = {}) {
@@ -464,9 +491,34 @@ test('MONEY TEST: a lane file list naming a file that no longer exists is caught
     })
   );
   assert.ok(
-    kinds(report).includes('missing-lane-file'),
-    `expected a missing-lane-file violation, got ${JSON.stringify(kinds(report))}`
+    kinds(report).includes('missing-e2e-file'),
+    `expected a missing-e2e-file violation, got ${JSON.stringify(kinds(report))}`
   );
+});
+
+test('MONEY TEST: the same dangling file is caught in a non-lane E2E script', async () => {
+  const report = await analyzeFixture(
+    createFixtureRepo({
+      webScripts: {
+        'test:e2e:diagnostic': `pnpm exec playwright test e2e/deleted-by-a-rename.test.ts ${LANE_FLAGS} --grep "@web-covered"`,
+      },
+    })
+  );
+  assert.ok(
+    kinds(report).includes('missing-e2e-file'),
+    `expected a missing-e2e-file violation, got ${JSON.stringify(kinds(report))}`
+  );
+});
+
+test('control: a targeted non-lane E2E script with a live selector is accepted', async () => {
+  const report = await analyzeFixture(
+    createFixtureRepo({
+      webScripts: {
+        'test:e2e:diagnostic': `pnpm exec playwright test e2e/covered.test.ts ${LANE_FLAGS} --grep "@web-covered"`,
+      },
+    })
+  );
+  assert.deepEqual(report.violations, []);
 });
 
 test('MONEY TEST: a lane whose grep matches nothing is caught', async () => {
@@ -478,8 +530,8 @@ test('MONEY TEST: a lane whose grep matches nothing is caught', async () => {
     })
   );
   assert.ok(
-    kinds(report).includes('empty-lane'),
-    `expected an empty-lane violation, got ${JSON.stringify(kinds(report))}`
+    kinds(report).includes('empty-e2e-selection'),
+    `expected an empty-e2e-selection violation, got ${JSON.stringify(kinds(report))}`
   );
 });
 
@@ -529,6 +581,13 @@ test('anti-vacuity: discovery floors refuse to report a green on an empty sweep'
   );
 });
 
+test('anti-vacuity: removing the targeted non-lane script turns its consumed-list floor red', async () => {
+  await assert.rejects(
+    () => analyzeFixture(createFixtureRepo({ includeDesktopTargetedScript: false })),
+    /Anti-vacuity floor: found 0 desktop explicitly targeted non-lane test:e2e\* package invocation\(s\)/
+  );
+});
+
 test('anti-vacuity: an unmodelled --project throws instead of assuming no filter', async () => {
   const root = createFixtureRepo({
     webLanes: {
@@ -549,7 +608,7 @@ test('REAL REPO: every E2E TEST is reachable from a CI-invoked lane', async () =
   );
 });
 
-test('REAL REPO: the two BST-1010 orphans are wired into full-regression', async () => {
+test('REAL REPO: the two BST-1010 orphans are fail-late full-regression lanes', async () => {
   const webScripts = JSON.parse(
     readFileSync(path.join(REPO_ROOT, 'apps/web/package.json'), 'utf8')
   ).scripts;
@@ -557,7 +616,7 @@ test('REAL REPO: the two BST-1010 orphans are wired into full-regression', async
 
   for (const lane of ['test:e2e:lane:indexing', 'test:e2e:lane:production-csp']) {
     assert.ok(webScripts[lane], `${lane} must exist`);
-    assert.ok(chain.includes(`pnpm run ${lane}`), `${lane} must be chained into full-regression`);
+    assert.ok(chain.includes(lane), `${lane} must be delegated by full-regression`);
     // Serialized dedicated lanes are the correct fix for these two: background
     // indexing writes to the DB and the CSP spec runs PGlite search plus a real
     // local embedding, so neither may join the parallel broad pass by having its
@@ -565,31 +624,15 @@ test('REAL REPO: the two BST-1010 orphans are wired into full-regression', async
     assert.ok(webScripts[lane].includes('--workers=1'), `${lane} must stay serialized`);
   }
 
-  // Placement, not just presence — and TAIL is deliberate. Do not "fix" this to
-  // head position; that was tried and reverted on PR #2180 review.
-  //
-  // `full-regression` is an `&&` chain, so a failing lane skips everything after
-  // it. The tempting argument is that a tail lane is therefore the first thing
-  // starved, which is the worst spot for specs whose entire defect was never
-  // running (BST-1032 blind windows). That reasoning loses to the concrete
-  // budget: `web-e2e.yml` caps the job at `timeout-minutes: 45`, every lane
-  // restarts `webServer` from scratch (`reuseExistingServer: false`), and
-  // production-csp sets `test.setTimeout(180_000)` for a real local embedding.
-  //
-  // These two lanes have never executed in CI even once — that is this PR's
-  // entire premise. At the head, one flake in a never-run lane blinds all eight
-  // downstream lanes that currently work. At the tail, a failure costs only
-  // itself, and since these specs run 0% of the time today, tail is still a
-  // strict improvement over the status quo. Revisit only once they have a green
-  // track record.
-  const laneOrder = [...chain.matchAll(/pnpm run (test:e2e:lane:[\w-]+)/g)].map(
-    (match) => match[1]
-  );
+  // Preserve the established order, but do not restore the former `&&` chain:
+  // the aggregate runner must attempt these tail lanes even when an earlier lane
+  // fails (BST-1059 closes the BST-1032 short-circuit window).
+  assert.doesNotMatch(chain, /&&/);
+  const laneOrder = chain.split(' ').filter((token) => token.startsWith('test:e2e:lane:'));
   assert.deepEqual(
     laneOrder.slice(-2),
     ['test:e2e:lane:indexing', 'test:e2e:lane:production-csp'],
-    'the two newly rescued lanes must run LAST in the chain so a first-run flake cannot ' +
-      'starve the eight lanes that already work — see the comment above before changing this'
+    'the two rescued lanes must remain last while the aggregate runner guarantees fail-late execution'
   );
 });
 
@@ -597,9 +640,9 @@ test('REAL REPO: the spec-directory exclusions still match the Playwright config
   // e2e-lane-coverage.mjs skips `__tests__` and web's `performance` dir. Both are
   // config facts, and a config change that invalidates one would silently shrink
   // the sweep, so re-derive them here.
-  const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.ts'), 'utf8');
+  const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.mts'), 'utf8');
   const desktopConfig = readFileSync(
-    path.join(REPO_ROOT, 'apps/desktop/playwright.config.ts'),
+    path.join(REPO_ROOT, 'apps/desktop/playwright.config.mts'),
     'utf8'
   );
 
@@ -620,14 +663,13 @@ test('REAL REPO: the spec-directory exclusions still match the Playwright config
 
 test('REAL REPO: the modelled project grep filters still match the Playwright configs', () => {
   const desktopConfig = readFileSync(
-    path.join(REPO_ROOT, 'apps/desktop/playwright.config.ts'),
+    path.join(REPO_ROOT, 'apps/desktop/playwright.config.mts'),
     'utf8'
   );
-  const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.ts'), 'utf8');
+  const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.mts'), 'utf8');
 
-  // desktop:regression's grepInvert is the only project filter that changes a
-  // verdict — it means a @smoke-titled desktop spec missing from the smoke lane's
-  // file list runs nowhere.
+  // desktop:regression excludes smoke-tagged tests, so smoke/nightly coverage
+  // must come from explicit lanes.
   assert.match(desktopConfig, /grepInvert: \/@smoke\/,\s*\n\s*name: 'regression',/);
   assert.match(desktopConfig, /grep: \/@smoke\/,\s*\n\s*name: 'smoke',/);
   assert.match(webConfig, /grep: \/@smoke\/,\s*\n\s*name: 'smoke',/);

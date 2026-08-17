@@ -9,7 +9,7 @@ import { chunkContent } from '../portable-chunking';
 afterEach(() => {
   vi.doUnmock('@babel/parser');
   vi.doUnmock('@brainstrike/text-splitter');
-  vi.doUnmock('../token-utils-lite');
+  vi.doUnmock('@brainstrike/tokenization/token-utils-lite');
   vi.unstubAllGlobals();
   vi.resetModules();
 });
@@ -756,7 +756,7 @@ export function feature${index}() {
           return Math.max(1, Math.ceil(text.length / 8));
         });
         const getAccurateTokenCounter = vi.fn(async () => countTokens);
-        vi.doMock('../token-utils-lite', () => ({
+        vi.doMock('@brainstrike/tokenization/token-utils-lite', () => ({
           getAccurateTokenCounter,
           getAccurateTokenCountingFailureReason: vi.fn(() => null),
         }));
@@ -789,7 +789,7 @@ export function feature${index}() {
       });
 
       it('surfaces accurate counter initialization failures without degrading', async () => {
-        vi.doMock('../token-utils-lite', () => ({
+        vi.doMock('@brainstrike/tokenization/token-utils-lite', () => ({
           getAccurateTokenCounter: vi.fn(async () => null),
           getAccurateTokenCountingFailureReason: vi.fn(() => 'WASM asset missing'),
         }));

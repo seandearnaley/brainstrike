@@ -1,3 +1,10 @@
+import {
+  measureDatabaseQuery,
+  recordDatabaseLiveSubscriptionEnded,
+  recordDatabaseLiveSubscriptionStarted,
+  recordDatabaseLiveUpdate,
+} from './database-query-telemetry.js';
+
 export type DatabaseWorkPriority = 'foreground' | 'normal' | 'background';
 
 export interface DatabaseWorkOptions {
@@ -20,11 +27,15 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaitingSince: number | null;
   readonly backgroundYieldCount: number;
   readonly currentBackgroundWaitMs: number;
+  readonly elapsedSnapshotAt: number;
+  readonly forcedBackgroundAdmissionCount: number;
   readonly foregroundQuietMs: number;
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastForegroundElapsedAt: number | null;
   readonly lastNormalAt: number | null;
+  readonly lastNormalElapsedAt: number | null;
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
@@ -50,7 +61,16 @@ export interface DatabaseWorkPriorityStats {
 }
 
 export interface DatabaseWorkSchedulerOptions {
+  /**
+   * Maximum continuous wait before one queued background task receives a turn.
+   * The wait clock restarts after that task, preserving foreground preference
+   * while guaranteeing bounded progress under sustained foreground arrivals.
+   */
+  readonly backgroundStarvationMs?: number;
+  /** Monotonic elapsed-time source. Defaults to performance.now(). Inject explicitly in tests. */
+  readonly elapsedNow?: () => number;
   readonly foregroundQuietMs?: number;
+  /** Wall-clock source for diagnostics only; it never controls fairness admission. */
   readonly now?: () => number;
 }
 
@@ -97,7 +117,7 @@ export interface ScheduledDbHandle {
 }
 
 interface ScheduledTask<T> {
-  readonly enqueuedAt: number;
+  readonly elapsedEnqueuedAt: number;
   readonly label: string | null;
   readonly priority: DatabaseWorkPriority;
   readonly reject: (reason: unknown) => void;
@@ -109,6 +129,7 @@ type QueuedTask = ScheduledTask<unknown>;
 type CallableUnknown = (...args: unknown[]) => unknown;
 
 const PRIORITY_ORDER: readonly DatabaseWorkPriority[] = ['foreground', 'normal', 'background'];
+const DEFAULT_BACKGROUND_STARVATION_MS = 250;
 const DEFAULT_FOREGROUND_QUIET_MS = 75;
 const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
@@ -122,6 +143,11 @@ interface MetricSamples {
   nextIndex: number;
   ordered: number[];
   sorted: number[];
+}
+
+interface SchedulerClockSample {
+  readonly elapsedAt: number;
+  readonly wallAt: number;
 }
 
 function createEmptyQueues(): Record<DatabaseWorkPriority, QueuedTask[]> {
@@ -308,6 +334,8 @@ function hasForegroundOrNormalWork(
 }
 
 class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
+  readonly #backgroundStarvationMs: number;
+  readonly #elapsedNow: () => number;
   readonly #foregroundQuietMs: number;
   readonly #listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
   readonly #now: () => number;
@@ -315,38 +343,62 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   readonly #queues = createEmptyQueues();
   readonly #serviceSamples = createEmptyMetricSamples();
   readonly #waitSamples = createEmptyMetricSamples();
-  #backgroundWaitingSince: number | null = null;
+  #backgroundYieldRequiresForegroundTurn = false;
+  #backgroundWaiting: SchedulerClockSample | null = null;
   #backgroundYieldCount = 0;
   #drainMicrotaskScheduled = false;
   #drainTimer: ReturnType<typeof setTimeout> | null = null;
   #lastBackgroundYieldAt: number | null = null;
   #lastCompletedAt: number | null = null;
-  #lastForegroundAt: number | null = null;
-  #lastNormalAt: number | null = null;
+  #lastForeground: SchedulerClockSample | null = null;
+  #lastNormal: SchedulerClockSample | null = null;
   #lastStartedAt: number | null = null;
+  #forcedBackgroundAdmissionCount = 0;
   #running = false;
-  #runningStartedAt: number | null = null;
+  #runningElapsedStartedAt: number | null = null;
   #runningLabel: string | null = null;
   #runningPriority: DatabaseWorkPriority | null = null;
 
   constructor(options: DatabaseWorkSchedulerOptions = {}) {
-    this.#foregroundQuietMs = Math.max(0, options.foregroundQuietMs ?? DEFAULT_FOREGROUND_QUIET_MS);
+    const backgroundStarvationMs =
+      options.backgroundStarvationMs ?? DEFAULT_BACKGROUND_STARVATION_MS;
+    if (!Number.isFinite(backgroundStarvationMs) || backgroundStarvationMs <= 0) {
+      throw new Error(
+        'DatabaseWorkScheduler backgroundStarvationMs must be a positive finite number.'
+      );
+    }
+    this.#backgroundStarvationMs = backgroundStarvationMs;
+    const foregroundQuietMs = options.foregroundQuietMs ?? DEFAULT_FOREGROUND_QUIET_MS;
+    if (!Number.isFinite(foregroundQuietMs) || foregroundQuietMs < 0) {
+      throw new Error(
+        'DatabaseWorkScheduler foregroundQuietMs must be a non-negative finite number.'
+      );
+    }
+    this.#foregroundQuietMs = foregroundQuietMs;
     this.#now = options.now ?? (() => Date.now());
+    this.#elapsedNow = options.elapsedNow ?? (() => globalThis.performance.now());
   }
 
   getSnapshot(): DatabaseWorkSchedulerSnapshot {
+    const elapsedNow = this.#elapsedNow();
     const now = this.#now();
     return {
-      backgroundWaiting: this.#backgroundWaitingSince !== null,
-      backgroundWaitingSince: this.#backgroundWaitingSince,
+      backgroundWaiting: this.#backgroundWaiting !== null,
+      backgroundWaitingSince: this.#backgroundWaiting?.wallAt ?? null,
       backgroundYieldCount: this.#backgroundYieldCount,
       currentBackgroundWaitMs:
-        this.#backgroundWaitingSince === null ? 0 : Math.max(0, now - this.#backgroundWaitingSince),
+        this.#backgroundWaiting === null
+          ? 0
+          : Math.max(0, elapsedNow - this.#backgroundWaiting.elapsedAt),
+      elapsedSnapshotAt: elapsedNow,
+      forcedBackgroundAdmissionCount: this.#forcedBackgroundAdmissionCount,
       foregroundQuietMs: this.#foregroundQuietMs,
       lastBackgroundYieldAt: this.#lastBackgroundYieldAt,
       lastCompletedAt: this.#lastCompletedAt,
-      lastForegroundAt: this.#lastForegroundAt,
-      lastNormalAt: this.#lastNormalAt,
+      lastForegroundAt: this.#lastForeground?.wallAt ?? null,
+      lastForegroundElapsedAt: this.#lastForeground?.elapsedAt ?? null,
+      lastNormalAt: this.#lastNormal?.wallAt ?? null,
+      lastNormalElapsedAt: this.#lastNormal?.elapsedAt ?? null,
       lastStartedAt: this.#lastStartedAt,
       priorityStats: clonePriorityStats(this.#priorityStats),
       queued: createQueuedCounts(this.#queues),
@@ -361,12 +413,13 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     // options?. because untyped JS callers can still omit the argument entirely;
     // requireExplicitPriority turns that into a loud failure instead of a default.
     const priority = requireExplicitPriority(options?.priority);
+    const elapsedEnqueuedAt = this.#elapsedNow();
     const enqueuedAt = this.#now();
     if (priority === 'foreground') {
-      this.#lastForegroundAt = enqueuedAt;
+      this.#lastForeground = { elapsedAt: elapsedEnqueuedAt, wallAt: enqueuedAt };
     }
     if (priority === 'normal') {
-      this.#lastNormalAt = enqueuedAt;
+      this.#lastNormal = { elapsedAt: elapsedEnqueuedAt, wallAt: enqueuedAt };
     }
 
     patchPriorityStat(this.#priorityStats, priority, {
@@ -374,14 +427,16 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     });
     if (
       priority === 'background' &&
-      (this.#runningPriority === 'foreground' || this.#runningPriority === 'normal')
+      (this.#runningPriority === 'foreground' ||
+        this.#runningPriority === 'normal' ||
+        hasForegroundOrNormalWork(this.#queues))
     ) {
-      this.#markBackgroundWaiting(enqueuedAt);
+      this.#markBackgroundWaiting(enqueuedAt, elapsedEnqueuedAt);
     }
 
     return new Promise<T>((resolve, reject) => {
       this.#queues[priority].push({
-        enqueuedAt,
+        elapsedEnqueuedAt,
         label: options?.label ?? null,
         priority,
         reject,
@@ -389,7 +444,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
         work: work as () => Promise<unknown>,
       });
       if (priority !== 'background' && this.#queues.background.length > 0) {
-        this.#markBackgroundWaiting(enqueuedAt);
+        this.#markBackgroundWaiting(enqueuedAt, elapsedEnqueuedAt);
       }
       this.#emit();
       this.#scheduleDrain(0);
@@ -410,20 +465,29 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     }
   }
 
-  #markBackgroundWaiting(now: number): void {
-    if (this.#backgroundWaitingSince !== null) {
+  #markBackgroundWaiting(now: number, elapsedNow: number): void {
+    if (this.#backgroundWaiting !== null) {
       return;
     }
-    this.#backgroundWaitingSince = now;
+    this.#backgroundWaiting = { elapsedAt: elapsedNow, wallAt: now };
     this.#lastBackgroundYieldAt = now;
     this.#backgroundYieldCount += 1;
   }
 
   #clearBackgroundWaiting(): void {
-    this.#backgroundWaitingSince = null;
+    this.#backgroundWaiting = null;
   }
 
-  #nextDelayMs(): number {
+  #isBackgroundStarved(elapsedNow: number): boolean {
+    return (
+      !this.#backgroundYieldRequiresForegroundTurn &&
+      this.#queues.background.length > 0 &&
+      this.#backgroundWaiting !== null &&
+      elapsedNow - this.#backgroundWaiting.elapsedAt >= this.#backgroundStarvationMs
+    );
+  }
+
+  #nextDelayMs(elapsedNow = this.#elapsedNow()): number {
     if (this.#running || !hasQueuedWork(this.#queues)) {
       return 0;
     }
@@ -432,17 +496,39 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       return 0;
     }
 
-    const now = this.#now();
-    const lastForegroundAt = this.#lastForegroundAt;
-    if (lastForegroundAt === null) {
+    if (this.#isBackgroundStarved(elapsedNow)) {
       return 0;
     }
-    return Math.max(0, this.#foregroundQuietMs - (now - lastForegroundAt));
+    const lastForegroundElapsedAt = this.#lastForeground?.elapsedAt ?? null;
+    if (lastForegroundElapsedAt === null) {
+      return 0;
+    }
+    const quietWindowRemainingMs = Math.max(
+      0,
+      this.#foregroundQuietMs - (elapsedNow - lastForegroundElapsedAt)
+    );
+    const starvationRemainingMs =
+      this.#backgroundWaiting === null
+        ? this.#backgroundStarvationMs
+        : Math.max(
+            0,
+            this.#backgroundStarvationMs - (elapsedNow - this.#backgroundWaiting.elapsedAt)
+          );
+    return Math.min(quietWindowRemainingMs, starvationRemainingMs);
   }
 
   #pickNextTask(): QueuedTask | null {
     if (this.#running) {
       return null;
+    }
+
+    const elapsedNow = this.#elapsedNow();
+    const now = this.#now();
+    if (this.#isBackgroundStarved(elapsedNow)) {
+      const starvedTask = this.#queues.background.shift();
+      if (starvedTask) {
+        return this.#startTask(starvedTask, now, elapsedNow, true);
+      }
     }
 
     for (const priority of PRIORITY_ORDER) {
@@ -451,13 +537,13 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
         this.#queues.background.length > 0 &&
         hasForegroundOrNormalWork(this.#queues)
       ) {
-        this.#markBackgroundWaiting(this.#now());
+        this.#markBackgroundWaiting(now, elapsedNow);
       }
 
       if (priority === 'background') {
-        const delayMs = this.#nextDelayMs();
+        const delayMs = this.#nextDelayMs(elapsedNow);
         if (delayMs > 0) {
-          this.#markBackgroundWaiting(this.#now());
+          this.#markBackgroundWaiting(now, elapsedNow);
           this.#emit();
           this.#scheduleDrain(delayMs);
           return null;
@@ -466,21 +552,36 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
       const task = this.#queues[priority].shift();
       if (task) {
-        const now = this.#now();
-        this.#lastStartedAt = now;
-        this.#runningStartedAt = now;
-        this.#recordTaskStarted(task, now);
-        if (priority === 'background') {
-          this.#clearBackgroundWaiting();
-        }
-        return task;
+        return this.#startTask(task, now, elapsedNow);
       }
     }
 
-    if (this.#backgroundWaitingSince !== null) {
-      this.#clearBackgroundWaiting();
-    }
+    this.#backgroundYieldRequiresForegroundTurn = false;
     return null;
+  }
+
+  #startTask(
+    task: QueuedTask,
+    startedAt: number,
+    elapsedStartedAt: number,
+    forcedBackground = false
+  ): QueuedTask {
+    this.#lastStartedAt = startedAt;
+    this.#runningElapsedStartedAt = elapsedStartedAt;
+    this.#recordTaskStarted(task, elapsedStartedAt);
+    if (task.priority === 'background') {
+      this.#clearBackgroundWaiting();
+      if (forcedBackground) {
+        this.#forcedBackgroundAdmissionCount += 1;
+        this.#backgroundYieldRequiresForegroundTurn = true;
+      }
+      if (this.#queues.background.length > 0 && hasForegroundOrNormalWork(this.#queues)) {
+        this.#markBackgroundWaiting(startedAt, elapsedStartedAt);
+      }
+    } else {
+      this.#backgroundYieldRequiresForegroundTurn = false;
+    }
+    return task;
   }
 
   #scheduleDrain(delayMs: number): void {
@@ -525,23 +626,30 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     } catch (error) {
       task.reject(error);
     } finally {
+      const elapsedCompletedAt = this.#elapsedNow();
       const completedAt = this.#now();
       this.#lastCompletedAt = completedAt;
-      this.#recordTaskCompleted(task, this.#runningStartedAt ?? completedAt, completedAt);
+      this.#recordTaskCompleted(
+        task,
+        this.#runningElapsedStartedAt ?? elapsedCompletedAt,
+        elapsedCompletedAt
+      );
       this.#running = false;
-      this.#runningStartedAt = null;
+      this.#runningElapsedStartedAt = null;
       this.#runningPriority = null;
       this.#runningLabel = null;
       this.#emit();
     }
 
-    if (hasQueuedWork(this.#queues)) {
-      this.#scheduleDrain(this.#nextDelayMs());
+    if (!hasQueuedWork(this.#queues)) {
+      this.#backgroundYieldRequiresForegroundTurn = false;
+      return;
     }
+    this.#scheduleDrain(this.#nextDelayMs());
   }
 
-  #recordTaskStarted(task: QueuedTask, startedAt: number): void {
-    const waitMs = Math.max(0, startedAt - task.enqueuedAt);
+  #recordTaskStarted(task: QueuedTask, elapsedStartedAt: number): void {
+    const waitMs = Math.max(0, elapsedStartedAt - task.elapsedEnqueuedAt);
     const waitSamples = this.#waitSamples[task.priority];
     addMetricSample(waitSamples, waitMs);
     const current = this.#priorityStats[task.priority];
@@ -555,8 +663,12 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     });
   }
 
-  #recordTaskCompleted(task: QueuedTask, startedAt: number, completedAt: number): void {
-    const serviceMs = Math.max(0, completedAt - startedAt);
+  #recordTaskCompleted(
+    task: QueuedTask,
+    elapsedStartedAt: number,
+    elapsedCompletedAt: number
+  ): void {
+    const serviceMs = Math.max(0, elapsedCompletedAt - elapsedStartedAt);
     const serviceSamples = this.#serviceSamples[task.priority];
     addMetricSample(serviceSamples, serviceMs);
     const current = this.#priorityStats[task.priority];
@@ -703,6 +815,19 @@ function createScheduledLiveQueryHandle<THandle extends object>(
   scheduler: DatabaseWorkScheduler,
   refreshPriority: DatabaseWorkPriority
 ): THandle {
+  let active = true;
+  let subscribedListener: {
+    counted: boolean;
+    readonly listener: CallableUnknown;
+    readonly wrappedListener: CallableUnknown;
+  } | null = null;
+  const assertActive = (): void => {
+    if (!active) {
+      throw new Error(
+        'Scheduled PGlite live-query handle is no longer active; create a fresh handle'
+      );
+    }
+  };
   return new Proxy(handle, {
     get(target, property, receiver) {
       if (property === 'refresh') {
@@ -710,11 +835,89 @@ function createScheduledLiveQueryHandle<THandle extends object>(
         if (typeof refresh !== 'function') {
           return refresh;
         }
-        return async (...args: unknown[]) =>
-          await scheduler.run(
-            async () => await Reflect.apply(refresh as CallableUnknown, target, args),
-            { label: 'live query refresh', priority: refreshPriority }
+        return async (...args: unknown[]) => {
+          assertActive();
+          return await measureDatabaseQuery(
+            'live-query',
+            async () =>
+              await scheduler.run(
+                async () => await Reflect.apply(refresh as CallableUnknown, target, args),
+                { label: 'live query refresh', priority: refreshPriority }
+              )
           );
+        };
+      }
+      if (property === 'subscribe') {
+        const subscribe = Reflect.get(target, property, receiver);
+        if (typeof subscribe !== 'function') {
+          return subscribe;
+        }
+        return (listener: CallableUnknown) => {
+          assertActive();
+          if (subscribedListener !== null) {
+            throw new Error('Scheduled PGlite live-query handles support exactly one listener');
+          }
+          const wrappedListener = function (this: unknown, ...args: unknown[]) {
+            if (entry.counted) {
+              recordDatabaseLiveUpdate();
+            }
+            return Reflect.apply(listener, this, args) as unknown;
+          };
+          const entry = {
+            counted: true,
+            listener,
+            wrappedListener,
+          };
+          let result: unknown;
+          try {
+            result = Reflect.apply(subscribe as CallableUnknown, target, [entry.wrappedListener]);
+          } catch (error) {
+            entry.counted = false;
+            throw error;
+          }
+          subscribedListener = entry;
+          recordDatabaseLiveSubscriptionStarted();
+          return result;
+        };
+      }
+      if (property === 'unsubscribe') {
+        const unsubscribe = Reflect.get(target, property, receiver);
+        if (typeof unsubscribe !== 'function') {
+          return unsubscribe;
+        }
+        return async (listener: CallableUnknown) => {
+          if (!active) {
+            return;
+          }
+          if (subscribedListener !== null && subscribedListener.listener !== listener) {
+            throw new Error(
+              'Scheduled PGlite live-query unsubscribe listener does not match the active listener'
+            );
+          }
+          // This wrapper OWNS its terminal state; it does not read the raw
+          // handle's. Releasing before the await is deliberate and mirrors
+          // PGlite, which removes the callback and latches `dead = true`
+          // SYNCHRONOUSLY before awaiting its teardown transaction — so a
+          // rejected unsubscribe leaves the raw handle permanently dead
+          // upstream too, and no retry is available there either. Verified
+          // unchanged in 0.5.5 (BST-1283).
+          active = false;
+          const entry = subscribedListener;
+          try {
+            return await Reflect.apply(unsubscribe as CallableUnknown, target, [
+              entry?.wrappedListener ?? listener,
+            ]);
+          } finally {
+            // PGlite detaches the callback before it can reject, so the
+            // listener is genuinely gone on both the success and failure
+            // paths. Release the one supported local owner to match.
+            if (entry?.counted) {
+              entry.counted = false;
+              recordDatabaseLiveSubscriptionEnded();
+            }
+            subscribedListener = null;
+          }
+        };
       }
       return Reflect.get(target, property, receiver);
     },
@@ -740,14 +943,22 @@ function createScheduledLiveNamespace<TLive extends object>(
         }
         const label = property === 'query' ? 'live query' : 'live incremental query';
         return async (...args: unknown[]) =>
-          await scheduler.run(
-            async () => {
-              const handle = await Reflect.apply(startLiveQuery as CallableUnknown, target, args);
-              return isObjectRecord(handle)
-                ? createScheduledLiveQueryHandle(handle, scheduler, liveRefreshPriority)
-                : handle;
-            },
-            { label, priority: liveQueryPriority }
+          await measureDatabaseQuery(
+            'live-query',
+            async () =>
+              await scheduler.run(
+                async () => {
+                  const handle = await Reflect.apply(
+                    startLiveQuery as CallableUnknown,
+                    target,
+                    args
+                  );
+                  return isObjectRecord(handle)
+                    ? createScheduledLiveQueryHandle(handle, scheduler, liveRefreshPriority)
+                    : handle;
+                },
+                { label, priority: liveQueryPriority }
+              )
           );
       }
       return Reflect.get(target, property, receiver);

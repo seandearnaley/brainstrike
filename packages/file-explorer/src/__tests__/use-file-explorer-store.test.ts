@@ -5,7 +5,6 @@ import {
   MAX_SELECTION_COUNT,
   MIN_MAX_SELECTION_COUNT,
 } from '@brainstrike/types';
-import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla'; // Use vanilla store for testing actions
 import { createDirectoryExpansionActions } from '../actions/directory-expansion-actions';
@@ -13,6 +12,7 @@ import { createFileContentActions } from '../actions/file-content-actions';
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
+import { encodeFileSelection, isPathSelectedInFolder } from '../selection.js';
 import { createNewFolderState } from '../utils/file-explorer-utils';
 
 // Combine all action interfaces

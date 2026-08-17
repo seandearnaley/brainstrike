@@ -142,6 +142,7 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
       NATIVE_TOOL_ID.queryEmbeddingSpace,
       NATIVE_TOOL_ID.grepSearch,
       NATIVE_TOOL_ID.globWorkspace,
+      NATIVE_TOOL_ID.readToolOutputArtifact,
       NATIVE_TOOL_ID.readWorkspaceFile,
       NATIVE_TOOL_ID.readWorkspaceDirectory,
     ],
@@ -162,6 +163,7 @@ export const BUILT_IN_PERSONAS: readonly AssistantPersonaDefinition[] = [
   }),
   definePersona({
     allowedToolIds: [
+      NATIVE_TOOL_ID.readToolOutputArtifact,
       NATIVE_TOOL_ID.readWorkspaceFile,
       NATIVE_TOOL_ID.readWorkspaceDirectory,
       NATIVE_TOOL_ID.grepSearch,

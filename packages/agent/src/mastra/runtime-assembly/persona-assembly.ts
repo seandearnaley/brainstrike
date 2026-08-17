@@ -5,13 +5,15 @@
  * delegation contract.
  */
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { Agent, ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { DelegationPersonaSummary } from '../default-instructions';
 import type { PermissionToolGateSnapshot } from '../permission-tool-gate';
 import { shouldEnablePersonas } from '../subagent-delegation';
+import type { ModelOutputProjectionObserver } from '../tool-model-output';
 
 const logger = createLogger('MastraAgent');
 
@@ -38,6 +40,12 @@ const EMPTY_PERSONA_RUNTIME_PARTS: PersonaRuntimeParts = {
  * Mastra-constructed and never enter the plan-mode-filtered tool map, so we
  * simply do not pass `agents`). Children re-gate the parent's GUARDED tool map
  * (pre-permission-filter) so ask tools are omitted per the child's own gate.
+ *
+ * `guardedTools` is the RAW (pre-model-output-projection) map: model-output
+ * projection is applied per-child in `buildPersonaSubAgents`, since a persona
+ * that pins its own model must project against THAT model's resolved budget
+ * (BST-1206 review), not the parent's — reusing an already-projected parent
+ * map here would bake the wrong budget into every pinned persona's tools.
  */
 export function resolvePersonaRuntimeParts(params: {
   guardedTools: ToolsInput;
@@ -46,8 +54,10 @@ export function resolvePersonaRuntimeParts(params: {
   personas: readonly AssistantPersonaDefinition[] | undefined;
   planModeActive: boolean;
   provider: string;
+  resolvedToolResultBudget: ScaledToolResultBudget;
   resolvePinnedModel: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   toolNameMap: Map<string, string>;
+  toolOutputObserver?: ModelOutputProjectionObserver;
 }): PersonaRuntimeParts {
   if (params.planModeActive || !shouldEnablePersonas(params.provider, params.personas)) {
     return EMPTY_PERSONA_RUNTIME_PARTS;
@@ -58,8 +68,10 @@ export function resolvePersonaRuntimeParts(params: {
     logger,
     permissionSnapshot: params.permissionSnapshot,
     personas: params.personas ?? [],
+    resolvedToolResultBudget: params.resolvedToolResultBudget,
     resolvePinnedModel: params.resolvePinnedModel,
     toolNameMap: params.toolNameMap,
+    ...(params.toolOutputObserver ? { toolOutputObserver: params.toolOutputObserver } : {}),
   });
   return {
     delegationToolPersonas: personaBuild.delegationToolPersonas,

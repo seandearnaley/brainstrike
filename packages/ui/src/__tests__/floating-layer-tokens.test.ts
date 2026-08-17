@@ -29,8 +29,6 @@ const FLOATING_LAYER_SOURCES = [
   'command-palette/command-palette.tsx',
   'command-palette/quick-open-palette.tsx',
   'model-picker/model-picker.tsx',
-  'assistant-ui-panel/composer-model-menu.tsx',
-  'assistant-ui-panel/composer-effort-control.tsx',
 ] as const;
 
 /**
@@ -81,13 +79,10 @@ describe('floating layers take their z-index from the shared scale', () => {
     expect(HARDCODED_Z_UTILITY.test(candidate)).toBe(true);
   });
 
-  it.each([
-    'translate-z-50',
-    '--z-50',
-    'z-index',
-    'zoom-out-95',
-    'z-auto',
-  ])('does not mistake %s for a hardcoded z-index', (candidate) => {
-    expect(HARDCODED_Z_UTILITY.test(candidate)).toBe(false);
-  });
+  it.each(['translate-z-50', '--z-50', 'z-index', 'zoom-out-95', 'z-auto'])(
+    'does not mistake %s for a hardcoded z-index',
+    (candidate) => {
+      expect(HARDCODED_Z_UTILITY.test(candidate)).toBe(false);
+    }
+  );
 });

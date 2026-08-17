@@ -1,8 +1,8 @@
+import { generateProjectTreeTextResult } from '@brainstrike/file-explorer/project-tree-text';
+import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { generateProjectTreeText } from '@brainstrike/utils/tree-generator';
+import { createLogger } from '@brainstrike/logging';
+import { useUndoableAction } from '@brainstrike/ui';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -21,13 +21,7 @@ import { useSelectionManager } from './use-selection-manager-context';
 
 const logger = createLogger('FileExplorerMiddlePanelBase');
 
-interface FileExplorerMiddlePanelBaseProps {
-  estimateTokenCost?: (tokens: number) => number;
-}
-
-export const FileExplorerMiddlePanelBase = ({
-  estimateTokenCost,
-}: FileExplorerMiddlePanelBaseProps) => {
+export const FileExplorerMiddlePanelBase = () => {
   const {
     fileContents,
     loadingFiles,
@@ -161,9 +155,9 @@ export const FileExplorerMiddlePanelBase = ({
   const handleDownloadContext = reportActions.handleDownloadContext;
   const handleCopyContext = reportActions.handleCopyContext;
 
-  const projectTreeText = useMemo(
+  const projectTreeResult = useMemo(
     () =>
-      generateProjectTreeText(
+      generateProjectTreeTextResult(
         projectTreeSource,
         projectTreeUsesViewFilters ? includeFilters : [],
         projectTreeUsesViewFilters ? excludeFilters : [],
@@ -179,10 +173,12 @@ export const FileExplorerMiddlePanelBase = ({
       useRegex,
     ]
   );
+  const projectTreeText = projectTreeResult.ok ? projectTreeResult.text : '';
+  const projectTreeValidationError = projectTreeResult.ok ? undefined : projectTreeResult.error;
 
   const { tokenCount: projectTreeTokenCount, loading: projectTreeTokenCountLoading } =
     useTextTokenCount({
-      enabled: selectedFilePaths.size > 0,
+      enabled: selectedFilePaths.size > 0 && projectTreeResult.ok,
       text: projectTreeText,
     });
 
@@ -208,17 +204,6 @@ export const FileExplorerMiddlePanelBase = ({
       });
     },
     [performUndoableAction]
-  );
-
-  const { openFileInTab } = useIdeFileEditor();
-
-  const handleFileClick = useCallback(
-    (compositeKey: string) => {
-      if (openFileInTab) {
-        openFileInTab(compositeKey);
-      }
-    },
-    [openFileInTab]
   );
 
   const flushPreviewContentRequests = useCallback(() => {
@@ -264,9 +249,6 @@ export const FileExplorerMiddlePanelBase = ({
           <div className="flex-1 overflow-hidden bg-card/50">
             <PreviewPanel
               decodeFileSelection={decodeFileSelection}
-              resolveRootDisplayName={resolveRootDisplayName}
-              resolveRootPath={resolveRootPath}
-              {...(estimateTokenCost ? { estimateTokenCost } : {})}
               fileContents={fileContents}
               fileSizes={fileSizes}
               folderSummaryThreshold={folderSummaryThreshold}
@@ -274,7 +256,6 @@ export const FileExplorerMiddlePanelBase = ({
               loadingFiles={loadingFiles}
               onCopyContext={handleCopyContextFromPanel}
               onDownloadContext={handleDownloadContextFromPanel}
-              onFileClick={handleFileClick}
               onFolderSummaryThresholdChange={setFolderSummaryThreshold}
               onIncludeProjectTreeChange={handleIncludeProjectTreeChange}
               onProjectTreeUsesViewFiltersChange={setProjectTreeUsesViewFilters}
@@ -285,6 +266,9 @@ export const FileExplorerMiddlePanelBase = ({
               projectTreeTokenCount={projectTreeTokenCount}
               projectTreeTokenCountLoading={projectTreeTokenCountLoading}
               projectTreeUsesViewFilters={projectTreeUsesViewFilters}
+              projectTreeValidationError={projectTreeValidationError}
+              resolveRootDisplayName={resolveRootDisplayName}
+              resolveRootPath={resolveRootPath}
               selectedFiles={selectedFilePaths}
               tokenBudget={tokenBudget}
               tokenCounting={tokenCounting}

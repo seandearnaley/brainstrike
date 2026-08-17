@@ -9,7 +9,7 @@ import {
   isPathInsideRoot,
   normalizeRootDir,
   resolveValidatedPath,
-} from '../path-validation';
+} from '../path-validation.js';
 
 const home = process.env['HOME'] ?? process.env['USERPROFILE'];
 const isWin32 = process.platform === 'win32';
@@ -80,6 +80,85 @@ describe('resolveValidatedPath', () => {
     const traversal = '../'.repeat(DEFAULT_TRAVERSAL_LIMIT + 1);
     const result = await resolveValidatedPath({
       requestedPath: traversal,
+      rootDir: tempDir,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('traversal');
+    }
+  });
+
+  it('accepts a directory whose name contains ".." substrings at maxTraversal 0', async () => {
+    // Real-world shape: nyc coverage-input dirs flatten relative paths with
+    // "__" separators, e.g. "..__..__..__var__folders__T__packages__db".
+    const nycStyleName = '..__..__..__..__..__var__folders__T__packages__db';
+    const dirPath = path.join(tempDir, nycStyleName);
+    await fsPromises.mkdir(dirPath);
+
+    const result = await resolveValidatedPath({
+      allowMissing: false,
+      maxTraversal: 0,
+      requestedPath: dirPath,
+      rootDir: tempDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.path).toBe(path.join(await fsPromises.realpath(tempDir), nycStyleName));
+    }
+  });
+
+  it('accepts a filename containing a git range ".." at maxTraversal 0', async () => {
+    const filePath = path.join(tempDir, 'review-3f61bcd58..2180072ee.diff');
+    await fsPromises.writeFile(filePath, 'diff');
+
+    const result = await resolveValidatedPath({
+      allowMissing: false,
+      maxTraversal: 0,
+      requestedPath: filePath,
+      rootDir: tempDir,
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a real ".." segment at maxTraversal 0', async () => {
+    const result = await resolveValidatedPath({
+      maxTraversal: 0,
+      requestedPath: '../sibling',
+      rootDir: tempDir,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('traversal');
+    }
+  });
+
+  it('rejects Win32 ".." aliases (trailing dots/spaces) at maxTraversal 0', async () => {
+    // Win32 strips trailing dots and spaces per path component, so ".. " and
+    // "..." open as "..". The lexical counter must treat them as traversal.
+    for (const requestedPath of ['.. \\sibling', 'foo/.. /bar', '...\\sibling', '.. ']) {
+      const result = await resolveValidatedPath({
+        maxTraversal: 0,
+        requestedPath,
+        rootDir: tempDir,
+      });
+
+      expect(result.ok, `expected rejection for ${JSON.stringify(requestedPath)}`).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('traversal');
+      }
+    }
+  });
+
+  it('rejects a real backslash ".." segment at maxTraversal 0', async () => {
+    // The separator split is platform-independent by design — no `platform`
+    // option here; backslash segments are counted on POSIX too.
+    const result = await resolveValidatedPath({
+      maxTraversal: 0,
+      requestedPath: '..\\sibling',
       rootDir: tempDir,
     });
 
@@ -345,27 +424,37 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it('returns realpath-failure for non-ENOENT errors', async () => {
-    const spy = vi.spyOn(fsPromises, 'realpath');
-    const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+  it.each([false, true])(
+    'returns realpath-failure for non-ENOENT errors when allowMissing is %s',
+    async (allowMissing) => {
+      const spy = vi.spyOn(fsPromises, 'realpath');
+      const candidate = path.join(tempDir, 'some-file.txt');
+      const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      spy.mockImplementation(async (input: fs.PathLike) => {
+        const resolved = input.toString();
+        if (resolved === candidate) {
+          throw eacces;
+        }
+        return resolved;
+      });
 
-    // The first call resolves the rootDir, the second call (for candidate) rejects with EACCES
-    spy.mockResolvedValueOnce(tempDir).mockRejectedValueOnce(eacces);
+      try {
+        const result = await resolveValidatedPath({
+          allowMissing,
+          requestedPath: 'some-file.txt',
+          rootDir: tempDir,
+        });
 
-    const result = await resolveValidatedPath({
-      allowMissing: false,
-      requestedPath: 'some-file.txt',
-      rootDir: tempDir,
-    });
-
-    spy.mockRestore();
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('realpath-failure');
-      expect(result.error.message).toBe('permission denied');
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('realpath-failure');
+          expect(result.error.message).toBe('permission denied');
+        }
+      } finally {
+        spy.mockRestore();
+      }
     }
-  });
+  );
 
   it.skipIf(!home)(
     'blocks sensitive user directory with win32 platform (case-insensitive)',
@@ -395,6 +484,25 @@ describe('resolveValidatedPath', () => {
       expect(result.path).toBe(nonExistentAbsolute);
     }
   });
+
+  it.skipIf(isWin32)(
+    'does not dereference symlinks on the rootless allowMissing fast path',
+    async () => {
+      // This pins the lexical no-realpath branch only. Trusted I/O callers must
+      // still bind paths to canonical roots before opening symlink targets (BST-1237).
+      const targetPath = path.join(tempDir, 'target');
+      const symlinkPath = path.join(tempDir, 'link');
+      await fsPromises.mkdir(targetPath);
+      await fsPromises.symlink(targetPath, symlinkPath);
+
+      const result = await resolveValidatedPath({
+        allowMissing: true,
+        requestedPath: symlinkPath,
+      });
+
+      expect(result).toEqual({ ok: true, path: symlinkPath });
+    }
+  );
 
   it('falls back to fallbackPath when requestedPath is a non-string type', async () => {
     // number
@@ -494,5 +602,14 @@ describe('isPathInsideRoot', () => {
 
   it('rejects absolute paths on a different drive/root', () => {
     expect(isPathInsideRoot('/workspace/root', '/another/root/file.ts')).toBe(false);
+  });
+
+  it('accepts in-root children whose names start with ".."', () => {
+    expect(isPathInsideRoot('/home/user', '/home/user/..__..__var__folders')).toBe(true);
+    expect(isPathInsideRoot('/home/user', '/home/user/..hidden/file.ts')).toBe(true);
+  });
+
+  it('rejects the root parent itself', () => {
+    expect(isPathInsideRoot('/home/user', '/home')).toBe(false);
   });
 });

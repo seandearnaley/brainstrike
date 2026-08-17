@@ -29,9 +29,9 @@ rules. This doc is the durable plan for the stacked-PR remediation that follows.
 | CI gate     | `scope: changed` + `blocking: error` — only NEW errors fail a PR    |
 | CI runner   | Official `millionco/react-doctor@v2` Action (PR comments + status)  |
 | knip        | Retained for dependency dead-code; deslop dep rules disabled        |
-| Lint ignores| **None** — `ignore.files` is unsafe in 0.5.5 (see gotcha below)     |
+| Lint ignores| **None** — broad file exclusions are unnecessary                   |
 
-### Gotcha: never use `ignore.files` (react-doctor 0.5.5)
+### Historical gotcha: `ignore.files` in react-doctor 0.5.5/0.7.1
 
 Setting a non-empty `ignore.files` flips the lint pass from default file discovery to an
 explicit include-list (`resolveLintIncludePaths` → `shouldIncludeExplicitLintPath` in
@@ -42,6 +42,15 @@ presence of the key changes discovery. Build artifacts are gitignored (git file 
 never sees them) and `test-noise`-tagged rules already auto-suppress in non-production
 files, so `ignore.files` was redundant as well as destructive. Suppress specific findings
 with `ignore.overrides` (file + rule) or `rules` (per rule) instead.
+
+React Doctor 0.9.3 no longer has that enumeration defect: its
+`resolveLintIncludePaths` implementation lists every supported source first and then filters
+the configured ignored paths. Brainstrike still carries no whole-file ignores because the
+original reasons for adding them were already handled by gitignored artifacts and native
+test-noise suppression. This note remains as historical evidence, not a claim about the
+current tool. Its changed-scope baseline also follows
+[stable diagnostic evidence across renames](https://github.com/millionco/react-doctor/pull/1376),
+first released in 0.8.2.
 
 ## Baseline (full scan, telemetry off, 2026-06-15, react-doctor 0.5.5)
 
@@ -104,6 +113,16 @@ existing biome + knip setup. Do NOT hand-suppress every finding.
   61, `js-combine-iterations` 57, …) — fix clear wins; many are stylistic.
 - **PR 7 — Maintainability non-memo** (`only-export-components`, `no-giant-component`,
   `no-barrel-import`, …) — triage; expect a high FP/stylistic rate.
+  - **CORRECTION (2026-08-09, BST-1220, #2372): `only-export-components` is not a react-doctor
+    rule and cannot be burned down here.** The id exists only in the bundle's
+    oxlint→react-doctor alias tables with no implementation behind it, and react-doctor
+    accepts it in `doctor.config.ts` silently, so the 51 in the baseline above is not
+    reproducible against 0.9.3 — package scans, a full run, and `react-doctor@latest`
+    all report 0. The Fast Refresh boundary is now enforced for real by
+    `react-refresh/only-export-components` in `eslint.config.js` (155 warnings across 77
+    files, on the `--max-warnings` ratchet). Treat that as the PR-7 successor for this
+    rule only; the rest of PR 7 is unaffected. See the REACT DOCTOR section in
+    `docs/agents/ci-quality.md`.
 - **DONE — `react-compiler-no-manual-memoization` DISABLED (was 1211).** Team decision:
   manual memoization is intentional here (it guards non-React expensive work, external-store
   identity, and referential stability for consumers outside the compiled tree), so the rule

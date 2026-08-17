@@ -102,6 +102,22 @@ describe('worker-node-conversion', () => {
       expect(result).toBeNull();
     });
 
+    it('should return null for truncated nodes', () => {
+      const truncatedNode = {
+        depth: 1,
+        handle: {} as FileSystemFileHandle,
+        name: 'Showing first 10,000 entries',
+        path: '/root/…truncated…',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'truncated',
+      } as IFileNode;
+
+      const result = toWorkerFileNode(truncatedNode);
+
+      expect(result).toBeNull();
+    });
+
     it('should filter out loadMore children', () => {
       const dirNode: IFileNode = {
         children: [

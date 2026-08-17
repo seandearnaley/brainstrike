@@ -3,9 +3,9 @@ import type {
   AssistantCheckpointRevertRunResult,
   AssistantEditCheckpointRecord,
 } from '@brainstrike/assistant-contract';
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import { useEditCheckpoints } from '../hooks/use-edit-checkpoints';
 
 type CheckpointBridge = NonNullable<Window['assistantCheckpoints']>;
@@ -82,6 +82,53 @@ describe('useEditCheckpoints', () => {
     });
     expect(result.current.checkpoints?.entriesByToolCallId.get('call-a')?.id).toBe('e1');
     expect(result.current.checkpoints?.entries.map((entry) => entry.id)).toEqual(['e1', 'e2']);
+  });
+
+  it('loads snapshot availability alongside entries and exposes it on the context (BST-1164 T4)', async () => {
+    const availability = vi.fn(() =>
+      Promise.resolve({
+        byCheckpointId: {
+          e1: { restorable: true as const },
+          e2: {
+            reason: 'This edit predates workspace snapshots, so it cannot be restored.',
+            restorable: false as const,
+          },
+        },
+      })
+    );
+    stubBridge({ availability, revertEntry: vi.fn(), revertRun: vi.fn() });
+    const repo = repositoryReturning(() =>
+      Promise.resolve([
+        makeEntry({ id: 'e1', toolCallId: 'call-a' }),
+        makeEntry({ id: 'e2', toolCallId: 'call-b' }),
+      ])
+    );
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+
+    await waitFor(() => {
+      expect(result.current.checkpoints?.availabilityById.size).toBe(2);
+    });
+    expect(availability).toHaveBeenCalledWith('thread-1');
+    expect(result.current.checkpoints?.availabilityById.get('e1')).toEqual({ restorable: true });
+    expect(result.current.checkpoints?.availabilityById.get('e2')).toMatchObject({
+      restorable: false,
+    });
+  });
+
+  it('clears the availability map when the availability fetch fails (fail-safe disabled state, not a crash)', async () => {
+    const availability = vi.fn(() => Promise.reject(new Error('ipc broke')));
+    stubBridge({ availability, revertEntry: vi.fn(), revertRun: vi.fn() });
+    const repo = repositoryReturning(() =>
+      Promise.resolve([makeEntry({ id: 'e1', toolCallId: 'call-a' })])
+    );
+    const { result } = renderHook(() => useEditCheckpoints(repo, 'thread-1'));
+
+    await waitFor(() => {
+      expect(result.current.checkpoints?.entries).toHaveLength(1);
+    });
+    // Entries still load; the empty map makes every control render
+    // disabled-with-reason via availabilityForEntry's fail-safe.
+    expect(result.current.checkpoints?.availabilityById.size).toBe(0);
   });
 
   it('surfaces a checkpoint journaled during a live run when refetch fires (no thread switch)', async () => {
@@ -270,10 +317,21 @@ describe('useEditCheckpoints outcome labeling', () => {
       revertedAt: '2026-07-16T12:00:00.000Z',
       toolCallId: 'call-b',
     });
+    // A THIRD entry for the same run whose captureStatus is 'expired' — not
+    // revertible, and not reverted here. It must never count toward the
+    // denominator: if the revertible filter is ever widened (e.g. an
+    // accidental `|| true`), this entry inflates '2/2' into '2/3' and flips
+    // the verdict from 'failed' to 'mixed', so this fixture pins the
+    // exclusion, not just the inclusion, of isRevertibleCaptureStatus.
+    const expiredC = makeEntry({
+      captureStatus: 'expired',
+      id: 'e3',
+      toolCallId: 'call-c',
+    });
     const listThreadCheckpoints = vi
       .fn()
       .mockResolvedValueOnce(initial)
-      .mockResolvedValue([revertedA, revertedB]);
+      .mockResolvedValue([revertedA, revertedB, expiredC]);
     const recordRunOutcome = vi.fn().mockResolvedValue(undefined);
     const revertRun = vi.fn().mockResolvedValue({
       outcomes: [

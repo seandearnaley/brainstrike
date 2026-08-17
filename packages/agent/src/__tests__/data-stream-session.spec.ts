@@ -249,9 +249,11 @@ describe('AssistantDataStreamSession', () => {
   it('drops trailing args deltas after the tool call completed (renderer closes argsText on `9`)', async () => {
     // GLM-5.2 via OpenRouter emits trailing tool-call input deltas after the
     // complete tool call. A `c` frame after `9` makes assistant-stream's
-    // decoder append into a CLOSED argsText controller — an unhandled
-    // "Cannot enqueue a chunk into a readable stream that is closed"
-    // TypeError that fails the whole run. The mapper must swallow them.
+    // decoder append into a CLOSED argsText controller. Through 0.3.34 that was
+    // an unhandled "Cannot enqueue a chunk into a readable stream that is
+    // closed" TypeError that failed the whole run; at the pinned 0.3.37 it is
+    // dropped behind a console.warn. Either way the mapper must swallow them —
+    // the quiet drop is harder to catch than the crash was.
     const chunks: StreamChunk[] = [
       {
         name: 'weather.lookup',
@@ -854,6 +856,65 @@ describe('AssistantDataStreamSession', () => {
     expect(events.find((evt) => evt.code === '3')).toBeUndefined();
     expect(events.at(-1)?.value).toMatchObject({ finishReason: 'unknown' });
   });
+
+  it.each(['high', 'max'] as const)(
+    'tells explicit %s-effort Kimi K3 runs to retry at Low or Auto after an output-limit finish',
+    async (reasoningEffort) => {
+      const chunks: StreamChunk[] = [
+        {
+          finishReason: 'length',
+          path: [],
+          type: 'message-finish',
+          usage: { completionTokens: 131_072, promptTokens: 20 },
+        },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        messageId: 'msg-kimi-output-limit',
+        outputLimitContext: {
+          model: 'moonshotai/kimi-k3',
+          provider: 'openrouter',
+          reasoningEffort,
+        },
+        sessionId: 'kimi-output-limit',
+      });
+
+      const events = parseLines(await readResponse(session.createResponse()));
+      const error = events.find((evt) => evt.code === '3')?.value;
+
+      expect(error).toBe(
+        'Assistant stopped because Kimi K3 reached its output token limit before completing the response. Retry with reasoning effort set to Low or Auto.'
+      );
+      expect(session.getTerminalOutcome()).toEqual({ error, status: 'failed' });
+    }
+  );
+
+  it.each([
+    { model: 'moonshotai/kimi-k3', reasoningEffort: 'low' as const },
+    { model: 'moonshotai/kimi-k3', reasoningEffort: undefined },
+    { model: 'z-ai/glm-5.2', reasoningEffort: 'high' as const },
+  ])(
+    'keeps generic output-limit guidance for $model at $reasoningEffort effort',
+    async (context) => {
+      const chunks: StreamChunk[] = [
+        {
+          finishReason: 'length',
+          path: [],
+          type: 'message-finish',
+          usage: { completionTokens: 32_000, promptTokens: 20 },
+        },
+      ];
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        outputLimitContext: { ...context, provider: 'openrouter' },
+      });
+
+      const events = parseLines(await readResponse(session.createResponse()));
+
+      expect(events.find((evt) => evt.code === '3')?.value).toBe(
+        'Assistant stopped because the model reached its output token limit before completing the response.'
+      );
+    }
+  );
 
   it('surfaces model length finishes after tool calls instead of ending silently', async () => {
     const chunks: StreamChunk[] = [
@@ -1894,7 +1955,7 @@ describe('AssistantDataStreamSession', () => {
       expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
     });
 
-    it('keeps oversized successful tool output successful with a bounded preview', async () => {
+    it('keeps oversized successful tool output successful with a balanced head+tail preview', async () => {
       const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
       const chunks: StreamChunk[] = [
         {
@@ -1950,19 +2011,34 @@ describe('AssistantDataStreamSession', () => {
       expect(toolResult?.isError).toBeUndefined();
       expect(toolResult?.result?.preview).toContain('filesystem match');
       expect(serializedToolResult.length).toBeLessThan(20_000);
-      expect(serializedToolResult).not.toContain('needle-at-tail');
+      // Balanced head+tail retention (was head-only): the tail evidence the
+      // old preview always discarded now survives alongside the head.
+      expect(serializedToolResult).toContain('needle-at-tail');
       expect(textDelta).toBeUndefined();
       expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
     });
 
-    it('does not split surrogate pairs in oversized tool output previews', () => {
-      const output = `${'a'.repeat(7999)}🙂${'tail'.repeat(2000)}`;
+    it('does not split surrogate pairs at either preview boundary', () => {
+      const output = `HEAD-${'🙂'.repeat(6000)}-TAIL`;
       const bounded = boundToolOutputForModel('filesystem.search_files', output).output as {
         preview?: string;
       };
+      const preview = bounded.preview ?? '';
 
-      expect(bounded.preview).toBe(`${'a'.repeat(7999)}🙂`);
-      expect(bounded.preview?.charCodeAt(bounded.preview.length - 1)).not.toBe(0xd8_3d);
+      // Balanced retention (was head-only): both ends of the source survive.
+      expect(preview.startsWith('HEAD-')).toBe(true);
+      expect(preview.endsWith('-TAIL')).toBe(true);
+      expect(preview).not.toContain('�');
+      // No lone surrogate at either cut point: every high surrogate is
+      // immediately followed by its low-surrogate partner.
+      for (let index = 0; index < preview.length; index += 1) {
+        const codeUnit = preview.charCodeAt(index);
+        if (codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff) {
+          const next = preview.charCodeAt(index + 1);
+          expect(next).toBeGreaterThanOrEqual(0xdc_00);
+          expect(next).toBeLessThanOrEqual(0xdf_ff);
+        }
+      }
     });
 
     it('does not iterate the entire oversized tool output when building a preview', () => {
@@ -2053,3 +2129,47 @@ interface DataStreamUsage {
   inputTokens: number;
   outputTokens: number;
 }
+
+it('forwards executionContext through the LIVE approval data part (BST-1070 §2.2 transport)', async () => {
+  // handleToolApprovalRequired rebuilds the approval data part FIELD BY
+  // FIELD, so a field it does not spread is silently dropped — and the
+  // failure mode is precisely backwards (live approvals degrade while
+  // rediscovered ones, recomputed server-side, keep working). This test is
+  // the live-stream transport proof the design requires.
+  const executionContext = {
+    allowedDomains: [],
+    allowRead: [],
+    allowWrite: [],
+    defaultReadAccess: 'permissive',
+    executorKind: 'fence',
+    language: 'python',
+    policyFingerprint: 'fp-live-transport',
+    scratchParentDir: '/tmp',
+    timeoutMs: 30_000,
+  } as const;
+  const chunks: StreamChunk[] = [
+    {
+      args: { code: 'print(1)' },
+      executionContext,
+      runId: 'run-live-context',
+      toolCallId: 'call-live-context',
+      toolName: 'brainstrike.runPython',
+      type: 'tool-approval-required',
+    },
+    { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+  ];
+
+  const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+    messageId: 'msg-live-context',
+    sessionId: 'sess-live-context',
+  });
+
+  const parsed = parseLines(await readResponse(session.createResponse()));
+  const approvalPart = parsed.find(
+    (entry) =>
+      entry.code === 'aui-data' && JSON.stringify(entry.value).includes('brainstrike.tool-approval')
+  );
+  expect(approvalPart).toBeDefined();
+  const data = (approvalPart?.value as { data?: Record<string, unknown> })?.data;
+  expect(data?.['executionContext']).toStrictEqual(executionContext);
+});

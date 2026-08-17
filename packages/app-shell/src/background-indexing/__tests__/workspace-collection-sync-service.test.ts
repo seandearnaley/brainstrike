@@ -1,8 +1,9 @@
 import type { ManagedCacheEntryMetadata } from '@brainstrike/db';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import type { ScopedLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   WorkspaceCollectionSyncService,
@@ -80,12 +81,13 @@ describe('WorkspaceCollectionSyncService', () => {
       },
     ]);
     runEnhancedImportMock.mockImplementation(async (params) => {
-      await params.baseImportRunner({
+      const baseResults = await params.baseImportRunner({
         fileContents: params.request.fileContents,
         fileTree: params.request.fileTree,
         onProgress: () => {},
         selectedFilePaths: params.request.selectedFilePaths,
       });
+      params.onChunkingStart?.(baseResults);
       return [];
     });
   });
@@ -95,7 +97,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const unchangedHash = await generateContentHash(unchangedContent);
     const fileContentProcessor = {
       processFiles: vi.fn(async () => ({
-        [COMPOSITE_KEY]: unchangedContent,
+        [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
       })),
     };
     const deps = createDeps({
@@ -187,7 +189,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi
@@ -242,7 +244,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 3;',
+          [COMPOSITE_KEY]: { content: 'export const value = 3;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi
@@ -307,7 +309,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 7;',
+          [COMPOSITE_KEY]: { content: 'export const value = 7;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi.fn(
@@ -474,7 +476,7 @@ describe('WorkspaceCollectionSyncService', () => {
       },
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -561,7 +563,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -756,7 +758,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -808,6 +810,322 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('surfaces a terminal error after three incomplete chunking redispatches', async () => {
+    type BackfillProgressListener = Parameters<
+      WorkspaceCollectionSyncServiceDependencies['subscribeToBackfillProgress']
+    >[0];
+    let progressListener: BackfillProgressListener | undefined;
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        handle: { path: `${ROOT_PATH}/${FILE_PATH}`, platform: 'electron' },
+        lastModified: 1000,
+        name: 'index.ts',
+        path: `${ROOT_PATH}/${FILE_PATH}`,
+        rootFolderId: ROOT_PATH,
+        size: 42,
+        type: 'file',
+      },
+    ]);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            chunksCount: 0,
+            chunksProcessedAt: null,
+            contentHash: unchangedHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-1',
+            mtimeMs: 1000,
+            relativePath: FILE_PATH,
+            rootId: ROOT_PATH,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        progressListener = callback;
+        return () => {};
+      }),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+    const request = {
+      adapterRootId: 'root-a-id',
+      backfillMode: 'defer' as const,
+      enabled: true,
+      indexingPolicyPreset: 'balanced' as const,
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    };
+
+    await service.sync(request);
+    await service.sync(request);
+    await service.sync(request);
+    vi.mocked(deps.chunkRepository.getCoverageForSet).mockResolvedValueOnce({
+      chunksWithEmbeddingsForSet: 0,
+      totalChunks: 1,
+    });
+    await service.sync({ ...request, backfillMode: 'enqueue' });
+
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(3);
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledTimes(3);
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastError: expect.stringContaining(
+          'stopped re-dispatching "src/index.ts" after 3 redispatch attempts'
+        ),
+        state: 'error',
+      })
+    );
+    expect(deps.enqueueBackfill).toHaveBeenCalledOnce();
+    expect(progressListener).toBeDefined();
+
+    progressListener?.({
+      current: 1,
+      embeddingSetId: 'set-1',
+      message: 'chunk 1/2',
+      requestId: 'background-indexing-backfill:test',
+      stage: 'running',
+      total: 2,
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
+    await service.sync({
+      ...request,
+      scope: { changes: [], mode: 'paths' },
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
+    await service.sync({
+      ...request,
+      scope: {
+        changes: [{ kind: 'directory', path: ROOT_PATH, type: 'removed' }],
+        mode: 'paths',
+      },
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
+    const processFiles = deps.fileContentProcessor?.processFiles;
+    if (!processFiles) {
+      throw new Error('Expected file content processor.');
+    }
+    const inaccessibleFileNode = {
+      depth: 1,
+      handle: createMockNodeHandle({
+        kind: 'file',
+        name: 'index.ts',
+        path: `${ROOT_PATH}/${FILE_PATH}`,
+      }),
+      lastModified: 1000,
+      name: 'index.ts',
+      path: `${ROOT_PATH}/${FILE_PATH}`,
+      rootFolderId: ROOT_PATH,
+      selectionState: 'unchecked' as const,
+      size: 42,
+      type: 'file' as const,
+    };
+    vi.mocked(deps.fileSystemAdapter.readDirectory).mockResolvedValueOnce([inaccessibleFileNode]);
+    vi.mocked(processFiles).mockResolvedValueOnce({
+      [COMPOSITE_KEY]: {
+        message: 'File was temporarily inaccessible during rename.',
+        status: 'inaccessible',
+      },
+    });
+    await service.sync({
+      ...request,
+      scope: {
+        changes: [{ kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'modified' }],
+        mode: 'paths',
+      },
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([inaccessibleFileNode]);
+    vi.mocked(processFiles).mockResolvedValueOnce({
+      [COMPOSITE_KEY]: {
+        message: 'File remained inaccessible during full reconciliation.',
+        status: 'inaccessible',
+      },
+    });
+    await service.sync(request);
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
+    vi.mocked(deps.resolveDbRootId).mockResolvedValueOnce(DB_ROOT_B_ID);
+    await service.sync({
+      backfillMode: 'defer',
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
+    service.reconcileMountedRoots('set-1', [
+      { adapterRootId: 'root-b-id', dbRootId: null, rootPath: ROOT_PATH },
+    ]);
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
+    await service.sync({
+      backfillMode: 'defer',
+      dbRootId: DB_ROOT_B_ID,
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: { ...createRootHandle(ROOT_PATH), rootId: 'root-b-id' },
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: null,
+        state: 'idle',
+      })
+    );
+
+    vi.mocked(deps.embeddingSetsRepository.getById).mockResolvedValueOnce(
+      createCollection({ id: 'set-2', name: 'Replacement collection' })
+    );
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
+    await service.sync({
+      backfillMode: 'defer',
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-2',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastError: null,
+        managedCollectionId: 'set-2',
+        state: 'idle',
+      })
+    );
+  });
+
+  it('does not consume redispatch attempts before importer handoff', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    readFullTreeWithOptionsMock.mockResolvedValue([
+      {
+        handle: { path: `${ROOT_PATH}/${FILE_PATH}`, platform: 'electron' },
+        lastModified: 1000,
+        name: 'index.ts',
+        path: `${ROOT_PATH}/${FILE_PATH}`,
+        rootFolderId: ROOT_PATH,
+        size: 42,
+        type: 'file',
+      },
+    ]);
+    const ensureChunkingWorker = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('worker start failed 1'))
+      .mockRejectedValueOnce(new Error('worker start failed 2'))
+      .mockRejectedValueOnce(new Error('worker start failed 3'))
+      .mockResolvedValue({
+        chunkBatch: vi.fn(),
+        chunkFile: vi.fn(),
+        isReady: () => true,
+        terminate: vi.fn(),
+        transportKind: 'local-worker' as const,
+      });
+    const deps = createDeps({
+      ensureChunkingWorker,
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            chunksCount: 0,
+            chunksProcessedAt: null,
+            contentHash: unchangedHash,
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-1',
+            mtimeMs: 1000,
+            relativePath: FILE_PATH,
+            rootId: ROOT_PATH,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+    const request = {
+      backfillMode: 'defer' as const,
+      enabled: true,
+      indexingPolicyPreset: 'balanced' as const,
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    };
+
+    await service.sync(request);
+    await service.sync(request);
+    await service.sync(request);
+    await service.sync(request);
+
+    expect(ensureChunkingWorker).toHaveBeenCalledTimes(4);
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+    expect(deps.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: expect.stringContaining('stopped re-dispatching'),
+      })
+    );
+  });
+
   it('force-reads a watcher-modified file and replaces only the matching db root identity', async () => {
     const oldContent = 'export const value = 1;';
     const newContent = 'export const value = 2;';
@@ -839,7 +1157,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [ROOT_B_COMPOSITE_KEY]: newContent,
+          [ROOT_B_COMPOSITE_KEY]: { content: newContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1047,7 +1365,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: newContent,
+          [COMPOSITE_KEY]: { content: newContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1282,7 +1600,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [keptCompositeKey]: newContent,
+          [keptCompositeKey]: { content: newContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1535,7 +1853,10 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [subtreeCompositeKey]: 'export const Button = 1;',
+          [subtreeCompositeKey]: {
+            content: 'export const Button = 1;',
+            status: 'accessible' as const,
+          },
         })),
       },
       fileSystemAdapter: {
@@ -1639,9 +1960,14 @@ describe('WorkspaceCollectionSyncService', () => {
         update: vi.fn(async () => null),
       },
       fileContentProcessor: {
-        processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
-        })),
+        processFiles: vi.fn(async (requests: readonly { compositeKey: string }[]) =>
+          Object.fromEntries(
+            requests.map((request) => [
+              request.compositeKey,
+              { content: unchangedContent, status: 'accessible' as const },
+            ])
+          )
+        ),
       },
       fileRecordRepository: {
         findById: vi.fn(async () => null),
@@ -1694,7 +2020,7 @@ describe('WorkspaceCollectionSyncService', () => {
       },
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1760,7 +2086,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 1;',
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
         })),
       },
     });
@@ -1824,9 +2150,12 @@ describe('WorkspaceCollectionSyncService', () => {
           Object.fromEntries(
             requests.map((request) => [
               request.compositeKey,
-              request.compositeKey.includes('binary-content.md')
-                ? 'looks like markdown but contains a null\0byte'
-                : 'export const value = 1;',
+              {
+                content: request.compositeKey.includes('binary-content.md')
+                  ? 'looks like markdown but contains a null\0byte'
+                  : 'export const value = 1;',
+                status: 'accessible' as const,
+              },
             ])
           )
         ),
@@ -1848,6 +2177,210 @@ describe('WorkspaceCollectionSyncService', () => {
         }),
       })
     );
+  });
+
+  it('surfaces truncated directory listings from a full scan in the scan summary', async () => {
+    readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
+      options?.onDirectoryTruncated?.({ depth: 0, path: ROOT_PATH });
+      return [
+        {
+          handle: { path: `${ROOT_PATH}/${FILE_PATH}`, platform: 'electron' },
+          name: 'index.ts',
+          path: `${ROOT_PATH}/${FILE_PATH}`,
+          rootFolderId: ROOT_PATH,
+          type: 'file',
+        },
+      ];
+    });
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+        })),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        onDirectoryTruncated: expect.any(Function),
+      })
+    );
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scanSummary: expect.objectContaining({
+          truncatedDirectories: 1,
+        }),
+      })
+    );
+  });
+
+  it('surfaces truncated directory listings from a scoped scan in the scan summary', async () => {
+    const truncatedEntry = (parentPath: string): IFileNode =>
+      ({
+        handle: createMockNodeHandle({
+          kind: 'file',
+          name: '…truncated…',
+          path: `${parentPath}/…truncated…`,
+        }),
+        name: 'Showing first 10,000 entries',
+        path: `${parentPath}/…truncated…`,
+        rootFolderId: ROOT_PATH,
+        type: 'truncated',
+      }) as IFileNode;
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+        })),
+      },
+      fileSystemAdapter: {
+        exists: vi.fn(),
+        readDirectory: vi.fn(async (handle: { path: string }): Promise<IFileNode[]> => {
+          if (handle.path === ROOT_PATH) {
+            return [
+              {
+                depth: 1,
+                handle: createMockNodeHandle({
+                  kind: 'directory',
+                  name: 'src',
+                  path: `${ROOT_PATH}/src`,
+                }),
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'directory',
+              } as IFileNode,
+              truncatedEntry(ROOT_PATH),
+            ];
+          }
+          if (handle.path === `${ROOT_PATH}/src`) {
+            return [
+              {
+                depth: 2,
+                handle: createMockNodeHandle({
+                  kind: 'file',
+                  name: 'index.ts',
+                  path: `${ROOT_PATH}/${FILE_PATH}`,
+                }),
+                name: 'index.ts',
+                path: `${ROOT_PATH}/${FILE_PATH}`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                size: 24,
+                type: 'file',
+              } as IFileNode,
+              truncatedEntry(`${ROOT_PATH}/src`),
+            ];
+          }
+          return [];
+        }),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+      } as unknown as WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'],
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        changes: [{ kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'modified' }],
+        mode: 'paths',
+      },
+    });
+
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    expect(deps.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scanSummary: expect.objectContaining({
+          truncatedDirectories: 2,
+        }),
+      })
+    );
+  });
+
+  it('does not invalidate cached rows under a truncated directory during a full scan', async () => {
+    // A truncated listing means "absent from the tree" is NOT evidence of
+    // deletion: rows past the 10,000-entry cap must survive the missing-file
+    // reconciliation, while rows outside the truncated subtree still invalidate.
+    readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
+      options?.onDirectoryTruncated?.({ depth: 1, path: `${ROOT_PATH}/src` });
+      return [
+        {
+          handle: { path: `${ROOT_PATH}/${FILE_PATH}`, platform: 'electron' },
+          name: 'index.ts',
+          path: `${ROOT_PATH}/${FILE_PATH}`,
+          rootFolderId: ROOT_PATH,
+          type: 'file',
+        },
+      ];
+    });
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: 'hash-beyond-cap',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-beyond-cap',
+            mtimeMs: 1000,
+            relativePath: 'src/beyond-cap.ts',
+            rootId: ROOT_PATH,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            contentHash: 'hash-gone',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-really-gone',
+            mtimeMs: 1000,
+            relativePath: 'docs/really-gone.ts',
+            rootId: ROOT_PATH,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    const invalidatedPaths = vi
+      .mocked(deps.invalidateManagedCacheEntriesByIdentity)
+      .mock.calls.flatMap(([callArgs]) =>
+        callArgs.targets.map((target) =>
+          'relativePath' in target ? target.relativePath : target.relativePathPrefix
+        )
+      );
+    expect(invalidatedPaths).toContain('docs/really-gone.ts');
+    expect(invalidatedPaths).not.toContain('src/beyond-cap.ts');
   });
 
   it('propagates scan and content-processing progress through the status reporter', async () => {
@@ -1872,7 +2405,10 @@ describe('WorkspaceCollectionSyncService', () => {
           }
           onProgress({ key: firstRequest.compositeKey });
           return {
-            [firstRequest.compositeKey]: 'export const value = 1;',
+            [firstRequest.compositeKey]: {
+              content: 'export const value = 1;',
+              status: 'accessible' as const,
+            },
           };
         }),
       },
@@ -1902,8 +2438,11 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]:
-            'export const marker = "Binary file - preview not available"; export const ok = true;',
+          [COMPOSITE_KEY]: {
+            content:
+              'export const marker = "Binary file - preview not available"; export const ok = true;',
+            status: 'accessible' as const,
+          },
         })),
       },
     });
@@ -1932,10 +2471,13 @@ describe('WorkspaceCollectionSyncService', () => {
         processFiles: vi
           .fn()
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'export const value = 1;',
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
           })
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'Binary file - preview not available',
+            [COMPOSITE_KEY]: {
+              message: 'Binary file - preview not available',
+              status: 'inaccessible' as const,
+            },
           }),
       },
     });
@@ -1959,7 +2501,7 @@ describe('WorkspaceCollectionSyncService', () => {
         processFiles: vi
           .fn()
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'export const value = 1;',
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
           })
           .mockResolvedValueOnce({}),
       },
@@ -2001,10 +2543,10 @@ describe('WorkspaceCollectionSyncService', () => {
         processFiles: vi
           .fn()
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: initialContent,
+            [COMPOSITE_KEY]: { content: initialContent, status: 'accessible' as const },
           })
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: importTimeContent,
+            [COMPOSITE_KEY]: { content: importTimeContent, status: 'accessible' as const },
           }),
       },
     });
@@ -2057,12 +2599,24 @@ describe('WorkspaceCollectionSyncService', () => {
         processFiles: vi
           .fn()
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'export const indexValue = 1;',
-            [secondCompositeKey]: 'export const utilValue = 2;',
+            [COMPOSITE_KEY]: {
+              content: 'export const indexValue = 1;',
+              status: 'accessible' as const,
+            },
+            [secondCompositeKey]: {
+              content: 'export const utilValue = 2;',
+              status: 'accessible' as const,
+            },
           })
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'export const indexValue = 1;',
-            [secondCompositeKey]: 'export const utilValue = 2;',
+            [COMPOSITE_KEY]: {
+              content: 'export const indexValue = 1;',
+              status: 'accessible' as const,
+            },
+            [secondCompositeKey]: {
+              content: 'export const utilValue = 2;',
+              status: 'accessible' as const,
+            },
           }),
       },
     });
@@ -2114,7 +2668,7 @@ describe('WorkspaceCollectionSyncService', () => {
       const deps = createDeps({
         fileContentProcessor: {
           processFiles: vi.fn(async () => ({
-            [COMPOSITE_KEY]: 'export const value = 2;',
+            [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
           })),
         },
       });
@@ -2183,7 +2737,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -2253,7 +2807,7 @@ describe('WorkspaceCollectionSyncService', () => {
       }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2328,7 +2882,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi
@@ -2374,7 +2928,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi
@@ -2413,7 +2967,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2469,7 +3023,7 @@ describe('WorkspaceCollectionSyncService', () => {
       ensureChunkingWorker: vi.fn(async () => chunkingWorkerPort),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2497,7 +3051,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -2589,6 +3143,7 @@ describe('WorkspaceCollectionSyncService', () => {
           changedFiles: 1,
           discoveredFiles: 1,
           excludedEntries: 0,
+          truncatedDirectories: 0,
           unchangedFiles: 0,
         },
         state: 'embedding',
@@ -2600,7 +3155,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]),
@@ -2648,7 +3203,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -2706,7 +3261,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -2776,7 +3331,7 @@ describe('WorkspaceCollectionSyncService', () => {
       }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2820,7 +3375,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ canceled: true }) as const),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2843,7 +3398,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2886,7 +3441,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       getBackfillsInFlight: vi.fn(async () => [
@@ -2921,7 +3476,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       getBackfillsInFlight: vi.fn(async () => [
@@ -2969,7 +3524,10 @@ describe('WorkspaceCollectionSyncService', () => {
           return Object.fromEntries(
             requests.map((request, index) => [
               request.compositeKey,
-              `export const value${index} = ${index};`,
+              {
+                content: `export const value${index} = ${index};`,
+                status: 'accessible' as const,
+              },
             ])
           );
         }),
@@ -3003,7 +3561,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -3055,7 +3613,7 @@ describe('WorkspaceCollectionSyncService', () => {
       }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -3074,6 +3632,47 @@ describe('WorkspaceCollectionSyncService', () => {
         state: 'error',
       })
     );
+  });
+
+  it('marks sync unconfigured (not an error) when no root folder is selected yet', async () => {
+    // BST-1335: a managed collection can exist (background indexing enabled,
+    // default collection created) before the user has picked a workspace
+    // root. That is incomplete setup, not a failure — it must not land as an
+    // `error` status or reach the durable warn+ error-transition logger.
+    const log: ScopedLogger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: vi.fn(),
+    };
+    const deps = createDeps({ log });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: null,
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: null,
+        lastError: null,
+        managedCollectionId: 'set-1',
+        state: 'unconfigured',
+      })
+    );
+    expect(deps.setStatus).not.toHaveBeenCalledWith(expect.objectContaining({ state: 'error' }));
+    expect(log.error).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith(
+      expect.stringContaining('unconfigured'),
+      expect.objectContaining({ managedCollectionId: 'set-1' })
+    );
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
   });
 
   it('surfaces invalid managed-collection metadata before scanning proceeds', async () => {
@@ -3138,7 +3737,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       validateHostedProviderAccess: vi.fn(async () => {
@@ -3179,7 +3778,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -3242,7 +3841,7 @@ describe('WorkspaceCollectionSyncService', () => {
       } as unknown as WorkspaceCollectionSyncServiceDependencies['embeddingSetsRepository'],
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -3286,7 +3885,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       getBackfillsInFlight: vi.fn(async () => [
@@ -3346,7 +3945,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -3404,7 +4003,7 @@ describe('WorkspaceCollectionSyncService', () => {
       }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -3439,7 +4038,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -3491,7 +4090,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 1;',
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
         })),
       },
       resolveDbRootId: vi.fn().mockResolvedValue('root-db-1'),
@@ -3518,7 +4117,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 1;',
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
         })),
       },
       resolveDbRootId: vi.fn().mockResolvedValue(null),

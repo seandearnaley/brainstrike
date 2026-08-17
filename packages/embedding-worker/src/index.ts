@@ -1,3 +1,20 @@
+export {
+  assertEmbeddingTelemetrySnapshot,
+  createEmptyEmbeddingTelemetrySnapshot,
+  type EmbeddingBatchTransferTelemetry,
+  type EmbeddingPipelineCacheTelemetry,
+  type EmbeddingPipelineCacheTelemetryEntry,
+  type EmbeddingTelemetrySnapshot,
+  embeddingWorkerTelemetrySink,
+  getEmbeddingTelemetrySnapshot,
+  recordEmbeddingBatchTelemetry,
+  recordEmbeddingPipelineCacheTelemetry,
+  recordEmbeddingTelemetryFailure,
+  removeEmbeddingTelemetrySource,
+  resetEmbeddingTelemetryForTests,
+  subscribeEmbeddingTelemetry,
+  subscribeEmbeddingTelemetryThrottled,
+} from './embedding-telemetry';
 export type {
   EmbeddingDevice,
   EmbeddingDeviceHint,
@@ -13,7 +30,6 @@ export type {
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
 } from './shared';
-
 export {
   cloneAsFloat32,
   computeInitialBatchSize,

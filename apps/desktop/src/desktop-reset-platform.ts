@@ -1,3 +1,5 @@
+import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
+import { clearBrowserPaneSession } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 
 export interface DesktopResetRuntime {
@@ -44,7 +46,15 @@ async function stopDesktopResetRuntimes(runtimes: readonly DesktopResetRuntime[]
   throw new Error(`Failed to stop desktop reset runtimes: ${failedNames}`);
 }
 
-async function resetDesktopDatabaseProfile({
+/**
+ * The ONLY sanctioned way to reset the desktop database: barrier out new
+ * scheduler submissions, drain live subscriptions and queued DB work, then
+ * reset. Exported (BST-1330) so the developer-menu reset shares this exact
+ * sequence instead of calling resetLocalDatabase() bare — the undrained call
+ * was the one desktop close path that could deliberately hit the in-host
+ * live-refresh race.
+ */
+export async function resetDesktopDatabaseProfile({
   cleanupLiveSubscriptionsForShutdown,
   resetLocalDatabase,
   runWithDatabaseResetBarrier,
@@ -90,6 +100,15 @@ export function createDesktopFactoryResetHandler({
         },
         stopBackgroundRuntimes: async () => {
           await stopDesktopResetRuntimes(runtimes);
+          // Browser pane (BST-1174). Order matters: CLOSE the live
+          // `WebContentsView`s first, THEN clear the partition. A still-running
+          // view can rewrite cookies/localStorage into `persist:browser-pane`
+          // between the clear and the reset's reload, leaving site state behind
+          // (codex P1) — disposing the views makes the storage quiescent before
+          // we wipe it. The partition itself is also deleted on disk with the
+          // userData directory below.
+          disposeActiveBrowserPaneViews();
+          await clearBrowserPaneSession();
         },
         userDataPath,
       });

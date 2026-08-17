@@ -1,10 +1,8 @@
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/agent/client';
+import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  __resetAssistantPreferencesStoreForTests,
-  __resetNativeToolPreferencesStoreForTests,
-} from '@brainstrike/preferences';
 import { ThemeProvider, type ThemeStorageAdapter, TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -84,7 +82,10 @@ interface McpApi {
 }
 
 const getWindowWithExtensions = () =>
-  window as typeof window & { secrets?: SecretsApi; mcp?: McpApi };
+  window as unknown as Omit<typeof window, 'mcp' | 'secrets'> & {
+    secrets?: SecretsApi;
+    mcp?: McpApi;
+  };
 
 let originalResizeObserver: typeof ResizeObserver | undefined;
 
@@ -235,9 +236,9 @@ describe('Desktop SettingsPageContent', () => {
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
   });
 });
-vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal) => {
+vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@brainstrike/preferences/settings-page-content')>();
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-category-factories')>();
   return {
     ...actual,
     createSearchIndexingSettingsCategory: vi.fn(() => ({
@@ -253,7 +254,7 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
   };
 });
 
-vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
   ModelSelectionPage: vi.fn(() => (
     <div data-testid="model-selection-page-mock">
       <h4>Provider API Keys</h4>

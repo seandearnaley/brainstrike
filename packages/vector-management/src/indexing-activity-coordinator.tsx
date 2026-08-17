@@ -1,3 +1,14 @@
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  type IndexingBackfillSnapshot,
+  type IndexingDatabaseWorkSnapshot,
+  type IndexingManagedCollectionStatsState,
+  type IndexingQueueSnapshot,
+  type IndexingWorkerSnapshot,
+  useIndexingActivityStore,
+} from '@brainstrike/app-state/stores/indexing-activity-store';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   createPriorityDbHandle,
   getCollectionIndexingStats,
@@ -5,17 +16,6 @@ import {
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { isAppActive, useAppActive } from '@brainstrike/hooks';
-import {
-  type IndexingBackfillSnapshot,
-  type IndexingDatabaseWorkSnapshot,
-  type IndexingManagedCollectionStatsState,
-  type IndexingQueueSnapshot,
-  type IndexingWorkerSnapshot,
-  useBackgroundIndexingPreferencesStore,
-  useIndexingActivityStore,
-  useVectorStatusUIStore,
-  useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/preferences';
 import { useEffect, useMemo, useRef } from 'react';
 import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
 import type {

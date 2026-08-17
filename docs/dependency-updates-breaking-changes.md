@@ -25,7 +25,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 | `vercel` (CLI) | 50.44.0 | 54.10.2 | Deploy scripts, CLI flags, remote project behavior |
 | `knip` | ~~5.88.1~~ 6.24.0 | 6.24.0 | Unused-code analysis, JSON reporters, Node engine — **DONE**, see Knip section below |
 | `@codecov/vite-plugin` | 1.9.1 | 2.0.1 | Vite build + Codecov upload wiring |
-| `react-helmet-async` | 2.0.5 | 3.0.0 | SSR helmet types / peer range (React 19) |
+| ~~`react-helmet-async`~~ | 2.0.5 | 3.0.0 | **REMOVED** 2026-08-15 (BST-1281) — replaced by a single-writer `useDocumentTitle` hook; see section below |
 | `@commitlint/cli` | 20.5.0 | 21.0.2 | Git hook / CI commit-message validation |
 | `@commitlint/config-conventional` | 20.5.0 | 21.0.2 | Conventional commit rule defaults |
 | `@commitlint/types` | 20.5.0 | 21.0.1 | Commitlint TypeScript API consumers |
@@ -45,7 +45,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 1. **`baseUrl` deprecated (TS5101, error-level).** TS 6.0 deprecates `baseUrl` ahead of 7.0 removal. Every `tsconfig*.json` in the repo declared `"baseUrl": "."` purely to support `paths` mappings — removed `baseUrl` everywhere and, per the documented migration, prefixed the root `tsconfig.json`'s previously-bare `paths` values (e.g. `packages/types/src`) with `./` so they stay resolvable without `baseUrl` (TS5090: non-relative `paths` values require `baseUrl`; every other tsconfig's `paths` values already used a `../` prefix and needed no change).
 2. **tsup 8.5.1 re-injects `baseUrl: "."` in its DTS bundling step** (confirmed upstream bug, [egoist/tsup#1388](https://github.com/egoist/tsup/issues/1388) — tsup unconditionally passes `baseUrl: compilerOptions.baseUrl || "."` to its internal `rollup-plugin-dts` TypeScript program regardless of the project's own tsconfig). Not fixable from this repo's config. Added `"ignoreDeprecations": "6.0"` to the shared `packages/config/tsconfig/base.json` as the documented bridge flag — it only silences the deprecation diagnostic, it does not change type-checking behavior. Remove once tsup ships a fix.
 3. **`FileSystemDirectoryHandle` mock shape (the originally-documented blocker).** TS 6.0's DOM lib always includes the async-iterable members (`keys()`, `values()`, `[Symbol.asyncIterator]()`) on `FileSystemDirectoryHandle`. `packages/utils/src/__tests__/report-generator.test.ts` asserted partial mocks directly `as FileSystemDirectoryHandle` (a same-shape structural cast); TS 6.0 now rejects that because the mocks don't implement the new members. Fixed by routing the cast through `as unknown as FileSystemDirectoryHandle`, matching the pattern every other test file in the package already used for the same scenario — the mock's shape and the tests' actual behavior are unchanged.
-4. **Stricter composite-project `rootDir`/file-list enforcement (TS6059/TS6307).** TS 6.0 tightened enforcement so that a `paths` mapping resolving into another package's `src/*` (instead of its built `dist/*.d.ts`) is now a hard error in any `composite: true` + explicit `rootDir` project, because the sibling package's source files fall outside the consuming project's `rootDir` and aren't in its `include` file list. This was a **pre-existing latent inconsistency** (most tsconfigs already pointed at `dist`, a handful pointed at `src`) that only surfaced under 6.0's stricter checking. Fixed the `src`-pointing `paths` entries to point at `dist/*.d.ts` (matching the already-correct majority pattern) in: `packages/hooks/tsconfig.json`, `packages/ui/tsconfig.json`, `packages/preferences/tsconfig.json`, `packages/db-explorer/tsconfig.json`, `packages/app-shell/tsconfig.json`, `packages/app-shell/tsconfig.typecheck.json`, `packages/workers/tsconfig.json` (dead/unused mapping, fixed for consistency), and `packages/agent/tsconfig.json` (also had a pre-existing wrong-depth `../../assistant-contract` path, corrected to `../assistant-contract/dist/*.d.ts` in the same edit).
+4. **Stricter composite-project `rootDir`/file-list enforcement (TS6059/TS6307).** TS 6.0 tightened enforcement so that a `paths` mapping resolving into another package's `src/*` (instead of its built `dist/*.d.ts`) is now a hard error in any `composite: true` + explicit `rootDir` project, because the sibling package's source files fall outside the consuming project's `rootDir` and aren't in its `include` file list. This was a **pre-existing latent inconsistency** (most tsconfigs already pointed at `dist`, a handful pointed at `src`) that only surfaced under 6.0's stricter checking. Fixed the `src`-pointing `paths` entries to point at `dist/*.d.ts` (matching the already-correct majority pattern) in: `packages/hooks/tsconfig.json`, `packages/ui/tsconfig.json`, `packages/app-state/tsconfig.json`, `packages/db-explorer/tsconfig.json`, `packages/app-shell/tsconfig.json`, `packages/app-shell/tsconfig.typecheck.json`, `packages/workers/tsconfig.json` (dead/unused mapping, fixed for consistency), and `packages/agent/tsconfig.json` (also had a pre-existing wrong-depth `../../assistant-contract` path, corrected to `../assistant-contract/dist/*.d.ts` in the same edit).
 5. **`noUncheckedSideEffectImports` defaults to `true`.** A bare side-effect import (`import '@xterm/xterm/css/xterm.css'` in `packages/app-shell/src/terminal-panel/terminal-panel.tsx`) now requires a resolvable module or an ambient declaration (TS2882). `vite/client`'s wildcard `declare module '*.css' {}` did not satisfy the check for this package-scoped (non-relative) specifier. Added a targeted `declare module '@xterm/xterm/css/xterm.css';` to the existing `packages/app-shell/src/types/vite-assets.d.ts` (which already held similar targeted ambient declarations for other Vite asset imports).
 
 **Validation:** `pnpm run type-check` (turbo-orchestrated, all 76 package tasks) green from a fully forced (`--force`, zero cache hits) run; `pnpm --filter @brainstrike/utils test` (666 tests) and the full `pnpm check --fast --no-e2e --no-install` gate (lint-all, build, type-check, test:fast — 1576 tests across 158 files — test:browser) all green.
@@ -212,9 +212,23 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## react-helmet-async (`react-helmet-async` 2.x → 3.x)
+## react-helmet-async — REMOVED (not upgraded)
 
-**Why it matters:** Mostly type/API cleanup and React 19–oriented peer dependency alignment. 3.0.0 is still the latest release as of 2026-07-06 (verified via `npm view react-helmet-async versions`) — no newer version has shipped since this pin was made.
+**Outcome (2026-08-15, BST-1281):** `react-helmet-async` is **gone from the repo**. There is no version of it to upgrade to or stay pinned on; the 2.x → 3.x question below is retained only as the evidence trail for why removal was the answer.
+
+**Why removal rather than the 3.x bump:** the blocker recorded further down is architectural, not a packaging bug. 3.x's `React19Dispatcher` does not dedupe `<title>`/`<meta>` across simultaneously-mounted `Helmet` instances, and `packages/app-shell/src/root-layout-content.tsx` keeps every visited tab mounted (`mountedTabs`) — so the app really does have several writers alive at once. Swapping to React 19's native document metadata directly is the *same* mechanism (that is precisely what `React19Dispatcher` delegates to) and React documents the behaviour of multiple simultaneous `<title>` tags as undefined, so it would inherit the identical defect. The only construction that is correct under React 19 is **one writer**, which is what replaced the library.
+
+**Replacement:** `useDocumentTitle` (`packages/app-shell/src/use-document-title.ts`) — a single hook keyed on the panel-layout store's `activeTab`/`settingsOpen`, mounted exactly once in `apps/web/src/app/root-layout-content.tsx`. It writes `document.title` and one `<meta name="description">`; every page component (`layout.tsx`, `context-explorer-page-content.tsx`, `settings/page-content.tsx`) now writes no document metadata at all. `lang="en"` needed no runtime writer either — `apps/web/index.html` already carries it as static markup.
+
+**Test gap closed:** the "invisible to this repo's existing tests" bullet below was the real hazard. `apps/web/src/app/__tests__/document-title.test.tsx` now mounts both tab surfaces simultaneously and asserts **exactly one** `<title>` and one `<meta name="description">`, plus that neither page component emits either tag on its own; `packages/app-shell/src/__tests__/use-document-title.test.tsx` covers the route mapping and the settings-overlay precedence. A future per-surface metadata writer fails these.
+
+**Also removed with it:** `apps/web/src/react-helmet-async.d.ts` (the hand-written React 19 type shim), the `catalog:` entry plus the `react-helmet-async>react` / `>react-dom` `overrides` in `pnpm-workspace.yaml`, the dependency in `apps/web/package.json` and `apps/desktop/package.json` (desktop declared it but never imported it), the `knip.jsonc` `ignoreDependencies` entry, and the `optimizeDeps` prebundle entry in `packages/build-utils/src/vite.ts`.
+
+---
+
+### Historical evidence (2026-07-06 investigation of the 2.x → 3.x bump)
+
+**Why it mattered:** Mostly type/API cleanup and React 19–oriented peer dependency alignment. 3.0.0 was still the latest release as of 2026-07-06 (verified via `npm view react-helmet-async versions`).
 
 **Status (verified 2026-07-06):** The `preserveSymlinks: true` + `exports`-field failure is **real and still reproducible**, but it is scoped to `apps/web/vitest.config.mts` only (the only place in the repo that sets `preserveSymlinks`) — neither `apps/web/vite.config.mts` nor `apps/desktop/vite.config.mts`/`vitest.config.mts` set it, and `apps/web`'s production `vite build` with react-helmet-async@3.0.0 succeeds cleanly. Vite is already at 8.1.3 in this repo (well past the version current when the pin was first made); the newer Vite did **not** fix the underlying resolution behavior.
 
@@ -232,13 +246,13 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
   - Confirmed by direct reproduction (isolated jsdom probe, two simultaneously-mounted `<Helmet>` instances with different `<title>`/`<meta name="description">`): **2.0.5** collapses to exactly 1 `<title>` and 1 `<meta name="description">` in the DOM (last-mounted wins — correct). **3.0.0** leaves **2 of each tag coexisting in the DOM with no cross-instance dedup** — a reachable SEO/DOM-correctness regression the moment a user has visited more than one tab.
   - Invisible to this repo's existing tests: `layout.test.tsx` and `context-explorer-page-content.test.tsx` each render their `Helmet` in isolation — no test exercises two simultaneously-mounted `Helmet`s, so this would have shipped silently.
   - Side effect of the same dispatcher swap: `onChangeClientState` and `prioritizeSeoTags` are referenced only by the legacy `HelmetDispatcher`, not by the new `React19Dispatcher` — both become silent no-ops under 3.0.0 on React 19. Not currently used by this repo's call sites (verified by grep), so no live breakage today, but worth knowing if either is ever adopted.
-  - **Conclusion:** stay pinned at `^2.0.5`. The `preserveSymlinks` issue is a solved problem (3-line workaround above); the `React19Dispatcher` dedup regression is not something this repo can work around without either (a) upstream fixing cross-instance title/meta dedup under the new dispatcher, or (b) this repo moving away from keeping inactive tabs mounted (out of scope for a dependency bump). Re-check upstream's changelog for a dedup fix before attempting this again.
+  - **Conclusion at the time:** stay pinned at `^2.0.5`. The `preserveSymlinks` issue is a solved problem (3-line workaround above); the `React19Dispatcher` dedup regression is not something this repo can work around without either (a) upstream fixing cross-instance title/meta dedup under the new dispatcher, or (b) this repo moving away from keeping inactive tabs mounted (out of scope for a dependency bump). **Superseded 2026-08-15 by option (c): stop needing cross-instance dedup at all** — one writer, no library. See the outcome at the top of this section.
 
 **What to verify**
 
 - If you use advanced SSR types, note removals/changes around server state helpers (`HelmetServerState.titleAttributes`, `MappedServerState` export). **Not applicable to this repo**: grepped for `HelmetServerState`, `MappedServerState`, `toComponent()`, and any `renderToString`/`entry-server` SSR usage — none found. `apps/web` renders `Helmet`/`HelmetProvider` client-side only (`main.tsx`, `layout.tsx`, `settings/page-content.tsx`, `context-explorer-page-content.tsx`), using only `htmlAttributes`, `<title>`, and `<meta>` children, all of which are unaffected by the 3.0.0 API changes and pass in the reproduction above.
 - `HelmetDatum.toComponent()` typing now reflects array elements—adjust any custom wrappers. **Not applicable**: no code in the repo calls `toComponent()` or imports `HelmetDatum`.
-- `apps/desktop/package.json` also pins `react-helmet-async` but has **no direct import of it anywhere in `apps/desktop/src`** (only a stale mention in `apps/desktop/src/__tests__/README.md` about mocking it) and neither of desktop's Vite configs set `preserveSymlinks` — desktop is unaffected either way and can be bumped alongside web with no special handling.
+- `apps/desktop/package.json` also pinned `react-helmet-async` but had **no direct import of it anywhere in `apps/desktop/src`** and neither of desktop's Vite configs set `preserveSymlinks` — desktop was unaffected either way. Its declaration and the stale mention in `apps/desktop/src/__tests__/README.md` were dropped with the removal; desktop's document title stays whatever `apps/desktop/index.html` sets, unchanged by BST-1281.
 
 **Pointers**
 
@@ -357,6 +371,63 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 ---
 
+## Assistant UI (`@assistant-ui/react` 0.14.26 → 0.15.8, `@assistant-ui/react-markdown` 0.14.5 → 0.14.8, `assistant-stream` 0.3.25 → 0.3.34) — completed; scrolling moved IN-REPO
+
+**Status:** `@assistant-ui/react` bumped `~0.14.26` → `~0.15.8`, `@assistant-ui/react-markdown` `^0.14.5` → `^0.14.8` (its `@assistant-ui/react` peer range flips to `^0.15.0` at 0.14.8 — the two must move together), and the repo's `assistant-stream` pins (`packages/assistant-ui`, `packages/agent`) `0.3.25` → `0.3.34` in lockstep with `@assistant-ui/core@0.3.7`'s own `^0.3.34` dependency. Landed 2026-08-06/07 on `chore/deps-assistant-ui-0.15`. The upgrade's headline consequence: **tier-1 thread scrolling is now repo-owned** (`packages/assistant-ui/src/thread-scroll-follow.tsx`) and the library's viewport auto-scroll is out of the loop entirely — see below.
+
+**v0.15 breaking changes that actually hit this repo** (official guide: [Migration to v0.15](https://www.assistant-ui.com/docs/migrations/v0-15); the removed-hook surface here was tiny because the v0.14 migration already moved most code to the unified `useAui`/`useAuiState` API):
+
+- `useAttachment` removed → `useAuiState((s) => s.attachment)` (2 call sites in `packages/assistant-ui/src/composer-attachments.tsx` — extracted from packages/ui by BST-981).
+- `useComposerRuntime` removed → `useAui()` + `aui.composer.addAttachment(...)` (`composer-input.tsx`'s `AttachmentPasteFrame`).
+- `useMessage` removed → `useAuiState((s) => s.message...)` (`follow-up-queue-repin.browser.test.tsx`'s growing-message harness).
+- **Dual `assistant-stream` instances break the `Tool` type**: `@assistant-ui/core@0.3.x` resolves its own `assistant-stream@^0.3.34` while the repo pinned `0.3.25` — two structurally different `Tool` types coexist and `unstable_toolResultStream(context.tools ?? {}, ...)` in `data-stream-runtime.ts` fails to type-check. Fix is the lockstep pin bump, not a cast. (The 0.3.25/0.3.33 instances still in the lockfile belong to `@assistant-ui/react-data-stream@0.12.18` — declared as a dependency of `apps/web`/`apps/desktop` and listed in `packages/build-utils/src/vite.ts` externals, but no source module imports it — inert.)
+- TS2883 portability: `CHAIN_OF_THOUGHT_TOOL_COMPONENTS` in `todo-progress.tsx` now needs an explicit type annotation (`by_name: Record<string, ToolCallMessagePartComponent>; Fallback: ToolCallMessagePartComponent`) because its inferred type references a non-exported `ReadonlyJSONObject` path inside the pnpm store.
+- `aui.thread()` call sites (5) still type-check on 0.15 (the accessor remains callable) and were left as-is; the property form (`aui.thread`) is the documented forward direction if upstream drops the callable form in the next major.
+
+**UPSTREAM REGRESSION found by this repo's BST-1039 browser test — the reason scrolling moved in-repo:** on every `isRunning` flip (run start AND run end), 0.15 silently unpins stick-to-bottom for a bottom-pinned thread — the reply streams below the fold and the jump chip appears with no user act, on effectively every send. Reproduced deterministically by `packages/assistant-ui/src/__tests__/follow-up-queue-repin.browser.test.tsx` (fails on 0.15.0, 0.15.4, and 0.15.8; passes on 0.14.26).
+
+- **The regression also ships in the CURRENT 0.14 patch line.** Version sweep (same BST-1039 test, this repo): 0.14.26 green; **0.14.28 and 0.14.29 fail deterministically** — the `isRunning` subscription landed in 0.14.28's copy of the hook (0.14.27's hook is byte-identical to 0.14.26). Before this PR, the catalog range was `~0.14.26`, so ANY lockfile regeneration on main would float to 0.14.29 and ship the unpin — a latent hazard this PR closes by taking the library's engine out of the loop entirely; staying on the 0.14 line was never a safe alternative.
+- **App-level workaround ruled out empirically:** two principled no-patch variants (a run-transition re-pin bridge reading live `isAtBottom`, and a BST-1039-style pre-transition `wasPinned` subscription) both fail the BST-1039 test against the unpatched library — at the public API the clamp misread is indistinguishable from a real user scroll, and it can land before any app-side effect can order around it. The fix has to live where the causality is visible: inside the engine — which is why the repo now owns it (`thread-scroll-follow.tsx`).
+- **Root cause (proven by observer-instrumented trace):** 0.15's `useThreadViewportAutoScroll` added an `isRunning` subscription (`useAuiState((s) => s.thread.isRunning)`, used by the new top-anchor logic). The hook's `scrollRef = useManagedRef((el) => {...})` takes an **inline callback whose identity changes every render**; `useManagedRef` memoizes on that identity, so the returned ref changes too, and `useComposedRefs(resizeRef, scrollRef, divRef)` cascades — React detaches and re-attaches ALL viewport refs, tearing down and reconstructing the content `ResizeObserver` (`useOnResizeContent`) mid-commit. On 0.14 this instability was latent (the hook had no reason to re-render at run transitions); on 0.15 the re-render now lands in the exact commit where run-start/run-end content changes. A freshly constructed RO delivers its first observation at end-of-frame — AFTER the browser dispatches the scroll event from the content-growth clamp — so `handleScroll` reads the clamp with no in-flight-scroll bookkeeping armed, flips `isAtBottom` false, and auto-follow never re-sticks (trace: new RO pair constructed at run start → mutation commits → scroll event at stale `scrollTop` → `isAtBottom -> false` → RO's late initial fire is a no-op because the store already says unpinned).
+- **THE FIX — repo-owned follow engine (supersedes the interim pnpm patch):** a vendored 5-line patch (stabilizing the hook's ref-callback identity) shipped first and proved the root cause (BST-1039 red → green with only that change). It was then REPLACED by moving the whole mechanism in-repo: `thread-scroll-follow.tsx` is a parity port of the library's algorithm with a STABLE observer lifecycle (one engine per panel, observers attached once per scroller element), the tier-1 scroller is a plain div (`ThreadPrimitive.Viewport` removed on BOTH tiers — the architecture test pins this), the jump button and `data-pinned` read the engine, and the BST-1039 dispatch re-pin fires through it. All scroll browser suites (BST-896/897/1039) now run against the engine with the UNPATCHED library installed and pass; the catalog pin returned to a normal tilde range because the buggy code path is unreachable.
+- **Why ownership, not the patch or a pin-back:** upstream broke this same path twice in two lines (0.14.28, 0.15.x) while building the top-anchor mode, two app-level workarounds failed empirically (the misread is invisible at the public API), and tier 2 already owned its scrolling via the virtualizer — tier 1 now matches. The engine is ~200 lines whose bugs are ours to fix rather than re-diagnose per upstream release.
+- Known cosmetic residue on 0.15 (unrelated to the engine move): the tap 0.9.10 scheduler emits React "flushSync was called from inside a lifecycle method" console warnings during streaming, and vitest-browser logs occasional "ResizeObserver loop completed with undelivered notifications" — both library-internal, no test asserts on them.
+
+**Release-provenance note:** 0.15.6/0.15.7/0.15.8 were published manually by the lead maintainer (no OIDC attestation, unlike the project's usual GitHub Actions publishes) within ~30 minutes on 2026-08-06, out of order. Upstream's changelog explains: 0.15.8 is a republish of 0.15.6 after registry staged-version conflicts blocked 0.15.6/0.15.7. Details recorded next to the `minimumReleaseAgeExclude` entries in `pnpm-workspace.yaml`.
+
+**Pointers**
+
+- [Migration to v0.15](https://www.assistant-ui.com/docs/migrations/v0-15)
+- [`@assistant-ui/react` CHANGELOG](https://github.com/assistant-ui/assistant-ui/blob/main/packages/react/CHANGELOG.md)
+- Follow-up: report the ref-instability regression upstream (assistant-ui/assistant-ui) with the trace + patch from this repo.
+
+---
+
+## TanStack Table (`@tanstack/react-table` 8.21.3 → 9.0.0) — completed
+
+**Status:** Catalog bumped `^8.21.3` → `^9.0.0`, 2026-08-06 on `chore/deps-react-table-9` (v9.0.0 stable shipped 2026-08-04). Blast radius was exactly the settings-ui log viewer (`packages/settings-ui/src/settings/system/log-viewer-components/`, 4 files + 1 new).
+
+**v9's architectural change:** every non-core capability is an explicit opt-in plugin registered through `tableFeatures()` (which also carries row-model factories and sort/filter-fn registries), `useReactTable(options)` becomes `useTable({ features, ...options })`, and the `TFeatures` generic threads through `Table`/`Row`/`ColumnDef`/`CellContext`. `table.getState()`/top-level `onStateChange` are removed in favor of TanStack Store atoms — this repo never used either (per-slice `on*Change` handlers, which survive unchanged, were already the pattern).
+
+**What the migration actually touched here:**
+
+- New `log-table-features.ts`: module-scope `tableFeatures({ columnSizingFeature, columnVisibilityFeature, paginatedRowModel: createPaginatedRowModel(), rowPaginationFeature, rowSortingFeature, sortedRowModel: createSortedRowModel() })` + exported `LogTableFeatures` type. `columnSizingFeature` is required because v9 gates the per-column `size` option AND `column.getSize()` (log-list's header widths) behind it — the compiler catches the option (`TS2353`), but `getSize()` alone would be a runtime gap.
+- `log-viewer.tsx`: `useTable({ features: logTableFeatures, ... })`, row-model factories dropped from options (core row model is automatic in v9), `getPrePaginationRowModel()` → `getPrePaginatedRowModel()`, `VisibilityState` → `ColumnVisibilityState`, `ColumnDef`/`CellContext` gain the `LogTableFeatures` first generic.
+- `log-list.tsx` / `log-toolbar.tsx` / `log-row.tsx`: `Table<TData>`/`Row<TData>` → `Table<LogTableFeatures, TData>`/`Row<LogTableFeatures, TData>`.
+- **No `sortFns` registry needed:** the only sortable column (`timestamp`) is numeric, and v9's `'auto'` resolution falls back to the built-in `sortFn_basic` for non-string, non-Date values (verified in `rowSortingFeature.utils.js`). A string-sorted column would need `sortFns: { text: sortFn_text, ... }` registered or it warns and falls back.
+
+**v9 traps checked and NOT present in this code:** no destructured instance methods (they moved to prototypes and lose binding), no row selection (`getIsSomeRowsSelected()` semantics changed), no pinning (left/right → start/end renames), no `table.getState()`/`onStateChange`, no underscore-internal APIs, no CJS consumer of the now-ESM-only package (settings-ui is renderer/browser-bundled only).
+
+**Validation:** settings-ui 509 unit tests, desktop 2353, web 396, full workspace type-check, and settings-ui/desktop/web production builds all green in the same run.
+
+**Pointers**
+
+- Migration guide: [Migrating to v9](https://tanstack.com/table/latest/docs/framework/react/guide/migrating).
+- Upstream agent skill used for this migration: [migrate-v8-to-v9 SKILL.md](https://github.com/TanStack/table/blob/main/packages/table-core/skills/migrate-v8-to-v9/SKILL.md).
+- Announcement: [TanStack Table v9](https://tanstack.com/blog/tanstack-table-v9-taking-form).
+
+---
+
 ## Turborepo (`turbo` 2.8.x → 2.9.x)
 
 **Why it matters:** Minor releases add features and sometimes deprecations ahead of v3.
@@ -431,6 +502,41 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 - Mastra PR adding `LanguageModelV4`/AI SDK v7 support: [mastra-ai/mastra#18477](https://github.com/mastra-ai/mastra/pull/18477).
 
+### `@mastra/core` 1.51.0 → ^1.57.0, `@mastra/memory` 1.22.1 → 1.26.0 — completed; BST-1097 approval flow re-based on the 1.56+ idiom
+
+**Status:** `@mastra/core` `^1.57.0` and `@mastra/memory` `1.26.0` in `packages/agent` (the only manifest declaring them). Landed in two stages: 2026-08-06 held at `~1.55.0` below the 1.56 approval rework (`chore/deps-mastra-1.57`, PR #2295); 2026-08-07 the hold was lifted by ADAPTING the BST-1097 approval flow to the new idiom (`feat/mastra-approval-idioms`, user-directed).
+
+**What 1.56 changed (bisect-proven; the reason the hold existed):** the approval-recovery rework makes the framework treat any resume of an approval-gated call as its own business — a bare `{approved: true}` is consumed and the tool re-runs with NO resume data, and `{approved: false}` becomes Mastra's minted denial without the tool running. The old BST-1097 design (tool raises Gate A itself via `suspend(…, {requireToolApproval: true})` and reads the answer) therefore looped forever on approve and lost the tool-owned declined result on decline.
+
+**The adaptation (all repo-side, no framework workarounds):**
+
+1. **Gate A → the framework's pre-execution approval.** The permission gate's `requireApproval` clone — the exact idiom every other ask tool already used — now covers run_python too; the self-approving exception and its registry (`SELF_APPROVING_NATIVE_TOOL_IDS`) are deleted. Same `tool-call-approval` chunk, card, grant surface, and approve/decline transport.
+2. **Gate B stays a plain suspension, resumable under the flag via the `approved: true` rider.** 1.56+ re-checks `requireApproval` on every leg and converts a riderless resume into a denial; the suspend-resume transport (`createToolResumeIteratorFromRuntime`) attaches the rider for ask-registered tools, and run_python's resume schema admits it. This inverts the old "never combine the requireApproval flag with a suspendSchema" rule — the rider is precisely what makes the combination sound now.
+3. **Decline is framework-owned and streams NO tool result** — matching the long-standing contract for every other declined ask tool (the approval card's "Declined" state owns the UX). run_python's typed `declined` result arm is legacy, kept for pre-rework persisted threads.
+4. **Direct invocations stay guarded in-tool**: `'ask'` with no suspension channel refuses (`approval_confirmation_unavailable`); a bare `{approved}` resume reaching the tool is schema-rejected loudly (drifted shape, never a silent run).
+
+**Verification:** `mastra-tool-suspend-resume.integration.spec.ts` 15/15 at 1.57.0 (the two former Gate A canaries now pin the NEW contract: approve → Gate B → allow executes the script; decline streams no tool event and never touches the executor), agent 1629 unit + 293 integration, permission-gate/approval-chunks/run-python unit suites re-pinned to the new mechanism, `suspending-tool-registry-contract` guard updated. Contract docs updated in the same change: code-execution.md (Gate A section), assistant-runtime.md (permission engine step 2/4), mastra-boundary.md.
+
+**Breaking changes in 1.52–1.55 that did NOT apply here:** Channels reaction tools no longer auto-injected (1.53), `ChannelHandler` `ctx` param (1.54), Braintrust exporter config (SDK v2→v3, 1.52), AgentController canonical `MastraDBMessage` shape (1.52) — none of these surfaces are used by this repo.
+
+**Compile-time changes hit and fixed (both land by 1.55):**
+
+1. **`ToolExecutionContext.observe` became required** (tool-observability helpers) while `createTool`'s execute callback context is statically only `{ requestContext }`. `packages/agent/src/mastra/mcp-runtime-client.ts` now types its inbound context as a `McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & { requestContext?: unknown }` slice.
+2. **`ToolsInput[string]` widened** with execute-less members (provider-defined tools, web-search placeholders): `.execute` probes must `'execute' in tool`-narrow first — fixed in `apps/desktop/src/ipc-tools.ts` (`tryExecuteAssistantRuntimeTool`) and `capture-on-edit.integration.test.ts` (new `executeTool` helper that throws on a non-executable tool).
+
+**Behavioral notes verified:**
+
+- **`EmbeddingModelV4` still absent** from `MastraEmbeddingModel` (verified in installed types at both 1.55 and 1.57) — the documented casts in `provider-factory.ts` stay.
+- The `@ai-sdk/ui-utils` `zod@^3` unmet-peer warning disappeared at 1.55 (Mastra dropped that chain); only the pre-existing `@codecov/vite-plugin` vite-range warning remains workspace-wide.
+- Deferred by the hold (ships in 1.56/1.57): approval refresh-recovery, parallel-approval persistence, the suspended-run warm-state TTL (`MASTRA_SUSPENDED_RUN_TTL_MS`, 30 min default, durable-snapshot fallback), transient signals, `processToolResult` hook.
+
+**Validation:** boundary guard `scripts/__tests__/mastra-boundary-contract.test.mjs` 6/6; `lint:mastra-stream-chunk-contract` + `lint:mastra-schema-init-order` clean; agent 1629 unit + 293 integration (all 15 suspend-resume tests), assistant-service 59, desktop 2341 unit + 852 integration (real-PGlite capture-on-edit suite included), workspace type-check green. `docs/agents/mastra-boundary.md` re-verified and updated in the same change.
+
+**Pointers**
+
+- [@mastra/core CHANGELOG](https://github.com/mastra-ai/mastra/blob/main/packages/core/CHANGELOG.md), [@mastra/memory CHANGELOG](https://github.com/mastra-ai/mastra/blob/main/packages/memory/CHANGELOG.md).
+- Upstream agent-approval docs (current sanctioned patterns): [Agent approval](https://mastra.ai/docs/agents/agent-approval).
+
 ---
 
 ## web-tree-sitter (`web-tree-sitter` 0.25.x → 0.26.x) — deferred
@@ -440,46 +546,52 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 structure-aware chunking (function/class/decorated-definition boundaries),
 falling back to a recursive/line-based chunker when the grammar can't load.
 
-**What breaks:** The vendored grammar WASM
-(`packages/chunking-worker/grammars/python.wasm`, sourced from
-`tree-sitter-wasms@0.1.13`, still the latest published version of that
-package) uses the legacy Emscripten `"dylink"` WASM custom-section name.
-`web-tree-sitter@0.26.10`'s bundled runtime dropped the fallback that
-0.25.x had for that legacy name and only accepts `"dylink.0"`. Verified live:
-loading the exact vendored `.wasm` bytes via `Language.load()` succeeds on
-0.25.10 and throws immediately on 0.26.10 with the same bytes. All other API
-surface this repo actually calls (`Parser.init/setLanguage/parse`,
-`Language.load`, `Query`, `query.matches`, `Node.type/startIndex/endIndex`,
-`tree/parser.delete`) is unchanged between the two versions.
+**What broke:** The vendored grammar WASM
+(`packages/chunking-worker/grammars/python.wasm`) used to be sourced from
+`tree-sitter-wasms@0.1.13` — abandoned, last published 2025-10-07, still the
+latest release of that package — and used the legacy Emscripten `"dylink"`
+WASM custom-section name. `web-tree-sitter@0.26.10`'s bundled runtime dropped
+the fallback that 0.25.x had for that legacy name and only accepts
+`"dylink.0"`. Verified live: loading the exact vendored `.wasm` bytes via
+`Language.load()` succeeded on 0.25.10 and threw immediately on 0.26.10
+(a bare `Error` with an empty message, from `getDylinkMetadata` → `failIf`).
+All other API surface this repo actually calls
+(`Parser.init/setLanguage/parse`, `Language.load`, `Query`, `query.matches`,
+`Node.type/startIndex/endIndex`, `tree/parser.delete`) is unchanged between
+the two versions.
 
 Per the existing catch-and-evict code in `tree-sitter-grammar-loader.ts`,
 this failure doesn't crash the app — it falls back to the recursive chunker —
 but it silently defeats the whole point of the tree-sitter-based Python
 chunking feature, so it must not ship unremediated.
 
-**What to verify before unpinning**
+**Grammar side: resolved (BST-1277).** `grammars/python.wasm` is now
+`tree-sitter-python@0.25.0`'s package-root `tree-sitter-python.wasm`
+(`dylink.0`, ABI 15) — the canonical `tree-sitter/tree-sitter-python` repo.
+`@vscode/tree-sitter-wasm@0.3.1` ships a byte-identical copy of the same
+artifact, so the choice was provenance, not content. The bytes are vendored
+rather than taken as a dependency: nothing imports the package, and
+`tree-sitter-python` carries an `install: node-gyp-build` script plus
+five-platform native prebuilds that the vendored-`.wasm` architecture never
+uses. `tree-sitter-wasms` is gone from the tree.
+`src/__tests__/tree-sitter-grammar-abi.test.ts` pins the artifact's sha256,
+asserts the `dylink.0` section name, and asserts ABI >= 15 — the pin is
+enforced now instead of documented.
 
-- Re-vendor `packages/chunking-worker/grammars/python.wasm` from a
-  `dylink.0`-format source. The official `tree-sitter-python@0.23.6` npm
-  package ships a prebuilt grammar WASM already in that format — verified
-  live (load + parse + query) against `web-tree-sitter@0.26.10`, producing
-  identical capture output to the current grammar.
-- `tree-sitter-wasms` (the current grammar source) is still pinned at
-  `0.1.13` with no rebuilt release; an identical fix was proposed upstream
-  and closed without merging (`Gregoor/tree-sitter-wasms#52`).
-- Add/extend a test that calls `Language.load()` against the **real**
-  vendored `.wasm` file end-to-end — the existing suite apparently never
-  exercised that path against real bytes, which is how this gap went
-  unnoticed until this investigation.
-- Only bump `web-tree-sitter` once the grammar source is swapped (or a
-  compatible `tree-sitter-wasms` release ships); do the re-vendoring and the
-  version bump together so there's no window where the feature silently
-  degrades.
+**What remains before unpinning `web-tree-sitter`**
+
+- Bump `packages/chunking-worker`'s `web-tree-sitter` range to `^0.26.x` and
+  re-run the chunking-worker suite plus
+  `apps/desktop/e2e/chunking-host-renderer.test.ts` (its chunk-count
+  assertions discriminate tree-sitter output from the recursive fallback, so
+  a silent degrade shows up as a failure rather than a quality regression).
+- Re-check the rest of the 0.26 API surface against the call sites listed
+  above; only the `dylink` fallback removal was investigated in depth.
 
 **Pointers**
 
 - [`Gregoor/tree-sitter-wasms#52`](https://github.com/Gregoor/tree-sitter-wasms/pull/52) (closed, unmerged; documents the `dylink` → `dylink.0` format change)
-- `tree-sitter-python` npm package (official per-language grammar, `dylink.0`-compatible as of 0.23.6)
+- [`tree-sitter/tree-sitter-python`](https://github.com/tree-sitter/tree-sitter-python) — canonical grammar; the npm package ships the prebuilt `dylink.0` WASM at its package root
 
 ---
 
@@ -489,8 +601,10 @@ Tracked decisions where we intentionally hold a dependency below its latest vers
 
 | Package | Pinned at | Reason | Tracking |
 | --- | --- | --- | --- |
-| `react-helmet-async` | `^2.0.5` | Re-verified 2026-07-06: the original `preserveSymlinks`/`exports` break is real but now has a verified 3-line `resolve.alias` workaround. However, a NEW and more serious blocker was found on adversarial review: 3.0.0's `React19Dispatcher` does not dedup `<title>`/`<meta>` across simultaneously-mounted `Helmet` instances, and this app keeps inactive tabs mounted (`root-layout-content.tsx`'s `mountedTabs`) — reproduced live, 2 co-existing `<title>` tags in the DOM once 2 tabs have been visited. This is the actual reason to stay pinned; the exports/symlink issue alone would no longer block it. | (covered in react-helmet-async section above) |
-| `web-tree-sitter` | `^0.25.10` | 0.26.x's runtime drops support for the legacy `"dylink"` WASM custom-section name used by the vendored `tree-sitter-wasms@0.1.13` Python grammar; `Language.load()` throws on the real vendored bytes, silently falling back to the (worse) recursive chunker. Needs re-vendoring the grammar from a `dylink.0`-compatible source (e.g. `tree-sitter-python@0.23.6`) alongside the bump. | (covered in web-tree-sitter section above) |
+| `web-tree-sitter` | `^0.25.10` | Blocker cleared on the grammar side by BST-1277: the vendored Python grammar is now `tree-sitter-python@0.25.0` (`dylink.0`, ABI 15), which 0.26.10 loads. What remains is the range bump itself plus a re-check of the rest of the 0.26 API surface. | (covered in web-tree-sitter section above) |
+| `@swc/core` + `@swc/wasm` | `~1.15.47` / `~1.15.43` | Not our bug: `vite-plugin-top-level-await@1.6.0` builds SWC AST nodes in JS, and swc 1.16.0's Rust-side AST change makes them fail to deserialize. Blocks the **web and desktop** builds (`topLevelAwait()` is used by both). Held by two subtree-scoped `overrides:` — the load-bearing pin — plus a narrowed catalog entry for single-resolution hygiene. **Both** swc packages must stay pinned: the plugin picks between them at `require()` time, so pinning only the native half leaves the wasm fallback free to drift. Unpin when the plugin ships a swc ≥ 1.16-compatible release (1.6.0 is latest as of 2026-08-15 and is not); `scripts/__tests__/swc-ast-break-block.test.mjs` fails until the overrides, the catalog range, and the guard are all retired together. | [BST-1311](https://linear.app/brainstrike/issue/BST-1311) |
+
+**Resolved:** `react-helmet-async` was pinned at `^2.0.5` because 3.0.0's `React19Dispatcher` stopped deduping `<title>`/`<meta>` across simultaneously-mounted instances. Rather than unpin, the dependency was **removed** 2026-08-15 (BST-1281) in favour of a single-writer `useDocumentTitle` hook — see the react-helmet-async section above.
 
 **Resolved:** `typescript` was pinned at `^5.9.3` pending a coordinated TS 6 migration (`FileSystemDirectoryHandle` mocks in `packages/utils`). Unpinned to `^6.0.3` 2026-07-06 in `chore/deps-typescript-6` — see the TypeScript section above for the full list of breaking changes hit and fixed (five in total: `baseUrl` deprecation, a tsup upstream bug, the originally-documented mock issue, stricter composite-project `rootDir` enforcement surfacing pre-existing `src`-vs-`dist` path mapping bugs, and `noUncheckedSideEffectImports`).
 

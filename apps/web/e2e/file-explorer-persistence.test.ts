@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
+import { clickExplorerTreeAction } from './utils/file-tree-locators';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 import type { FileTree } from './utils/mock-fs';
 
@@ -414,9 +415,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
-    const expandAllButton = page.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible();
-    await expandAllButton.click();
+    await clickExplorerTreeAction(page, 'expand-all');
 
     const nestedCheckbox = explorer.fileTree.getByRole('checkbox', { name: 'Select beta.ts' });
     await expect(nestedCheckbox).toBeVisible({ timeout: 10_000 });
@@ -528,9 +527,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     const alphaCheckbox = explorer.fileTree.getByRole('checkbox', { name: 'Select alpha.ts' });
     await expect(alphaCheckbox).toBeChecked();
 
-    const expandAllButton = page.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible();
-    await expandAllButton.click();
+    await clickExplorerTreeAction(page, 'expand-all');
 
     const betaCheckbox = explorer.fileTree.getByRole('checkbox', { name: 'Select beta.ts' });
     await expect(betaCheckbox).toBeChecked({ timeout: 15_000 });
@@ -565,9 +562,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
-    const expandAllButton = page.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible();
-    await expandAllButton.click();
+    await clickExplorerTreeAction(page, 'expand-all');
     await expect(explorer.fileTree.getByText('deep.ts')).toBeVisible({ timeout: 15_000 });
 
     await page.reload();
@@ -658,7 +653,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     const explorer = new FileExplorerPage(page);
     await expect(page.getByText('No folders in your workspace')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
-      '2000/2000',
+      '2K/2K',
       { timeout: 15_000 }
     );
 
@@ -675,7 +670,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await explorer.selectRoot();
     await expect(explorer.fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
-      '2000/2000',
+      '2K/2K',
       { timeout: 15_000 }
     );
   });
@@ -816,9 +811,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await explorer.selectRoot();
     await setMaxSelectionCount(page, 25);
 
-    const expandAllButton = page.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible();
-    await expandAllButton.click();
+    await clickExplorerTreeAction(page, 'expand-all');
     await expect(explorer.fileTree.getByText('file-11.ts')).toBeVisible({ timeout: 15_000 });
 
     const selectAllButton = page.getByRole('button', { name: 'Select All' });
@@ -833,9 +826,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await deselectAllButton.click();
     await expect(page.getByText('0/25')).toBeVisible({ timeout: 15_000 });
 
-    const collapseAllButton = page.getByTestId('collapse-all-button-small');
-    await expect(collapseAllButton).toBeVisible();
-    await collapseAllButton.click();
+    await clickExplorerTreeAction(page, 'collapse-all');
     await expect(explorer.fileTree.getByText('file-11.ts')).not.toBeVisible();
 
     await page.reload();

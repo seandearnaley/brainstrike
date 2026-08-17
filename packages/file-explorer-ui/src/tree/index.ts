@@ -1,14 +1,12 @@
 export * from '../hooks/use-file-tree-worker';
 export * from '../hooks/use-tree-perf-metrics';
 export * from '../hooks/use-worker-flattened-tree';
+export { DirectoryListingTruncatedError } from '../utils/parallel-directory-walker';
 export { readFullTree, readFullTreeWithOptions } from '../utils/read-full-tree';
 export { default as FileTree } from './file-tree';
 export * from './file-tree-index';
 export * from './file-tree-provider';
-export {
-  default as OptimizedFileTree,
-  fileTreeTelemetry,
-  resetFileTreeTelemetry,
-} from './optimized-file-tree';
+export { fileTreeTelemetry, resetFileTreeTelemetry } from './file-tree-telemetry-counters';
+export { default as OptimizedFileTree } from './optimized-file-tree';
 export * from './use-file-tree-context';
 export * from './use-lazy-file-tree';

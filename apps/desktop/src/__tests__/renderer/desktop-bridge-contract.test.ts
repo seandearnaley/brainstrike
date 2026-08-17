@@ -107,7 +107,7 @@ describe('validateDesktopBridgeContract', () => {
             redactPaths: [],
           },
         }),
-      },
+      } as unknown as NonNullable<Parameters<typeof validateDesktopBridgeContract>[0]['logging']>,
     });
 
     expect(result.ok).toBe(true);

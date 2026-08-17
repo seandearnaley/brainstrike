@@ -9,7 +9,7 @@ import {
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { GrepMatch, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher, FileChunkRepository, GrepSearchService } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import { resolveGrepFilePaths } from './grep-file-paths';
 import {
@@ -22,8 +22,14 @@ import {
   type ModelFacingGrepMatch,
   parseGrepToolResult,
 } from './grep-search-result-contract';
-import { type LiveGrepResult, runLiveGrep } from './live-grep';
-import { getWorkspaceRoots, resolveOptionalWorkspaceRoot } from './workspace-roots';
+import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero-match-probes';
+import { type LiveGrepResult, probeExcludedPathMatches, runLiveGrep } from './live-grep';
+import {
+  describeOpenRootTopology,
+  getWorkspaceRoots,
+  type OpenRootTopology,
+  resolveOptionalWorkspaceRoot,
+} from './workspace-roots';
 
 const logger = createLogger('AssistantGrepSearchTool');
 
@@ -52,11 +58,23 @@ function toModelFacingMatch(match: LabeledGrepMatch): ModelFacingGrepMatch {
 
 const DEFAULT_CONTENT_MATCHES = 50;
 /**
- * Internal match cap for 'files' mode aggregation. The service caps the
- * candidate pool at 500 files regardless, so this only bounds per-file match
- * counting, not the file scan itself.
+ * Internal match cap requested from the index pass, in BOTH output modes. The
+ * service caps the candidate pool at 500 files regardless, so this only bounds
+ * how many matches are materialized, not the file scan itself.
+ *
+ * Content mode used to request only `offset + maxResults`. That bought nothing
+ * — `GrepSearchService.search` accumulates every match from its candidates and
+ * `maxResults` only slices the finished array, so a smaller request skips no DB
+ * or matching work — while creating the merge's attribution hole: with the index
+ * arm capped, its unmaterialized matches are indistinguishable from lines the
+ * live pass discovered fresh. It also contradicted the model-facing hint, which
+ * already reports THIS constant as the pagination cap.
  */
-const FILES_MODE_INTERNAL_MATCH_CAP = 2000;
+const INTERNAL_MATCH_CAP = 2000;
+/** Small index candidate pool for count-only zero-match steering probes. */
+export const PROBE_INDEX_CANDIDATE_LIMIT = 50;
+/** Probe rows stay tightly bounded; the uncapped `totalMatches` is the count source. */
+export const PROBE_INDEX_MAX_RESULTS = 20;
 const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
 
 /**
@@ -69,6 +87,7 @@ interface MergedGrepResult {
   liveEngine: LiveGrepResult['engine'];
   liveNote?: string;
   matches: LabeledGrepMatch[];
+  probeNote?: string;
   scanLimited: boolean;
   skippedMissingLineMetadata: number;
   /** Unique merged (rootId, path, line) matches before the cap. */
@@ -85,12 +104,15 @@ interface MergedGrepResult {
  * (these are the FRESH lines the index would miss after an edit). When both have
  * the line, the LIVE row wins for content (it reflects the file as it is now).
  *
- * `totalMatches` preserves the index's UNCAPPED unique count as a floor and adds
- * the live-only contributions (live keys absent from the index's MATERIALIZED
- * set), so pagination stays monotonic and the cap-terminal hint still fires; when
- * the live pass returns nothing, `totalMatches` equals the index total exactly
- * (the pre-hybrid behaviour is unchanged). `truncated` ORs both passes' own
- * truncation flags so the existing budget logic drives the continuation hint.
+ * `totalMatches` preserves the index's UNCAPPED unique count as a floor; when the
+ * live pass returns nothing it equals the index total exactly (the pre-hybrid
+ * behaviour is unchanged). `truncated` carries ONLY the index arm's
+ * output/paging truncation (BST-1247); the live pass's caps are substrate
+ * conditions and merge into `candidatesTruncated`/`scanLimited`, which the
+ * hint gate unions so continuation guidance still fires.
+ *
+ * Counting the live-only contribution depends on whether the index arm
+ * MATERIALIZED everything it counted (see {@link resolveTotalMatches}).
  */
 function mergeGrepMatches(
   indexResult: GrepSearchResult,
@@ -152,21 +174,63 @@ function mergeGrepMatches(
         a.line - b.line
     );
 
-  // Floor at the index's uncapped total (so a result the live pass doesn't change
-  // keeps the index pagination semantics), then add the fresh live-only rows.
-  const totalMatches = indexResult.totalMatches + liveOnlyAdded;
+  const totalMatches = resolveTotalMatches({
+    indexResult,
+    liveOnlyAdded,
+    mergedCount: matches.length,
+  });
 
   return {
-    candidatesTruncated: indexResult.candidatesTruncated,
+    // BST-1247: substrate caps merge from BOTH arms into their own fields;
+    // `truncated` carries ONLY the index arm's output/paging truncation. The
+    // live pass has no output paging of its own — its folded `truncated` is
+    // pure substrate, and folding it here was the first half of the OR-fold
+    // that made waste_score blame the model for a degraded engine.
+    candidatesTruncated: indexResult.candidatesTruncated || liveResult.candidatesTruncated,
     liveEngine: liveResult.engine,
     matches,
-    scanLimited: indexResult.scanLimited,
+    scanLimited: indexResult.scanLimited || liveResult.scanLimited,
     skippedMissingLineMetadata: indexResult.skippedMissingLineMetadata,
     totalMatches,
-    // Truncated when EITHER pass was truncated (the index cap, or the live caps).
-    truncated: indexResult.truncated || liveResult.truncated,
+    truncated: indexResult.truncated,
     ...(liveResult.note ? { liveNote: liveResult.note } : {}),
   };
+}
+
+/**
+ * The merged unique-match total.
+ *
+ * The index arm reports an UNCAPPED unique count (`indexResult.totalMatches`)
+ * but materializes at most `INTERNAL_MATCH_CAP` rows, so "live rows with no twin
+ * among the materialized index rows" counts NEW lines only while the index
+ * materialized everything it counted. That is now the normal case for both
+ * modes, so the exact sum is the normal path.
+ *
+ * Beyond the cap the attribution genuinely breaks: an on-disk line the index
+ * counted but did not materialize is indistinguishable from a fresh live-only
+ * one. Two bounds are still known to be real, so take the larger:
+ *
+ * - `indexResult.totalMatches` — the index's own uncapped count.
+ * - `mergedCount` — distinct locations actually materialized here.
+ *
+ * Neither can over-report. This is deliberately a BOUND, not the union: with the
+ * index capped and the live pass ALSO limited (its per-file `--max-count`, size
+ * caps, or the candidate cap), the merged set can sit below the index total
+ * while still holding fresh live-only rows, and those are then absorbed rather
+ * than added. Raising `INTERNAL_MATCH_CAP` is what shrinks that window; adding
+ * `liveOnlyAdded` on top of a capped index total is what over-counted before
+ * (measured on a 61-hit file: 117 at `maxResults: 5`, 102 at 20, 72 at the
+ * default 50) and must not come back.
+ */
+function resolveTotalMatches(args: {
+  indexResult: GrepSearchResult;
+  liveOnlyAdded: number;
+  mergedCount: number;
+}): number {
+  if (args.indexResult.truncated) {
+    return Math.max(args.indexResult.totalMatches, args.mergedCount);
+  }
+  return args.indexResult.totalMatches + args.liveOnlyAdded;
 }
 
 /** Fold a new match's source into a file summary's running source label. */
@@ -263,7 +327,11 @@ function buildFilesHint(args: {
   );
 }
 
-function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepFilesToolResult {
+function buildFilesResult(
+  mergedResult: MergedGrepResult,
+  offset: number,
+  topology: OpenRootTopology
+): GrepFilesToolResult {
   const allFiles = aggregateFileSummaries(mergedResult.matches);
   const pagedFiles = allFiles.slice(offset);
 
@@ -292,20 +360,24 @@ function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepF
       totalFiles: allFiles.length,
       totalMatches: mergedResult.totalMatches,
       truncated,
+      ...topology,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
+      ...(mergedResult.probeNote ? { probeNote: mergedResult.probeNote } : {}),
       ...(hint ? { hint } : {}),
     };
   });
   return result;
 }
 
-function buildContentHint(
-  mergedResult: MergedGrepResult,
-  offset: number,
-  shownCount: number,
-  hadPageItems: boolean,
-  serviceCap: number
-): string | undefined {
+function buildContentHint(args: {
+  mergedResult: MergedGrepResult;
+  offset: number;
+  shownCount: number;
+  hadPageItems: boolean;
+  serviceCap: number;
+  contextLines: number;
+}): string | undefined {
+  const { mergedResult, offset, shownCount, hadPageItems, serviceCap, contextLines } = args;
   const morePagedMatches = offset + shownCount < mergedResult.totalMatches;
   if (!morePagedMatches) {
     // Every reachable match is shown, but the candidate pool, bounded scan, or
@@ -322,11 +394,14 @@ function buildContentHint(
     return;
   }
   // A single match (long line × contextLines) can exceed the whole budget; a
-  // hint repeating the same offset would loop the model. Skip past it.
+  // hint repeating the same offset would loop the model. Skip past it. The
+  // contextLines advice appears only when context was actually requested —
+  // advising "contextLines: 0" to a caller already at 0 is noise (BST-1193).
   if (shownCount === 0 && hadPageItems) {
+    const contextAdvice = contextLines > 0 ? ' and contextLines: 0' : '';
     return (
       `The match at offset ${offset} is too large to display within the output budget ` +
-      `(very long line). Continue with offset: ${offset + 1} and contextLines: 0, or scope with filePaths.`
+      `(very long line). Continue with offset: ${offset + 1}${contextAdvice}, or scope with filePaths.`
     );
   }
   const nextOffset = offset + shownCount;
@@ -339,19 +414,23 @@ function buildContentHint(
       'Narrow with filePaths or a more specific pattern to see the remaining matches.'
     );
   }
+  const contextAdvice =
+    contextLines > 0 ? ', or set contextLines: 0 to fit more matches per call' : '';
   return (
     `Showing matches ${offset + 1}-${nextOffset} of ${mergedResult.totalMatches}. ` +
-    `Continue with offset: ${nextOffset}, scope with filePaths, or set contextLines: 0 ` +
-    'to fit more matches per call.'
+    `Continue with offset: ${nextOffset}, scope with filePaths${contextAdvice}.`
   );
 }
 
-function buildContentResult(
-  mergedResult: MergedGrepResult,
-  offset: number,
-  requestedMatches: number,
-  serviceCap: number
-): GrepContentToolResult {
+function buildContentResult(args: {
+  mergedResult: MergedGrepResult;
+  offset: number;
+  requestedMatches: number;
+  serviceCap: number;
+  topology: OpenRootTopology;
+  contextLines: number;
+}): GrepContentToolResult {
+  const { mergedResult, offset, requestedMatches, serviceCap, topology, contextLines } = args;
   // Strip the internal chunk-locator fields BEFORE budget-fitting so the token
   // budget reflects the trimmed model-facing shape (and never spends budget on
   // fields the model never reads).
@@ -364,13 +443,14 @@ function buildContentResult(
     // either pass hit its own cap — same formula as files mode; the modes
     // must not diverge (BST-951).
     const truncated = offset + matches.length < mergedResult.totalMatches || mergedResult.truncated;
-    const hint = buildContentHint(
+    const hint = buildContentHint({
+      contextLines,
+      hadPageItems: pagedMatches.length > 0,
       mergedResult,
       offset,
-      matches.length,
-      pagedMatches.length > 0,
-      serviceCap
-    );
+      serviceCap,
+      shownCount: matches.length,
+    });
     return {
       candidatesTruncated: mergedResult.candidatesTruncated,
       liveEngine: mergedResult.liveEngine,
@@ -381,7 +461,9 @@ function buildContentResult(
       skippedMissingLineMetadata: mergedResult.skippedMissingLineMetadata,
       totalMatches: mergedResult.totalMatches,
       truncated,
+      ...topology,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
+      ...(mergedResult.probeNote ? { probeNote: mergedResult.probeNote } : {}),
       ...(hint ? { hint } : {}),
     };
   });
@@ -418,9 +500,11 @@ async function runLiveGrepSafely(args: {
   } catch (error) {
     logger.error('live grep pass threw unexpectedly; returning index-only results', { error });
     return {
+      candidatesTruncated: false,
       engine: 'skipped',
       matches: [],
       note: 'The live (on-disk) pass could not run this call, so results reflect the index only (which may be stale after recent edits).',
+      scanLimited: false,
       truncated: false,
     };
   }
@@ -466,6 +550,38 @@ function runIndexSearch(args: {
   });
 }
 
+/** Run an index-only, context-free steering probe without exposing match text. */
+async function runProbeIndexSearch(args: {
+  service: GrepSearchService;
+  signal: AbortSignal;
+  pattern: string;
+  isRegex: boolean;
+  caseSensitive: boolean;
+  filePaths: readonly string[] | undefined;
+  embeddingSetId: string | undefined;
+  rootId: string | undefined;
+  rootIds?: readonly string[];
+}): Promise<ZeroMatchProbeCount> {
+  // PGlite exposes no native cancellation hook here; only avoid a call that has
+  // already lost its probe budget rather than pretending to cancel mid-query.
+  if (args.signal.aborted) {
+    return { matchCount: 0 };
+  }
+  const result = await args.service.search({
+    candidateLimit: PROBE_INDEX_CANDIDATE_LIMIT,
+    caseSensitive: args.caseSensitive,
+    contextLines: 0,
+    isRegex: args.isRegex,
+    maxResults: PROBE_INDEX_MAX_RESULTS,
+    pattern: args.pattern,
+    ...(args.embeddingSetId === undefined ? {} : { embeddingSetId: args.embeddingSetId }),
+    ...(args.filePaths === undefined ? {} : { filePaths: args.filePaths }),
+    ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
+    ...(args.rootIds === undefined ? {} : { rootIds: args.rootIds }),
+  });
+  return { matchCount: result.totalMatches };
+}
+
 export async function runGrepSearch(
   input: GrepSearchInput,
   runtimeData: RuntimeData | undefined
@@ -489,17 +605,16 @@ export async function runGrepSearch(
   const outputMode = input.outputMode ?? 'files';
   const offset = input.offset ?? 0;
   const requestedMatches = input.maxResults ?? DEFAULT_CONTENT_MATCHES;
-  // The service slices its accumulated matches to maxResults, so pagination
-  // must request offset + page size; files mode counts matches per file and
-  // needs the larger internal cap to keep counts meaningful.
-  const serviceMaxResults =
-    outputMode === 'files'
-      ? FILES_MODE_INTERNAL_MATCH_CAP
-      : Math.min(offset + requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP);
+  // Both modes request the same internal cap: the page size bounds what is
+  // RETURNED, never what the index pass materializes for the merge.
+  const serviceMaxResults = INTERNAL_MATCH_CAP;
 
   const isRegex = input.isRegex ?? false;
   const caseSensitive = input.caseSensitive ?? false;
-  const contextLines = outputMode === 'files' ? 0 : (input.contextLines ?? 1);
+  // Context defaults to 0 (BST-1193): searches locate, reads understand.
+  // Every studied peer ships no context by default; the option remains for
+  // deliberate opt-in.
+  const contextLines = outputMode === 'files' ? 0 : (input.contextLines ?? 0);
   // Build the authoritative matcher up front: an invalid regex throws here
   // (BEFORE any DB or disk work), preserving the no-coercion contract, and the
   // SAME matcher instance drives the live pass so live + indexed match
@@ -559,11 +674,72 @@ export async function runGrepSearch(
     });
 
     const merged = mergeGrepMatches(serviceResult, liveResult);
+    const probeNote =
+      merged.matches.length === 0
+        ? await resolveZeroMatchProbeNote(
+            { caseSensitive, isRegex },
+            {
+              runCaseProbe: (signal) =>
+                runProbeIndexSearch({
+                  caseSensitive: false,
+                  embeddingSetId,
+                  filePaths,
+                  isRegex,
+                  pattern: input.pattern,
+                  rootId,
+                  signal,
+                  ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
+                  service,
+                }),
+              runExcludedPathProbe: (signal) =>
+                probeExcludedPathMatches(
+                  {
+                    caseSensitive,
+                    isRegex,
+                    pattern: input.pattern,
+                    roots: effectiveLiveRoots,
+                    ...(filePaths === undefined ? {} : { filePaths }),
+                  },
+                  liveMatcher,
+                  signal
+                ),
+              runLiteralProbe: (signal) =>
+                runProbeIndexSearch({
+                  caseSensitive,
+                  embeddingSetId,
+                  filePaths,
+                  isRegex: false,
+                  pattern: input.pattern,
+                  rootId,
+                  signal,
+                  ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
+                  service,
+                }),
+            }
+          )
+        : undefined;
+    const mergedWithProbe: MergedGrepResult = {
+      ...merged,
+      ...(probeNote ? { probeNote } : {}),
+    };
+
+    // The projection prefixes file headers with root names only when several
+    // folders are OPEN (not merely matched), so the open-root topology —
+    // count plus globally ambiguous display names — rides the result
+    // envelope; single-root stays absent and unprefixed (BST-1185).
+    const topology = describeOpenRootTopology(runtimeData);
 
     return parseGrepToolResult(
       outputMode === 'files'
-        ? buildFilesResult(merged, offset)
-        : buildContentResult(merged, offset, requestedMatches, FILES_MODE_INTERNAL_MATCH_CAP)
+        ? buildFilesResult(mergedWithProbe, offset, topology)
+        : buildContentResult({
+            contextLines,
+            mergedResult: mergedWithProbe,
+            offset,
+            requestedMatches,
+            serviceCap: INTERNAL_MATCH_CAP,
+            topology,
+          })
     );
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });

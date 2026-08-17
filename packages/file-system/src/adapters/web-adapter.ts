@@ -1,8 +1,9 @@
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode, RootDescriptor, RootPermissionState } from '@brainstrike/types';
-import { createLogger, fileNodeCollator } from '@brainstrike/utils';
+import { fileNodeCollator } from '@brainstrike/utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
-import { formatFileSize, getFileSizeConfig } from '../config';
-import { AccessError } from '../errors';
+import { formatFileSize, getFileSizeConfig } from '../config.js';
+import { AccessError } from '../errors.js';
 
 const logger = createLogger('WebFileSystemAdapter');
 const SLASH_CHAR_CODE = 47;
@@ -16,13 +17,13 @@ import type {
   FileSystemChange,
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
-} from '../types';
+} from '../types.js';
 import {
   isFileSystemDirectoryHandle,
   isFileSystemFileHandle,
   normalizeDirectoryReadOptions,
-} from '../utils-browser';
-import { type HandleCache, type StoredRootHandle, WebHandleCache } from './web-handle-cache';
+} from '../utils-browser.js';
+import { type HandleCache, type StoredRootHandle, WebHandleCache } from './web-handle-cache.js';
 
 // Type declarations for File System Access API
 declare global {

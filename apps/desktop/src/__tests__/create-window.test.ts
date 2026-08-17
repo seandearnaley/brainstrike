@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { addLogListener } from '@brainstrike/utils';
+import { addLogListener } from '@brainstrike/logging';
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow, noteNextWindowReload } from '../create-window';
@@ -605,7 +605,7 @@ describe('createWindow', () => {
       )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
       const activateHandler = vi
         .mocked(app)
-        .on.mock.calls.find((call) => call[0] === 'activate')?.[1] as () => void;
+        .on.mock.calls.find((call) => (call[0] as string) === 'activate')?.[1] as () => void;
 
       expect(rpcHandler).toBeDefined();
       expect(activateHandler).toBeDefined();

@@ -49,10 +49,16 @@
       "path": "../ui"
     },
     {
-      "path": "../preferences"
+      "path": "../app-state"
     },
     {
       "path": "../text-splitter"
+    },
+    {
+      "path": "../tokenization"
+    },
+    {
+      "path": "../logging"
     },
     {
       "path": "../utils"

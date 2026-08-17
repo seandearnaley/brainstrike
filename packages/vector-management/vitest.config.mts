@@ -25,10 +25,6 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: resolve(__dirname, '../workers/report-generation-worker.ts'),
-      },
-      {
         find: '@brainstrike/hooks',
         replacement: resolve(__dirname, '../hooks/src/index.ts'),
       },
@@ -55,22 +51,6 @@ export default defineConfig({
       {
         find: '@brainstrike/utils/quick-filter-utils',
         replacement: resolve(__dirname, '../utils/src/quick-filter-utils.ts'),
-      },
-      {
-        find: '@brainstrike/utils/report-generator',
-        replacement: resolve(__dirname, '../utils/src/report-generator.ts'),
-      },
-      {
-        find: '@brainstrike/utils/token-counting-runtime',
-        replacement: resolve(__dirname, '../utils/src/token-counting-runtime.ts'),
-      },
-      {
-        find: '@brainstrike/utils/logger',
-        replacement: resolve(__dirname, '../utils/src/logger.ts'),
-      },
-      {
-        find: '@brainstrike/utils/logging-preferences',
-        replacement: resolve(__dirname, '../utils/src/logging-preferences.ts'),
       },
       {
         find: '@brainstrike/utils/env-utils',
@@ -117,14 +97,6 @@ export default defineConfig({
         replacement: resolve(__dirname, '../queue/src/index.ts'),
       },
       ...createAgentBrowserSafeAliasEntries(resolve(__dirname, '../agent')),
-      {
-        find: /^@brainstrike\/preferences\/(.*)$/,
-        replacement: resolve(__dirname, '../preferences/src/$1'),
-      },
-      {
-        find: '@brainstrike/preferences',
-        replacement: resolve(__dirname, '../preferences/src/index.ts'),
-      },
       // Registry fills gaps (e.g. the @brainstrike/embeddings ROOT specifier,
       // executed via importOriginal in vector-queue-service.test.ts — only the
       // subpaths were aliased above). Hand-rolled entries win by first-match.

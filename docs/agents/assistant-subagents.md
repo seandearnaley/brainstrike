@@ -72,7 +72,7 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 
   Paired tests: `apps/desktop/src/__tests__/assistant-server/user-personas-loader.test.ts`,
   `apps/desktop/src/__tests__/ipc-domains/ipc-user-personas-handlers.test.ts`,
-  `packages/preferences/src/__tests__/subagent-personas-settings-section.test.tsx`.
+  `packages/settings-ui/src/__tests__/subagent-personas-settings-section.test.tsx`.
 - **Per-request resolution:** `apps/desktop/src/assistant-server/request-personas.ts`
   (`resolveRequestPersonas`) merges built-ins + scanned user personas, applies
   the renderer's `subagentPersonasRequest` availability preference
@@ -83,8 +83,8 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   (server-set; a client-supplied value is STRIPPED, same posture as
   `permissionPolicy`). A scan failure degrades to built-ins with a warn — a
   broken agents dir must not take down chat. Settings UI:
-  `packages/preferences/src/settings/system/subagent-personas-settings-section.tsx`;
-  the store is factory-reset-registered in `factory-reset-helpers.ts`.
+  `packages/settings-ui/src/settings/system/subagent-personas-settings-section.tsx`;
+  the store is factory-reset-registered in `packages/app-state/src/factory-reset.ts`.
 - **Model pinning (v2):** a persona with `model: provider::modelId` builds its
   child on THAT model via `resolvePinnedModel`
   (`packages/agent/src/mastra/persona-pinned-model.ts`): same-provider pins
@@ -106,7 +106,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   and **no `memory`** (Mastra injects the parent's memory and scopes writes to a
   fresh delegation thread). The child `Agent` id EQUALS the persona id — Mastra
   sets `DelegationStartContext.primitiveId = agent.id`, and the caps resolve the
-  persona by that id.
+  persona by that id. Because the selected tools are the SAME parent-owned
+  objects, the outer model-projection wrapper installs the child's resolved
+  budget only for the synchronous custom-projector call and restores the prior
+  value in `finally`; desktop producers therefore narrow or widen per pinned
+  child instead of retaining their construction-time parent budget.
 - **Safety rails:** `packages/agent/src/mastra/subagent-delegation.ts`
   (`createDelegationConfig`): per-run `DelegationConfig` closure —
   `MAX_CONCURRENT_DELEGATIONS = 2`, `MAX_DELEGATIONS_PER_RUN = 8`, persona
@@ -139,9 +143,21 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   throws on unknown kinds, so the contract enum MUST ship before any emitter.
   Metadata carries ids/labels ONLY (`parentToolCallId`, `personaId`,
   `toolCallId`, `toolName`) — never args/results (the sanitizer strips those).
+
+  Subagent tool calls ALSO feed the SAME per-tool token telemetry table as
+  primary tool calls, attributed to the parent run (BST-1196), via a
+  telemetry-only `RunTokenDiagnostics.recordSubagentToolOutput` sink that
+  deliberately does NOT feed the parent-run prompt-reconciliation aggregate
+  `recordModelOutput` also updates; see assistant-persistence.md, `## TOOL-
+  CALL TOKEN TELEMETRY`. This closes the BST-1190 follow-up gap.
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
   (tool-output-limits.ts) so an oversized delegation result trims structurally
   (truncated + hint) instead of a hard size error.
+- **Durable artifact analysis:** built-in personas include the read-only
+  `brainstrike.readToolOutputArtifact` capability when the run registers it.
+  Oversized-result settlement advertises whole-result delegation only after
+  persona assembly has registered at least one artifact-reader-capable
+  `agent-*` tool; permission/model-pin skips cannot produce a false hint.
 - **Desktop wiring:** `packages/assistant-service/src/stream-init.ts` (desktop capabilities composed in `apps/desktop/src/assistant-server.ts`) sets
   `runtime.personas` to the per-request RESOLVED set (built-ins + user personas,
   availability applied — `resolvePersonaRuntimeFields`) on the shared runtime
@@ -172,6 +188,39 @@ message (keyed by `parentToolCallId`); persisted rows supersede live rows by
 child `toolCallId`, so a running delegation shows its in-progress tool count
 instead of "Running · 0 tool calls".
 
+Because every `subagent.*` row is HIDDEN from the main run timeline (it belongs
+to the card), the timeline's `.started` → terminal pairing never had to be right
+for them — and it was not: `getMatchingCompletedKind` rewrote the suffix, so
+`subagent.started` paired with `subagent.completed`, a kind neither declared in
+`ASSISTANT_RUN_EVENT_KINDS` nor emitted by anything, while
+`getMatchingFailedKind` returned null for both `subagent.started` and
+`subagent.tool.started` despite their `.failed` terminals existing. Both helpers
+now resolve candidate terminals AGAINST the declared kinds, so a pairing can
+never name a kind nothing emits. Both live in
+`packages/assistant-ui/src/assistant-run-event-derivation.ts` (the pure-logic
+module #2477 split out of the component file). No user-visible change — the rows stay hidden either way — but the
+"run-event terminal pairing contract" cases in `assistant-run-timeline.test.tsx`
+pin every declared `.started` kind to its declared terminal so emitters and
+pairing cannot drift apart again.
+
+Enabling that pairing forced two rules the timeline previously never needed,
+both pinned by tests in the same file:
+
+- **Scope by the delegation's own id.** `MAX_CONCURRENT_DELEGATIONS` is 2, so
+  two `subagent.started` rows are open at once, and subagent LIFECYCLE events
+  carry `parentToolCallId` with NO `toolCallId` of their own. The timeline's
+  scoping used to be `tool.started`-only (`toolCallId`); it is now keyed per
+  kind (`scopeMetadataKey`) — `parentToolCallId` for `subagent.started`, the
+  child `toolCallId` for `subagent.tool.started`. Unscoped, the first
+  `subagent.finished` in a run closes EVERY open delegation row and reports one
+  delegation's outcome on another's.
+- **Take the terminal's own status, not a status derived from its kind.**
+  `makeCancelledDelegationRunEventChunks` emits `subagent.failed` carrying
+  status `cancelled`; a kind-derived `failed` would report an aborted run's
+  delegations as hard failures. Both resolvers now read the matched terminal's
+  status, which is identical for every other pairing (`tool.completed` is
+  `completed`, `run.step.finished` is `completed`, and so on).
+
 The SubagentCard routes by tool-name PREFIX for user personas:
 assistant-ui's `by_name` map is exact-match, so only built-ins pre-register;
 `ToolFallbackWithSubagents` (todo-progress.tsx) forwards any `agent-*` part to
@@ -188,5 +237,3 @@ per request, so edits apply on the next turn).
 When changing this flow, update this section and the paired tests.
 
 ---
-
-

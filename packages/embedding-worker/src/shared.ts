@@ -11,6 +11,7 @@ export type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
   EmbedWorkerError,
+  EmbedWorkerLifetimeError,
   EmbedWorkerPipelineCacheDiagnostic,
   EmbedWorkerPipelineCacheEntryDiagnostic,
   EmbedWorkerPipelineCacheMemoryDiagnostic,
@@ -18,6 +19,7 @@ export type {
   EmbedWorkerRequest,
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
+  EmbedWorkerTelemetrySourceClosed,
 } from '@brainstrike/indexing-contract';
 
 /**

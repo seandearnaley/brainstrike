@@ -2,12 +2,12 @@ import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ExpandAllProgress,
-  ForestTreeActionsProvider,
   type ForestTreeActionsValue,
   useForestExpandAllProgress,
   useForestIsExpandingAll,
   useOptionalForestTreeActions,
 } from '../shell/forest-tree-actions-context';
+import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-provider';
 
 // Deterministic rAF: the provider coalesces progress notifications through
 // requestAnimationFrame, so tests queue callbacks and flush them explicitly.

@@ -1,6 +1,7 @@
+import { useDiagnosticsRetentionStore } from '@brainstrike/app-state/stores/diagnostics-retention-store';
 import { DiagnosticEventsRepository } from '@brainstrike/db';
 import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
-import { useDiagnosticsRetentionStore } from '@brainstrike/preferences/stores/diagnostics-retention-store';
+import { addLogListener, createLogger, type LogRecord } from '@brainstrike/logging';
 import {
   boundWithMarker,
   DIAGNOSTIC_MESSAGE_MAX_CHARS,
@@ -9,7 +10,6 @@ import {
   deriveDiagnosticRecordSource,
   logRecordToDiagnosticEvent,
 } from '@brainstrike/utils/diagnostics';
-import { addLogListener, createLogger, type LogRecord } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
 import { useDiagnosticSinkHealthStore } from './diagnostic-sink-health-store';
 import { DIAGNOSTIC_SINK_SCOPE, getDiagnosticSessionId } from './diagnostic-sink-session';

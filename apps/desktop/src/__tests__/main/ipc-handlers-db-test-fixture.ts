@@ -119,6 +119,7 @@ const {
   const embeddingHostEnsureStartedMock = vi.fn(async () => ({
     active: false,
     lastError: null,
+    runtimeId: 'embedding-host-runtime',
     state: 'running' as const,
   }));
   const embeddingHostGetStatusMock = vi.fn(() => ({
@@ -375,10 +376,9 @@ vi.mock('../../embedding-host-manager', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils/logger', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
-    '@brainstrike/utils/logger'
-  );
+vi.mock('@brainstrike/logging', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
   return {
     ...actual,
     createLogger: () => ({

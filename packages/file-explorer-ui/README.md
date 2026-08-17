@@ -4,7 +4,10 @@ React components for displaying and interacting with the file explorer state. Th
 
 ## Virtualization
 
-The `FileTree` component uses a small in-house virtualization hook to render only the visible rows of very large trees. This dramatically improves performance when dealing with thousands of files.
+Large file trees render through the shared `TreeTable` treegrid primitives from
+`@brainstrike/ui`. The tree slice owns row-model and lazy-loading composition;
+do not reintroduce a package-local virtual-list hook. See `src/tree/README.md`
+and the root `AGENTS.md` UI-conventions route before changing this boundary.
 
 ## Installation
 

@@ -1,10 +1,10 @@
 import { type DiagnosticEventsDatabase, mapDiagnosticEventRow } from '@brainstrike/db';
-import type { LogSourceAdapter } from '@brainstrike/preferences';
+import { LogLevel, type LogRecord } from '@brainstrike/logging';
+import type { LogSourceAdapter } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
 import {
   type DiagnosticEvent,
   serializeDiagnosticEventsNdjson,
 } from '@brainstrike/utils/diagnostics';
-import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 
 /**
  * Renderer-side `LogSourceAdapter` (Flight Recorder P2a) that lets the

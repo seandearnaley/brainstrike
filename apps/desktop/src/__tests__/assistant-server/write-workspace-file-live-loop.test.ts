@@ -26,6 +26,7 @@ import type {
 } from '@brainstrike/agent/local-llm';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
 // an empty generator). Everything else from the package keeps its real impl.
@@ -96,9 +97,8 @@ describe('writeWorkspaceFile live Mastra loop (real agent, real tool execute)', 
     const targetContent = 'export const generated = 42;\n';
 
     try {
-      const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
-      const writeTool = tools['brainstrike.writeWorkspaceFile'];
-      expect(writeTool).toBeDefined();
+      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const writeTool = requireTool(tools, 'brainstrike.writeWorkspaceFile');
 
       const hostClient = createScriptedHostClient({
         content: targetContent,

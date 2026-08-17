@@ -1,15 +1,38 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils/collator';
-import { createLogger } from '@brainstrike/utils/logger';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 import { finalPath as getFinalPath } from '@brainstrike/utils/path-utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAdapters } from './adapters-context';
-import { calculateDynamicTotal } from './progress-utils';
+import { useAdapters } from './adapters-context.js';
+import { calculateDynamicTotal } from './progress-utils.js';
 
 const logger = createLogger('useFileTree');
+
+/**
+ * Directories first, then alphabetically. The truncation marker is a
+ * trailing pseudo-node: it sorts last within its directory regardless of
+ * name, ahead of directories-first.
+ */
+function compareFileTreeNodesForSort(a: IFileNode, b: IFileNode): number {
+  if (a.type === 'truncated' || b.type === 'truncated') {
+    if (a.type === b.type) {
+      return 0;
+    }
+    return a.type === 'truncated' ? 1 : -1;
+  }
+  if (a.type !== b.type) {
+    if (a.type === 'directory') {
+      return -1;
+    }
+    if (b.type === 'directory') {
+      return 1;
+    }
+  }
+  return fileNodeCollator.compare(a.name, b.name);
+}
 
 function countSlashes(path: string): number {
   let count = 0;
@@ -115,18 +138,7 @@ export function useFileTree(
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sortFileNodes = useCallback(
-    (nodes: IFileNode[]): IFileNode[] =>
-      [...nodes].sort((a, b) => {
-        if (a.type !== b.type) {
-          if (a.type === 'directory') {
-            return -1;
-          }
-          if (b.type === 'directory') {
-            return 1;
-          }
-        }
-        return fileNodeCollator.compare(a.name, b.name);
-      }),
+    (nodes: IFileNode[]): IFileNode[] => [...nodes].sort(compareFileTreeNodesForSort),
     []
   );
 

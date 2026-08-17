@@ -1,0 +1,289 @@
+{
+  "labels": {
+    "after-43.1.1": {
+      "appCommit": {
+        "dirty": false,
+        "sha": "48cea8b013715a25deda3fa9dc87054e417dde04"
+      },
+      "appPath": "apps/desktop",
+      "binaryPath": "node_modules/.pnpm/electron@43.1.1_supports-color@10.2.2/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+      "capturedAt": "2026-08-02T13:16:43.606Z",
+      "conditions": "Idle-host capture for PR #2207: leaked CPU-pinning processes killed beforehand, no concurrent builds/tests/agents; 1-min load at capture start = 3.27; four labels captured back-to-back in one sitting; the before-41.10.0-aba-recheck label bounds host drift across the sitting.",
+      "electronVersion": "v43.1.1",
+      "n": 10,
+      "nodeVersion": "v24.18.0",
+      "platform": "darwin-arm64",
+      "runs": [
+        {
+          "appReadyMs": 827.82,
+          "assistantListeningMs": 844.523
+        },
+        {
+          "appReadyMs": 842.222,
+          "assistantListeningMs": 859.411
+        },
+        {
+          "appReadyMs": 831.408,
+          "assistantListeningMs": 849.081
+        },
+        {
+          "appReadyMs": 823.55,
+          "assistantListeningMs": 841.234
+        },
+        {
+          "appReadyMs": 840.222,
+          "assistantListeningMs": 857.015
+        },
+        {
+          "appReadyMs": 828.377,
+          "assistantListeningMs": 846.059
+        },
+        {
+          "appReadyMs": 854.876,
+          "assistantListeningMs": 872.232
+        },
+        {
+          "appReadyMs": 859.474,
+          "assistantListeningMs": 878.951
+        },
+        {
+          "appReadyMs": 875.735,
+          "assistantListeningMs": 893.819
+        },
+        {
+          "appReadyMs": 886.202,
+          "assistantListeningMs": 904.425
+        }
+      ],
+      "summaries": {
+        "appReady": {
+          "maxMs": 886.202,
+          "medianMs": 841.222,
+          "minMs": 823.55,
+          "stdevMs": 20.38774102837292
+        },
+        "assistantListening": {
+          "maxMs": 904.425,
+          "medianMs": 858.213,
+          "minMs": 841.234,
+          "stdevMs": 20.789528214945122
+        }
+      },
+      "warmUp": "discarded (profile-warmed before measured runs; see script header comment)"
+    },
+    "before-41.10.0": {
+      "appCommit": {
+        "dirty": true,
+        "sha": "ec9aeb3fa51670e42285b80a00b0429f739c7df3"
+      },
+      "appPath": "desktop",
+      "binaryPath": "Electron",
+      "capturedAt": "2026-08-02T13:16:26.681Z",
+      "conditions": "Idle-host capture for PR #2207: leaked CPU-pinning processes killed beforehand, no concurrent builds/tests/agents; 1-min load at capture start = 3.27; four labels captured back-to-back in one sitting; the before-41.10.0-aba-recheck label bounds host drift across the sitting.",
+      "electronVersion": "v41.10.0",
+      "n": 10,
+      "nodeVersion": "v24.18.0",
+      "platform": "darwin-arm64",
+      "runs": [
+        {
+          "appReadyMs": 894.634,
+          "assistantListeningMs": 1512.617
+        },
+        {
+          "appReadyMs": 899.712,
+          "assistantListeningMs": 1524.401
+        },
+        {
+          "appReadyMs": 902.554,
+          "assistantListeningMs": 1521.935
+        },
+        {
+          "appReadyMs": 894.091,
+          "assistantListeningMs": 1513.127
+        },
+        {
+          "appReadyMs": 891.897,
+          "assistantListeningMs": 1509.865
+        },
+        {
+          "appReadyMs": 904.128,
+          "assistantListeningMs": 1526.314
+        },
+        {
+          "appReadyMs": 885.969,
+          "assistantListeningMs": 1499.992
+        },
+        {
+          "appReadyMs": 901.629,
+          "assistantListeningMs": 1522.118
+        },
+        {
+          "appReadyMs": 896.211,
+          "assistantListeningMs": 1517.903
+        },
+        {
+          "appReadyMs": 901.349,
+          "assistantListeningMs": 1524.579
+        }
+      ],
+      "summaries": {
+        "appReady": {
+          "maxMs": 904.128,
+          "medianMs": 897.9615,
+          "minMs": 885.969,
+          "stdevMs": 5.39708612493815
+        },
+        "assistantListening": {
+          "maxMs": 1526.314,
+          "medianMs": 1519.9189999999999,
+          "minMs": 1499.992,
+          "stdevMs": 7.898787773449813
+        }
+      },
+      "warmUp": "discarded (profile-warmed before measured runs; see script header comment)"
+    },
+    "before-41.10.0-aba-recheck": {
+      "appCommit": {
+        "dirty": true,
+        "sha": "ec9aeb3fa51670e42285b80a00b0429f739c7df3"
+      },
+      "appPath": "desktop",
+      "binaryPath": "Electron",
+      "capturedAt": "2026-08-02T13:17:01.739Z",
+      "conditions": "Idle-host capture for PR #2207: leaked CPU-pinning processes killed beforehand, no concurrent builds/tests/agents; 1-min load at capture start = 3.27; four labels captured back-to-back in one sitting; the before-41.10.0-aba-recheck label bounds host drift across the sitting.",
+      "electronVersion": "v41.10.0",
+      "n": 10,
+      "nodeVersion": "v24.18.0",
+      "platform": "darwin-arm64",
+      "runs": [
+        {
+          "appReadyMs": 938.376,
+          "assistantListeningMs": 1587.321
+        },
+        {
+          "appReadyMs": 922.474,
+          "assistantListeningMs": 1572.406
+        },
+        {
+          "appReadyMs": 931.952,
+          "assistantListeningMs": 1558.412
+        },
+        {
+          "appReadyMs": 896.416,
+          "assistantListeningMs": 1507.231
+        },
+        {
+          "appReadyMs": 884.947,
+          "assistantListeningMs": 1499.958
+        },
+        {
+          "appReadyMs": 899.839,
+          "assistantListeningMs": 1510.931
+        },
+        {
+          "appReadyMs": 889.995,
+          "assistantListeningMs": 1513.188
+        },
+        {
+          "appReadyMs": 920.388,
+          "assistantListeningMs": 1561.63
+        },
+        {
+          "appReadyMs": 892.052,
+          "assistantListeningMs": 1507.683
+        },
+        {
+          "appReadyMs": 884.081,
+          "assistantListeningMs": 1505.698
+        }
+      ],
+      "summaries": {
+        "appReady": {
+          "maxMs": 938.376,
+          "medianMs": 898.1275,
+          "minMs": 884.081,
+          "stdevMs": 19.24650860805668
+        },
+        "assistantListening": {
+          "maxMs": 1587.321,
+          "medianMs": 1512.0595,
+          "minMs": 1499.958,
+          "stdevMs": 31.603322717081472
+        }
+      },
+      "warmUp": "discarded (profile-warmed before measured runs; see script header comment)"
+    },
+    "electron41-binary-current-app": {
+      "appCommit": {
+        "dirty": false,
+        "sha": "48cea8b013715a25deda3fa9dc87054e417dde04"
+      },
+      "appPath": "apps/desktop",
+      "binaryPath": "Electron",
+      "capturedAt": "2026-08-02T13:17:19.245Z",
+      "conditions": "Idle-host capture for PR #2207: leaked CPU-pinning processes killed beforehand, no concurrent builds/tests/agents; 1-min load at capture start = 3.27; four labels captured back-to-back in one sitting; the before-41.10.0-aba-recheck label bounds host drift across the sitting.",
+      "electronVersion": "v41.10.0",
+      "n": 10,
+      "nodeVersion": "v24.18.0",
+      "platform": "darwin-arm64",
+      "runs": [
+        {
+          "appReadyMs": 906.257,
+          "assistantListeningMs": 927.159
+        },
+        {
+          "appReadyMs": 928.728,
+          "assistantListeningMs": 950.149
+        },
+        {
+          "appReadyMs": 914.235,
+          "assistantListeningMs": 935.423
+        },
+        {
+          "appReadyMs": 916.512,
+          "assistantListeningMs": 937.277
+        },
+        {
+          "appReadyMs": 912.151,
+          "assistantListeningMs": 932.994
+        },
+        {
+          "appReadyMs": 903.597,
+          "assistantListeningMs": 924.348
+        },
+        {
+          "appReadyMs": 912.341,
+          "assistantListeningMs": 933.005
+        },
+        {
+          "appReadyMs": 929.083,
+          "assistantListeningMs": 951.112
+        },
+        {
+          "appReadyMs": 925.927,
+          "assistantListeningMs": 947.686
+        },
+        {
+          "appReadyMs": 975.301,
+          "assistantListeningMs": 997.839
+        }
+      ],
+      "summaries": {
+        "appReady": {
+          "maxMs": 975.301,
+          "medianMs": 915.3734999999999,
+          "minMs": 903.597,
+          "stdevMs": 19.538091947782434
+        },
+        "assistantListening": {
+          "maxMs": 997.839,
+          "medianMs": 936.35,
+          "minMs": 924.348,
+          "stdevMs": 20.075648332245727
+        }
+      },
+      "warmUp": "discarded (profile-warmed before measured runs; see script header comment)"
+    }
+  },
+  "schemaVersion": 1
+}

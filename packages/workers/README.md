@@ -6,9 +6,12 @@ Web Worker implementations for CPU-intensive tasks in BrainStrike applications.
 
 This package provides Web Worker implementations that offload heavy computations from the main thread:
 - **File Content Worker**: Reads multiple files concurrently without blocking UI
-- **Report Generation Worker**: Generates large reports from file collections
 
-By running these operations in Workers, the UI remains responsive during intensive I/O and processing tasks.
+Report/context generation is feature orchestration, not a generic worker, and
+lives in `@brainstrike/file-explorer-hooks` with its pure projection in
+`@brainstrike/file-explorer/context-generation`.
+
+By running file reads in Workers, the UI remains responsive during intensive I/O and processing tasks.
 
 ## Features
 
@@ -113,110 +116,6 @@ const contents = await worker.runQueue([
 
 // For binary files:
 console.log(contents['img']); // "Binary file: /assets/logo.png"
-```
-
-### Report Generation Worker
-
-Generates comprehensive reports from file collections, including optional project tree structure.
-
-**Use cases:**
-- Exporting file contents as formatted reports
-- Generating documentation from source code
-- Creating file snapshots for LLM context
-
-**Features:**
-- Markdown-formatted output
-- Optional project tree inclusion
-- File filtering (include/exclude patterns)
-- Regex support for filters
-- Folder summary thresholds
-
-**Usage:**
-
-```typescript
-import { createReportGenerationWorker } from '@brainstrike/workers/report-generation-worker';
-
-const worker = createReportGenerationWorker({
-  fileSystemAdapter: fileSystem // Optional
-});
-
-const request = {
-  selectedFiles: new Set(['/src/index.ts', '/src/utils.ts']),
-  fileContents: {
-    '/src/index.ts': 'export const x = 1;',
-    '/src/utils.ts': 'export const y = 2;'
-  },
-  rootDirectoryHandle: dirHandle,
-  includeFilters: ['*.ts'],
-  excludeFilters: ['*.test.ts'],
-  useRegex: false,
-  includeProjectTree: true,
-  folderSummaryThreshold: 10
-};
-
-const markdown = await worker.generate(request, (progress) => {
-  console.log(`Generating report: ${progress.loaded}/${progress.total}`);
-});
-
-console.log(markdown); // Markdown-formatted report
-```
-
-**API:**
-
-```typescript
-interface ReportGenerationRequest {
-  selectedFiles: Set<string>;              // Files to include
-  fileContents: Record<string, string>;    // File path -> content map
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
-  includeFilters: string[];                // Include patterns (e.g., ['*.ts'])
-  excludeFilters: string[];                // Exclude patterns (e.g., ['*.test.ts'])
-  useRegex: boolean;                       // Use regex for filters
-  includeProjectTree: boolean;             // Include directory tree in report
-  folderSummaryThreshold: number;          // Max files before folder summary
-}
-
-interface ProgressEvent {
-  loaded: number; // Current step
-  total: number;  // Total steps
-}
-
-interface ReportGenerationWorkerOptions {
-  fileSystemAdapter?: FileSystemAdapter;
-}
-
-function createReportGenerationWorker(options?): {
-  generate(
-    request: ReportGenerationRequest,
-    onProgress?: (e: ProgressEvent) => void
-  ): Promise<string>;
-}
-```
-
-**Report Format:**
-
-Generated reports use this structure:
-
-```markdown
-# Project Report
-
-## Project Structure
-/src
-  index.ts
-  utils.ts
-  __tests__
-    index.test.ts
-
-## Files
-
-### /src/index.ts
-```typescript
-export const x = 1;
-```
-
-### /src/utils.ts
-```typescript
-export const y = 2;
-```
 ```
 
 ## Integration with Web Workers

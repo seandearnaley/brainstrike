@@ -32,9 +32,23 @@ export interface RootFolderCacheRequestValidation {
   rootPath: string | null;
 }
 
+/**
+ * `no-root-folder` is an UNCONFIGURED state (setup incomplete — e.g. a fresh
+ * launch before the user has picked a workspace root), not a failure. The
+ * caller routes it to a non-error sync status instead of the generic error
+ * path (BST-1335). `no-managed-collection` and `db-not-ready` keep routing to
+ * the error path; only the reported no-root case is in scope for this
+ * distinction.
+ */
+export type RootFolderCacheValidationFailureCode =
+  | 'db-not-ready'
+  | 'no-managed-collection'
+  | 'no-root-folder';
+
 export type RootFolderCacheValidationResult =
   | { ok: true }
   | {
+      code: RootFolderCacheValidationFailureCode;
       ok: false;
       reason: string;
     };
@@ -53,6 +67,7 @@ export function validateRootFolderCacheRequest(
 ): RootFolderCacheValidationResult {
   if (!input.managedCollectionId) {
     return {
+      code: 'no-managed-collection',
       ok: false,
       reason: 'No managed collection selected.',
     };
@@ -60,6 +75,7 @@ export function validateRootFolderCacheRequest(
 
   if (!input.rootPath) {
     return {
+      code: 'no-root-folder',
       ok: false,
       reason: 'No root folder selected.',
     };
@@ -67,6 +83,7 @@ export function validateRootFolderCacheRequest(
 
   if (!input.dbReady) {
     return {
+      code: 'db-not-ready',
       ok: false,
       reason: 'Database is not ready.',
     };

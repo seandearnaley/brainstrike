@@ -11,6 +11,7 @@ vi.mock('@brainstrike/agent', async () => {
 });
 
 import { type RuntimeData, resolveRequestPermissionPolicy } from '@brainstrike/agent';
+import { OPENAI_REASONING_EFFORT_VALUES } from '@brainstrike/agent/hosted-web';
 import {
   filterWebAssistantPayload,
   resolveWebAssistantProvider,
@@ -80,28 +81,27 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
   });
 
-  it.each([
-    '__proto__',
-    'constructor',
-    'prototype',
-  ])('rejects the special per-tool override key %s instead of stripping or inheriting it', (specialKey) => {
-    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
-    const perToolOverrides = JSON.parse(`{"${specialKey}":"deny"}`) as Record<string, unknown>;
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'rejects the special per-tool override key %s instead of stripping or inheriting it',
+    (specialKey) => {
+      vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+      const perToolOverrides = JSON.parse(`{"${specialKey}":"deny"}`) as Record<string, unknown>;
 
-    expect(() =>
-      resolveWebAssistantRuntime(
-        asRuntimeData({
-          permissionPolicyRequest: {
-            enforce: true,
-            perToolOverrides,
-            policies: validPolicies,
-          },
-        }),
-        'key-special'
-      )
-    ).toThrow('Unsupported web assistant runtime field: permissionPolicyRequest');
-    expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
-  });
+      expect(() =>
+        resolveWebAssistantRuntime(
+          asRuntimeData({
+            permissionPolicyRequest: {
+              enforce: true,
+              perToolOverrides,
+              policies: validPolicies,
+            },
+          }),
+          'key-special'
+        )
+      ).toThrow('Unsupported web assistant runtime field: permissionPolicyRequest');
+      expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
+    }
+  );
 
   it('keeps cost, model, and tool policy out of client control for an enabled provider', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
@@ -116,6 +116,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
         modelSettings: { maxOutputTokens: 1_000_000, temperature: 2 },
         provider: 'anthropic',
         providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
+        requestedReasoningEffort: 'high',
       }),
       'key-3',
       signal,
@@ -205,6 +206,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     ['modelSettings', { maxOutputTokens: '1000000', temperature: '2' }],
     ['provider', ['ollama']],
     ['providerOptions', 'attacker-options'],
+    ['requestedReasoningEffort', 'auto'],
   ])('validates the ignored wire hint %s before discarding it', (field, value) => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
 
@@ -212,6 +214,27 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
       resolveWebAssistantRuntime(asRuntimeData({ [field]: value }), 'server-key')
     ).toThrow(`Invalid web assistant runtime field: ${field}`);
   });
+
+  // The positive counterpart to the rejection case above, and the reason the
+  // wire enum is DERIVED from `OPENAI_REASONING_EFFORT_VALUES` instead of
+  // hand-listed: this loop cannot go stale, because a value added to the
+  // canonical union is asserted here the moment it lands. It used to be a
+  // fourth hand-copy of that union, and a copy NARROWER than the union rejects
+  // an effort the picker legitimately offers — at the request boundary, against
+  // a green type-check.
+  it.each(OPENAI_REASONING_EFFORT_VALUES)(
+    'accepts the canonical reasoning effort %s at the wire boundary',
+    (effort) => {
+      vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+
+      expect(() =>
+        resolveWebAssistantRuntime(
+          asRuntimeData({ requestedReasoningEffort: effort }),
+          'server-key'
+        )
+      ).not.toThrow();
+    }
+  );
 
   it('rejects deeply nested ignored provider options without recursively parsing them', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
@@ -409,15 +432,14 @@ describe('filterWebAssistantPayload (the preparation filterPayload hook)', () =>
     ).toThrow('Invalid web assistant runtime field: provider');
   });
 
-  it.each([
-    'local',
-    'ollama',
-    'lmstudio',
-  ])('rejects the keyless local-server provider %s (the reason this boundary exists)', (provider) => {
-    expect(() =>
-      filterWebAssistantPayload(payloadWith({ provider }), ['openai', 'anthropic'])
-    ).toThrow('Invalid web assistant runtime field: provider');
-  });
+  it.each(['local', 'ollama', 'lmstudio'])(
+    'rejects the keyless local-server provider %s (the reason this boundary exists)',
+    (provider) => {
+      expect(() =>
+        filterWebAssistantPayload(payloadWith({ provider }), ['openai', 'anthropic'])
+      ).toThrow('Invalid web assistant runtime field: provider');
+    }
+  );
 
   it('rejects an unsupported data field', () => {
     expect(() =>

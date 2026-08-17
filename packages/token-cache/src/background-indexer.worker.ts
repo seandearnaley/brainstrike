@@ -13,6 +13,7 @@
 
 /// <reference lib="webworker" />
 
+import { isBinaryContent } from './binary-content';
 import { countTokensForMode } from './token-counting-runtime';
 import type { TokenCountingMode } from './types';
 
@@ -26,7 +27,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   warn: 2,
 };
 
-// Default to 'info' to suppress debug logs - set WORKER_LOG_LEVEL=debug for verbose output
+// Static worker log threshold; change this constant locally for verbose diagnosis.
 const WORKER_LOG_LEVEL: LogLevel = 'info';
 
 function shouldLog(level: LogLevel): boolean {
@@ -133,10 +134,24 @@ export interface IndexerProgress {
   type: 'progress';
 }
 
+/**
+ * Why a file produced no token count.
+ *
+ * `'binary'` is an EXPECTED outcome, not a failure: the file was read fine and
+ * simply has no meaningful token count. It is carried as a closed literal union
+ * rather than re-derived from the message prose, so consumers deciding severity
+ * and retry never string-match a sentence that is free to be reworded.
+ *
+ * Absent means a genuine failure (read error, hashing, tokenizer) whose only
+ * description is `error`.
+ */
+export type IndexerErrorReason = 'binary';
+
 export interface IndexerError {
   compositeKey: string;
   error: string;
   id: string;
+  reason?: IndexerErrorReason;
   type: 'error';
 }
 
@@ -216,7 +231,7 @@ async function getTokenUtils(): Promise<{
   countTokensHeuristic: (text: string) => number;
 }> {
   if (!tokenUtilsPromise) {
-    tokenUtilsPromise = import('./token-utils-lite')
+    tokenUtilsPromise = import('@brainstrike/tokenization/token-utils-lite')
       .then((mod) => ({
         countTokensAccurate: mod.countTokensAccurate,
         countTokensHeuristic: mod.countTokensHeuristic,
@@ -230,27 +245,6 @@ async function getTokenUtils(): Promise<{
       });
   }
   return tokenUtilsPromise;
-}
-
-/**
- * Check if content appears to be binary
- */
-function isBinaryContent(content: string): boolean {
-  // Check for null bytes or high ratio of non-printable characters
-  const sampleSize = Math.min(content.length, 8192);
-  let nonPrintable = 0;
-
-  for (let i = 0; i < sampleSize; i++) {
-    const code = content.charCodeAt(i);
-    if (code === 0) {
-      return true; // Null byte = definitely binary
-    }
-    if (code < 32 && code !== 9 && code !== 10 && code !== 13) {
-      nonPrintable++;
-    }
-  }
-
-  return nonPrintable / sampleSize > 0.1; // More than 10% non-printable = binary
 }
 
 /**
@@ -299,9 +293,11 @@ async function processFile(
     const { content, fileSize } = await readFileContent(request);
     log('debug', 'processFile file read', { fileSize });
 
-    // Check for binary content
+    // Check for binary content. Debug, not warn: a binary file is an expected
+    // exclusion the caller asks about routinely, so at warn a single indexed
+    // tree of them floods the flight recorder and buries real failures.
     if (isBinaryContent(content)) {
-      log('warn', 'processFile binary content detected', {
+      log('debug', 'processFile binary content detected', {
         filePath: request.filePath,
         id: request.id,
       });
@@ -309,6 +305,7 @@ async function processFile(
         compositeKey: request.compositeKey,
         error: 'Binary file - cannot count tokens',
         id: request.id,
+        reason: 'binary',
         type: 'error',
       };
     }

@@ -7,16 +7,16 @@
 
 import type { RuntimeData } from '@brainstrike/agent';
 import { DESKTOP_NATIVE_TOOL_IDS, isNativeTool } from '@brainstrike/agent/client';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { ipcMain } from 'electron';
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const logger = createLogger('IpcTools');
+const LEGACY_TOOLS_EXECUTE_CHANNEL = 'tools:execute';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type RuntimeWorkspaceContext = NonNullable<RuntimeData['workspaceContext']>;
@@ -27,7 +27,8 @@ type RuntimeAgentLoop = NonNullable<RuntimeData['agentLoop']>;
 const MAX_INPUT_DEPTH = 12;
 const MAX_INPUT_SIZE = 1_000_000;
 // Keep this boundary allowlist in sync with BackgroundIndexingMode in
-// @brainstrike/preferences when additional workspace indexing modes are added.
+// @brainstrike/app-state/stores/background-indexing-preferences-store when additional workspace
+// indexing modes are added.
 const ALLOWED_WORKSPACE_INDEXING_MODES = new Set(['root-folder-cache']);
 const ALLOWED_NATIVE_TOOL_IDS = new Set<string>(DESKTOP_NATIVE_TOOL_IDS);
 
@@ -467,7 +468,12 @@ async function tryExecuteAssistantRuntimeTool(
   const assistantTool = buildDesktopAssistantTools(runtimeData, {
     embeddingHostManager: dependencies.embeddingHostManager,
   })[toolId];
-  if (!assistantTool?.execute) {
+  // @mastra/core 1.55 widened ToolsInput[string] with members that carry no
+  // `execute` (provider-defined tools, web-search placeholders) — narrow
+  // structurally before invoking.
+  if (
+    !(assistantTool && 'execute' in assistantTool && typeof assistantTool.execute === 'function')
+  ) {
     return null;
   }
 
@@ -510,15 +516,24 @@ async function executeMcpTool(
 }
 
 /**
- * Register IPC handlers for tool execution.
+ * Legacy tool-execution harness retained for focused unit coverage only.
+ *
+ * Production main must not import or register this function. Renderer tool
+ * execution bypasses the assistant permission engine; the production wiring
+ * invariant is pinned by tools-ipc-main-wiring.test.ts.
  */
 export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}): () => void {
+  if (process.env['NODE_ENV'] !== 'test') {
+    throw new Error(
+      'Renderer tool execution IPC is disabled outside tests (NODE_ENV=test); tool execution belongs to the assistant permission engine.'
+    );
+  }
   logger.debug('Registering tools IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
 
   registry.registerInvoke(
     'tools',
-    DESKTOP_PRELOAD_IPC_CHANNELS.tools.execute,
+    LEGACY_TOOLS_EXECUTE_CHANNEL,
     async (
       _event,
       toolId: unknown,

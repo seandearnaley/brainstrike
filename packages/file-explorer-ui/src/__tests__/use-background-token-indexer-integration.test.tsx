@@ -1,11 +1,11 @@
 import {
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
-import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { addLogListener, LogLevel } from '@brainstrike/logging';
+import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
-import { addLogListener, LogLevel } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
@@ -16,7 +16,9 @@ import type { FileTreeIndexContextValue } from '../tree/file-tree-provider';
 let capturedOnFileIndexed:
   | ((compositeKey: string, tokenCount: number, fileSize: number) => void)
   | undefined;
-let capturedOnFileError: ((compositeKey: string, error: string) => void) | undefined;
+let capturedOnFileError:
+  | ((compositeKey: string, error: string, reason?: IndexerErrorReason) => void)
+  | undefined;
 
 // Mock the token cache hook so we can control readiness and capture calls.
 const indexFilesMock = vi.fn<(files: FileToIndex[]) => Promise<void>>(async () => {});
@@ -1195,6 +1197,47 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       expect(result.current.diagnostics.inFlightCount).toBe(0);
       expect(result.current.diagnostics.indexedCount).toBe(0);
+      expect(records).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            level: LogLevel.ERROR,
+            message: 'Background indexer file error',
+          }),
+        ])
+      );
+    });
+
+    it('keeps binary exclusions quiet and TERMINAL, so they are never re-dispatched', () => {
+      // The flood this closes: a binary verdict was logged at error AND the key
+      // was un-marked, so the next visible-files pass re-dispatched the very
+      // same file. Eight files produced 149 identical error records that way.
+      // The verdict cannot change until the bytes do, so it must settle.
+      const records: Array<{ level: LogLevel; message: string }> = [];
+      const unsubscribe = addLogListener((record) => {
+        records.push({ level: record.level, message: record.message ?? '' });
+      });
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: fileTreeRootA,
+          onTokenResolved: vi.fn(),
+          selectedFiles: new Set([fileAKey]),
+        })
+      );
+
+      flushTimers();
+
+      try {
+        act(() => {
+          capturedOnFileError?.(fileAKey, 'Binary file - cannot count tokens', 'binary');
+        });
+      } finally {
+        unsubscribe();
+      }
+
+      expect(result.current.diagnostics.inFlightCount).toBe(0);
+      // Still counted as indexed: settled, so no later pass picks it up again.
+      expect(result.current.diagnostics.indexedCount).toBe(1);
       expect(records).not.toEqual(
         expect.arrayContaining([
           expect.objectContaining({

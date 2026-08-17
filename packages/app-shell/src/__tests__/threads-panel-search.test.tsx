@@ -1,6 +1,6 @@
+import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AssistantMemoryThread } from '../assistant-memory-repository';
 import { renderMarkedText } from '../thread-search-headline';
 import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanelSearch } from '../threads-panel-search';

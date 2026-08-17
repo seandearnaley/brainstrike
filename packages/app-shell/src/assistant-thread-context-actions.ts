@@ -1,3 +1,4 @@
+import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import {
   type ActionOutcome,
   type ActionServices,
@@ -7,7 +8,6 @@ import {
   type TargetOf,
 } from '@brainstrike/context-actions';
 import { Copy } from 'lucide-react';
-import type { AssistantMemoryThread } from './assistant-memory-repository';
 
 type AssistantThreadTargetKind = 'assistant-thread' | 'assistant-thread-tab';
 

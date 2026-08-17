@@ -31,7 +31,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
       });
     });
 
-    it('should save folder path when handle has path', async () => {
+    it('does not perform a follow-up IPC call to persist the folder path', async () => {
       const mockHandle = {
         kind: 'directory' as const,
         name: 'test-directory',
@@ -43,21 +43,8 @@ describe('ElectronRendererFileSystemAdapter', () => {
 
       await adapter.requestDirectoryAccess();
 
-      expect(mockElectronAPI.fileSystem.saveLastFolder).toHaveBeenCalledWith('/test/folder/path');
-    });
-
-    it('should not save folder path when handle has no path', async () => {
-      const mockHandle = {
-        kind: 'directory' as const,
-        name: 'test-directory',
-        path: '',
-        platform: 'electron' as const,
-      };
-
-      mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce(mockHandle);
-
-      await adapter.requestDirectoryAccess();
-
+      // Main owns the last-folder preference via the registry's addRoot, so
+      // the renderer must not perform a separate saveLastFolder write.
       expect(mockElectronAPI.fileSystem.saveLastFolder).not.toHaveBeenCalled();
     });
   });
@@ -274,10 +261,19 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     platform: 'electron' as const,
   };
 
-  function makeHealthEvent(watchId: string, state: string) {
+  function makeHealthEvent(
+    watchId: string,
+    state: string
+  ): {
+    backend: 'fs-events';
+    failure?: { code: string; message: string; retryable: boolean; terminal: boolean };
+    state: 'degraded' | 'failed' | 'healthy';
+    timestamp: number;
+    watchId: string;
+  } {
     return {
       backend: 'fs-events' as const,
-      state: state as 'healthy' | 'failed',
+      state: state as 'degraded' | 'failed' | 'healthy',
       timestamp: 1,
       watchId,
     };
@@ -606,12 +602,12 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
     vi.clearAllMocks();
     pushEvent = null;
     unsubscribe = vi.fn();
-    mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(
-      (callback: (event: { changes: typeof sampleChanges; watchId: string }) => void) => {
-        pushEvent = callback;
-        return unsubscribe;
-      }
-    );
+    mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(((
+      callback: (event: { changes: typeof sampleChanges; watchId: string }) => void
+    ) => {
+      pushEvent = callback;
+      return unsubscribe;
+    }) as unknown as () => () => void);
     mockElectronAPI.fileSystem.watchDirectory.mockResolvedValue({ watchId: 'watch-1' });
   });
 

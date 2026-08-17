@@ -22,8 +22,10 @@ import type {
   LocalLlmHostGenerateRequest,
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
+import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
 // an empty generator). Everything else from the package keeps its real impl.
@@ -35,6 +37,10 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
 const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
+
+beforeEach(() => {
+  resetToolCallLoopGuards();
+});
 
 /**
  * Scripted host client: the first generation requests the glob tool; once the
@@ -184,9 +190,8 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
   it('lets a real Agent enumerate matching files and excludes ignored dirs', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
-      const globTool = tools['brainstrike.globWorkspace'];
-      expect(globTool).toBeDefined();
+      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const globTool = requireTool(tools, 'brainstrike.globWorkspace');
 
       const hostClient = createScriptedHostClient('**/*.test.ts');
 
@@ -244,7 +249,9 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
   it('executes one structured glob then one structured README read before answering', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const globTool = requireTool(tools, 'brainstrike.globWorkspace');
+      const readTool = requireTool(tools, 'brainstrike.readWorkspaceFile');
       const hostClient = createGlobThenReadHostClient();
       const iterator = await streamMastraAgent(
         [
@@ -262,8 +269,8 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
             providerOptions: { local: { thinking: { enabled: false } } },
           } as RuntimeData,
           tools: {
-            'brainstrike.globWorkspace': tools['brainstrike.globWorkspace'],
-            'brainstrike.readWorkspaceFile': tools['brainstrike.readWorkspaceFile'],
+            'brainstrike.globWorkspace': globTool,
+            'brainstrike.readWorkspaceFile': readTool,
           },
         }
       );

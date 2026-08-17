@@ -71,9 +71,24 @@ should use, including on runtime-computed paths. Its rules:
   in a Windows-shaped path; on POSIX it is a legal filename character, so
   `/tmp/scratch\run` is a sibling directory named `scratch\run`, not a
   descendant of `/tmp/scratch`.
-- **Case is folded only when an operand is Windows-shaped**, because
-  drive-letter case is not stable across Node APIs. POSIX comparison stays
-  case-sensitive.
+- **Only the Windows VOLUME segments are case-folded** — the drive letter
+  (`C:`), or the host AND share for a UNC path (`\\server\share`, both
+  case-insensitive at the SMB protocol level). Never directory segments, never
+  on POSIX. Volume case is what Node APIs spell inconsistently; directory
+  segments are a different question, because NTFS supports per-directory case
+  sensitivity (WSL enables it), so folding them could report coverage the
+  filesystem does not grant. That is a false PERMIT, the unsafe direction, and
+  the same platform-shaped guess this doc rejects for darwin below.
+  Case-insensitive volumes are served correctly by resolving first — but only
+  with the NATIVE resolver, see the next bullet.
+- **Resolve with `realpath.native`, not `fs/promises`' `realpath`.** Node's JS
+  implementation resolves symlinks but copies non-symlink components verbatim
+  from the input string; it does NOT return the OS-canonical case. Only the
+  native binding (`realpath(3)`, `GetFinalPathNameByHandleW`) does. Measured on
+  darwin: for an on-disk `MixedCase`, the JS version returns `mixedcase`, the
+  native one `MixedCase`. Since directory segments compare case-sensitively,
+  the JS resolver silently voids both the containment guarantee and the
+  always-deny check on a case-insensitive volume.
 
 ### Backends MUST resolve before asking (requirement, not advice)
 
@@ -109,6 +124,40 @@ Corollaries:
   which is where scratch dirs come from — changes spelling on resolution.
   Expect the resolved path, not the one you passed, in the config handed to
   the sandbox.
+- **Windows has more aliases than symlinks, and `isPathCoveredBy`'s case-fold
+  is the same guess this section rejects on darwin** (BST-1068; latent today —
+  no Windows backend exists, so nothing Windows-shaped reaches the predicate
+  from a real host). Whoever builds one owns this:
+  - NTFS aliases a path far more ways than APFS does: **8.3 short names**
+    (`C:\PROGRA~1` ≡ `C:\Program Files`), trailing dots/spaces, alternate data
+    streams, the `\\?\` extended-length prefix (which bypasses Win32
+    normalization outright — srt ships `stripExtendedPathPrefix` for it), and
+    reserved device names. **MEASURED on Windows 11 x64 / Node 24.14.0
+    (BST-1068 §7.3a): `fs.realpath` canonicalized NEITHER — it returned the 8.3
+    short spelling unchanged and an uppercased path unchanged.** That is the JS
+    resolver copying non-symlink components verbatim; only `realpath.native`
+    reaches libuv, which is why `fence-policy` defaults to it (BST-1074).
+    Whether `.native` expands 8.3 short names on NTFS is a *different* Win32
+    behaviour and is **still unproven** — do not assume it from its darwin case
+    behaviour. Until measured, a Windows backend must canonicalize explicitly
+    (`GetFinalPathNameByHandleW`/`GetLongPathNameW`, or file-identity
+    comparison) and verify it before comparing coverage.
+  - `isPathCoveredBy` folds case on the **volume prefix only** (1 segment for a
+    drive letter, 2 for UNC — host *and* share are both case-insensitive at the
+    SMB level). It previously folded every segment while its justification
+    covered only the drive letter, which is the same platform-shaped guess this
+    section rejects for darwin: NTFS supports **per-directory** case sensitivity
+    (`fsutil file setCaseSensitiveInfo`, which WSL sets on directories it
+    creates), so a false PERMIT was reachable. Narrowed in BST-1074 — and note
+    the dependency: the narrowing is only safe **because** resolution is
+    supposed to deliver canonical on-disk spelling for the path body, which is
+    exactly the guarantee the bullet above shows is not yet established on
+    Windows. The two must move together.
+  - **A mapped network drive is not a path the sandbox can resolve at all.**
+    srt fails such a launch with a typed `mapped_drive_cwd` error (exit 16)
+    because per-user drive mappings do not exist under the sandbox account's
+    logon. On a separate-account fence, drive letters are caller-scoped state,
+    not machine-global facts.
 
 The FenceExecutor (`packages/agent/src/fence/fence-policy.ts`) is the reference
 implementation, including the injected resolver that keeps this unit-testable.
@@ -223,14 +272,162 @@ A backend that serializes executions must honour an abort WHILE QUEUED, not
 only once spawned — otherwise pressing Stop behind two other runs waits for
 them.
 
+## The run_python tool (BST-1067, LIVE)
+
+`packages/agent/src/tools/run-python-tool.ts`, exported from the package root
+as `createRunPythonTool`. Paired tests: `run-python-tool.spec.ts` (unit lane,
+stub executors) and `run-python-tool.integration.spec.ts` (integration lane,
+REAL Seatbelt/bwrap + a real interpreter). Registered by the desktop
+composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
+
+- **GATE A IS THE FRAMEWORK'S PRE-EXECUTION APPROVAL (BST-1097, re-based at
+  the @mastra/core ^1.57 adoption).** Under an `'ask'` policy the permission
+  gate registers run_python as an ordinary `requireApproval` clone — the same
+  idiom as every other ask tool — and Mastra collects the approval BEFORE
+  `execute()` runs (same `tool-call-approval` chunk, card, grant surface, and
+  approve/decline transport as always). Approve is consumed by the framework
+  and the tool runs once; decline never reaches the tool, and **since
+  `@mastra/core` 1.59 (BST-1282) the decline leg streams a `tool-output-denied`
+  chunk** carrying `{toolCallId, toolName, args?, approval:{id, approved:false,
+  reason?}}`. That SUPERSEDES the older "decline streams NO tool result"
+  statement: Brainstrike maps the chunk (disposition `'mapped'`, decoded in
+  `mastra/tool-event-mapper.ts`) to the DECLINE terminal — `StreamChunkTool`
+  status `'declined'`, carrying the shared `DeclinedToolCallResult` envelope —
+  so the call settles with a `toolCallResult` and its durable `tool.started`
+  pairs off against a `tool.failed` row relabelled `Tool call declined`.
+  Without that mapping the renderer's tool part would stay pending forever —
+  the hang mastra #20886 shipped this chunk to fix. It is deliberately NOT the
+  ERROR terminal: a decline queues no visible failure text and sets no
+  `isError`, or a decline followed by no model text would read as "I couldn't
+  complete the tool action because it failed" (see docs/agents/mastra-boundary.md,
+  1.57 → 1.59). Because the envelope is `{kind: 'declined', …}`, a run_python
+  decline still lands on THIS tool's own muted declined surface rather than a
+  generic card. The approval card's "Declined" state still owns the primary UX,
+  identical to every other ask tool; the tool's typed `declined` result arm
+  remains legacy, kept only for pre-rework persisted threads. Paired tests:
+  `mastra-tool-approval-chunks.spec.ts`, *"settles the declined tool call from
+  the 1.59 tool-output-denied chunk instead of leaving it pending"* (mutation-
+  checked: treating the chunk as ignored fails it) and *"does NOT report a
+  declined tool call as a failure when the denial is the last chunk before
+  finish"*, plus the envelope case in `run-python-result.test.tsx`. The
+  pre-1.56 design (self-raised in-tool
+  approval suspension; the flag forbidden) is DEAD: 1.56's approval rework
+  consumes `{approved}` resumes before the tool can read them, and the same
+  rework is what makes the flag safe — the suspend-resume transport now
+  attaches the `approved: true` rider Mastra's per-leg re-check demands, so
+  the flag no longer kills the tool's own Gate B resume
+  (`createToolResumeIteratorFromRuntime`, agent-streaming.ts). The injected
+  `resolveApprovalDecision()` (REQUIRED factory option; the desktop derives it
+  from the request's permission snapshot via `resolveSelfApprovalDecision`,
+  the same resolver the permission gate uses) now arms ONLY the
+  direct-invocation guard: `'ask'` with no suspension channel refuses with
+  `approval_confirmation_unavailable`, never an unprompted run. Resume data
+  matching no known shape still refuses with `resume_unrecognized` rather
+  than mislabelling transport drift as a user decision (`network_denied` is
+  reserved for answers the user actually gave). Regression proof: the GATE A
+  + GATE B case in `mastra-tool-suspend-resume.integration.spec.ts` asserts
+  the EXECUTOR ran on the approve→allow path — final-text assertions are
+  vacuous here (the scripted model prints its text regardless of the tool
+  result, which is how the original defect shipped green).
+- **NETWORK IS EXPRESSIBLE ONLY THROUGH GATE B (BST-1070, LIVE).** The input
+  schema accepts `allowedDomains` (validated by the seam's exported
+  `policyDomainSchema` — a bare `*` and single-label wildcards never parse),
+  but a request alone opens NOTHING: the tool suspends with the exact domain
+  list BEFORE the host is even resolved, and the policy stays `[]` unless the
+  per-call escalation resumes with an explicit allow. The suspension channel
+  has NO grant surface, so no session grant, per-tool override, or `yolo`
+  posture ever pre-answers it; anything that is not exactly
+  `{action:'allow'}` denies (`network_denied`, carrying `deniedDomains` so
+  the model can rewrite offline), and a missing channel (direct invocation)
+  refuses with `network_confirmation_unavailable` rather than running
+  offline-with-exit-0 or granting silently. Both directions are
+  mutation-proven in `run-python-tool.spec.ts`. The prerequisite that kept
+  this inexpressible (suspend rediscovery across reloads) closed in BST-1084.
+  - **A suspending tool is STORAGE-GATED**: without Mastra workflow storage
+    `run_python` is fail-safe omitted entirely (a pause that cannot resume
+    must never be armed) — which also keeps it off Hosted Web.
+  - **run_python lives in the DEFERRED `execution` discovery namespace**: a
+    scripted test model must load it via `search_tools` first, or the
+    ToolNotFoundError it gets is the discovery surface working, not a
+    suspension bug (see the Gate B integration proof's comment).
+  - **Testing the deny is easy to get VACUOUSLY right.** srt enforces
+    `allowedDomains` at its HTTP PROXY, so a raw `socket.create_connection` is
+    refused by the fence whatever the policy says — a raw-socket assertion
+    passes identically with `allowedDomains: []` and `['example.com']`, i.e.
+    it proves nothing about the policy. The integration proof uses `urllib`
+    (the proxied path) and is mutation-checked: granting the domain makes it
+    fail. Keep it that way.
+- **Registered as the factory-returned Mastra Tool object**, never re-wrapped
+  in the desktop registry's `{description, execute, id, inputSchema}` literal —
+  that shape drops `suspendSchema`, which is exactly what BST-1070 will add.
+  A desktop test asserts the real Tool object so the trap is armed before the
+  schema exists. Excluded for the built-in local provider, alongside
+  `askUser`/`submitPlan`.
+- **Per-call scratch dir is the only writable path**: `mkdtemp` under
+  `os.tmpdir()`, `realpath`'d (macOS `/var` → `/private/var`, and the seam
+  compares resolved paths for `scratchDir ⊆ allowWrite`), removed in a
+  `finally` on every exit path. Under `os.tmpdir()` rather than userData so a
+  hard-crash orphan is reaped by the OS.
+- **Five distinct terminal states**, mapped in `toRunPythonResult`:
+  `completed` (the ONLY arm carrying `exitCode`, so a signal kill can never
+  render as exit 0), `timed_out`, `killed` (`exitCode: null` with
+  `timedOut: false` — a REAL state per the seam's "including a timeout kill",
+  reachable via SIGSEGV/OOM, not a defensive branch), `cancelled` (carries
+  partial output; never an empty success), and `unavailable`. An unrecognised
+  error RETHROWS rather than being labelled with a diagnosis this layer cannot
+  make.
+- **`interpreter_unavailable` is distinct from `no_sandbox_configured`.** Host
+  resolution is async (the bundled CPython may need a first-run unpack), and a
+  `python_*`-coded failure from BST-1061's resolver maps to its own reason so
+  the user is told WHICH half is missing. Matched structurally by code prefix —
+  this package must not depend on `apps/desktop`, and the seam's own codes are
+  all `exec_*`/`executor_*`/`fence_*`, so the prefixes cannot collide.
+- **Output is bounded twice, and both counts are reported.** The executor cap
+  (`RUN_PYTHON_MAX_OUTPUT_BYTES`) stops a runaway loop exhausting memory; the
+  model projection fits the tool budget. Anything the projection trims is ADDED
+  to the executor's `stdoutOmittedBytes`/`stderrOmittedBytes`, so the model can
+  tell "the script produced 4 MB" from "we showed you the last 10 KB". The tail
+  is kept — a traceback ends with the exception.
+- **The approval card's facts are server-computed (BST-1070 Gate A, LIVE).**
+  `run-python-approval-context.ts` derives a `CodeExecutionApprovalContext`
+  (tool-approval contract) from the SAME strict schema + constants execute()
+  uses — network `[]`, scratch under `os.tmpdir()` (only the PARENT is namable
+  pre-mkdtemp, hence `scratchParentDir`), `defaultReadAccess: 'permissive'`
+  (the fence's honest read semantics — see the escape-resistance README), the
+  shared timeout default (single-sourced with the tool via
+  `RUN_PYTHON_DEFAULT_TIMEOUT_MS`). `policyFingerprint` rides the context so
+  approval-time and execute-time terms are COMPARABLE; the execute-time
+  enforcement is deliberately deferred until workspace exec config introduces
+  a real drift input — today both sides are the same pure function of the
+  durable args in the same process, so a compare would be a guard whose
+  failure no test can provoke. Wire path + card behaviour:
+  docs/agents/assistant-runtime.md § PERMISSION ENGINE step 4.
+
 ## Permission engine relationship
 
-Approval/permission gating happens ABOVE this seam. The run_python tool is an
-execute-risk native tool gated by the existing permission engine
-(docs/agents/assistant-runtime.md § PERMISSION ENGINE) — ask/allow/deny and
-approval suspension are decided before `execute()` is ever reached. The seam
-never re-implements or bypasses that gate, and executor errors never
-auto-approve or auto-decline anything.
+Approval/permission gating happens ABOVE this seam. run_python is an
+execute-risk native tool whose allow/ask/deny DECISION comes from the existing
+permission engine (docs/agents/assistant-runtime.md § PERMISSION ENGINE), and
+since the @mastra/core ^1.57 adoption its `'ask'` ENFORCEMENT is the same
+per-tool `requireApproval` clone every other execute-risk tool uses (the
+1.56-era `approved: true` resume rider is what lets the flag coexist with the
+tool's Gate B suspension — see the Gate A section above). The one in-tool
+remnant is the DIRECT-invocation guard: outside an agent run, `'ask'` refuses
+rather than running unprompted. `'deny'` still omits the tool from the map
+before any call. The seam never re-implements or bypasses the decision, and
+executor errors never auto-approve or auto-decline anything.
+
+The UX design for that gating — the pre-run approval card, the network
+escalation, the result surface, and the remember-choice scope — is specified in
+`docs/run-python-approval-ux-design-2026-08-01.md` (BST-1070, DESIGN ONLY;
+implementation blocked on BST-1067). Its load-bearing ruling: a non-empty
+`ExecPolicy.allowedDomains` escalates on the SUSPEND channel, not the approval
+channel, because Mastra's `requireApproval` is per-tool and cannot be
+conditioned on a single call's arguments — so an approval-channel escalation
+would be silently skipped by any session/per-tool grant. That doc also records
+four gaps in this seam's expressiveness (no incremental output channel, no
+omission POSITION alongside the omitted byte counts, no read-list provenance,
+and no channel for host-computed approval display context).
 
 ## The null stub
 
@@ -255,29 +452,88 @@ integrates with it directly.
 precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
 `fence-executor.integration.spec.ts` (integration lane, REAL Seatbelt/bwrap).
 
-- **srt version: `@anthropic-ai/sandbox-runtime` pinned EXACTLY to `0.0.67`**
-  in the workspace catalog (`catalogMode: strict` means every package
-  references the catalog; the catalog entry itself carries no caret). It is a
-  fast-moving beta — re-derive the boundary from its README/`.d.ts` before
-  bumping, never from memory.
+- **srt version: `@anthropic-ai/sandbox-runtime` pinned EXACTLY to `0.0.73`**
+  (bumped from `0.0.67` in BST-1285) in the workspace catalog (`catalogMode:
+  strict` means every package references the catalog; the catalog entry itself
+  carries no caret). It is a fast-moving beta — re-derive the boundary from its
+  README/`.d.ts` before bumping, never from memory. The escape-resistance suite
+  (BST-1071) ASSERTS this version, so a bump goes red until the suite is
+  re-greened on macOS AND Linux; see
+  `packages/agent/src/__tests__/fence-escape-resistance.README.md` for the
+  required procedure and the guarantee/non-guarantee list. **CI cannot supply
+  the Linux half**: no workflow installs `bwrap`/`socat`/ripgrep, so
+  `describeHostSkipReason()` skips the whole suite there and only the ungated
+  version-pin test runs. A Linux re-green has to come from a bubblewrap-equipped
+  host, and the bump log has to say which platforms actually ran.
 - **Platforms: darwin + linux only.** `isFenceSupported()` is the probe and
   `createFenceExecutorFactory()` returns `undefined` on anything else, so an
   unsupported host simply has no `fence` capability and `resolveCodeExecutor`
-  throws `ExecutorKindUnavailableError`. Windows is srt-alpha (needs a
-  provisioned sandbox user + WFP fence) and its process-tree kill is
-  unverified here — deliberately NOT offered rather than shipped untested.
+  throws `ExecutorKindUnavailableError`.
+  - **The `platform === 'darwin' || platform === 'linux'` allow-list in
+    `isFenceSupported()` is load-bearing — do not "simplify" it away.**
+    `SandboxManager.isSupportedPlatform()` returns TRUE on Windows, so dropping
+    the explicit allow-list and trusting srt's own probe silently enables
+    Windows. `currentExecPlatform()` already accepts `'win32'`, so that one
+    line is the entire gate.
+  - **Why Windows is gated OFF (BST-1068, settled).** Not primarily maturity.
+    srt's Windows backend is a real OS-kernel fence — a dedicated `srt-sandbox`
+    user SID, WFP egress filters, additive NTFS DACLs — and would honestly
+    report `maxIsolationTier: 'os-fence'`. The blocker is that **its filesystem
+    scope is session-level**: `updateConfig()` warns and keeps the previously
+    applied access set, and a per-exec `filesystem.allowRead`/`allowWrite`
+    throws. The "initialize once, `updateConfig` per execution" lifecycle two
+    bullets down is therefore inexpressible there — it would silently apply the
+    FIRST run's filesystem policy to every later run — and no
+    `ExecutorCapabilities` field can advertise that gap. Process-tree kill is a
+    real secondary problem (`process.kill(-pid)` is POSIX-only).
+  - **Confirmed on real Windows hardware, 2026-08-01.** The plan in the spike
+    was executed on a provisioned Windows 11 x64 host. The fence itself works —
+    Python ran as `srt-sandbox`, and a process that stripped every proxy env var
+    was refused at `connect()` with `WSAEACCES`. Three measured results
+    nonetheless keep the gate shut, and none of them is a maturity complaint:
+    - **`reset()`+`initialize()` costs 1559 ms median** (ten cycles, fastest
+      1531 ms). That is the only lifecycle that applies filesystem policy
+      correctly on Windows, so per-execution `ExecPolicy` would add ~1.6 s of
+      setup to every `run_python`.
+    - **`filesystem.allowRead` is not read-only on Windows.** srt only ADDS
+      ACEs, so a path whose existing ACL already grants write to a group the
+      sandbox account belongs to (`Authenticated Users` — the default for
+      anything created off `C:\`) stays writable. The same `ExecPolicy` is
+      therefore weaker on Windows than under Seatbelt or bubblewrap.
+    - **Path canonicalization did not behave as assumed** — see the Windows
+      bullet under "resolve before asking" above.
+
+    Full assessment, capability spec, the test plan, and the hardware results:
+    `docs/agents/research/bst-1068-srt-windows-fence-spike.md`.
 - **Interpreters are injected** (`interpreters: { python: { command, args?,
   scriptExtension } }`). This module never guesses a binary path; BST-1061
   owns resolving the bundled CPython. `capabilities().languages` is exactly
   the injected key set, and an un-injected language throws
   `FenceUnsupportedLanguageError`.
+  - **The bundled-CPython resolver (BST-1061, LIVE) is
+    `resolveDesktopPythonExecutable()` in `apps/desktop/src/python-runtime/`**
+    — the desktop composition root resolves once and INJECTS the resulting
+    absolute path; this package never imports it. It unpacks under
+    `userData/python-runtime/` (a SIBLING of every always-deny store below,
+    never a descendant, so the interpreter stays fence-readable) and fails
+    with a typed `python_*` error family (`python_unsupported_platform`,
+    `python_manifest_invalid`, `python_archive_missing`,
+    `python_checksum_mismatch`, `python_unpack_failed`) kept disjoint from
+    the seam's and fence's codes, so `run_python` can distinguish "no
+    interpreter" from "no sandbox". There is no PATH-python fallback in any
+    state.
 - **Always-deny-read** (`ALWAYS_DENY_READ_PATHS`, applied on top of every
   policy): `.ssh`, `.aws`, `.gnupg`, `.config/gcloud`, `.config/gh`, `.kube`,
   `.docker`, `.netrc`, `.npmrc`, `.pypirc` — resolved to ABSOLUTE paths from
   `os.homedir()` here, not handed to srt as `~/...`: a path this sensitive
   must not depend on another package's tilde expansion. They stay literal
-  (never globbed) because a literal deny is the one srt re-applies on top of a
-  broader `allowRead`. An `allowRead` entry AT or UNDER one of these throws
+  (never globbed) because a literal path is what the containment checks compare
+  against, and because the literal re-application on top of a broader
+  `allowRead` is the srt behavior this layer verifies by execution. srt's
+  GLOB-deny handling is version-dependent and is NOT relied on (0.0.72 changed
+  macOS to re-emit glob denies where a broader allow used to clobber them; on
+  Linux a glob deny is expanded by ripgrep at run time). An `allowRead` entry
+  AT or UNDER one of these throws
   `FencePolicyError`; it is never silently dropped. An ANCESTOR entry is fine
   (srt re-emits the nested deny).
 - **Every policy path is shape-checked, then RESOLVED, and anything ambiguous
@@ -286,6 +542,21 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   would silently re-open `~/.config/gcloud`. A RELATIVE path is rejected (srt
   resolves it against the Node process cwd, not `scratchDir`), as is a `..`
   segment and a `~` (never expanded — see the seam's rule).
+- **A ROOT-WIDE `allowRead` is refused** (`FencePolicyError`), even though it is
+  a mere ancestor of the always-denied stores. Ancestors are normally safe
+  because srt re-emits the nested deny after the broader allow — but through
+  0.0.73 that re-emission tests `denied.startsWith(allowed + '/')`, which for
+  `allowed === '/'` compares against `'//'` and never matches. **Measured on
+  macOS (BST-1071): `allowRead: ['/']` made `~/.ssh/*` and the contents of
+  `~/.config/gh/hosts.yml` readable from sandboxed code.** Re-measured against
+  0.0.73's generated Seatbelt profile in BST-1285 and UNCHANGED — the root
+  allow is still emitted after the credential deny under last-match-wins — so
+  this refusal remains load-bearing, not redundant. Linux is unaffected
+  (bubblewrap masks denied directories with tmpfs) — re-measured by execution
+  under real bwrap at 0.0.73 in BST-1285 — so CI alone would not have caught it
+  even if CI ran this suite, which it does not. That is why the refusal lives
+  in the policy layer, not a platform branch. Every ancestor SHORT of the root
+  is still accepted.
 - **Containment compares `realpath` output** — the reference implementation of
   the seam's "resolve before asking" requirement above, including the
   nonexistent-path error and the best-effort deny canonicalization. The
@@ -363,6 +634,123 @@ the probe URL) — never by weakening an assertion. The reachability guard
 matters in both directions: without it the allow-list test fails RED on a host
 with restricted egress, AND its sibling network-deny test would pass
 VACUOUSLY, asserting a leak guard it never actually exercised.
+
+#### Where the Linux half actually comes from (BST-1316, 2026-08-16, measured)
+
+The srt bump procedure below requires re-greening on macOS AND Linux. **Until
+2026-08-16 the Linux half was unobtainable from CI, and nothing said so.**
+`SandboxManager.checkDependenciesAsync()` requires `bwrap`, `socat` and `rg` on
+Linux; no workflow installed any of them, so all three real-fence suites
+(`fence-executor`, `run-python-tool`, `fence-escape-resistance`) skipped
+themselves on every Linux run — loud in the log, green in the check:
+
+```
+[fence-escape-resistance] SUITE SKIPPED — sandbox-runtime dependencies are missing
+on this linux host: ripgrep (rg) not found, bubblewrap (bwrap) not installed,
+socat not installed
+✓ src/__tests__/fence-escape-resistance.integration.spec.ts (32 tests | 27 skipped)
+```
+
+The only assertion that ever ran on Linux was the ungated version pin. The
+`unit-shard` job in `.github/workflows/test.yml` now supplies the half, and two
+things beyond the install were load-bearing:
+
+- **The install alone makes the lane RED, not covered.** On
+  `ubicloud-standard-4` (Ubuntu 24.04.4, kernel 6.14.0-azure, bubblewrap 0.9.0)
+  the three binaries install in ~8 s and the dependency check goes green — and
+  then every fenced run dies before executing a line:
+  `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`, and under
+  `--unshare-user`, `bwrap: setting up uid map: Permission denied`. Ubuntu
+  23.10+ ships `kernel.apparmor_restrict_unprivileged_userns=1` and the image
+  carries no AppArmor profile granting bwrap `userns create` (only the generic
+  `unprivileged_userns` and `lxc-usernsexec` profiles). **Measured: installing
+  the dependencies and nothing else took the suites from 27 quiet skips to 44
+  failures across 3 files**, every one of them the same empty stdout. The lane
+  therefore also lifts that sysctl — Ubuntu's own documented remediation, on an
+  ephemeral VM that already runs this repo's code under passwordless sudo. It
+  changes only whether bwrap can BUILD its namespace, never what the fence
+  denies inside one, which is the entire subject of these suites. The install
+  step ends with a bwrap smoke test so a future image change fails there, with
+  the kernel's own message, rather than 40 assertions deep in a security suite.
+- **The skip must not be able to go quiet again.** The Unit integration steps
+  set `BRAINSTRIKE_FENCE_DEPS_REQUIRED=1`, which the shared host gate
+  (`packages/agent/src/__tests__/fixtures/fence-host-gate.ts`) reads to
+  escalate a skip into a collection failure. It is scoped to lanes that
+  PROMISED the prerequisites: developer machines and the coverage lanes install
+  nothing and keep the loud-skip behaviour. Because turbo runs tasks in Strict
+  env mode, the variable is also declared on `test:integration` in
+  `turbo.jsonc` — without that it never reaches vitest and the guarantee is
+  inert.
+  - **EVERY suite-wide reason escalates, not only the dependency one**, and the
+    escalation therefore lives at the choke point that sees the COMPLETE reason
+    (`refuseToSkipInAPromisedLane`), never inside the dependency check. Scoping
+    it to `checkDependenciesAsync()` alone — the shape this first shipped as,
+    caught in review — left three other roads to a green lane that proved
+    nothing: no `python3` on `PATH` (all three suites), and an unreachable
+    probe host, which skips `fence-executor` and `run-python-tool` *entirely*,
+    filesystem and process-tree proofs included. The escape-resistance
+    network-cases gate escalates too: silently dropping the egress proofs is
+    the same broken promise as dropping the suite.
+  - The network prerequisite is the debatable one, since it depends on hosts
+    this repo does not control and a transient outage would red a required
+    lane. Accepted deliberately: that failure names itself in one line and a
+    reader can see it is not a code defect, whereas the silent skip it replaces
+    is undiagnosable by construction. If it proves flaky the answer is a more
+    robust probe, not a return to green-on-unrun.
+  - The install step also asserts `python3 --version`, so a runner image that
+    drops the interpreter fails as provisioning rather than reaching the
+    runtime gate at all.
+
+  Every leg — install, sysctl, interpreter, env flag, turbo declaration, and
+  the completeness of the escalation — is pinned with control tests in
+  `scripts/__tests__/linux-fence-lane-contract.test.mjs`.
+
+An srt bump reaches this lane automatically: the pin lives in
+`pnpm-workspace.yaml`, so the lockfile change puts `@brainstrike/agent` in
+turbo's `...[origin/main]` selection (verified on the BST-1285 bump PR, whose
+`Unit (rest)` job did collect the escape-resistance file — and skipped 27 of
+its 32 tests, which is what surfaced all of this).
+
+**One Linux assertion was platform-blind and is now fixed, not weakened.**
+`fence-executor`'s "DENIES a CHILD process spawned by the sandboxed code from
+writing outside scratchDir" matched only Seatbelt's wording. Seatbelt refuses
+the open (`PermissionError` / "Operation not permitted"); bubblewrap masks
+everything outside the write grant by re-mounting it read-only, so CPython
+raises `OSError: [Errno 30] Read-only file system`. Its sibling "DENIES a write
+outside scratchDir" already named that shape. The regex now enumerates both
+rather than dropping to "any error" — the same test still asserts the file does
+not exist and the child's return code is non-zero.
+
+**Read this as a product finding too, not only a CI one.** `isFenceSupported()`
+and `checkDependenciesAsync()` both look for binaries on `PATH`; neither builds
+a sandbox. A stock Ubuntu 24.04+ host carries the same kernel restriction the
+runner did, so on such a host the fence constructs successfully and then fails
+per run with bubblewrap's message. That is not silent degradation — the run
+reports a non-zero exit and the bwrap stderr, and `resolveCodeExecutor` never
+hands back a weaker tier — but it is not diagnosable either, and no capability
+field says "this host cannot build a namespace". Closing it needs a
+construction-time probe that actually spawns through bwrap. **Filed as BST-1317
+with the two candidate shapes** (throw at construction vs. report it as a
+capability); deliberately not fixed alongside the CI lane.
+
+#### Escape-resistance suite (BST-1071, LIVE)
+
+`packages/agent/src/__tests__/fence-escape-resistance.integration.spec.ts`, with
+`fence-escape-resistance.README.md` beside it. The contract suite above proves
+the executor behaves; this one attacks it — traversal, symlink escape, fork /
+multiprocessing / depth-2 grandchild inheritance, raw sockets that ignore the
+proxy, DNS as an exfil channel, resource exhaustion shape, host-env exfiltration,
+descendant survival across a policy change, and cancellation in both positions.
+
+**Read the README before changing either file.** It is the honest statement of
+what the fence does and does NOT guarantee (reads are permissive by default;
+exfiltration via an allow-listed domain is unaddressed; CPU/memory are bounded
+only by the timeout; kernel-level attacks defeat it entirely; there is no
+always-deny list for WRITES), it carries the mutation-kill table proving each
+security assertion actually detects the hole it names, and it records the srt
+re-green procedure. srt is an OS fence, not a VM — mode two (ADR-0003) is the
+answer for adversarial code, and this suite must not be read as claiming
+otherwise.
 
 ### VM executor (mode two)
 

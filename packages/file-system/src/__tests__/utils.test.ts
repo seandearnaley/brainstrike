@@ -3,7 +3,7 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DirectoryHandle } from '../types';
+import type { DirectoryHandle } from '../types.js';
 import {
   createLimiter,
   extractNativeDirectoryHandle,
@@ -14,7 +14,7 @@ import {
   isValidDirectoryHandle,
   normalizeDirectoryReadOptions,
   validateDirectoryPath,
-} from '../utils';
+} from '../utils.js';
 
 describe('utils', () => {
   const nativeHandle = {} as FileSystemDirectoryHandle;

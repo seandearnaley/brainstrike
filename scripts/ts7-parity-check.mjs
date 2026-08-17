@@ -5,19 +5,18 @@
 //
 // Discovers every `tsc --noEmit [--project <file>]` invocation reachable from
 // each workspace package's `type-check` script (following `pnpm <script>`
-// chains), runs each invocation under BOTH the repo's resolved TypeScript 6.x
-// (`node_modules/.bin/tsc`, the real library used by every API consumer) and
-// an explicitly-pinned TypeScript 7 native binary, and diffs the normalized
-// diagnostic sets (file:line:col:TSxxxx). Prints the symmetric difference and
-// exits non-zero on ANY mismatch — per the global constraint, parity failure
-// means the PR becomes a findings report, not a compiler switch.
+// chains), runs each invocation under BOTH compilers in the official
+// side-by-side installation (`node_modules/.bin/tsc6` for the compatibility
+// compiler and `node_modules/.bin/tsc` for the native compiler), and diffs the
+// normalized diagnostic sets (file:line:col:TSxxxx). Prints the symmetric
+// difference and exits non-zero on ANY mismatch. The same stop condition
+// applies to initial adoption and every later native/compatibility compiler
+// upgrade.
 //
-// The TS7 binary path is NEVER resolved through `node_modules/.bin` — see
-// docs/series-c-ts7-parity-findings.md for why (object-form `bin` collision
-// between typescript@6.x and typescript@7.x sharing the same `tsc` bin name).
-// It must be passed explicitly via --ts7-bin=<path-to-tsc> or the
-// TS7_TSC_BIN env var, and this script throws if it is missing or unusable —
-// no silent fallback to a guessed path.
+// Explicit paths remain available for compiler-upgrade probes. Defaults are
+// deliberately the two checked-in workspace shims, and each side's major is
+// verified before discovery so broken alias wiring cannot compare one compiler
+// against itself and report a vacuous green.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -36,11 +35,11 @@ const LOCATION_RE = /^(.*?)\((\d+),(\d+)\): (error TS\d+)/;
 // script, or a --filter that matches nothing would otherwise sail through with
 // mismatchCount === 0. These floors turn all of those into a loud throw.
 //
-// Values are deliberately well below the real counts at time of writing (39
-// packages with a `type-check` script; 67 comparable --noEmit invocations) so
-// ordinary churn doesn't trip them, while a collapse to near-zero does. If a
-// legitimate restructuring drops the real count below a floor, LOWER THE FLOOR
-// in the same commit — do not delete the check.
+// Values are deliberately well below the real counts at time of writing (42
+// packages with a tsc-backed `type-check` script; 77 comparable --noEmit
+// invocations) so ordinary churn doesn't trip them, while a collapse to
+// near-zero does. If a legitimate restructuring drops the real count below a
+// floor, LOWER THE FLOOR in the same commit — do not delete the check.
 const MIN_TYPECHECK_PACKAGES = 30;
 const MIN_COMPARED_PROJECTS = 55;
 
@@ -76,13 +75,12 @@ function readTscMajor(bin) {
   return Number(match[1]);
 }
 
-// Asserts a binary is the major we think it is. This is not paranoia: adding
-// TS7 to the workspace under ANY name rewrites the ROOT node_modules/.bin/tsc
-// to the 7.x binary (see the ".bin/tsc collision" section of
-// docs/series-c-ts7-parity-findings.md) — which is exactly this function's
-// default TS6 candidate. Without this check, running the guard in a tree that
-// has TS7 installed would compare TS7 against TS7 and report parity for
-// everything. That is the same vacuous-green class as an empty discovery set.
+// Asserts a binary is the major we think it is. This is not paranoia: before
+// the official `@typescript/typescript6` compatibility package provided the
+// `tsc6` bin, aliasing two `typescript` packages made both candidates resolve
+// to the same `tsc` bin. Without this check, broken workspace alias wiring can
+// still compare one compiler against itself and report parity for everything.
+// That is the same vacuous-green class as an empty discovery set.
 function assertMajor(bin, expectedMajor, label) {
   const actualMajor = readTscMajor(bin);
   if (actualMajor !== expectedMajor) {
@@ -90,8 +88,8 @@ function assertMajor(bin, expectedMajor, label) {
       `${label} binary at ${bin} reports major version ${actualMajor}, expected ${expectedMajor}. ` +
         'Refusing to run: comparing a compiler against itself would report parity vacuously. ' +
         (expectedMajor === 6
-          ? 'If TypeScript 7 is installed in this workspace it will have taken over the root ' +
-            'node_modules/.bin/tsc — pass --ts6-bin=<path to a real 6.x tsc> explicitly.'
+          ? 'The official compatibility compiler must expose tsc6; repair the workspace aliases ' +
+            'or pass --ts6-bin=<path to a real 6.x tsc> explicitly.'
           : 'Pass --ts7-bin=<path to a real 7.x tsc>.')
     );
   }
@@ -99,7 +97,7 @@ function assertMajor(bin, expectedMajor, label) {
 }
 
 function resolveTs6Bin(explicit) {
-  const candidate = explicit ?? path.join(REPO_ROOT, 'node_modules', '.bin', 'tsc');
+  const candidate = explicit ?? path.join(REPO_ROOT, 'node_modules', '.bin', 'tsc6');
   if (!fs.existsSync(candidate)) {
     throw new Error(
       `TypeScript 6 tsc binary not found at ${candidate}. Run "pnpm install" first, or pass --ts6-bin=<path>.`
@@ -109,16 +107,12 @@ function resolveTs6Bin(explicit) {
 }
 
 function resolveTs7Bin(explicit) {
-  const candidate = explicit ?? process.env.TS7_TSC_BIN;
-  if (!candidate) {
-    throw new Error(
-      'TypeScript 7 native tsc binary path was not provided. Pass --ts7-bin=<path-to-tsc> or set TS7_TSC_BIN. ' +
-        'This script never guesses a path (no silent fallback) because the native package is not resolved via ' +
-        'node_modules/.bin (see docs/series-c-ts7-parity-findings.md).'
-    );
-  }
+  const candidate =
+    explicit ?? process.env.TS7_TSC_BIN ?? path.join(REPO_ROOT, 'node_modules', '.bin', 'tsc');
   if (!fs.existsSync(candidate)) {
-    throw new Error(`TypeScript 7 tsc binary not found at ${candidate}.`);
+    throw new Error(
+      `TypeScript 7 tsc binary not found at ${candidate}. Run "pnpm install" first, or pass --ts7-bin=<path>.`
+    );
   }
   return candidate;
 }
@@ -162,7 +156,7 @@ function splitChain(command) {
 // Flattens a package's `type-check` script into an ordered list of concrete
 // shell command strings, following `pnpm <script-name>` references within the
 // SAME package (e.g. apps/desktop's `type-check` -> `type-check:main` +
-// `type-check:e2e`).
+// `type-check:test` + `type-check:e2e`).
 //
 // `inProgress` tracks the CURRENT RECURSION PATH, not every script ever seen.
 // The distinction matters: a diamond (`type-check` -> a -> shared, and
@@ -591,7 +585,7 @@ function main() {
   ].filter(Boolean);
 
   console.log(
-    `PARITY NOT ESTABLISHED (${blockers.join('; ')}). Do not switch the type-check binary. ` +
+    `PARITY NOT ESTABLISHED (${blockers.join('; ')}). Do not accept this compiler pairing. ` +
       'See docs/series-c-ts7-parity-findings.md.'
   );
   process.exitCode = 1;
@@ -599,7 +593,7 @@ function main() {
 
 // Only run when invoked directly, so the parsing helpers above can be imported
 // by scripts/__tests__/ts7-parity-check.test.mjs without executing a full
-// 67-project parity sweep as an import side effect (same convention as
+// full-workspace parity sweep as an import side effect (same convention as
 // scripts/run-turbo-command.mjs).
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main();

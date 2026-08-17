@@ -1,11 +1,11 @@
 import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
+import {
   getRegisteredEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
-import {
-  __resetVectorStatusUIStoreForTests,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   emitQueueTelemetry,
   type QueueAdapter,

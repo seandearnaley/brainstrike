@@ -24,6 +24,8 @@ export interface WorkspaceIndexExpectedFileCount {
   policyPreset: BackgroundIndexingPolicyPreset;
   rootPath: string;
   skippedByReason: WorkspaceIndexExpectedFileSkipCounts;
+  /** Directories whose adapter listing was truncated — the expected count is a floor, not exact. */
+  truncatedDirectoryPaths: string[];
 }
 
 export interface WorkspaceIndexExpectedFileCountWithNodes extends WorkspaceIndexExpectedFileCount {
@@ -129,10 +131,14 @@ export async function countExpectedWorkspaceIndexFiles({
     generatedOrIgnored: 0,
   };
   const entryPolicy = createBackgroundIndexingEntryPolicy({ preset: policyPreset });
+  const truncatedDirectoryPaths = new Set<string>();
   const tree = await readFullTreeWithOptions(fileSystemAdapter, rootHandle, {
     abortSignal,
     concurrency,
     entryPolicy,
+    onDirectoryTruncated: ({ path }) => {
+      truncatedDirectoryPaths.add(path);
+    },
     onEntrySkipped: ({ reason }) => {
       if (reason === 'default-ignore') {
         skippedByReason.defaultIgnore += 1;
@@ -161,6 +167,7 @@ export async function countExpectedWorkspaceIndexFiles({
     policyPreset: entryPolicy.preset,
     rootPath: rootHandle.path,
     skippedByReason,
+    truncatedDirectoryPaths: [...truncatedDirectoryPaths],
   };
 }
 

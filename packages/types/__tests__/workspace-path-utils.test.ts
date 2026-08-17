@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildWorkspaceLookupCandidates,
   normalizeWorkspaceLookupPath,
-} from '../src/workspace-path-utils';
+} from '../src/workspace-path-utils.js';
 
 describe('workspace path utilities', () => {
   it('normalizes lookup paths', () => {

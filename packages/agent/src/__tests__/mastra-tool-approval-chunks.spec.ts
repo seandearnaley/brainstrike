@@ -14,14 +14,19 @@
  *
  * See docs/agents/assistant-runtime.md (PERMISSION ENGINE, tool suspend/resume).
  */
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from '../mastra/agent-streaming';
+import { TOOL_CALL_DECLINED_MESSAGE } from '../mastra/tool-event-mapper';
+import { DataStreamCode } from '../stream/data-stream-codes';
+import { DataStreamMapper } from '../stream/data-stream-mapper';
+import type { StreamChunk } from '../types';
 import {
   agentInstances,
   expectLeadingContextBreakdown,
@@ -599,6 +604,7 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       'tool-call-filter',
       'provider-history-compat',
       'openai-tool-search-history-compat',
+      'openai-duplicate-item-compat',
       'token-limiter',
     ]);
     expect(mastraConfig.idGenerator?.()).toBe('assistant-resume-id');
@@ -629,6 +635,12 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(typeof approveGate).toBe('function');
     expect(approveGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(approveGate({ toolName: 'brainstrike_writeWorkspaceFile' })).toBe(true);
+    // Self-approving tools are NOT exempt from the explicit-global posture:
+    // with no permission snapshot their in-tool Gate A resolves 'allow' and
+    // is inert, so the global gate is the only prompt run_python would get
+    // here (BST-1097 review — the ask-set exemption must not leak into this
+    // posture).
+    expect(approveGate({ toolName: 'brainstrike_runPython' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Approved and continued.' });
     expect(chunks).toContainEqual({
       finishReason: 'stop',
@@ -643,8 +655,153 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     });
   });
 
+  // BST-1232 review (P2): the approval-resume leg used to omit
+  // `promptBreakdown` entirely, so a resumed run's calibration row always
+  // persisted a NULL `prompt_baseline_tokens` — even though prompt
+  // composition (instructions + tool definitions) is unchanged across a
+  // resume and the SAME baseline the initial turn would have reported still
+  // applies. Most non-trivial agentic threads pause at least once, so this
+  // meant most threads' NEWEST calibration row was NULL-baseline, starving
+  // the next turn's compaction trigger.
+  it('persists a baseline-carrying calibration row on an approval-resume leg', async () => {
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 3, promptTokens: 42 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 3, promptTokens: 42 } },
+    ]);
+
+    // Reuses the harness's default suspended-run fixture entry
+    // (run-approval-1 / tool-call-1, see mastra-stream-harness.ts) — same
+    // ids the passing 'resumes an approved Mastra tool call...' test above
+    // uses, since `resetMastraStreamHarness()` reseeds it before every test.
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: 'workspace.writeFile',
+      },
+      {
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          model: 'gpt-5.6-terra',
+          provider: 'openai',
+        },
+        storage: { id: 'workflow-storage' } as never,
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const calibration = chunks.find(
+      (chunk): chunk is { type: 'token-estimate-calibration'; value: Record<string, unknown> } =>
+        Boolean(
+          chunk &&
+            typeof chunk === 'object' &&
+            (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+        )
+    );
+    expect(calibration).toBeDefined();
+    expect(calibration?.value['promptBreakdownBaselineTokens']).toEqual(expect.any(Number));
+    expect((calibration?.value['promptBreakdownBaselineTokens'] as number) > 0).toBe(true);
+    // A resume sends no new messages — the context-breakdown chunk this same
+    // promptBreakdown feeds should reflect that honestly (zero attachments).
+    const breakdown = chunks.find(
+      (chunk): chunk is { breakdown: Record<string, unknown>; type: 'context-breakdown' } =>
+        Boolean(
+          chunk &&
+            typeof chunk === 'object' &&
+            (chunk as { type?: unknown }).type === 'context-breakdown'
+        )
+    )?.breakdown;
+    expect(breakdown?.['attachmentsCount']).toBe(0);
+  });
+
+  it('re-gates EVERY enforced ask-set tool on the resume leg — run_python included (BST-1097, 1.56+ idiom)', async () => {
+    // Since the @mastra/core 1.56 approval rework there is no self-approving
+    // exemption: run_python is an ordinary ask-set tool whose Gate A is the
+    // permission gate's requireApproval clone, so re-gating it on a resumed
+    // leg matches the framework's own idiom — the approval is consumed
+    // pre-execution and the tool runs once, never a loop.
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: 'workspace.writeFile',
+      },
+      {
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+            riskByTool: { 'brainstrike.runPython': 'execute', 'workspace.writeFile': 'edit' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+          'workspace.writeFile': { execute: async () => ({}), id: 'workspace.writeFile' },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    const enforcedGate = (
+      agentInstances.at(-1)?.approveToolCallCalls[0] as
+        | { requireToolApproval?: unknown }
+        | undefined
+    )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
+    expect(typeof enforcedGate).toBe('function');
+    // run_python is an ordinary ask-set tool now — gated like everything else.
+    expect(enforcedGate({ toolName: 'brainstrike_runPython' })).toBe(true);
+    // Ordinary ask tool on the same leg stays gated.
+    expect(enforcedGate({ toolName: 'workspace_writeFile' })).toBe(true);
+    // Mastra-internal working-memory bookkeeping stays exempt (D4).
+    expect(enforcedGate({ toolName: 'updateWorkingMemory' })).toBe(false);
+  });
+
   it('keeps a suspended-tool resume stream ID independent from its persisted ID', async () => {
     const storage = { id: 'workflow-storage' };
+    // The resume path verifies against the storage snapshot that the target
+    // call is suspended on a PLAIN suspend() pause (BST-1097's
+    // assertResumedCallIsSuspendPause) before resuming, so the run must exist
+    // in the discovery fixture as a NON-approval pause.
+    setSuspendedRuns([
+      {
+        runId: 'run-suspended-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-07-21T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Which city?' },
+            toolCallId: 'tool-call-suspended-1',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
     setMockStreamParts([
       { textDelta: 'Resumed and continued.', type: 'text-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
@@ -681,6 +838,7 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       'tool-call-filter',
       'provider-history-compat',
       'openai-tool-search-history-compat',
+      'openai-duplicate-item-compat',
       'token-limiter',
     ]);
     expect(mastraConfig.idGenerator?.()).toBe('assistant-suspend-resume-id');
@@ -701,6 +859,349 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Resumed and continued.' });
     expect(chunks).toContainEqual(
       expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+    );
+  });
+
+  // BST-1232 review (P2): same rationale as the approval-resume calibration
+  // test above — the suspended-tool resume leg (askUser/submitPlan resumes)
+  // also used to omit `promptBreakdown`, so its calibration row always
+  // persisted a NULL baseline too.
+  it('persists a baseline-carrying calibration row on a suspended-tool resume leg', async () => {
+    setSuspendedRuns([
+      {
+        runId: 'run-suspended-calibration',
+        status: 'suspended',
+        suspendedAt: new Date('2026-07-21T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Which city?' },
+            toolCallId: 'tool-call-suspended-calibration',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 2, promptTokens: 33 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 33 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { answer: 'Paris' },
+        runId: 'run-suspended-calibration',
+        toolCallId: 'tool-call-suspended-calibration',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'gpt-5.6-terra',
+          provider: 'openai',
+        },
+        storage: { id: 'workflow-storage' } as never,
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const calibration = chunks.find(
+      (chunk): chunk is { type: 'token-estimate-calibration'; value: Record<string, unknown> } =>
+        Boolean(
+          chunk &&
+            typeof chunk === 'object' &&
+            (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+        )
+    );
+    expect(calibration).toBeDefined();
+    expect((calibration?.value['promptBreakdownBaselineTokens'] as number) > 0).toBe(true);
+  });
+
+  it("attaches the 1.56+ approved rider to an ask-gated tool's OBJECT resume payload (BST-1097 idiom)", async () => {
+    // A plain suspension can only be raised from inside execute(), which the
+    // framework only reaches after the call's pre-execution gate settled — the
+    // rider states that historical fact so Mastra's per-leg re-check cannot
+    // convert the resume into a denial.
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+            toolCallId: 'tool-call-rider-1',
+            toolName: 'brainstrike_runPython',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { action: 'allow' },
+        runId: 'run-rider-1',
+        toolCallId: 'tool-call-rider-1',
+        toolName: 'brainstrike.runPython',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+            riskByTool: { 'brainstrike.runPython': 'execute' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toEqual({
+      action: 'allow',
+      approved: true,
+    });
+  });
+
+  it("attaches the rider to an ask-gated askUser's {answer} ENVELOPE resume — the shape the notice sends", async () => {
+    // The envelope migration exists exactly for this: askUser's canonical
+    // resume is now a plain object, so gating the 'read' category (or askUser
+    // per-tool) to 'ask' no longer strands its answers behind Mastra's
+    // per-leg re-check denial.
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-4',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Proceed?' },
+            toolCallId: 'tool-call-rider-4',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { answer: 'yes, proceed' },
+        runId: 'run-rider-4',
+        toolCallId: 'tool-call-rider-4',
+        toolName: 'brainstrike.askUser',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+            riskByTool: { 'brainstrike.askUser': 'read' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.askUser': {
+            execute: async () => ({}),
+            id: 'brainstrike.askUser',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toEqual({
+      answer: 'yes, proceed',
+      approved: true,
+    });
+  });
+
+  it('LEGACY compat: passes a NON-OBJECT resume payload through untouched even for an ask-gated tool — never mangled into an index map', async () => {
+    // The bare string/array is the PRE-ENVELOPE askUser answer shape, still
+    // possible when resuming a run suspended before the {answer} envelope
+    // migration. Spreading it would corrupt it: the rider is skipped (loud
+    // warn at the transport), and the payload reaches Mastra byte-identical.
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-2',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Proceed?' },
+            toolCallId: 'tool-call-rider-2',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: 'yes, proceed',
+        runId: 'run-rider-2',
+        toolCallId: 'tool-call-rider-2',
+        toolName: 'brainstrike.askUser',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+            riskByTool: { 'brainstrike.askUser': 'read' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.askUser': {
+            execute: async () => ({}),
+            id: 'brainstrike.askUser',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toBe('yes, proceed');
+  });
+
+  it("leaves an un-gated tool's object resume payload rider-free — Mastra will not re-check it", async () => {
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-3',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+            toolCallId: 'tool-call-rider-3',
+            toolName: 'brainstrike_runPython',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { action: 'allow' },
+        runId: 'run-rider-3',
+        toolCallId: 'tool-call-rider-3',
+        toolName: 'brainstrike.runPython',
+      },
+      {
+        // No permission policy → nothing is ask-gated → no re-check, no rider.
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toEqual({ action: 'allow' });
+  });
+
+  it('REFUSES to resume an APPROVAL pause through the suspend-resume transport (BST-1097)', async () => {
+    // The two pause kinds carry different resume shapes. A generic resume
+    // payload delivered to an approval pause would reach a self-approving
+    // tool as if its gates were settled — {action:'allow'} answering
+    // run_python's Gate A would skip the approval card entirely. The default
+    // fixtures list run-approval-1/tool-call-1 as requiresApproval: true.
+    const storage = { id: 'workflow-storage' };
+    await expectMastraAgentError(
+      streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'allow' },
+          runId: 'run-approval-1',
+          toolCallId: 'tool-call-1',
+        },
+        {
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          storage: storage as never,
+        }
+      ),
+      'mastra_agent_stream_failure'
+    );
+  });
+
+  it('fails visibly when the suspend-resume target is missing from the snapshot — never a blind resume', async () => {
+    const storage = { id: 'workflow-storage' };
+    await expectMastraAgentError(
+      streamMastraToolResumeAction(
+        {
+          resumeData: { answer: 'Paris' },
+          runId: 'run-not-in-storage',
+          toolCallId: 'tool-call-not-in-storage',
+        },
+        {
+          runtime: { apiKey: 'test-key', provider: 'openai' },
+          storage: storage as never,
+        }
+      ),
+      'mastra_agent_stream_failure'
     );
   });
 
@@ -745,6 +1246,165 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(declineGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(declineGate({ toolName: 'shell_tool' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
+  });
+
+  it('settles the declined tool call from the 1.59 tool-output-denied chunk instead of leaving it pending', async () => {
+    // BST-1282. `@mastra/core` 1.59 added `tool-output-denied` (mastra #20886)
+    // precisely so a declined `requireApproval` call RESOLVES: the tool never
+    // runs and no later `tool-result`/`tool-error` carries this id, so treating
+    // the chunk as `'ignored'` would strand the renderer's tool part pending
+    // forever. Proven across BOTH R6 stages — the Mastra→StreamChunk mapping
+    // here, and the StreamChunk→frame mapping that actually settles the call.
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      {
+        payload: {
+          approval: { approved: false, id: 'approval-decline-1', reason: 'not this path' },
+          args: { command: 'echo declined' },
+          toolCallId: 'tool-call-2',
+          toolName: 'shell_tool',
+        },
+        type: 'tool-output-denied',
+      },
+      { textDelta: 'Understood, skipping that.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'decline',
+        runId: 'run-approval-2',
+        toolCallId: 'tool-call-2',
+      },
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: storage as never,
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk as StreamChunk);
+    }
+
+    // Stage 1 — the Mastra boundary maps it to the TERMINAL decline tool event,
+    // carrying the shared `DeclinedToolCallResult` envelope (with the user's
+    // own reason) rather than an error string.
+    expect(chunks).toContainEqual({
+      name: 'shell_tool',
+      payload: {
+        args: { command: 'echo declined' },
+        callId: 'tool-call-2',
+        result: {
+          kind: 'declined',
+          message: TOOL_CALL_DECLINED_MESSAGE,
+          reason: 'not this path',
+        },
+        toolCallId: 'tool-call-2',
+      },
+      status: 'declined',
+      type: 'tool-event',
+    });
+    // …and closes the durable timeline row out, relabelled as a decline.
+    const failedEvents = findRunEventChunks(chunks, 'tool.failed');
+    expect(failedEvents).toHaveLength(1);
+    expect(failedEvents[0]?.event).toMatchObject({
+      label: 'Tool call declined',
+      metadata: { toolCallId: 'tool-call-2', toolName: 'shell_tool' },
+      status: 'failed',
+    });
+
+    // Stage 2 — the call SETTLES on the wire: a `toolCallResult` frame for this
+    // id, which is what stops the renderer's part spinning. Its absence is
+    // exactly the hang this chunk exists to fix. NOT flagged `isError`: that is
+    // the destructive-chrome switch, and the declined envelope is what the card
+    // reads to pick its muted stopped treatment.
+    const mapper = new DataStreamMapper('message-declined');
+    const frames = chunks.flatMap((chunk) => [...mapper.handleChunk(chunk)]);
+    expect(frames).toContainEqual({
+      code: DataStreamCode.toolCallResult,
+      value: {
+        result: {
+          kind: 'declined',
+          message: TOOL_CALL_DECLINED_MESSAGE,
+          reason: 'not this path',
+        },
+        toolCallId: 'tool-call-2',
+      },
+    });
+  });
+
+  it('does NOT report a declined tool call as a failure when the denial is the last chunk before finish', async () => {
+    // BST-1282 review. `pendingToolErrorTexts` is cleared only by a later
+    // `text-delta`, so routing the decline through the ERROR path made an empty
+    // continuation (or a Stop right after the denial) emit "I couldn't complete
+    // the tool action because it failed: The user declined this tool call…" and
+    // finalize the step as errored. Nothing failed — the user chose. This is the
+    // fixture the first test deliberately does not cover: no text after the
+    // denial, so nothing clears the map.
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      {
+        payload: {
+          approval: { approved: false, id: 'approval-decline-2' },
+          args: { command: 'echo declined' },
+          toolCallId: 'tool-call-2',
+          toolName: 'shell_tool',
+        },
+        type: 'tool-output-denied',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 0, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      { action: 'decline', runId: 'run-approval-2', toolCallId: 'tool-call-2' },
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: storage as never,
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk as StreamChunk);
+    }
+
+    // No reason given → the envelope carries the decision alone.
+    expect(chunks).toContainEqual({
+      name: 'shell_tool',
+      payload: {
+        args: { command: 'echo declined' },
+        callId: 'tool-call-2',
+        result: { kind: 'declined', message: TOOL_CALL_DECLINED_MESSAGE },
+        toolCallId: 'tool-call-2',
+      },
+      status: 'declined',
+      type: 'tool-event',
+    });
+
+    const mapper = new DataStreamMapper('message-declined-silent');
+    const frames = chunks.flatMap((chunk) => [...mapper.handleChunk(chunk)]);
+    frames.push(...mapper.finalizeOnStreamEnd());
+
+    // The call still settles…
+    expect(frames).toContainEqual({
+      code: DataStreamCode.toolCallResult,
+      value: {
+        result: { kind: 'declined', message: TOOL_CALL_DECLINED_MESSAGE },
+        toolCallId: 'tool-call-2',
+      },
+    });
+    // …and NOTHING claims a failure: no visible fallback text, no error frame,
+    // and the message finishes normally instead of as an errored step.
+    const visibleText = frames
+      .filter((frame) => frame.code === DataStreamCode.textDelta)
+      .map((frame) => String(frame.value))
+      .join('');
+    expect(visibleText).not.toContain('failed');
+    expect(frames.some((frame) => frame.code === DataStreamCode.error)).toBe(false);
+    expect(mapper.getTerminalOutcome()).toEqual({ error: null, status: 'completed' });
   });
 
   it('fails visibly before approval when the suspended snapshot cannot restore tool arguments', async () => {
@@ -1023,49 +1683,52 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       'brainstrike.submitPlan',
       { overview: 'do it', steps: [{ title: 'step' }], title: 'Plan' },
     ],
-  ])('treats a %s suspend part with NO sanitizedNameMap as REGISTERED and resumable', async (sanitizedToolName, dottedToolName, suspendPayload) => {
-    setMockStreamParts([
-      {
-        payload: {
-          suspendPayload,
-          toolCallId: 'suspended-sanitized-1',
-          toolName: sanitizedToolName,
+  ])(
+    'treats a %s suspend part with NO sanitizedNameMap as REGISTERED and resumable',
+    async (sanitizedToolName, dottedToolName, suspendPayload) => {
+      setMockStreamParts([
+        {
+          payload: {
+            suspendPayload,
+            toolCallId: 'suspended-sanitized-1',
+            toolName: sanitizedToolName,
+          },
+          runId: 'run-suspended-sanitized-1',
+          type: 'tool-call-suspended',
         },
+      ]);
+
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-sanitized', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      // The pause is offered for resume, under the CLIENT-FACING dotted id.
+      expect(chunks).toContainEqual({
         runId: 'run-suspended-sanitized-1',
-        type: 'tool-call-suspended',
-      },
-    ]);
-
-    const iterator = await streamMastraAgent(
-      [{ id: 'u-sanitized', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
-      { runtime: { apiKey: 'test-key', provider: 'openai' } }
-    );
-
-    const chunks: unknown[] = [];
-    for await (const chunk of iterator) {
-      chunks.push(chunk);
+        suspendPayload,
+        toolCallId: 'suspended-sanitized-1',
+        toolName: dottedToolName,
+        type: 'tool-suspend-required',
+      });
+      // ...and it is NOT treated as an unregistered dead end: no rejection event,
+      // and no `resumeSupported: false` (which would settle the tool card that is
+      // legitimately waiting for the user's answer).
+      expect(findRunEventChunks(chunks, 'tool.resume.unsupported')).toHaveLength(0);
+      expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
+      );
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+      );
     }
-
-    // The pause is offered for resume, under the CLIENT-FACING dotted id.
-    expect(chunks).toContainEqual({
-      runId: 'run-suspended-sanitized-1',
-      suspendPayload,
-      toolCallId: 'suspended-sanitized-1',
-      toolName: dottedToolName,
-      type: 'tool-suspend-required',
-    });
-    // ...and it is NOT treated as an unregistered dead end: no rejection event,
-    // and no `resumeSupported: false` (which would settle the tool card that is
-    // legitimately waiting for the user's answer).
-    expect(findRunEventChunks(chunks, 'tool.resume.unsupported')).toHaveLength(0);
-    expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
-    expect(chunks).toContainEqual(
-      expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
-    );
-    expect(chunks).not.toContainEqual(
-      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
-    );
-  });
+  );
 
   it('records a VISIBLE, NON-TERMINAL rejection for an UNREGISTERED suspending tool', async () => {
     setMockStreamParts([
@@ -1134,45 +1797,48 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
   it.each([
     ['brainstrike.askUser', { question: 'Which city?' }],
     ['brainstrike.submitPlan', { overview: 'do it', steps: [{ title: 'step' }], title: 'Plan' }],
-  ])('keeps the REGISTERED suspending tool %s resumable and unaffected by the rejection path', async (toolName, suspendPayload) => {
-    setMockStreamParts([
-      {
-        payload: {
-          suspendPayload,
-          toolCallId: 'suspended-registered-1',
-          toolName,
+  ])(
+    'keeps the REGISTERED suspending tool %s resumable and unaffected by the rejection path',
+    async (toolName, suspendPayload) => {
+      setMockStreamParts([
+        {
+          payload: {
+            suspendPayload,
+            toolCallId: 'suspended-registered-1',
+            toolName,
+          },
+          runId: 'run-suspended-registered-1',
+          type: 'tool-call-suspended',
         },
+      ]);
+
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-registered', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toContainEqual({
         runId: 'run-suspended-registered-1',
-        type: 'tool-call-suspended',
-      },
-    ]);
-
-    const iterator = await streamMastraAgent(
-      [{ id: 'u-registered', parts: [{ text: 'go', type: 'text' }], role: 'user' }],
-      { runtime: { apiKey: 'test-key', provider: 'openai' } }
-    );
-
-    const chunks: unknown[] = [];
-    for await (const chunk of iterator) {
-      chunks.push(chunk);
+        suspendPayload,
+        toolCallId: 'suspended-registered-1',
+        toolName,
+        type: 'tool-suspend-required',
+      });
+      expect(findRunEventChunks(chunks, 'tool.resume.unsupported')).toHaveLength(0);
+      expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
+      );
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+      );
     }
-
-    expect(chunks).toContainEqual({
-      runId: 'run-suspended-registered-1',
-      suspendPayload,
-      toolCallId: 'suspended-registered-1',
-      toolName,
-      type: 'tool-suspend-required',
-    });
-    expect(findRunEventChunks(chunks, 'tool.resume.unsupported')).toHaveLength(0);
-    expect(findRunEventChunks(chunks, 'tool.failed')).toHaveLength(0);
-    expect(chunks).toContainEqual(
-      expect.objectContaining({ finishReason: 'tool-calls', type: 'message-finish' })
-    );
-    expect(chunks).not.toContainEqual(
-      expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
-    );
-  });
+  );
 
   it('keeps malformed approval pauses visible when Mastra omits the tool call id', async () => {
     setMockStreamParts([
@@ -1227,5 +1893,153 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         usage: { completionTokens: 0, promptTokens: 0 },
       },
     ]);
+  });
+});
+
+describe('run_python approval executionContext stamping (BST-1070)', () => {
+  beforeEach(() => {
+    resetMastraStreamHarness();
+  });
+
+  async function collectApprovalChunk(args: unknown, toolName = 'brainstrike.runPython') {
+    setMockStreamParts([
+      {
+        payload: { args, toolCallId: 'approval-run-python-1', toolName },
+        runId: 'run-approval-run-python-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'run some python', type: 'text' }], role: 'user' }],
+      { requireToolApproval: true, runtime: { apiKey: 'test-key', provider: 'openai' } }
+    );
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+    return expectLeadingContextBreakdown(chunks).find(
+      (chunk) =>
+        typeof chunk === 'object' &&
+        chunk !== null &&
+        (chunk as { type?: unknown }).type === 'tool-approval-required'
+    ) as Record<string, unknown> | undefined;
+  }
+
+  it('stamps a server-computed executionContext for a well-formed run_python approval', async () => {
+    const approval = await collectApprovalChunk({ code: 'print(1)', timeoutMs: 60_000 });
+    expect(approval).toBeDefined();
+    expect(approval?.['executionContext']).toMatchObject({
+      allowedDomains: [],
+      defaultReadAccess: 'permissive',
+      executorKind: 'fence',
+      language: 'python',
+      timeoutMs: 60_000,
+    });
+    expect(
+      typeof (approval?.['executionContext'] as { policyFingerprint?: unknown })?.policyFingerprint
+    ).toBe('string');
+  });
+
+  it('omits executionContext when the args do not parse — the card falls to its fail-safe path', async () => {
+    const approval = await collectApprovalChunk({
+      code: 'print(1)',
+      unknownField: true,
+    });
+    expect(approval).toBeDefined();
+    expect(approval && 'executionContext' in approval).toBe(false);
+  });
+
+  it('never stamps executionContext on a non-code-execution tool', async () => {
+    const approval = await collectApprovalChunk(
+      { command: 'echo hi' },
+      'brainstrike.executeCommand'
+    );
+    expect(approval).toBeDefined();
+    expect(approval && 'executionContext' in approval).toBe(false);
+  });
+});
+
+describe('listSuspendedMastraRuns classification (BST-1084)', () => {
+  beforeEach(() => {
+    resetMastraStreamHarness();
+  });
+
+  it('classifies a mixed run: approval-gated calls to approvals, suspend() pauses to suspends, id-less skipped', async () => {
+    setSuspendedRuns([
+      {
+        runId: 'run-mixed-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-01T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { command: 'echo hi' },
+            requiresApproval: true,
+            toolCallId: 'call-approval-1',
+            toolName: 'brainstrike_executeCommand',
+          },
+          {
+            requiresApproval: false,
+            suspendPayload: { question: 'Which region?' },
+            toolCallId: 'call-suspend-1',
+            toolName: 'brainstrike_askUser',
+          },
+          {
+            // A delegation-thread style entry without ids: tolerated + skipped.
+            requiresApproval: false,
+            toolCallId: '',
+            toolName: '',
+          },
+        ],
+      },
+    ]);
+
+    const result = await listSuspendedMastraRuns(
+      { resourceId: 'workspace-a', threadId: 'thread-1' },
+      { runtime: { apiKey: 'test-key', provider: 'openai' }, storage: {} as never }
+    );
+
+    expect(result.approvals).toHaveLength(1);
+    expect(result.approvals[0]).toMatchObject({
+      toolCallId: 'call-approval-1',
+      toolName: 'brainstrike.executeCommand',
+    });
+    expect(result.suspends).toHaveLength(1);
+    expect(result.suspends[0]).toMatchObject({
+      suspendPayload: { question: 'Which region?' },
+      toolCallId: 'call-suspend-1',
+      toolName: 'brainstrike.askUser',
+    });
+  });
+
+  it('CANARY: a call listed as both approval and suspend yields ONE approval card, never two cards', async () => {
+    setSuspendedRuns([
+      {
+        runId: 'run-dup-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-01T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { code: 'print(1)' },
+            requiresApproval: true,
+            toolCallId: 'call-dup-1',
+            toolName: 'brainstrike_runPython',
+          },
+          {
+            requiresApproval: false,
+            suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+            toolCallId: 'call-dup-1',
+            toolName: 'brainstrike_runPython',
+          },
+        ],
+      },
+    ]);
+
+    const result = await listSuspendedMastraRuns(
+      { resourceId: 'workspace-a', threadId: 'thread-1' },
+      { runtime: { apiKey: 'test-key', provider: 'openai' }, storage: {} as never }
+    );
+
+    expect(result.approvals).toHaveLength(1);
+    expect(result.suspends).toHaveLength(0);
   });
 });

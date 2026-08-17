@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import { isDevEnv } from '@brainstrike/utils/env-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { ChevronLeft, ChevronRight, PanelLeft, PanelRight, Terminal, X } from 'lucide-react';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import {
@@ -608,6 +608,12 @@ interface PanelToggleConfig {
 }
 
 interface PanelChromeConfig {
+  /**
+   * Custom header-row content (e.g. a tab strip) rendered in place of the
+   * icon+title block. The collapse button always stays after it. Currently
+   * consumed by the RIGHT panel header only.
+   */
+  headerContent?: React.ReactNode;
   hideButtonLabel: string;
   hideButtonTestId: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -859,6 +865,13 @@ export interface IdeLayoutProps {
   children: React.ReactNode;
   className?: string;
   consoleContent?: React.ReactNode;
+  /**
+   * Reuse the PARENT layout's `IdeFileEditorContext` instead of creating a
+   * fresh (shadowing) one. A nested layout that hosts no tab strip of its own
+   * (e.g. the explorer surface inside the workspace panel) must pass this so
+   * `openFileInTab` calls from its subtree reach the outer workspace tabs.
+   */
+  inheritFileEditorContext?: boolean;
   leftPanelChrome?: Partial<PanelChromeConfig>;
   leftPanelContent?: React.ReactNode;
   panelConstraints?: Partial<IdeLayoutPanelConstraints>;
@@ -907,6 +920,7 @@ const DEFAULT_PANEL_CONSTRAINTS: IdeLayoutPanelConstraints = {
 
 export const IdeLayout = React.memo(function IdeLayout({
   children,
+  inheritFileEditorContext = false,
   leftPanelContent,
   leftPanelChrome,
   panelConstraints,
@@ -928,7 +942,11 @@ export const IdeLayout = React.memo(function IdeLayout({
   const isInitialRenderRef = useRef(true);
   const hasAppliedInitialLayout = useRef(false);
 
-  const fileEditorContextValue = useFileEditorContext();
+  const ownFileEditorContextValue = useFileEditorContext();
+  const parentFileEditorContextValue = React.useContext(IdeFileEditorContext);
+  const fileEditorContextValue = inheritFileEditorContext
+    ? parentFileEditorContextValue
+    : ownFileEditorContextValue;
 
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
   const hideToolsPanelButtonRef = useRef<HTMLButtonElement>(null);
@@ -1375,13 +1393,23 @@ export const IdeLayout = React.memo(function IdeLayout({
               >
                 <div className="flex h-full flex-col [contain:layout_paint_style]">
                   <div
-                    className="flex h-9 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                    className={`flex h-9 shrink-0 items-center justify-between border-border border-b bg-muted/30 ${
+                      resolvedRightPanelChrome.headerContent ? 'pr-2 pl-0' : 'px-2'
+                    }`}
                     data-testid="right-panel-header"
                   >
-                    <div className="flex items-center gap-2">
-                      <RightPanelIcon className="size-3.5" />
-                      <span className="font-medium text-xs">{resolvedRightPanelChrome.title}</span>
-                    </div>
+                    {resolvedRightPanelChrome.headerContent ? (
+                      <div className="flex h-full min-w-0 flex-1 items-stretch">
+                        {resolvedRightPanelChrome.headerContent}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <RightPanelIcon className="size-3.5" />
+                        <span className="font-medium text-xs">
+                          {resolvedRightPanelChrome.title}
+                        </span>
+                      </div>
+                    )}
                     <Button
                       aria-expanded={showRightPanel}
                       aria-label={resolvedRightPanelChrome.hideButtonLabel}

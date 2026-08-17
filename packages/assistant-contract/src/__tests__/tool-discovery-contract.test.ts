@@ -31,6 +31,7 @@ const EXPECTED_DEFERRED_NAMESPACES = {
   ],
   database: ['brainstrike.queryDiagnostics', 'brainstrike.querySelf'],
   embeddings: ['brainstrike.listEmbeddingSpaces', 'brainstrike.queryEmbeddingSpace'],
+  execution: ['brainstrike.runPython'],
   semantics: [
     'brainstrike.findWorkspaceSymbol',
     'brainstrike.hybridSearch',
@@ -38,9 +39,16 @@ const EXPECTED_DEFERRED_NAMESPACES = {
   ],
   sessions: ['brainstrike.inspectCommandSessions', 'brainstrike.manageCommandSession'],
   skills: ['brainstrike.runSkillScript', 'skill', 'skill_read', 'skill_search'],
-  web: ['brainstrike.webExtract', 'brainstrike.webSearch'],
+  web: [
+    'brainstrike.browserGetPageText',
+    'brainstrike.browserNavigate',
+    'brainstrike.browserReadPage',
+    'brainstrike.webExtract',
+    'brainstrike.webSearch',
+  ],
   workspace: [
     'brainstrike.deleteWorkspaceFile',
+    'brainstrike.manageCanvas',
     'brainstrike.manageTaskList',
     'brainstrike.renameWorkspaceFile',
   ],

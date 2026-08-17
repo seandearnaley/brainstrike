@@ -1,8 +1,8 @@
-import { OPENROUTER_RECOMMENDED_CODING_MODEL_IDS } from '@brainstrike/assistant-contract';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
-} from '@brainstrike/preferences/stores/model-registry-store';
+} from '@brainstrike/app-state/stores/model-registry-store';
+import { OPENROUTER_RECOMMENDED_CODING_MODEL_IDS } from '@brainstrike/assistant-contract';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOpenRouterDefaults } from './use-openrouter-model-defaults';
@@ -50,15 +50,15 @@ describe('useOpenRouterModelDefaults', () => {
   });
 
   it.each([
-    { configuredProviders: [], initialProviders: undefined, providerReadError: undefined },
+    { configuredProviders: [], discoveryEnabled: true, providerReadError: undefined },
     {
       configuredProviders: ['openrouter'],
-      initialProviders: ['openai'],
+      discoveryEnabled: false,
       providerReadError: undefined,
     },
     {
       configuredProviders: ['openrouter'],
-      initialProviders: undefined,
+      discoveryEnabled: true,
       providerReadError: 'OS keychain is locked',
     },
   ])('does not initialize an ineligible provider state: %o', async (props) => {
@@ -67,7 +67,7 @@ describe('useOpenRouterModelDefaults', () => {
         props.configuredProviders as 'openrouter'[],
         db,
         1,
-        props.initialProviders,
+        props.discoveryEnabled,
         props.providerReadError ? { openrouter: props.providerReadError } : undefined
       )
     );

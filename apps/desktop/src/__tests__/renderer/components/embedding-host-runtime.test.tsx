@@ -1,4 +1,10 @@
-import { render, waitFor } from '@testing-library/react';
+import {
+  recordEmbeddingBatchTelemetry,
+  recordEmbeddingTelemetryFailure,
+  removeEmbeddingTelemetrySource,
+  resetEmbeddingTelemetryForTests,
+} from '@brainstrike/embedding-worker';
+import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createEmbeddingHostCommand } from '../../../embedding-host-shared';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
@@ -79,7 +85,7 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteDatabase: () => currentDbRef.current,
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   ensureVectorPreferencesHydrated: ensureVectorPreferencesHydratedMock,
   useVectorPreferencesStore: Object.assign(
     (selector: (state: typeof storeState) => unknown) => selector(storeState),
@@ -132,6 +138,8 @@ vi.mock('../../../renderer/components/embedding-worker-config', () => ({
 describe('EmbeddingHostRuntime', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    stopMock.mockResolvedValue(undefined);
+    resetEmbeddingTelemetryForTests();
     currentDbRef.current = dbHandle;
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';
@@ -208,7 +216,11 @@ describe('EmbeddingHostRuntime', () => {
 
     storeState.hasHydrated = true;
     storeState.devicePref = 'wasm';
-    resolveHydration?.(storeState);
+    const finishHydration = resolveHydration as ((value: typeof storeState) => void) | null;
+    if (!finishHydration) {
+      throw new Error('Expected vector preference hydration to be pending.');
+    }
+    finishHydration(storeState);
 
     await waitFor(() => {
       expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
@@ -321,6 +333,118 @@ describe('EmbeddingHostRuntime', () => {
     });
   });
 
+  it('coalesces embedding telemetry updates before reporting them to main', async () => {
+    storeState.hasHydrated = true;
+    startEmbeddingWorkerMock.mockImplementationOnce(async (options) => {
+      options.onRuntimeMetadataChange?.({
+        device: 'webgpu',
+        dtype: 'fp16',
+        fallbackApplied: false,
+      });
+      return {
+        stop: stopMock,
+      };
+    });
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.any(Object),
+          state: 'running',
+        })
+      );
+    });
+    reportStatusMock.mockClear();
+
+    for (let batchIndex = 0; batchIndex < 2; batchIndex += 1) {
+      recordEmbeddingBatchTelemetry('test-worker', {
+        batchIndex,
+        endIndex: batchIndex + 1,
+        id: 'embed-test',
+        peakVectorsInFlight: 1,
+        startIndex: batchIndex,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      });
+    }
+
+    expect(reportStatusMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledTimes(1);
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              batchTransfer: expect.objectContaining({
+                batchCount: 2,
+                totalBytes: 16,
+              }),
+            }),
+          }),
+        })
+      );
+    });
+  });
+
+  it('does not let a pending telemetry report revive a stopped host', async () => {
+    storeState.hasHydrated = true;
+    startEmbeddingWorkerMock.mockImplementationOnce(async (options) => {
+      options.onRuntimeMetadataChange?.({
+        device: 'webgpu',
+        dtype: 'fp16',
+        fallbackApplied: false,
+      });
+      return { stop: stopMock };
+    });
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(expect.objectContaining({ state: 'running' }));
+    });
+    reportStatusMock.mockClear();
+
+    act(() => {
+      recordEmbeddingTelemetryFailure('workerpool telemetry diagnostic missing');
+      recordEmbeddingBatchTelemetry('test-worker', {
+        batchIndex: 0,
+        endIndex: 1,
+        id: 'embed-test',
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      });
+      commandListenerRef.current?.(createEmbeddingHostCommand('stop', 'test-runtime'));
+    });
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              health: {
+                failureCount: 1,
+                lastFailure: 'workerpool telemetry diagnostic missing',
+              },
+            }),
+          }),
+          state: 'stopped',
+        })
+      );
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(reportStatusMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'stopped' })
+    );
+  });
+
   it('resets the worker when it receives a strict reset command envelope', async () => {
     storeState.hasHydrated = true;
 
@@ -390,6 +514,9 @@ describe('EmbeddingHostRuntime', () => {
 
   it('stops automatic WebGPU device-loss restarts after repeated fatal errors', async () => {
     storeState.hasHydrated = true;
+    stopMock.mockImplementation(async () => {
+      removeEmbeddingTelemetrySource('terminal-worker');
+    });
 
     render(<EmbeddingHostRuntime />);
 
@@ -422,11 +549,40 @@ describe('EmbeddingHostRuntime', () => {
     await waitFor(() => {
       expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(3);
     });
+    act(() => {
+      recordEmbeddingBatchTelemetry('terminal-worker', {
+        batchIndex: 0,
+        endIndex: 1,
+        id: 'terminal-worker-batch',
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      });
+    });
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              batchTransfer: expect.objectContaining({ batchCount: 1 }),
+            }),
+          }),
+        })
+      );
+    });
     await triggerDeviceLoss(2);
 
     await waitFor(() => {
       expect(reportStatusMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              batchTransfer: expect.objectContaining({ batchCount: 0 }),
+            }),
+          }),
           lastError: expect.stringContaining('repeated WebGPU device loss'),
           state: 'error',
         })
@@ -493,7 +649,11 @@ describe('EmbeddingHostRuntime', () => {
     });
 
     view.unmount();
-    resolveStop?.();
+    const finishStop = resolveStop as (() => void) | null;
+    if (!finishStop) {
+      throw new Error('Expected embedding host stop to be pending.');
+    }
+    finishStop();
     await Promise.resolve();
 
     const stoppedReports = reportStatusMock.mock.calls.filter(
@@ -524,7 +684,11 @@ describe('EmbeddingHostRuntime', () => {
 
     expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
 
-    resolveStop?.();
+    const finishStop = resolveStop as (() => void) | null;
+    if (!finishStop) {
+      throw new Error('Expected embedding host stop to be pending.');
+    }
+    finishStop();
 
     await waitFor(() => {
       expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
@@ -650,5 +814,111 @@ describe('EmbeddingHostRuntime', () => {
         }),
       })
     );
+  });
+
+  it('keeps telemetry reports active while a foreground query embedding is running', async () => {
+    storeState.hasHydrated = true;
+    dbHandle.query.mockResolvedValue({
+      rows: [
+        {
+          capabilities: { defaultDimension: 2 },
+          description: '',
+          id: 'Xenova/all-MiniLM-L6-v2',
+          name: 'MiniLM',
+          parameters: {},
+          providerId: 'local',
+        },
+      ],
+    });
+    startEmbeddingWorkerMock.mockImplementationOnce(async (options) => {
+      options.onRuntimeMetadataChange?.({
+        device: 'webgpu',
+        dtype: 'fp32',
+        fallbackApplied: false,
+      });
+      return { stop: stopMock };
+    });
+    let releaseQuery: (() => void) | null = null;
+    generateQueryEmbeddingMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseQuery = resolve;
+      });
+      return {
+        embedding: [0.1, 0.2],
+        runtime: {
+          device: 'webgpu',
+          dtype: 'fp32',
+          fallbackApplied: false,
+        },
+      };
+    });
+
+    render(<EmbeddingHostRuntime />);
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalled();
+    });
+    const queryEmbeddingListener = queryEmbeddingListenerRef.current;
+    if (!queryEmbeddingListener) {
+      throw new Error('Expected embedding host query embedding listener to be registered.');
+    }
+
+    queryEmbeddingListener({
+      channel: 'query-embedding',
+      payload: {
+        dimensions: 2,
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local:Xenova/all-MiniLM-L6-v2',
+        query: 'long-running query',
+      },
+      requestId: 'embedding-query:telemetry-active',
+      runtimeId: 'test-runtime',
+      type: 'request',
+    });
+    await waitFor(() => {
+      expect(generateQueryEmbeddingMock).toHaveBeenCalled();
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({ active: true, state: 'running' })
+      );
+    });
+    reportStatusMock.mockClear();
+
+    act(() => {
+      recordEmbeddingBatchTelemetry('foreground-query-worker', {
+        batchIndex: 0,
+        endIndex: 1,
+        id: 'foreground-query-batch',
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      });
+    });
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          active: true,
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              batchTransfer: expect.objectContaining({ batchCount: 1 }),
+            }),
+          }),
+          state: 'running',
+        })
+      );
+    });
+
+    const finishQuery = releaseQuery as (() => void) | null;
+    if (!finishQuery) {
+      throw new Error('Expected query embedding generation to remain pending.');
+    }
+    finishQuery();
+    await waitFor(() => {
+      expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: 'embedding-query:telemetry-active' })
+      );
+    });
   });
 });

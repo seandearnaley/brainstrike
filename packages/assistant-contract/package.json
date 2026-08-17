@@ -2,11 +2,15 @@
   "name": "@brainstrike/assistant-contract",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/utils": "workspace:*",
-    "@brainstrike/types": "workspace:*"
+    "@brainstrike/logging": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
+    "@assistant-ui/react": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
@@ -19,6 +23,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js"
+    },
+    "./assistant-stream-session": {
+      "types": "./dist/assistant-stream-session.d.ts",
+      "import": "./dist/assistant-stream-session.js",
+      "require": "./dist/assistant-stream-session.js"
     },
     "./assistant-request-body-limit": {
       "types": "./dist/assistant-request-body-limit.d.ts",
@@ -75,6 +84,11 @@
       "import": "./dist/assistant-attachments.js",
       "require": "./dist/assistant-attachments.js"
     },
+    "./compaction-summary": {
+      "types": "./dist/compaction-summary.d.ts",
+      "import": "./dist/compaction-summary.js",
+      "require": "./dist/compaction-summary.js"
+    },
     "./mastra-memory-schema": {
       "types": "./dist/mastra-memory-schema.d.ts",
       "import": "./dist/mastra-memory-schema.js",
@@ -120,10 +134,20 @@
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
+    "./skills-bridge": {
+      "types": "./dist/skills-bridge.d.ts",
+      "import": "./dist/skills-bridge.js",
+      "require": "./dist/skills-bridge.js"
+    },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
       "import": "./dist/runtime-data.js",
       "require": "./dist/runtime-data.js"
+    },
+    "./approval-action-message": {
+      "types": "./dist/approval-action-message.d.ts",
+      "import": "./dist/approval-action-message.js",
+      "require": "./dist/approval-action-message.js"
     },
     "./tool-approval": {
       "types": "./dist/tool-approval.d.ts",
@@ -164,7 +188,7 @@
   "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",

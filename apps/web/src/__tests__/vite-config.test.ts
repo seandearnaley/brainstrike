@@ -66,21 +66,25 @@ describe('web vite config alias contract', () => {
     expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/token-cache/);
   });
 
-  it('resolves each text-splitter subpath to its own distinct source file via the registry', () => {
-    for (const [specifier, sourcePath] of [
-      ['@brainstrike/text-splitter/chunking-core', 'chunking-core.ts'],
-      ['@brainstrike/text-splitter/token-counting-heuristics', 'token-counting-heuristics.ts'],
-      ['@brainstrike/text-splitter/token-constants', 'token-constants.ts'],
-      ['@brainstrike/text-splitter/token-utils-accurate-lite', 'token-utils-accurate-lite.ts'],
+  it('resolves text-splitter and tokenization subpaths from their owning packages', () => {
+    for (const [specifier, packageName, sourcePath] of [
+      ['@brainstrike/text-splitter/chunking-core', 'text-splitter', 'chunking-core.ts'],
+      [
+        '@brainstrike/tokenization/token-utils-accurate-lite',
+        'tokenization',
+        'token-utils-accurate-lite.ts',
+      ],
+      ['@brainstrike/tokenization/token-utils-lite', 'tokenization', 'token-utils-lite.ts'],
     ] as const) {
       expect(resolveThroughAliases(specifier, registryEntries)).toBe(
-        path.resolve(PACKAGES_DIR, `text-splitter/src/${sourcePath}`)
+        path.resolve(PACKAGES_DIR, `${packageName}/src/${sourcePath}`)
       );
     }
     expect(resolveThroughAliases('@brainstrike/text-splitter', registryEntries)).toBe(
       path.resolve(PACKAGES_DIR, 'text-splitter/src/index.ts')
     );
     expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/text-splitter/);
+    expect(readWebViteConfig()).not.toMatch(/find:\s*'@brainstrike\/tokenization/);
   });
 
   it('pins file-tree-worker to source so renderer dev does not load stale dist workers', () => {
@@ -160,11 +164,16 @@ describe('web vite config alias contract', () => {
     expect(config).not.toContain('resolveVendorChunk');
     expect(config).not.toContain("return 'vendor'");
 
-    // context-actions/commands resolve to SOURCE via the shared registry
-    // (same TDZ-avoidance guarantee desktop's mirror test pins directly).
-    for (const pkg of ['context-actions', 'commands'] as const) {
-      const resolved = resolveThroughAliases(`@brainstrike/${pkg}`, registryEntries);
-      expect(resolved).toBe(path.resolve(PACKAGES_DIR, `${pkg}/src/index.ts`));
+    // The context-action system (root + './commands' subpath) resolves to
+    // SOURCE via the shared registry (same TDZ-avoidance guarantee desktop's
+    // mirror test pins directly).
+    const systemEntrypoints = [
+      ['@brainstrike/context-actions', 'context-actions/src/index.ts'],
+      ['@brainstrike/context-actions/commands', 'context-actions/src/commands/index.ts'],
+    ] as const;
+    for (const [specifier, sourcePath] of systemEntrypoints) {
+      const resolved = resolveThroughAliases(specifier, registryEntries);
+      expect(resolved).toBe(path.resolve(PACKAGES_DIR, sourcePath));
       expect(resolved).not.toMatch(/dist/);
     }
   });

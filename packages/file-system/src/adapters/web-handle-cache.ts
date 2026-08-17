@@ -1,4 +1,4 @@
-import { createLogger, encodeFileSelection } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 
 const logger = createLogger('WebHandleCache');
@@ -11,6 +11,10 @@ const ROOT_STORE = 'root-handles' as const;
 const FILE_STORE = 'file-handles' as const;
 const ROOT_LAST_ACCESSED_INDEX = 'by-last-accessed' as const;
 const FILE_BY_FOLDER_INDEX = 'by-folder' as const;
+// Persisted v2 file-handle keys intentionally retain the historical
+// `<rootId>|@|<relativePath>` encoding. This is a cache-storage key, not a
+// file-selection contract, so file-system owns it locally.
+const FILE_HANDLE_KEY_SEPARATOR = '|@|';
 
 const DEFAULT_MAX_AGE_MS = 2_592_000_000; // 30 days in ms (1000 * 60 * 60 * 24 * 30)
 
@@ -364,7 +368,10 @@ export class WebHandleCache implements HandleCache {
   }
 
   private buildFileKey(folderId: string, relativePath: string): string {
-    return encodeFileSelection(folderId, relativePath);
+    if (!(folderId && relativePath)) {
+      throw new Error('Both folderId and relativePath are required for a file-handle cache key');
+    }
+    return `${folderId}${FILE_HANDLE_KEY_SEPARATOR}${relativePath}`;
   }
 
   /**

@@ -13,7 +13,10 @@ import {
   type ToolOutputArtifactSettlementError,
   type ToolOutputArtifactSettlementStore,
 } from '../mastra/tool-output-artifact-settlement';
+import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { applyToolHooks } from '../tools/hook-tool-wrap';
+
+const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
 
 const reference = (byteLength: number): ToolOutputArtifactReference => ({
   byteLength,
@@ -137,7 +140,9 @@ describe('tool output artifact settlement', () => {
     );
     const projected = applyToolModelOutputProjections(
       settled,
-      new Map([['fixture', 'brainstrike.webExtract']])
+      new Map([['fixture', 'brainstrike.webExtract']]),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
     );
     const tool = projected['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
@@ -174,7 +179,9 @@ describe('tool output artifact settlement', () => {
     );
     const projected = applyToolModelOutputProjections(
       settled,
-      new Map([['fixture', 'workspace.read']])
+      new Map([['fixture', 'workspace.read']]),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
     );
     const tool = projected['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
@@ -202,7 +209,7 @@ describe('tool output artifact settlement', () => {
     expect(display).toMatchObject({
       artifactRef: { byteLength: new TextEncoder().encode(output).byteLength },
       code: 'tool_output_artifact',
-      hint: 'The complete workspace.read result is durable. Continue with brainstrike.readToolOutputArtifact using {"cursor":nextCursor}.',
+      hint: 'The complete workspace.read result is durable. Search with pattern or continue paging via brainstrike.readToolOutputArtifact using {"cursor":nextCursor}.',
       truncated: true,
       version: 1,
     });
@@ -215,32 +222,67 @@ describe('tool output artifact settlement', () => {
     expect(JSON.stringify(model).length).toBeLessThanOrEqual(8000);
   });
 
-  it.each([
-    'brainstrike.inspectCommandSessions',
-    'brainstrike.manageCommandSession',
-  ])('never durably settles command-session output from %s', async (toolName) => {
-    const output = {
-      output: `secret-${'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)}`,
-    };
-    const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) => ({
-      ...reference(new TextEncoder().encode(input.content).byteLength),
-      format: 'json',
-    }));
-    const tools = applyToolOutputArtifactSettlement(
-      { fixture: executableTool(async () => output) },
-      {
-        store: settlementStore(store),
-        toolNameMap: new Map([['fixture', toolName]]),
+  it('mentions delegation only when a delegation tool is registered for the run', async () => {
+    const output = `head-${'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)}-tail`;
+    const store = settlementStore(async (input) => reference(input.content.length));
+
+    const executeWithDelegationTools = async (
+      getDelegationToolNames: () => readonly string[]
+    ): Promise<string> => {
+      const tools = applyToolOutputArtifactSettlement(
+        { fixture: executableTool(async () => output) },
+        {
+          getDelegationToolNames,
+          store,
+          toolNameMap: new Map([['fixture', 'workspace.read']]),
+        }
+      );
+      const result = await (
+        tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }
+      ).execute({}, { agent: { toolCallId: 'call-1' } });
+      const display = readOutputTransform(tools['fixture'], result);
+      if (!isToolOutputArtifactEnvelope(display)) {
+        throw new TypeError('Expected a valid artifact envelope.');
       }
-    );
+      return display.hint;
+    };
 
-    const result = await (
-      tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }
-    ).execute({}, { agent: { toolCallId: 'call-1' } });
+    const registered = await executeWithDelegationTools(() => ['agent-analyze']);
+    expect(registered).toContain('Search with pattern');
+    expect(registered).toContain('delegate the cursor to agent-analyze');
 
-    expect(result).toBe(output);
-    expect(store).not.toHaveBeenCalled();
+    const unavailable = await executeWithDelegationTools(() => []);
+    expect(unavailable).toContain('Search with pattern');
+    expect(unavailable).not.toContain('delegate');
+    expect(unavailable).not.toContain('agent-analyze');
   });
+
+  it.each(['brainstrike.inspectCommandSessions', 'brainstrike.manageCommandSession'])(
+    'never durably settles command-session output from %s',
+    async (toolName) => {
+      const output = {
+        output: `secret-${'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES)}`,
+      };
+      const store = vi.fn<ToolOutputArtifactSettlementStore['store']>(async (input) => ({
+        ...reference(new TextEncoder().encode(input.content).byteLength),
+        format: 'json',
+      }));
+      const tools = applyToolOutputArtifactSettlement(
+        { fixture: executableTool(async () => output) },
+        {
+          store: settlementStore(store),
+          toolNameMap: new Map([['fixture', toolName]]),
+        }
+      );
+
+      const result = await (
+        tools['fixture'] as { execute: (...args: unknown[]) => Promise<unknown> }
+      ).execute({}, { agent: { toolCallId: 'call-1' } });
+
+      expect(result).toBe(output);
+      expect(store).not.toHaveBeenCalled();
+    }
+  );
 
   it('bypasses a custom projector after settlement so the model receives the artifact cursor', async () => {
     const output = { payload: 'x'.repeat(TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES), tail: 'kept' };
@@ -256,7 +298,12 @@ describe('tool output artifact settlement', () => {
       { fixture: executableTool(async () => output, projector) },
       { store: settlementStore(store), toolNameMap: new Map() }
     );
-    const projected = applyToolModelOutputProjections(settled, new Map());
+    const projected = applyToolModelOutputProjections(
+      settled,
+      new Map(),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
+    );
     const tool = projected['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
       toModelOutput: (output: unknown) => unknown;
@@ -317,7 +364,12 @@ describe('tool output artifact settlement', () => {
       store: settlementStore(async (input) => reference(input.content.length)),
       toolNameMap: new Map(),
     });
-    const projected = applyToolModelOutputProjections(settled, new Map());
+    const projected = applyToolModelOutputProjections(
+      settled,
+      new Map(),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
+    );
     const tool = projected['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
       toModelOutput: (output: unknown) => unknown;

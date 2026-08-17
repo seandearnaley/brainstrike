@@ -30,27 +30,27 @@ describe('Vercel assistant entrypoints', () => {
     vi.unstubAllEnvs();
   });
 
-  it.each([
-    undefined,
-    'production',
-  ])('fails closed without delegating the assistant request in %s', async (vercelEnvironment) => {
-    vi.stubEnv('VERCEL_ENV', vercelEnvironment);
-    const request = new Request('https://example.test/api/assistant', {
-      body: JSON.stringify({ messages: [] }),
-      method: 'POST',
-    });
+  it.each([undefined, 'production'])(
+    'fails closed without delegating the assistant request in %s',
+    async (vercelEnvironment) => {
+      vi.stubEnv('VERCEL_ENV', vercelEnvironment);
+      const request = new Request('https://example.test/api/assistant', {
+        body: JSON.stringify({ messages: [] }),
+        method: 'POST',
+      });
 
-    const response = await POST(request);
+      const response = await POST(request);
 
-    expect(response.status).toBe(503);
-    expect(response.headers.get('cache-control')).toBe('no-store');
-    await expect(response.json()).resolves.toEqual({
-      error: 'assistant_disabled',
-      reason: 'production_auth_required',
-    });
-    expect(routeMocks.assistantModuleLoaded).not.toHaveBeenCalled();
-    expect(routeMocks.postAssistant).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(503);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      await expect(response.json()).resolves.toEqual({
+        error: 'assistant_disabled',
+        reason: 'production_auth_required',
+      });
+      expect(routeMocks.assistantModuleLoaded).not.toHaveBeenCalled();
+      expect(routeMocks.postAssistant).not.toHaveBeenCalled();
+    }
+  );
 
   it('delegates assistant requests unchanged in a protected preview', async () => {
     vi.stubEnv('VERCEL_ENV', 'preview');
@@ -65,22 +65,22 @@ describe('Vercel assistant entrypoints', () => {
     expect(routeMocks.postAssistant).toHaveBeenCalledWith(request);
   });
 
-  it.each([
-    undefined,
-    'production',
-  ])('reports the assistant disabled without delegating status in %s', async (vercelEnvironment) => {
-    vi.stubEnv('VERCEL_ENV', vercelEnvironment);
+  it.each([undefined, 'production'])(
+    'reports the assistant disabled without delegating status in %s',
+    async (vercelEnvironment) => {
+      vi.stubEnv('VERCEL_ENV', vercelEnvironment);
 
-    const response = await GET();
+      const response = await GET();
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get('cache-control')).toBe('no-store');
-    await expect(response.json()).resolves.toEqual({
-      enabled: false,
-      reason: 'production_auth_required',
-    });
-    expect(routeMocks.getStatus).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      await expect(response.json()).resolves.toEqual({
+        enabled: false,
+        reason: 'production_auth_required',
+      });
+      expect(routeMocks.getStatus).not.toHaveBeenCalled();
+    }
+  );
 
   it('delegates assistant status unchanged in a protected preview', async () => {
     vi.stubEnv('VERCEL_ENV', 'preview');

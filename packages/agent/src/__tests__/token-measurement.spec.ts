@@ -1,13 +1,14 @@
 import type { TokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import { createTool } from '@mastra/core/tools';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   createPreparedTokenMeasurement,
-  createRunTokenDiagnostics,
+  createRunTokenDiagnostics as createRunTokenDiagnosticsWithBudget,
   serializeModelOutputForTokenMeasurement,
 } from '../mastra/token-measurement';
 import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
+import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { TOKEN_MEASUREMENT_FIXTURES } from './fixtures/token-measurement-fixtures';
 
 const EXACT_O200K: TokenMeasurementCapability = {
@@ -15,20 +16,35 @@ const EXACT_O200K: TokenMeasurementCapability = {
   tokenizer: 'o200k_base',
 };
 
-describe('prepared token measurement', () => {
-  it.each(TOKEN_MEASUREMENT_FIXTURES)('matches the verified o200k count for $name', async ({
-    o200kTokens,
-    text,
-  }) => {
-    const measurement = await createPreparedTokenMeasurement(EXACT_O200K);
+const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
 
-    expect(measurement.measure(text)).toEqual({
-      backstopTokens: Math.ceil(text.length / 4),
-      serializedCharacters: text.length,
-      status: 'measured',
-      tokenCount: o200kTokens,
-    });
-  });
+function createRunTokenDiagnostics(
+  params: Omit<
+    Parameters<typeof createRunTokenDiagnosticsWithBudget>[0],
+    'resolvedToolResultBudget'
+  >,
+  dependencies?: Parameters<typeof createRunTokenDiagnosticsWithBudget>[1]
+): ReturnType<typeof createRunTokenDiagnosticsWithBudget> {
+  return createRunTokenDiagnosticsWithBudget(
+    { ...params, resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET },
+    dependencies
+  );
+}
+
+describe('prepared token measurement', () => {
+  it.each(TOKEN_MEASUREMENT_FIXTURES)(
+    'matches the verified o200k count for $name',
+    async ({ o200kTokens, text }) => {
+      const measurement = await createPreparedTokenMeasurement(EXACT_O200K);
+
+      expect(measurement.measure(text)).toEqual({
+        backstopTokens: Math.ceil(text.length / 4),
+        serializedCharacters: text.length,
+        status: 'measured',
+        tokenCount: o200kTokens,
+      });
+    }
+  );
 
   it('labels a deterministic backstop without claiming exactness', async () => {
     const measurement = await createPreparedTokenMeasurement({
@@ -92,7 +108,7 @@ describe('run token diagnostics', () => {
       tools: { lookup: tool },
     });
 
-    diagnostics.recordModelOutput({
+    diagnostics.recordModelOutput('lookup', {
       type: 'text',
       value: `projected ${secret}`,
     });
@@ -103,6 +119,8 @@ describe('run token diagnostics', () => {
       measurementStatus: 'measured',
       modelVisibleProjectionCount: 1,
       providerReportedPromptTokens: 321,
+      resolvedDomainBudgetTokens: 1500,
+      resolvedTransportBudgetTokens: 3000,
       tokenizer: 'o200k_base',
       toolDefinitionCount: 1,
     });
@@ -111,25 +129,188 @@ describe('run token diagnostics', () => {
     expect(JSON.stringify(fields)).not.toContain(secret);
   });
 
-  it.each([
-    'anthropic',
-    'openai',
-  ])('measures the provider-native definition for the %s web-search tool', async (provider) => {
-    const nativeTool = createProviderNativeWebSearchTool(provider, undefined);
-    expect(nativeTool).toBeDefined();
+  it('logs the resolved per-run tool-result budgets unconditionally', async () => {
+    const diagnostics = await createRunTokenDiagnosticsWithBudget({
+      capability: EXACT_O200K,
+      resolvedToolResultBudget: resolveScaledToolResultBudget(200_000),
+      tools: {},
+    });
 
+    expect(diagnostics.toLogFields()).toMatchObject({
+      resolvedDomainBudgetTokens: 2289,
+      resolvedTransportBudgetTokens: 4578,
+    });
+  });
+
+  it('adds newly loaded tool definitions with the same aggregate measurement shape', async () => {
+    const initialTool = createTool({
+      description: 'Initially visible tool.',
+      execute: async () => ({}),
+      id: 'initial_tool',
+      inputSchema: z.object({ query: z.string() }),
+    });
+    const deferredTool = createTool({
+      description: 'Deferred workspace tool with a distinct schema.',
+      execute: async () => ({}),
+      id: 'deferred_tool',
+      inputSchema: z.object({ path: z.string(), startLine: z.number().optional() }),
+    });
     const diagnostics = await createRunTokenDiagnostics({
       capability: EXACT_O200K,
-      tools: { web_search: nativeTool! },
+      tools: { initial_tool: initialTool },
     });
-    const fields = diagnostics.toLogFields();
+    const before = diagnostics.toLogFields();
 
-    expect(fields).toMatchObject({
-      measurementStatus: 'measured',
-      toolDefinitionCount: 1,
-    });
-    expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
+    diagnostics.recordAdditionalToolDefinitions({ deferred_tool: deferredTool });
+    diagnostics.recordAdditionalToolDefinitions({});
+    const after = diagnostics.toLogFields();
+
+    expect(after.toolDefinitionCount).toBe(2);
+    expect(after.toolDefinitionBackstopTokens).toBeGreaterThan(
+      Number(before.toolDefinitionBackstopTokens)
+    );
+    expect(after.toolDefinitionSerializedCharacters).toBeGreaterThan(
+      Number(before.toolDefinitionSerializedCharacters)
+    );
+    expect(after.toolDefinitionTokens).toBeGreaterThan(Number(before.toolDefinitionTokens));
+    expect(diagnostics.toolDefinitionContextBreakdown()?.byTool).toHaveLength(1);
   });
+
+  it('records privacy-safe per-tool model-facing characters and generic truncation', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+
+    diagnostics.recordModelOutput('grepSearch', {
+      type: 'json',
+      value: { omittedItems: 4, truncated: true },
+    });
+    diagnostics.recordModelOutput('readWorkspaceFile', {
+      type: 'text',
+      value: 'private file contents',
+    });
+
+    const telemetry = diagnostics.toolCallTelemetry();
+    expect(telemetry).toEqual([
+      {
+        candidatesTruncated: false,
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify({
+          type: 'json',
+          value: { omittedItems: 4, truncated: true },
+        }).length,
+        occurredAt: expect.any(Number),
+        scanLimited: false,
+        toolId: 'grepSearch',
+        truncated: true,
+      },
+      {
+        candidatesTruncated: false,
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify({
+          type: 'text',
+          value: 'private file contents',
+        }).length,
+        occurredAt: expect.any(Number),
+        scanLimited: false,
+        toolId: 'readWorkspaceFile',
+        truncated: false,
+      },
+    ]);
+    expect(JSON.stringify(telemetry)).not.toContain('private file contents');
+  });
+
+  it('recognizes the two truncation shapes that actually occur (budget-fit text, artifact-page next)', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+
+    // Budget-fit path (trimCollectionToBudget): the domain record's
+    // truncation marker survives JSON-stringified inside a text-typed wire
+    // value — never a top-level `{type:'json'}` field.
+    diagnostics.recordModelOutput('executeCommand', {
+      type: 'text',
+      value: JSON.stringify({ hint: 'narrow the request', omittedItems: 3, truncated: true }),
+    });
+    // Durable-artifact settlement page: json-typed, continuation signalled by
+    // a `next` object, no `truncated` key at all.
+    diagnostics.recordModelOutput('readWorkspaceFile', {
+      type: 'json',
+      value: { content: 'partial', next: { input: { cursor: 'c1' }, tool: 'readArtifact' } },
+    });
+    // A plain non-JSON text projection (e.g. grepSearch's compact format)
+    // must not be misread as truncated just because it fails to parse.
+    diagnostics.recordModelOutput('grepSearch', {
+      type: 'text',
+      value: 'Found 3 matches in 2 files',
+    });
+
+    const telemetry = diagnostics.toolCallTelemetry();
+    expect(telemetry.map((sample) => [sample.toolId, sample.truncated])).toEqual([
+      ['executeCommand', true],
+      ['readWorkspaceFile', true],
+      ['grepSearch', false],
+    ]);
+  });
+
+  it('records subagent tool outputs as telemetry WITHOUT inflating the parent-run projection aggregate (BST-1196 review fix)', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+
+    // A subagent/persona-delegated tool call: must land in per-tool
+    // telemetry, but must NOT feed `modelVisibleProjection*` — that
+    // aggregate reconciles against `providerReportedPromptTokens`, i.e. what
+    // the PARENT model actually saw in its OWN prompt, which a child tool
+    // output never enters.
+    diagnostics.recordSubagentToolOutput('brainstrike.grepSearch', {
+      type: 'text',
+      value: 'child tool result',
+    });
+
+    const telemetryAfterSubagentOnly = diagnostics.toolCallTelemetry();
+    expect(telemetryAfterSubagentOnly).toHaveLength(1);
+    expect(telemetryAfterSubagentOnly[0]).toMatchObject({
+      toolId: 'brainstrike.grepSearch',
+    });
+
+    const fieldsAfterSubagentOnly = diagnostics.toLogFields();
+    expect(fieldsAfterSubagentOnly.modelVisibleProjectionCount).toBe(0);
+    expect(fieldsAfterSubagentOnly.modelVisibleProjectionTokens).toBe(0);
+
+    // A subsequent PRIMARY tool call still accumulates into the projection
+    // aggregate as before — the split is additive, not a regression of the
+    // primary path.
+    diagnostics.recordModelOutput('grepSearch', {
+      type: 'text',
+      value: 'parent tool result',
+    });
+
+    const telemetryAfterBoth = diagnostics.toolCallTelemetry();
+    expect(telemetryAfterBoth).toHaveLength(2);
+    expect(telemetryAfterBoth.map((sample) => sample.toolId)).toEqual([
+      'brainstrike.grepSearch',
+      'grepSearch',
+    ]);
+
+    const fieldsAfterBoth = diagnostics.toLogFields();
+    expect(fieldsAfterBoth.modelVisibleProjectionCount).toBe(1);
+    expect(fieldsAfterBoth.modelVisibleProjectionTokens).toBeGreaterThan(0);
+  });
+
+  it.each(['anthropic', 'openai'])(
+    'measures the provider-native definition for the %s web-search tool',
+    async (provider) => {
+      const nativeTool = createProviderNativeWebSearchTool(provider, undefined);
+      expect(nativeTool).toBeDefined();
+
+      const diagnostics = await createRunTokenDiagnostics({
+        capability: EXACT_O200K,
+        tools: { web_search: nativeTool! },
+      });
+      const fields = diagnostics.toLogFields();
+
+      expect(fields).toMatchObject({
+        measurementStatus: 'measured',
+        toolDefinitionCount: 1,
+      });
+      expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
+    }
+  );
 
   it('compacts inline media to a deterministic marker before counting', () => {
     const serialized = serializeModelOutputForTokenMeasurement({
@@ -146,6 +327,63 @@ describe('run token diagnostics', () => {
     expect(serialized).not.toContain('secret-base64-payload');
   });
 
+  it('counts actual serialized media characters for telemetry even though token counting masks them', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+    const output = {
+      type: 'content',
+      value: [{ data: 'actual-base64-payload', mediaType: 'image/png', type: 'image-data' }],
+    };
+
+    diagnostics.recordModelOutput('imageTool', output);
+
+    expect(diagnostics.toolCallTelemetry()).toEqual([
+      {
+        candidatesTruncated: false,
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify(output).length,
+        occurredAt: expect.any(Number),
+        scanLimited: false,
+        toolId: 'imageTool',
+        truncated: false,
+      },
+    ]);
+  });
+
+  it('keeps the shipped token measurement intact when the telemetry-only stringify throws', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+    const output = { type: 'text', value: 'ok' };
+    // `serializeModelOutputForTokenMeasurement` stringifies `compactMedia(output)`
+    // — a DIFFERENT object reference — while the telemetry char count
+    // stringifies `output` directly. Throwing only on the exact `output`
+    // reference reproduces "raw stringify fails (e.g. RangeError: Invalid
+    // string length on huge base64), masked stringify succeeds" without
+    // constructing a real oversized payload.
+    const realStringify = JSON.stringify.bind(JSON);
+    const stringifySpy = vi
+      .spyOn(JSON, 'stringify')
+      .mockImplementation((value: unknown, replacer?: unknown, space?: unknown) => {
+        if (value === output) {
+          throw new RangeError('Invalid string length');
+        }
+        return realStringify(value, replacer as never, space as never);
+      });
+
+    try {
+      diagnostics.recordModelOutput('lookup', output);
+    } finally {
+      stringifySpy.mockRestore();
+    }
+
+    // The telemetry sample is simply omitted...
+    expect(diagnostics.toolCallTelemetry()).toEqual([]);
+    // ...but the pre-existing, already-shipped token measurement still ran
+    // (best-effort telemetry failure must not degrade it — review fix).
+    const fields = diagnostics.toLogFields();
+    expect(fields.measurementStatus).toBe('measured');
+    expect(fields.modelVisibleProjectionCount).toBe(1);
+    expect(fields.modelVisibleProjectionTokens).toBeGreaterThan(0);
+  });
+
   it('keeps deterministic backstop totals when the optional counter fails', async () => {
     const diagnostics = await createRunTokenDiagnostics(
       {
@@ -158,7 +396,7 @@ describe('run token diagnostics', () => {
         },
       }
     );
-    diagnostics.recordModelOutput({ type: 'text', value: 'safe projection' });
+    diagnostics.recordModelOutput('lookup', { type: 'text', value: 'safe projection' });
 
     const logFields = diagnostics.toLogFields();
     expect(logFields).toMatchObject({

@@ -4,8 +4,6 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
-    // Resolve @brainstrike/preferences from source so the alignment test cannot
-    // pass against stale dist output.
     alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '../../packages'))],
   },
   test: {

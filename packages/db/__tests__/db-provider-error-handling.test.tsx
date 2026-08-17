@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
-import type { LogRecord } from '@brainstrike/utils';
+import type { LogRecord } from '@brainstrike/logging';
+import * as loggingModule from '@brainstrike/logging';
 import * as utilsModule from '@brainstrike/utils';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DbProvider, useFileRecordRepository } from '../src/db-provider';
+import { DbProvider } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
+import { useFileRecordRepository } from '../src/use-db';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 // Simple wrapper component for renderHook
@@ -69,7 +71,7 @@ describe('DbProvider error handling', () => {
     // a bare CJS require() bypasses vite aliases (native node resolution) and
     // resets the DIST logger copy instead of the src instance under test
     // (incident #1066 class; surfaced by the threads-pool mutation lane).
-    utilsModule.resetLogger();
+    loggingModule.resetLogger();
   });
 
   afterEach(async () => {
@@ -92,8 +94,7 @@ describe('DbProvider error handling', () => {
   });
 
   it('logs initialization errors as structured metadata for browser exports', async () => {
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       if (record.scope === 'DbProvider') {
@@ -122,8 +123,7 @@ describe('DbProvider error handling', () => {
   });
 
   it('handles database initialization errors gracefully', async () => {
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       if (record.scope === 'DbProvider') {
@@ -164,8 +164,7 @@ describe('DbProvider error handling', () => {
   });
 
   it('handles migration errors gracefully', async () => {
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       if (record.scope === 'DbProvider') {
@@ -206,9 +205,7 @@ describe('DbProvider error handling', () => {
 
     // Mock production environment but enable logging for the test
     const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
-    // Configure logger to enable logging in production for this test
-    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
-    configureLogger({ enableInProduction: true });
+    const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       if (record.scope === 'DbProvider') {

@@ -2,9 +2,9 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { Badge } from '../badge';
 import { Button } from '../button';
+import { useResolvedTheme } from '../hooks/use-resolved-theme';
 import { cn } from '../lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
-import { useResolvedTheme } from './hooks/use-resolved-theme';
 import { getCollectionPickerProtection } from './protection';
 import type { CollectionPickerCollection, CollectionPickerItemProps } from './types';
 import { formatProviderLabel, getCollectionColor } from './utils/collection-colors';
@@ -13,6 +13,8 @@ interface CollectionPickerItemActionsProps {
   canDelete: boolean;
   canEdit: boolean;
   collection: CollectionPickerCollection;
+  /** Non-null while edit/delete are refused; shown as the tooltip. */
+  mutationBlockedReason: string | null;
   onDelete: (collection: CollectionPickerCollection) => void;
   onEdit: (collection: CollectionPickerCollection) => void;
 }
@@ -21,23 +23,32 @@ function CollectionPickerItemActions({
   canDelete,
   canEdit,
   collection,
+  mutationBlockedReason,
   onDelete,
   onEdit,
 }: CollectionPickerItemActionsProps) {
+  const blocked = mutationBlockedReason !== null;
+
   const handleEdit = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (blocked) {
+        return;
+      }
       onEdit(collection);
     },
-    [collection, onEdit]
+    [blocked, collection, onEdit]
   );
 
   const handleDelete = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (blocked) {
+        return;
+      }
       onDelete(collection);
     },
-    [collection, onDelete]
+    [blocked, collection, onDelete]
   );
 
   if (!(canEdit || canDelete)) {
@@ -50,7 +61,12 @@ function CollectionPickerItemActions({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              aria-label="Edit collection"
+              aria-label={
+                blocked
+                  ? `Edit collection (unavailable: ${mutationBlockedReason})`
+                  : 'Edit collection'
+              }
+              disabled={blocked}
               onClick={handleEdit}
               size="icon-xs"
               variant="ghost"
@@ -58,15 +74,20 @@ function CollectionPickerItemActions({
               <Pencil aria-hidden="true" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">Edit collection</TooltipContent>
+          <TooltipContent side="top">{mutationBlockedReason ?? 'Edit collection'}</TooltipContent>
         </Tooltip>
       )}
       {canDelete && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              aria-label="Delete collection"
+              aria-label={
+                blocked
+                  ? `Delete collection (unavailable: ${mutationBlockedReason})`
+                  : 'Delete collection'
+              }
               className="text-destructive hover:text-destructive"
+              disabled={blocked}
               onClick={handleDelete}
               size="icon-xs"
               variant="ghost"
@@ -74,7 +95,7 @@ function CollectionPickerItemActions({
               <Trash2 aria-hidden="true" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">Delete collection</TooltipContent>
+          <TooltipContent side="top">{mutationBlockedReason ?? 'Delete collection'}</TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -244,6 +265,7 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
           canDelete={protection.canDelete}
           canEdit={protection.canEdit}
           collection={collection}
+          mutationBlockedReason={protection.mutationBlockedReason}
           onDelete={onDelete}
           onEdit={onEdit}
         />

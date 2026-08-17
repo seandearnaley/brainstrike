@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildInaccessibleContent, INACCESSIBLE_CONTENT_PREFIX } from '../inaccessible-content';
+import { buildInaccessibleContent, INACCESSIBLE_CONTENT_PREFIX } from '../inaccessible-content.js';
 
 describe('inaccessible-content sentinel', () => {
   it('exposes the canonical English-prose prefix', () => {
-    // Pin the literal string. Several consumers (workspace-tab-host,
+    // Pin the literal string. Several consumers (the workspace file-tab body,
     // use-persistent-token-cache, app-shell/workspace-collection-sync-service) match
     // on it via startsWith. If we ever rename, this test fails first to remind us to
     // update every consumer or graduate the contract to a typed status.

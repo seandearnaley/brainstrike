@@ -1,13 +1,19 @@
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import type { StreamChunk } from '../types';
 import { type EncodedChunk, encodeChunk, type StoredChunk } from './data-stream-codes';
-import { DataStreamMapper, type DataStreamTerminalOutcome } from './data-stream-mapper';
+import {
+  DataStreamMapper,
+  type DataStreamTerminalOutcome,
+  type OutputLimitContext,
+} from './data-stream-mapper';
 import { parseEventId } from './session-manager';
 import { SessionSubscription } from './session-subscription';
 
 export interface AssistantDataStreamSessionOptions {
   cleanupDelayMs?: number;
   messageId?: string;
+  outputLimitContext?: OutputLimitContext;
   sessionId?: string;
 }
 
@@ -51,7 +57,7 @@ export class AssistantDataStreamSession {
     this.closedPromise = new Promise<void>((resolve) => {
       this.resolveClosed = resolve;
     });
-    this.mapper = new DataStreamMapper(this.messageId);
+    this.mapper = new DataStreamMapper(this.messageId, resolved.outputLimitContext);
     for (const chunk of this.mapper.initialChunks()) {
       this.recordChunk(chunk);
     }

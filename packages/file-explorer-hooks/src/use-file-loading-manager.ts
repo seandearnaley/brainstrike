@@ -5,8 +5,8 @@
  * It handles loading file content and tracking loading states.
  */
 
+import { createLogger } from '@brainstrike/logging';
 import type { FileContents } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useState } from 'react';
 
 interface UseFileLoadingManagerProps {

@@ -1,4 +1,8 @@
 import {
+  tokenPreferencesSelectors,
+  useTokenPreferencesStore,
+} from '@brainstrike/app-state/stores/token-preferences-store';
+import {
   CHUNK_OVERLAP_BOUNDS,
   CHUNK_SIZE_BOUNDS,
   CHUNK_TOKEN_LIMIT_BOUNDS,
@@ -7,10 +11,6 @@ import {
   validateChunkSize,
   validateChunkTokenLimit,
 } from '@brainstrike/indexing-contract';
-import {
-  tokenPreferencesSelectors,
-  useTokenPreferencesStore,
-} from '@brainstrike/preferences/stores/token-preferences-store';
 import {
   type ChunkingPresetSelection,
   type ChunkingStrategy,

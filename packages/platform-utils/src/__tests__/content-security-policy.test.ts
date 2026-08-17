@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getContentSecurityPolicy } from '../content-security-policy';
+import { getContentSecurityPolicy } from '../content-security-policy.js';
 
 /**
  * Golden contract for the unified CSP builder (BST-745). The four literals below
@@ -15,6 +15,7 @@ const WEB_DEV_CSP =
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
   "frame-ancestors 'none'; " +
+  "frame-src 'self'; " +
   "img-src 'self' data: blob: http://localhost:*; " +
   "object-src 'none'; " +
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* https://cdn.jsdelivr.net blob:; " +
@@ -28,6 +29,7 @@ const WEB_PROD_CSP =
   "font-src 'self' data:; " +
   "form-action 'self'; " +
   "frame-ancestors 'none'; " +
+  "frame-src 'self'; " +
   "img-src 'self' data: blob:; " +
   "object-src 'none'; " +
   "script-src 'self' blob: 'wasm-unsafe-eval'; " +
@@ -41,6 +43,7 @@ const ELECTRON_DEV_CSP =
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
   "frame-ancestors 'none'; " +
+  'frame-src brainstrike-canvas:; ' +
   "img-src 'self' data: blob: brainstrike-asset: http://localhost:*; " +
   "object-src 'none'; " +
   "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' http://localhost:*; " +
@@ -54,6 +57,7 @@ const ELECTRON_PROD_CSP =
   "font-src 'self' data:; " +
   "form-action 'self'; " +
   "frame-ancestors 'none'; " +
+  'frame-src brainstrike-canvas:; ' +
   "img-src 'self' data: blob: brainstrike-asset:; " +
   "object-src 'none'; " +
   "script-src 'self' blob: 'wasm-unsafe-eval'; " +
@@ -127,6 +131,18 @@ describe('getContentSecurityPolicy', () => {
     const webProd = getContentSecurityPolicy('production', 'web');
     const electronDev = getContentSecurityPolicy('development', 'electron');
     const electronProd = getContentSecurityPolicy('production', 'electron');
+
+    it('frames only the Canvas shell: brainstrike-canvas: on Electron, same-origin on web (BST-1173)', () => {
+      // The Canvas sandbox shell is the ONLY thing either app ever frames.
+      // Electron serves it via the brainstrike-canvas: protocol (its own CSP
+      // header, exempt from the global stamp); web serves it same-origin at
+      // /canvas-frame.html with per-path headers. Neither target may frame the
+      // other's mechanism, and frame-src must never fall back to default-src.
+      expect(directiveOf(electronDev, 'frame-src')).toBe('frame-src brainstrike-canvas:');
+      expect(directiveOf(electronProd, 'frame-src')).toBe('frame-src brainstrike-canvas:');
+      expect(directiveOf(webDev, 'frame-src')).toBe("frame-src 'self'");
+      expect(directiveOf(webProd, 'frame-src')).toBe("frame-src 'self'");
+    });
 
     it('only Electron registers the custom brainstrike-asset: image protocol', () => {
       expect(directiveOf(electronDev, 'img-src')).toContain('brainstrike-asset:');

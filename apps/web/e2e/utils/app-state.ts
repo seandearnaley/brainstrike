@@ -9,7 +9,6 @@ const APP_STATE_KEYS = [
   'fileExplorerSettings',
   'file-explorer-storage-v5',
   'previewPanelPreferences.v1',
-  'collection-browser.v1',
   'database-demo.v2',
   'import-settings.v1',
   'background-indexing-preferences.v1',
@@ -22,6 +21,8 @@ const APP_STATE_KEYS = [
   'logging-preferences.v1',
   'model-registry-storage',
   'native-tool-preferences.v1',
+  'tab-manager.v1',
+  'workspace-tab-selection.v1',
 ] as const;
 
 const INDEXED_DB_NAMES = ['brainstrike-file-handles'] as const;

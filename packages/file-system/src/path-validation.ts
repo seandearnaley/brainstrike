@@ -69,19 +69,38 @@ export function normalizeRootDir(dir: string): string {
 
 export function isPathInsideRoot(rootDir: string, candidate: string): boolean {
   const relative = path.relative(rootDir, candidate);
-  return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
+  // `startsWith('..')` alone would misclassify in-root children whose NAME
+  // starts with ".." (e.g. nyc's "..__..__var" coverage dirs) as outside.
+  return (
+    relative === '' ||
+    !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+  );
 }
 
 function containsNullByte(value: string): boolean {
   return value.includes('\0');
 }
 
+// Whole ".." segments, plus Win32 aliases: Windows strips trailing dots and
+// spaces per path component, so ".. " and "..." open as "..". Counted on every
+// platform — a POSIX file legitimately named ".. " is pathological enough to
+// reject from a security validator.
+const TRAVERSAL_SEGMENT_PATTERN = /^\.\.[. ]*$/;
+
 function countTraversalSegments(value: string): number {
+  // Only traversal segments count. Names that merely contain ".." (nyc
+  // coverage dirs like "..__..__var", git ranges like "a1b2c3..d4e5f6.diff")
+  // are legal on every platform and must pass.
+  //
+  // The split treats backslash as a separator on every platform, deliberately:
+  // a POSIX file literally named "x\..\y" is falsely counted, but the
+  // over-inclusive direction only ever over-counts (rejects), never lets a
+  // Windows-style traversal through a validator running on the wrong branch.
   let count = 0;
-  let idx = value.indexOf('..');
-  while (idx !== -1) {
-    count++;
-    idx = value.indexOf('..', idx + 2);
+  for (const segment of value.split(/[\\/]/)) {
+    if (TRAVERSAL_SEGMENT_PATTERN.test(segment)) {
+      count++;
+    }
   }
   return count;
 }

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import {
   Annotation,

@@ -2,7 +2,7 @@ import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { startEmbeddingWorker } from '../index';
+import { startEmbeddingWorker } from '../index.js';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -10,7 +10,7 @@ import type {
   EmbeddingService,
   EmbeddingStatus,
   SimilarityResult,
-} from '../types';
+} from '../types.js';
 
 class SlowEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';

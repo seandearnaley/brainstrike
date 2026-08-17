@@ -1,22 +1,23 @@
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
+import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX, getDefaultBrowserPGliteDataDir } from '@brainstrike/db';
 import { DbProvider } from '@brainstrike/db/react';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
-import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
-import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
+import {
+  applyLoggingPreferences,
+  initializeLogging,
+  installConsoleGuard,
+  installRendererErrorHooks,
+  LogLevel,
+} from '@brainstrike/logging';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
+import { DbSchemaVerifier } from '@brainstrike/settings-ui/components/db-schema-verifier';
 import { createBrowserStorageAdapter } from '@brainstrike/storage';
-import { installConsoleGuard } from '@brainstrike/utils/console-guard';
-import { installRendererErrorHooks } from '@brainstrike/utils/install-renderer-error-hooks';
-import { LogLevel } from '@brainstrike/utils/logger';
-import { initializeLogging } from '@brainstrike/utils/logging-initializer';
-import { applyLoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import React from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
-import { HelmetProvider } from 'react-helmet-async';
 import { WebE2ETestHooks } from './web-e2e-test-hooks';
 // Import global CSS
 import './app/globals.css';
@@ -207,16 +208,14 @@ const webDbPath = resolveWebDbPath();
 
 root.render(
   <React.StrictMode>
-    <HelmetProvider>
-      <DbProvider dbPath={webDbPath}>
-        <DiagnosticSinkBridge source="web-renderer" />
-        <WebE2ETestHooks dbPath={webDbPath} />
-        <DbSchemaVerifier>
-          <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-            <RootLayoutContent />
-          </AdaptersProvider>
-        </DbSchemaVerifier>
-      </DbProvider>
-    </HelmetProvider>
+    <DbProvider dbPath={webDbPath}>
+      <DiagnosticSinkBridge source="web-renderer" />
+      <WebE2ETestHooks dbPath={webDbPath} />
+      <DbSchemaVerifier>
+        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+          <RootLayoutContent />
+        </AdaptersProvider>
+      </DbSchemaVerifier>
+    </DbProvider>
   </React.StrictMode>
 );

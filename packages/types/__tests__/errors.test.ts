@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 
 import { describe, expect, it } from 'vitest';
-import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '../src/errors';
+import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '../src/errors.js';
 
 describe('PartialRefreshError', () => {
   it('should create an error with the correct properties', () => {

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import type { LogRecord } from '@brainstrike/logging';
 import {
   deriveDiagnosticRecordSource,
   logRecordToDiagnosticEvent,
   serializeDiagnosticEventLine,
 } from '@brainstrike/utils/diagnostics';
-import type { LogRecord } from '@brainstrike/utils/logger';
 import { DEFAULT_MAX_FILES, RotatingFileSink } from './rotating-file-sink';
 
 /** Base filename for the durable NDJSON backstop, shared with factory reset
@@ -67,7 +67,7 @@ function reportSinkFailure(context: string, error: unknown): void {
  *
  * This is fed by a log listener (see `logging-ipc.ts` and `main.ts`), so —
  * same rule as `RotatingFileSink` — NEVER import or call
- * `@brainstrike/utils/logger` from this module. See `reportSinkFailure`.
+ * `@brainstrike/logging` from this module. See `reportSinkFailure`.
  */
 export function createErrorLogSink(options: CreateErrorLogSinkOptions): ErrorLogSinkHandle {
   const sink = new RotatingFileSink({

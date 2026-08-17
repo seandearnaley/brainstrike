@@ -39,7 +39,13 @@ vi.mock('../providers/provider-factory', async (importActual) => {
       }
       return modelHolder.current;
     },
-    getDefaultModel: () => 'fake-model',
+    getDefaultModel: (provider: string) =>
+      ({
+        anthropic: 'claude-sonnet-5',
+        google: 'gemini-3.5-flash',
+        local: 'onnx-community/gemma-4-E2B-it-ONNX',
+        openrouter: 'openai/gpt-5.6-terra',
+      })[provider] ?? 'gpt-5.6-terra',
   };
 });
 
@@ -57,11 +63,17 @@ vi.mock('../mastra/subagent-delegation', async (importActual) => {
   };
 });
 
-const { streamMastraAgent, streamMastraToolApprovalAction, streamMastraToolResumeAction } =
-  await import('../mastra/agent-streaming');
+const {
+  listSuspendedMastraRuns,
+  streamMastraAgent,
+  streamMastraToolApprovalAction,
+  streamMastraToolResumeAction,
+} = await import('../mastra/agent-streaming');
 const { createPgliteMastraMemory } = await import('../pglite-mastra-memory');
 const { createSubmitPlanTool } = await import('../tools/submit-plan-tool');
 const { createAskUserTool } = await import('../tools/ask-user-tool');
+const { createRunPythonTool } = await import('../tools/run-python-tool');
+const { resolveSelfApprovalDecision } = await import('../mastra/permission-tool-gate');
 const { buildNativeToolRiskMap } = await import('@brainstrike/assistant-contract/tool-metadata');
 type AssistantPersonaDefinition =
   import('@brainstrike/assistant-contract/personas').AssistantPersonaDefinition;
@@ -118,6 +130,81 @@ function createTurnCountedToolCallModel(args: {
               input: args.input,
               toolCallId: args.toolCallId,
               toolName: args.toolName,
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
+      const id = 'text-final';
+      return Promise.resolve({
+        stream: enqueue([
+          { type: 'stream-start', warnings: [] },
+          { id, type: 'text-start' },
+          { delta: args.finalText, id, type: 'text-delta' },
+          { id, type: 'text-end' },
+          { finishReason: 'stop', type: 'finish', usage: USAGE },
+        ]),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+/**
+ * Discovery-then-tool scripted model (the approval spec's idiom): turn 1 loads
+ * the deferred tool via `search_tools`, turn 2 calls it, turn 3 emits final
+ * text. Needed for any tool in a DEFERRED discovery namespace (run_python's
+ * `execution`): calling one without loading it first is ToolNotFoundError by
+ * design.
+ */
+function createDiscoveryThenSuspendModel(args: {
+  deferredInput: string;
+  deferredToolCallId: string;
+  deferredToolName: string;
+  finalText: string;
+  searchQuery: string;
+}): LanguageModelV2 {
+  let turn = 0;
+  const enqueue = (parts: LanguageModelV2StreamPart[]) =>
+    new ReadableStream<LanguageModelV2StreamPart>({
+      start(controller) {
+        for (const part of parts) {
+          controller.enqueue(part);
+        }
+        controller.close();
+      },
+    });
+
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: () => {
+      turn += 1;
+      if (turn === 1) {
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: JSON.stringify({ query: args.searchQuery }),
+              toolCallId: 'call-search-before-suspend',
+              toolName: 'search_tools',
+              type: 'tool-call',
+            },
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
+      if (turn === 2) {
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            {
+              input: args.deferredInput,
+              toolCallId: args.deferredToolCallId,
+              toolName: args.deferredToolName,
               type: 'tool-call',
             },
             { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
@@ -365,8 +452,9 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await database.close();
   });
 
-  it('askUser SUSPENDS then resumes with a free-text answer, and again with a multi-select array', async () => {
-    // Free-text.
+  it('askUser SUSPENDS then resumes with a free-text {answer} envelope, and again with a LEGACY multi-select array', async () => {
+    // Free-text, via the canonical {answer} envelope (what the notice sends):
+    // proves REAL Mastra resumeSchema validation admits the envelope arm.
     const dbA = new PGlite();
     const memA = await makeMemory(dbA);
     const threadA = { resourceId: 'resource-ask-1', threadId: 'thread-ask-1' } as const;
@@ -398,7 +486,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     const freeResume = await drainYielding(
       await streamMastraToolResumeAction(
         {
-          resumeData: 'San Francisco',
+          resumeData: { answer: 'San Francisco' },
           runId: askSuspend?.runId ?? '',
           toolCallId: askSuspend?.toolCallId ?? '',
         },
@@ -417,7 +505,9 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     expect(toolSuccessOutputs(freeResume)).toContain('San Francisco');
     await dbA.close();
 
-    // Multi-select array → comma-joined.
+    // Multi-select array → comma-joined — resumed with the LEGACY bare
+    // string[] shape on purpose: proves real Mastra validation still admits
+    // the pre-envelope arm, so runs suspended before the migration resume.
     const dbB = new PGlite();
     const memB = await makeMemory(dbB);
     const threadB = { resourceId: 'resource-ask-2', threadId: 'thread-ask-2' } as const;
@@ -470,6 +560,602 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     expect(toolSuccessOutputs(multiResume)).toContain('a, b');
     await dbB.close();
   });
+
+  it("ASK-GATED askUser: the user's answer reaches execute() through the {answer} envelope — the scenario the envelope migration exists for", async () => {
+    // THE proof for the envelope migration. Under read:'ask' the permission
+    // gate clones askUser with requireApproval, so @mastra/core 1.56+ re-checks
+    // approval on the RESUME leg too and the transport attaches the
+    // `approved: true` rider. Every other askUser test here runs UN-gated (no
+    // permissionPolicy ⇒ no rider), so none of them exercise this path, and
+    // the mock rider test in mastra-tool-approval-chunks.spec.ts can only see
+    // what we hand to resumeStream, not Mastra's verdict on it.
+    //
+    // The assertion is deliberately at the EXECUTOR (toolSuccessOutputs), never
+    // final text: the scripted model emits its text whether the tool saw the
+    // answer, a denial, or a re-raised suspension, which is exactly how a
+    // vacuous green ships.
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = { resourceId: 'resource-ask-gated', threadId: 'thread-ask-gated' } as const;
+    const policy = {
+      policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+      riskByTool: buildNativeToolRiskMap(),
+      yolo: false,
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Thanks.',
+      input: JSON.stringify({ question: 'Which city?' }),
+      toolCallId: 'call-ask-gated',
+      toolName: 'brainstrike_askUser',
+    });
+
+    const runOptions = {
+      memory,
+      runtime: {
+        apiKey: 'test-key',
+        memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+        permissionPolicy: policy,
+        provider: 'openai',
+      },
+      storage,
+      tools: { 'brainstrike.askUser': createAskUserTool() },
+    } as const;
+
+    // ── Phase 1: the pre-execution approval gate fires (askUser is risk
+    //    'read', which this policy gates to 'ask') — execute() has not run. ──
+    const approvalChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-ask-gated', parts: [{ text: 'ask me', type: 'text' }], role: 'user' }],
+        runOptions
+      )
+    );
+    const approval = findApprovalChunk(approvalChunks);
+    expect(approval?.toolName).toBe('brainstrike.askUser');
+    expect(findSuspendChunk(approvalChunks)).toBeUndefined();
+
+    // ── Phase 2: approve → execute() runs → askUser raises its own pause. ──
+    const suspendChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'brainstrike.askUser',
+        },
+        { ...runOptions, requireToolApproval: true }
+      )
+    );
+    const suspend = findSuspendChunk(suspendChunks);
+    expect(suspend?.toolName).toBe('brainstrike.askUser');
+    expect(suspend?.suspendPayload).toMatchObject({ question: 'Which city?' });
+
+    // ── Phase 3: answer it with the envelope. The tool must RETURN the answer,
+    //    not be denied and not be re-invoked as a fresh call (which would
+    //    re-ask the same question forever). ──
+    const answerChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { answer: 'San Francisco' },
+          runId: suspend?.runId ?? '',
+          toolCallId: suspend?.toolCallId ?? '',
+          toolName: 'brainstrike.askUser',
+        },
+        runOptions
+      )
+    );
+    expect(toolSuccessOutputs(answerChunks)).toContain('San Francisco');
+    // Not denied, and not re-asked: a fresh invocation would raise the pause again.
+    expect(findSuspendChunk(answerChunks)).toBeUndefined();
+
+    await database.close();
+  });
+
+  it('RESTART (BST-1084): listSuspendedMastraRuns rediscovers a suspend() pause WITH its payload, and a FRESH runtime resumes it', async () => {
+    // The suspend-side twin of the approval RESTART proof. Phase 1 suspends an
+    // askUser over `database`. Phase 2 simulates a process restart — a
+    // brand-new memory/storage/Agent over the SAME PGlite DB rediscovers the
+    // pause via the KEYLESS listing route (the exact desktop /suspended-runs
+    // shape), including the tool-defined suspendPayload recovered from the
+    // durable snapshot — the fact that makes the rediscovered notice able to
+    // render the real question instead of a placeholder. Phase 3 feeds the
+    // discovered runId+toolCallId into a fresh streamMastraToolResumeAction
+    // and the answer reaches the tool.
+    const database = new PGlite();
+    const thread = { resourceId: 'resource-susp-rst-1', threadId: 'thread-susp-rst-1' } as const;
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Thanks after restart.',
+      input: JSON.stringify({ question: 'Which region?' }),
+      toolCallId: 'call-ask-restart-susp-1',
+      toolName: 'brainstrike_askUser',
+    });
+
+    // ── Phase 1: SUSPEND (first "process") ──
+    const firstBoot = await makeMemory(database);
+    const liveSuspend = findSuspendChunk(
+      await drainYielding(
+        await streamMastraAgent(
+          [{ id: 'u-susp-rst-1', parts: [{ text: 'ask me', type: 'text' }], role: 'user' }],
+          {
+            memory: firstBoot.memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+              provider: 'openai',
+            },
+            storage: firstBoot.storage,
+            tools: { 'brainstrike.askUser': createAskUserTool() },
+          }
+        )
+      )
+    );
+    expect(liveSuspend?.toolName).toBe('brainstrike.askUser');
+
+    // ── Phase 2: RESTART SIMULATION — keyless discovery over the same DB ──
+    const secondBoot = await makeMemory(database);
+    const discovery = await listSuspendedMastraRuns(
+      { resourceId: thread.resourceId, threadId: thread.threadId },
+      {
+        memory: secondBoot.memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+          provider: 'ollama',
+        },
+        storage: secondBoot.storage,
+      }
+    );
+    // The pause lands in `suspends`, NEVER in `approvals` — misclassifying it
+    // as an approval would offer Approve/Decline for a question.
+    expect(discovery.approvals).toHaveLength(0);
+    expect(discovery.suspends).toHaveLength(1);
+    const rediscovered = discovery.suspends[0];
+    expect(rediscovered?.runId).toBe(liveSuspend?.runId);
+    expect(rediscovered?.toolCallId).toBe(liveSuspend?.toolCallId);
+    // The ORIGINAL dotted name, mapped through the KEYLESS route's static
+    // native reverse map (no tools are registered on the listing runtime).
+    expect(rediscovered?.toolName).toBe('brainstrike.askUser');
+    // The durable snapshot carries the tool-defined payload.
+    expect(rediscovered?.suspendPayload).toMatchObject({ question: 'Which region?' });
+    expect(Number.isNaN(Date.parse(rediscovered?.suspendedAt ?? 'x'))).toBe(false);
+
+    // A different thread sees nothing (scope filter).
+    const emptyDiscovery = await listSuspendedMastraRuns(
+      { resourceId: thread.resourceId, threadId: 'thread-other' },
+      {
+        memory: secondBoot.memory,
+        runtime: {
+          memory: { resourceId: thread.resourceId, threadId: 'thread-other' },
+          provider: 'ollama',
+        },
+        storage: secondBoot.storage,
+      }
+    );
+    expect(emptyDiscovery.suspends).toHaveLength(0);
+
+    // ── Phase 3: RESUME from a THIRD fresh runtime with the discovered ids ──
+    const thirdBoot = await makeMemory(database);
+    const resumeChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { answer: 'EU West' },
+          runId: rediscovered?.runId ?? '',
+          toolCallId: rediscovered?.toolCallId ?? '',
+          toolName: rediscovered?.toolName ?? '',
+        },
+        {
+          memory: thirdBoot.memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            provider: 'openai',
+          },
+          storage: thirdBoot.storage,
+          tools: { 'brainstrike.askUser': createAskUserTool() },
+        }
+      )
+    );
+    expect(toolSuccessOutputs(resumeChunks)).toContain('EU West');
+    expect(resumeChunks.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+
+    await database.close();
+  });
+
+  it('GATE B (BST-1070): run_python SUSPENDS with the domain payload; DENY yields network_denied; ALLOW executes with exactly the granted domains', async () => {
+    // The full Mastra transport proof for the network escalation, with the
+    // EXECUTOR stubbed through the tool's own resolveHost seam so the policy
+    // that reaches the sandbox is captured verbatim. run_python lives in the
+    // DEFERRED `execution` discovery namespace, so the scripted model mirrors
+    // production: it loads the tool through `search_tools` first (the same
+    // idiom as the approval spec's deferred-rehydration proof — a model that
+    // skips discovery gets ToolNotFoundError, which is the discovery surface
+    // working, not a suspension bug). The security property under test: no
+    // executor call ever happens before an explicit allow, and the allow
+    // leg's policy carries exactly the requested domains.
+    const capturedPolicies: unknown[] = [];
+    const stubHost = {
+      fence: () => ({
+        capabilities: () => ({
+          languages: ['python'] as const,
+          maxIsolationTier: 'os-fence' as const,
+          platform: 'darwin' as const,
+          supportsNetwork: true,
+        }),
+        dispose: async () => undefined,
+        execute: (input: { policy: unknown }) => {
+          capturedPolicies.push(input.policy);
+          return Promise.resolve({
+            exitCode: 0,
+            signal: null,
+            stderr: '',
+            stderrOmittedBytes: 0,
+            stdout: 'fetched\n',
+            stdoutOmittedBytes: 0,
+            timedOut: false,
+          });
+        },
+      }),
+    };
+    const makeTool = () =>
+      createRunPythonTool({
+        // No permission policy is enforced in this test, so Gate A resolves
+        // 'allow' — exactly what resolveSelfApprovalDecision(undefined, …)
+        // returns in production.
+        resolveApprovalDecision: () => 'allow',
+        resolveHost: async () => stubHost as never,
+      }) as never;
+
+    // ── DENY leg ──
+    const dbDeny = new PGlite();
+    const memDeny = await makeMemory(dbDeny);
+    const threadDeny = { resourceId: 'resource-gateb-1', threadId: 'thread-gateb-1' } as const;
+    modelHolder.current = createDiscoveryThenSuspendModel({
+      deferredInput: JSON.stringify({ allowedDomains: ['pypi.org'], code: 'print(1)' }),
+      deferredToolCallId: 'call-gateb-deny-1',
+      deferredToolName: 'brainstrike_runPython',
+      finalText: 'Understood, staying offline.',
+      searchQuery: 'run python code',
+    });
+    const denySuspend = findSuspendChunk(
+      await drainYielding(
+        await streamMastraAgent(
+          [{ id: 'u-gateb-1', parts: [{ text: 'fetch it', type: 'text' }], role: 'user' }],
+          {
+            memory: memDeny.memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: threadDeny.resourceId, threadId: threadDeny.threadId },
+              provider: 'openai',
+            },
+            storage: memDeny.storage,
+            tools: { 'brainstrike.runPython': makeTool() },
+          }
+        )
+      )
+    );
+    expect(denySuspend?.toolName).toBe('brainstrike.runPython');
+    expect(denySuspend?.suspendPayload).toEqual({
+      allowedDomains: ['pypi.org'],
+      kind: 'network',
+    });
+    // Suspension happened BEFORE any executor work.
+    expect(capturedPolicies).toHaveLength(0);
+
+    const denyChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'deny' },
+          runId: denySuspend?.runId ?? '',
+          toolCallId: denySuspend?.toolCallId ?? '',
+        },
+        {
+          memory: memDeny.memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: threadDeny.resourceId, threadId: threadDeny.threadId },
+            provider: 'openai',
+          },
+          storage: memDeny.storage,
+          tools: { 'brainstrike.runPython': makeTool() },
+        }
+      )
+    );
+    expect(toolSuccessOutputs(denyChunks)).toContain('network_denied');
+    expect(capturedPolicies).toHaveLength(0);
+    await dbDeny.close();
+
+    // ── ALLOW leg ──
+    const dbAllow = new PGlite();
+    const memAllow = await makeMemory(dbAllow);
+    const threadAllow = { resourceId: 'resource-gateb-2', threadId: 'thread-gateb-2' } as const;
+    modelHolder.current = createDiscoveryThenSuspendModel({
+      deferredInput: JSON.stringify({
+        allowedDomains: ['pypi.org', '*.example.com'],
+        code: 'print(1)',
+      }),
+      deferredToolCallId: 'call-gateb-allow-1',
+      deferredToolName: 'brainstrike_runPython',
+      finalText: 'Fetched.',
+      searchQuery: 'run python code',
+    });
+    const allowSuspend = findSuspendChunk(
+      await drainYielding(
+        await streamMastraAgent(
+          [{ id: 'u-gateb-2', parts: [{ text: 'fetch it', type: 'text' }], role: 'user' }],
+          {
+            memory: memAllow.memory,
+            runtime: {
+              apiKey: 'test-key',
+              memory: { resourceId: threadAllow.resourceId, threadId: threadAllow.threadId },
+              provider: 'openai',
+            },
+            storage: memAllow.storage,
+            tools: { 'brainstrike.runPython': makeTool() },
+          }
+        )
+      )
+    );
+    expect(allowSuspend?.suspendPayload).toEqual({
+      allowedDomains: ['pypi.org', '*.example.com'],
+      kind: 'network',
+    });
+    const allowChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'allow' },
+          runId: allowSuspend?.runId ?? '',
+          toolCallId: allowSuspend?.toolCallId ?? '',
+        },
+        {
+          memory: memAllow.memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: threadAllow.resourceId, threadId: threadAllow.threadId },
+            provider: 'openai',
+          },
+          storage: memAllow.storage,
+          tools: { 'brainstrike.runPython': makeTool() },
+        }
+      )
+    );
+    expect(toolSuccessOutputs(allowChunks)).toContain('completed');
+    expect(capturedPolicies).toHaveLength(1);
+    expect(capturedPolicies[0]).toMatchObject({
+      allowedDomains: ['pypi.org', '*.example.com'],
+    });
+    await dbAllow.close();
+  });
+
+  // The BST-1097 live repro, asserted at the EXECUTOR level. The earlier
+  // BOTH-FLAGS proof asserted only the scripted model's final text, which the
+  // fake model emits regardless of what the resumed tool returned — so the
+  // Gate B resume being re-denied by the approval gate ("Tool call was not
+  // approved by the user") passed that test while failing every real user.
+  // The only non-vacuous proof is that the sandbox actually ran.
+  it('GATE A + GATE B (BST-1097): under execute:ask, approve → allow-domains actually EXECUTES the script — the Gate B resume is never re-denied by the approval gate', async () => {
+    const capturedPolicies: unknown[] = [];
+    const stubHost = {
+      fence: () => ({
+        capabilities: () => ({
+          languages: ['python'] as const,
+          maxIsolationTier: 'os-fence' as const,
+          platform: 'darwin' as const,
+          supportsNetwork: true,
+        }),
+        dispose: async () => undefined,
+        execute: (input: { policy: unknown }) => {
+          capturedPolicies.push(input.policy);
+          return Promise.resolve({
+            exitCode: 0,
+            signal: null,
+            stderr: '',
+            stderrOmittedBytes: 0,
+            stdout: 'fetched\n',
+            stdoutOmittedBytes: 0,
+            timedOut: false,
+          });
+        },
+      }),
+    };
+    // read stays 'allow' so the deferred-discovery search_tools turn runs free;
+    // execute:'ask' is what arms Gate A for run_python (the live posture).
+    const policy = {
+      policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: buildNativeToolRiskMap(),
+      yolo: false,
+    } as const;
+    const makeTool = () =>
+      createRunPythonTool({
+        // The REAL derivation the desktop injects: the same snapshot the
+        // permission gate consumes resolves execute:'ask' → Gate A arms.
+        resolveApprovalDecision: () => resolveSelfApprovalDecision(policy, 'brainstrike.runPython'),
+        resolveHost: async () => stubHost as never,
+      }) as never;
+
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = { resourceId: 'resource-bst1097', threadId: 'thread-bst1097' } as const;
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+      permissionPolicy: policy,
+      provider: 'openai',
+    } as const;
+    modelHolder.current = createDiscoveryThenSuspendModel({
+      deferredInput: JSON.stringify({ allowedDomains: ['example.com'], code: 'print(1)' }),
+      deferredToolCallId: 'call-bst1097-1',
+      deferredToolName: 'brainstrike_runPython',
+      finalText: 'Fetched.',
+      searchQuery: 'run python code',
+    });
+
+    // ── Phase 1: Gate A — the approval pause fires, no suspension yet, and
+    //    nothing has touched the executor. ──
+    const phase1 = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-bst1097', parts: [{ text: 'fetch it', type: 'text' }], role: 'user' }],
+        {
+          memory,
+          runtime,
+          storage,
+          tools: { 'brainstrike.runPython': makeTool() },
+        }
+      )
+    );
+    const approval = findApprovalChunk(phase1);
+    expect(approval?.toolName).toBe('brainstrike.runPython');
+    expect(approval?.policyDecision).toBe('ask');
+    expect(approval?.riskCategory).toBe('execute');
+    expect(findSuspendChunk(phase1)).toBeUndefined();
+    expect(capturedPolicies).toHaveLength(0);
+
+    // ── Phase 2: APPROVE Gate A → execute() runs → Gate B suspends with the
+    //    domain payload. Still nothing has reached the executor. ──
+    const phase2 = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'brainstrike.runPython',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime,
+          storage,
+          tools: { 'brainstrike.runPython': makeTool() },
+        }
+      )
+    );
+    const gateB = findSuspendChunk(phase2);
+    expect(gateB?.toolName).toBe('brainstrike.runPython');
+    expect(gateB?.suspendPayload).toEqual({ allowedDomains: ['example.com'], kind: 'network' });
+    expect(capturedPolicies).toHaveLength(0);
+
+    // ── Phase 3: ALLOW the domains → the script MUST run, with exactly the
+    //    granted domains. Under BST-1097 this leg instead resolved as "Tool
+    //    call was not approved by the user" and the executor was never
+    //    reached. ──
+    const phase3 = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { action: 'allow' },
+          runId: gateB?.runId ?? '',
+          toolCallId: gateB?.toolCallId ?? '',
+        },
+        {
+          memory,
+          runtime,
+          storage,
+          tools: { 'brainstrike.runPython': makeTool() },
+        }
+      )
+    );
+    expect(capturedPolicies).toHaveLength(1);
+    expect(capturedPolicies[0]).toMatchObject({ allowedDomains: ['example.com'] });
+    expect(toolSuccessOutputs(phase3)).toContain('completed');
+    await database.close();
+  }, 120_000);
+
+  it('GATE A DECLINE (BST-1097, 1.59 idiom): declining the framework pre-execution approval settles the call with a decline terminal, never touches the executor, and the run continues', async () => {
+    const capturedPolicies: unknown[] = [];
+    const stubHost = {
+      fence: () => ({
+        capabilities: () => ({
+          languages: ['python'] as const,
+          maxIsolationTier: 'os-fence' as const,
+          platform: 'darwin' as const,
+          supportsNetwork: true,
+        }),
+        dispose: async () => undefined,
+        execute: (input: { policy: unknown }) => {
+          capturedPolicies.push(input.policy);
+          return Promise.resolve({
+            exitCode: 0,
+            signal: null,
+            stderr: '',
+            stderrOmittedBytes: 0,
+            stdout: '',
+            stdoutOmittedBytes: 0,
+            timedOut: false,
+          });
+        },
+      }),
+    };
+    const policy = {
+      policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+      riskByTool: buildNativeToolRiskMap(),
+      yolo: false,
+    } as const;
+    const makeTool = () =>
+      createRunPythonTool({
+        resolveApprovalDecision: () => resolveSelfApprovalDecision(policy, 'brainstrike.runPython'),
+        resolveHost: async () => stubHost as never,
+      }) as never;
+
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = { resourceId: 'resource-bst1097-d', threadId: 'thread-bst1097-d' } as const;
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+      permissionPolicy: policy,
+      provider: 'openai',
+    } as const;
+    modelHolder.current = createDiscoveryThenSuspendModel({
+      deferredInput: JSON.stringify({ code: 'print(1)' }),
+      deferredToolCallId: 'call-bst1097-d1',
+      deferredToolName: 'brainstrike_runPython',
+      finalText: 'Understood.',
+      searchQuery: 'run python code',
+    });
+
+    const phase1 = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-bst1097-d', parts: [{ text: 'run it', type: 'text' }], role: 'user' }],
+        { memory, runtime, storage, tools: { 'brainstrike.runPython': makeTool() } }
+      )
+    );
+    const approval = findApprovalChunk(phase1);
+    expect(approval?.toolName).toBe('brainstrike.runPython');
+
+    const phase2 = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'decline',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'brainstrike.runPython',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime,
+          storage,
+          tools: { 'brainstrike.runPython': makeTool() },
+        }
+      )
+    );
+    // A declined pre-execution approval is FRAMEWORK-owned and never reaches
+    // the tool: the executor is never touched and the run continues to its
+    // final answer. @mastra/core 1.59 (BST-1282) SUPERSEDES the 1.56/1.57
+    // "streams NO tool result" half of that contract — the decline leg now
+    // emits `tool-output-denied` so the client can RESOLVE the pending call
+    // instead of hanging forever. The one streamed tool event must therefore be
+    // the DECLINE terminal: never a success, and never the ERROR terminal,
+    // which would report the user's own choice as a tool failure (see
+    // docs/agents/mastra-boundary.md, 1.57 → 1.59).
+    expect(toolSuccessOutputs(phase2)).toBe('');
+    const declineEvents = phase2.filter(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> => chunk.type === 'tool-event'
+    );
+    expect(declineEvents.map((chunk) => chunk.status)).toEqual(['declined']);
+    expect(declineEvents[0]?.payload).toMatchObject({ result: { kind: 'declined' } });
+    expect(capturedPolicies).toHaveLength(0);
+    expect(finalText(phase2)).toContain('Understood.');
+    expect(phase2.find((chunk) => chunk.type === 'message-finish')).toBeDefined();
+    await database.close();
+  }, 120_000);
 
   it('FAIL-SAFE: without storage submitPlan is omitted from the Agent and resume throws', async () => {
     const database = new PGlite();
@@ -874,7 +1560,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await drainYielding(
       await streamMastraToolResumeAction(
         {
-          resumeData: 'San Francisco',
+          resumeData: { answer: 'San Francisco' },
           runId: askSuspend?.runId ?? '',
           toolCallId: askSuspend?.toolCallId ?? '',
         },

@@ -1,15 +1,16 @@
+import { embeddingWorkerTelemetrySink } from '@brainstrike/embedding-worker';
+import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import {
   registerEmbeddingQueueFactory,
   registerEmbeddingRuntimeConfig,
 } from '@brainstrike/embeddings/runtime-config';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { createBrowserEmbeddingQueue } from '@brainstrike/queue/browser';
-import { resolveEmbeddingWorkerUrlHref } from './resolve-embedding-worker-url';
 
 let singletonQueue: QueueAdapter | null = null;
 
 function registerEmbeddingWorkerRuntime(): string {
-  const embeddingWorkerUrl: string = resolveEmbeddingWorkerUrlHref();
+  const embeddingWorkerUrl: string = resolveViteEmbeddingWorkerUrlHref();
   registerEmbeddingRuntimeConfig({
     streamingWorkerUrl: embeddingWorkerUrl,
   });
@@ -35,6 +36,7 @@ function createSingletonQueue(): QueueAdapter {
     requireWorkerpool: true,
     worker: {
       name: 'desktop-renderer-embedding',
+      telemetry: embeddingWorkerTelemetrySink,
       workerUrl: embeddingWorkerUrl,
     },
   });

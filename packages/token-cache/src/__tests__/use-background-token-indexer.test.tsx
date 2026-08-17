@@ -18,8 +18,11 @@ const { mockLogger, mockEmitIndexedFile, mockEmitIndexingBacklog, mockEmitIndexi
   }));
 
 vi.mock('@brainstrike/utils', () => ({
-  createLogger: vi.fn(() => mockLogger),
   generateUUID: vi.fn(() => 'test-uuid'),
+}));
+
+vi.mock('@brainstrike/logging', () => ({
+  createLogger: vi.fn(() => mockLogger),
 }));
 
 vi.mock('../telemetry', () => ({
@@ -293,7 +296,9 @@ describe('useBackgroundTokenIndexer', () => {
       } as MessageEvent);
     });
 
-    expect(onFileError).toHaveBeenCalledWith('folder|@|bad.txt', 'boom');
+    // Third arg is the reason: undefined marks a GENUINE failure, as opposed to
+    // an expected exclusion like 'binary'.
+    expect(onFileError).toHaveBeenCalledWith('folder|@|bad.txt', 'boom', undefined);
     expect(mockEmitIndexingError).toHaveBeenCalledWith({
       compositeKey: 'folder|@|bad.txt',
       errorMessage: 'boom',
@@ -351,7 +356,8 @@ describe('useBackgroundTokenIndexer', () => {
     await expect(indexPromise).resolves.toBeUndefined();
     expect(onFileError).toHaveBeenCalledWith(
       'folder|@|special.ts',
-      'Accurate token counting failed: The text contains a special token that is not allowed: <|endoftext|>'
+      'Accurate token counting failed: The text contains a special token that is not allowed: <|endoftext|>',
+      undefined
     );
     expect(onFileError).not.toHaveBeenCalledWith(
       '__worker__',
@@ -1509,7 +1515,7 @@ describe('useBackgroundTokenIndexer', () => {
     });
 
     await expect(indexPromise).resolves.toBeUndefined();
-    expect(onFileError).toHaveBeenCalledWith('folder|@|slow.txt', 'boom');
+    expect(onFileError).toHaveBeenCalledWith('folder|@|slow.txt', 'boom', undefined);
     expect(result.current.isIndexing).toBe(false);
     expect(result.current.progress).toBeNull();
   });

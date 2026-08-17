@@ -3,7 +3,7 @@ import {
   BACKGROUND_INDEXING_POLICY_OPTIONS,
   createBackgroundIndexingEntryPolicy,
   DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE,
-} from '../background-indexing-policy';
+} from '../background-indexing-policy.js';
 
 describe('background-indexing-policy', () => {
   afterEach(() => {
@@ -139,6 +139,21 @@ describe('background-indexing-policy', () => {
     expect(splitSpy).not.toHaveBeenCalled();
   });
 
+  it('excludes nyc coverage output directories under both presets', () => {
+    // BST-1257: .nyc_output holds coverage artifacts (including path-mangled
+    // dir names like "..__..__var" that triggered BST-1255) — never index it.
+    for (const preset of ['balanced', 'full-root'] as const) {
+      const policy = createBackgroundIndexingEntryPolicy({ preset });
+
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: '.nyc_output',
+          relativePath: '.nyc_output',
+        })
+      ).toBe(false);
+    }
+  });
+
   it('balanced policy excludes Python environment and bytecode-cache directories', () => {
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
 
@@ -232,55 +247,55 @@ describe('background-indexing-policy', () => {
     }
   });
 
-  it.each([
-    'balanced',
-    'full-root',
-  ] as const)('%s policy skips .claude/worktrees but keeps the rest of .claude', (preset) => {
-    const policy = createBackgroundIndexingEntryPolicy({ preset });
+  it.each(['balanced', 'full-root'] as const)(
+    '%s policy skips .claude/worktrees but keeps the rest of .claude',
+    (preset) => {
+      const policy = createBackgroundIndexingEntryPolicy({ preset });
 
-    // The worktree copies themselves are excluded, directory and file alike.
-    expect(
-      policy.shouldTraverseDirectory({
-        directoryName: 'worktrees',
-        relativePath: '.claude/worktrees',
-      })
-    ).toBe(false);
-    expect(
-      policy.shouldTraverseDirectory({
-        directoryName: 'nested',
-        relativePath: '.claude/worktrees/feature-branch/packages/db/src',
-      })
-    ).toBe(false);
-    expect(
-      policy.shouldIncludeFile({
-        fileName: 'index.ts',
-        fileSize: 128,
-        relativePath: '.claude/worktrees/feature-branch/src/index.ts',
-      })
-    ).toBe(false);
+      // The worktree copies themselves are excluded, directory and file alike.
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: 'worktrees',
+          relativePath: '.claude/worktrees',
+        })
+      ).toBe(false);
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: 'nested',
+          relativePath: '.claude/worktrees/feature-branch/packages/db/src',
+        })
+      ).toBe(false);
+      expect(
+        policy.shouldIncludeFile({
+          fileName: 'index.ts',
+          fileSize: 128,
+          relativePath: '.claude/worktrees/feature-branch/src/index.ts',
+        })
+      ).toBe(false);
 
-    // Exclusion is scoped to the worktrees subtree — the rest of .claude
-    // (skills, commands, settings) and any unrelated top-level `worktrees`
-    // directory are still traversed.
-    expect(
-      policy.shouldTraverseDirectory({
-        directoryName: '.claude',
-        relativePath: '.claude',
-      })
-    ).toBe(true);
-    expect(
-      policy.shouldTraverseDirectory({
-        directoryName: 'skills',
-        relativePath: '.claude/skills',
-      })
-    ).toBe(true);
-    expect(
-      policy.shouldTraverseDirectory({
-        directoryName: 'worktrees',
-        relativePath: 'packages/worktrees',
-      })
-    ).toBe(true);
-  });
+      // Exclusion is scoped to the worktrees subtree — the rest of .claude
+      // (skills, commands, settings) and any unrelated top-level `worktrees`
+      // directory are still traversed.
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: '.claude',
+          relativePath: '.claude',
+        })
+      ).toBe(true);
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: 'skills',
+          relativePath: '.claude/skills',
+        })
+      ).toBe(true);
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: 'worktrees',
+          relativePath: 'packages/worktrees',
+        })
+      ).toBe(true);
+    }
+  );
 
   it('full-root policy skips macOS app and framework bundles', () => {
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });

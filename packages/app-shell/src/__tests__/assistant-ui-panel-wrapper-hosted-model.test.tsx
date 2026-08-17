@@ -1,8 +1,9 @@
 import './assistant-ui-panel-wrapper-test-support';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { render, screen, waitFor } from '@testing-library/react';
 import { expect, test } from 'vitest';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {
   fileExplorerMocks,
   loadTestLocalLlmBackend,
@@ -31,13 +32,14 @@ test('reconciles an active thread draft to the hosted fixed model', async () => 
   });
 
   render(
-    <AssistantUiPanelWrapper
-      fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
-      initialProviders={['openai']}
-      loadLocalLlmBackend={loadTestLocalLlmBackend}
-      memoryResourceId="/tmp/test-workspace"
-      memoryThreadId="thread-existing"
-    />
+    <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
+      <AssistantUiPanelWrapper
+        fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
+        loadLocalLlmBackend={loadTestLocalLlmBackend}
+        memoryResourceId="/tmp/test-workspace"
+        memoryThreadId="thread-existing"
+      />
+    </AssistantProviderSourceProvider>
   );
 
   await waitFor(() => {
@@ -57,13 +59,14 @@ test('reconciles an unavailable thread draft provider to the hosted provider', a
   });
 
   render(
-    <AssistantUiPanelWrapper
-      fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
-      initialProviders={['openai']}
-      loadLocalLlmBackend={loadTestLocalLlmBackend}
-      memoryResourceId="/tmp/test-workspace"
-      memoryThreadId="thread-existing"
-    />
+    <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
+      <AssistantUiPanelWrapper
+        fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
+        loadLocalLlmBackend={loadTestLocalLlmBackend}
+        memoryResourceId="/tmp/test-workspace"
+        memoryThreadId="thread-existing"
+      />
+    </AssistantProviderSourceProvider>
   );
 
   await waitFor(() => {
@@ -84,13 +87,14 @@ test('rebuilds stale draft options when the hosted fixed model already matches',
   });
 
   render(
-    <AssistantUiPanelWrapper
-      fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
-      initialProviders={['openai']}
-      loadLocalLlmBackend={loadTestLocalLlmBackend}
-      memoryResourceId="/tmp/test-workspace"
-      memoryThreadId="thread-existing"
-    />
+    <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
+      <AssistantUiPanelWrapper
+        fixedProviderModels={{ openai: ['gpt-5.6-terra'] }}
+        loadLocalLlmBackend={loadTestLocalLlmBackend}
+        memoryResourceId="/tmp/test-workspace"
+        memoryThreadId="thread-existing"
+      />
+    </AssistantProviderSourceProvider>
   );
 
   await waitFor(() => {

@@ -10,12 +10,15 @@ function makeShell() {
 }
 
 function makeStatPath() {
-  return vi.fn().mockResolvedValue({ isDirectory: () => false, isFile: () => true });
+  return vi.fn(async (_target: string) => ({ isDirectory: () => false, isFile: () => true }));
 }
 
 function makeHandlers(
   shell = makeShell(),
-  paths: { lstatPath?: ReturnType<typeof vi.fn>; statPath?: ReturnType<typeof vi.fn> } = {}
+  paths: {
+    lstatPath?: ReturnType<typeof makeStatPath>;
+    statPath?: ReturnType<typeof makeStatPath>;
+  } = {}
 ) {
   return createShellIpcHandlers({
     lstatPath: paths.lstatPath ?? makeStatPath(),
@@ -68,37 +71,27 @@ describe('shell IPC handlers', () => {
     expect(statPath).not.toHaveBeenCalled();
   });
 
-  it.each([
-    '',
-    '   ',
-    'relative/path.ts',
-    42,
-    null,
-    undefined,
-    { path: '/x' },
-  ])('rejects invalid showItemInFolder payload %p without touching shell', async (payload) => {
-    const shell = makeShell();
-    const handlers = makeHandlers(shell);
-    const result = await handlers.showItemInFolder(payload);
-    expect(result.ok).toBe(false);
-    expect(shell.showItemInFolder).not.toHaveBeenCalled();
-  });
+  it.each(['', '   ', 'relative/path.ts', 42, null, undefined, { path: '/x' }])(
+    'rejects invalid showItemInFolder payload %p without touching shell',
+    async (payload) => {
+      const shell = makeShell();
+      const handlers = makeHandlers(shell);
+      const result = await handlers.showItemInFolder(payload);
+      expect(result.ok).toBe(false);
+      expect(shell.showItemInFolder).not.toHaveBeenCalled();
+    }
+  );
 
-  it.each([
-    '',
-    '   ',
-    'relative/path.ts',
-    42,
-    null,
-    undefined,
-    { path: '/x' },
-  ])('rejects invalid openPath payload %p without touching shell', async (payload) => {
-    const shell = makeShell();
-    const handlers = makeHandlers(shell);
-    const result = await handlers.openPath(payload);
-    expect(result.ok).toBe(false);
-    expect(shell.openPath).not.toHaveBeenCalled();
-  });
+  it.each(['', '   ', 'relative/path.ts', 42, null, undefined, { path: '/x' }])(
+    'rejects invalid openPath payload %p without touching shell',
+    async (payload) => {
+      const shell = makeShell();
+      const handlers = makeHandlers(shell);
+      const result = await handlers.openPath(payload);
+      expect(result.ok).toBe(false);
+      expect(shell.openPath).not.toHaveBeenCalled();
+    }
+  );
 
   it('propagates shell.openPath error strings as failures', async () => {
     const shell = makeShell();

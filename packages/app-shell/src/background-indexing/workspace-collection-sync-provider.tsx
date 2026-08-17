@@ -1,4 +1,13 @@
 import {
+  ensureBackgroundIndexingPreferencesHydrated,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
+import {
+  useWorkspaceCollectionSyncStatusStore,
+  type WorkspaceCollectionSyncStatusPatch,
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import {
   applyManagedCacheBatch as applyManagedCacheBatchLocally,
   createDatabasePressureController,
   createPriorityDbHandle,
@@ -21,14 +30,17 @@ import {
 import { useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui/tree';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import {
-  ensureBackgroundIndexingPreferencesHydrated,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+  assertValidWorkspaceIndexingPowerSnapshot,
+  type WorkspaceIndexingPowerSnapshot,
+} from '@brainstrike/indexing-contract/workspace-indexing-power-snapshot';
 import {
-  useWorkspaceCollectionSyncStatusStore,
-  type WorkspaceCollectionSyncStatusPatch,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+  createWorkspaceIndexingQosTransitionLogger,
+  resolveWorkspaceIndexingQosPolicy,
+  type WorkspaceIndexingDatabasePressure,
+  type WorkspaceIndexingPipelineInputs,
+  type WorkspaceIndexingQosPolicy,
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, FileSystemChange } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
@@ -39,18 +51,6 @@ import {
   subscribeToBackgroundWorkArbiter,
 } from '@brainstrike/utils';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
-import { createLogger } from '@brainstrike/utils/logger';
-import {
-  assertValidWorkspaceIndexingPowerSnapshot,
-  type WorkspaceIndexingPowerSnapshot,
-} from '@brainstrike/utils/workspace-indexing-power-snapshot';
-import {
-  createWorkspaceIndexingQosTransitionLogger,
-  resolveWorkspaceIndexingQosPolicy,
-  type WorkspaceIndexingDatabasePressure,
-  type WorkspaceIndexingPipelineInputs,
-  type WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
 import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
 import {
   type ReactNode,
@@ -220,14 +220,23 @@ type WorkspaceCoverageAuditOutcome =
       readonly kind: 'unresolved-root';
       readonly message: string;
       readonly rootPath: string;
+    }
+  | {
+      readonly kind: 'truncated-root';
+      readonly message: string;
+      readonly rootPath: string;
     };
 type WorkspaceCoverageIncompleteOutcome = Extract<
   WorkspaceCoverageAuditOutcome,
   { readonly kind: 'incomplete' }
 >;
+type WorkspaceCoverageUnverifiableOutcome = Extract<
+  WorkspaceCoverageAuditOutcome,
+  { readonly kind: 'truncated-root' | 'unresolved-root' }
+>;
 type WorkspaceCoverageAuditTargetResult =
   | WorkspaceCoverageAuditTarget
-  | Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }>;
+  | WorkspaceCoverageUnverifiableOutcome;
 
 function parseDatabaseCount(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -260,16 +269,16 @@ function readFileCountFromCountRow(row: unknown): number {
   return parseDatabaseCount(record['file_count'] ?? record['fileCount'] ?? record['count']);
 }
 
-function isUnresolvedRootAuditOutcome(
+function isUnverifiableAuditOutcome(
   value: WorkspaceCoverageAuditTargetResult
-): value is Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }> {
-  return 'kind' in value && value.kind === 'unresolved-root';
+): value is WorkspaceCoverageUnverifiableOutcome {
+  return 'kind' in value && (value.kind === 'unresolved-root' || value.kind === 'truncated-root');
 }
 
 function isWorkspaceCoverageAuditTarget(
   value: WorkspaceCoverageAuditTargetResult
 ): value is WorkspaceCoverageAuditTarget {
-  return !isUnresolvedRootAuditOutcome(value);
+  return !isUnverifiableAuditOutcome(value);
 }
 
 async function readIndexedFileCountsByRoot(args: {
@@ -357,6 +366,14 @@ function getActiveRootHandles(args: {
   return args.rootDirectoryHandle ? [args.rootDirectoryHandle] : [];
 }
 
+function createMountedRootIdentityKey(
+  handle: DirectoryHandle,
+  rootIdByPath: ReadonlyMap<string, string>
+): string {
+  const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path) ?? null;
+  return JSON.stringify([adapterRootId, handle.path]);
+}
+
 function createCoverageAuditKey(args: {
   collectionId: string;
   handles: readonly DirectoryHandle[];
@@ -404,6 +421,17 @@ function createCoverageStatusPatch(args: {
   };
 }
 
+function createUnresolvedRootCoverageMessage(rootPath: string): string {
+  return `Workspace Index coverage cannot be verified because root ${rootPath} has no resolved database root id.`;
+}
+
+function createTruncatedRootCoverageMessage(
+  rootPath: string,
+  truncatedDirectoryCount: number
+): string {
+  return `Workspace Index coverage cannot be verified for root ${rootPath}: ${truncatedDirectoryCount} director${truncatedDirectoryCount === 1 ? 'y listing was' : 'y listings were'} truncated at the enumeration cap, so the expected file set is a partial prefix.`;
+}
+
 async function buildCoverageAuditTargets(args: {
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   handles: readonly DirectoryHandle[];
@@ -418,7 +446,7 @@ async function buildCoverageAuditTargets(args: {
       if (!dbRootId) {
         return {
           kind: 'unresolved-root',
-          message: `Workspace Index coverage cannot be verified because root ${handle.path} has no resolved database root id.`,
+          message: createUnresolvedRootCoverageMessage(handle.path),
           rootPath: handle.path,
         };
       }
@@ -428,6 +456,18 @@ async function buildCoverageAuditTargets(args: {
         policyPreset: args.policyPreset,
         rootHandle: handle,
       });
+      if (expected.truncatedDirectoryPaths.length > 0) {
+        // The expected set is a partial prefix; a fully-indexed prefix must
+        // not verify the root complete.
+        return {
+          kind: 'truncated-root',
+          message: createTruncatedRootCoverageMessage(
+            handle.path,
+            expected.truncatedDirectoryPaths.length
+          ),
+          rootPath: handle.path,
+        };
+      }
       // Deduped by normalized relative path: file_records rows are keyed by
       // (rootId, relativePath), so the DB can never hold more rows than the
       // deduped expected set — a raw node count would over-count.
@@ -443,9 +483,9 @@ async function buildCoverageAuditTargets(args: {
       };
     })
   );
-  const unresolvedRoot = targetResults.find(isUnresolvedRootAuditOutcome);
-  if (unresolvedRoot) {
-    return unresolvedRoot;
+  const unverifiableRoot = targetResults.find(isUnverifiableAuditOutcome);
+  if (unverifiableRoot) {
+    return unverifiableRoot;
   }
   return targetResults.filter(isWorkspaceCoverageAuditTarget);
 }
@@ -586,7 +626,7 @@ function applyWorkspaceCoverageAuditOutcome(args: {
     );
     return null;
   }
-  if (args.outcome.kind === 'unresolved-root') {
+  if (args.outcome.kind === 'unresolved-root' || args.outcome.kind === 'truncated-root') {
     logger.warn(args.outcome.message, { rootPath: args.outcome.rootPath });
     args.setStatus(
       createCoverageStatusPatch({
@@ -817,7 +857,12 @@ interface SyncLoopTarget {
   };
 }
 
-type ResolvedSyncLoopTarget = SyncLoopTarget & { dbRootId: string };
+type ResolvedSyncLoopTargetCandidate = SyncLoopTarget & {
+  adapterRootId: string | null;
+  dbRootId: string | null;
+};
+
+type ResolvedSyncLoopTarget = ResolvedSyncLoopTargetCandidate & { dbRootId: string };
 
 function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarget[] {
   return handles.map((handle) => ({
@@ -827,7 +872,7 @@ function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarg
 }
 
 function hasResolvedDbRootId(
-  target: SyncLoopTarget & { dbRootId: string | null }
+  target: ResolvedSyncLoopTargetCandidate
 ): target is ResolvedSyncLoopTarget {
   return target.dbRootId !== null;
 }
@@ -847,6 +892,29 @@ function orderTargetsByIndexedCoverage(
     .map((target, index) => ({ count: indexedCounts.get(target.dbRootId) ?? 0, index, target }))
     .sort((a, b) => a.count - b.count || a.index - b.index)
     .map((entry) => entry.target);
+}
+
+function publishNoSyncableTargetStatus(args: {
+  collectionId: string;
+  orderedTargets: readonly ResolvedSyncLoopTarget[];
+  resolvedTargets: readonly ResolvedSyncLoopTargetCandidate[];
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+}): void {
+  if (args.orderedTargets.length > 0) {
+    return;
+  }
+  const unresolvedTarget = args.resolvedTargets.find((target) => target.dbRootId === null);
+  if (!unresolvedTarget) {
+    return;
+  }
+  args.setStatus(
+    createCoverageStatusPatch({
+      activeRootPath: unresolvedTarget.handle.path,
+      collectionId: args.collectionId,
+      lastError: createUnresolvedRootCoverageMessage(unresolvedTarget.handle.path),
+      state: 'waiting',
+    })
+  );
 }
 
 // Read each root's actual indexed file count, then order least-covered-first.
@@ -1086,7 +1154,7 @@ function createWaitForBackgroundPermit(
 function toWorkspaceIndexingDatabasePressure(
   snapshot: DatabaseWorkSchedulerSnapshot
 ): WorkspaceIndexingDatabasePressure {
-  const waitingReason = getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt);
+  const waitingReason = getDatabasePressureWaitingReason(snapshot);
   const normalPressure = waitingReason?.startsWith('normal-') === true;
   return {
     available: true,
@@ -1266,6 +1334,32 @@ export function WorkspaceCollectionSyncProvider({
   const { fileSystemAdapter } = useAdapters();
   const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } =
     useFileSystem();
+  // BST-1268: per-thread workspaces restore the FOCUSED root on thread
+  // switch, and the reducer's add-or-focus rebuilds handle/array/map
+  // identities without changing the root SET. triggerSync must not be
+  // recreated on focus-only changes — its owning effect's cleanup cancels an
+  // in-flight sync mid-import (see the comment above the sync-loop effect).
+  // The callback therefore reads the live values through render-synced refs
+  // and keys on the SET identity alone (sorted root ids).
+  const rootDirectoryHandleRef = useRef(rootDirectoryHandle);
+  const rootDirectoryHandlesRef = useRef(rootDirectoryHandles);
+  const rootIdByPathRef = useRef(rootIdByPath);
+  // Effect-synced (not render-synced): every consumer is post-render (event
+  // listeners, async sync loops, effects declared BELOW this one), so the
+  // commit-time sync keeps them fresh without a render-phase ref write.
+  useEffect(() => {
+    rootDirectoryHandleRef.current = rootDirectoryHandle;
+    rootDirectoryHandlesRef.current = rootDirectoryHandles;
+    rootIdByPathRef.current = rootIdByPath;
+  });
+  const rootSetKey = useMemo(
+    () =>
+      rootDirectoryHandles
+        .map((handle) => handle.rootId ?? handle.path)
+        .sort()
+        .join('|'),
+    [rootDirectoryHandles]
+  );
   const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
 
@@ -1408,11 +1502,17 @@ export function WorkspaceCollectionSyncProvider({
     getBackgroundWorkArbiterSnapshot
   );
   const reportAsyncError = useCallback(
-    (operation: string, error: unknown): void => {
-      logger.error(`Workspace collection sync ${operation} failed`, { error });
+    (_operation: string, error: unknown): void => {
+      // No direct logger call: the status store's subscription durably logs
+      // the error/blocked transition set below (BST-1257) — logging here too
+      // recorded every incident twice under different scopes.
+      // Focused path read live via ref (BST-1268): a focus-only change must
+      // not change this callback's identity — the unmount-cancel effect and
+      // triggerSync both depend on it.
+      const activeRootPath = rootDirectoryHandleRef.current?.path ?? null;
       if (isWorkspaceIndexBlockedError(error)) {
         setSyncStatus({
-          activeRootPath: rootDirectoryHandle?.path ?? null,
+          activeRootPath,
           managedCollectionId,
           managedCollectionName: null,
           state: 'blocked',
@@ -1423,7 +1523,7 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
       setSyncStatus({
-        activeRootPath: rootDirectoryHandle?.path ?? null,
+        activeRootPath,
         blockedReason: null,
         currentFilePath: null,
         lastError: error instanceof Error ? error.message : String(error),
@@ -1434,7 +1534,7 @@ export function WorkspaceCollectionSyncProvider({
         state: 'error',
       });
     },
-    [managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]
+    [managedCollectionId, setSyncStatus]
   );
   useEffect(() => {
     if (storeHasHydrated) {
@@ -1757,7 +1857,7 @@ export function WorkspaceCollectionSyncProvider({
         const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
         if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
           setSyncStatus({
-            activeRootPath: rootDirectoryHandle?.path ?? null,
+            activeRootPath: rootDirectoryHandleRef.current?.path ?? null,
             currentFilePath: null,
             lastError: null,
             managedCollectionId: collection.id,
@@ -1775,7 +1875,7 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         setSyncStatus({
-          activeRootPath: rootDirectoryHandle?.path ?? null,
+          activeRootPath: rootDirectoryHandleRef.current?.path ?? null,
           currentFilePath: null,
           lastError: null,
           managedCollectionId: collection.id,
@@ -1798,13 +1898,17 @@ export function WorkspaceCollectionSyncProvider({
     enabled,
     managedCollectionId,
     reportAsyncError,
-    rootDirectoryHandle?.path,
     setManagedCollectionId,
     setSyncStatus,
   ]);
 
   const triggerSync = useCallback(
     (scope: TriggerSyncScope = { mode: 'full' }, options: TriggerSyncOptions = {}) => {
+      // Live reads (not deps): see the rootSetKey comment at the top of the
+      // component — the body below stays byte-identical to the dep'd version.
+      const rootDirectoryHandle = rootDirectoryHandleRef.current;
+      const rootDirectoryHandles = rootDirectoryHandlesRef.current;
+      const rootIdByPath = rootIdByPathRef.current;
       if (!hasHydrated) {
         return;
       }
@@ -1932,6 +2036,10 @@ export function WorkspaceCollectionSyncProvider({
         rootIdByPath,
         scope,
       });
+      const mountedHandles = getActiveRootHandles({
+        rootDirectoryHandle,
+        rootDirectoryHandles,
+      });
       if (
         handleActiveSyncLoopRequest({
           options,
@@ -1975,11 +2083,28 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during root-id resolution.
-        const resolvedTargets = await Promise.all(
-          targets.map(async (target): Promise<SyncLoopTarget & { dbRootId: string | null }> => {
-            const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
-            const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
-            return { ...target, dbRootId };
+        const resolvedMountedRoots = await Promise.all(
+          mountedHandles.map(async (handle) => {
+            const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path);
+            return {
+              adapterRootId: adapterRootId ?? null,
+              dbRootId: await resolveDbRootId(handle.path, adapterRootId),
+              identityKey: createMountedRootIdentityKey(handle, rootIdByPath),
+              rootPath: handle.path,
+            };
+          })
+        );
+        const mountedDbRootIdByIdentity = new Map(
+          resolvedMountedRoots.map((root) => [root.identityKey, root.dbRootId])
+        );
+        const resolvedTargets = targets.map(
+          (target): ResolvedSyncLoopTargetCandidate => ({
+            ...target,
+            adapterRootId: target.handle.rootId ?? rootIdByPath.get(target.handle.path) ?? null,
+            dbRootId:
+              mountedDbRootIdByIdentity.get(
+                createMountedRootIdentityKey(target.handle, rootIdByPath)
+              ) ?? null,
           })
         );
         if (syncLoopGenerationRef.current !== myGeneration) {
@@ -1998,6 +2123,14 @@ export function WorkspaceCollectionSyncProvider({
         }
 
         const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
+        service.reconcileMountedRoots(
+          managedCollectionId,
+          resolvedMountedRoots.map(({ adapterRootId, dbRootId, rootPath }) => ({
+            adapterRootId,
+            dbRootId,
+            rootPath,
+          }))
+        );
         // Order by ACTUAL indexed coverage: least-indexed roots sync first. A
         // folder you just added (0 files), or one whose earlier pass imported
         // nothing, is processed before a giant repo that is only partway through
@@ -2027,6 +2160,13 @@ export function WorkspaceCollectionSyncProvider({
           updatedAt: new Date().toISOString(),
         };
 
+        publishNoSyncableTargetStatus({
+          collectionId: managedCollectionId,
+          orderedTargets,
+          resolvedTargets,
+          setStatus: setSyncStatus,
+        });
+
         for (const [targetIndex, target] of orderedTargets.entries()) {
           const targetPath = target.handle.path;
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
@@ -2052,6 +2192,7 @@ export function WorkspaceCollectionSyncProvider({
           // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
           await service
             .sync({
+              adapterRootId: target.adapterRootId,
               backfillMode: targetIndex === orderedTargets.length - 1 ? 'enqueue' : 'defer',
               dbRootId: target.dbRootId,
               enabled,
@@ -2115,9 +2256,8 @@ export function WorkspaceCollectionSyncProvider({
       reportAsyncError,
       resetSyncStatus,
       resolveDbRootId,
-      rootDirectoryHandle,
-      rootDirectoryHandles,
-      rootIdByPath,
+      // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not recreate this callback (BST-1268); the live values are read through render-synced refs.
+      rootSetKey,
       service,
       setSyncStatus,
       treeRestorationSettled,
@@ -2169,6 +2309,11 @@ export function WorkspaceCollectionSyncProvider({
   );
 
   useEffect(() => {
+    // Live reads (not deps): focus-only changes must not re-run this effect —
+    // its immediate audit can fire a recovery sync (BST-1268, see rootSetKey).
+    const rootDirectoryHandle = rootDirectoryHandleRef.current;
+    const rootDirectoryHandles = rootDirectoryHandlesRef.current;
+    const rootIdByPath = rootIdByPathRef.current;
     let disposed = false;
     let activeAuditToken: symbol | null = null;
     let inFlightAuditKey: string | null = null;
@@ -2268,9 +2413,8 @@ export function WorkspaceCollectionSyncProvider({
     indexingPolicyPreset,
     managedCollectionId,
     resolveDbRootId,
-    rootDirectoryHandle,
-    rootDirectoryHandles,
-    rootIdByPath,
+    // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not re-run the audit (BST-1268); live values are read through render-synced refs.
+    rootSetKey,
     setSyncStatus,
   ]);
 

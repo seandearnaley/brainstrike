@@ -1,3 +1,4 @@
+import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { insertChunksAndEnqueueEmbeddingJobs } from '../src/chunk-embedding-job-batch.js';
@@ -87,6 +88,58 @@ describe('JobQueue transactional enqueue', () => {
     );
     expect(Number(chunks.rows[0]?.count ?? 0)).toBe(1);
     expect(jobs.rows).toEqual([{ chunk_id: 'chunk-1', state: 'queued' }]);
+  });
+
+  // Pins the single embed-job dedupe key format. `@brainstrike/pipeline`'s
+  // enqueue port writes into this same column and unique index, so if this
+  // package ever grows its own key builder again the two silently stop
+  // deduplicating against each other.
+  it('persists the canonical dedupe key from @brainstrike/indexing-contract', async () => {
+    await seedFileAndEmbeddingSet();
+
+    await insertChunksAndEnqueueEmbeddingJobs(db as unknown as IDatabase, {
+      chunks: [makeChunk()],
+      dimensionParameter: null,
+      fileRecordId: 'file-1',
+      model: 'local::test-model',
+      provider: 'local',
+      targetDimension: 384,
+      targetEmbeddingSetId: 'set-1',
+    });
+
+    const jobs = await db.query<{ dedupe_key: string }>(
+      `SELECT dedupe_key FROM job_queue WHERE job_type = 'embed_chunk'`
+    );
+
+    // Literal, not just `toBe(buildEmbedJobDedupeKey(...))`: comparing the row
+    // against the builder alone moves both sides together and cannot fail if
+    // the format itself drifts.
+    expect(jobs.rows[0]?.dedupe_key).toBe('chunk-1:set-1:chunk-hash');
+    expect(jobs.rows[0]?.dedupe_key).toBe(buildEmbedJobDedupeKey('chunk-1', 'set-1', 'chunk-hash'));
+  });
+
+  // The key must not be readable as chunk/set identity. BST-1214's debug drawer
+  // used split_part(dedupe_key, ':', 1) and read every failed embedding as
+  // pending; job_queue.chunk_id / embedding_set_id are the supported source.
+  it('records chunk and set identity in first-class columns, not the dedupe key', async () => {
+    await seedFileAndEmbeddingSet();
+
+    await insertChunksAndEnqueueEmbeddingJobs(db as unknown as IDatabase, {
+      chunks: [makeChunk()],
+      dimensionParameter: null,
+      fileRecordId: 'file-1',
+      model: 'local::test-model',
+      provider: 'local',
+      targetDimension: 384,
+      targetEmbeddingSetId: 'set-1',
+    });
+
+    const jobs = await db.query<{
+      chunk_id: string | null;
+      embedding_set_id: string | null;
+    }>(`SELECT chunk_id, embedding_set_id FROM job_queue WHERE job_type = 'embed_chunk'`);
+
+    expect(jobs.rows[0]).toEqual({ chunk_id: 'chunk-1', embedding_set_id: 'set-1' });
   });
 
   it('rolls back inserted chunks when embedding job enqueue fails', async () => {

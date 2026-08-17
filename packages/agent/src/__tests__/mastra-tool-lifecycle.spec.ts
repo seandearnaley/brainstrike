@@ -407,6 +407,78 @@ describe('mastra streaming: tool lifecycle', () => {
     ]);
   });
 
+  it('pairs a DECLINED delegation off with a terminal subagent run event', async () => {
+    // BST-1282 review. A delegation tool (`agent-<persona>`) can be approval-
+    // gated by an explicit global gate, and its `tool-call` already emitted
+    // `subagent.started`. The decline is that delegation's ONLY terminal — no
+    // later tool-result/tool-error carries the id — so `tool-output-denied`
+    // must travel the DELEGATION path, not the generic tool-event path, or the
+    // started event is the one delegation lifecycle left without a counterpart.
+    setMockStreamParts([
+      {
+        args: { task: 'find the flag' },
+        toolCallId: 'delegation-call-1',
+        toolName: 'agent-explore',
+        type: 'tool-call',
+      },
+      {
+        payload: {
+          approval: { approved: false, id: 'delegation-call-1' },
+          args: { task: 'find the flag' },
+          toolCallId: 'delegation-call-1',
+          toolName: 'agent-explore',
+        },
+        type: 'tool-output-denied',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'delegate this', type: 'text' }], role: 'user' }],
+      {
+        personas: [
+          {
+            allowedToolIds: ['brainstrike.grepSearch'],
+            description: 'Explore the workspace and report findings.',
+            id: 'explore',
+            instructions: 'You are the Explorer subagent.',
+            label: 'Explorer',
+            maxSteps: 8,
+          },
+        ],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: {
+          'brainstrike.grepSearch': {
+            description: 'Search the workspace.',
+            id: 'brainstrike.grepSearch',
+          },
+        },
+      }
+    );
+
+    const subagentEvents = [];
+    for await (const chunk of iterator) {
+      if (chunk.type === 'run-event' && chunk.event.kind.startsWith('subagent.')) {
+        subagentEvents.push(chunk.event);
+      }
+    }
+
+    expect(subagentEvents).toMatchObject([
+      {
+        kind: 'subagent.started',
+        metadata: { parentToolCallId: 'delegation-call-1', personaId: 'explore' },
+        status: 'running',
+      },
+      {
+        kind: 'subagent.failed',
+        label: 'Subagent delegation declined',
+        metadata: { parentToolCallId: 'delegation-call-1', personaId: 'explore' },
+        // The child never ran and nothing broke: cancelled, not failed.
+        status: 'cancelled',
+      },
+    ]);
+  });
+
   it('lets a terminal tool-error override an earlier intermediate tool-output', async () => {
     setMockStreamParts([
       {

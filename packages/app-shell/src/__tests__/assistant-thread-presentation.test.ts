@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
+  ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
+  getAssistantThreadIconPresentation,
   THREAD_CONTROL_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_HEIGHT_PX,
   THREAD_CONTROL_MARK_CLASS_NAME,
@@ -12,6 +14,35 @@ import {
 } from '../assistant-thread-presentation';
 
 describe('assistant thread presentation', () => {
+  it('publishes one exhaustive icon registry with a documented message default', () => {
+    expect(Object.keys(ASSISTANT_THREAD_ICON_PRESENTATION).sort()).toEqual([
+      'bug',
+      'code',
+      'message',
+      'plan',
+      'research',
+      'rocket',
+    ]);
+    expect(ASSISTANT_THREAD_ICON_PRESENTATION.research.label).toBe('Research');
+    expect(
+      Object.entries(ASSISTANT_THREAD_ICON_PRESENTATION).map(([iconId, presentation]) => [
+        iconId,
+        presentation.iconId,
+      ])
+    ).toEqual([
+      ['bug', 'bug'],
+      ['code', 'code'],
+      ['message', 'message'],
+      ['plan', 'plan'],
+      ['research', 'research'],
+      ['rocket', 'rocket'],
+    ]);
+    expect(getAssistantThreadIconPresentation(undefined)).toBe(
+      ASSISTANT_THREAD_ICON_PRESENTATION.message
+    );
+    expect(getAssistantThreadIconPresentation('bug')).toBe(ASSISTANT_THREAD_ICON_PRESENTATION.bug);
+  });
+
   it('resolves every durable metadata color to explicit light and dark presentation classes', () => {
     expect(Object.keys(ASSISTANT_THREAD_COLOR_PRESENTATION).sort()).toEqual([
       'amber',

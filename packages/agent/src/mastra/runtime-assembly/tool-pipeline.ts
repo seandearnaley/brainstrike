@@ -15,7 +15,7 @@
 import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import {
@@ -26,6 +26,7 @@ import type { McpConfig } from '../../mcp/config';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { applyProviderNativeWebSearch } from '../../providers/native-web-search';
 import { createAssistantSkillTools } from '../../skills/skill-tools';
+import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../../tools/hook-runner';
 import { applyToolHooks } from '../../tools/hook-tool-wrap';
@@ -209,6 +210,7 @@ function applyRuntimeToolHooks(params: {
 }
 
 function settleRuntimeToolOutputs(params: {
+  getDelegationToolNames: (() => readonly string[]) | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
   store: ToolOutputArtifactSettlementStore | undefined;
   toolNameMap: ReadonlyMap<string, string>;
@@ -218,6 +220,9 @@ function settleRuntimeToolOutputs(params: {
     return params.tools;
   }
   return applyToolOutputArtifactSettlement(params.tools, {
+    ...(params.getDelegationToolNames
+      ? { getDelegationToolNames: params.getDelegationToolNames }
+      : {}),
     ...(params.inlineMaxSerializedCharsByToolName
       ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
       : {}),
@@ -259,6 +264,7 @@ export async function prepareHostedToolDiscovery(params: {
   modelName: string;
   persistedDiscoveryMessages?: () => Promise<readonly MastraDBMessage[]>;
   provider: ResolvedRuntimeConfiguration['provider'];
+  resolvedToolResultBudget: ScaledToolResultBudget;
   toolNameMap: ReadonlyMap<string, string>;
 }): Promise<{
   discoverySurface?: ToolDiscoverySurface;
@@ -303,20 +309,24 @@ export async function prepareHostedToolDiscovery(params: {
   const initialTools = discoverySurface?.coreTools ?? params.eligibleTools;
   const tokenDiagnostics = await createRunTokenDiagnostics({
     capability: resolveTokenMeasurementCapability(params.provider, params.modelName),
+    resolvedToolResultBudget: params.resolvedToolResultBudget,
     tools: initialTools,
   });
-  const recordModelOutput = (output: unknown): void => tokenDiagnostics.recordModelOutput(output);
+  const recordModelOutput = (toolId: string, output: unknown): void =>
+    tokenDiagnostics.recordModelOutput(toolId, output);
   const modelProjectedTools = applyToolModelOutputProjections(
     initialTools,
     params.toolNameMap,
-    recordModelOutput
+    recordModelOutput,
+    params.resolvedToolResultBudget
   );
   const modelProjectedDeferredTools =
     hasDeferredTools && discoverySurface
       ? applyToolModelOutputProjections(
           discoverySurface.deferredTools,
           params.toolNameMap,
-          recordModelOutput
+          recordModelOutput,
+          params.resolvedToolResultBudget
         )
       : undefined;
   const toolSearchProcessor = modelProjectedDeferredTools
@@ -329,6 +339,7 @@ export async function prepareHostedToolDiscovery(params: {
         // by Mastra's context-store parser. Use the existing fail-loud inert
         // model so any future accidental invocation cannot perform inference.
         model: createListingOnlyModel(),
+        onToolsLoaded: (tools) => tokenDiagnostics.recordAdditionalToolDefinitions(tools),
         toolNameMap: params.toolNameMap,
       })
     : undefined;
@@ -363,6 +374,7 @@ export function createToolHistoryFilter(
 
 export interface RuntimeToolMapParams {
   apiKey: string | undefined;
+  getDelegationToolNames: (() => readonly string[]) | undefined;
   hasStorage: boolean;
   hookRunner: AgentHookRunner | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
@@ -373,6 +385,7 @@ export interface RuntimeToolMapParams {
   planModeActive: boolean;
   preserveExecuteBackedWebSearch: boolean | undefined;
   provider: ResolvedRuntimeConfiguration['provider'];
+  resolvedToolResultBudget: ScaledToolResultBudget;
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined;
   workspaceSkills: WorkspaceSkills | undefined;
 }
@@ -423,6 +436,7 @@ export async function composeRuntimeToolMap(
     mcpClient,
     mcpConfig: params.mcpConfig,
     sanitizedLocalTools,
+    scaledDefaultTokens: params.resolvedToolResultBudget.transportResultTokens,
     timeoutOverrideMs: params.mcpTimeoutMs,
     toolNameMap,
   });
@@ -483,6 +497,7 @@ export async function composeRuntimeToolMap(
     tools: gatedTools,
   });
   const artifactSettledTools = settleRuntimeToolOutputs({
+    getDelegationToolNames: params.getDelegationToolNames,
     inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
     store: params.toolOutputArtifactStore,
     toolNameMap,

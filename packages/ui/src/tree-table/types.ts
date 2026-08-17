@@ -229,6 +229,17 @@ export type TreeTableCheckboxRenderState = CheckboxState | 'hidden';
 /**
  * Main props for the TreeTable component.
  */
+/**
+ * Imperative surface exposed through {@link TreeTableProps.treeTableRef}.
+ * `revealNode` scrolls the node's row into view via the same path keyboard
+ * navigation uses (virtual: scrollToIndex align-auto; shared-scroller:
+ * nearest-edge offset; paged: page jump + pending scroll). Callers own
+ * expansion — a node collapsed out of the flattened rows is a no-op.
+ */
+export interface TreeTableHandle {
+  revealNode: (nodeId: string) => void;
+}
+
 export interface TreeTableProps<T> {
   // Accessibility
   /** Accessible label for the table */
@@ -268,8 +279,14 @@ export interface TreeTableProps<T> {
   emptyState?: React.ReactNode;
 
   // Expansion state
-  /** Set of expanded node IDs */
-  expandedIds: Set<string>;
+  /**
+   * Set of expanded node IDs. `ReadonlySet` because TreeTable only ever
+   * READS this set (`.has`, spread) — expansion changes go through
+   * `onToggleExpand`. Widened so a caller holding immutable state can pass it
+   * without an unsound `as Set<string>` cast; every existing `Set<string>`
+   * caller stays assignable.
+   */
+  expandedIds: ReadonlySet<string>;
   /**
    * Optional accessible name for a row's checkbox. Defaults to `Select ${node.id}`
    * when omitted. Use this when the node id is not a human-readable label (e.g.
@@ -299,7 +316,7 @@ export interface TreeTableProps<T> {
   /** Set of selected node IDs (multi-selection mode) */
   multiSelectedIds?: Set<string>;
   /** Tree nodes to display (can be nested via hasChildren) */
-  nodes: TreeNode<T>[];
+  nodes: readonly TreeNode<T>[];
   /**
    * Treat `nodes` as an already-expanded, visible flat row model.
    * This skips TreeTable's recursive expansion flattening while preserving
@@ -391,6 +408,8 @@ export interface TreeTableProps<T> {
   // Sorting
   /** Current sort state */
   sortState?: SortState;
+  /** Receives the {@link TreeTableHandle} imperative surface. */
+  treeTableRef?: React.Ref<TreeTableHandle>;
   /** Additional CSS class for the sole scroll viewport. */
   viewportClassName?: string | undefined;
   /** Windowing strategy for row rendering */
@@ -492,8 +511,8 @@ export interface UseTreeKeyboardResult {
 export interface FlattenOptions {
   /** Set of node IDs that are in the active context */
   contextNodeIds?: Set<string>;
-  /** Set of expanded node IDs */
-  expandedIds: Set<string>;
+  /** Set of expanded node IDs (read-only; flattening never mutates it) */
+  expandedIds: ReadonlySet<string>;
   /** Filter function to determine which nodes match current filters */
   filterFn?: (node: TreeNode<unknown>) => boolean;
   /** Set of highlighted node IDs */

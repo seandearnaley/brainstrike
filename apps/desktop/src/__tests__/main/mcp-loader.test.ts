@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { McpConfig } from '../../mcp-loader';
 
 const appGetPath = vi.hoisted(() => vi.fn());
 const decryptStringAsync = vi.hoisted(() => vi.fn());
@@ -60,7 +61,7 @@ describe('mcp-loader', () => {
 
     await expect(decryptIfEncrypted(encoded)).resolves.toBe('decrypted');
 
-    const config = {
+    const config: McpConfig = {
       servers: [
         {
           headers: { AuthorizationEncrypted: encoded },
@@ -75,17 +76,20 @@ describe('mcp-loader', () => {
           transport: 'stdio',
         },
       ],
-    } as const;
+    };
 
     const decrypted = await withDecryptedSecrets(config);
     const sseServer = decrypted.servers[0];
     const stdioServer = decrypted.servers[1];
+    if (!(sseServer && stdioServer)) {
+      throw new Error('expected decrypted SSE and stdio servers');
+    }
 
     if (sseServer.transport === 'sse') {
-      expect(sseServer.headers?.Authorization).toBe('decrypted');
+      expect(sseServer.headers?.['Authorization']).toBe('decrypted');
     }
     if (stdioServer.transport === 'stdio') {
-      expect(stdioServer.env?.API_KEY).toBe('decrypted');
+      expect(stdioServer.env?.['API_KEY']).toBe('decrypted');
     }
   });
 
@@ -326,12 +330,7 @@ describe('mcp-loader', () => {
     await expect(
       withDecryptedSecrets({
         servers: [unknownServer],
-      } as unknown as {
-        servers: Array<{
-          transport: 'sse' | 'stdio' | 'streamable-http';
-          name: string;
-        }>;
-      })
+      } as unknown as McpConfig)
     ).rejects.toThrow(/invalid_mcp_config:.*unknown-server.*custom/u);
   });
 });

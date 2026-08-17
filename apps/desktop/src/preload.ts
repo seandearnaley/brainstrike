@@ -1,6 +1,11 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
+type EmbeddingTelemetrySnapshot =
+  import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
+type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
+type Changeset = import('@brainstrike/types').Changeset;
+type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT =
@@ -80,6 +85,8 @@ const SHELL_OPEN_EXTERNAL_CHANNEL = 'shell:open-external' as const;
 const SHELL_OPEN_PATH_CHANNEL = 'shell:open-path' as const;
 const SHELL_SHOW_ITEM_IN_FOLDER_CHANNEL = 'shell:show-item-in-folder' as const;
 const CLIPBOARD_WRITE_TEXT_CHANNEL = 'clipboard:write-text' as const;
+const FILE_EXPORTS_SAVE_TO_DOWNLOADS_CHANNEL = 'file-exports:save-to-downloads' as const;
+const ASSISTANT_CHECKPOINT_AVAILABILITY_CHANNEL = 'assistant-checkpoint:availability' as const;
 const ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL = 'assistant-checkpoint:revert-entry' as const;
 const ASSISTANT_CHECKPOINT_REVERT_RUN_CHANNEL = 'assistant-checkpoint:revert-run' as const;
 const GIT_STATUS_CHANNEL = 'git:status' as const;
@@ -87,7 +94,6 @@ const GIT_DIFF_CHANNEL = 'git:diff' as const;
 const GIT_STAGE_CHANNEL = 'git:stage' as const;
 const GIT_UNSTAGE_CHANNEL = 'git:unstage' as const;
 const GIT_COMMIT_CHANNEL = 'git:commit' as const;
-const GIT_COMMIT_DIFF_CHANNEL = 'git:commitDiff' as const;
 const GIT_COMMIT_FILES_CHANNEL = 'git:commitFiles' as const;
 const GIT_AHEAD_BEHIND_CHANNEL = 'git:aheadBehind' as const;
 const GIT_FETCH_CHANNEL = 'git:fetch' as const;
@@ -96,6 +102,27 @@ const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
 const GIT_REPOSITORY_CHANNEL = 'git:repository' as const;
 const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
+const GIT_STRUCTURED_FILE_DIFF_CHANNEL = 'git:structuredFileDiff' as const;
+const CHANGES_RESOLVE_VIEW_CHANNEL = 'changes:resolveView' as const;
+const CHANGES_FILE_DIFF_CHANNEL = 'changes:fileDiff' as const;
+const CHANGES_INVENTORY_CHANNEL = 'changes:inventory' as const;
+const CHANGES_REWIND_PREVIEW_CHANNEL = 'changes:rewindPreview' as const;
+const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
+const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
+const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
+const CHANGES_INVALIDATED_EVENT = 'changes:invalidated' as const;
+// Embedded browser pane (BST-1174).
+const BROWSER_CREATE_TAB_CHANNEL = 'browser:createTab' as const;
+const BROWSER_CLOSE_TAB_CHANNEL = 'browser:closeTab' as const;
+const BROWSER_SELECT_TAB_CHANNEL = 'browser:selectTab' as const;
+const BROWSER_NAVIGATE_CHANNEL = 'browser:navigate' as const;
+const BROWSER_GO_BACK_CHANNEL = 'browser:goBack' as const;
+const BROWSER_GO_FORWARD_CHANNEL = 'browser:goForward' as const;
+const BROWSER_RELOAD_CHANNEL = 'browser:reload' as const;
+const BROWSER_SET_BOUNDS_CHANNEL = 'browser:setBounds' as const;
+const BROWSER_SET_OCCLUDED_CHANNEL = 'browser:setOccluded' as const;
+const BROWSER_LIST_TABS_CHANNEL = 'browser:listTabs' as const;
+const BROWSER_TABS_CHANGED_EVENT = 'browser:tabsChanged' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -133,6 +160,7 @@ import type {
   ManagedCacheInvalidationResult,
 } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
@@ -146,8 +174,6 @@ import type {
   LayoutPersistenceResult,
   PanelPersistenceState,
 } from '@brainstrike/ui';
-import type { LogRecord } from '@brainstrike/utils/logger';
-import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type {
   EmbeddingHostBackfillRequest,
@@ -212,7 +238,6 @@ const MCP_TOOLS_ENABLE_SERVER_CHANNEL = 'mcp:tools:enableServer' as const;
 const MCP_TOOLS_DISABLE_SERVER_CHANNEL = 'mcp:tools:disableServer' as const;
 const MCP_TOOLS_RESET_CHANNEL = 'mcp:tools:reset' as const;
 const MCP_TOOLS_GET_STATS_CHANNEL = 'mcp:tools:getStats' as const;
-const TOOLS_EXECUTE_CHANNEL = 'tools:execute' as const;
 const LLM_HOST_STATUS_EVENT = 'llm-host:status' as const;
 const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
 const LLM_HOST_PROGRESS_EVENT = 'llm-host:progress' as const;
@@ -372,6 +397,7 @@ interface EmbeddingHostStatus {
     } | null;
     readonly backendMismatch: boolean;
     readonly selectedDevicePreference: 'webgpu' | 'wasm';
+    readonly telemetry: EmbeddingTelemetrySnapshot;
   };
   readonly lastError: string | null;
   readonly runtimeId: string;
@@ -811,10 +837,9 @@ contextBridge.exposeInMainWorld('mcp', {
   writeConfigText: (content: string) => ipcRenderer.invoke(MCP_CONFIG_WRITE_TEXT_CHANNEL, content),
 });
 
-// Tool execution API (for playground testing)
+// Assistant selection events. Tool execution deliberately stays behind the
+// server-owned assistant permission engine and is not exposed to renderers.
 contextBridge.exposeInMainWorld('tools', {
-  execute: (toolId: string, input: unknown, runtimeData?: Record<string, unknown>) =>
-    ipcRenderer.invoke(TOOLS_EXECUTE_CHANNEL, toolId, input, runtimeData),
   onPreviewContextSelectionUpdate: (
     callback: (payload: AssistantSelectionUpdatePayload) => void
   ) => {
@@ -1155,9 +1180,24 @@ contextBridge.exposeInMainWorld('clipboard', {
   writeText: (text: string) => ipcRenderer.invoke(CLIPBOARD_WRITE_TEXT_CHANNEL, text),
 });
 
+// File-export save bridge (desktop-only): writes export bytes into the OS
+// Downloads folder from MAIN, bypassing Chromium's blob-download pipeline
+// (a blob download whose URL is revoked mid-flight can wedge permanently and
+// jam later downloads). Web never defines this; `@brainstrike/utils`'s
+// `downloadBlobFile` capability-checks `window.fileExports` and falls back to
+// the anchor path there.
+if (shouldExposeBridge('fileExports')) {
+  contextBridge.exposeInMainWorld('fileExports', {
+    saveToDownloads: (payload: { bytes: Uint8Array; filename: string }) =>
+      ipcRenderer.invoke(FILE_EXPORTS_SAVE_TO_DOWNLOADS_CHANNEL, payload),
+  });
+}
+
 // Edit checkpoint (undo of agent file edits) — invoke-only revert bridge. Desktop
 // only: web never defines this (no assistant server / main process).
 contextBridge.exposeInMainWorld('assistantCheckpoints', {
+  availability: (threadId: string) =>
+    ipcRenderer.invoke(ASSISTANT_CHECKPOINT_AVAILABILITY_CHANNEL, { threadId }),
   revertEntry: (id: string, options?: { force?: boolean }) =>
     ipcRenderer.invoke(ASSISTANT_CHECKPOINT_REVERT_ENTRY_CHANNEL, {
       force: options?.force ?? false,
@@ -1191,8 +1231,6 @@ if (shouldExposeBridge('git')) {
     aheadBehind: (rootId: string) => ipcRenderer.invoke(GIT_AHEAD_BEHIND_CHANNEL, rootId),
     commit: (rootId: string, params: { description?: string; summary: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
-    commitDiff: (rootId: string, params: { commit: string; originalPath?: string; path: string }) =>
-      ipcRenderer.invoke(GIT_COMMIT_DIFF_CHANNEL, rootId, params),
     commitFiles: (rootId: string, params: { commit: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
     diff: (rootId: string, params: GitDiffParams) =>
@@ -1208,10 +1246,110 @@ if (shouldExposeBridge('git')) {
     stage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_STAGE_CHANNEL, rootId, params ?? {}),
     status: (rootId: string) => ipcRenderer.invoke(GIT_STATUS_CHANNEL, rootId),
+    structuredFileDiff: (rootId: string, params: StructuredFileDiffParams) =>
+      ipcRenderer.invoke(GIT_STRUCTURED_FILE_DIFF_CHANNEL, rootId, params),
     switchBranch: (rootId: string, params: { branch: string }) =>
       ipcRenderer.invoke(GIT_SWITCH_BRANCH_CHANNEL, rootId, params),
     unstage: (rootId: string, params?: { path?: string }) =>
       ipcRenderer.invoke(GIT_UNSTAGE_CHANNEL, rootId, params ?? {}),
+  });
+}
+
+// Changeset diff bridge (desktop-only, BST-1113): resolves any `Changeset`
+// (agent-run / run-range / git-scope) to an eager `ChangesetView` and loads
+// per-file `StructuredFileDiff`s lazily. Web never constructs this bridge
+// (there is no preload), so `window.changes` is simply absent there;
+// consumers must capability-check `window.changes` rather than
+// `isElectron()`. Backed by ChangesetDiffService via the `changes` IPC
+// domain (changes-ipc-handlers.ts).
+if (shouldExposeBridge('changes')) {
+  contextBridge.exposeInMainWorld('changes', {
+    // Conversation Rewind (BST-1115 W5 T4). `mode` is required on apply —
+    // there is no default that silently reverts files (Amendment 1).
+    applyRewind: (payload: {
+      acknowledgeConflicts?: boolean;
+      messageId: string;
+      mode: AssistantRewindMode;
+      threadId: string;
+    }) => ipcRenderer.invoke(CHANGES_APPLY_REWIND_CHANNEL, payload),
+    fileDiff: (rootId: string, changeset: Changeset, path: string) =>
+      ipcRenderer.invoke(CHANGES_FILE_DIFF_CHANNEL, rootId, changeset, path),
+    // Ends the redo window (BST-1115 W5 T4b). Fired by the renderer when a
+    // USER-authored message starts a new run; a thread with no outstanding
+    // rewind answers `finalized: false` and writes nothing.
+    finalizeRewinds: (payload: { threadId: string }) =>
+      ipcRenderer.invoke(CHANGES_FINALIZE_REWINDS_CHANNEL, payload),
+    // Repository/worktree topology for the Changes surface (BST-1114 T0).
+    inventory: () => ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL),
+    // One-way main→renderer live-refresh pushes (changes:invalidated,
+    // BST-1161 spec §6): external git activity on a repository. Returns the
+    // unsubscribe function (terminal onData precedent).
+    onInvalidated: (
+      callback: (event: import('@brainstrike/types').ChangesInvalidationEvent) => void
+    ) => {
+      const listener = (
+        _event: unknown,
+        payload: import('@brainstrike/types').ChangesInvalidationEvent
+      ) => callback(payload);
+      ipcRenderer.on(CHANGES_INVALIDATED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(CHANGES_INVALIDATED_EVENT, listener);
+      };
+    },
+    redoRewind: (payload: { acknowledgeConflicts?: boolean; rewindId: string }) =>
+      ipcRenderer.invoke(CHANGES_REDO_REWIND_CHANNEL, payload),
+    resolveView: (rootId: string, changeset: Changeset) =>
+      ipcRenderer.invoke(CHANGES_RESOLVE_VIEW_CHANNEL, rootId, changeset),
+    rewindPreview: (payload: { threadId: string } & ({ messageId: string } | { runId: string })) =>
+      ipcRenderer.invoke(CHANGES_REWIND_PREVIEW_CHANNEL, payload),
+  });
+}
+
+// Embedded browser pane bridge (BST-1174). Every invoke returns the main-side
+// `{ ok, value } | { ok: false, error }` result; the bridge UNWRAPS it and
+// throws on `ok: false` — the renderer only ever passes well-formed args, so a
+// rejection is a programming error worth surfacing, never a silent no-op.
+if (shouldExposeBridge('browser')) {
+  const unwrapBrowserResult = <T>(result: unknown): T => {
+    if (typeof result === 'object' && result !== null && 'ok' in result) {
+      const typed = result as { ok: boolean; value?: T; error?: string };
+      if (typed.ok) {
+        return typed.value as T;
+      }
+      throw new Error(`browser bridge call failed: ${typed.error ?? 'unknown error'}`);
+    }
+    throw new Error('browser bridge returned a malformed result');
+  };
+  contextBridge.exposeInMainWorld('browser', {
+    closeTab: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_CLOSE_TAB_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    createTab: (url?: string) =>
+      ipcRenderer.invoke(BROWSER_CREATE_TAB_CHANNEL, url).then(unwrapBrowserResult<string>),
+    goBack: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_GO_BACK_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    goForward: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_GO_FORWARD_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    listTabs: () =>
+      ipcRenderer.invoke(BROWSER_LIST_TABS_CHANNEL).then(unwrapBrowserResult<unknown[]>),
+    navigate: (tabId: string, url: string) =>
+      ipcRenderer.invoke(BROWSER_NAVIGATE_CHANNEL, tabId, url).then(unwrapBrowserResult<void>),
+    // One-way main→renderer tab-state pushes (browser:tabsChanged). Subscribe-
+    // returns-unsubscribe, mirroring changes.onInvalidated / fs.onWatchEvent.
+    onTabsChanged: (callback: (tabs: unknown[]) => void) => {
+      const listener = (_event: unknown, tabs: unknown[]) => callback(tabs);
+      ipcRenderer.on(BROWSER_TABS_CHANGED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_TABS_CHANGED_EVENT, listener);
+      };
+    },
+    reload: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_RELOAD_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    selectTab: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_SELECT_TAB_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    setBounds: (rect: { height: number; width: number; x: number; y: number }) =>
+      ipcRenderer.invoke(BROWSER_SET_BOUNDS_CHANNEL, rect).then(unwrapBrowserResult<void>),
+    setOccluded: (occluded: boolean) =>
+      ipcRenderer.invoke(BROWSER_SET_OCCLUDED_CHANNEL, occluded).then(unwrapBrowserResult<void>),
   });
 }
 

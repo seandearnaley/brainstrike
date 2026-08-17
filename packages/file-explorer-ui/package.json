@@ -2,6 +2,7 @@
   "name": "@brainstrike/file-explorer-ui",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/app-state": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
@@ -9,17 +10,19 @@
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/file-tree-worker": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
-    "@brainstrike/preferences": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/token-cache": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/workers": "workspace:*",
     "drizzle-orm": "catalog:",
-    "react-hotkeys-hook": "catalog:"
+    "react-hotkeys-hook": "catalog:",
+    "react-resizable-panels": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -60,6 +63,14 @@
       "types": "./dist/workspace-context-curation-store.d.ts",
       "import": "./dist/workspace-context-curation-store.js"
     },
+    "./workspace-tab-selection-store": {
+      "types": "./dist/workspace-tab-selection-store.d.ts",
+      "import": "./dist/workspace-tab-selection-store.js"
+    },
+    "./tab-manager-store": {
+      "types": "./dist/tab-manager-store.d.ts",
+      "import": "./dist/tab-manager-store.js"
+    },
     "./shell": {
       "types": "./dist/shell/index.d.ts",
       "import": "./dist/shell/index.js"
@@ -68,6 +79,14 @@
     "./tree": {
       "types": "./dist/tree/index.d.ts",
       "import": "./dist/tree/index.js"
+    },
+    "./editor-view-state-store": {
+      "types": "./dist/editor-view-state-store.d.ts",
+      "import": "./dist/editor-view-state-store.js"
+    },
+    "./file-tab-pane-store": {
+      "types": "./dist/file-tab-pane-store.d.ts",
+      "import": "./dist/file-tab-pane-store.js"
     }
   },
   "files": [
@@ -83,7 +102,7 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/rimraf.mjs dist && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",

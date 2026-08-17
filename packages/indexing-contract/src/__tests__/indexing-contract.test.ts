@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertEmbedWorkerLifetimeError,
   canonicalizeEmbeddingProviderModelKey,
   formatEmbeddingProviderModelKey,
   getChunkingPreset,
@@ -16,6 +17,24 @@ import {
 } from '../index';
 
 describe('@brainstrike/indexing-contract', () => {
+  it('validates worker-lifetime errors used for idle pool replacement', () => {
+    expect(() =>
+      assertEmbedWorkerLifetimeError({
+        cause: 'stack',
+        message: 'Worker unhandled rejection: idle rejection',
+        type: 'worker-lifetime-error',
+        workerInstanceId: 'worker-1',
+      })
+    ).not.toThrow();
+    expect(() =>
+      assertEmbedWorkerLifetimeError({
+        message: '',
+        type: 'worker-lifetime-error',
+        workerInstanceId: 'worker-1',
+      })
+    ).toThrow('Embedding worker lifetime-error event requires a message.');
+  });
+
   it('routes auto chunking by file extension', () => {
     expect(resolveChunkingStrategyForFile('src/search/index.ts')).toBe('recursive');
     expect(resolveChunkingStrategyForFile('docs/getting-started.md')).toBe('semantic-markdown');

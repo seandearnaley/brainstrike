@@ -10,14 +10,14 @@
  * with callers; this hook takes an already-resolved `EmbeddingSetModelInfo`.
  */
 
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type { EmbeddingExecutionOptions, EmbeddingProviderConfig } from '@brainstrike/embeddings';
 import {
   isHostedProvider,
   type EmbeddingModelConfig as ModelConfig,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useRef } from 'react';
 
 const logger = createLogger('SearchEmbedder');

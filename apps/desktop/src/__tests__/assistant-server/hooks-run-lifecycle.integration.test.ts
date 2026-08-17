@@ -135,6 +135,7 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
 
       const controller = new AbortController();
       const source = finalizeHookedStream(model(), {
+        logger: desktopAssistantServerLogger,
         manager,
         observe: (src) =>
           observeDesktopAssistantRunEvents(

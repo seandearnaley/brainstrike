@@ -15,6 +15,8 @@ export {
   type AssistantAttachmentValidationReason,
   type AssistantCheckpointRevertResult,
   type AssistantCheckpointRevertRunResult,
+  type AssistantCheckpointUndoAvailability,
+  type AssistantCheckpointUndoAvailabilityMap,
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,
@@ -72,14 +74,19 @@ export {
   type AskUserAnswer,
   type AskUserOption,
   type AskUserPayload,
+  type AskUserResumeData,
   type AskUserSelectionMode,
   type AssistantToolResumeAction,
   type AssistantToolSuspendRequest,
+  hasRegisteredSuspendResumeUi,
   isAssistantToolResumeAction,
+  isRediscoveredToolSuspend,
+  type RediscoveredToolSuspend,
   readToolResumeRunConfigAction,
   type SubmitPlanDecision,
   type SubmitPlanPayload,
   type SubmitPlanStep,
+  type SuspendedRunsResponse,
   TOOL_SUSPEND_DATA_NAME,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
   type ToolResumeRunConfigActionReadResult,
@@ -167,7 +174,8 @@ export {
 } from './mastra/agent-runtime';
 export {
   type DiscoveredSuspendedApproval,
-  type ListSuspendedApprovalsResult,
+  type DiscoveredSuspendedPause,
+  type ListSuspendedRunsResult,
   listSuspendedMastraRuns,
   streamMastraAgent,
   streamMastraToolApprovalAction,
@@ -177,6 +185,31 @@ export {
   buildPersonaSubAgents,
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
+export {
+  buildCompactionOverlayInputProcessor,
+  CompactionOverlayProcessor,
+  filterMessagesByCompactionRanges,
+} from './mastra/compaction-overlay-processor';
+export {
+  type AgenticCompactionSummary,
+  AgenticCompactionSummarySchemaError,
+  COMPACTION_SUMMARIZER_INSTRUCTIONS,
+  type CompactionMessage,
+  collectCompactionToolCallIds,
+  estimateCompactionMessageTokens,
+  generateAgenticCompactionSummary,
+  hasCompactionSummarySchema,
+  projectCompactionMessages,
+  projectCompactionMessagesForSummarizer,
+} from './mastra/conversation-compaction';
+export {
+  clipGrepProjectionLine,
+  formatGrepContentHeader,
+  formatGrepContentRow,
+  formatGrepProjectionPageRange,
+  GREP_MATCH_LINE_MAX_CHARS,
+  normalizeGrepProjectionLine,
+} from './mastra/grep-model-format';
 export {
   createMastraAgentError,
   isMastraAgentError,
@@ -188,6 +221,7 @@ export {
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
 } from './mastra/permission-policy-request';
+export { resolveSelfApprovalDecision } from './mastra/permission-tool-gate';
 export { PERSONA_PIN_KEYLESS_PROVIDERS } from './mastra/persona-pinned-model';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
@@ -200,6 +234,15 @@ export {
   MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
+export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
+export {
+  attachToolCallTelemetryMetadata,
+  readToolCallTelemetryMetadata,
+} from './mastra/tool-call-telemetry';
+export {
+  applyToolModelOutputProjections,
+  getActiveToolResultBudget,
+} from './mastra/tool-model-output';
 export {
   projectToolOutputArtifactPage,
   type ReadToolOutputArtifactCursorInput,
@@ -207,12 +250,15 @@ export {
   type ReadToolOutputArtifactInput,
   ReadToolOutputArtifactInputSchema,
   type ReadToolOutputArtifactPageOptions,
+  readToolOutputArtifact,
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactRangeResult,
   type ScopedToolOutputArtifactReader,
   type ToolOutputArtifactModelProjection,
   ToolOutputArtifactReadError,
   type ToolOutputArtifactReadFailureReason,
+  type ToolOutputArtifactSearchProjection,
+  type ToolOutputArtifactSearchResult,
 } from './mastra/tool-output-artifact-reader';
 export {
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
@@ -221,6 +267,14 @@ export {
   type ToolOutputArtifactSettlementFailureReason,
   type ToolOutputArtifactSettlementStore,
 } from './mastra/tool-output-artifact-settlement';
+export {
+  isToolProjectionInputRejected,
+  ToolProjectionInputRejectedError,
+} from './mastra/tool-projection-input-rejected';
+export {
+  buildToolProjectionRewriteInputProcessor,
+  ToolProjectionRewriteProcessor,
+} from './mastra/tool-projection-rewrite-processor';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
@@ -261,7 +315,10 @@ export {
 } from './message-utils';
 export {
   extractProviderRunError,
+  isContextOverflowProviderErrorCode,
+  isLocalRunErrorClassification,
   isProviderRunError,
+  LOCAL_RUN_ERROR_FALLBACK_CODE,
   MAX_PROVIDER_RUN_ERROR_CAUSE_CHARS,
   MAX_PROVIDER_RUN_ERROR_CAUSES,
   MAX_PROVIDER_RUN_ERROR_HEADER_VALUE_CHARS,
@@ -307,6 +364,7 @@ export {
   createEmbeddingProvider,
   createLanguageModelProvider,
   createProvider,
+  getDefaultModel,
 } from './providers/provider-factory';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {
@@ -411,11 +469,19 @@ export {
   toJsonSafe,
 } from './stream/json';
 export {
+  APPROX_CHARS_PER_TOKEN,
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
+  decodedTextModelOutputChars,
   fitItemsToCharBudget,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_TOOL_RESULT_TOKENS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
+  PROJECTION_ENVELOPE_RESERVE_CHARS,
+  resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
+  type ScaledToolResultBudget,
+  TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
 } from './stream/tool-output-limits';
 export {
   clearToolRegistry,
@@ -511,8 +577,30 @@ export {
   type VectorQueueSnapshot,
 } from './tools/queue-status-tool';
 export {
+  computeExecutionContextFingerprint,
+  resolveRunPythonExecutionContext,
+} from './tools/run-python-approval-context';
+export {
+  createRunPythonTool,
+  projectRunPythonStreams,
+  RUN_PYTHON_DEFAULT_TIMEOUT_MS,
+  RUN_PYTHON_TOOL_ID,
+  type RunPythonResult,
+  type RunPythonToolOptions,
+  type RunPythonUnavailableReason,
+  serializationOverhead,
+  sliceTailCodePoints,
+  toRunPythonResult,
+} from './tools/run-python-tool';
+export {
   type AskUserInput,
   AskUserInputSchema,
+  type BrowserGetPageTextInput,
+  BrowserGetPageTextInputSchema,
+  type BrowserNavigateInput,
+  BrowserNavigateInputSchema,
+  type BrowserReadPageInput,
+  BrowserReadPageInputSchema,
   type DeleteWorkspaceFileInput,
   DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,
@@ -533,11 +621,14 @@ export {
   ListWorkspaceContextInputSchema,
   type LspInspectInput,
   LspInspectInputSchema,
+  type ManageCanvasInput,
+  ManageCanvasInputSchema,
   type ManageCommandSessionInput,
   ManageCommandSessionInputSchema,
   type ManageTaskListInput,
   ManageTaskListInputSchema,
   NATIVE_TOOL_INPUT_SCHEMAS,
+  normalizeManageCanvasInput,
   type QueryDiagnosticsInput,
   QueryDiagnosticsInputSchema,
   type QueryEmbeddingSpaceInput,
@@ -554,6 +645,8 @@ export {
   RenameWorkspaceFileInputSchema,
   type RetrievalContextInput,
   RetrievalContextInputSchema,
+  type RunPythonInput,
+  RunPythonInputSchema,
   type RunSkillScriptInput,
   RunSkillScriptInputSchema,
   type SelectRootTreeFilesInput,
@@ -605,6 +698,8 @@ export type {
   AssistantUiNode,
   AssistantUiNodeObject,
   AssistantUiScalar,
+  CompactionRangeEntry,
+  CompactionRangeLookup,
   GoogleProviderOptions,
   GoogleThinkingLevel,
   LocalProviderOptions,
@@ -626,4 +721,8 @@ export type {
   StreamChunkTool,
   StreamChunkToolApprovalRequired,
   StreamIterator,
+  TokenEstimateCalibrationSample,
+  ToolCallTelemetrySample,
+  ToolProjectionRewriteEntry,
+  ToolProjectionRewriteLookup,
 } from './types';

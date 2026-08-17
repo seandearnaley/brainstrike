@@ -4,7 +4,7 @@ import {
   AssistantRequestBodyTooLargeError,
   resolveAssistantRequestBodyLimitBytes,
 } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('DesktopAssistantHttpStream');
 export const assistantServerHttpStreamLogger = logger;

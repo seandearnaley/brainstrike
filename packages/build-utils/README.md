@@ -113,8 +113,7 @@ pnpm clean
 
 ## Build Output
 
-- **ESM**: `dist/index.mjs`
-- **CJS**: `dist/index.js`
+- **Node-loadable ESM**: `dist/index.js`
 - **Types**: `dist/index.d.ts`
 
 ## Technical Notes

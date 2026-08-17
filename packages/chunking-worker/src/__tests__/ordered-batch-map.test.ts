@@ -37,18 +37,17 @@ describe('createCooperativeYieldController', () => {
     ).toThrow('Yield check cadence must be a positive integer');
   });
 
-  it.each([
-    -1,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-  ])('rejects invalid time budget %s', (yieldAfterMs) => {
-    expect(() =>
-      createCooperativeYieldController({
-        checkEvery: 1,
-        yieldAfterMs,
-      })
-    ).toThrow('Yield time budget must be a finite non-negative number');
-  });
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid time budget %s',
+    (yieldAfterMs) => {
+      expect(() =>
+        createCooperativeYieldController({
+          checkEvery: 1,
+          yieldAfterMs,
+        })
+      ).toThrow('Yield time budget must be a finite non-negative number');
+    }
+  );
 
   it('uses a macrotask for the default yield', async () => {
     vi.useFakeTimers();

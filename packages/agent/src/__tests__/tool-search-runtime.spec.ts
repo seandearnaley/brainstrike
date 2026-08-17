@@ -3,7 +3,7 @@ import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import type { ProcessInputStepArgs } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY, RequestContext } from '@mastra/core/request-context';
 import { createTool } from '@mastra/core/tools';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { MastraAgentError } from '../mastra/mastra-agent-error';
 import { BrainstrikeToolSearchProcessor } from '../mastra/tool-search-runtime';
@@ -135,19 +135,19 @@ function createPersistedSearchResultMessage(
 }
 
 describe('BrainstrikeToolSearchProcessor', () => {
-  it.each(RANKING_FIXTURES)('ranks $expectedToolId first for "$query"', async ({
-    expectedToolId,
-    query,
-  }) => {
-    const processor = createRankingProcessor();
-    const step = await processor.processInputStep(createStepArgs());
+  it.each(RANKING_FIXTURES)(
+    'ranks $expectedToolId first for "$query"',
+    async ({ expectedToolId, query }) => {
+      const processor = createRankingProcessor();
+      const step = await processor.processInputStep(createStepArgs());
 
-    const result = (await step.tools.search_tools.execute?.({ query })) as {
-      results: { name: string }[];
-    };
+      const result = (await step.tools.search_tools.execute?.({ query })) as {
+        results: { name: string }[];
+      };
 
-    expect(result.results[0]?.name).toBe(expectedToolId);
-  });
+      expect(result.results[0]?.name).toBe(expectedToolId);
+    }
+  );
 
   it('makes deferred workspace-root discovery explicit on the initial search surface', async () => {
     const processor = createRankingProcessor();
@@ -279,6 +279,25 @@ describe('BrainstrikeToolSearchProcessor', () => {
       createStepArgs({ stepNumber: 1, threadId: 'thread-1' })
     );
     expect(Object.keys(second.tools)).toEqual(['search_tools', DEFERRED_TOOL_ID]);
+  });
+
+  it('reports each newly loaded deferred definition once per thread', async () => {
+    const onToolsLoaded = vi.fn();
+    const processor = new BrainstrikeToolSearchProcessor({
+      deferredTools: { [DEFERRED_TOOL_ID]: createDeferredTool() },
+      model: 'openai/gpt-5.6-terra',
+      onToolsLoaded,
+      toolNameMap: new Map([[DEFERRED_TOOL_ID, 'brainstrike.listWorkspaceContext']]),
+    });
+    const first = await processor.processInputStep(createStepArgs({ threadId: 'thread-1' }));
+    expect(onToolsLoaded).not.toHaveBeenCalled();
+    await first.tools.search_tools.execute?.({ query: 'workspace context' });
+
+    await processor.processInputStep(createStepArgs({ stepNumber: 1, threadId: 'thread-1' }));
+    await processor.processInputStep(createStepArgs({ stepNumber: 2, threadId: 'thread-1' }));
+
+    expect(onToolsLoaded).toHaveBeenCalledTimes(1);
+    expect(Object.keys(onToolsLoaded.mock.calls[0]?.[0] ?? {})).toEqual([DEFERRED_TOOL_ID]);
   });
 
   it('reconstructs loaded tools from persisted search results after processor restart', async () => {

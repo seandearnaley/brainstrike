@@ -9,21 +9,27 @@ import type {
   McpConfig,
   RuntimeAssistantMemorySettings,
   RuntimeData,
+  ScaledToolResultBudget,
   ScannedWorkspaceSkills,
   ScopedToolOutputArtifactReader,
   StreamChunk,
   ToolOutputArtifactSettlementStore,
 } from '@brainstrike/agent';
 import {
+  getProviderDefaultModel,
+  isSupportedProvider,
   resolveRequestPermissionPolicy,
+  resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
+  TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
-import type { ScopedLogger } from '@brainstrike/utils/logger';
+import type { ScopedLogger } from '@brainstrike/logging';
 import {
   collectLocalLlmWarmupModelIds,
   isLocalChatProvider,
@@ -32,6 +38,12 @@ import {
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets.js';
 import type { AssistantLlmHostManager } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
+import type { PreRequestCompactionCapabilityResult } from './stream-init-compaction.js';
+import {
+  runConversationCompactionBeforeStream,
+  trustedCompactionOverlayFields,
+  withCompactionUsageChunk,
+} from './stream-init-compaction.js';
 import type { AgentStreamFailure, AgentStreamResult, DesktopMemoryFeature } from './types.js';
 
 /**
@@ -132,6 +144,31 @@ function withSkillScriptResolver<K extends AgentStreamCapabilityKinds>(
   return { ...dependencies, skillScriptResolver: resolver };
 }
 
+function withResolvedToolResultBudget<K extends AgentStreamCapabilityKinds>(
+  dependencies: AgentStreamToolDependencies<K>,
+  resolvedToolResultBudget: ScaledToolResultBudget
+): AgentStreamToolDependencies<K> {
+  return { ...dependencies, resolvedToolResultBudget };
+}
+
+/** Resolve the producer-side budget from the runtime's provider/model pair. */
+export function resolveToolBuildBudget(
+  runtimeData: Pick<RuntimeData, 'model' | 'provider'> | undefined,
+  logger: Pick<ScopedLogger, 'warn'>
+): ScaledToolResultBudget {
+  const rawProvider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  const normalizedProvider = rawProvider.toLowerCase();
+  if (!isSupportedProvider(normalizedProvider)) {
+    logger.warn('Cannot resolve tool-result budget for tool construction; using anchor fallback.', {
+      code: 'tool_result_budget_invalid_provider_fallback',
+      provider: rawProvider || '<unset>',
+    });
+    return resolveScaledToolResultBudget(TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW);
+  }
+  const model = runtimeData?.model || getProviderDefaultModel(normalizedProvider) || '';
+  return resolveToolResultBudgetForModel(normalizedProvider, model);
+}
+
 function buildInitialStreamMemoryOptions(
   memoryResult: AgentStreamMemoryResult | undefined,
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
@@ -173,6 +210,7 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     toolResumeAction,
   } = args;
   if (toolApprovalAction) {
+    capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
     return streamMastraToolApprovalAction(toolApprovalAction, {
       ...memoryOptions,
       requireToolApproval: true,
@@ -180,15 +218,15 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     });
   }
   if (toolResumeAction) {
+    capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
     return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
   }
   // Prepend the turn's `@file` references (referenced-files), then any explicit
-  // `:skill[name]` activations, then the mounted roots' workspace instructions
-  // (AGENTS.md/AGENT.md/CLAUDE.md). Instructions are applied LAST so they land
-  // at the FRONT of the message array — general workspace conventions precede
-  // the turn's skill activations, which precede the turn-specific referenced
-  // files and the conversation. All are no-ops (same array identity) when
-  // nothing applies.
+  // `:skill[name]` activations, then the opt-in self-improvement signal, then
+  // the mounted roots' workspace instructions (AGENTS.md/AGENT.md/CLAUDE.md).
+  // Instructions are applied LAST so the final front-to-back order is:
+  // instructions → signal → skills → referenced files → conversation. All are
+  // no-ops (same array identity) when nothing applies.
   const withReferencedFiles = await capabilities.contextInjectors.referencedFiles(
     messages,
     runtime,
@@ -198,9 +236,13 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     withReferencedFiles,
     runtime.workspaceSkills
   );
+  const withSelfImprovementSignal = await capabilities.contextInjectors.selfImprovementSignal(
+    withSkillActivations,
+    runtime
+  );
   return toAiSdkStyleStream(
     await capabilities.contextInjectors.workspaceInstructions(
-      withSkillActivations,
+      withSelfImprovementSignal,
       runtime,
       capabilities.readWorkspaceTextFile
     ),
@@ -233,6 +275,12 @@ function prepareRequestSkillsFromDisk<K extends AgentStreamCapabilityKinds>(
   // Shaped as a runtime-field fragment (like resolvePersonaRuntimeFields) so
   // the caller spreads it unconditionally.
   return workspaceSkills ? { workspaceSkills } : {};
+}
+
+function trustedProjectionRewriteFields(
+  lookup: RuntimeData['toolProjectionRewriteLookup']
+): Pick<RuntimeData, 'toolProjectionRewriteLookup'> {
+  return lookup ? { toolProjectionRewriteLookup: lookup } : {};
 }
 
 /**
@@ -441,6 +489,7 @@ export interface AgentStreamCapabilityKinds {
 export interface AgentStreamToolDependencies<K extends AgentStreamCapabilityKinds> {
   readonly embeddingHostManager?: K['embeddingHost'] | null | undefined;
   readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
+  readonly resolvedToolResultBudget?: ScaledToolResultBudget | undefined;
   readonly skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   readonly toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
 }
@@ -479,6 +528,19 @@ export interface AgentStreamCapabilities<
       ) => ReturnType<ToolOutputArtifactSettlementStore['store']>;
     };
   };
+  readonly compaction: {
+    readonly createContextOverflowRecovery: (input: {
+      readonly memoryStore: AgentStreamMemoryResult['store'];
+      readonly runtimeData: RuntimeData;
+    }) => NonNullable<RuntimeData['contextOverflowRecovery']>;
+    readonly runPreRequest: (input: {
+      readonly memoryStore: AgentStreamMemoryResult['store'];
+      readonly requestMessages: readonly AgentMessage[];
+      readonly runId: string | undefined;
+      readonly runtimeData: RuntimeData;
+      readonly signal: AbortSignal;
+    }) => Promise<PreRequestCompactionCapabilityResult>;
+  };
   readonly contextInjectors: {
     readonly activatedSkills: (
       messages: AgentMessage[],
@@ -488,6 +550,10 @@ export interface AgentStreamCapabilities<
       messages: AgentMessage[],
       runtimeData: RuntimeData,
       readFile: WorkspaceFileReader
+    ) => Promise<AgentMessage[]>;
+    readonly selfImprovementSignal: (
+      messages: AgentMessage[],
+      runtimeData: RuntimeData
     ) => Promise<AgentMessage[]>;
     readonly workspaceInstructions: (
       messages: AgentMessage[],
@@ -588,11 +654,30 @@ export interface AgentStreamCapabilities<
       observerTarget: { readonly model: string; readonly provider: string } | undefined,
       getDatabase: AgentStreamDatabaseProvider<K['database']>
     ) => AsyncIterable<StreamChunk>;
+    readonly persistToolCallTelemetry: (
+      stream: AsyncIterable<StreamChunk>,
+      runId: string,
+      getDatabase: AgentStreamDatabaseProvider<K['database']>
+    ) => AsyncIterable<StreamChunk>;
+    readonly persistTokenEstimateCalibration: (
+      stream: AsyncIterable<StreamChunk>,
+      runId: string,
+      getDatabase: AgentStreamDatabaseProvider<K['database']>
+    ) => AsyncIterable<StreamChunk>;
     readonly recordHookRunOutcome: (
       database: K['database'],
       runId: string,
       verdict: K['hookVerdict']
     ) => Promise<void>;
+    /**
+     * BST-1250 (optional): record the per-run experiment treatment for
+     * approval/resume continuation legs. Those legs mint their own runId and
+     * run row but return BEFORE the context injectors (where normal legs
+     * record), so without this they get outcome labels with no treatment row
+     * — a systematically biased gap (they correlate with tool-heavy,
+     * permission-gated runs). Fire-and-forget; never blocks the stream.
+     */
+    readonly recordContinuationRunTreatment?: (runtime: RuntimeData) => void;
   };
   readonly skills: {
     readonly createFs: (candidateRoots: readonly string[]) => K['skillsFilesystem'];
@@ -646,6 +731,8 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
   readonly apiKey: string | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
+  /** Trusted host-injected compaction overlay lookup; never client supplied. */
+  readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
   readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
   readonly logger: ScopedLogger;
   readonly mcpConfig: McpConfig | undefined;
@@ -664,6 +751,8 @@ export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKind
     readonly embeddingHostManager?: K['embeddingHost'] | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   };
+  /** Trusted host-injected projection-overlay lookup; never client supplied. */
+  readonly toolProjectionRewriteLookup?: RuntimeData['toolProjectionRewriteLookup'];
   readonly toolResumeAction: AssistantToolResumeAction | undefined;
 }
 
@@ -682,15 +771,18 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     toolApprovalAction,
     toolResumeAction,
     toolDependencies,
+    compactionOverlayLookup,
+    toolProjectionRewriteLookup,
     getDatabase,
     resolveProviderApiKey,
   } = params;
   const deps: AgentStreamHelperDeps<K> = { capabilities, logger };
   // Multi-root: resolve the active workspace roots from the DB `roots` table so
-  // the assistant's file/search tools can disambiguate paths across roots. The
-  // helper falls back to the single focused root on an empty/failed lookup.
+  // the assistant's file/search tools can disambiguate paths across roots. A
+  // failed lookup leaves the authoritative inventory unavailable, so workspace
+  // tool authorization fails closed instead of synthesizing the focused path.
   const rootsDatabase = await getDatabase().catch((error: unknown) => {
-    logger.warn('Workspace roots DB unavailable; tools fall back to the focused root.', { error });
+    logger.warn('Workspace roots DB unavailable; workspace tools fail closed.', { error });
     return null;
   });
   let runtimeData: RuntimeData | undefined;
@@ -739,11 +831,21 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     // renderer only sends the `skillsPreference` wire field, which can only
     // REDUCE the skill set.
     workspaceSkills: _ignoredClientWorkspaceSkills,
+    // Strip any client-supplied overlay lookup. Only the host-injected closure
+    // passed as an initializer dependency may reach the agent runtime.
+    compactionOverlayLookup: _ignoredClientCompactionOverlayLookup,
+    contextOverflowRecovery: _ignoredClientContextOverflowRecovery,
+    toolProjectionRewriteLookup: _ignoredClientProjectionRewriteLookup,
     // The renderer's persona availability preference; resolved (with the
     // user-persona disk scan) into `runtime.personas` below.
     subagentPersonasRequest,
     ...runtimeWithoutMcpConfig
   } = runtimeData ?? {};
+  const trustedRuntimeData: RuntimeData = {
+    ...runtimeWithoutMcpConfig,
+    ...trustedCompactionOverlayFields(compactionOverlayLookup),
+    ...trustedProjectionRewriteFields(toolProjectionRewriteLookup),
+  };
   const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
 
   // Subagent personas: built-ins + user-defined (scanned from
@@ -754,7 +856,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
   // delegation tools; the agent runtime skips personas for the built-in local
   // provider (D10).
   const personaRuntimeFields = await resolvePersonaRuntimeFields(
-    runtimeData,
+    trustedRuntimeData,
     subagentPersonasRequest,
     resolveProviderApiKey,
     deps
@@ -762,7 +864,12 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
 
   let initializationStage: AgentStreamInitializationStage = 'provider_model_bootstrap';
   try {
-    const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
+    // trustedRuntimeData for consistency with every other capability builder
+    // below, even though resolveLocalLlmHostClient today only reads
+    // `provider`/`memory.memorySettings.observationalMemory.modelTarget` —
+    // neither field is stripped, so this was a no-op-in-practice inconsistency
+    // (raw `runtimeData` was never intentional here) rather than a live bug.
+    const localLlmHostClient = resolveLocalLlmHostClient(trustedRuntimeData, toolDependencies);
     // Tool-lifecycle hooks (desktop): build the per-request manager over the
     // mounted roots + server-resolved trust. Hook run events flow through the
     // same queued sink the memory + stream observer drain, so hook.blocked and
@@ -776,33 +883,37 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       hookTrustRequest,
       logger,
       runId,
-      runtimeData,
+      runtimeData: trustedRuntimeData,
     });
     // Agent Skills: TRUSTED server-built engine over the SecureRoot scan of the
     // four skills tiers (mounted roots + home dir), with the renderer's
     // preference applied (master toggle / per-skill disables — reduce-only).
     // Undefined when skills are off or the provider is the built-in local model.
-    const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData, deps);
+    const skillsRuntimeFields = prepareRequestSkillsFromDisk(trustedRuntimeData, deps);
     const artifactCapabilities = buildToolOutputArtifactCapabilities(
-      runtimeData,
+      trustedRuntimeData,
       runId,
       getDatabase,
       deps
     );
+    const resolvedToolResultBudget = resolveToolBuildBudget(trustedRuntimeData, logger);
     initializationStage = 'native_tool_preferences';
     const mastraTools = capabilities.tools.build(
-      runtimeData,
-      withSkillScriptResolver(
-        withToolOutputArtifactReader(
-          toolDependencies,
-          artifactCapabilities.toolOutputArtifactReader
+      trustedRuntimeData,
+      withResolvedToolResultBudget(
+        withSkillScriptResolver(
+          withToolOutputArtifactReader(
+            toolDependencies,
+            artifactCapabilities.toolOutputArtifactReader
+          ),
+          skillsRuntimeFields.workspaceSkills
         ),
-        skillsRuntimeFields.workspaceSkills
+        resolvedToolResultBudget
       )
     );
     initializationStage = 'provider_model_bootstrap';
     const runtime: RuntimeData = {
-      ...runtimeWithoutMcpConfig,
+      ...trustedRuntimeData,
       // The execute-risk shell tool is registered like every other native tool;
       // the permission gate (enforce-on-by-default → execute:ask) suspends the
       // run for per-call approval before it executes, so it is no longer gated at
@@ -874,7 +985,10 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     const memoryOptions = buildInitialStreamMemoryOptions(
       memoryResult,
       artifactCapabilities.toolOutputArtifactStore,
-      capabilities.webExtractInlineMaxSerializedChars
+      Math.min(
+        capabilities.webExtractInlineMaxSerializedChars,
+        resolvedToolResultBudget.domainModelResultCharBudget
+      )
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/
@@ -884,15 +998,23 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     // Run-event observer wrapper (a no-op when there is no runId to stamp).
     const observe = (source: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> =>
       runId
-        ? capabilities.runPersistence.persistChildRunUsage(
-            capabilities.runPersistence.observeRunEvents(
-              source,
+        ? capabilities.runPersistence.persistTokenEstimateCalibration(
+            capabilities.runPersistence.persistToolCallTelemetry(
+              capabilities.runPersistence.persistChildRunUsage(
+                capabilities.runPersistence.observeRunEvents(
+                  source,
+                  runId,
+                  queuedRunEvents,
+                  getDatabase
+                ),
+                runId,
+                resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
+                getDatabase
+              ),
               runId,
-              queuedRunEvents,
               getDatabase
             ),
             runId,
-            resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
             getDatabase
           )
         : source;
@@ -914,8 +1036,18 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       };
     }
 
+    const preRequestCompaction = await runConversationCompactionBeforeStream({
+      capabilities,
+      logger,
+      memoryResult,
+      messages: upsGate.messages,
+      runId,
+      runtime,
+      signal,
+    });
+
     initializationStage = 'stream_construction';
-    const stream = await resolveInitialAgentStream({
+    const initialStream = await resolveInitialAgentStream({
       deps,
       memoryOptions,
       messages: upsGate.messages,
@@ -923,6 +1055,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       toolApprovalAction,
       toolResumeAction,
     });
+    const stream = withCompactionUsageChunk(initialStream, preRequestCompaction);
     logger.info('Assistant stream initialized');
     // Stop (notify-only in v1): fire the terminal Stop hook best-effort when the
     // stream ends (clean/error/abort). Its run events ride the queued sink the

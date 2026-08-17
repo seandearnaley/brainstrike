@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ACCURATE_TOKEN_ENCODING,
-  ACCURATE_TOKEN_MODEL_HINT,
-  countTokensHeuristic,
-  formatTokenCount,
   getChunkingPreset,
   getChunkingPresetDefinitions,
   getChunkingRoutePreview,
@@ -28,11 +24,6 @@ describe('@brainstrike/text-splitter', () => {
       });
       expect(chunks.length).toBeGreaterThan(0);
     }
-  });
-
-  it('exports shared accurate token constants for worker runtimes', () => {
-    expect(ACCURATE_TOKEN_MODEL_HINT).toBe('gpt-5.2');
-    expect(ACCURATE_TOKEN_ENCODING).toBe('o200k_base');
   });
 
   it('splits long text recursively with literal separators', async () => {
@@ -234,11 +225,6 @@ describe('@brainstrike/text-splitter', () => {
     expect(isChunkingStrategy('auto')).toBe(true);
     expect(isChunkingStrategy('semantic-markdown')).toBe(true);
     expect(isChunkingStrategy('bogus')).toBe(false);
-  });
-
-  it('exports lightweight token heuristics from the package root', () => {
-    expect(countTokensHeuristic('abcdefgh')).toBe(2);
-    expect(formatTokenCount(1500)).toBe('1.5K tokens');
   });
 
   it('resolves auto strategy from file extension', () => {

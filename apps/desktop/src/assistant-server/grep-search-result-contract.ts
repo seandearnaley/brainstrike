@@ -1,3 +1,4 @@
+import { ToolProjectionInputRejectedError } from '@brainstrike/agent';
 import type { GrepMatch } from '@brainstrike/db';
 
 export type GrepMatchSource = 'index' | 'live' | 'both';
@@ -19,11 +20,43 @@ export interface GrepFileSummary {
 }
 
 interface GrepToolResultBase {
+  /**
+   * Lowercased display names shared by MORE THAN ONE open root, present only
+   * when non-empty. Ambiguity is a property of the FULL open-root inventory —
+   * a page can contain one root of a twin pair, and `resolveWorkspaceRoot`
+   * would still reject the shared name — so the producer computes this and
+   * the projection falls back to root ids for these names (PR #2313 review).
+   */
+  ambiguousRootNames?: string[];
   candidatesTruncated: boolean;
   hint?: string;
   liveEngine: 'ripgrep' | 'js-walk' | 'skipped';
   liveNote?: string;
+  /**
+   * BST-1188: set only by the repeated-identical-call loop guard on the 3rd
+   * consecutive identical grepSearch call in a thread. Rendered as its OWN
+   * `warning:` line — unlike `hint`, which the projection skips whenever the
+   * page was already trimmed by the output-char budget, so a guard warning
+   * folded into `hint` would silently vanish exactly on the large/expensive
+   * repeats it exists to stop (PR #2323 review). Never producer-set outside
+   * `tool-call-loop-guards.ts`.
+   */
+  loopGuardWarning?: string;
   offset: number;
+  /**
+   * Count of OPEN workspace roots, present only when more than one folder is
+   * open. The projection prefixes each file header with its root name only in
+   * that case (BST-1185) — the projector cannot know the open-root topology
+   * from the matches alone (a page may happen to hit a single root even when
+   * several are open, and the model still needs the root selector then).
+   */
+  openRoots?: number;
+  /**
+   * BST-1194: set only for a genuine zero-match result when a bounded steering
+   * probe (case, literal-vs-regex, or excluded path) finds missed matches. The
+   * model projection renders it as an additional `note:` line.
+   */
+  probeNote?: string;
   scanLimited: boolean;
   totalMatches: number;
   truncated: boolean;
@@ -43,8 +76,16 @@ export interface GrepContentToolResult extends GrepToolResultBase {
 
 export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
 
+/**
+ * Replay-detection prefix for stored grep model projections. Deliberately the
+ * COMMON prefix of both header generations: the legacy verbose header
+ * (`grep content | page=…`, pre-BST-1185) and the compact header
+ * (`grep content 1-2/61`) both start with `grep <mode> `, so stored
+ * projections from old threads keep replaying byte-for-byte after the format
+ * change instead of being rejected as malformed raw output.
+ */
 export function grepProjectionHeaderPrefix(outputMode: GrepToolResult['outputMode']): string {
-  return `grep ${outputMode} | page=`;
+  return `grep ${outputMode} `;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -69,13 +110,22 @@ function valueKind(value: unknown): string {
   return typeof value;
 }
 
+// The marker matters: the runtime dispatcher fails soft ONLY on
+// `ToolProjectionInputRejectedError` (shape rejection — the value is not a
+// grep result at all), while deliberate invariant throws in the projector
+// (e.g. a truncated result without continuation guidance) stay plain and
+// keep failing the run. `runGrepSearch`'s own output validation also lands
+// here; inside `execute` the guard converts any throw, so marking is inert.
 function rejectField(path: string, expected: string, value: unknown): never {
-  throw new TypeError(
+  throw new ToolProjectionInputRejectedError(
     `grepSearch model projection rejected ${path}: expected ${expected}, received ${valueKind(value)}`
   );
 }
 
-function requireOptionalString(record: Record<string, unknown>, field: 'hint' | 'liveNote'): void {
+function requireOptionalString(
+  record: Record<string, unknown>,
+  field: 'hint' | 'liveNote' | 'loopGuardWarning' | 'probeNote'
+): void {
   const value = record[field];
   if (value !== undefined && typeof value !== 'string') {
     rejectField(field, 'string or absent', value);
@@ -115,8 +165,24 @@ function requireGrepBase(record: Record<string, unknown>): void {
   }
   requireOptionalString(record, 'hint');
   requireOptionalString(record, 'liveNote');
+  requireOptionalString(record, 'probeNote');
+  requireOptionalString(record, 'loopGuardWarning');
   if (!isNonNegativeInteger(record['offset'])) {
     rejectField('offset', 'non-negative integer', record['offset']);
+  }
+  const openRoots = record['openRoots'];
+  if (openRoots !== undefined && !isPositiveInteger(openRoots)) {
+    rejectField('openRoots', 'positive integer or absent', openRoots);
+  }
+  const ambiguousRootNames = record['ambiguousRootNames'];
+  if (
+    ambiguousRootNames !== undefined &&
+    !(
+      Array.isArray(ambiguousRootNames) &&
+      ambiguousRootNames.every((name) => typeof name === 'string')
+    )
+  ) {
+    rejectField('ambiguousRootNames', 'string array or absent', ambiguousRootNames);
   }
   if (typeof record['scanLimited'] !== 'boolean') {
     rejectField('scanLimited', 'boolean', record['scanLimited']);

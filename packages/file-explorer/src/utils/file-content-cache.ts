@@ -1,4 +1,5 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
+import type { CacheStats } from '@brainstrike/types';
 
 const logger = createLogger('FileContentCache');
 export const fileContentCacheLogger = logger;
@@ -17,13 +18,6 @@ export interface CacheEntry {
   lastAccessed: number;
   size: number; // in bytes
   timestamp: number;
-}
-
-export interface CacheStats {
-  entryCount: number;
-  evictionCount: number;
-  hitRate: number;
-  totalSize: number;
 }
 
 /** Shared encoder instance for byte-length measurement (avoids Blob allocation). */

@@ -1,5 +1,5 @@
 import type { LocalLlmGenerationResult } from '@brainstrike/agent/local-llm';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { BrowserWindow, WebContents } from 'electron';
 import { BrowserWindow as ElectronBrowserWindow } from 'electron';
 import {

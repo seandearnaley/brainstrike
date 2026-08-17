@@ -4,7 +4,7 @@
 
 [![Node Version](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
-[![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](./package.json)
 
 ## Overview
 
@@ -516,7 +516,8 @@ const messages: AssistantUiMessageStrict[] = [
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](../../CONTRIBUTING.md) for details.
+Follow the repository's [coding-agent and contribution policy](../../AGENTS.md)
+and open a pull request with the relevant package checks passing.
 
 ### Development Setup
 

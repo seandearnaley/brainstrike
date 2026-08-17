@@ -1,10 +1,10 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import {
   composeWrappers,
   createDirectoryNode,
   makeRenderWithProviders,
 } from '@brainstrike/test-utils';
 import { DEFAULT_MAX_SELECTION_COUNT } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils';
 import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

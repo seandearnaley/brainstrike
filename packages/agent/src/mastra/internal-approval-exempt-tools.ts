@@ -9,9 +9,17 @@
  * `updateWorkingMemory` — surfacing a spurious approval prompt for internal
  * memory maintenance (the D4 defect).
  *
- * Canonical ids verified against the installed @mastra/memory 1.22.1
- * (`UPDATE_WORKING_MEMORY_TOOL_NAME = 'updateWorkingMemory'`) and its VNext
- * rename to `setWorkingMemory` (docs-memory-working-memory.md).
+ * Canonical ids verified against the installed @mastra/memory 1.26.0
+ * (`UPDATE_WORKING_MEMORY_TOOL_NAME = 'updateWorkingMemory'`,
+ * `SET_WORKING_MEMORY_TOOL_NAME = 'setWorkingMemory'` — both unchanged from
+ * the 1.22.1 baseline) and its VNext rename to `setWorkingMemory`
+ * (docs-memory-working-memory.md). The only other memory-injected tool,
+ * `recall` (OM retrieval), predates this range and is deliberately NOT
+ * exempt — it reads workspace-derived content, so gating it on the resumed
+ * leg is acceptable posture, and it was equally un-exempt at 1.22.1.
+ * `__tests__/internal-approval-exempt-tools.guard.spec.ts` re-checks these
+ * names against the INSTALLED @mastra/memory dist so a rename fails at the
+ * next bump instead of silently prompting for approval on every resume (D4).
  */
 const MASTRA_INTERNAL_APPROVAL_EXEMPT_TOOLS: ReadonlySet<string> = new Set([
   'updateWorkingMemory',

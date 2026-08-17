@@ -1,34 +1,28 @@
-import type { EmbeddingSet } from '@brainstrike/db';
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import {
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import {
-  __resetBackgroundWorkArbiterForTests,
-  acquireBackgroundWorkPauseReason,
-  encodeFileSelection,
-  getBackgroundWorkArbiterSnapshot,
-} from '@brainstrike/utils';
-import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
-import {
-  addLogListener,
-  configureLogger,
-  LogLevel,
-  type LogRecord,
-  setLogLevel,
-} from '@brainstrike/utils/logger';
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import type { EmbeddingSet } from '@brainstrike/db';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type {
   WorkspaceIndexingQosInputs,
   WorkspaceIndexingQosPolicy,
-} from '@brainstrike/utils/workspace-indexing-qos';
+} from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
+import {
+  __resetBackgroundWorkArbiterForTests,
+  acquireBackgroundWorkPauseReason,
+  getBackgroundWorkArbiterSnapshot,
+} from '@brainstrike/utils';
+import { QUEUE_DRAINED_EVENT } from '@brainstrike/utils/browser-events';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -291,8 +285,9 @@ const {
   },
 }));
 
-vi.mock('@brainstrike/utils/workspace-indexing-qos', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/workspace-indexing-qos')>();
+vi.mock('@brainstrike/indexing-contract/workspace-indexing-qos', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/indexing-contract/workspace-indexing-qos')>();
   resolveWorkspaceIndexingQosPolicyMock.mockImplementation(
     (inputs: WorkspaceIndexingQosInputs): WorkspaceIndexingQosPolicy =>
       actual.resolveWorkspaceIndexingQosPolicy(inputs)
@@ -420,12 +415,15 @@ vi.mock('@brainstrike/db/react', () => ({
   WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
 }));
 
+const stableFileSystemAdapter = { readDirectory: vi.fn(), readFile: vi.fn() };
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   createFileContentProcessor: () => ({
     processFiles: processFilesMock,
   }),
+  // Render-stable, like the real AdaptersProvider value — a fresh object per
+  // call would churn service identity on every rerender (test artifact).
   useAdapters: () => ({
-    fileSystemAdapter: { readDirectory: vi.fn(), readFile: vi.fn() },
+    fileSystemAdapter: stableFileSystemAdapter,
   }),
 }));
 
@@ -469,45 +467,48 @@ vi.mock('@brainstrike/file-import', () => ({
   runEnhancedImport: runEnhancedImportMock,
 }));
 
+// Render-stable controller, like the real provider value — a fresh object
+// per call would churn service identity on every rerender.
+const stableEmbeddingRuntimeController = {
+  cancelAllBackfills: vi.fn(async () => {}),
+  cancelBackfill: cancelBackfillMock,
+  enqueueBackfill: enqueueBackfillMock,
+  ensureStarted: ensureEmbeddingRuntimeStartedMock,
+  getBackfillsInFlight: vi.fn(async () => []),
+  getStatus: vi.fn(async () => ({
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host:test',
+    runtimeKind: 'embedding-host',
+    state: 'running',
+  })),
+  onBackfillProgress: vi.fn(() => () => {}),
+  onStatus: vi.fn(() => () => {}),
+  reset: vi.fn(async () => ({
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host:test',
+    runtimeKind: 'embedding-host',
+    state: 'running',
+  })),
+  start: vi.fn(async () => ({
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host:test',
+    runtimeKind: 'embedding-host',
+    state: 'running',
+  })),
+  stop: vi.fn(async () => ({
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host:test',
+    runtimeKind: 'embedding-host',
+    state: 'stopped',
+  })),
+};
 vi.mock('@brainstrike/vector-management', () => ({
   useSharedEmbeddingRuntime: vi.fn(() => ({
-    controller: {
-      cancelAllBackfills: vi.fn(async () => {}),
-      cancelBackfill: cancelBackfillMock,
-      enqueueBackfill: enqueueBackfillMock,
-      ensureStarted: ensureEmbeddingRuntimeStartedMock,
-      getBackfillsInFlight: vi.fn(async () => []),
-      getStatus: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'running',
-      })),
-      onBackfillProgress: vi.fn(() => () => {}),
-      onStatus: vi.fn(() => () => {}),
-      reset: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'running',
-      })),
-      start: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'running',
-      })),
-      stop: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'stopped',
-      })),
-    },
+    controller: stableEmbeddingRuntimeController,
     service: vectorQueueServiceState.current ?? null,
   })),
 }));
@@ -599,7 +600,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       },
     ]);
     processFilesMock.mockResolvedValue({
-      [encodeFileSelection('/workspace/root', 'src/index.ts')]: 'export const value = 1;',
+      [encodeFileSelection('/workspace/root', 'src/index.ts')]: {
+        content: 'export const value = 1;',
+        status: 'accessible',
+      },
     });
     listManagedCacheEntryMetadataMock.mockResolvedValue([]);
     runEnhancedImportMock.mockImplementation(async (params) => {
@@ -781,7 +785,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
   });
 
   it('logs a workspace QoS transition once across repeated policy resolutions', async () => {
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.INFO);
     const captured: LogRecord[] = [];
     const removeListener = addLogListener((record) => {
@@ -807,8 +810,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(captured[0]?.args).toContainEqual(expect.objectContaining({ from: null }));
     } finally {
       removeListener();
-      // Restore the default so later tests in this file stay console-quiet.
-      configureLogger({ enableInProduction: false });
     }
   });
 
@@ -1188,11 +1189,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
-  it('routes typed watcher incremental refreshes only to matching active root handles', async () => {
+  it('routes same-path watcher refreshes by durable root identity', async () => {
     const rootA = {
       kind: 'directory',
       name: 'root-a',
-      path: '/workspace/root-a',
+      path: '/workspace/shared',
       platform: 'electron',
       rootId: 'root-a-id',
     };
@@ -1202,17 +1203,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
       {
         kind: 'directory',
         name: 'root-b',
-        path: '/workspace/root-b',
+        path: '/workspace/shared',
         platform: 'electron',
         rootId: 'root-b-id',
       },
     ];
-    fileSystemState.rootIdByPath = new Map([
-      ['/workspace/root-a', 'root-a-id'],
-      ['/workspace/root-b', 'root-b-id'],
-    ]);
+    fileSystemState.rootIdByPath = new Map([['/workspace/shared', 'root-b-id']]);
     resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
       rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
+    );
+    const reconcileMountedRootsSpy = vi.spyOn(
+      WorkspaceCollectionSyncService.prototype,
+      'reconcileMountedRoots'
     );
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
 
@@ -1225,10 +1227,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
       syncSpy.mockClear();
+      reconcileMountedRootsSpy.mockClear();
 
       const change = {
         kind: 'file' as const,
-        path: '/workspace/root-b/src/index.ts',
+        path: '/workspace/shared/src/index.ts',
         type: 'modified' as const,
       };
       act(() => {
@@ -1238,8 +1241,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
               roots: [
                 {
                   changes: [change],
-                  rootId: 'root-b-id',
-                  rootPath: '/workspace/root-b',
+                  rootId: 'root-a-id',
+                  rootPath: '/workspace/shared',
                 },
               ],
               scope: 'incremental',
@@ -1252,10 +1255,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
       expect(syncSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          dbRootId: 'db-root-b-id',
+          dbRootId: 'db-root-a-id',
           rootDirectoryHandle: expect.objectContaining({
-            path: '/workspace/root-b',
-            rootId: 'root-b-id',
+            path: '/workspace/shared',
+            rootId: 'root-a-id',
           }),
           scope: {
             changes: [change],
@@ -1263,7 +1266,56 @@ describe('WorkspaceCollectionSyncProvider', () => {
           },
         })
       );
-      expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/root-b', 'root-b-id');
+      expect(reconcileMountedRootsSpy).toHaveBeenLastCalledWith(
+        '00000000-0000-0000-0000-000000000101',
+        [
+          {
+            adapterRootId: 'root-a-id',
+            dbRootId: 'db-root-a-id',
+            rootPath: '/workspace/shared',
+          },
+          {
+            adapterRootId: 'root-b-id',
+            dbRootId: 'db-root-b-id',
+            rootPath: '/workspace/shared',
+          },
+        ]
+      );
+      expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/shared', 'root-b-id');
+    } finally {
+      reconcileMountedRootsSpy.mockRestore();
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('passes a path-mapped adapter identity for a legacy unstamped handle', async () => {
+    const legacyRoot = {
+      kind: 'directory',
+      name: 'legacy-root',
+      path: '/workspace/legacy',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = legacyRoot;
+    fileSystemState.rootDirectoryHandles = [legacyRoot];
+    fileSystemState.rootIdByPath = new Map([[legacyRoot.path, 'legacy-adapter-id']]);
+    resolveDbRootIdMock.mockResolvedValue('legacy-db-root-id');
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledOnce());
+      expect(syncSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapterRootId: 'legacy-adapter-id',
+          dbRootId: 'legacy-db-root-id',
+          rootDirectoryHandle: legacyRoot,
+        })
+      );
     } finally {
       syncSpy.mockRestore();
     }
@@ -1336,6 +1388,62 @@ describe('WorkspaceCollectionSyncProvider', () => {
       );
     } finally {
       syncSpy.mockRestore();
+    }
+  });
+
+  it('a focus-only root change never cancels or re-runs an in-flight sync (BST-1268)', async () => {
+    // Per-thread workspaces restore the FOCUSED root on thread switch. The
+    // sync machinery must key on the root SET identity alone — a focus change
+    // with an unchanged set must not recreate triggerSync (whose owning
+    // effect's cleanup cancels the in-flight sync mid-import).
+    const rootA = {
+      kind: 'directory',
+      name: 'root-a',
+      path: '/workspace/root-a',
+      platform: 'electron',
+      rootId: 'root-a-id',
+    };
+    const rootB = {
+      kind: 'directory',
+      name: 'root-b',
+      path: '/workspace/root-b',
+      platform: 'electron',
+      rootId: 'root-b-id',
+    };
+    fileSystemState.rootDirectoryHandle = rootA;
+    fileSystemState.rootDirectoryHandles = [rootA, rootB];
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+    const cancelSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
+      .mockResolvedValue();
+
+    try {
+      const { rerender } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      syncSpy.mockClear();
+      cancelSpy.mockClear();
+
+      // Focus flips to root-b; the SET (same array identity) is unchanged.
+      fileSystemState.rootDirectoryHandle = rootB;
+      rerender(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // Give any (wrong) effect re-run a chance to fire before asserting.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+      expect(cancelSpy).not.toHaveBeenCalled();
+      expect(syncSpy).not.toHaveBeenCalled();
+    } finally {
+      syncSpy.mockRestore();
+      cancelSpy.mockRestore();
     }
   });
 
@@ -1715,16 +1823,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
         type: 'file',
       },
     ]);
-    processFilesMock.mockImplementation(
-      async (requests: Array<{ compositeKey: string }>): Promise<Record<string, string>> =>
-        Object.fromEntries(
-          requests.map((request) => [
-            request.compositeKey,
-            request.compositeKey.includes('binary-content.md')
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          {
+            content: request.compositeKey.includes('binary-content.md')
               ? 'looks like markdown but contains a null\0byte'
               : 'export const value = 1;',
-          ])
-        )
+            status: 'accessible' as const,
+          },
+        ])
+      )
     );
     dbState.current = {
       exec: vi.fn(async () => undefined),
@@ -1737,7 +1847,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     };
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.INFO);
     const capturedExclusionLogs: LogRecord[] = [];
     const removeListener = addLogListener((record) => {
@@ -1790,7 +1899,71 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(JSON.stringify(capturedExclusionLogs[0]?.args ?? [])).toContain('null bytes');
     } finally {
       removeListener();
-      configureLogger({ enableInProduction: false });
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('never verifies coverage complete from a truncated expected-file walk', async () => {
+    // The audit's expected set is a partial prefix when a listing was
+    // truncated at the adapter cap; a fully-indexed prefix must not mark the
+    // root verified complete.
+    readFullTreeWithOptionsMock.mockImplementation(async (_adapter, _handle, options) => {
+      options?.onDirectoryTruncated?.({ depth: 0, path: '/workspace/root' });
+      return [
+        {
+          handle: { path: '/workspace/root/src/index.ts', platform: 'electron' },
+          name: 'index.ts',
+          path: '/workspace/root/src/index.ts',
+          rootFolderId: '/workspace/root',
+          type: 'file',
+        },
+      ];
+    });
+    dbState.current = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('SELECT root_id, path')) {
+          return { rows: [{ path: 'src/index.ts', root_id: 'db-root-id' }] };
+        }
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          activeRootPath: '/workspace/root',
+          currentFilePath: null,
+          lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
+          pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
+        });
+      });
+
+      await waitFor(() => {
+        expect(useWorkspaceCollectionSyncStatusStore.getState().lastError ?? '').toContain(
+          'truncated'
+        );
+      });
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting');
+      // Truncation is an enumeration cap, not missing pipeline work: it must
+      // not trigger a recovery sync that can never converge.
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+    } finally {
       syncSpy.mockRestore();
     }
   });
@@ -1812,11 +1985,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
         type: 'file',
       },
     ]);
-    processFilesMock.mockImplementation(
-      async (requests: Array<{ compositeKey: string }>): Promise<Record<string, string>> =>
-        Object.fromEntries(
-          requests.map((request) => [request.compositeKey, 'export const value = 1;'])
-        )
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: 'export const value = 1;', status: 'accessible' as const },
+        ])
+      )
     );
     dbState.current = {
       exec: vi.fn(async () => undefined),
@@ -1913,7 +2088,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
         captured.push(record);
       }
     });
-    configureLogger({ enableInProduction: true });
     setLogLevel(LogLevel.WARN);
 
     try {
@@ -1957,7 +2131,6 @@ describe('WorkspaceCollectionSyncProvider', () => {
       );
     } finally {
       removeListener();
-      configureLogger({ enableInProduction: false });
       syncSpy.mockRestore();
     }
   });
@@ -2707,6 +2880,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         changedFiles: 8,
         discoveredFiles: 20,
         excludedEntries: 2,
+        truncatedDirectories: 0,
         unchangedFiles: 10,
       },
       state: 'importing',
@@ -2986,6 +3160,49 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('replaces a pruned terminal error when every remaining root is unresolved', async () => {
+    const unresolvedRoot = {
+      kind: 'directory',
+      name: 'unresolved',
+      path: '/workspace/unresolved',
+      platform: 'electron',
+      rootId: 'unresolved-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = unresolvedRoot;
+    fileSystemState.rootDirectoryHandles = [unresolvedRoot];
+    fileSystemState.rootIdByPath = new Map([[unresolvedRoot.path, unresolvedRoot.rootId]]);
+    resolveDbRootIdMock.mockResolvedValue(null);
+    useWorkspaceCollectionSyncStatusStore.setState({
+      activeRootPath: '/workspace/removed',
+      lastError: 'Workspace Index stopped re-dispatching "src/stuck.ts" after 3 attempts.',
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      state: 'error',
+    });
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync');
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(resolveDbRootIdMock).toHaveBeenCalled());
+      expect(syncSpy).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            activeRootPath: unresolvedRoot.path,
+            lastError: `Workspace Index coverage cannot be verified because root ${unresolvedRoot.path} has no resolved database root id.`,
+            state: 'waiting',
+          })
+        )
+      );
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('stops the stale loop when a new triggerSync fires mid-loop', async () => {
     const root1 = {
       kind: 'directory',
@@ -3036,8 +3253,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
       // Wait for the first loop's root1 pass to begin.
       await firstSyncStartedPromise;
 
-      // Re-trigger by forcing a rerender (simulates a state change that re-fires the effect).
-      fileSystemState.rootDirectoryHandles = [root1, root2];
+      // Re-trigger via a GENUINE root-set change (BST-1268: identity churn
+      // with an unchanged set deliberately no longer re-fires the effect).
+      fileSystemState.rootDirectoryHandles = [
+        root1,
+        root2,
+        {
+          kind: 'directory',
+          name: 'workspace3',
+          path: '/workspace/root3',
+          platform: 'electron',
+        },
+      ];
       rerender(
         <WorkspaceCollectionSyncProvider>
           <div data-testid="child" />
@@ -3483,7 +3710,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       });
 
     try {
-      const { rerender } = render(
+      render(
         <WorkspaceCollectionSyncProvider>
           <div data-testid="child" />
         </WorkspaceCollectionSyncProvider>
@@ -3495,14 +3722,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
           : callOrder.indexOf(root1.path)
       );
 
-      // Re-trigger the loop. root2 still has 0 coverage → still synced first.
+      // Re-trigger the loop via the refresh event — the honest same-set
+      // re-trigger path (BST-1268: identity churn no longer re-fires the
+      // owning effect). root2 still has 0 coverage → still synced first.
       callOrder.length = 0;
-      fileSystemState.rootDirectoryHandles = [root1, root2];
-      rerender(
-        <WorkspaceCollectionSyncProvider>
-          <div data-testid="child" />
-        </WorkspaceCollectionSyncProvider>
-      );
+      act(() => {
+        window.dispatchEvent(new Event('brainstrike:file-explorer-refreshed'));
+      });
       await waitFor(() => expect(callOrder).toContain(root2.path));
       const root2Index = callOrder.indexOf(root2.path);
       const root1Index = callOrder.indexOf(root1.path);

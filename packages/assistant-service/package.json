@@ -5,11 +5,13 @@
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "concurrently": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
@@ -81,6 +83,7 @@
     "dev": "concurrently --kill-others --names types,bundle \"tsc --build --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },

@@ -25,6 +25,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLiveChildProcesses } from '../../assistant-server/execute-command-tool';
+import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
 // an empty generator). Everything else from the package keeps its real impl.
@@ -106,7 +107,7 @@ describe('executeCommand registration', () => {
   // approval before it executes.
   it('is ALWAYS present in the tool map (gated by the permission engine, not registration)', async () => {
     const root = await makeWorkspace();
-    const tools = buildDesktopAssistantTools({ workspaceRootPath: root } as RuntimeData);
+    const tools = buildDesktopAssistantTools(singleRootRuntime(root));
     expect(tools['brainstrike.executeCommand']).toBeDefined();
   });
 });
@@ -116,9 +117,8 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
     const root = await makeWorkspace();
     // Side-effect marker: the real shell command writes a file we can assert on.
     const marker = path.join(root, 'ran.marker');
-    const tools = buildDesktopAssistantTools({ workspaceRootPath: root } as RuntimeData);
-    const executeTool = tools['brainstrike.executeCommand'];
-    expect(executeTool).toBeDefined();
+    const tools = buildDesktopAssistantTools(singleRootRuntime(root));
+    const executeTool = requireTool(tools, 'brainstrike.executeCommand');
 
     const hostClient = createScriptedHostClient(`echo hello-from-shell > "${marker}"; echo done`);
 
@@ -169,9 +169,8 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
 
   it('streams incremental shell output through the real desktop wiring (keyed to the tool call)', async () => {
     const root = await makeWorkspace();
-    const tools = buildDesktopAssistantTools({ workspaceRootPath: root } as RuntimeData);
-    const executeTool = tools['brainstrike.executeCommand'];
-    expect(executeTool).toBeDefined();
+    const tools = buildDesktopAssistantTools(singleRootRuntime(root));
+    const executeTool = requireTool(tools, 'brainstrike.executeCommand');
 
     // A command that emits a distinctive marker to stdout the tool must stream
     // live (via the Mastra writer) BEFORE the final result is captured.

@@ -1,3 +1,4 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import {
   createFileContentProcessor,
   type FileContentProcessor,
@@ -6,7 +7,6 @@ import {
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { getContentIndexingError } from './workspace-collection-sync-import';
 
 /**
@@ -89,20 +89,20 @@ export async function classifyMissingCoverageFiles(args: {
     fileNode: file.node,
     fileSystemAdapter: args.fileSystemAdapter,
   }));
-  const contents = await processor.processFiles(requests);
+  const results = await processor.processFiles(requests);
 
   const contentExcluded: Array<{ reason: string; relativePath: string }> = [];
   const genuinelyMissing: string[] = [];
   for (const [index, file] of filesToRead.entries()) {
     const request = requests[index];
-    const content = request ? contents[request.compositeKey] : undefined;
-    if (content === undefined) {
+    const result = request ? results[request.compositeKey] : undefined;
+    if (result === undefined) {
       // The reader returned nothing for this file: coverage cannot be proven
       // unnecessary, so fail toward recovery rather than toward silence.
       genuinelyMissing.push(file.relativePath);
       continue;
     }
-    const reason = getContentIndexingError(content);
+    const reason = getContentIndexingError(result);
     if (reason) {
       contentExcluded.push({ reason, relativePath: file.relativePath });
       continue;

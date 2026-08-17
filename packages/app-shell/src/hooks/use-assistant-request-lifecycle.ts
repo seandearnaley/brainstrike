@@ -1,14 +1,14 @@
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { getPermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
-import { getPermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useCallback, useEffect, useRef } from 'react';
 import {
   type AssistantForegroundActivityLease,
   acquireAssistantForegroundActivity,
 } from '../assistant-foreground-activity';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import {
   createAssistantThreadRunPromise,
   extractPreparedRunId,
@@ -315,7 +315,10 @@ export function useAssistantRequestLifecycle({
   );
 
   const prepareRequestData = useCallback(
-    async (abortSignal?: AbortSignal): Promise<Record<string, unknown>> => {
+    async (
+      abortSignal?: AbortSignal,
+      turnAnchorMessageId?: string | null
+    ): Promise<Record<string, unknown>> => {
       const preparationSignal = resolveRequestPreparationSignal(abortSignal);
       preparationSignal.throwIfAborted();
       const memoryContext = requireRequestMemoryContext(requestData);
@@ -342,6 +345,7 @@ export function useAssistantRequestLifecycle({
         resolvedModelName,
         selectedMemoryThreadId,
         selectedProvider,
+        turnMessageId: turnAnchorMessageId ?? null,
       });
       runWhileRequestPreparationActive(preparationSignal, () => {
         activatePreparedRun(runId, activeThreadRootBinding);

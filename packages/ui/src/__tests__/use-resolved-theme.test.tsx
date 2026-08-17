@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useResolvedTheme } from '../collection-picker/hooks/use-resolved-theme';
+import { useResolvedTheme } from '../hooks/use-resolved-theme';
 
 const useThemeMock = vi.fn();
 

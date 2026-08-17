@@ -4,7 +4,7 @@ import {
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import { formatTokenCount } from '@brainstrike/utils/token-counting-heuristics';
+import { formatTokenCount } from '@brainstrike/tokenization';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
   if (budgetTokens === undefined || !Number.isFinite(budgetTokens) || budgetTokens <= 0) {
@@ -29,7 +29,7 @@ const TASK_STATUS_GLYPHS: Record<AssistantTaskStatus, string> = {
  * `<`/`>` neutralizes any tag-like breakout while keeping the label readable;
  * `&` is encoded first so a genuine ampersand round-trips instead of forming a
  * bogus entity. Mirrors the `escapeXmlAttribute` precedent in
- * packages/utils/src/report-generator.ts (used for the `<file path="...">`
+ * packages/file-explorer/src/context-generation.ts (used for the `<file path="...">`
  * attribute); quotes/apostrophes aren't escaped here since this text is never
  * inside a quoted attribute, only free-standing block content.
  */
@@ -68,6 +68,9 @@ const HARNESS_FRAMING =
 
 interface ModelFacingToolNames {
   askUser: string | null;
+  browserGetPageText: string | null;
+  browserNavigate: string | null;
+  browserReadPage: string | null;
   deleteWorkspaceFile: string | null;
   executeCommand: string | null;
   findWorkspaceSymbol: string | null;
@@ -77,6 +80,7 @@ interface ModelFacingToolNames {
   listEmbeddingSpaces: string | null;
   listWorkspaceContext: string | null;
   lspInspect: string | null;
+  manageCanvas: string | null;
   manageTaskList: string | null;
   queryEmbeddingSpace: string | null;
   readWorkspaceContext: string | null;
@@ -117,6 +121,18 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
   const originalToModelFacing = buildOriginalToModelFacingToolNameMap(toolNameMap);
   return {
     askUser: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.askUser),
+    browserGetPageText: resolveModelFacingToolName(
+      originalToModelFacing,
+      NATIVE_TOOL_ID.browserGetPageText
+    ),
+    browserNavigate: resolveModelFacingToolName(
+      originalToModelFacing,
+      NATIVE_TOOL_ID.browserNavigate
+    ),
+    browserReadPage: resolveModelFacingToolName(
+      originalToModelFacing,
+      NATIVE_TOOL_ID.browserReadPage
+    ),
     deleteWorkspaceFile: resolveModelFacingToolName(
       originalToModelFacing,
       NATIVE_TOOL_ID.deleteWorkspaceFile
@@ -141,6 +157,7 @@ function getModelFacingToolNames(toolNameMap: ReadonlyMap<string, string>): Mode
       NATIVE_TOOL_ID.listWorkspaceContext
     ),
     lspInspect: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.lspInspect),
+    manageCanvas: resolveModelFacingToolName(originalToModelFacing, NATIVE_TOOL_ID.manageCanvas),
     manageTaskList: resolveModelFacingToolName(
       originalToModelFacing,
       NATIVE_TOOL_ID.manageTaskList
@@ -272,7 +289,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.updateWorkspaceContextSelection || names.updateWorkspaceTapestrySelections
       ? ' Selection write-back accepts root; otherwise selection targets the Focused root.'
       : '';
-  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (reported selection), and exact root selectors; ${names.listWorkspaceContext} refreshes the detailed inventory plus selection/index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results provide copyable read_args with root and path.${writeBackNote}`;
+  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (reported selection), and exact root selectors; ${names.listWorkspaceContext} refreshes the detailed inventory plus selection/index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.${writeBackNote}`;
 }
 
 /**
@@ -326,6 +343,41 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
 }
 
 /**
+ * General parallel-call guidance. Emitted when at least one read, search,
+ * inspect, or command tool is registered, without advertising unavailable
+ * tool names. Covers every read/search/inspect verb in ModelFacingToolNames
+ * (not just the tools named in the neighboring builders' example clauses) so
+ * a valid tool map that only registers, say, webSearch or lspInspect still
+ * gets the instruction.
+ */
+function buildParallelCallInstruction(names: ModelFacingToolNames): string {
+  const hasRelevantTool = [
+    names.browserGetPageText,
+    names.browserReadPage,
+    names.executeCommand,
+    names.findWorkspaceSymbol,
+    names.globWorkspace,
+    names.grepSearch,
+    names.hybridSearch,
+    names.listEmbeddingSpaces,
+    names.listWorkspaceContext,
+    names.lspInspect,
+    names.queryEmbeddingSpace,
+    names.readWorkspaceContext,
+    names.readWorkspaceDirectory,
+    names.readWorkspaceFile,
+    names.skillRead,
+    names.skillSearch,
+    names.webExtract,
+    names.webSearch,
+  ].some(Boolean);
+  if (!hasRelevantTool) {
+    return '';
+  }
+  return 'Batch independent reads, searches, or commands into one turn.';
+}
+
+/**
  * Guidance for the shell execution tool. Emitted only when the tool is
  * available (the permission policy did not deny it), so an unavailable verb is
  * never advertised. The wording is honest: there is NO sandbox, and by default
@@ -336,7 +388,15 @@ function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   if (!names.executeCommand) {
     return '';
   }
-  return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.`;
+  const boundedRoutes = [
+    names.readWorkspaceFile,
+    names.grepSearch,
+    names.globWorkspace,
+    names.readWorkspaceDirectory,
+  ].filter((name): name is string => Boolean(name));
+  const routingClause =
+    boundedRoutes.length > 0 ? ` Prefer ${boundedRoutes.join(', ')} instead.` : '';
+  return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.${routingClause}`;
 }
 
 /**
@@ -371,6 +431,20 @@ function buildTaskListInstruction(names: ModelFacingToolNames): string {
     return '';
   }
   return `For non-trivial multi-step work, maintain a plan with ${names.manageTaskList}. Every call replaces the FULL list; keep exactly one task in_progress and mark finished tasks completed. Statuses: pending/in_progress/completed.`;
+}
+
+function buildCanvasInstruction(names: ModelFacingToolNames): string {
+  if (!names.manageCanvas) {
+    return '';
+  }
+  return `Use ${names.manageCanvas} to create or list persisted HTML canvas documents (list returns summaries, never content). Use update for one exact unique replacement, or rewrite for full HTML replacement; every change creates a new version.`;
+}
+
+function buildBrowserPaneInstruction(names: ModelFacingToolNames): string {
+  if (!(names.browserNavigate && names.browserReadPage && names.browserGetPageText)) {
+    return '';
+  }
+  return `The app has an embedded browser pane the user can see. ${names.browserNavigate} opens a URL in it (creates a tab when none is open) and waits for the load; then SEE the live page with ${names.browserReadPage} (compact accessibility tree, [ref=eN] handles on interactive elements — prefer this) or ${names.browserGetPageText} (plain text). These read the pane's ACTIVE tab.`;
 }
 
 /** The persona shape the delegation guidance needs (ids/labels/descriptions only). */
@@ -508,6 +582,7 @@ export function buildDefaultInstructions(
     : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
+  const parallelCallInstruction = buildParallelCallInstruction(names);
   const hybridSearchClause = names.hybridSearch
     ? `Use ${names.hybridSearch} when a lookup mixes conceptual intent with distinctive exact terms.`
     : '';
@@ -529,6 +604,7 @@ export function buildDefaultInstructions(
   const executeCommandInstruction = buildExecuteCommandInstruction(names);
   const webSearchInstruction = buildWebSearchInstruction(names);
   const taskListInstruction = buildTaskListInstruction(names);
+  const canvasInstruction = buildCanvasInstruction(names);
   const curationInstruction =
     names.queryEmbeddingSpace &&
     names.updateWorkspaceContextSelection &&
@@ -599,6 +675,8 @@ export function buildDefaultInstructions(
     toolDiscoveryInstruction,
     projectWorkflowInstruction,
     buildSkillsInstruction(names),
+    canvasInstruction,
+    buildBrowserPaneInstruction(names),
     taskListInstruction,
     askUserInstruction,
     delegationInstruction,
@@ -606,7 +684,7 @@ export function buildDefaultInstructions(
     curationInstruction,
     selectionLine,
     'Keep retrieval budgets small. If truncated: true, follow its hint to fetch only missing data and report consequential omissions.',
-    'Issue independent read-only lookups together in one step.',
+    parallelCallInstruction,
     'If an expected native tool is unavailable, name its ID; use an alternative only if it still answers the user.',
     'When asked, list callable tool IDs with brief descriptions.',
     'Only run state-changing tools after the user confirms.',

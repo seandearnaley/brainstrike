@@ -1,5 +1,4 @@
-import type { AssistantMemoryThread } from './assistant-memory-repository';
-import type { ThreadListView } from './thread-list-sections';
+import type { AssistantMemoryThread, ThreadListView } from '@brainstrike/assistant-data';
 
 export type ThreadPanelLoadState =
   | { readonly status: 'idle' | 'loading' | 'ready' }

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ProviderDefinition, SupportedProvider } from '@brainstrike/agent/client';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 type AgentClientModule = typeof import('@brainstrike/agent/client');
 

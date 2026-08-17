@@ -12,7 +12,7 @@
  * fully-formed bridge. Web never sees it — there is no `isElectron()` check
  * anywhere.
  */
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('TerminalPanel');
 
@@ -55,15 +55,33 @@ export interface TerminalBridge {
   write: (params: { terminalId: string; data: string }) => Promise<TerminalResult>;
 }
 
-/** Every method name the bridge must expose to be considered fully formed. */
-const REQUIRED_METHODS: readonly (keyof TerminalBridge)[] = [
-  'create',
-  'write',
-  'resize',
-  'destroy',
-  'onData',
-  'onExit',
-];
+// Compile-time exact-set proof: `satisfies Record<keyof TerminalBridge, true>`
+// fails the build if any interface method is missing here, and excess keys are
+// rejected — so the pin can never silently become a subset (or superset) of
+// the interface. The runtime pin only checks preload ↔ constant; this closes
+// interface ↔ constant.
+const TERMINAL_BRIDGE_REQUIRED_METHOD_SET = {
+  create: true,
+  destroy: true,
+  onData: true,
+  onExit: true,
+  resize: true,
+  write: true,
+} as const satisfies Record<keyof TerminalBridge, true>;
+
+/**
+ * Every method name the bridge must expose to be considered fully formed.
+ * Exported so the desktop preload-runtime contract test can pin the
+ * `window.terminal` `exposeInMainWorld` key set to this exact list.
+ *
+ * NOTE: the pin is EXACT set equality, not a subset check — every method the
+ * preload exposes must be listed here. There is no such thing as an optional
+ * bridge method: a preload method missing from this list (or vice versa)
+ * disables the entire surface via the resolver below.
+ */
+export const TERMINAL_BRIDGE_REQUIRED_METHODS = Object.keys(
+  TERMINAL_BRIDGE_REQUIRED_METHOD_SET
+) as readonly (keyof TerminalBridge)[];
 
 /**
  * Resolve the `window.terminal` bridge, or `null` when it is absent (web) or
@@ -78,7 +96,9 @@ export function resolveTerminalBridge(): TerminalBridge | null {
   if (!bridge) {
     return null;
   }
-  const missing = REQUIRED_METHODS.filter((method) => typeof bridge[method] !== 'function');
+  const missing = TERMINAL_BRIDGE_REQUIRED_METHODS.filter(
+    (method) => typeof bridge[method] !== 'function'
+  );
   if (missing.length > 0) {
     logger.error('window.terminal bridge is malformed; Terminal panel disabled', { missing });
     return null;

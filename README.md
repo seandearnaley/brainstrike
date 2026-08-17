@@ -6,14 +6,15 @@ Future‑ready, AI‑assisted productivity apps built with React 19, Vite, Turbo
 
 [![CI](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml/badge.svg)](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml)
 [![Node 24.x](https://img.shields.io/badge/node-24.x-3C873A?logo=node.js&logoColor=white)](./.nvmrc)
-[![pnpm](https://img.shields.io/badge/pnpm-10.x-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
+[![pnpm](https://img.shields.io/badge/pnpm-11.15.0-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
 
 ---
 
 ## Quick Start
 
-- Prereqs: Node 24.x, pnpm 10.x (`corepack enable` recommended).
+- Prereqs: Node 24.x and the repository-pinned pnpm 11.15.0 (`corepack enable`
+  recommended; `package.json#packageManager` is authoritative).
 - Install deps: `pnpm install`
 - Web dev server: `pnpm dev --filter @brainstrike/web`
 - Desktop dev: `pnpm dev --filter @brainstrike/desktop`
@@ -27,6 +28,10 @@ To use a locally hosted chat model, see [Ollama and LM Studio setup](docs/local-
 
 ## Monorepo Layout
 
+Selected high-level entries are shown for orientation; this is not an exhaustive
+workspace inventory. Use `pnpm-workspace.yaml` and package manifests for the
+current complete set.
+
 ```
 apps/
   web/       # Vite + React web app (Playwright E2E)
@@ -37,7 +42,8 @@ packages/
   utils/              # Common utilities
   types/              # Shared types
   app-shell/          # App layout and navigation
-  preferences/        # User preferences and settings stores
+  app-state/          # Shared application/model-registry state
+  settings-ui/        # User preferences and settings surfaces
   db-explorer/        # Database exploration and file import UI
   vector-management/  # Vector/embedding status and queue management
   pipeline/           # Indexing pipeline orchestration (File → Chunk → Embed → Vector)
@@ -46,9 +52,7 @@ packages/
   file-explorer-hooks/# File explorer hooks
   file-system/        # FS abstractions/adapters
   storage/            # Storage abstractions/adapters
-  server-config/      # Server config utilities
-  tailwind-config/    # Shared Tailwind v4 config
-  config/             # Biome + TSConfig
+  config/             # Shared Biome, TSConfig, and Tailwind v4 configuration
   db/                 # Local DB helpers
   agent/              # Mastra AI agent integration
   embeddings/         # Vector embedding generation
@@ -106,8 +110,8 @@ Scope to a package with `--filter`, e.g. `pnpm test --filter @brainstrike/utils`
 
 `pnpm check` runs the same gates `.github/workflows/test.yml` requires on a PR,
 in the same order and through the same turbo invocations: the Static job's
-secret scan, `turbo boundaries`, `pnpm test:scripts`, both DB lane checks,
-read-only lint and type-check; the Build job's build and CSS-bundle validation;
+secret scan, `turbo boundaries`, `pnpm test:scripts`, read-only lint and
+type-check; the Build job's build and CSS-bundle validation;
 the Unit shards' `turbo run test` and `turbo run test:integration` (unfiltered,
 so `packages/db` really runs); the Browser tests lane; and the web + desktop
 E2E **smoke** lanes.
@@ -139,9 +143,11 @@ Performance tests are separated from functional E2E tests to speed up developmen
 
 - **Default behavior**: `pnpm check` and CI run functional tests only (the web
   smoke lane is `--project=functional`; the performance project is never in it)
-- **Performance tests**: Run on-demand via `pnpm test:e2e:perf` or scheduled daily
-- **PR performance testing**: Add `run-perf` label to any PR to trigger performance tests
-- **Manual execution**: GitHub Actions → "Performance E2E" → Run workflow
+- **Performance tests**: Run locally via `pnpm test:e2e:perf`, on the daily
+  schedule, or manually from GitHub Actions → **Performance E2E** → **Run
+  workflow**
+- **PR behavior**: PR labels do not trigger this workflow; use manual dispatch
+  when a change needs an explicit performance run
 
 ---
 
@@ -197,7 +203,9 @@ Notes:
 - E2E (Playwright): `pnpm test:e2e` for Web, `pnpm test:e2e:desktop` for Desktop.
 - Type checking: `pnpm type-check` must pass.
 
-CI details: `.github/workflows/test.yml` runs lint → type‑check → build (with Tailwind sanity checks) → unit tests with coverage → E2E shards (web + desktop) → report merge.
+CI details and required/advisory lane boundaries live in
+[`docs/agents/ci-quality.md`](docs/agents/ci-quality.md). Do not infer the
+current workflow from older plans or reports.
 
 ---
 
@@ -237,7 +245,9 @@ pnpm update <dep> --filter @brainstrike/<pkg>
 
 `peerDependencies` deliberately keep literal, broad ranges (a compatibility floor is a contract, not a version selection) and are exempt from the catalog.
 
-Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.
+Coding-agent policy and subsystem routing: [`AGENTS.md`](AGENTS.md). Current
+architecture contracts: [`docs/agents/`](docs/agents/). Historical documents
+are classified in [`docs/archive/README.md`](docs/archive/README.md).
 
 ---
 

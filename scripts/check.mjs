@@ -13,8 +13,8 @@
  * `pnpm -r --filter '!@brainstrike/db' ... run test:coverage` — so a green
  * `pnpm check` had never executed `packages/db`, the largest suite in the repo
  * and the one turbo task that can never be replayed from cache. It also
- * omitted four Static gates outright (`secrets:scan`, `turbo boundaries`,
- * `test:scripts`, and the two db lane checks), including the guard-script gate
+ * omitted three Static gates outright (`secrets:scan`, `turbo boundaries`,
+ * and `test:scripts`), including the guard-script gate
  * that exists to catch exactly this class of false green (BST-836). And its
  * lint step WROTE to the working tree (`biome check . --fix`) where CI's
  * `lint:ci` is read-only.
@@ -48,11 +48,12 @@
  *   --headless     Run headless display setup before the checks (Linux)
  *   --verbose      Show step start banners
  *
- * Known local-vs-CI difference, stated rather than hidden: `turbo boundaries`
- * scans build output as well as source, and CI runs it on a checkout with no
- * `dist/`. Locally your tree usually has one, so a stale artifact can produce
- * a phantom violation. That is a loud failure, not a silent pass — clear it
- * with `pnpm clean` and re-run before treating it as a real finding
+ * `turbo boundaries` scans build output as well as source and offers no way to
+ * exclude it, which used to make this plan non-idempotent: green on a clean
+ * tree, then phantom violations against `dist/` the second time you ran it.
+ * The gate is now `pnpm run boundaries` (scripts/turbo-boundaries.mjs), which
+ * judges only findings in files git does not ignore, so a repeat run on a
+ * built tree reaches the same verdict CI does
  * (docs/agents/ci-quality.md, BST-967 + the 2026-07-30 cache-poisoning note).
  */
 
@@ -116,13 +117,10 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
 
 /** CI run steps covered by each local plan step. */
 export const CI_GATE_PLAN_IDS = new Map([
+  ['static › Lockfile catalog conformance (pre-install)', ['lockfile-catalog-conformance']],
   ['static › Secret scan', ['secrets-scan']],
   ['static › Package boundaries', ['boundaries']],
   ['static › Script tests', ['script-tests']],
-  [
-    'static › Check DB test + coverage lane assignments',
-    ['db-test-lane-check', 'db-coverage-lane-check'],
-  ],
   ['static › Lint', ['lint']],
   ['static › Type check', ['type-check']],
   ['unit-shard › Pull request affected unit tests', ['unit-tests']],
@@ -163,7 +161,7 @@ export function uncoveredCiGates(plan) {
  * A Playwright lane, run under CI environment semantics — and ONLY this
  * command.
  *
- * Both `playwright.config.ts` files branch on `config.isCI` (which reads
+ * Both `playwright.config.mts` files branch on `config.isCI` (which reads
  * `CI`/`GITHUB_ACTIONS`) for `forbidOnly`, `fullyParallel`, `globalTimeout`,
  * `retries`, `workers`, `reporter`, the Chromium launch args, and `trace`; the
  * `e2e/utils` helpers key their own wait budgets off `CI` too. Without it the
@@ -178,11 +176,11 @@ export function uncoveredCiGates(plan) {
  *
  * SCOPE IS LOAD-BEARING — do not hoist this to the whole run (BST-1050). A
  * process-wide `CI` would change the workload of the unit/integration steps,
- * not just their environment: `getTimeoutMultiplier()` returns 2 under `CI`,
- * and `packages/vector-management`'s base vitest config turns on coverage with
- * a 70% line threshold when `CI === 'true'`. Those steps must stay exactly as
- * CI's Unit shards run them (`COVERAGE=false`), so `CI` belongs to these
- * Playwright invocations and nothing else.
+ * not just their environment: `packages/vector-management`'s base vitest
+ * config turns on coverage with a 70% line threshold when `CI === 'true'`.
+ * Those steps use the dedicated `TEST_TIMEOUT_MULTIPLIER` to match CI's
+ * timeout policy without inheriting its other behavior, so `CI` belongs to
+ * these Playwright invocations and nothing else.
  */
 function playwrightLane(pkg, script) {
   return `node scripts/run-env.mjs CI=true -- pnpm -s --filter ${pkg} run ${script}`;
@@ -277,27 +275,31 @@ export function buildPlan(options = {}) {
     id: 'secrets-scan',
     label: 'secrets:scan',
   });
-  // Ordering is load-bearing and mirrors Static: boundaries BEFORE anything
-  // that can materialize dist/ (type-check dependsOn build).
+  // Ordering mirrors Static: boundaries BEFORE anything that can materialize
+  // dist/ (type-check dependsOn build). Since scripts/turbo-boundaries.mjs
+  // scopes the verdict to non-git-ignored files, that ordering now only buys a
+  // cheaper scan — it is no longer what keeps the gate honest.
   plan.push({
-    command: 'pnpm -s exec turbo boundaries',
+    command: 'pnpm -s run boundaries',
     id: 'boundaries',
-    label: 'turbo boundaries',
+    // Not "turbo boundaries": a failing step's label is what a developer
+    // reruns by hand, and the bare subcommand gives back the non-idempotent
+    // verdict this step exists to avoid.
+    label: 'boundaries',
+  });
+  // BST-1324: mirrors the Static job's pre-install seat. Locally node_modules
+  // already exists, so ordering is immaterial here — the CI placement (before
+  // `pnpm install --frozen-lockfile`) is what lets it fire on a merged-broken
+  // lockfile; this step keeps `pnpm check` an honest mirror of that gate.
+  plan.push({
+    command: 'node scripts/verify-lockfile-catalog-conformance.mjs',
+    id: 'lockfile-catalog-conformance',
+    label: 'lockfile catalog conformance',
   });
   plan.push({
     command: 'pnpm -s run test:scripts',
     id: 'script-tests',
     label: 'test:scripts',
-  });
-  plan.push({
-    command: 'pnpm -s --filter @brainstrike/db run test:db:check-lanes',
-    id: 'db-test-lane-check',
-    label: 'db test lane check',
-  });
-  plan.push({
-    command: 'pnpm -s --filter @brainstrike/db run test:coverage:db:check-lanes',
-    id: 'db-coverage-lane-check',
-    label: 'db coverage lane check',
   });
   plan.push({
     command: fixLint ? 'pnpm -s run lint-all' : 'pnpm -s run lint:ci',
@@ -340,13 +342,13 @@ export function buildPlan(options = {}) {
   // split with the same concurrency caps mirrors the CI phase split.
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test --concurrency=4 --summarize --log-order=grouped',
     id: 'unit-tests',
     label: 'test',
   });
   plan.push({
     command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
+      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
     id: 'integration-tests',
     label: 'test:integration',
   });
@@ -357,7 +359,7 @@ export function buildPlan(options = {}) {
   // superset of the CI selection.
   if (runBrowser) {
     plan.push({
-      command: 'pnpm -s run test:browser',
+      command: 'node scripts/run-env.mjs TEST_TIMEOUT_MULTIPLIER=2 -- pnpm -s run test:browser',
       id: 'browser-tests',
       label: 'test:browser',
     });
@@ -391,7 +393,7 @@ export function buildPlan(options = {}) {
     // turbo run is the same task set, db included.
     plan.push({
       command:
-        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=4 --summarize --log-order=grouped',
+        'node scripts/run-env.mjs TURBO_TEST_MODE=coverage COVERAGE=true TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:coverage --concurrency=4 --summarize --log-order=grouped',
       id: 'coverage',
       label: 'test:coverage',
     });

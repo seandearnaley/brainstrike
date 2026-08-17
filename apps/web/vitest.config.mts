@@ -9,7 +9,7 @@ const coverageEnabled =
 
 export default defineConfig({
   optimizeDeps: {
-    include: ['@brainstrike/hooks', '@brainstrike/ui'],
+    include: ['@brainstrike/assistant-ui', '@brainstrike/hooks', '@brainstrike/ui'],
   },
   resolve: {
     // Array form: first match wins, so config-local entries (deliberate

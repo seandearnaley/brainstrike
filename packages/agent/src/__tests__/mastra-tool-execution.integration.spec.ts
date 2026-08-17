@@ -28,7 +28,7 @@ import {
   type ManageTaskListResult,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { Agent } from '@mastra/core/agent';
 import { RegexFilterProcessor } from '@mastra/core/processors';
 import { createTool } from '@mastra/core/tools';
@@ -64,7 +64,13 @@ vi.mock('../providers/provider-factory', async (importActual) => {
       }
       return modelHolder.current;
     },
-    getDefaultModel: () => 'fake-model',
+    getDefaultModel: (provider: string) =>
+      ({
+        anthropic: 'claude-sonnet-5',
+        google: 'gemini-3.5-flash',
+        local: 'onnx-community/gemma-4-E2B-it-ONNX',
+        openrouter: 'openai/gpt-5.6-terra',
+      })[provider] ?? 'gpt-5.6-terra',
   };
 });
 
@@ -626,7 +632,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
     expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(modelFacingToolOutput).toContain('output was truncated');
-    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    // The model's view stays BOUNDED (the property this test protects) even
+    // though balanced head+tail retention now legitimately surfaces the
+    // trailing sentinel inside that bound — assert boundedness by length,
+    // not by tail-absence.
+    expect(modelFacingToolOutput).toContain(rawOnlyTail);
     expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
 
     const rawSuccess = chunks.find(
@@ -1596,7 +1606,10 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     // Reproduces the live Anthropic 404 path: the provider error arrives as a
     // model `error` stream part. The run must NOT hang — it terminates with a
     // visible message, a `run.failed` run-event (clears in-flight spinners), and
-    // an error finish, all through the real Mastra agent loop.
+    // an error finish, all through the real Mastra agent loop. The fixture
+    // error carries no response metadata, but its `AI_APICallError` name is a
+    // provider marker — the call crossed to a provider, so end to end it
+    // classifies as `mastra_agent_stream_provider_error`, never local.
     modelHolder.current = {
       doGenerate: () => Promise.reject(new Error('unused')),
       doStream: () =>
@@ -1676,6 +1689,79 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     );
     expect(providerErrorLog).toBeDefined();
     expect(providerErrorLog?.level).toBe(LogLevel.ERROR);
+    expect(providerErrorLog?.message).toBe('mastra stream terminated by provider error');
+  });
+
+  it('classifies an evidence-free local fault as mastra_agent_stream_local_error end to end', async () => {
+    // The 2026-08-03 grepSearch-projection incident: a local runtime fault
+    // (here a TypeError-shaped error part with no api-call marker, status,
+    // request id, or headers) must reach the durable run.failed metadata and
+    // the log breadcrumb as a LOCAL error, never wearing the provider label.
+    modelHolder.current = {
+      doGenerate: () => Promise.reject(new Error('unused')),
+      doStream: () =>
+        Promise.resolve({
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({
+                error: {
+                  message: "Cannot read properties of undefined (reading 'map')",
+                  name: 'TypeError',
+                },
+                type: 'error',
+              });
+              controller.close();
+            },
+          }),
+        }),
+      modelId: 'fake-model',
+      provider: 'fake',
+      specificationVersion: 'v2',
+      supportedUrls: {},
+    };
+
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+
+    const chunks: StreamChunk[] = [];
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u3-local', parts: [{ text: 'hi', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    const failure = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+        chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+    );
+    expect(failure?.event.metadata).toMatchObject({
+      runError: {
+        code: 'mastra_agent_stream_local_error',
+        message: "Cannot read properties of undefined (reading 'map')",
+      },
+    });
+
+    const localErrorLog = logRecords.find((record) =>
+      record.args.some(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          (arg as { code?: unknown }).code === 'mastra_agent_stream_local_error:no_status'
+      )
+    );
+    expect(localErrorLog).toBeDefined();
+    expect(localErrorLog?.level).toBe(LogLevel.ERROR);
+    // The message text must match the classification too — grepping logs by
+    // message must not land local faults on the provider answer.
+    expect(localErrorLog?.message).toBe('mastra stream terminated by local error');
   });
 
   it('preserves a typed OpenRouter token error through the real Mastra loop', async () => {
@@ -1875,7 +1961,10 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
           stream: new ReadableStream<LanguageModelV2StreamPart>({
             start(controller) {
               controller.enqueue({ type: 'stream-start', warnings: [] });
-              controller.enqueue({ error: { message: longDetail }, type: 'error' });
+              controller.enqueue({
+                error: { message: longDetail, name: 'AI_APICallError' },
+                type: 'error',
+              });
               controller.close();
             },
           }),
@@ -2645,9 +2734,15 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
     expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(modelFacingToolOutput).toContain('output was truncated');
     expect(modelFacingToolOutput).toContain(`Post-tool context: ${hookContext}`);
+    // Internal envelope field names must never leak into model-facing text —
+    // a real leak-prevention property, independent of head/tail retention.
     expect(modelFacingToolOutput).not.toContain('hookAdditionalContext');
     expect(modelFacingToolOutput).not.toContain(HOOK_RESULT_ENVELOPE_FIELD);
-    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    // The model's view stays BOUNDED (the property this test protects) even
+    // though balanced head+tail retention now legitimately surfaces the
+    // trailing sentinel inside that bound — assert boundedness by length,
+    // not by tail-absence.
+    expect(modelFacingToolOutput).toContain(rawOnlyTail);
     expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
   });
 

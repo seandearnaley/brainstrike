@@ -27,7 +27,7 @@ export default defineConfig({
     // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
     maxWorkers: 1,
     pool: 'threads',
-    reporters: 'basic',
+    reporters: [['default', { summary: false }]],
     setupFiles: ['./vitest.setup.ts'],
     silent: true,
     testTimeout: 30_000,

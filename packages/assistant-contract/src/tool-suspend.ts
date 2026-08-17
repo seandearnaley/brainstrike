@@ -21,6 +21,7 @@ import type { AssistantRunEventKind } from './run-events.js';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
+  type SuspendedApprovalsResponse,
 } from './tool-approval.js';
 
 export const TOOL_SUSPEND_DATA_NAME = 'brainstrike.tool-suspend';
@@ -43,6 +44,12 @@ export const TOOL_SUSPEND_RUN_CONFIG_KEY = 'brainstrikeToolSuspend';
  */
 export const REGISTERED_SUSPEND_RESUME_TOOL_IDS = [
   NATIVE_TOOL_ID.askUser,
+  // BST-1070 Gate B: run_python's network escalation rides the suspension
+  // channel (per-call, argument-aware, structurally ungrantable). Registered
+  // here means the escalation card is the typed resume UI; plan mode still
+  // OMITS the tool on its execute risk (BST-1073 — a suspend schema is not an
+  // admission ticket).
+  NATIVE_TOOL_ID.runPython,
   NATIVE_TOOL_ID.submitPlan,
 ] as const;
 
@@ -101,10 +108,59 @@ export interface AssistantToolSuspendRequest {
 }
 
 /**
+ * A suspend pause re-discovered from workflow storage after a restart/reload
+ * (BST-1084), via the same `listSuspendedRuns` discovery the approval path
+ * uses. Extends the live-stream {@link AssistantToolSuspendRequest} ADDITIVELY
+ * — the same notice + resume seam renders it — with the suspend instant and an
+ * advisory staleness flag, mirroring {@link RediscoveredToolApproval} exactly
+ * (surface, never auto-answer). `suspendPayload` is recovered from the durable
+ * snapshot (Mastra's `AgentRunToolCall.suspendPayload`), so a rediscovered
+ * plan/question renders its real content, not a placeholder.
+ */
+export interface RediscoveredToolSuspend extends AssistantToolSuspendRequest {
+  /**
+   * ADVISORY resumability flag. The desktop endpoint only ever writes the
+   * literal `false` (no registered resume UI in this build), mirroring the
+   * live chunk's narrowing-only-to-false contract — but the renderer
+   * dispatches on `toolName`, never on this field, so the guard below does
+   * NOT validate it: rejecting an otherwise-valid pause over an unrecognized
+   * advisory value would re-create the silent stranding this contract exists
+   * to remove (#2223 review).
+   */
+  readonly resumeSupported?: boolean;
+  /** True when older than BRAINSTRIKE_APPROVAL_STALE_MS (advisory only). */
+  readonly stale: boolean;
+  /** ISO-8601 instant the run suspended (AgentRun.suspendedAt). */
+  readonly suspendedAt: string;
+}
+
+/**
+ * The `/assistant/suspended-runs` payload once suspend rediscovery ships:
+ * the approvals array (unchanged) plus the rediscovered suspend pauses.
+ * ADDITIVE — a client that only knows {@link SuspendedApprovalsResponse}
+ * ignores `suspends` and loses nothing it had.
+ */
+export interface SuspendedRunsResponse extends SuspendedApprovalsResponse {
+  readonly suspends?: readonly RediscoveredToolSuspend[];
+}
+
+export function isRediscoveredToolSuspend(value: unknown): value is RediscoveredToolSuspend {
+  return (
+    isRecord(value) &&
+    isBoundedIdentifier(value['runId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    isBoundedIdentifier(value['toolCallId'], ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS) &&
+    isBoundedIdentifier(value['toolName'], ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS) &&
+    typeof value['suspendedAt'] === 'string' &&
+    typeof value['stale'] === 'boolean'
+  );
+}
+
+/**
  * The resume action appended by the suspend notice. `resumeData` is the
  * branch-specific shape ({@link SubmitPlanDecision} for submitPlan, an
- * {@link AskUserAnswer} for askUser) and crosses the wire as `unknown`; Mastra
- * validates it against the tool's `resumeSchema` on resume.
+ * {@link AskUserResumeData} envelope for askUser — a bare {@link AskUserAnswer}
+ * only from a run suspended before the envelope migration) and crosses the wire
+ * as `unknown`; Mastra validates it against the tool's `resumeSchema` on resume.
  */
 export interface AssistantToolResumeAction {
   resumeData: unknown;
@@ -219,5 +275,64 @@ export interface AskUserPayload {
   selectionMode?: AskUserSelectionMode;
 }
 
-/** Free-text/single-select resume with a string; multi-select with a string[]. */
+/** Free-text/single-select answers are a string; multi-select a string[]. */
 export type AskUserAnswer = string | string[];
+
+/**
+ * The resume envelope for `askUser`. An OBJECT on purpose: under @mastra/core
+ * 1.56+ the suspend-resume transport must attach the `approved: true` rider to
+ * an ask-gated tool's resume, and the rider only attaches to plain-object
+ * payloads (`createToolResumeIteratorFromRuntime`, agent-streaming.ts) — a bare
+ * string/array resume left ask-gated askUser answers exposed to the framework's
+ * denial. The bare {@link AskUserAnswer} is the LEGACY pre-envelope shape: the
+ * tool still accepts it so runs suspended before the migration remain
+ * resumable, but the suspend notice only ever sends this envelope.
+ */
+export interface AskUserResumeData {
+  answer: AskUserAnswer;
+}
+
+/**
+ * The Gate A approval pause payload (BST-1097). `run_python` raises its own
+ * approval gate from INSIDE execute() via Mastra's in-tool approval
+ * suspension — `suspend({ kind: 'approval' }, { requireToolApproval: true })`
+ * — because the per-tool `requireApproval` flag is incompatible with a tool
+ * that also suspends (Mastra re-checks the flag on the Gate B resume leg and
+ * denies a resume whose data has no `approved` key). That suspension emits
+ * the ORDINARY `tool-call-approval` chunk, so the existing approval card,
+ * grant surface, and approve/decline transport are unchanged; this payload
+ * exists only to satisfy the tool's own suspendSchema validation and NEVER
+ * reaches the suspend notice. The resume shape for Gate A is Mastra's own
+ * `{ approved: boolean }` (what `approveToolCall`/`declineToolCall` send).
+ */
+export interface RunPythonApprovalSuspendPayload {
+  readonly kind: 'approval';
+}
+
+/**
+ * The Gate B network-escalation pause payload (BST-1070 design §3): built
+ * inside `run_python`'s execute() from the LIVE resolved policy, so the
+ * domains shown are the domains used, by construction. Never empty — an
+ * empty-domain call runs without suspending.
+ */
+export interface RunPythonNetworkSuspendPayload {
+  /** The exact ExecPolicy.allowedDomains the script will get. Never empty. */
+  readonly allowedDomains: readonly string[];
+  readonly kind: 'network';
+}
+
+/** Every payload `run_python` can suspend with (discriminated on `kind`). */
+export type RunPythonSuspendPayload =
+  | RunPythonApprovalSuspendPayload
+  | RunPythonNetworkSuspendPayload;
+
+/**
+ * Resumed into the suspended `run_python` call. Deny is expressible; "run
+ * offline instead" deliberately is NOT (design §3.3 rejected it: exit 0 with
+ * silently missing data is a wrong result dressed as a stronger sandbox).
+ * Anything that does not narrow to this shape is treated as DENY by the tool
+ * — a schema drift must never become a silent network grant.
+ */
+export interface RunPythonNetworkDecision {
+  readonly action: 'allow' | 'deny';
+}

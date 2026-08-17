@@ -9,7 +9,7 @@ each deferred to. The historical audit those tickets cite now lives at
 `docs/archive/mastra-agent-system-docs-catch-up-2026-05-29.md` (moved by BST-750,
 #1963); it recorded the deferral, never a decision.
 
-Verified against `@mastra/core@1.51.0` and `@mastra/memory@1.22.1` — the only
+Verified against `@mastra/core@1.59.0` and `@mastra/memory@1.26.0` — the only
 installed `@mastra/*` packages (`@mastra/schema-compat` is transitive).
 
 ## SCOPE AND STATUS
@@ -59,7 +59,7 @@ Owned by Brainstrike, on both surfaces:
 
 | Concern | Web | Desktop |
 | --- | --- | --- |
-| Entry | `apps/web/api/assistant.ts:8-24` → `apps/web/src/app/api/assistant/route.ts:29-92` | `startAssistantServer` / `handleAssistantRequest` in `apps/desktop/src/assistant-server.ts` |
+| Entry | `apps/web/api/assistant.ts:8-24` → `apps/web/src/app/api/assistant/route.ts:29-70` | `startAssistantServer` / `handleAssistantRequest` in `apps/desktop/src/assistant-server.ts` |
 | Auth | none per-request; env key only (`assistant-config.ts:3-7`), preview-gated | per-boot capability token, constant-time compare (`assistant-server/auth.ts:12-32`) |
 | Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`handleAssistantRequest`'s origin gate in `assistant-server.ts` + `hasDisallowedAssistantOrigin` in `assistant-server/cors.ts`) |
 | Body parsing | shared parser | shared limit + shared error type |
@@ -274,7 +274,7 @@ Today all three dispatch sites drop silently with no log and no comment:
 `data-stream-mapper.ts:318-319`,
 `tool-event-mapper.ts:102-103`. This contradicts the project's NO SILENT FALLBACKS
 rule, and contradicts the sibling read path in the same subsystem —
-`requireRunEventKind()` (`packages/app-shell/src/assistant-memory-repository.ts:1209-1217`)
+`requireRunEventKind()` (`packages/assistant-data/src/assistant-memory-repository.ts:1209-1217`)
 **throws** on an unknown run-event kind.
 
 **Ruling:** the mapper must be typed against Mastra's exported `ChunkType` union so
@@ -407,7 +407,7 @@ The run timeline is the Brainstrike contract: 31 event kinds in
 `packages/assistant-contract/src/run-events.ts:3-35`, persisted by two writers with
 byte-identical SQL (`recordDesktopAssistantRunEvent` in
 `apps/desktop/src/assistant-server/run-persistence.ts`;
-`packages/app-shell/src/assistant-memory-repository.ts:2449-2502`), read by reload
+`packages/assistant-data/src/assistant-memory-repository.ts:2449-2502`), read by reload
 hydration, the live timeline UI, and the debug bundle.
 
 **Typed suspension UIs are supported and unknown resume schemas must be rejected
@@ -480,7 +480,305 @@ Decided here, implemented separately. None is architecture-gated any longer.
   `context.selection` are declared in `run-events.ts:4-6` with **no emitter
   anywhere** — emit or remove.
 
-Flagged, outside this boundary: `pnpm-workspace.yaml` still excludes
-`@mastra/core@1.50.0` in `minimumReleaseAgeExclude` while `1.51.0` is resolved; and
+Flagged, outside this boundary:
 `packages/app-shell/src/hooks/use-assistant-mcp-menu-state.ts:55-57` collapses every
-MCP failure to a reasonless `ERROR` via a bare `catch`.
+MCP failure to a reasonless `ERROR` via a bare `catch`. (The stale
+`@mastra/core@1.50.0` `minimumReleaseAgeExclude` entry this section used to flag
+was removed in #2295, and `scripts/verify-minimum-release-age-exclusions.mjs`
+now fails `pnpm lint` once any such exclusion ages past 30 days, so this class
+cannot recur silently.)
+
+## 1.51 → 1.57 UPGRADE NOTES (2026-08-06/07)
+
+Re-verified on `@mastra/core@1.57.0` + `@mastra/memory@1.26.0`: the R1 no-server
+guard (`scripts/__tests__/mastra-boundary-contract.test.mjs`, 6/6) and both
+stream-contract guards (`mastra-stream-chunk-contract.mjs`,
+`verify-mastra-schema-init-order.mjs`) pass unchanged. Compile-time surface
+changes hit and fixed in this range:
+
+- `ToolExecutionContext.observe` became REQUIRED (observability helpers, always
+  provided by the runtime) while `createTool`'s execute callback context is
+  statically typed as only `{ requestContext }` — `mcp-runtime-client.ts` now
+  types its inbound context as the `McpExecuteContext` slice it actually reads.
+- `ToolsInput[string]` widened with execute-less members (provider-defined
+  tools, web-search placeholders) — property probes for `.execute` must narrow
+  with `'execute' in tool` first (`apps/desktop/src/ipc-tools.ts`,
+  `capture-on-edit.integration.test.ts`).
+
+**The 1.56 approval rework and the BST-1097 adaptation.** 1.56 made the
+framework consume `{approved}` resumes of ANY approval-gated call before the
+tool can read them, which killed the old self-raised in-tool Gate A (approve
+looped forever re-asking; decline became Mastra's generic denial). Rather than
+holding below 1.56, the repo adopted the new idiom (settled with the user,
+2026-08-07): run_python's Gate A is now the permission gate's ordinary
+`requireApproval` clone (pre-execution approval), its Gate B plain suspension
+stays resumable because the suspend-resume transport attaches the
+`approved: true` rider Mastra's per-leg re-check demands, declines streamed no
+tool result at 1.56/1.57 (the approval card's Declined state owned the UX, like
+every other ask tool — **superseded at 1.59, see below**), and the
+direct-invocation guard stays in-tool. The old
+self-approving registry (`SELF_APPROVING_NATIVE_TOOL_IDS`) is deleted. Full
+narrative + test map: docs/dependency-updates-breaking-changes.md (Mastra
+section) and docs/agents/code-execution.md (Gate A section). The 15-test
+`mastra-tool-suspend-resume.integration.spec.ts` remains the canary for any
+future approval-semantics drift.
+
+## 1.57 → 1.59 UPGRADE NOTES (2026-08-15, BST-1282)
+
+R6 did its job: the only compile-time break in this range was the sealed
+disposition inventory rejecting one newly-added `ChunkType` member. Measured
+diff — **exactly one added, none removed**.
+
+**`tool-output-denied` → disposition `'mapped'` (REQUIRED, not optional).**
+Payload `ToolOutputDeniedPayload` = `{toolCallId, toolName, args?,
+approval:{id, approved:false, reason?}}`. Mastra emits it on the decline leg of
+a `requireApproval` call (mastra #20886) so clients can RESOLVE the pending call
+instead of hanging. It is the DECLINE terminal of the same lifecycle
+`tool-call-approval` opens, and the tool never runs, so no later
+`tool-result`/`tool-error` ever carries that id — `'ignored'` would strand the
+renderer's tool part pending forever and leave the durable `tool.started`
+unpaired, reproducing the exact hang upstream fixed.
+
+**A decline is TERMINAL but it is NOT an error, and the two must diverge —
+settled 2026-08-15 on review, do not collapse them again.** `tool-event-mapper.ts`
+decodes the chunk to its OWN `StreamChunkTool` status, `'declined'`, carrying the
+shared `DeclinedToolCallResult` envelope (`@brainstrike/assistant-contract/tool-approval`:
+`{kind:'declined', message, reason?}`) as its `result`. Routing it through
+`status: 'error'` instead settles the call but breaks three things:
+
+| Routed as `'error'` | Why that is wrong |
+| --- | --- |
+| `handleToolError` records `pendingToolErrorTexts` | that map clears only on a later `text-delta`, so a denial that is the last chunk before `finish` (or a Stop right after it) emits "I couldn't complete the tool action because it failed: The user declined this tool call…" and finalizes the step as errored |
+| the frame carries `isError: true` | `isError` is the destructive-chrome switch in `tool-fallback.tsx`; nothing broke |
+| the result is a bare error string | strings short-circuit `readResultErrorMessage`, so the card falls through to a GREEN Completed for a tool that never ran, and `narrowRunPythonDisplayResult` returns `null`, bypassing run_python's own muted declined surface |
+
+`DataStreamMapper.handleToolDeclined` therefore settles the id (`toolCallResult`
++ `settledToolCallIds`) with the envelope and NO error flag, and queues no
+visible failure text. `tool-fallback.tsx` reads the envelope and renders the
+muted `stopped` treatment — the same one run_python already reserved for a
+decline. Same ruling as the BST-558 resume-unsupported terminal (see
+docs/agents/assistant-runtime.md, "The tool card is SETTLED").
+
+The DURABLE run event deliberately keeps the `tool.failed` KIND and only
+relabels to `Tool call declined`: kind is what `getMatchingFailedKind`,
+`collectToolDurations`, and `RUN_LEDGER_AGGREGATION_SQL` close a call out on, and
+here the call really is over. That is the OPPOSITE conclusion from
+`tool.resume.unsupported` (BST-558) for the opposite reason — that pause stays
+suspended and can still emit its real terminal later; this one cannot.
+
+The part is dispatched through `mapToolLifecyclePart`, NOT `mapGenericToolEvent`:
+a delegation tool (`agent-<persona>`) can be gated by an explicit global approval
+gate, its `tool-call` has already emitted `subagent.started`, and the decline is
+that delegation's only terminal — so it emits `subagent.failed`/`'cancelled'`
+("Subagent delegation declined") and keeps the "never leave an orphaned
+`subagent.started`" rule whole. Mutation-checked paired tests in
+`mastra-tool-approval-chunks.spec.ts` (settlement + the silent-continuation case
+that proves no false failure text) and `mastra-tool-lifecycle.spec.ts` (the
+delegation terminal).
+
+**R1/R2 re-verified.** 1.59 drops `@modelcontextprotocol/sdk` from
+`@mastra/core` and adds `@modelcontextprotocol/server@2.0.0`. The new package is
+**type-only** in the published dist: it appears exactly once, as `import type
+{ ElicitRequest, ElicitResult, ServerContext }` in `dist/tools/types.d.ts:3`,
+with zero `require`/`import` of it in any `.js`/`.cjs`. No HTTP surface is
+gained, so R1 stands unchanged. Both browser bundles still externalize
+`@mastra/core` and `/^@mastra\//`.
+
+### `@mastra/memory` IS HELD AT 1.26.0 — DO NOT BUMP IT WITH CORE (BST-1320)
+
+`@mastra/core` moved to ^1.59.0 here; `@mastra/memory` deliberately did NOT move
+with it. **1.26.2 hangs the observational-memory suite forever.** Measured A/B,
+both arms on core 1.59.0, only the memory pin changed:
+
+| `@mastra/memory` | `packages/agent` `mastra-memory-persistence.integration.spec.ts` |
+| --- | --- |
+| **1.26.0** | 19/19 passed, 17.6s, exit 0 |
+| 1.26.2 | 16 passed, then stalls forever (killed at 300s) |
+
+Two-test repro (`-t "DIRECT-provider observer|VECTOR retrieval"`): on 1.26.0 both
+pass (1155ms + 768ms); on 1.26.2 the first passes and
+`completes an observation cycle with VECTOR retrieval + the real OpenAI embedder
+wiring` never returns. Neither test hangs when run alone on either version —
+consistent with the race described below, since an isolated test issues far less
+background traffic, and therefore a cheap falsification test for the whole
+mechanism. The test's own `30_000` timeout never fires — the block is not
+interruptible by vitest's per-test timer. In CI this burns the whole
+`Unit (rest)` job to its 60-minute cancellation.
+
+#### Root cause: a PGlite `close()` race, NOT an OM state leak
+
+The earlier "state leaks across observation cycles" reading, and the
+`getObservableMessages` / removed-`blockAfter` lead, are **both refuted**. What
+actually happens was instrumented end to end (PGlite statement trace with
+`close()` wrapped, plus a CDP pause + CPU profile of the wedged fork):
+
+1. After a run's stream is consumed, `@mastra/core` fires its agentic-loop
+   workflow-snapshot cleanup (`DELETE FROM mastra_workflow_snapshot WHERE
+   workflow_name = $1 AND run_id = $2`) as **unawaited background work** — the
+   caller gets no join point for it.
+2. The spec's `afterEach` then calls `await database.close()`.
+3. `PGlite.close()` calls `mod._pgl_setPGliteActive(0)` — deactivating the WASM
+   backend — **before** it awaits the shutdown protocol and `closeFs()`.
+   `_checkReady()` only guards *entry*, so a statement already past that guard
+   enters `execProtocolRawSync`'s **synchronous** main loop against a dead
+   backend and never returns. Neither the statement nor `close()` ever settles.
+
+**Versions, stated exactly.** The vitest statement trace and CPU profile below
+were captured on `@electric-sql/pglite` **0.5.4**, on the BST-1282 branch before
+BST-1283 bumped the catalog. This repo now pins **0.5.5**
+(`pnpm-workspace.yaml`), so the mechanism was **re-confirmed against 0.5.5**:
+`close()` is unchanged in the relevant ordering (`_checkReady` → `#closing` →
+close listeners → `_pgl_setPGliteActive(0)` → `await execProtocol(end())` →
+`await closeFs()`; 0.5.5's only delta is saving/restoring `exitCode` around
+`_emscripten_force_exit(0)`, after deactivation and irrelevant here), and the
+Mastra-free repro reproduces on the installed 0.5.5 — drain arm returns in 1ms,
+race arm hung indefinitely with neither promise settled. Do not treat the 0.5.4
+trace as the only evidence; the pinned engine is affected.
+
+Because the wedge is inside synchronous WASM, the event loop is blocked: no
+timer, no per-test timeout, and no unhandled rejection can fire. That is exactly
+why the job runs to the CI cap instead of failing.
+
+Statement trace, 1.26.2 (the DELETE and the `close()` that follows it 5ms later
+both have a `START` and never an `END`):
+
+```
+[…368299] START #356 query: DELETE FROM mastra_workflow_snapshot WHERE …
+[…368304] START #357 close
+```
+
+`@mastra/memory@1.26.2` does not introduce the hang — it **loses the race**. The
+same two tests issue 705 statements on 1.26.2 versus 322 on 1.26.0 (the OM
+observer/reflector does more cycles), which pushes the tail of that background
+traffic past the teardown boundary. On 1.26.0 the same leaked statements land
+*after* `close()` finished and reject cleanly with `Error: PGlite is closed`.
+
+**So 1.26.0 is not safe by construction — it wins a race.** Holding the pin
+restores green CI; it does not remove the hazard.
+
+**App reachability — AUDITED by code reading (2026-08-16, BST-1329/BST-1330); not
+instrumented.** The wedge needs DB work in flight at the moment a PGlite
+`close()` runs. Verdicts, with the evidence in the BST-1329/BST-1330 tickets —
+a stronger inference than the earlier "plausible, unverified", but still
+inference: nobody has instrumented desktop shutdown or factory reset.
+
+- **Desktop shutdown and factory reset: structurally safe, conditional on one
+  invariant.** PGlite lives only in the DB-host utility process; every
+  statement is a serially dispatched envelope (`db-host-entry.ts` runs exactly
+  one request at a time) and `close()` executes only as the `'close'`
+  envelope — a Mastra background statement and the in-host `close()` cannot
+  overlap **as long as that dispatch stays strictly serial**; that seriality
+  is the invariant this verdict rests on. Independently, `DbHostManager.close()`
+  kills the host after a 2s ack race, so an in-host wedge is bounded — the
+  main-process event loop is never blocked, which is the proven bound (the
+  60-minute CI-shaped wedge would need that kill path to fail too). Note
+  `close`/`reset` are *control* requests dispatched even while a transaction
+  is open. The one in-host non-envelope statement issuer (the live
+  extension's internal refreshes) is drained by BST-1330's awaited
+  live-unsubscribe in the `'close'`/`'reset'` handlers, which warns on any
+  handle that fails to unsubscribe.
+- **The web direct path is where the class is reachable**: web factory reset
+  closes with no scheduler join, no submission barrier, and live handles still
+  subscribed (its own purge DELETEs trigger refreshes racing `close()`), plus
+  the narrow DbProvider prod-unmount-mid-init case — tracked as **BST-1329**.
+
+(Close paths are owned by `docs/agents/database.md`; factory reset is a
+cross-cutting invariant in `AGENTS.md`.)
+
+Mastra-free proof of the mechanism — awaiting the statement before `close()`
+returns in 1ms; starting the same statement and calling `close()` without
+awaiting it hangs both promises forever:
+
+```js
+import { PGlite } from '@electric-sql/pglite';
+
+const db = new PGlite();
+await db.query('CREATE TABLE t (workflow_name TEXT, run_id TEXT)');
+await db.query("INSERT INTO t VALUES ('agentic-loop', 'run-1')");
+
+// The unawaited background statement, exactly as core leaves it after a run.
+const background = db.query('DELETE FROM t WHERE workflow_name = $1 AND run_id = $2', [
+  'agentic-loop',
+  'run-1',
+]);
+
+// await background;   // <- with this line: close() returns in 1ms
+await db.close(); //    <- without it: this promise never settles
+```
+
+Two things ruled OUT, with evidence:
+
+- `patchThread` — core 1.59 implements it as a wrapper that delegates to
+  `updateThread`, so this repo's `PgliteMemoryStore` override is still reached.
+- `error: extension "vector" is not available` — the failing
+  `CREATE EXTENSION IF NOT EXISTS vector` appears in the statement traces of
+  **both** versions (1.26.0 statements #80/#152, 1.26.2 statements #110/#349),
+  so it is not version-specific and not the hang. It is pre-existing test
+  wiring: the spec's `beforeEach` builds a bare `new PGlite()` with no `vector`
+  extension, and only the first test rebuilds the instance with it, so the
+  VECTOR test's vector-store init always fails.
+
+  **This is a false green, not a cosmetic wart — tracked as BST-1325.** The test
+  is named for vector retrieval and sets `retrievalMode: 'vector'`, yet its
+  vector store can never initialize, and the very assertion meant to catch that
+  (`expect(failureParts).toEqual([])`, i.e. no `data-om-observation-failed`
+  part) does not fire. Its `embeddingRequests` assertion is satisfied by the
+  semantic-recall embedder, which needs no pgvector. The test would keep passing
+  if the OM vector path broke entirely. It also sits in the blast radius of the
+  "every PGlite construction site loads the full engine-extension set"
+  invariant (`AGENTS.md`, `docs/agents/database.md`) — it escapes the letter of
+  the rule because it runs no migrations, but it is the drift the rule exists to
+  catch.
+
+**No clean in-repo fix exists today.** Draining before close needs a join point
+Mastra does not expose; a `SELECT 1` flush or a sleep only narrows the window
+(silent degradation), and a `Promise.race` timeout cannot fire against a blocked
+event loop. The real fixes are upstream, and both are filed:
+
+- [electric-sql/pglite#1084](https://github.com/electric-sql/pglite/issues/1084)
+  — `close()` must serialize against in-flight statements, or reject them with
+  the existing `PGlite is closing` error, instead of wedging. **This is the one
+  that unblocks the bump.**
+- [mastra-ai/mastra#21617](https://github.com/mastra-ai/mastra/issues/21617) —
+  post-run background DB work needs a join point (the `pendingVectorCleanup` /
+  `trackVectorCleanup` handle 1.26.2 added for `deleteThread` is the right
+  shape), plus the reflector retry ladder re-running four identical attempts.
+
+Tracked in BST-1320. **Re-test the bump when pglite#1084 lands** — that is the
+signal, not a new `@mastra/memory` release. The close-path hazard is mirrored in
+`docs/agents/database.md` (PGLITE EXTENSION INVARIANT → "CLOSING a PGlite"), so
+it is discoverable from the side that would trip it.
+
+**Security framing, stated precisely — do not overstate this cost.** 1.26.2 is
+the only thing that drops `image-size@1.2.1` (`@mastra/memory` is its sole
+dependent), which would clear two HIGH advisories (GHSA-w3rx-r6r6-pgpr,
+GHSA-5p2g-fcmc-qvqq) and take `pnpm audit --prod` from 31 → 29 findings and
+12 → 10 high. Holding at 1.26.0 **defers that improvement; it does not introduce
+exposure.** `main` is on 1.26.0 and carries `image-size@1.2.1` today, and this
+branch measures the same 31 findings / 12 high as `main`. The advisory fix
+arrives when BST-1320 unblocks the bump — it is not something this PR gives up.
+
+Peer compatibility is not a concern: 1.26.0 declares
+`"@mastra/core": ">=1.4.1-0 <2.0.0-0"`, which 1.59.0 satisfies, and
+`pnpm peers check` reports no `@mastra/*` issues.
+
+**Adopted deliberately later, not here.** `stepResult.rawReason` on
+`step-finish`/`finish` preserves the provider's own finish reason instead of
+collapsing to `'error'` — a direct upgrade for `stream-termination.ts` and
+`provider-error-metadata.ts`, additive, and left as a follow-up. 1.58 also made
+streams emit `error` chunks and invoke `onError` when a provider ends
+`finishReason: 'error'` with no error payload; the existing `'error'` mapping
+(`makeRecoveredProviderErrorTermination`) already covers that path and
+`data-stream-stall.spec.ts` / `mastra-streaming.spec.ts` pass unchanged.
+
+**The 1.59 shared-message-id fix does NOT retire the BST-1095 dedupe
+processor.** mastra #21185 makes a streamed assistant message carry the same id
+as its persisted copy, so a chat UI reconciling a live stream against refetched
+history stops double-rendering one reply. BST-1095 is a different defect with
+the same smell: `MessageList.add`'s sealed-boundary re-key persists a SECOND
+durable row (`createdAt + 1ms`) so the prompt replays every `rs_`/`fc_`/`call_`
+reference twice and OpenAI 400s. That re-key is still present verbatim in the
+1.59 dist (`dist/message-list-*.js`, the two
+`createdAt = new Date(existing.createdAt.getTime() + 1)` sites), and the
+processor operates on the PROMPT, so it also protects threads whose twin rows
+were persisted by older builds. `openai-duplicate-item-compat.ts` stays.

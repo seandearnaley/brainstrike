@@ -79,7 +79,7 @@ test.beforeAll(() => {
 });
 
 test.afterAll(() => {
-  // biome-ignore lint/performance/noDelete: assigning undefined to process.env coerces to the string "undefined"; delete is the only way to actually unset it.
+  // assigning undefined to process.env coerces to the string "undefined"; delete is the only way to actually unset it.
   delete process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'];
   // The mkdtempSync roots would otherwise leak into os.tmpdir() every run.
   rmSync(ROOT_ONE_DIR, { force: true, recursive: true });

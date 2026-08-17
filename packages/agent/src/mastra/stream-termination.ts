@@ -16,8 +16,12 @@
  * errors; this module owns only the policy for what the user and the durable
  * timeline see when one of them fires.
  */
-import { createLogger } from '@brainstrike/utils';
-import { type ProviderRunError, providerRunErrorToEventMetadata } from '../provider-error-metadata';
+import { createLogger } from '@brainstrike/logging';
+import {
+  isLocalRunErrorClassification,
+  type ProviderRunError,
+  providerRunErrorToEventMetadata,
+} from '../provider-error-metadata';
 import type { AssistantRunEventMetadata } from '../run-events';
 import { StreamStalledError } from '../stream/with-inactivity-timeout';
 import { ToolCallInputStreamingTimeoutError } from '../stream/with-tool-call-input-timeout';
@@ -63,12 +67,19 @@ export function makeProviderErrorTermination(
   // the finally block would be the only record. Log at error level with a
   // distinct code so these stay diagnosable even though the user sees a clean
   // message. (Per AGENTS.md's observability working rule.) The FULL detail goes to
-  // the log; the visible message is clamped below.
-  logger.error('mastra stream terminated by provider error', {
-    code: buildProviderErrorDiagnosticCode(runError),
-    detail,
-    ...buildProviderErrorDiagnosticCorrelation(runtimeData),
-  });
+  // the log; the visible message is clamped below. The message text matches the
+  // classification: grepping logs by message must not land local faults on the
+  // provider answer.
+  logger.error(
+    isLocalRunErrorClassification(runError.code)
+      ? 'mastra stream terminated by local error'
+      : 'mastra stream terminated by provider error',
+    {
+      code: buildProviderErrorDiagnosticCode(runError),
+      detail,
+      ...buildProviderErrorDiagnosticCorrelation(runtimeData),
+    }
+  );
   return makeVisibleRunFailureTermination(
     detail,
     lifecycleState,

@@ -1,8 +1,8 @@
+import { memoizedFileExplorer } from '@brainstrike/file-explorer/file-tree';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FlattenedNode } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
-import { memoizedFileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyDirectorySelectionMutation,
@@ -67,6 +67,20 @@ function createDirectoryNode(
     rootFolderId: 'root',
     selectionState: 'unchecked',
     type: 'directory',
+    ...overrides,
+  };
+}
+
+function createTruncatedNode(path: string, overrides: Partial<IFileNode> = {}): IFileNode {
+  return {
+    depth: 0,
+    handle: {} as FileSystemFileHandle,
+    isVisible: true,
+    name: 'Showing first 10,000 entries',
+    path,
+    rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'truncated',
     ...overrides,
   };
 }
@@ -390,6 +404,63 @@ describe('optimized file tree model row builders', () => {
       ['/src/index.ts', '/src', false],
     ]);
   });
+
+  it('a truncated marker row sorts last within its directory and is not expandable', () => {
+    const rows = buildFileTreeRows(
+      [
+        createFileNode('/r/zzz.md'),
+        createTruncatedNode('/r/…truncated…'),
+        createDirectoryNode('/r/aaa'),
+      ],
+      {
+        ...defaultRowsOptions,
+        sort: {
+          getMetadata: () => ({ size: 'excluded', tokens: 'excluded', type: '' }),
+          state: { direction: 'asc', field: 'name' },
+        },
+      }
+    );
+
+    expect(rows.map((row) => row.id)).toEqual(['/r/aaa', '/r/zzz.md', '/r/…truncated…']);
+    expect(rows.at(-1)?.type).toBe('truncated');
+    expect(rows.at(-1)?.hasChildren).toBe(false);
+  });
+
+  it('a truncated marker inside a nested expanded directory sorts last among its own siblings, not the whole tree', () => {
+    const rows = buildFileTreeRows(
+      [
+        createDirectoryNode('/r/aaa', [
+          createTruncatedNode('/r/aaa/…truncated…'),
+          createFileNode('/r/aaa/nested-file.md'),
+          createDirectoryNode('/r/aaa/nested-dir'),
+        ]),
+        createFileNode('/r/zzz.md'),
+      ],
+      {
+        ...defaultRowsOptions,
+        expandedDirectoryPaths: new Set(['/r/aaa']),
+        sort: {
+          getMetadata: () => ({ size: 'excluded', tokens: 'excluded', type: '' }),
+          state: { direction: 'asc', field: 'name' },
+        },
+      }
+    );
+
+    // The marker sorts last within `/r/aaa`'s own children (after the real
+    // directory and file, both alphabetically ordered) — but a root-level
+    // sibling declared AFTER `/r/aaa` in the input still follows it in the
+    // flattened DFS order, proving "last within its directory" is scoped to
+    // the parent bucket, not a whole-tree tail pin.
+    expect(rows.map((row) => row.id)).toEqual([
+      '/r/aaa',
+      '/r/aaa/nested-dir',
+      '/r/aaa/nested-file.md',
+      '/r/aaa/…truncated…',
+      '/r/zzz.md',
+    ]);
+    const markerRow = rows.find((row) => row.type === 'truncated');
+    expect(markerRow?.parentId).toBe('/r/aaa');
+  });
 });
 
 describe('directory tri-state derivation with unloaded descendants', () => {
@@ -549,6 +620,56 @@ describe('directory tri-state derivation with unloaded descendants', () => {
       createFallbackTraversalContext(),
       selectedFilePaths,
       selectedDirectoryCounts
+    );
+
+    expect(state.checkboxState).toBe(true);
+  });
+
+  it('renders a query-mode folder CHECKED, not indeterminate, when its only real child is selected alongside a truncated marker', () => {
+    const src = createDirectoryNode('/src', [
+      createFileNode('/src/a.ts', { depth: 1 }),
+      createTruncatedNode('/src/…truncated…', { depth: 1 }),
+    ]);
+    const rows = buildFileTreeRows([src], defaultRowsOptions);
+    const selectedFilePaths = new Set([encodeFileSelection('root', '/src/a.ts')]);
+    const selectedDirectoryCounts = new Map([['/src', 1]]);
+
+    const queryDescriptor: NonNullable<FileExplorerState['selectionModel']['queryDescriptor']> = {
+      coveredDirectoryPaths: ['/src'],
+      excludedPaths: [],
+      excludeFilters: [],
+      folderId: 'root',
+      includedPaths: [],
+      includeFilters: [],
+      kind: 'recursive-folder',
+      manifestFingerprint: 'fp-src',
+      manifestSnapshotId: 'snap-src',
+      rootPath: '/src',
+      totalSelectedCount: 1,
+      useRegex: false,
+    };
+    const selectionModel: FileExplorerState['selectionModel'] = {
+      ...createEmptySelectionModel(),
+      materializedPaths: new Set(['/src/a.ts']),
+      mode: 'query',
+      queryDescriptor,
+    };
+
+    const row = rows.find((candidate) => candidate.id === '/src');
+    if (!row) {
+      throw new Error('row not found: /src');
+    }
+
+    const state = computeNodeSelectionState(
+      row.data,
+      createFallbackTraversalContext(),
+      'root',
+      null,
+      selectionModel,
+      selectedFilePaths,
+      selectedDirectoryCounts,
+      selectedFilePaths.size,
+      maxSelectionCount
     );
 
     expect(state.checkboxState).toBe(true);

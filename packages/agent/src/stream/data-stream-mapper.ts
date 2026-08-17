@@ -1,3 +1,8 @@
+import {
+  findLlmModelDefinition,
+  type OpenAiReasoningEffort,
+  type ProviderId,
+} from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
@@ -9,7 +14,7 @@ import {
   type AssistantToolSuspendRequest,
   TOOL_SUSPEND_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '../run-events';
 import type {
   StreamChunk,
@@ -64,6 +69,12 @@ export interface DataStreamTerminalOutcome {
   readonly status: 'completed' | 'failed';
 }
 
+export interface OutputLimitContext {
+  readonly model?: string;
+  readonly provider?: ProviderId;
+  readonly reasoningEffort?: OpenAiReasoningEffort;
+}
+
 const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
 const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop signal.';
 /**
@@ -72,6 +83,9 @@ const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop 
  * through to `completed` merely because no message was attached.
  */
 const ERROR_FINISH_FALLBACK_TEXT = 'Assistant run failed.';
+const GENERIC_OUTPUT_LIMIT_MESSAGE =
+  'Assistant stopped because the model reached its output token limit before completing the response.';
+const KIMI_K3_OPENROUTER_MODEL_ID = 'moonshotai/kimi-k3';
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
 const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
   "I couldn't complete some tool actions because they failed:";
@@ -204,10 +218,13 @@ function resolveFinishReason(
   }
 }
 
-function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefined {
+function getAbnormalFinishMessage(
+  reason: StreamFinishReason,
+  outputLimitContext?: OutputLimitContext
+): string | undefined {
   switch (reason) {
     case 'length':
-      return 'Assistant stopped because the model reached its output token limit before completing the response.';
+      return getKimiK3OutputLimitMessage(outputLimitContext) ?? GENERIC_OUTPUT_LIMIT_MESSAGE;
     case 'content-filter':
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'other':
@@ -223,6 +240,22 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
     default:
       return;
   }
+}
+
+function getKimiK3OutputLimitMessage(context?: OutputLimitContext): string | undefined {
+  if (
+    context?.provider !== 'openrouter' ||
+    context.model !== KIMI_K3_OPENROUTER_MODEL_ID ||
+    (context.reasoningEffort !== 'high' && context.reasoningEffort !== 'max')
+  ) {
+    return;
+  }
+  const model = findLlmModelDefinition('openrouter', context.model);
+  if (!model?.reasoning?.supportedEfforts?.includes('low')) {
+    return;
+  }
+  const modelLabel = model.label?.replace(/\s+\(OpenRouter\)$/u, '') ?? 'Kimi K3';
+  return `Assistant stopped because ${modelLabel} reached its output token limit before completing the response. Retry with reasoning effort set to Low or Auto.`;
 }
 
 function toProtocolFinishReason(
@@ -286,6 +319,7 @@ function toArgsObject(value: unknown, fallbackText?: string): unknown {
 
 export class DataStreamMapper {
   private readonly messageId: string;
+  private readonly outputLimitContext: OutputLimitContext | undefined;
   private readonly toolState = new Map<string, ToolState>();
   /**
    * Tool calls whose result/error already settled on the wire. Late events for
@@ -322,27 +356,40 @@ export class DataStreamMapper {
   private streamingPartOpen = false;
   /**
    * The tool call whose args stream is open on the wire (`b` emitted, its `9`
-   * not yet), or null. The renderer decoder closes the ACTIVE call's argsText
-   * controller on EVERY frame in its TOOL_CALL_ARGS_CLOSING_CHUNKS set
-   * (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/aui-* — assistant-stream 0.3.25), so an
-   * aui-data part interleaved between `c` frames makes the next args delta
-   * append to a closed controller: the unhandled "Cannot enqueue a chunk into
-   * a readable stream that is closed" TypeError that kills the renderer
-   * pipeline while the agent-side run completes invisibly (BST-962; the
-   * incident was an OM-observer run event landing mid `updateWorkingMemory`
-   * args). Data parts are therefore deferred while this is non-null, exactly
-   * like the mid-text deferral above; deferral is the failsafe direction — a
-   * late data part flushes at the next boundary, a premature one crashes the
-   * run. Deliberately NOT force-closed when a second `b` opens (parallel tool
+   * not yet), or null. Data parts are deferred while this is non-null, exactly
+   * like the mid-text deferral above.
+   *
+   * ORIGIN (assistant-stream 0.3.25–0.3.34): the renderer decoder closed the
+   * ACTIVE call's argsText controller on EVERY frame in its
+   * TOOL_CALL_ARGS_CLOSING_CHUNKS set (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/aui-*),
+   * so an aui-data part interleaved between `c` frames made the next args delta
+   * append to a closed controller: an unhandled "Cannot enqueue a chunk into a
+   * readable stream that is closed" TypeError that killed the renderer pipeline
+   * while the agent-side run completed invisibly (BST-962; the incident was an
+   * OM-observer run event landing mid `updateWorkingMemory` args).
+   *
+   * NOW (pinned 0.3.37): 0.3.35 REMOVED that set. argsText closes only on an
+   * explicit frame (`9`, a `c` with `isFinal`, the `a` result, or the
+   * stream-wide close run by `3`/`e`/`d` and flush), and a late `c` is dropped
+   * behind a `console.warn` instead of throwing. This deferral is therefore now
+   * stricter than the decoder requires — kept because deferral is still the
+   * failsafe direction (a late data part flushes at the next boundary; a
+   * premature one now silently discards args, which is quieter, not better),
+   * and because the emitted ordering stays valid against both decoders. See
+   * docs/agents/assistant-runtime.md, BST-962 paragraph.
+   *
+   * Deliberately NOT force-closed when a second `b` opens (parallel tool
    * calls): the pinned parallel-call contract assembles args from deltas that
    * arrive after another call started, and providers stream args sequentially,
-   * so only the tracked id moves to the newest call.
+   * so only the tracked id moves to the newest call. (At 0.3.37 that interleave
+   * is no longer decoder-lethal either — distinct ids get distinct controllers.)
    */
   private openArgsCallId: string | null = null;
   private pendingRunEventChunks: EncodedChunk[] = [];
 
-  constructor(messageId: string) {
+  constructor(messageId: string, outputLimitContext?: OutputLimitContext) {
     this.messageId = messageId;
+    this.outputLimitContext = outputLimitContext;
   }
 
   initialChunks(): EncodedChunk[] {
@@ -372,6 +419,14 @@ export class DataStreamMapper {
         return;
       case 'child-run-usage':
         yield* this.handleChildRunUsage(chunk);
+        return;
+      case 'tool-call-telemetry':
+        // Internal desktop persistence payload. A run without a durable run id
+        // has no writer wrapper, so never expose it to the renderer.
+        return;
+      case 'token-estimate-calibration':
+        // Internal desktop persistence payload. A run without a durable run id
+        // has no writer wrapper, so never expose it to the renderer.
         return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
@@ -472,8 +527,11 @@ export class DataStreamMapper {
     if (!delta) {
       return;
     }
-    // A `0` frame closes the active argsText downstream; end an open args
-    // stream with its `9` before the model's visible text starts.
+    // End an open args stream with its `9` before the model's visible text
+    // starts. A `0` frame closed the active argsText downstream through
+    // assistant-stream 0.3.34; at the pinned 0.3.37 it no longer does, but the
+    // `9` still has to precede the text so the args are complete before the
+    // next `3`/`e`/`d` closes the controller without them.
     yield* this.closeOpenArgsStreamIfNeeded();
     if (this.startNewStepForNextText) {
       yield* this.finalizeCurrentStep();
@@ -496,7 +554,7 @@ export class DataStreamMapper {
     if (!delta) {
       return;
     }
-    // `g` frames close the active argsText downstream, same as `0`.
+    // Same ordering rule as `0` above (see handleTextDelta).
     yield* this.closeOpenArgsStreamIfNeeded();
     yield* this.startStepIfNeeded();
     this.streamingPartOpen = true;
@@ -712,6 +770,9 @@ export class DataStreamMapper {
       case 'error':
         yield* this.handleToolError(callId, chunk.payload);
         break;
+      case 'declined':
+        yield* this.handleToolDeclined(callId, chunk.payload);
+        break;
       default:
         break;
     }
@@ -771,6 +832,12 @@ export class DataStreamMapper {
       ...(chunk.policyDecision === undefined ? {} : { policyDecision: chunk.policyDecision }),
       ...(args === undefined ? {} : { args: toJsonSafe(args) }),
       ...(chunk.resumeSchema === undefined ? {} : { resumeSchema: toJsonSafe(chunk.resumeSchema) }),
+      // BST-1070: this rebuild is field-by-field, so anything not explicitly
+      // spread is DROPPED — omitting this line would starve every LIVE
+      // approval of its execution context while rediscovered ones (which
+      // recompute server-side) kept working, precisely backwards. Pinned by
+      // the live-transport test in data-stream-session.spec.ts.
+      ...(chunk.executionContext === undefined ? {} : { executionContext: chunk.executionContext }),
     };
     yield {
       code: DataStreamCode.auiDataPart,
@@ -938,13 +1005,16 @@ export class DataStreamMapper {
       const state = this.toolState.get(callId);
       // Emit the `c` frame ONLY while this call's args are still streaming.
       // The renderer's assistant-stream decoder closes the call's argsText
-      // controller on the complete `9` frame (and throws on unknown ids), so
-      // a trailing delta after args completion / after the result — GLM-5.2
-      // via OpenRouter emits these — would crash the whole run with an
-      // unhandled "Cannot enqueue a chunk into a readable stream that is
-      // closed" TypeError. The full args were already assembled from
-      // `pendingArgsText`/`lastInput`, so a swallowed trailing delta loses
-      // nothing visible.
+      // controller on the complete `9` frame (and throws in strict mode on
+      // unknown ids), so a trailing delta after args completion / after the
+      // result — GLM-5.2 via OpenRouter emits these — lands on a closed
+      // controller. Through 0.3.34 that crashed the whole run with an unhandled
+      // "Cannot enqueue a chunk into a readable stream that is closed"
+      // TypeError; at the pinned 0.3.37 it is dropped behind a one-shot
+      // console.warn instead. The guard stays either way — the full args were
+      // already assembled from `pendingArgsText`/`lastInput`, so a swallowed
+      // trailing delta loses nothing visible, and a quiet drop is harder to
+      // notice than the old crash was.
       if (!state || state.argsEmitted) {
         logger.debug('Dropping tool args delta after args completion', { toolCallId: callId });
         return;
@@ -1068,6 +1138,55 @@ export class DataStreamMapper {
     this.startNewStepForNextText = true;
   }
 
+  /**
+   * The approval lifecycle's DECLINE terminal (@mastra/core 1.59
+   * `tool-output-denied`, BST-1282). It SETTLES the call exactly like an error
+   * would — without a result frame the renderer's part spins forever, the hang
+   * the chunk exists to fix — but it is deliberately NOT `handleToolError`:
+   *
+   *  - It records NOTHING in `pendingToolErrorTexts`. That map only clears on a
+   *    later `text-delta`, so a denial that is the last chunk before `finish`
+   *    (or a Stop right after it) would otherwise append "I couldn't complete
+   *    the tool action because it failed: The user declined this tool call…"
+   *    and finalize the step as errored. Nothing failed; the user chose. Same
+   *    ruling as the BST-558 resume-unsupported terminal — see
+   *    docs/agents/assistant-runtime.md, "The tool card is SETTLED".
+   *  - It leaves `isError` OFF. `isError` is what paints the destructive
+   *    AlertCircle/Failed chrome; a decline is neither a failure nor a success,
+   *    and the `DeclinedToolCallResult` envelope in the result is what tells the
+   *    card to render the muted stopped treatment instead.
+   */
+  private *handleToolDeclined(callId: string, payload: unknown): Generator<EncodedChunk> {
+    // A different call's open args stream must end before this call's `9`
+    // frame can flow (BST-962 crash class).
+    if (this.openArgsCallId !== null && this.openArgsCallId !== callId) {
+      yield* this.closeOpenArgsStreamIfNeeded();
+    }
+    const state = this.toolState.get(callId);
+    if (state && !state.argsEmitted) {
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: {
+          args: toArgsObject(state.lastInput, state.pendingArgsText),
+          toolCallId: callId,
+          toolName: state.toolName,
+        },
+      } satisfies EncodedChunk;
+    }
+    this.toolState.delete(callId);
+    this.settledToolCallIds.add(callId);
+    yield {
+      code: DataStreamCode.toolCallResult,
+      value: {
+        result: toJsonSafe((payload as { result?: unknown } | undefined)?.result),
+        toolCallId: callId,
+      },
+    } satisfies EncodedChunk;
+    yield* this.completeArgsStream(callId);
+    this.startNewStepForNextText = true;
+  }
+
   private *handleFinish(
     chunk: StreamChunkFinish | StreamChunkMessageFinish
   ): Generator<EncodedChunk> {
@@ -1076,7 +1195,7 @@ export class DataStreamMapper {
     yield* this.closeOpenArgsStreamIfNeeded();
     const usage = extractFinishUsage(chunk);
     const finishReason = resolveFinishReason(chunk);
-    const abnormalFinishMessage = getAbnormalFinishMessage(finishReason);
+    const abnormalFinishMessage = getAbnormalFinishMessage(finishReason, this.outputLimitContext);
     if (abnormalFinishMessage) {
       this.pendingRunErrorText = abnormalFinishMessage;
       this.terminalFailureText = abnormalFinishMessage;

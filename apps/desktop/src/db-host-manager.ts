@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { app, type UtilityProcess, utilityProcess } from 'electron';
 import type {
   DbHostDiagnosticsResult,

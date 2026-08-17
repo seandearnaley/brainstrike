@@ -13,7 +13,7 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     globals: true,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
-    reporters: 'basic',
+    reporters: [['default', { summary: false }]],
     silent: true,
   },
 });

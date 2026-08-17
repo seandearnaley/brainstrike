@@ -15,9 +15,9 @@ import {
   type FileTreeWorkerPort,
   resolveFileTreeWorkerUrl,
 } from '@brainstrike/file-tree-worker';
+import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
 
 import { runWithConcurrency } from '../utils/concurrency';
@@ -40,6 +40,14 @@ const MAX_CONCURRENT_LOADS = 5;
  */
 function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
   return [...nodes].sort((a, b) => {
+    // The truncation marker is a trailing pseudo-node: it sorts last within
+    // its directory regardless of name, ahead of directories-first.
+    if (a.type === 'truncated' || b.type === 'truncated') {
+      if (a.type === b.type) {
+        return 0;
+      }
+      return a.type === 'truncated' ? 1 : -1;
+    }
     if (a.type !== b.type) {
       return a.type === 'directory' ? -1 : 1;
     }

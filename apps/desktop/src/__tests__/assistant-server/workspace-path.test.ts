@@ -135,4 +135,11 @@ describe('workspace-path: isWithinRoot', () => {
     expect(isWithinRoot(root, path.resolve('/tmp/workspace-root-sibling'))).toBe(false);
     expect(isWithinRoot(root, path.resolve('/etc/passwd'))).toBe(false);
   });
+
+  it('accepts in-root children whose names start with ".."', () => {
+    // BST-1256: `relative.startsWith('..')` misclassified names like nyc's
+    // "..__..__var" coverage dirs as outside the root.
+    expect(isWithinRoot(root, path.join(root, '..__..__var__folders'))).toBe(true);
+    expect(isWithinRoot(root, path.join(root, '..hidden', 'file.ts'))).toBe(true);
+  });
 });

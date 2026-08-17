@@ -4,9 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const fsMocks = vi.hoisted(() => ({
   existsSync: vi.fn(() => true),
   mkdirSync: vi.fn(),
-  readdirSync: vi.fn(() => []),
-  rename: vi.fn(async () => undefined),
-  rm: vi.fn(async () => undefined),
+  readdirSync: vi.fn((_path?: string): string[] => []),
+  rename: vi.fn(async (_oldPath: string, _newPath: string): Promise<void> => undefined),
+  rm: vi.fn(async (_path: string, _options?: unknown): Promise<void> => undefined),
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -14,7 +14,7 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...mod,
     ...fsMocks,
-    default: { ...mod.default, ...fsMocks },
+    default: { ...mod, ...fsMocks },
   };
 });
 
@@ -22,7 +22,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const mod = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...mod,
-    default: { ...mod.default, rename: fsMocks.rename, rm: fsMocks.rm },
+    default: { ...mod, rename: fsMocks.rename, rm: fsMocks.rm },
     rename: fsMocks.rename,
     rm: fsMocks.rm,
   };
@@ -60,6 +60,9 @@ describe('resetDesktopApplicationData', () => {
 
     const stopOrder = stopBackgroundRuntimes.mock.invocationCallOrder[0];
     const resetOrder = resetDatabaseProfile.mock.invocationCallOrder[0];
+    if (stopOrder === undefined || resetOrder === undefined) {
+      throw new Error('expected runtime stop and database reset calls');
+    }
     expect(stopOrder).toBeLessThan(resetOrder);
     expect(resetDatabaseProfile).toHaveBeenCalledTimes(1);
     expect(fsMocks.readdirSync).toHaveBeenCalledWith('/mock/userData');
@@ -112,6 +115,57 @@ describe('resetDesktopApplicationData', () => {
       status: 'completed',
       userDataPath: '/mock/userData',
     });
+  });
+
+  it('wipes the bundled Python runtime unpack dir in the wholesale userData reset (BST-1061)', async () => {
+    // The bundled-CPython unpack dir (resolvePythonBinary's install target)
+    // deliberately has NO dedicated reset wiring: it lives under userData,
+    // so the wholesale wipe must cover it. This test pins that — if the dir
+    // ever moves out of userData, or `python-runtime` is added to the
+    // preserved-entry list, factory reset silently stops being a fresh start.
+    fsMocks.readdirSync.mockReturnValue(['logs', 'python-runtime']);
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      resetDatabaseProfile: vi.fn(async () => undefined),
+      stopBackgroundRuntimes: vi.fn(async () => undefined),
+      userDataPath: '/mock/userData',
+    });
+
+    const trashPath = path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1');
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      path.join('/mock/userData', 'python-runtime'),
+      path.join(trashPath, 'python-runtime')
+    );
+    expect(result.deletedPaths).toContain(path.join('/mock/userData', 'python-runtime'));
+    expect(result.preservedPaths).toEqual([path.join('/mock/userData', 'logs')]);
+  });
+
+  it('wipes the userData/snapshots shadow-git dir in the wholesale userData reset (BST-1164)', async () => {
+    // The shadow-git snapshot store (SnapshotService's `snapshotsBaseDir`,
+    // wired in main.ts as `path.join(app.getPath('userData'), 'snapshots')`)
+    // deliberately has NO dedicated reset wiring: it lives under userData, so
+    // the wholesale wipe must cover it — the FACTORY RESET CONTRACT's dir
+    // half, paired with the `brainstrike_workspace_snapshots` table wipe in
+    // the reset-table registry. This test pins that — if the dir ever moves
+    // out of userData, or `snapshots` is added to the preserved-entry list,
+    // captured workspace content would survive a factory reset.
+    fsMocks.readdirSync.mockReturnValue(['logs', 'snapshots']);
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      resetDatabaseProfile: vi.fn(async () => undefined),
+      stopBackgroundRuntimes: vi.fn(async () => undefined),
+      userDataPath: '/mock/userData',
+    });
+
+    const trashPath = path.join('/mock/userData', '.brainstrike-reset-trash-1700000000000-1');
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      path.join('/mock/userData', 'snapshots'),
+      path.join(trashPath, 'snapshots')
+    );
+    expect(result.deletedPaths).toContain(path.join('/mock/userData', 'snapshots'));
+    expect(result.preservedPaths).toEqual([path.join('/mock/userData', 'logs')]);
   });
 
   it('does not delete app data when runtime shutdown fails', async () => {

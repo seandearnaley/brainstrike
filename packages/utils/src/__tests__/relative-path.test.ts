@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveRelativePath } from '../relative-path';
+import { resolveRelativePath } from '../relative-path.js';
 
 describe('resolveRelativePath', () => {
   it('resolves a sibling file', () => {

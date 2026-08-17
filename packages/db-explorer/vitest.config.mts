@@ -35,16 +35,8 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../embeddings/src/service-entry.ts'),
       },
       {
-        find: /^@brainstrike\/preferences\/(.*)$/,
-        replacement: resolve(import.meta.dirname, '../preferences/src/$1'),
-      },
-      {
         find: '@brainstrike/storage',
         replacement: resolve(import.meta.dirname, '../storage/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/preferences',
-        replacement: resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
         // Regex-EXACT: a string find would also capture subpaths like
@@ -54,15 +46,11 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
       },
       // @brainstrike/workers has no src/ dir (worker files at the package root),
-      // so the registry skips it; alias its subpaths explicitly — reached
+      // so the registry skips it; alias its remaining subpath explicitly — reached
       // transitively via file-explorer-hooks/file-explorer-ui src.
       {
         find: '@brainstrike/workers/file-content-worker',
         replacement: resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
-      },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
       },
       {
         find: '@brainstrike/file-import/browser-queue-port',
@@ -85,15 +73,17 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../pipeline/src'),
       },
       {
-        find: '@brainstrike/context-actions',
+        // Anchored: a bare-string find would also capture the
+        // './commands' subpath export, which the registry spread resolves.
+        find: /^@brainstrike\/context-actions$/,
         replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       {
         find: '@brainstrike/indexing-contract',
         replacement: resolve(import.meta.dirname, '../indexing-contract/src'),
       },
-      // Registry fills gaps (e.g. @brainstrike/hooks, executed unmocked by
-      // use-pending-chunks.test.ts). Hand-rolled entries win by first-match.
+      // Registry fills the gaps for workspace packages reached unmocked by
+      // tests but not aliased above. Hand-rolled entries win by first-match.
       // See workspace-src-aliases (incident #1066/#1207).
       ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],

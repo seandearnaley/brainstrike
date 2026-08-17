@@ -9,16 +9,13 @@ describe('Web assistant deployment access', () => {
     expect(resolveWebAssistantDeploymentAccess('preview')).toEqual({ enabled: true });
   });
 
-  it.each([
-    undefined,
-    '',
-    'production',
-    'development',
-    'staging',
-  ])('fails closed outside a Vercel preview for %s', (vercelEnvironment) => {
-    expect(resolveWebAssistantDeploymentAccess(vercelEnvironment)).toEqual({
-      enabled: false,
-      reason: WEB_ASSISTANT_PRODUCTION_DISABLED_REASON,
-    });
-  });
+  it.each([undefined, '', 'production', 'development', 'staging'])(
+    'fails closed outside a Vercel preview for %s',
+    (vercelEnvironment) => {
+      expect(resolveWebAssistantDeploymentAccess(vercelEnvironment)).toEqual({
+        enabled: false,
+        reason: WEB_ASSISTANT_PRODUCTION_DISABLED_REASON,
+      });
+    }
+  );
 });

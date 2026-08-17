@@ -3,7 +3,15 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   clean: false,
   dts: false,
-  entry: ['src/index.ts', 'src/testing.ts', 'src/worker-storage.worker.js'],
+  entry: [
+    'src/context-generation.ts',
+    'src/file-tree.ts',
+    'src/index.ts',
+    'src/project-tree-text.ts',
+    'src/selection.ts',
+    'src/testing.ts',
+    'src/worker-storage.worker.js',
+  ],
   esbuildOptions(options, context) {
     if (context.format === 'cjs') {
       // Suppress "import.meta is not available with the cjs output format" warning.

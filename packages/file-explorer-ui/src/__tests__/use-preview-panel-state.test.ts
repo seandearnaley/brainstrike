@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UsePersistentTokenCacheReturn } from '../indexing/use-persistent-token-cache';
 import type { TokenCountingState } from '../indexing/use-token-counting';
@@ -55,6 +55,38 @@ describe('usePreviewPanelState path sorting', () => {
     mockUsePersistentTokenCache.mockReturnValue(createPersistentTokenCacheMock());
   });
 
+  // BST-1211 pins the ORDER, because it is observable: preview-panel.tsx sorts
+  // this list with a STABLE comparator (by rootFolderId only), so ties keep
+  // whatever order arrives here, and that decides Tapestry card order.
+  //
+  // The rule is "files bucketed by their owning root in first-seen order, then
+  // path-sorted WITHIN each bucket" — not a single global path sort. The fixture
+  // below is chosen to tell those two apart: a flat sort would put `README.md`
+  // first (R < s), and the folder buckets must keep it last.
+  it('buckets files by first-seen folder and path-sorts only within a bucket', () => {
+    const selectedFiles = new Set<string>([
+      'folder-a::src/file-b.ts',
+      'folder-a::src/file-a.ts',
+      'folder-b::README.md',
+    ]);
+
+    const { result } = renderHook(() =>
+      usePreviewPanelState({
+        decodeFileSelection,
+        fileContents: {},
+        loadingFiles: new Set<string>(),
+        selectedFiles,
+        tokenCounting,
+      })
+    );
+
+    expect(
+      result.current.flatListItems
+        .filter((item) => item.type === 'file')
+        .map((item) => item.compositeKey)
+    ).toEqual(['folder-a::src/file-a.ts', 'folder-a::src/file-b.ts', 'folder-b::README.md']);
+  });
+
   it('preserves default localeCompare ordering for numeric substrings', () => {
     const selectedFiles = new Set<string>([
       'folder::src/file2.ts',
@@ -68,8 +100,6 @@ describe('usePreviewPanelState path sorting', () => {
         fileContents: {},
         fileSizes: {},
         loadingFiles: new Set<string>(),
-        onSelectionChange: vi.fn(),
-        performUndoableAction: vi.fn(),
         selectedFiles,
         tokenCounting,
       })
@@ -112,8 +142,6 @@ describe('usePreviewPanelState path sorting', () => {
         fileContents: {},
         fileSizes: {},
         loadingFiles: new Set<string>(),
-        onSelectionChange: vi.fn(),
-        performUndoableAction: vi.fn(),
         selectedFiles,
         tokenCounting,
       })
@@ -152,8 +180,6 @@ describe('usePreviewPanelState path sorting', () => {
         fileContents: {},
         fileSizes: {},
         loadingFiles: new Set<string>(),
-        onSelectionChange: vi.fn(),
-        performUndoableAction: vi.fn(),
         selectedFiles,
         tokenCounting,
       })
@@ -190,8 +216,6 @@ describe('usePreviewPanelState path sorting', () => {
           fileContents: {},
           fileSizes: {},
           loadingFiles: new Set<string>(),
-          onSelectionChange: vi.fn(),
-          performUndoableAction: vi.fn(),
           selectedFiles,
           tokenCounting,
         }),
@@ -227,7 +251,7 @@ describe('usePreviewPanelState path sorting', () => {
     });
   });
 
-  it('groups files by folder, formats stats, and collapses or expands folder sections', () => {
+  it('carries per-file size and token metadata onto each bucketed file', () => {
     const selectedFiles = new Set<string>([
       'folder-a::src/file-b.ts',
       'folder-a::src/file-a.ts',
@@ -256,161 +280,19 @@ describe('usePreviewPanelState path sorting', () => {
           'folder-a::src/file-b.ts': 1536,
         },
         loadingFiles: new Set<string>(),
-        onSelectionChange: vi.fn(),
-        performUndoableAction: vi.fn(),
         selectedFiles,
         tokenCounting,
       })
     );
 
+    // `fileSizes` wins where present; the persistent cache fills the rest.
     expect(result.current.flatListItems).toMatchObject([
-      { fileCount: 2, folderId: 'folder-a', totalTokens: 2000, type: 'folder-header' },
       { path: 'src/file-a.ts', size: 512, tokens: 1100, type: 'file' },
       { path: 'src/file-b.ts', size: 1536, tokens: 900, type: 'file' },
-      { fileCount: 1, folderId: 'folder-b', totalTokens: 0, type: 'folder-header' },
       { path: 'README.md', size: 4096, type: 'file' },
     ]);
-    expect(result.current.formatFileSize()).toBe('Unknown');
-    expect(result.current.formatFileSize(1536)).toBe('1.5 KB');
-    expect(result.current.formatFileSize(1_048_576)).toBe('1.0 MB');
-    expect(result.current.formatFileSize(1_099_511_627_776)).toBe('1.0 TB');
-
-    act(() => {
-      result.current.toggleFolderCollapse('folder-a');
-    });
-
-    expect(result.current.flatListItems.map((item) => item.type)).toEqual([
-      'folder-header',
-      'folder-header',
-      'file',
-    ]);
-
-    act(() => {
-      result.current.expandAllFolders();
-    });
-
-    expect(result.current.flatListItems.filter((item) => item.type === 'file')).toHaveLength(3);
-
-    act(() => {
-      result.current.collapseAllFolders();
-    });
-
-    expect(result.current.flatListItems.every((item) => item.type === 'folder-header')).toBe(true);
-  });
-
-  it('tracks batch selection and removes selected files with undo metadata', () => {
-    const selectedFiles = new Set<string>([
-      'folder-a::src/file-a.ts',
-      'folder-a::src/file-b.ts',
-      'folder-b::README.md',
-    ]);
-    const onSelectionChange = vi.fn();
-    const performUndoableAction = vi.fn();
-
-    const { result } = renderHook(() =>
-      usePreviewPanelState({
-        decodeFileSelection,
-        fileContents: {},
-        fileSizes: {},
-        loadingFiles: new Set<string>(),
-        onSelectionChange,
-        performUndoableAction,
-        selectedFiles,
-        tokenCounting,
-      })
-    );
-
-    expect(result.current.isAllFilesSelected).toBe(false);
-
-    act(() => {
-      result.current.toggleFileSelection('folder-a::src/file-a.ts', true);
-      result.current.toggleFileSelection('folder-b::README.md', true);
-    });
-
-    expect(result.current.batchSelectedFiles).toEqual(
-      new Set(['folder-a::src/file-a.ts', 'folder-b::README.md'])
-    );
-
-    act(() => {
-      result.current.toggleFileSelection('folder-b::README.md', false);
-    });
-
-    expect(result.current.batchSelectedFiles).toEqual(new Set(['folder-a::src/file-a.ts']));
-
-    act(() => {
-      result.current.handleSelectAll();
-    });
-
-    expect(result.current.isAllFilesSelected).toBe(true);
-
-    act(() => {
-      result.current.handleBatchRemove();
-    });
-
-    expect(onSelectionChange).toHaveBeenCalledWith(new Set<string>());
-    expect(performUndoableAction).toHaveBeenCalledWith(
-      'batch-remove',
-      'batch-remove',
-      expect.objectContaining({
-        actionName: 'Files removed',
-        itemDescription: 'Removed 3 files from selection',
-      })
-    );
-    expect(result.current.batchSelectedFiles.size).toBe(0);
-
-    const undo = performUndoableAction.mock.calls[0]?.[2]?.onUndo;
-    act(() => {
-      undo?.('batch-remove', selectedFiles);
-    });
-
-    expect(onSelectionChange).toHaveBeenLastCalledWith(selectedFiles);
-
-    act(() => {
-      result.current.handleDeselectAll();
-    });
-
-    expect(result.current.batchSelectedFiles.size).toBe(0);
-  });
-
-  it('removes one file and restores it through the undo callback', () => {
-    const selectedFiles = new Set<string>(['folder-a::src/file-a.ts', 'folder-a::src/file-b.ts']);
-    const onSelectionChange = vi.fn();
-    const performUndoableAction = vi.fn();
-
-    const { result } = renderHook(() =>
-      usePreviewPanelState({
-        decodeFileSelection,
-        fileContents: {},
-        fileSizes: {},
-        loadingFiles: new Set<string>(),
-        onSelectionChange,
-        performUndoableAction,
-        selectedFiles,
-        tokenCounting,
-      })
-    );
-
-    act(() => {
-      result.current.handleRemoveFile('folder-a::src/file-a.ts');
-    });
-
-    expect(onSelectionChange).toHaveBeenCalledWith(new Set(['folder-a::src/file-b.ts']));
-    expect(performUndoableAction).toHaveBeenCalledWith(
-      'folder-a::src/file-a.ts',
-      'folder-a::src/file-a.ts',
-      expect.objectContaining({
-        actionName: 'File removed',
-        itemDescription: 'Removed "src/file-a.ts" from selection',
-      })
-    );
-
-    const undo = performUndoableAction.mock.calls[0]?.[2]?.onUndo;
-    act(() => {
-      undo?.('folder-a::src/file-a.ts', new Set(['folder-a::src/file-b.ts']));
-    });
-
-    expect(onSelectionChange).toHaveBeenLastCalledWith(
-      new Set(['folder-a::src/file-a.ts', 'folder-a::src/file-b.ts'])
-    );
+    // A file whose token count has not resolved carries no `tokens` key at all,
+    // which is what keeps it in totalStats.pendingCount.
+    expect(result.current.flatListItems[2]).not.toHaveProperty('tokens');
   });
 });

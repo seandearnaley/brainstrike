@@ -78,6 +78,25 @@ import { migration076AssistantRunErrors } from './076-assistant-run-errors.js';
 import { migration077RunUsageKind } from './077-run-usage-kind.js';
 import { migration078JobQueueDedupeActiveIndex } from './078-job-queue-dedupe-active-index.js';
 import { migration079MindOpsLog } from './079-mind-ops-log.js';
+import { migration080AssistantMessageTombstones } from './080-assistant-message-tombstones.js';
+import { migration081WorkspaceSnapshots } from './081-workspace-snapshots.js';
+import { migration082CanvasDocuments } from './082-canvas-documents.js';
+import { migration083ToolCallTelemetry } from './083-tool-call-telemetry.js';
+import { migration084AssistantToolProjectionRewrites } from './084-assistant-tool-projection-rewrites.js';
+import { migration085ToolCallTelemetryOccurredAtIndex } from './085-tool-call-telemetry-occurred-at-index.js';
+import { migration086TokenEstimateCalibration } from './086-token-estimate-calibration.js';
+import { migration087ToolProjectionRewriteKinds } from './087-tool-projection-rewrite-kinds.js';
+import { migration088AssistantCompactionRanges } from './088-assistant-compaction-ranges.js';
+import { migration089TokenEstimateCalibrationResolvedBudgets } from './089-token-estimate-calibration-resolved-budgets.js';
+import { migration090CompactionSummaryRunUsageKind } from './090-compaction-summary-run-usage-kind.js';
+import { migration091TokenEstimateCalibrationPromptBaseline } from './091-token-estimate-calibration-prompt-baseline.js';
+import { migration092ToolCallTelemetrySubstrateSplit } from './092-tool-call-telemetry-substrate-split.js';
+import { migration093AssistantRunTreatments } from './093-assistant-run-treatments.js';
+import { migration094OpenRouterGemini37Flash } from './094-openrouter-gemini-3-7-flash.js';
+import { migration095AssistantThreadWorkspaces } from './095-assistant-thread-workspaces.js';
+import { migration096OpenRouterQwen3827B } from './096-openrouter-qwen-3-8-27b.js';
+import { migration097OpenRouterQwen38TwoPointFourT } from './097-openrouter-qwen-3-8-2-4t-a95b.js';
+import { migration098OpenRouterQwen38Max } from './098-openrouter-qwen-3-8-max.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -162,6 +181,25 @@ export const migrations: Migration[] = [
   migration077RunUsageKind,
   migration078JobQueueDedupeActiveIndex,
   migration079MindOpsLog,
+  migration080AssistantMessageTombstones,
+  migration081WorkspaceSnapshots,
+  migration082CanvasDocuments,
+  migration083ToolCallTelemetry,
+  migration084AssistantToolProjectionRewrites,
+  migration085ToolCallTelemetryOccurredAtIndex,
+  migration086TokenEstimateCalibration,
+  migration087ToolProjectionRewriteKinds,
+  migration088AssistantCompactionRanges,
+  migration089TokenEstimateCalibrationResolvedBudgets,
+  migration090CompactionSummaryRunUsageKind,
+  migration091TokenEstimateCalibrationPromptBaseline,
+  migration092ToolCallTelemetrySubstrateSplit,
+  migration093AssistantRunTreatments,
+  migration094OpenRouterGemini37Flash,
+  migration095AssistantThreadWorkspaces,
+  migration096OpenRouterQwen3827B,
+  migration097OpenRouterQwen38TwoPointFourT,
+  migration098OpenRouterQwen38Max,
 ];
 
 // Export base migrations (without chunks table) for test environments

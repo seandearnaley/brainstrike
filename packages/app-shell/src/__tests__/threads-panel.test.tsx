@@ -1,11 +1,14 @@
+import {
+  useAssistantThreadGroupsStore,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
-import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   THREAD_CONTROL_ACTION_CLASS_NAME,
@@ -14,7 +17,6 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
@@ -56,6 +58,10 @@ vi.mock('@tanstack/react-virtual', () => ({
 const { dbMocks, fileExplorerMocks, groupRows, mockDb, placementRows, threadRows } = vi.hoisted(
   () => ({
     dbMocks: {
+      activeRunError: null as Error | null,
+      activeRunQueryEnabled: [] as boolean[],
+      activeRunRows: [] as Record<string, unknown>[],
+      activeRunSweepError: null as Error | null,
       database: undefined as unknown,
       deleteFailureThreadId: null as string | null,
       initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
@@ -173,6 +179,7 @@ vi.mock('@brainstrike/db/react', () => ({
         results: [],
       }),
   }),
+  makeLiveQueryKey: (...parts: readonly unknown[]) => JSON.stringify(parts),
   ThreadSearchRepository: class {
     deleteThreads(): Promise<void> {
       return Promise.resolve();
@@ -221,13 +228,22 @@ vi.mock('@brainstrike/db/react', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+  usePGliteLiveQuery: (options: { readonly enabled: boolean }) => {
+    dbMocks.activeRunQueryEnabled.push(options.enabled);
+    return {
+      error: dbMocks.activeRunError,
+      loading: false,
+      refresh: vi.fn(),
+      rows: options.enabled ? dbMocks.activeRunRows : [],
+    };
+  },
 }));
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/stores/model-registry-store', () => {
+vi.mock('@brainstrike/app-state/stores/model-registry-store', () => {
   const registryState = { models: [], providers: [] };
   return {
     useModelRegistryStore: (selector?: (state: typeof registryState) => unknown) =>
@@ -267,7 +283,11 @@ beforeEach(() => {
     name: 'workspace-a',
     path: '/tmp/workspace-a',
   };
-  dbMocks.database = undefined;
+  dbMocks.database = { exec: mockDb.exec, query: mockDb.query };
+  dbMocks.activeRunQueryEnabled = [];
+  dbMocks.activeRunError = null;
+  dbMocks.activeRunRows = [];
+  dbMocks.activeRunSweepError = null;
   dbMocks.deleteFailureThreadId = null;
   dbMocks.initializing = false;
   dbMocks.initializationStatus = 'ready';
@@ -310,7 +330,55 @@ beforeEach(() => {
   );
   mockDb.exec.mockClear();
   mockDb.query.mockClear();
+  const latestRunRows = [
+    {
+      completedAt: new Date('2026-04-22T11:00:10Z'),
+      createdAt: new Date('2026-04-22T11:00:00Z'),
+      error: null,
+      id: 'run-1',
+      model: 'gpt-5.2',
+      modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
+      provider: 'openai',
+      providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-04-22T11:00:00Z'),
+      status: 'completed',
+      threadId: 'thread-b',
+      turnMessageId: null,
+      updatedAt: new Date('2026-04-22T11:00:10Z'),
+    },
+    {
+      completedAt: new Date('2026-04-22T09:00:10Z'),
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      error: null,
+      id: 'run-openrouter-1',
+      model: 'openai/gpt-5.6-terra',
+      modelSettings: null,
+      provider: 'openrouter',
+      providerOptions: JSON.stringify({
+        openrouter: { reasoning: { effort: 'low', summary: 'auto' } },
+      }),
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-04-22T09:00:00Z'),
+      status: 'completed',
+      threadId: 'thread-a',
+      turnMessageId: null,
+      updatedAt: new Date('2026-04-22T09:00:10Z'),
+    },
+  ];
+  const latestRunByThreadId = new Map(latestRunRows.map((run) => [run.threadId, run] as const));
   mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+    if (sql.includes('SELECT to_regclass')) {
+      return { rows: [{ oid: 'brainstrike_assistant_thread_runs' }] };
+    }
+    if (sql.includes('UPDATE brainstrike_assistant_thread_runs')) {
+      if (dbMocks.activeRunSweepError) {
+        throw dbMocks.activeRunSweepError;
+      }
+      return { rows: [] };
+    }
     if (sql.includes('deleted_threads AS')) {
       const threadIds = (params ?? []).map(String);
       if (threadIds.some((threadId) => dbMocks.deleteFailureThreadId === threadId)) {
@@ -457,54 +525,138 @@ beforeEach(() => {
     if (sql.includes('FROM brainstrike_assistant_thread_placements')) {
       return { rows: [...placementRows] };
     }
-    if (sql.includes('FROM mastra_threads')) {
-      return { rows: [...threadRows] };
+    // The joined list query also names the run table; match its outer source
+    // explicitly so this branch cannot become order-dependent with the run read.
+    if (sql.includes('FROM mastra_threads AS threads')) {
+      return {
+        rows: threadRows.map((thread) => {
+          const latestRun = latestRunByThreadId.get(String(thread['id']));
+          if (!latestRun) {
+            return { ...thread };
+          }
+          return {
+            ...thread,
+            latestRunCompletedAt: latestRun.completedAt,
+            latestRunCreatedAt: latestRun.createdAt,
+            latestRunError: latestRun.error,
+            latestRunId: latestRun.id,
+            latestRunModel: latestRun.model,
+            latestRunModelSettings: latestRun.modelSettings,
+            latestRunProvider: latestRun.provider,
+            latestRunProviderOptions: latestRun.providerOptions,
+            latestRunResourceId: latestRun.resourceId,
+            latestRunRuntimeKind: latestRun.runtimeKind,
+            latestRunStartedAt: latestRun.startedAt,
+            latestRunStatus: latestRun.status,
+            latestRunThreadId: latestRun.threadId,
+            latestRunTurnMessageId: latestRun.turnMessageId,
+            latestRunUpdatedAt: latestRun.updatedAt,
+          };
+        }),
+      };
     }
     if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
-      return {
-        rows: [
-          {
-            completedAt: new Date('2026-04-22T11:00:10Z'),
-            createdAt: new Date('2026-04-22T11:00:00Z'),
-            error: null,
-            id: 'run-1',
-            model: 'gpt-5.2',
-            modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
-            provider: 'openai',
-            providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
-            resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-            runtimeKind: 'hosted',
-            startedAt: new Date('2026-04-22T11:00:00Z'),
-            status: 'completed',
-            threadId: 'thread-b',
-            updatedAt: new Date('2026-04-22T11:00:10Z'),
-          },
-          {
-            completedAt: new Date('2026-04-22T09:00:10Z'),
-            createdAt: new Date('2026-04-22T09:00:00Z'),
-            error: null,
-            id: 'run-openrouter-1',
-            model: 'openai/gpt-5.6-terra',
-            modelSettings: null,
-            provider: 'openrouter',
-            providerOptions: JSON.stringify({
-              openrouter: { reasoning: { effort: 'low', summary: 'auto' } },
-            }),
-            resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-            runtimeKind: 'hosted',
-            startedAt: new Date('2026-04-22T09:00:00Z'),
-            status: 'completed',
-            threadId: 'thread-a',
-            updatedAt: new Date('2026-04-22T09:00:10Z'),
-          },
-        ],
-      };
+      return { rows: [...latestRunRows] };
     }
     return { rows: [] };
   });
 });
 
 describe('ThreadsPanel', () => {
+  it('shows independent reduced-motion-safe activity spinners without replacing thread icons', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-a' }, { threadId: 'thread-b' }];
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-active-spinner')).toHaveLength(2);
+    });
+
+    const firstThreadRow = screen
+      .getByText('First thread')
+      .closest<HTMLElement>('[data-testid="thread-row"]');
+    const secondThreadRow = screen
+      .getByText('Second thread')
+      .closest<HTMLElement>('[data-testid="thread-row"]');
+    expect(firstThreadRow).not.toBeNull();
+    expect(secondThreadRow).not.toBeNull();
+    if (!(firstThreadRow && secondThreadRow)) {
+      throw new Error('Expected both thread rows to render.');
+    }
+
+    expect(within(firstThreadRow).getByTestId('thread-icon-code')).toBeVisible();
+    expect(within(secondThreadRow).getByTestId('thread-icon-message')).toBeVisible();
+    expect(within(firstThreadRow).getByRole('img', { name: 'First thread is active' })).toHaveClass(
+      'motion-reduce:animate-none'
+    );
+    expect(
+      within(secondThreadRow).getByRole('img', { name: 'Second thread is active' })
+    ).toBeVisible();
+
+    dbMocks.activeRunRows = [];
+    act(() => {
+      useAssistantThreadStore.setState((state) => ({
+        selectedThreadByResourceId: { ...state.selectedThreadByResourceId },
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
+    });
+    expect(within(firstThreadRow).getByTestId('thread-icon-code')).toBeVisible();
+    expect(within(secondThreadRow).getByTestId('thread-icon-message')).toBeVisible();
+  });
+
+  it('keeps the durable activity subscription live while thread creation reloads the list', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-a' }];
+    renderThreadsPanel();
+
+    expect(await screen.findByTestId('thread-active-spinner')).toBeVisible();
+    act(() => {
+      useAssistantThreadStore.setState((state) => ({
+        loadStateByResourceId: {
+          ...state.loadStateByResourceId,
+          [WORKSPACE_MEMORY_RESOURCE_ID]: { status: 'loading' },
+        },
+      }));
+    });
+
+    expect(screen.getByTestId('thread-active-spinner')).toBeVisible();
+    expect(dbMocks.activeRunQueryEnabled.at(-1)).toBe(true);
+  });
+
+  it('surfaces a web startup orphan-sweep failure before subscribing', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-a' }];
+    dbMocks.activeRunSweepError = new Error('startup sweep failed');
+    renderThreadsPanel();
+
+    expect(await screen.findByTestId('thread-activity-error')).toHaveTextContent(
+      'Active thread status unavailable: startup sweep failed'
+    );
+    expect(dbMocks.activeRunQueryEnabled.at(-1)).toBe(false);
+    expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
+  });
+
+  it('surfaces an active-run subscription failure instead of silently showing every thread idle', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-a' }];
+    dbMocks.activeRunError = new Error('active run live query failed');
+    renderThreadsPanel();
+
+    expect(await screen.findByTestId('thread-activity-error')).toHaveTextContent(
+      'Active thread status unavailable: active run live query failed'
+    );
+    expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
+  });
+
+  it('rejects malformed active-run rows instead of guessing a thread identity', async () => {
+    dbMocks.activeRunRows = [{ threadId: 42 }];
+    renderThreadsPanel();
+
+    expect(await screen.findByTestId('thread-activity-error')).toHaveTextContent(
+      'Active thread status unavailable: Active assistant thread query returned an invalid thread id.'
+    );
+    expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
+  });
+
   it('spends exactly two chrome rows above the list: a toolbar and the search row', async () => {
     renderThreadsPanel();
 

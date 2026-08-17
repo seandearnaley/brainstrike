@@ -1,8 +1,12 @@
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { QUEUE_PROGRESS_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useEnhancedFileImportService } from '../enhanced-file-import-service';
+import {
+  __resetQueueProgressSubscriberCountForTests,
+  useEnhancedFileImportService,
+} from '../enhanced-file-import-service';
 
 const {
   ensureStartedMock,
@@ -117,15 +121,22 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     createBulkOperationContext: createBulkOperationContextMock,
+    fileExplorer: {
+      getFileExtension: vi.fn(() => 'ts'),
+    },
+  };
+});
+
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
     createLogger: vi.fn(() => ({
       debug: vi.fn(),
       error: vi.fn(),
       info: vi.fn(),
       warn: vi.fn(),
     })),
-    fileExplorer: {
-      getFileExtension: vi.fn(() => 'ts'),
-    },
   };
 });
 
@@ -164,6 +175,7 @@ function createDeferred<T>(): {
 
 describe('useEnhancedFileImportService', () => {
   beforeEach(() => {
+    __resetQueueProgressSubscriberCountForTests();
     vi.clearAllMocks();
     runEnhancedImportMock.mockReset();
     createBulkOperationContextMock.mockClear();
@@ -716,6 +728,31 @@ describe('useEnhancedFileImportService', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('keeps the app-wide queue-active flag set while another surface is still subscribed', () => {
+      // Two import surfaces can be mounted at once (the Database panel and the
+      // explorer's selection bar). `isEmbeddingQueueActive` is shared state, so
+      // the FIRST unmount must not report "idle" on behalf of the one still
+      // listening - only the last subscriber clears it.
+      const embeddingQueue = { add: vi.fn() } as unknown as QueueAdapter;
+
+      const first = renderHook(() => useEnhancedFileImportService({ embeddingQueue }));
+      const second = renderHook(() => useEnhancedFileImportService({ embeddingQueue }));
+
+      act(() => {
+        useVectorStatusUIStore.getState().setIsEmbeddingQueueActive(true);
+      });
+
+      act(() => {
+        first.unmount();
+      });
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(true);
+
+      act(() => {
+        second.unmount();
+      });
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(false);
     });
   });
 });

@@ -1,15 +1,19 @@
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   type AnthropicProviderOptions,
   DESKTOP_NATIVE_TOOL_IDS,
   type DesktopNativeToolId,
+  DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
   getLlmModelDefinition,
   type HookTrustRequest,
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type LocalProviderOptions,
+  listProviderLlmModels,
   mergeOpenRouterAutoProfileModel,
   type OpenAiProviderOptions,
+  type OpenRouterAutoProfileModel,
   type OpenRouterModelMetadata,
   type OpenRouterModelMetadataLookup,
   type OpenRouterProviderOptions,
@@ -18,6 +22,8 @@ import {
   type RuntimeData,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
   resolveReasoningVisible,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
@@ -42,6 +48,17 @@ import {
   getNativeToolDescription,
   getToolSchemaDisplay,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import type {
+  AssistantThreadMetadata,
+  AssistantThreadRepository,
+  AssistantThreadRunRecord,
+  AssistantThreadRuntimeKind,
+} from '@brainstrike/assistant-data';
+import type {
+  AssistantProviderSettings,
+  AssistantToolMenuItem,
+  ComposerAttachmentsAvailability,
+} from '@brainstrike/assistant-ui';
 import {
   type TapestryRange,
   toolLineRangeToTapestryRange,
@@ -53,23 +70,11 @@ import {
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
 } from '@brainstrike/local-runtime';
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import {
   getGoogleThinkingLevels,
   resolveTapestryColorHex,
   type TapestryColorName,
 } from '@brainstrike/types';
-import type {
-  AssistantProviderSettings,
-  AssistantToolMenuItem,
-  ComposerAttachmentsAvailability,
-} from '@brainstrike/ui/assistant-ui-panel';
-import type {
-  AssistantThreadMetadata,
-  AssistantThreadRepository,
-  AssistantThreadRunRecord,
-  AssistantThreadRuntimeKind,
-} from './assistant-memory-repository';
 
 const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
 const SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
@@ -448,6 +453,13 @@ export function createAssistantThreadRunPromise(args: {
   resolvedModelName: string | undefined;
   selectedMemoryThreadId: string | undefined;
   selectedProvider: SupportedProvider | null;
+  /**
+   * The turn's triggering user message (BST-1163) — the transport resolves it
+   * from thread state per leg (action echoes excluded), so initial sends AND
+   * approval/suspend resumes stamp the SAME id. `null` when the transport has
+   * no real user message in hand; never fabricated here.
+   */
+  turnMessageId: string | null;
 }): Promise<string | undefined> {
   if (!(args.assistantThreadRepository && args.memoryResourceId && args.selectedMemoryThreadId)) {
     throw new Error('Assistant run records require an active memory thread.');
@@ -466,6 +478,7 @@ export function createAssistantThreadRunPromise(args: {
       resourceId: args.memoryResourceId,
       runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
       threadId: args.selectedMemoryThreadId,
+      turnMessageId: args.turnMessageId,
       ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
       ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
     })
@@ -506,6 +519,8 @@ export function buildAssistantRequestData(args: {
    */
   planMode?: boolean;
   providerOptions: Record<string, unknown> | undefined;
+  /** Explicit selection only; absent means Auto even when providerOptions has a resolved effort. */
+  requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   selectedMemoryThreadId: string | undefined;
   selectionData: {
     filePaths: string[];
@@ -534,6 +549,8 @@ export function buildAssistantRequestData(args: {
    * boundary — it can only reduce the skill set.
    */
   skillsPreference?: RuntimeData['skillsPreference'];
+  experimentAssignment?: RuntimeData['experimentAssignment'];
+  selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
    * Opt-in workspace instructions preference; only set on the desktop
@@ -621,9 +638,12 @@ export function buildAssistantRequestData(args: {
 }
 
 interface OptInRequestFields {
+  experimentAssignment?: RuntimeData['experimentAssignment'];
   hookTrustRequest?: HookTrustRequest | undefined;
   permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
+  requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
+  selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
@@ -635,6 +655,11 @@ interface OptInRequestFields {
  * stays under the cognitive-complexity budget.
  */
 function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRequestFields): void {
+  // Explicit effort is presence-means-user-selected; absent means Auto even
+  // when resolved provider options carry a catalog-selected wire effort.
+  if (fields.requestedReasoningEffort) {
+    data['requestedReasoningEffort'] = fields.requestedReasoningEffort;
+  }
   // Permission enforcement is OPT-IN: presence means "enforce"; the server
   // re-checks `enforce` and adds server-owned tool risk classification.
   if (fields.permissionPolicyRequest) {
@@ -657,9 +682,20 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   if (fields.workspaceInstructionsPreference) {
     data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
   }
+  // Self-improvement is default OFF; the desktop renderer sends its explicit
+  // plain-JSON preference snapshot and the server parses it strictly.
+  if (fields.selfImprovementSignalPreference) {
+    data['selfImprovementSignalPreference'] = fields.selfImprovementSignalPreference;
+  }
   // Skills preference: absent => server default (master on, nothing disabled).
   if (fields.skillsPreference) {
     data['skillsPreference'] = fields.skillsPreference;
+  }
+  // Experiment enrollment (BST-1251): presence-means-enrolled attribution
+  // metadata; the caller only supplies a complete {experimentId, variant}
+  // pair, matching the contract's jointly-required fields.
+  if (fields.experimentAssignment) {
+    data['experimentAssignment'] = fields.experimentAssignment;
   }
 }
 
@@ -717,7 +753,7 @@ export function toRuntimeWorkspaceContext(
 }
 
 export function resolveAssistantProviderDisabledReason(args: {
-  configuredProviders: SupportedProvider[];
+  configuredProviders: readonly SupportedProvider[];
   currentModel: string | null | undefined;
   getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
   localRuntimeHint: string | undefined;
@@ -864,7 +900,7 @@ export function toRuntimeProviderModels(
     // For small models (e.g. a 4k-context quantized GGUF) it over-estimates: the agent may
     // compose prompts larger than the model holds. Accepted tradeoff — the local server's
     // own context cap is the real enforcement on that path.
-    contextWindow: 32_768,
+    contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
     default: index === 0,
     id: model.modelId,
     label: model.displayName,
@@ -1237,12 +1273,37 @@ export function buildModelSettings(
   return Number.isFinite(value) ? { maxOutputTokens: value } : undefined;
 }
 
+function findOpenRouterCatalogModel(modelId: string): OpenRouterAutoProfileModel | undefined {
+  return listProviderLlmModels('openrouter').find(({ id }) => id === modelId);
+}
+
+/**
+ * The model the output-window resolution reasons about: the live snapshot with
+ * the catalog-only facts (`autoEffort`, `vendorDefaultOutputTokens`) merged
+ * back in, or the static catalog entry while metadata is pending. The catalog
+ * overlay only applies when the snapshot identity matches the selected model.
+ */
+function resolveAutoProfileModel(
+  openRouterMetadata: OpenRouterModelMetadata | undefined,
+  modelName: string | undefined
+): OpenRouterAutoProfileModel | undefined {
+  if (openRouterMetadata) {
+    const catalogModel =
+      modelName !== undefined && openRouterMetadata.id === modelName
+        ? findOpenRouterCatalogModel(modelName)
+        : undefined;
+    return mergeOpenRouterAutoProfileModel(openRouterMetadata, catalogModel);
+  }
+  return modelName === undefined ? undefined : getLlmModelDefinition('openrouter', modelName);
+}
+
 export function buildEffectiveModelSettings(
   providerId: string | null | undefined,
   configuredSettings: RuntimeData['modelSettings'] | undefined,
   selectedModelDef?: SelectedModelBudgetDef,
   openRouterMetadata?: OpenRouterModelMetadata,
-  modelName?: string
+  modelName?: string,
+  reasoningEffort?: AssistantProviderSettings['reasoningEffort']
 ): RuntimeData['modelSettings'] | undefined {
   if (providerId !== 'openrouter') {
     return configuredSettings;
@@ -1250,13 +1311,18 @@ export function buildEffectiveModelSettings(
   if (configuredSettings?.maxOutputTokens !== undefined) {
     return configuredSettings;
   }
-  const autoProfileModel =
-    openRouterMetadata ??
-    (modelName === undefined ? undefined : getLlmModelDefinition('openrouter', modelName));
+  const autoProfileModel = resolveAutoProfileModel(openRouterMetadata, modelName);
   if (autoProfileModel) {
+    // Sized for the request's reasoning state (BST-1170): an active-reasoning
+    // request on a model with a vendor-documented completion window gets that
+    // window — the 32K coding ceiling starved thinking+answer and killed runs
+    // at `finishReason: length`.
     return {
       ...configuredSettings,
-      maxOutputTokens: resolveOpenRouterAutoRuntimeProfile(autoProfileModel).maxOutputTokens,
+      maxOutputTokens: resolveOpenRouterOutputWindow(
+        autoProfileModel,
+        resolveOpenRouterReasoningActive(autoProfileModel, reasoningEffort)
+      ),
     };
   }
   return {
@@ -1285,9 +1351,11 @@ export function resolveOpenRouterMetadataDisabledReason(
   if (configuredOutput && maximum && configuredOutput > maximum) {
     return `Configured output limit ${openRouterLimitFormatter.format(configuredOutput)} exceeds OpenRouter ${provenance} maximum ${openRouterLimitFormatter.format(maximum)}.`;
   }
+  const profileModel =
+    mergeOpenRouterAutoProfileModel(metadata, findOpenRouterCatalogModel(metadata.id)) ?? metadata;
   if (settings?.reasoningEffort === undefined) {
     try {
-      resolveOpenRouterAutoRuntimeProfile(metadata, configuredOutput);
+      resolveOpenRouterAutoRuntimeProfile(profileModel, configuredOutput);
     } catch (error) {
       return error instanceof Error
         ? error.message
@@ -1295,7 +1363,16 @@ export function resolveOpenRouterMetadataDisabledReason(
     }
   }
 
-  const outputReservation = configuredOutput ?? resolveOpenRouterCodingMaxOutputTokens(maximum);
+  // Reserve the same window the run will actually send (BST-1170): an
+  // active-reasoning request on a model with a vendor-documented completion
+  // window reserves that window, not the coding ceiling — otherwise the input
+  // validation promises context the run cannot use.
+  const outputReservation =
+    configuredOutput ??
+    resolveOpenRouterOutputWindow(
+      profileModel,
+      resolveOpenRouterReasoningActive(profileModel, settings?.reasoningEffort || undefined)
+    );
   let effectiveInputBudget: number;
   try {
     effectiveInputBudget = deriveEffectiveInputBudget(metadata.contextWindow, outputReservation);

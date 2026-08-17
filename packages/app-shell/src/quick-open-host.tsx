@@ -1,11 +1,11 @@
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import { createLogger } from '@brainstrike/logging';
 import {
   type QuickOpenFileItem,
   QuickOpenPalette,
   useIdeFileEditor,
   useQuickOpenHotkey,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
 import { useQuickOpenStore } from './stores/quick-open-store';
 import { useQuickOpenFiles } from './use-quick-open-files';
@@ -34,7 +34,7 @@ function resolveQuickOpenBridge(): QuickOpenBridge | null {
 
 /**
  * Mounts the ⌘P quick-open file finder. Rendered INSIDE the IdeLayout subtree
- * (where `IdeFileEditorContext` is populated by `workspace-tab-host`), so
+ * (where `IdeFileEditorContext` is populated by `WorkspaceOpenFileBridge`), so
  * `useIdeFileEditor().openFileInTab` resolves. That subtree is always mounted
  * (the explorer route is only toggled hidden, never unmounted), so ⌘P works from
  * any tab; opening a file switches to the explorer tab so the new tab is visible.

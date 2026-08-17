@@ -1,4 +1,9 @@
 import type {
+  WorkspaceCollectionSyncChunkingProgress,
+  WorkspaceCollectionSyncScanSummary,
+  WorkspaceCollectionSyncStatusPatch,
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import type {
   ApplyManagedCacheBatchArgs,
   ApplyManagedCacheInvalidationsArgs,
   EmbeddingSet,
@@ -21,22 +26,20 @@ import {
   isLocalProviderType,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
+import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import { createLogger } from '@brainstrike/logging';
 import {
   getSupersededBackgroundBackfillIds,
   needsEmbeddingBackfill,
   selectRecoverableBackgroundBackfill,
 } from '@brainstrike/pipeline';
-import type {
-  WorkspaceCollectionSyncChunkingProgress,
-  WorkspaceCollectionSyncScanSummary,
-  WorkspaceCollectionSyncStatusPatch,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { FileSystemChange } from '@brainstrike/types';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
-import { createLogger } from '@brainstrike/utils/logger';
-import type { WorkspaceIndexingQosPolicy } from '@brainstrike/utils/workspace-indexing-qos';
+import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
+  type ChunkingRedispatchTerminalError,
+  ChunkingRedispatchTracker,
   type PreparedChangesSummary,
   runRootFolderCacheImport,
 } from './workspace-collection-sync-import';
@@ -191,6 +194,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
 }
 
 export interface WorkspaceCollectionSyncRequest {
+  adapterRootId?: string | null;
   backfillMode?: 'defer' | 'enqueue';
   dbRootId?: string | null;
   enabled: boolean;
@@ -211,6 +215,7 @@ export type WorkspaceCollectionSyncScope =
 
 interface ResolvedSyncContext {
   activeRootPath: string;
+  adapterRootId: string | null;
   collection: EmbeddingSet;
   /** DB root id from the `roots` table, or null if the path is unmapped. */
   dbRootId: string | null;
@@ -225,12 +230,43 @@ interface ActiveBackfillTracking {
   unsubscribe: (() => void) | null;
 }
 
+interface TerminalChunkingErrorScope {
+  context: ResolvedSyncContext;
+  errors: readonly ChunkingRedispatchTerminalError[];
+}
+
 export class WorkspaceCollectionSyncService {
   private activeBackfill: ActiveBackfillTracking | null = null;
+  private readonly chunkingRedispatchTracker = new ChunkingRedispatchTracker();
+  private readonly terminalChunkingErrorsByScope = new Map<string, TerminalChunkingErrorScope>();
   private currentAbortController: AbortController | null = null;
   private runId = 0;
 
   constructor(private readonly deps: WorkspaceCollectionSyncServiceDependencies) {}
+
+  reconcileMountedRoots(
+    collectionId: string | null,
+    mountedRoots: readonly {
+      adapterRootId: string | null;
+      dbRootId: string | null;
+      rootPath: string;
+    }[]
+  ): void {
+    for (const [scopeKey, scope] of this.terminalChunkingErrorsByScope) {
+      const remainsMounted = mountedRoots.some((root) => {
+        if (root.rootPath !== scope.context.rootPath) {
+          return false;
+        }
+        if (scope.context.adapterRootId !== null) {
+          return root.adapterRootId === scope.context.adapterRootId;
+        }
+        return root.dbRootId === null || root.dbRootId === scope.context.dbRootId;
+      });
+      if (scope.context.collection.id !== collectionId || !remainsMounted) {
+        this.terminalChunkingErrorsByScope.delete(scopeKey);
+      }
+    }
+  }
 
   async cancel(): Promise<void> {
     this.runId += 1;
@@ -285,13 +321,14 @@ export class WorkspaceCollectionSyncService {
   private createScanSummary(
     prepared: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >
   ): WorkspaceCollectionSyncScanSummary {
     return {
       changedFiles: prepared.changes.length,
       discoveredFiles: prepared.totalFiles,
       excludedEntries: prepared.excludedEntries,
+      truncatedDirectories: prepared.truncatedDirectoryPaths.length,
       unchangedFiles: prepared.unchangedCount,
     };
   }
@@ -336,6 +373,30 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  /**
+   * No root folder has been selected yet — setup is incomplete, not a
+   * failure (BST-1335). Logged at info (never durably persisted, unlike the
+   * warn+ `errorTransitionLogger` chokepoint the status store owns for
+   * genuine `error`/`blocked` transitions) and carries no `lastError`, so the
+   * store's durable-logging subscription never fires for it.
+   */
+  private setUnconfiguredStatus(args: {
+    activeRootPath: string | null;
+    managedCollectionId: string | null;
+  }): void {
+    this.deps.log?.info('Workspace collection sync is unconfigured: no root folder selected', {
+      activeRootPath: args.activeRootPath,
+      managedCollectionId: args.managedCollectionId,
+    });
+    this.deps.setStatus({
+      activeRootPath: args.activeRootPath,
+      managedCollectionId: args.managedCollectionId,
+      managedCollectionName: null,
+      state: 'unconfigured',
+      ...this.createClearedProgressState(),
+    });
+  }
+
   private async cancelSupersededBackgroundBackfills(args: {
     exceptEmbeddingSetId?: string;
     inFlightBackfills: Array<{
@@ -349,6 +410,32 @@ export class WorkspaceCollectionSyncService {
     }
   }
 
+  /**
+   * BST-1335: `no-root-folder` is unconfigured setup, not a failure, so it
+   * routes to `setUnconfiguredStatus` instead of `setErrorStatus`. Split out
+   * of `resolveContext` to keep that method's cognitive complexity under the
+   * lint ceiling.
+   */
+  private handleInvalidRequest(args: {
+    rootPath: string | null;
+    validation: Extract<ReturnType<typeof validateRootFolderCacheRequest>, { ok: false }>;
+    managedCollectionId: string | null;
+  }): void {
+    if (args.validation.code === 'no-root-folder') {
+      this.setUnconfiguredStatus({
+        activeRootPath: args.rootPath,
+        managedCollectionId: args.managedCollectionId,
+      });
+      return;
+    }
+    this.setErrorStatus({
+      activeRootPath: args.rootPath,
+      managedCollectionId: args.managedCollectionId,
+      managedCollectionName: null,
+      message: args.validation.reason,
+    });
+  }
+
   private async resolveContext(
     request: WorkspaceCollectionSyncRequest
   ): Promise<ResolvedSyncContext | null> {
@@ -360,11 +447,10 @@ export class WorkspaceCollectionSyncService {
     });
 
     if (!validation.ok) {
-      this.setErrorStatus({
-        activeRootPath: rootPath,
+      this.handleInvalidRequest({
         managedCollectionId: request.managedCollectionId,
-        managedCollectionName: null,
-        message: validation.reason,
+        rootPath,
+        validation,
       });
       return null;
     }
@@ -409,14 +495,19 @@ export class WorkspaceCollectionSyncService {
 
     // Short-circuit: '' is never a valid lookup key, and passing it would
     // pollute the warn-once set with a misleading entry on path-less runs.
+    const adapterRootId =
+      request.adapterRootId === undefined
+        ? (request.rootDirectoryHandle?.rootId ?? null)
+        : request.adapterRootId;
     const dbRootId =
       request.dbRootId === undefined
         ? rootPath
-          ? await this.deps.resolveDbRootId(rootPath, request.rootDirectoryHandle?.rootId)
+          ? await this.deps.resolveDbRootId(rootPath, adapterRootId)
           : null
         : request.dbRootId;
     return {
       activeRootPath: rootPath ?? '',
+      adapterRootId,
       collection,
       dbRootId,
       provider,
@@ -549,6 +640,7 @@ export class WorkspaceCollectionSyncService {
         rootPath: args.context.rootPath,
       },
       deps: {
+        chunkingRedispatchTracker: this.chunkingRedispatchTracker,
         fileRecordRepository: this.deps.fileRecordRepository,
         fileSystemAdapter: this.deps.fileSystemAdapter,
         onScanningPath: (path) => {
@@ -570,7 +662,7 @@ export class WorkspaceCollectionSyncService {
     context: ResolvedSyncContext,
     prepared: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >
   ): void {
     this.deps.setStatus({
@@ -585,12 +677,95 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  private updateTerminalChunkingRedispatchErrors(
+    context: ResolvedSyncContext,
+    prepared: PreparedChangesSummary,
+    request: WorkspaceCollectionSyncRequest
+  ): void {
+    const scopeKey = JSON.stringify([context.collection.id, context.dbRootId, context.rootPath]);
+    const previous = this.terminalChunkingErrorsByScope.get(scopeKey);
+    const partialChanges = request.scope?.mode === 'paths' ? request.scope.changes : null;
+    const inaccessiblePaths = new Set(prepared.inaccessiblePaths);
+    const previousErrors = previous?.errors ?? [];
+    const retainedErrors = partialChanges
+      ? previousErrors.filter(
+          (error) =>
+            inaccessiblePaths.has(error.relativePath) ||
+            !partialChanges.some((change) => {
+              const normalizedChangePath = change.path.replace(/\\/g, '/').replace(/\/+$/u, '');
+              const normalizedRootPath = context.rootPath.replace(/\\/g, '/').replace(/\/+$/u, '');
+              if (normalizedChangePath === normalizedRootPath) {
+                return false;
+              }
+              const relativePath = normalizeSelectionPathForFolder(
+                normalizedChangePath,
+                context.rootPath,
+                { label: 'Workspace Index watcher path' }
+              );
+              return change.kind === 'directory'
+                ? error.relativePath === relativePath ||
+                    error.relativePath.startsWith(`${relativePath}/`)
+                : error.relativePath === relativePath;
+            })
+        )
+      : previousErrors.filter((error) => inaccessiblePaths.has(error.relativePath));
+    const errorsByPath = new Map(
+      [...retainedErrors, ...prepared.terminalChunkingErrors].map((error) => [
+        error.relativePath,
+        error,
+      ])
+    );
+    const errors = [...errorsByPath.values()];
+    if (errors.length === 0) {
+      this.terminalChunkingErrorsByScope.delete(scopeKey);
+      return;
+    }
+    this.terminalChunkingErrorsByScope.set(scopeKey, {
+      context,
+      errors,
+    });
+  }
+
+  private retainTerminalChunkingErrorsForCollection(collectionId: string | null): void {
+    for (const [scopeKey, scope] of this.terminalChunkingErrorsByScope) {
+      if (scope.context.collection.id !== collectionId) {
+        this.terminalChunkingErrorsByScope.delete(scopeKey);
+      }
+    }
+  }
+
+  private surfaceTerminalChunkingRedispatchError(): boolean {
+    const scopes = [...this.terminalChunkingErrorsByScope.values()];
+    const firstScope = scopes[0];
+    const terminalError = firstScope?.errors[0];
+    if (!terminalError) {
+      return false;
+    }
+    const allErrors = scopes.flatMap((scope) => scope.errors);
+    const additionalErrors = allErrors.slice(1);
+    const listedPaths = additionalErrors.slice(0, 5).map((error) => `"${error.relativePath}"`);
+    const unlistedCount = Math.max(0, additionalErrors.length - listedPaths.length);
+    const additionalDetail =
+      listedPaths.length === 0
+        ? ''
+        : ` Additional exhausted files: ${listedPaths.join(', ')}${
+            unlistedCount > 0 ? `, plus ${unlistedCount} more` : ''
+          }.`;
+    this.setErrorStatus({
+      activeRootPath: firstScope.context.rootPath,
+      managedCollectionId: firstScope.context.collection.id,
+      managedCollectionName: firstScope.context.collection.name ?? null,
+      message: `${terminalError.message}${additionalDetail}`,
+    });
+    return true;
+  }
+
   private setIdleStatus(args: {
     collection: EmbeddingSet;
     rootPath: string;
     summary?: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >;
   }): void {
     this.deps.setStatus({
@@ -649,7 +824,7 @@ export class WorkspaceCollectionSyncService {
     rootPath: string;
     summary: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >;
   }): void {
     this.deps.setStatus({
@@ -678,7 +853,7 @@ export class WorkspaceCollectionSyncService {
     rootPath: string;
     summary: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >;
   }): Promise<void> {
     if (!args.qosPolicy.allowNewWork) {
@@ -724,6 +899,9 @@ export class WorkspaceCollectionSyncService {
           ...(progress.message ? { message: progress.message } : {}),
         })
       );
+      // Backfill is intentionally allowed to continue for healthy chunks, but
+      // its asynchronous progress must not hide a terminal chunking failure.
+      this.surfaceTerminalChunkingRedispatchError();
       if (progress.stage === 'complete') {
         terminalBackfillRequestId = progress.requestId;
         this.activeBackfill?.unsubscribe?.();
@@ -782,7 +960,7 @@ export class WorkspaceCollectionSyncService {
     context: ResolvedSyncContext,
     summary: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >
   ): void {
     this.deps.setStatus({
@@ -828,11 +1006,9 @@ export class WorkspaceCollectionSyncService {
       return;
     }
 
-    this.deps.log?.error('Workspace collection sync failed', {
-      error: message,
-      managedCollectionId: args.collection.id,
-      rootPath: args.rootPath,
-    });
+    // No direct log call: the status store's subscription durably logs the
+    // error transition set below (BST-1257) — logging here too recorded every
+    // incident twice under different scopes.
     this.setErrorStatus({
       activeRootPath: args.rootPath,
       managedCollectionId: args.collection.id,
@@ -888,6 +1064,40 @@ export class WorkspaceCollectionSyncService {
     return this.deps.symbolRepository ?? null;
   }
 
+  private async finishSyncWithoutChanges(args: {
+    abortSignal: AbortSignal;
+    context: ResolvedSyncContext;
+    prepared: PreparedChangesSummary;
+    request: WorkspaceCollectionSyncRequest;
+  }): Promise<void> {
+    const needsBackfill = await this.collectionNeedsBackfill(args.context.collection.id);
+    throwIfAborted(args.abortSignal);
+    if (!(needsBackfill && this.shouldEnqueueBackfill(args.request))) {
+      this.setIdleStatus({
+        collection: args.context.collection,
+        rootPath: args.context.rootPath,
+        summary: args.prepared,
+      });
+      this.surfaceTerminalChunkingRedispatchError();
+      return;
+    }
+    await this.ensureCollectionAccess(args.context);
+    throwIfAborted(args.abortSignal);
+    await this.enqueueManagedBackfill({
+      abortSignal: args.abortSignal,
+      chunkingProgress: null,
+      collection: args.context.collection,
+      qosPolicy: await this.resolveQosPolicyForNewWork({
+        abortSignal: args.abortSignal,
+        context: args.context,
+        phase: 'backfill',
+      }),
+      rootPath: args.context.rootPath,
+      summary: args.prepared,
+    });
+    this.surfaceTerminalChunkingRedispatchError();
+  }
+
   private async runSyncPass(args: {
     abortSignal: AbortSignal;
     context: ResolvedSyncContext;
@@ -925,6 +1135,7 @@ export class WorkspaceCollectionSyncService {
     });
     throwIfAborted(args.abortSignal);
     const { invalidationTargets, prepared } = syncChanges;
+    this.updateTerminalChunkingRedispatchErrors(args.context, prepared, args.request);
     this.setScanSummary(args.context, prepared);
     if (invalidationTargets.length > 0) {
       // The desktop DB host executes ONE IPC request at a time, so a single
@@ -950,40 +1161,11 @@ export class WorkspaceCollectionSyncService {
     throwIfAborted(args.abortSignal);
 
     if (prepared.changes.length === 0) {
-      const needsBackfill = await this.collectionNeedsBackfill(args.context.collection.id);
-      throwIfAborted(args.abortSignal);
-      if (needsBackfill) {
-        if (!this.shouldEnqueueBackfill(args.request)) {
-          this.setIdleStatus({
-            collection: args.context.collection,
-            rootPath: args.context.rootPath,
-            summary: prepared,
-          });
-          return;
-        }
-        await this.ensureCollectionAccess(args.context);
-        throwIfAborted(args.abortSignal);
-        await this.enqueueManagedBackfill({
-          abortSignal: args.abortSignal,
-          chunkingProgress: null,
-          collection: args.context.collection,
-          qosPolicy: await this.resolveQosPolicyForNewWork({
-            abortSignal: args.abortSignal,
-            context: args.context,
-            phase: 'backfill',
-          }),
-          rootPath: args.context.rootPath,
-          summary: prepared,
-        });
-        if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
-          return;
-        }
-        return;
-      }
-      this.setIdleStatus({
-        collection: args.context.collection,
-        rootPath: args.context.rootPath,
-        summary: prepared,
+      await this.finishSyncWithoutChanges({
+        abortSignal: args.abortSignal,
+        context: args.context,
+        prepared,
+        request: args.request,
       });
       return;
     }
@@ -1023,6 +1205,7 @@ export class WorkspaceCollectionSyncService {
       throttleMs: IMPORT_STATUS_THROTTLE_MS,
     });
     try {
+      throwIfAborted(args.abortSignal);
       await runRootFolderCacheImport({
         abortSignal: args.abortSignal,
         applyManagedCacheBatch: this.deps.applyManagedCacheBatch,
@@ -1036,6 +1219,9 @@ export class WorkspaceCollectionSyncService {
           ? { fileContentProcessor: this.deps.fileContentProcessor }
           : {}),
         fileRecordRepository: this.deps.fileRecordRepository,
+        onChunkingBatchStart: (batch) => {
+          this.chunkingRedispatchTracker.recordDispatches(batch);
+        },
         onProgress: (progress) => {
           latestImportProgress = progress;
           importStatusReporter.report(progress);
@@ -1059,6 +1245,7 @@ export class WorkspaceCollectionSyncService {
         rootPath: args.context.rootPath,
         summary: prepared,
       });
+      this.surfaceTerminalChunkingRedispatchError();
       return;
     }
     await this.enqueueManagedBackfill({
@@ -1073,12 +1260,16 @@ export class WorkspaceCollectionSyncService {
       rootPath: args.context.rootPath,
       summary: prepared,
     });
+    this.surfaceTerminalChunkingRedispatchError();
     if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
     }
   }
 
   async sync(request: WorkspaceCollectionSyncRequest): Promise<void> {
     const currentRunId = ++this.runId;
+    this.retainTerminalChunkingErrorsForCollection(
+      request.enabled ? request.managedCollectionId : null
+    );
     this.deps.onDebugStage?.('sync:start', { runId: currentRunId });
     const previousTrackedBackfill = this.activeBackfill;
     this.currentAbortController?.abort();

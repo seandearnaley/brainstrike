@@ -63,18 +63,12 @@ describe('parseExecutorKind', () => {
     expect(parseExecutorKind('vm')).toBe('vm');
   });
 
-  it.each([
-    'docker',
-    '',
-    'FENCE',
-    0,
-    null,
-    undefined,
-    {},
-    Symbol('fence'),
-  ])('throws the contracted error on unsupported value %j', (value) => {
-    expect(() => parseExecutorKind(value)).toThrowError(/not a supported code-execution mode/);
-  });
+  it.each(['docker', '', 'FENCE', 0, null, undefined, {}, Symbol('fence')])(
+    'throws the contracted error on unsupported value %j',
+    (value) => {
+      expect(() => parseExecutorKind(value)).toThrowError(/not a supported code-execution mode/);
+    }
+  );
 
   it('throws the contracted error for a BigInt rather than a serialization TypeError', () => {
     expect(() => parseExecutorKind(1n)).toThrowError(/not a supported code-execution mode/);
@@ -141,21 +135,17 @@ describe('execPolicySchema', () => {
     ).toThrowError();
   });
 
-  it.each([
-    'not a domain!',
-    'http://example.com',
-    '*.*',
-    'exa mple.com',
-    '*.com',
-    '*.io',
-  ])('rejects malformed or over-broad domain %j', (domain) => {
-    expect(() =>
-      execPolicySchema.parse({
-        allowedDomains: [domain],
-        allowWrite: ['/tmp/scratch'],
-      })
-    ).toThrowError();
-  });
+  it.each(['not a domain!', 'http://example.com', '*.*', 'exa mple.com', '*.com', '*.io'])(
+    'rejects malformed or over-broad domain %j',
+    (domain) => {
+      expect(() =>
+        execPolicySchema.parse({
+          allowedDomains: [domain],
+          allowWrite: ['/tmp/scratch'],
+        })
+      ).toThrowError();
+    }
+  );
 
   it('rejects an over-long entry list', () => {
     expect(() =>
@@ -172,18 +162,14 @@ describe('execInputSchema', () => {
     expect(() => execInputSchema.parse(validInput())).not.toThrow();
   });
 
-  it.each([
-    0,
-    -1,
-    1.5,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    MAX_EXEC_TIMEOUT_MS + 1,
-  ])('rejects timeoutMs %j', (timeoutMs) => {
-    expect(() =>
-      execInputSchema.parse(validInput({ timeoutMs } as Partial<ExecInput>))
-    ).toThrowError();
-  });
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, MAX_EXEC_TIMEOUT_MS + 1])(
+    'rejects timeoutMs %j',
+    (timeoutMs) => {
+      expect(() =>
+        execInputSchema.parse(validInput({ timeoutMs } as Partial<ExecInput>))
+      ).toThrowError();
+    }
+  );
 
   it.each([0, -1, Number.NaN])('rejects maxOutputBytes %j', (maxOutputBytes) => {
     expect(() =>
@@ -254,10 +240,25 @@ describe('isPathCoveredBy', () => {
     expect(isPathCoveredBy('/tmp/scratch\\run', ['/tmp'])).toBe(true);
   });
 
-  it('folds case for Windows-shaped paths only', () => {
+  it('folds case for the Windows DRIVE LETTER only, not whole segments', () => {
+    // The drive letter is what Node APIs spell inconsistently, so it folds.
     expect(isPathCoveredBy('c:\\work\\scratch', ['C:\\work'])).toBe(true);
-    expect(isPathCoveredBy('C:\\Work\\Scratch', ['c:\\work'])).toBe(true);
+    expect(isPathCoveredBy('C:\\work\\scratch', ['c:\\work'])).toBe(true);
+    // Directory segments do NOT fold: NTFS supports per-directory case
+    // sensitivity (WSL sets it), so folding them could report coverage the
+    // filesystem does not grant — a false PERMIT, the unsafe direction.
+    // Callers realpath first, which yields the canonical on-disk spelling.
+    expect(isPathCoveredBy('C:\\Work\\Scratch', ['c:\\work'])).toBe(false);
     expect(isPathCoveredBy('/tmp/Scratch', ['/tmp/scratch'])).toBe(false);
+  });
+
+  it('folds both UNC volume segments (host AND share), but not directories', () => {
+    // SMB treats the host and the share name case-insensitively, so both fold;
+    // a share name is not a directory on a per-directory-case-sensitive volume.
+    expect(isPathCoveredBy('\\\\Server\\Share\\dir', ['\\\\server\\share'])).toBe(true);
+    expect(isPathCoveredBy('\\\\server\\share\\dir', ['\\\\SERVER\\SHARE'])).toBe(true);
+    // The directory after the share does not fold.
+    expect(isPathCoveredBy('\\\\server\\share\\Dir', ['\\\\server\\share\\dir'])).toBe(false);
   });
 });
 

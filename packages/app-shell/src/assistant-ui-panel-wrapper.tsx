@@ -1,3 +1,31 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  buildExperimentAssignmentRequest,
+  useExperimentAssignmentPreferencesStore,
+} from '@brainstrike/app-state/stores/experiment-assignment-preferences-store';
+import {
+  buildHookTrustRequest,
+  hookTrustSelectors,
+  useHookTrustStore,
+} from '@brainstrike/app-state/stores/hook-trust-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import {
+  buildPermissionToolGateSnapshotInput,
+  usePermissionPolicyStore,
+} from '@brainstrike/app-state/stores/permission-policy-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
+import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
+import {
+  buildSkillsContextRequest,
+  useSkillsPreferencesStore,
+} from '@brainstrike/app-state/stores/skills-preferences-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
 import type {
   AssistantRunEvent,
   LocalLlmBackendFactory,
@@ -10,42 +38,18 @@ import {
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { isAssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
-import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
-import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
-  useFileExplorerStoreSelector,
-  useFileSystem,
-  useSelectionManager,
-} from '@brainstrike/file-explorer-ui/shell';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useAssistantMemoryPreferencesStore } from '@brainstrike/preferences/stores/assistant-memory-preferences-store';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import {
-  buildHookTrustRequest,
-  hookTrustSelectors,
-  useHookTrustStore,
-} from '@brainstrike/preferences/stores/hook-trust-store';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
-import {
-  buildPermissionToolGateSnapshotInput,
-  usePermissionPolicyStore,
-} from '@brainstrike/preferences/stores/permission-policy-store';
-import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
-import {
-  buildSkillsContextRequest,
-  useSkillsPreferencesStore,
-} from '@brainstrike/preferences/stores/skills-preferences-store';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/preferences/stores/workspace-instructions-preferences-store';
-import type {
-  AssistantSelectionUpdatePayload,
-  AssistantWorkspaceContextSelectionUpdatePayload,
-  AssistantWorkspaceTapestryUpdatePayload,
-} from '@brainstrike/types';
-import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
+  type CumulativeUsageDisplay,
+  createAssistantThreadHistoryAdapter,
+  createPgliteAssistantThreadRepository,
+  createSuspendedRunDiscovery,
+  EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
+  hasDurableAssistantUsageCapability,
+  type ModelPricingResolver,
+  resolveAssistantMemoryResourceId,
+  resolveCumulativeUsageDisplay,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
 import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
@@ -58,23 +62,24 @@ import {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,
   useContextUsageStore,
-} from '@brainstrike/ui/assistant-ui-panel';
-import { createLogger } from '@brainstrike/utils/logger';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
+} from '@brainstrike/assistant-ui';
+import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
+import {
+  useFileExplorerStoreSelector,
+  useFileSystem,
+  useSelectionManager,
+} from '@brainstrike/file-explorer-ui/shell';
+import { createLogger } from '@brainstrike/logging';
+import type {
+  AssistantSelectionUpdatePayload,
+  AssistantWorkspaceContextSelectionUpdatePayload,
+  AssistantWorkspaceTapestryUpdatePayload,
+} from '@brainstrike/types';
+import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import {
-  type CumulativeUsageDisplay,
-  EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
-  type ModelPricingResolver,
-  resolveCumulativeUsageDisplay,
-} from './assistant-cumulative-usage';
-import { hasDurableAssistantUsageCapability } from './assistant-durable-usage-capability';
-import {
-  createAssistantThreadHistoryAdapter,
-  createPgliteAssistantThreadRepository,
-} from './assistant-memory-repository';
-import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { webBodyLimitProps } from './assistant-request-body-limit';
 import {
@@ -84,8 +89,6 @@ import {
   normalizeWriteBackFilePaths,
   resolveWriteBackFolderId,
 } from './assistant-selection-write-back';
-import { createSuspendedApprovalDiscovery } from './assistant-suspended-approvals';
-import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   type AssistantRunUsagePayload,
   addValuesToSet,
@@ -123,6 +126,9 @@ import {
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
+import { useChangeset } from './changes/use-changeset';
+import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
+import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
@@ -150,13 +156,11 @@ import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active
 export interface AssistantUiPanelWrapperProps {
   className?: string;
   fixedProviderModels?: FixedProviderModels;
-  initialProviders?: readonly SupportedProvider[];
   loadLocalLlmBackend?: LocalLlmBackendFactory;
   memoryResourceId?: string;
   memoryThreadId?: string;
   providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
-  providerSeeds?: readonly SupportedProvider[];
 }
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
 
@@ -192,18 +196,16 @@ function hasDesktopAssistantBackend(): boolean {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This integration wrapper coordinates multiple stores, runtime probes, and transport paths in one place.
 export function AssistantUiPanelWrapper({
   fixedProviderModels,
-  initialProviders,
   loadLocalLlmBackend,
   memoryResourceId: memoryResourceIdOverride,
   memoryThreadId,
   providerReadErrors,
   providerKeySources,
-  providerSeeds,
 }: AssistantUiPanelWrapperProps) {
+  const providerSource = useAssistantProviderSource();
   const {
     setModel,
     clearModel,
-    getAvailableProviders,
     getLocalRuntimeStatuses,
     getLocalRuntimeModels,
     getSelectedModel,
@@ -231,14 +233,14 @@ export function AssistantUiPanelWrapper({
   const nativeToolStates = useNativeToolPreferencesStore((state) => state.toolStates);
   const setNativeToolEnabled = useNativeToolPreferencesStore((state) => state.setToolEnabled);
 
-  // Subscribe to secrets changes to re-check available providers when API keys change
+  // OpenRouter default initialization still keys its durable attempt on the
+  // same credential revision as provider discovery.
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
-  const configuredProviders = useConfiguredAssistantProviders({
-    getAvailableProviders,
-    ...(initialProviders === undefined ? {} : { initialProviders }),
-    ...(providerSeeds === undefined ? {} : { providerSeeds }),
-    secretsVersion,
-  });
+  const {
+    discoveryError: providerDiscoveryError,
+    discoveryState: providerDiscoveryState,
+    providers: configuredProviders,
+  } = useConfiguredAssistantProviders();
 
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
@@ -257,7 +259,7 @@ export function AssistantUiPanelWrapper({
     configuredProviders,
     db,
     secretsVersion,
-    initialProviders,
+    providerSource.kind === 'discovery',
     providerReadErrors
   );
 
@@ -994,6 +996,32 @@ export function AssistantUiPanelWrapper({
     workspaceInstructionsOversizedOptIns,
   ]);
 
+  // Opt-in self-improvement signal (desktop data-stream only). The renderer
+  // attaches a plain-JSON snapshot; the server strictly parses it and owns the
+  // telemetry query and prompt construction.
+  const selfImprovementSignalEnabled = useSelfImprovementSignalPreferencesStore(
+    (state) => state.enabled
+  );
+  const selfImprovementSignalPreference = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return { enabled: selfImprovementSignalEnabled };
+  }, [localChatTransport, selfImprovementSignalEnabled]);
+
+  // Experiment enrollment (desktop data-stream only, BST-1251): attribution
+  // metadata on the treatment row; only a COMPLETE pair rides the wire.
+  const enrolledExperimentId = useExperimentAssignmentPreferencesStore(
+    (state) => state.experimentId
+  );
+  const enrolledVariant = useExperimentAssignmentPreferencesStore((state) => state.variant);
+  const experimentAssignment = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return buildExperimentAssignmentRequest(enrolledExperimentId, enrolledVariant);
+  }, [localChatTransport, enrolledExperimentId, enrolledVariant]);
+
   // Agent Skills preference (desktop data-stream only — the server builds the
   // skills engine; web has no scan path). A plain-JSON snapshot the server
   // parses strictly; it can only REDUCE the skill set.
@@ -1029,7 +1057,7 @@ export function AssistantUiPanelWrapper({
       resourceId: memoryResourceId,
       threadId: selectedMemoryThreadId,
       ...(desktopAssistantBackendAvailable
-        ? { discoverSuspendedApprovals: createSuspendedApprovalDiscovery(resolveAssistantBaseUrl) }
+        ? { discoverSuspendedRuns: createSuspendedRunDiscovery(resolveAssistantBaseUrl) }
         : {}),
     });
   }, [
@@ -1045,6 +1073,7 @@ export function AssistantUiPanelWrapper({
       ? { boundWorkspaceRootId: threadRootBinding.rootId }
       : {}),
     enabledNativeToolIds,
+    experimentAssignment,
     hookTrustRequest,
     hostedMemoryBackendAvailable,
     mainRootId,
@@ -1056,9 +1085,11 @@ export function AssistantUiPanelWrapper({
     permissionPolicyRequest,
     planMode,
     providerOptions,
+    requestedReasoningEffort: selectedProviderSettings?.reasoningEffort,
     runtimeWorkspaceContext,
     selectedMemoryThreadId,
     selectionData,
+    selfImprovementSignalPreference,
     semanticRecallSettings,
     skillsPreference,
     subagentPersonasRequest,
@@ -1138,8 +1169,10 @@ export function AssistantUiPanelWrapper({
 
   const shouldSkipSelectionReconcile = useCallback(
     (currentProvider: SupportedProvider | null) =>
-      configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider),
-    [configuredProviders]
+      providerDiscoveryState === 'idle' ||
+      providerDiscoveryState === 'loading' ||
+      (configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider)),
+    [configuredProviders, providerDiscoveryState]
   );
 
   const hasValidCurrentModelSelection = useCallback(
@@ -1370,9 +1403,16 @@ export function AssistantUiPanelWrapper({
       selectedProvider,
     ]
   );
+  const providerDiscoveryReason = providerDiscoveryError
+    ? `Could not refresh available providers: ${providerDiscoveryError}`
+    : undefined;
   const runtimeDisabledReason =
-    memoryDisabledReason ?? providerDisabledReason ?? openRouterDisabledReason;
+    (configuredProviders.length === 0 ? providerDiscoveryReason : undefined) ??
+    memoryDisabledReason ??
+    providerDisabledReason ??
+    openRouterDisabledReason;
   const disabledReason = runtimeDisabledReason ?? providerDraft.reason;
+  const panelNotice = disabledReason ?? providerDiscoveryReason;
   // Bumped after each durable usage write COMMITS, so the cumulative re-read is
   // Durable CUMULATIVE usage for the active thread, hydrated from the DB (honest,
   // not a heuristic). Desktop-only: when the repo is absent (web) the cumulative
@@ -1404,6 +1444,17 @@ export function AssistantUiPanelWrapper({
     },
     [clearThreadLiveRunUsage, completePreparedRequest]
   );
+  // Conversation Rewind wiring (BST-1115), extracted whole into
+  // `changes/use-wrapper-rewind-wiring.ts`: finalization composed around the
+  // run-creation seam, the re-hydration generation, the standing "Last Turn"
+  // identity, and the live mid-run refresh. The wrapper only forwards seams.
+  const {
+    handleRunEditActivity,
+    markUserAuthoredSend,
+    prepareRequestData: prepareRequestDataWithFinalization,
+    publishTerminalRunIdentity,
+    rewindGeneration,
+  } = useWrapperRewindWiring({ prepareRequestData, threadId: selectedMemoryThreadId });
   const resolveModelPricing = useCallback<ModelPricingResolver>(
     (provider: string, model: string) => {
       if (!isSupportedProvider(provider)) {
@@ -1670,23 +1721,38 @@ export function AssistantUiPanelWrapper({
   // cost-tracking/use-daily-spend.ts — this is wiring only.
   const budgetGuardrailBinding = useBudgetGuardrailBinding(memoryResourceId);
 
+  // Changeset lifecycle refresh (BST-1113 Task 4): no changeset SELECTION UI
+  // exists yet (W4 wires it), so `changeset` is hardcoded null here — the
+  // hook's own inertness (no bridge call for a null changeset) makes
+  // `refreshChangeset` a no-op today by construction, not by a branch here.
+  // `mainRootId` is the assistant's OPERATING root (see the MULTI-ROOT
+  // PARTITION comment above `selectionData`), matching the git IPC domain's
+  // own rootId-scoped cwd concept.
+  const { refresh: refreshChangeset } = useChangeset(mainRootId ?? null, null);
+
   // Re-read the checkpoint journal when a run reaches a terminal state — the
   // journal rows are written in main during tool execution, after the last
   // thread-open read, so the turn-level "Revert all edits" footer would
   // otherwise stay empty for the turn that JUST ran until a thread switch.
+  // `publishTerminalRunIdentity` advances the standing "Last Turn" identity
+  // (BST-1115) — policy in `changes/use-wrapper-rewind-wiring.ts`.
   const handleRunFinished = useCallback(
     (event: AssistantRunEvent) => {
       onRunFinished(event);
       void refetchCheckpoints();
+      void refreshChangeset();
+      publishTerminalRunIdentity(event);
     },
-    [onRunFinished, refetchCheckpoints]
+    [onRunFinished, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
   );
   const handleRunFailed = useCallback(
     (event: AssistantRunEvent) => {
       onRunFailed(event);
       void refetchCheckpoints();
+      void refreshChangeset();
+      publishTerminalRunIdentity(event);
     },
-    [onRunFailed, refetchCheckpoints]
+    [onRunFailed, publishTerminalRunIdentity, refetchCheckpoints, refreshChangeset]
   );
 
   // Grant actions for the tool-approval notice ("Always allow" / "Allow
@@ -1731,16 +1797,18 @@ export function AssistantUiPanelWrapper({
                 onContextBreakdown={handleContextBreakdown}
                 onProviderSettingsChange={handleProviderSettingsChange}
                 onProviderSettingsValidationChange={providerDraft.report}
+                onRunEditActivity={handleRunEditActivity}
                 onRunFailed={handleRunFailed}
                 onRunFinished={handleRunFinished}
                 onStepUsage={handleStepUsage}
                 onStreamActivity={renewActiveAssistantForegroundActivity}
+                onThreadRunStart={markUserAuthoredSend}
                 onToolApprovalRequired={onToolApprovalRequired}
                 onUsage={handleUsage}
                 {...(operatingRoot ? { operatingRoot } : {})}
                 pickerModels={pickerModels}
                 pickerProviders={pickerProviders}
-                prepareRequestData={prepareRequestData}
+                prepareRequestData={prepareRequestDataWithFinalization}
                 providerGroups={providerGroups}
                 providerSettings={effectiveProviderSettings}
                 recentModels={validRecentModels}
@@ -1752,18 +1820,16 @@ export function AssistantUiPanelWrapper({
                   : {})}
                 toolMenu={toolMenu}
                 {...(historyAdapter ? { historyAdapter } : {})}
+                historyGeneration={rewindGeneration}
                 {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                 localChatTransport={localChatTransport}
                 {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
                 {...(selectedProvider ? { selectedProvider } : {})}
                 {...(currentModel ? { selectedModel: currentModel } : {})}
-                disabled={
-                  !isProviderReady ||
-                  Boolean(memoryDisabledReason ?? openRouterDisabledReason ?? disabledReason)
-                }
+                disabled={!isProviderReady || Boolean(disabledReason)}
                 onModelChange={handleModelChange}
                 onModelToggle={handleModelToggle}
-                {...(disabledReason ? { disabledReason } : {})}
+                {...(panelNotice ? { disabledReason: panelNotice } : {})}
                 {...(planModeAvailable
                   ? {
                       onExitPlanMode: exitPlanMode,

@@ -1,3 +1,6 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
@@ -13,9 +16,6 @@ import {
   type EmbeddingModelConfig as ModelConfig,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import type { useToast } from '@brainstrike/ui';
 import { getActiveEmbeddingSetId } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

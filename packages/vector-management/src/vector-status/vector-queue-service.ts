@@ -3,8 +3,11 @@ import {
   type ApiKeyValidationUnavailableReason,
   checkApiKeyAvailability,
 } from '@brainstrike/embeddings';
-import { canonicalizeEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import {
+  buildEmbedJobDedupeKey,
+  canonicalizeEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
+import { createLogger } from '@brainstrike/logging';
 
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.
@@ -770,7 +773,7 @@ async function enqueueEmbeddingChunkJobsBatch(
 
   const jobs = await jobQueue.enqueueBatch(
     batch.map((row) => ({
-      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
+      dedupeKey: buildEmbedJobDedupeKey(row.id, embeddingSetId, row.contentHash),
       jobType: 'embed_chunk' as const,
       maxAttempts: 5,
       payload: {

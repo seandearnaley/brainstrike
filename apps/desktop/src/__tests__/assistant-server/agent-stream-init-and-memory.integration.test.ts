@@ -108,7 +108,7 @@ describe('agent-stream-init runtime composition and memory', () => {
       unknown,
       Record<string, unknown>,
     ];
-    expect(runtime.mcpConfig).toEqual({
+    expect(runtime['mcpConfig']).toEqual({
       servers: [
         {
           args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
@@ -159,7 +159,7 @@ describe('agent-stream-init runtime composition and memory', () => {
     // package). The server resolves built-ins + user-defined personas per
     // request (resolveRequestPersonas); with no persona files on disk and no
     // availability request, the resolved list equals the built-ins.
-    expect(runtime.personas).toEqual(BUILT_IN_PERSONAS);
+    expect(runtime['personas']).toEqual(BUILT_IN_PERSONAS);
   });
 
   it('routes provider "local" through the injected llm-host manager (warmup + proxy client)', async () => {
@@ -209,8 +209,10 @@ describe('agent-stream-init runtime composition and memory', () => {
       unknown,
       Record<string, unknown>,
     ];
-    expect(runtime.localLlmHostClient).toBeDefined();
-    expect(typeof (runtime.localLlmHostClient as { generate: unknown }).generate).toBe('function');
+    expect(runtime['localLlmHostClient']).toBeDefined();
+    expect(typeof (runtime['localLlmHostClient'] as { generate: unknown }).generate).toBe(
+      'function'
+    );
   });
 
   it('starts a fresh local-provider stream without requiring a hosted observational-memory key', async () => {
@@ -229,7 +231,10 @@ describe('agent-stream-init runtime composition and memory', () => {
       const response = res as { end?: () => void };
       response.end?.();
     });
-    mockSecretsService.getKey.mockResolvedValueOnce(null);
+    const getKey = mockSecretsService.getKey as unknown as Mock<
+      (provider: string) => Promise<string | null>
+    >;
+    getKey.mockResolvedValueOnce(null);
 
     const llmHostManager = {
       generateForMain: vi.fn(),
@@ -596,8 +601,13 @@ describe('agent-stream-init runtime composition and memory', () => {
 
     const { createLanguageModelProvider } = await import('@brainstrike/agent');
 
-    // Once for workspace-roots enrichment, once for PGlite Mastra memory init.
-    expect(getDatabase).toHaveBeenCalledTimes(2);
+    // Once each for workspace-roots enrichment, the previous-run prompt-baseline
+    // lookup, and PGlite Mastra memory initialization.
+    expect(getDatabase).toHaveBeenCalledTimes(3);
+    expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+      expect.stringContaining('prompt_baseline_tokens'),
+      ['thread-1']
+    );
     expect(createLanguageModelProvider).toHaveBeenCalledWith(
       'anthropic',
       'test-api-key',
@@ -688,7 +698,10 @@ describe('agent-stream-init runtime composition and memory', () => {
   });
 
   it('surfaces an actionable missing observational-memory credential', async () => {
-    mockSecretsService.getKey.mockImplementation((provider: string) =>
+    const getKey = mockSecretsService.getKey as unknown as Mock<
+      (provider: string) => Promise<string | null>
+    >;
+    getKey.mockImplementation((provider: string) =>
       Promise.resolve(provider === 'anthropic' ? 'anthropic-key' : null)
     );
 
@@ -738,7 +751,10 @@ describe('agent-stream-init runtime composition and memory', () => {
   });
 
   it('surfaces an actionable missing semantic-recall credential', async () => {
-    mockSecretsService.getKey.mockImplementation((provider: string) =>
+    const getKey = mockSecretsService.getKey as unknown as Mock<
+      (provider: string) => Promise<string | null>
+    >;
+    getKey.mockImplementation((provider: string) =>
       Promise.resolve(provider === 'anthropic' ? 'anthropic-key' : null)
     );
 
@@ -1274,7 +1290,7 @@ describe('agent-stream-init runtime composition and memory', () => {
       unknown,
       { runtime: Record<string, unknown> },
     ];
-    expect(approveResumeOptions.runtime.planMode).toBeUndefined();
+    expect(approveResumeOptions.runtime['planMode']).toBeUndefined();
   });
 
   it('preserves planMode on a REJECT resume so the model can revise in plan mode', async () => {
@@ -1321,7 +1337,7 @@ describe('agent-stream-init runtime composition and memory', () => {
       unknown,
       { runtime: Record<string, unknown> },
     ];
-    expect(rejectResumeOptions.runtime.planMode).toBe(true);
+    expect(rejectResumeOptions.runtime['planMode']).toBe(true);
   });
 
   it('rejects a tool resume when workflow storage is missing from memory', async () => {

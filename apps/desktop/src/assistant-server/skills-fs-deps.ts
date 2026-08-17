@@ -21,8 +21,8 @@
 import path from 'node:path';
 import type { SkillContentDeps } from '@brainstrike/agent';
 import { MAX_SKILL_ASSET_BYTES, MAX_SKILL_CONTENT_FILE_CHARS } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/logging';
 import { SecureRoot } from '@brainstrike/secure-fs-native';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('AssistantSkills');
 
@@ -95,7 +95,10 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
         return { ok: false, reason: 'unreadable' };
       }
       if (read.status !== 'ok') {
-        return { ok: false, reason: read.status };
+        return {
+          ok: false,
+          reason: read.status === 'oversized' ? 'oversized' : 'unreadable',
+        };
       }
       return { content: new Uint8Array(read.content), ok: true };
     },
@@ -111,7 +114,10 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
         return { ok: false, reason: 'unreadable' };
       }
       if (read.status !== 'ok') {
-        return { ok: false, reason: read.status };
+        return {
+          ok: false,
+          reason: read.status === 'oversized' ? 'oversized' : 'unreadable',
+        };
       }
       return { content: read.content.toString('utf8'), ok: true };
     },

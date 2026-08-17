@@ -1,10 +1,10 @@
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import type { HookTrustRequest, RuntimeData } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemorySettings,
   RuntimeAssistantObservationalMemorySettings,
   RuntimeAssistantSemanticRecallSettings,
 } from '@brainstrike/assistant-contract/memory-settings';
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import { useMemo } from 'react';
 import {
   buildAssistantRequestData,
@@ -15,6 +15,12 @@ interface UseAssistantThreadRequestDataArgs {
   readonly agentLoopSettings: RuntimeData['agentLoop'] | undefined;
   readonly boundWorkspaceRootId?: string | undefined;
   readonly enabledNativeToolIds: readonly string[];
+  /**
+   * Opt-in experiment enrollment (desktop data-stream only, BST-1251).
+   * Attribution metadata recorded on the run's treatment row; requires both
+   * fields, so callers pass a complete pair or nothing.
+   */
+  readonly experimentAssignment?: RuntimeData['experimentAssignment'];
   /**
    * Opt-in hook-trust attestation; only set on the desktop data-stream
    * transport (web has no hook runner). The server re-hashes disk independently.
@@ -42,12 +48,16 @@ interface UseAssistantThreadRequestDataArgs {
   /** Plan mode (opt-in); forwarded to the request only when `true`. */
   readonly planMode?: boolean;
   readonly providerOptions: Record<string, unknown> | undefined;
+  /** Explicit selection only; absent means Auto. */
+  readonly requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   readonly runtimeWorkspaceContext: RuntimeData['workspaceContext'] | null;
   readonly selectedMemoryThreadId: string | undefined;
   readonly selectionData: {
     readonly filePaths: string[];
     readonly folderId: string | null | undefined;
   };
+  /** Desktop-only opt-in self-improvement signal preference. */
+  readonly selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   readonly semanticRecallSettings: RuntimeAssistantSemanticRecallSettings;
   /**
    * Opt-in Agent Skills preference; only set on the desktop data-stream
@@ -82,6 +92,7 @@ export function useAssistantThreadRequestData({
   agentLoopSettings,
   boundWorkspaceRootId,
   enabledNativeToolIds,
+  experimentAssignment,
   hostedMemoryBackendAvailable,
   hookTrustRequest,
   mainRootId,
@@ -93,10 +104,12 @@ export function useAssistantThreadRequestData({
   permissionPolicyRequest,
   planMode,
   providerOptions,
+  requestedReasoningEffort,
   runtimeWorkspaceContext,
   selectedMemoryThreadId,
   selectionData,
   semanticRecallSettings,
+  selfImprovementSignalPreference,
   skillsPreference,
   subagentPersonasRequest,
   workspaceInstructionsPreference,
@@ -117,6 +130,7 @@ export function useAssistantThreadRequestData({
         agentLoopSettings,
         ...(boundWorkspaceRootId ? { boundWorkspaceRootId } : {}),
         enabledNativeToolIds,
+        ...(experimentAssignment ? { experimentAssignment } : {}),
         hookTrustRequest,
         hostedMemoryBackendAvailable,
         ...(mainRootId ? { mainRootId } : {}),
@@ -128,8 +142,10 @@ export function useAssistantThreadRequestData({
         permissionPolicyRequest,
         ...(planMode ? { planMode: true } : {}),
         providerOptions,
+        requestedReasoningEffort,
         selectedMemoryThreadId,
         selectionData,
+        ...(selfImprovementSignalPreference ? { selfImprovementSignalPreference } : {}),
         workspaceContext: runtimeWorkspaceContext,
         ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
@@ -141,6 +157,7 @@ export function useAssistantThreadRequestData({
       agentLoopSettings,
       boundWorkspaceRootId,
       enabledNativeToolIds,
+      experimentAssignment,
       hookTrustRequest,
       hostedMemoryBackendAvailable,
       mainRootId,
@@ -151,10 +168,12 @@ export function useAssistantThreadRequestData({
       permissionPolicyRequest,
       planMode,
       providerOptions,
+      requestedReasoningEffort,
       runtimeMemorySettings,
       selectedMemoryThreadId,
       selectionData,
       runtimeWorkspaceContext,
+      selfImprovementSignalPreference,
       skillsPreference,
       subagentPersonasRequest,
       workspaceInstructionsPreference,

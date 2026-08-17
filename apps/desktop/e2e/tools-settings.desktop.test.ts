@@ -1,5 +1,6 @@
 import {
   NATIVE_TOOL_DEFAULTS,
+  TOOL_CATEGORIES,
   TOOL_LOADING_TIERS,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { expect, test } from './fixtures/electron-fixture';
@@ -9,6 +10,7 @@ const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
 // A tool in a *different* loading tier, used to prove the tier filter actually
 // filters instead of being a no-op.
 const PEER_TOOL_ID = 'brainstrike.readWorkspaceFile';
+const NON_RETRIEVAL_TOOL_ID = 'brainstrike.askUser';
 
 // Derive the filter labels from the canonical contract rather than hardcoding
 // them: the tier partition is owned by tool-discovery-contract.test.ts, and a
@@ -18,6 +20,7 @@ const tierLabelFor = (toolId: typeof NATIVE_TOOL_ID | typeof PEER_TOOL_ID): stri
 
 const TOOL_TIER_LABEL = tierLabelFor(NATIVE_TOOL_ID);
 const PEER_TIER_LABEL = tierLabelFor(PEER_TOOL_ID);
+const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category].label;
 
 async function openToolsSettings(
   homePage: import('./page-objects/home-page').HomePage,
@@ -27,12 +30,15 @@ async function openToolsSettings(
   await settingsPage.openCategory(/AI Tools/i, 'ai-tools');
 }
 
-test.describe('AI Tools settings (desktop)', () => {
+test.describe('AI Tools settings (desktop)', { tag: '@smoke' }, () => {
   test('supports search, category/tier filters, and native bulk toggles', async ({
     window,
     homePage,
   }) => {
     const settingsPage = new SettingsPage(window);
+    expect(NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category).not.toBe(
+      NATIVE_TOOL_DEFAULTS[NON_RETRIEVAL_TOOL_ID].category
+    );
     await openToolsSettings(homePage, settingsPage);
 
     await expect(window.getByTestId('unified-tools-settings')).toBeVisible();
@@ -44,9 +50,11 @@ test.describe('AI Tools settings (desktop)', () => {
     ).toHaveCount(0);
 
     await window.getByTestId('reset-filters').click();
+    await expect(window.getByTestId(`tool-row-${NON_RETRIEVAL_TOOL_ID}`)).toBeVisible();
     await window.getByTestId('category-filter').click();
-    await window.getByRole('option', { name: 'Retrieval' }).click();
+    await window.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await expect(window.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
+    await expect(window.getByTestId(`tool-row-${NON_RETRIEVAL_TOOL_ID}`)).toHaveCount(0);
   });
 
   test('supports native bulk toggles after tier filtering', async ({ window, homePage }) => {

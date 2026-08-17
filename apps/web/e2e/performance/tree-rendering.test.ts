@@ -6,12 +6,14 @@ import {
   persistCurrentExplorerStoreSnapshot,
   restoreInlineFixture,
 } from '../utils/file-explorer-restoration';
+import { widenExplorerForDirectTreeActions, widenExplorerPanel } from '../utils/file-tree-locators';
 import { waitForAppLoad } from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
   const restoredResizeObserverRootName = 'restored-resize-observer-test';
+  const restoredResizeObserverRootId = '5c08aa55-145b-4ba5-a27d-89e35856088a';
 
   // Create a large file tree for stress testing
   const createLargeFileTree = (depth: number, breadth: number): FileTree => {
@@ -43,6 +45,13 @@ test.describe('Performance: Tree Rendering', () => {
 
     return tree;
   };
+
+  const countDirectories = (tree: FileTree): number =>
+    Object.values(tree).reduce(
+      (count, entry) =>
+        count + (typeof entry === 'object' && entry !== null ? 1 + countDirectories(entry) : 0),
+      0
+    );
 
   const installResizeObserverTracker = async (page: Page) => {
     await page.addInitScript(() => {
@@ -126,7 +135,9 @@ test.describe('Performance: Tree Rendering', () => {
   const setupRestoredResizeObserverTree = async (page: Page): Promise<void> => {
     const tree = createExpandAllPerfTree(24, 10);
     await installResizeObserverTracker(page);
-    await mockBrowserApis(page, restoredResizeObserverRootName, tree);
+    await mockBrowserApis(page, restoredResizeObserverRootName, tree, {
+      rootId: restoredResizeObserverRootId,
+    });
 
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
@@ -412,6 +423,10 @@ test.describe('Performance: Tree Rendering', () => {
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
+    // Asserts on the BUTTON's own spinner/disabled state, so it needs the
+    // wide layout where the button exists (below 236px it lives in the
+    // compact menu and is not in the DOM at all).
+    await widenExplorerForDirectTreeActions(page);
     const expandAllButton = page.getByTestId('expand-all-button-small');
     const initialExpandedCount = await getExpandedDirectoryCount(page);
 
@@ -454,6 +469,7 @@ test.describe('Performance: Tree Rendering', () => {
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
+    await widenExplorerForDirectTreeActions(page);
     const expandAllButton = page.getByTestId('expand-all-button-small');
 
     await expandAllButton.click();
@@ -487,27 +503,30 @@ test.describe('Performance: Tree Rendering', () => {
     expect(await stopObservingExpandAllSpinner(page)).toBe(false);
   });
 
-  // BST-1044: stale spec unmasked by lifting --max-failures (asserts the
-  // pre-uuid roots-identity contract). Un-fixme with the ticket.
-  test.fixme('restored fixed-height tree rows do not register row resize observers', async ({
-    page,
-  }) => {
+  // BST-1044: restored explorer state is keyed by durable RootId UUID.
+  test('restored fixed-height tree rows do not register row resize observers', async ({ page }) => {
     await setupRestoredResizeObserverTree(page);
     const tree = createExpandAllPerfTree(24, 10);
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
+    await widenExplorerForDirectTreeActions(page);
     await page.getByTestId('expand-all-button-small').click();
     await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 30_000 });
 
     const persistedSnapshot = await persistCurrentExplorerStoreSnapshot(page);
-    expect(persistedSnapshot.currentFolderId).toBe(restoredResizeObserverRootName);
+    expect(persistedSnapshot.currentFolderId).toBe(restoredResizeObserverRootId);
     expect(persistedSnapshot.topLevelExpandedCount).toBeGreaterThan(0);
     expect(persistedSnapshot.folderExpandedCount).toBeGreaterThan(0);
 
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
-    await restoreInlineFixture(page, restoredResizeObserverRootName, tree);
+    await restoreInlineFixture(
+      page,
+      restoredResizeObserverRootName,
+      tree,
+      restoredResizeObserverRootId
+    );
 
     await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => getExpandedDirectoryCount(page)).toBeGreaterThan(0);
@@ -526,25 +545,27 @@ test.describe('Performance: Tree Rendering', () => {
     expect(await getObservedVirtualRowCount(page)).toBe(0);
   });
 
-  // BST-1044: stale spec unmasked by lifting --max-failures (cancel races a
-  // now-faster expand-all). Un-fixme with the ticket.
-  test.fixme('cancel during expand-all leaves a valid partially expanded tree', async ({
-    page,
-  }) => {
+  // BST-1044: keep the traversal cancellable long enough to assert partial state.
+  test('cancel during expand-all leaves a valid partially expanded tree', async ({ page }) => {
     const tree = createExpandAllPerfTree(12, 6);
     await mockBrowserApis(page, 'expand-all-cancel-test', tree, {
-      directoryReadDelayMs: 25,
+      directoryReadDelayMs: 250,
     });
 
     const home = new HomePage(page);
     await home.goto();
+    await widenExplorerPanel(page);
 
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
+    // widenExplorerPanel above already cleared the 236px step; assert it
+    // rather than assume, since this test drives the button directly.
+    await widenExplorerForDirectTreeActions(page);
     const expandAllButton = page.getByTestId('expand-all-button-small');
     const cancelButton = page.getByRole('button', { name: 'Cancel operation' });
     const initialExpandedCount = await getExpandedDirectoryCount(page);
+    const fullyExpandedCount = initialExpandedCount + countDirectories(tree);
 
     await expandAllButton.click();
 
@@ -570,6 +591,8 @@ test.describe('Performance: Tree Rendering', () => {
       timeout: 15_000,
     });
     await expect(expandAllButton).toBeEnabled();
-    expect(await getExpandedDirectoryCount(page)).toBeGreaterThan(initialExpandedCount);
+    const expandedCountAfterCancel = await getExpandedDirectoryCount(page);
+    expect(expandedCountAfterCancel).toBeGreaterThan(initialExpandedCount);
+    expect(expandedCountAfterCancel).toBeLessThan(fullyExpandedCount);
   });
 });

@@ -35,20 +35,17 @@ describe('assistant request helpers', () => {
     expect(resolveAssistantRequestBodyLimitBytes('5')).toBe(5);
   });
 
-  it.each([
-    '0',
-    '-1',
-    '1.5',
-    String(Number.MAX_SAFE_INTEGER + 1),
-    'not-a-number',
-  ])('throws for invalid request body byte limit override %s', (value) => {
-    expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
-      'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES must be a positive safe integer byte count'
-    );
-    expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
-      AssistantRequestBodyLimitConfigError
-    );
-  });
+  it.each(['0', '-1', '1.5', String(Number.MAX_SAFE_INTEGER + 1), 'not-a-number'])(
+    'throws for invalid request body byte limit override %s',
+    (value) => {
+      expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
+        'BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES must be a positive safe integer byte count'
+      );
+      expect(() => resolveAssistantRequestBodyLimitBytes(value)).toThrow(
+        AssistantRequestBodyLimitConfigError
+      );
+    }
+  );
 
   it('rejects declared oversized request bodies before reading', async () => {
     const req = new Request('http://localhost/api/chat', {
@@ -131,24 +128,21 @@ describe('assistant request helpers', () => {
     );
   });
 
-  it.each([
-    'apiKey',
-    'system',
-    'temperature',
-    'threadId',
-    'tools',
-  ])('rejects unsupported top-level request field %s', (field) => {
-    const parse = () =>
-      parseAssistantRequestPayloadText(
-        JSON.stringify({
-          [field]: field === 'tools' ? {} : 'attacker-controlled',
-          messages: [],
-        })
-      );
+  it.each(['apiKey', 'system', 'temperature', 'threadId', 'tools'])(
+    'rejects unsupported top-level request field %s',
+    (field) => {
+      const parse = () =>
+        parseAssistantRequestPayloadText(
+          JSON.stringify({
+            [field]: field === 'tools' ? {} : 'attacker-controlled',
+            messages: [],
+          })
+        );
 
-    expect(parse).toThrow(AssistantRequestEnvelopeValidationError);
-    expect(parse).toThrow('Assistant request payload contains an unsupported top-level field.');
-  });
+      expect(parse).toThrow(AssistantRequestEnvelopeValidationError);
+      expect(parse).toThrow('Assistant request payload contains an unsupported top-level field.');
+    }
+  );
 
   it.each([
     ['data', 'false'],

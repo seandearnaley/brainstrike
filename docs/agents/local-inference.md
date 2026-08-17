@@ -18,9 +18,15 @@ Flow:
 1. Hidden host renderer
    - Files:
      - apps/desktop/src/embedding-host-manager.ts
+     - apps/desktop/src/hidden-preload.ts
      - apps/desktop/src/renderer/components/embedding-host-app.tsx
      - apps/desktop/src/renderer/components/embedding-host-runtime.tsx
    - Main creates a hidden BrowserWindow with `?mode=embedding-host`.
+   - The window loads `hidden-preload.js` with the server-owned
+     `embedding-host` role argument. That manifest exposes only the embedding
+     report/request bridge, power snapshot/events, logging ingest, and the database
+     capabilities the current renderer-owned queue needs. It never exposes
+     provider secrets or assistant-server credentials.
    - The host renderer mounts `DbProvider` with `useElectronIPC=true`.
    - The host renderer uses `startEmbeddingWorker()` from `@brainstrike/embeddings`.
    - It pulls jobs from the PGlite-backed `job_queue`.
@@ -35,7 +41,8 @@ Flow:
    - Does NOT run embeddings in-process.
    - Owns host-window lifecycle, IPC, DB init, and power lifecycle.
    - Visible window uses default background throttling; only the hidden host disables throttling.
-   - `powerSaveBlocker` is allowed only while the hidden host reports active embedding work.
+   - On macOS, `powerSaveBlocker` is allowed only while the hidden host reports active embedding
+     work. Non-Darwin platforms never start one.
 4. Job Queue
    - File: packages/db/src/queue/job-queue.ts
    - Backed by job_queue table.
@@ -80,6 +87,22 @@ Foreground query coordination (desktop):
 - Wiring: `embedding-worker-config.ts` (`composeClaimPermit`) +
   `embedding-host-runtime.tsx` (gate per runtime, threaded to the worker config + query
   handler). Constants: FOREGROUND_GATE_REOPEN_MS (250), QUERY_DRAIN_TIMEOUT_MS (5000).
+- Foreground DB-pressure permits age scheduler quiet/latency windows from the
+  scheduler's monotonic snapshot timestamps (the timestamp pair shares one
+  clock origin even when snapshots cross IPC). The embedding claim path's
+  bounded starvation bypass uses `performance.now()` in the hidden renderer.
+  Wall-clock corrections must not extend either wait.
+
+Workspace indexing QoS ownership:
+- `@brainstrike/indexing-contract/workspace-indexing-qos` is the canonical,
+  renderer-safe policy shared by app-shell scheduling and the desktop embedding
+  host. `@brainstrike/indexing-contract/workspace-indexing-power-snapshot` owns
+  the plain-data power snapshot contract and normalization.
+- Keep these contracts in `indexing-contract`, not a general utilities package
+  or a platform implementation. Desktop supplies capabilities and snapshots;
+  the shared policy remains free of Electron imports.
+- Invalid power snapshots throw through the shared normalization/validation
+  contract. Do not add implicit environment defaults at an import boundary.
 
 Embedding queue factory registration (visible renderer):
 - `TransformersBackend.initialize` (local-model semantic search, prompt-library
@@ -107,6 +130,102 @@ Environment variables:
 
 Do not move or reintroduce workers in Electron main. Desktop local embeddings must stay in the hidden renderer host.
 
+Embedding runtime telemetry (BST-402):
+- The streaming worker reports exact bytes for the unique `ArrayBuffer`s transferred in
+  each batch, current/peak vectors in flight, and pipeline-cache residency diagnostics.
+  The client validates the complete batch before telemetry, callbacks, or acknowledgement:
+  index/count fields are safe integers, vector counts and shapes agree, current vectors do
+  not exceed the peak, and transfer bytes equal the unique received buffers. A malformed
+  batch is a terminal worker failure. Stream completion is equally strict: metadata must
+  match the request model, dtype, deterministic batch size, and a coherent direct-device or
+  WebGPU-to-WASM fallback pair; batch size and dimensions must also agree with observed
+  batches before the client resolves.
+- Cache memory is an estimate from the model registry's declared `size`, parsed strictly
+  into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
+  entries to heap memory. Missing registry metadata remains explicitly unavailable; it
+  is never presented as a measured browser-memory value.
+- `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser
+  workerpool own source-scoped, in-memory telemetry records. The workerpool records the
+  unique buffers transferred with each completed result and forwards pipeline-cache
+  diagnostics emitted during `runEmbedding`. Worker-global diagnostics that occur after
+  an RPC settles (notably the five-minute idle-cache eviction) travel over a pool-unique
+  `BroadcastChannel`; its name is carried in the managed worker script fragment. The
+  device-loss path announces its source identity on that channel before self-closing, so
+  the adapter removes the source immediately; the termination callback remains an
+  idempotent cleanup seam. Active workerpool device-loss, uncaught-error, and
+  unhandled-rejection events carry the affected request ID (never a global sentinel),
+  preserving strict task correlation and the recoverable failure message. Active direct
+  streams receive the same request-scoped global-failure message before the worker closes.
+  A worker self-terminates after a global failure only when it has notified at least one
+  active owning transport, so workerpool cannot reuse an invocation still running inference
+  and a direct stream cannot remain pending. Idle global failures retain the explicit
+  `global` sentinel and do not silently self-close. An idle pool worker sends a validated
+  worker-lifetime error over its managed channel and synchronously quarantines itself before
+  publishing, so channel-delivery latency cannot admit another RPC. The adapter terminates
+  that pool, gates new executions on recovery, and creates the replacement before accepting
+  another task. It retains retired pool identities until adapter teardown so already-queued,
+  validated lifetime events from an old generation are ignored without weakening rejection
+  of identities that were never assigned to the adapter.
+  An idle direct worker instead re-reports an unhandled rejection through the browser's
+  uncaught-worker-error channel so the existing client listener visibly fails and retires
+  it. Active direct streams each also receive their own request-scoped device-loss message.
+  A validated request-scoped worker error is
+  terminal: the workerpool adapter emits it for diagnostics, cancels the RPC, and rejects
+  the task even if the worker later tries to return vectors.
+  Controlled host restarts publish a metadata-free `starting`
+  transition and retain the latest valid snapshot, while terminal `stopped` and `error`
+  states clear it. The
+  adapter requires that capability, validates the complete discriminated cache diagnostic
+  and every cache-entry/memory field, requires subject entries for hit/load/removal events,
+  and requires every non-hit event to carry a unique full snapshot whose entry count matches
+  `cacheSize`. The streaming client uses that same indexing-contract validator for both
+  request-scoped and id-less diagnostics and terminally tears down malformed workers. The
+  workerpool adapter requires worker-lifetime channel traffic to be id-less,
+  terminates the affected pool on malformed traffic, and closes the channel during pool
+  teardown. Streaming workers without that fragment deliver worker-global diagnostics over
+  their direct worker message transport. Each pool worker receives a unique
+  `WorkerOptions.name`; that identity is emitted with cache diagnostics. The same UUID is
+  carried in a fragment on that worker's script URL because workerpool 10.0.3 omits
+  `workerOpts` from its runtime termination callback despite declaring it in the public
+  type. The callback-preserved script identifies and clears only the terminated worker's
+  source. Full pool shutdown clears any remaining observed sources. Streaming workers
+  likewise clear their own source during explicit shutdown. The workerpool option type
+  requires its renderer-owned telemetry sink, matching the runtime guard; composition roots
+  pass `embeddingWorkerTelemetrySink` explicitly and there is no telemetry-free compatibility
+  mode. A missing workerpool cache
+  diagnostic latches a session-level telemetry-health failure and logs the task identifier,
+  but it never converts otherwise valid vectors into a failed embedding result. The bounded,
+  code-authored failure reason remains visible until the renderer session ends; it contains
+  no task payload or user data. Malformed diagnostics remain terminal because their identity
+  cannot be trusted. A rejected streaming batch
+  callback terminally fails and terminates its worker so the unacknowledged stream and its
+  telemetry source cannot remain alive. Every malformed streaming request receives a
+  request-scoped terminal error event, including failures detected while building or
+  validating its context. Cross-process telemetry snapshot validation derives the expected
+  cache residency, unavailable-memory count, and byte totals from the validated entries and
+  rejects mismatched aggregates rather than normalizing them. No model weights, vector
+  values, input text, paths, or content are retained by the telemetry store.
+- On desktop, the hidden embedding-host renderer remains the source of truth. It reports
+  a validated snapshot through the existing typed host-status bridge; Electron main
+  stores/relays that snapshot but never observes or runs inference. Stopped host reports
+  retain the current renderer-session snapshot so a latched telemetry-health failure
+  remains visible after an explicit worker stop. A terminal repeated-device-loss report
+  likewise awaits controller teardown and captures a fresh post-teardown snapshot, so it
+  cannot advertise stale worker residency. While desktop System Diagnostics is open, it
+  reads the full platform snapshot only on mount or explicit refresh; embedding-host status
+  events carry a complete telemetry snapshot that the panel validates and applies directly.
+  This avoids turning the host's frequent status cadence into overlapping full diagnostics
+  reads. An explicit refresh clears the prior status override before accepting the refreshed
+  platform snapshot, so stopped-host residency cannot remain stale. Invalid status telemetry
+  is surfaced visibly without clearing an independent platform-snapshot collection error.
+  A terminal `stopped` or `error` host status that lacks runtime metadata replaces the
+  displayed telemetry with an empty snapshot, preventing a crashed or closed renderer's
+  cache residency from remaining visible. Transitional metadata-free statuses retain the
+  latest snapshot. Web diagnostics read the same renderer-local store directly.
+- This telemetry is intentionally session-only and must not be persisted. A future
+  persistence or export path requires the diagnostics privacy and factory-reset contracts
+  to be revisited explicitly.
+
 ---
 
 
@@ -129,11 +248,16 @@ Flow:
 1. Hidden host renderer (desktop)
    - Files:
      - apps/desktop/src/llm-host-manager.ts
+     - apps/desktop/src/hidden-preload.ts
      - apps/desktop/src/ipc-llm-host.ts
      - apps/desktop/src/llm-host-shared.ts
      - apps/desktop/src/renderer/components/llm-host-app.tsx
      - apps/desktop/src/renderer/components/llm-host-runtime.tsx
    - Main creates a hidden BrowserWindow with `?mode=llm-host`.
+   - The window loads the `llm-host` capability manifest from
+     `hidden-preload.js`; the manifest exposes only host request/report and
+     logging capabilities, never the visible UI's secrets, assistant auth, or
+     database bridges.
    - The host renderer owns `LocalLlmBackend` initialization, warmup, generation, and progress events.
    - The host renderer reports status/progress/response back to main over dedicated IPC channels.
 2. Desktop chat path — local THROUGH the Mastra loop (data-stream)
@@ -217,8 +341,8 @@ Flow:
      provider factory) and the local-OM test in mastra-memory-persistence.integration.spec.ts.
 3. Visible renderer (web local chat, and desktop status/warmup UX)
    - Files:
-     - packages/ui/src/assistant-ui-panel/local-runtime-adapter.ts
-     - packages/ui/src/assistant-ui-panel/use-local-model-loading.ts
+     - packages/assistant-ui/src/local-runtime-adapter.ts
+     - packages/assistant-ui/src/use-local-model-loading.ts
      - packages/app-shell/src/assistant-ui-panel-wrapper.tsx
    - Does NOT run the built-in local LLM directly in desktop mode.
    - Talks to the hidden host over the preload bridge (`window.llmHost`).
@@ -228,10 +352,17 @@ Flow:
 4. Main
    - Files:
      - apps/desktop/src/main.ts
-     - apps/desktop/src/preload.ts
+     - apps/desktop/src/preload.ts (visible UI only)
+     - apps/desktop/src/hidden-preload.ts (role-selected hidden hosts)
    - Does NOT execute Gemma inference in-process (the Mastra loop runs in
      main, but every generation is proxied to the hidden llm-host renderer).
    - Owns hidden-host lifecycle, IPC registration, and shutdown/reset coordination.
+   - `RendererHostLifecycle` assigns the server-owned window role before load,
+     pins every hidden window to `hidden-preload.js`, and passes exactly one
+     matching role argument. Missing, duplicate, and unknown manifest roles
+     fail closed. Sensitive main-process IPC remains independently
+     sender-authorized, so a future preload packaging regression cannot restore
+     secret or assistant-auth access.
 5. Shared local runtime
    - Files:
      - packages/agent/src/local-llm.ts
@@ -247,6 +378,23 @@ Flow:
    - `LocalLlmBackend` is a thin orchestrator over the Gemma engine/spec/artifact layers.
    - On web, tool calls are executed through the UI/runtime tool bridge; on
      desktop they run through the Mastra agent loop like hosted providers.
+6. Web Hugging Face proxy contract
+   - Files:
+     - packages/assistant-contract/src/local-llm.ts
+     - packages/assistant-contract/src/local-llm-model-specs.ts
+     - apps/web/src/hf-proxy-contract.ts
+     - apps/web/src/hf-dev-proxy.ts
+     - apps/web/src/app/api/hf/[...path]/route.ts
+   - `GEMMA4_E2B_MODEL_ID` and `GEMMA4_E2B_REVISION` are the canonical built-in
+     model identity. `hf-proxy-contract.ts` derives `ALLOWED_MODEL_ID` and
+     `ALLOWED_MODEL_REVISION` from those exports and exclusively owns the web
+     proxies' Hugging Face base URL and header allowlists.
+   - Both proxy consumers import that shared contract. The production route
+     pins `ALLOWED_MODEL_REVISION`; the development proxy intentionally accepts
+     any revision below the allowed model's resolve path. Do not duplicate the
+     model, revision, URL, or header values in either consumer.
+   - Verification: `node --test scripts/__tests__/hf-proxy-contract-ownership.test.mjs`
+     plus the web proxy unit tests (`pnpm --filter @brainstrike/web test`).
 
 Constraints:
 - Built-in local model downloads are manifest-based, not single-file heuristics.

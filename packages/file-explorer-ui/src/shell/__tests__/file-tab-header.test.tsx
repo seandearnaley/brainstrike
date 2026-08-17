@@ -81,4 +81,49 @@ describe('FileTabHeader', () => {
     fireEvent.click(screen.getByRole('button', { name: /source/i }));
     expect(onModeChange).toHaveBeenCalledWith('source');
   });
+
+  it('renders breadcrumbs instead of the plain identity spans when provided (BST-1269)', () => {
+    const renderSegmentPopover = vi.fn(() => <div data-testid="segment-popover" />);
+    render(
+      <FileTabHeader
+        breadcrumbs={{
+          renderSegmentPopover,
+          segments: [
+            { label: 'src', path: '/r/src' },
+            { label: 'a.ts', path: '/r/src/a.ts' },
+          ],
+        }}
+        directory="/r/src"
+        fileName="a.ts"
+        mode="source"
+        onModeChange={vi.fn()}
+        showModeToggle={false}
+      />
+    );
+    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument();
+    expect(screen.getByText('a.ts')).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByText('/r/src')).not.toBeInTheDocument();
+    // Segments are popover triggers (BST-1319): clicking renders the picker.
+    fireEvent.click(screen.getByRole('button', { name: 'src' }));
+    expect(screen.getByTestId('segment-popover')).toBeInTheDocument();
+  });
+
+  it('renders the pane toggle with pressed state when wired (BST-1269)', () => {
+    const onTogglePane = vi.fn();
+    render(
+      <FileTabHeader
+        directory=""
+        fileName="a.ts"
+        isPaneOpen={true}
+        mode="source"
+        onModeChange={vi.fn()}
+        onTogglePane={onTogglePane}
+        showModeToggle={false}
+      />
+    );
+    const toggle = screen.getByRole('button', { name: 'Toggle explorer pane' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(toggle);
+    expect(onTogglePane).toHaveBeenCalledTimes(1);
+  });
 });

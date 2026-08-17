@@ -8,7 +8,7 @@
  * @packageDocumentation
  */
 
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('PerfTiming');
 

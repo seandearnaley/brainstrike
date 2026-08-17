@@ -124,6 +124,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # BST-1324: MUST run before `Setup workspace` — the composite ends with
+      # `pnpm install --frozen-lockfile`, which is exactly where a textually
+      # merged lockfile kills the job (#2483/#2485), so a guard placed after it
+      # can never fire on the file it exists to catch. The script is
+      # dependency-free by design (runner's system Node, bare checkout, no
+      # node_modules); scripts/__tests__/verify-lockfile-catalog-conformance.
+      # test.mjs re-runs the same check with full context under
+      # `pnpm test:scripts` below, which also covers the install-silent class.
+      - name: Lockfile catalog conformance (pre-install)
+        run: node scripts/verify-lockfile-catalog-conformance.mjs
+
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
@@ -132,17 +143,20 @@ jobs:
       - name: Secret scan
         run: pnpm secrets:scan
 
-      # BST-967: the package-boundary gate. MUST run before any step that can
-      # materialize dist/ (type-check's dependsOn builds the workspace; a
-      # replayed turbo cache task writes outputs back): the analyzer scans
-      # build output too, so stale dist produces phantom violations against
-      # packages nothing imports. On this fresh checkout there is no dist, so
-      # a non-zero exit means a REAL source violation. Sanctioned crossings
-      # carry inline `@boundaries-ignore <reason>` comments; the contract
-      # tests in scripts/__tests__/turbo-boundaries-gate.test.mjs prove this
-      # gate can fail and that every ignore carries a reason.
+      # BST-967: the package-boundary gate. `turbo boundaries` scans build
+      # output as well as source and has no way to exclude it, so
+      # scripts/turbo-boundaries.mjs runs it and judges only findings in files
+      # git does not ignore — anything else (a parse mismatch, a finding with
+      # no file, git failing) still fails. This checkout has no dist/ either
+      # way; the wrapper is what makes the same gate reproducible locally.
+      # Keeping it ahead of dist-producing steps is now about scan cost, not
+      # correctness. Sanctioned crossings carry inline `@boundaries-ignore
+      # <reason>` comments; the contract tests in
+      # scripts/__tests__/turbo-boundaries-gate.test.mjs prove this gate can
+      # fail, that generated output cannot mask a source violation, and that
+      # every ignore carries a reason.
       - name: Package boundaries
-        run: pnpm exec turbo boundaries
+        run: pnpm run boundaries
 
       # Includes scripts/__tests__/verify-playwright-pin-sync.test.mjs — the
       # single-source guard that the Playwright container image tag pinned in
@@ -153,24 +167,6 @@ jobs:
       # longer find a pin at all rather than passing vacuously).
       - name: Script tests
         run: pnpm test:scripts
-
-      - name: Check DB test + coverage lane assignments
-        # These are two DERIVED VIEWS of one shared manifest
-        # (packages/db/scripts/db-test-lane-manifest.mjs), not two registries to be
-        # maintained by hand: `test-lanes` (PR unit lanes) and `coverage-lanes`
-        # (nightly coverage lanes) both import it, and a test's coverage lane is
-        # resolved from its unit lane automatically. Adding a test therefore takes ONE
-        # edit — a regex in `dbUnitLaneDefinitions` — and cannot leave the two views
-        # inconsistent the way the old hand-synced registries could (issue #1101).
-        #
-        # Still worth running both here: a brand-new UNIT LANE needs its own
-        # `coverageDefaultsByUnitLane` entry, and only the coverage check catches a
-        # missing one (it fails loudly rather than dropping the test). The checks
-        # validate lane assignment without executing the suite (~1s), so drift
-        # surfaces on the PR rather than at 2am in Nightly Coverage.
-        run: |
-          pnpm --filter @brainstrike/db test:db:check-lanes
-          pnpm --filter @brainstrike/db test:coverage:db:check-lanes
 
       - name: Lint
         run: pnpm run lint:ci
@@ -203,10 +199,12 @@ jobs:
     # run 29718029263-era worst case 29718226412: Unit 42m, every other job done
     # by ~9m), and `db#test` alone accounted for ~30m of it. HISTORICAL DETAIL,
     # kept because it explains the ~30m figure: at audit time `db#test` was
-    # `test-lanes.mjs run all`, i.e. five SEQUENTIAL per-lane vitest boots. PR
-    # #1807 replaced that with a single `vitest run --project unit` over a
-    # migrate-once PGlite snapshot, so db#test is now ONE invocation whose files
-    # parallelize across forks. RE-MEASURED on the first db-touching PR after
+    # five sequential per-lane Vitest boots. PR #1807 replaced that with one
+    # `vitest run --project unit` over a migrate-once PGlite snapshot, so
+    # db#test became one invocation whose files parallelize across forks.
+    # BST-1046 now splits that one invocation with Vitest's native `--shard`
+    # inside this single package; no cross-package sharding or custom file map
+    # is involved. RE-MEASURED on the first db-touching PR after
     # that rewrite (run 30681934145), per turbo phase:
     #     turbo `test`             db 6m24s (1 pkg) | heavy 3m54s (3 pkgs) | rest 1m26s (11 pkgs)
     #     turbo `test:integration` db 0 tasks/0.2s  | heavy 3m18s (3 pkgs) | —
@@ -227,10 +225,10 @@ jobs:
     #     is INDISTINGUISHABLE from a fast one. Take numbers only from a PR
     #     that actually changes that shard's packages (a #2173-era db shard
     #     reads as 1m purely because the PR touched only packages/agent).
-    # The matrix splits the package graph across three runners so the heavy
+    # The matrix splits the package graph across four runners so the heavy
     # suites stop queuing behind each other:
-    #   db    — @brainstrike/db only (whole-task-uncached, one parallel-fork
-    #           vitest run; the longest single test task).
+    #   db-1/db-2 — @brainstrike/db only (whole-task-uncached, two native
+    #               Vitest file shards of the same unit project).
     #   heavy — the four biggest remaining suites by measured vitest duration
     #           (desktop, ui, file-explorer-ui, app-shell).
     #   rest  — affected-set minus the five packages above (negation filters).
@@ -253,10 +251,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: db
+          - shard: db-1
+            partition: db
             pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
             push_filters: --filter="@brainstrike/db"
+            vitest_shard: 1/2
+          - shard: db-2
+            partition: db
+            pr_filters: --filter="@brainstrike/db...[origin/$BASE_REF]"
+            push_filters: --filter="@brainstrike/db"
+            vitest_shard: 2/2
           - shard: heavy
+            partition: heavy
             pr_filters: >-
               --filter="@brainstrike/desktop...[origin/$BASE_REF]"
               --filter="@brainstrike/ui...[origin/$BASE_REF]"
@@ -267,7 +273,9 @@ jobs:
               --filter="@brainstrike/ui"
               --filter="@brainstrike/file-explorer-ui"
               --filter="@brainstrike/app-shell"
+            vitest_shard: ''
           - shard: rest
+            partition: rest
             pr_filters: >-
               --filter="...[origin/$BASE_REF]"
               --filter="!@brainstrike/db"
@@ -275,6 +283,7 @@ jobs:
               --filter="!@brainstrike/ui"
               --filter="!@brainstrike/file-explorer-ui"
               --filter="!@brainstrike/app-shell"
+            vitest_shard: ''
             push_filters: >-
               --filter="!@brainstrike/db"
               --filter="!@brainstrike/desktop"
@@ -295,6 +304,66 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      # THE LINUX HALF OF THE FENCE SECURITY SUITES (BST-1071).
+      #
+      # packages/agent has three suites that run against a REAL OS sandbox:
+      # fence-executor (the contract), run-python-tool (end to end) and the
+      # escape-resistance red team. On macOS that is Seatbelt, which needs
+      # nothing installed. On Linux it is @anthropic-ai/sandbox-runtime's
+      # bubblewrap backend, which shells out to three binaries the runner image
+      # does not carry — `bwrap`, `socat` (srt's network bridge) and `rg` (its
+      # mandatory-deny scan).
+      #
+      # Without them `SandboxManager.checkDependenciesAsync()` reports errors
+      # and all three suites SKIP THEMSELVES — quietly, and GREEN. That is what
+      # CI did until this step existed, while `docs/agents/code-execution.md`
+      # and `fence-escape-resistance.README.md` both required an srt bump to be
+      # re-greened on macOS AND Linux. Only the ungated version-pin assertion
+      # ever ran here. `BRAINSTRIKE_FENCE_DEPS_REQUIRED` on the integration
+      # steps below is what stops that from silently coming back: with it set,
+      # a missing dependency FAILS the lane instead of skipping it.
+      #
+      # `kernel.apparmor_restrict_unprivileged_userns=0` is load-bearing, not
+      # tidying. Measured on this runner class (Ubuntu 24.04.4, kernel
+      # 6.14.0-azure, bubblewrap 0.9.0) the binaries install fine and the
+      # dependency check goes green, but bubblewrap still cannot build a
+      # sandbox:
+      #
+      #     bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+      #     bwrap: setting up uid map: Permission denied
+      #
+      # Ubuntu 23.10+ ships that restriction on, and the image carries no
+      # AppArmor profile granting bwrap `userns create` (only the generic
+      # `unprivileged_userns` and `lxc-usernsexec` profiles). Every fenced run
+      # then dies before executing a line, which took the suites from 27 quiet
+      # skips to 44 hard failures — a red required lane that proves nothing.
+      # Lifting the restriction is Ubuntu's own documented remediation, the
+      # runner is an ephemeral VM that already runs this repo's code with
+      # passwordless sudo, and it changes only whether bwrap can build its
+      # namespace — NOT what the fence then denies inside it, which is the
+      # entire subject of these suites.
+      #
+      # It runs on every shard rather than only the one that currently owns
+      # packages/agent: shard membership is a filter list two screens up, and a
+      # dependency that silently stops being installed when a package moves
+      # shards is the exact failure this step exists to end.
+      - name: Install the Linux OS-fence dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # Fail HERE, with the kernel's own message, rather than 40 assertion
+          # failures deep inside a security suite.
+          bwrap --ro-bind / / --dev /dev --unshare-all --die-with-parent /bin/echo bwrap-ok
+          # The suites need an interpreter to fence, and all three skip
+          # themselves without one. The runner image has always carried it;
+          # asserting it here means a future image that drops it fails as
+          # provisioning rather than as a lane that promised proofs it did not
+          # run (BRAINSTRIKE_FENCE_DEPS_REQUIRED would catch it either way, but
+          # this names the cause in one line).
+          python3 --version
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -340,12 +409,12 @@ jobs:
       # few leaf config packages pnpm did not; that is safe over-selection
       # (marginal CI time, usually a cache hit — never missed coverage).
       #
-      # TURBO_TEST_MODE=unit is set EXPLICITLY here so the `test` task cache key
-      # (turbo.jsonc `test.env` = [NODE_ENV, TURBO_TEST_MODE]) matches the push
-      # path below AND the local `pnpm test` script (scripts/run-env.mjs sets the
-      # same value) — otherwise PR and push runs would compute different hashes
-      # and never share cache entries. --concurrency=4 preserves the prior
-      # `--workspace-concurrency=4` parallelism cap.
+      # TURBO_TEST_MODE=unit and TEST_TIMEOUT_MULTIPLIER=2 are set EXPLICITLY
+      # here so the `test` task cache key (both are in turbo.jsonc `test.env`)
+      # matches the push path below AND the local `pnpm test` / `pnpm check`
+      # scripts. The dedicated multiplier gives local tests CI's timeout policy
+      # without setting CI and changing unrelated workload (BST-1050).
+      # --concurrency=4 preserves the prior `--workspace-concurrency=4` cap.
       #
       # PHASE SPLIT (two sequential turbo invocations, one named step each).
       # `test` and `test:integration` previously ran in a SINGLE
@@ -384,6 +453,8 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
           COVERAGE: "false"
+          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
+          TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test ${{ matrix.pr_filters }} --concurrency=4
 
@@ -391,7 +462,15 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
+          # This lane installed bubblewrap/socat/ripgrep above, so the
+          # real-fence suites must RUN here. Set, a missing dependency is a
+          # lane defect that fails collection instead of a host quirk the
+          # suites skip over; see packages/agent/src/__tests__/fixtures/
+          # fence-host-gate.ts. Deliberately NOT set in the coverage lanes,
+          # which install nothing and keep the loud-skip behaviour.
+          BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
           COVERAGE: "false"
+          TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test:integration ${{ matrix.pr_filters }} --concurrency=2
 
@@ -417,13 +496,18 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           COVERAGE: "false"
+          DB_TEST_SHARD: ${{ matrix.vitest_shard }}
+          TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Push and manual integration tests
         if: github.event_name != 'pull_request'
         env:
+          # See the pull-request integration step above.
+          BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
           COVERAGE: "false"
+          TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
@@ -613,8 +697,8 @@ jobs:
   browser-tests:
     name: Browser tests
     # Vitest 4 browser-mode suites (real Chromium): packages/db PGlite WASM
-    # semantics (BST-64/BST-994 — unskipped after eight months), packages/ui
-    # assistant browser suites, packages/storage web adapter. Before this job
+    # semantics (BST-64/BST-994 — unskipped after eight months), packages/ui,
+    # packages/assistant-ui assistant browser suites, packages/storage web adapter. Before this job
     # existed, `test:browser` ran NOWHERE in CI — only in the local `pnpm
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
     # Not (yet) a required check: branch protection is Sean's call; this lane
@@ -632,7 +716,7 @@ jobs:
     # is the drift check; bump together with the pins in test.yml/web-e2e.yml/
     # performance.yml).
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
       options: --user 1001
     timeout-minutes: 20
     env:
@@ -660,7 +744,7 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
-      # `test:browser` dependsOn build, so the (pure-TS) db/ui/storage closure
+      # `test:browser` dependsOn build, so the pure-TS db/ui/assistant-ui/storage closure
       # builds in-job. The remote Turbo cache carries most of it; this local
       # .turbo layer is the same outage hedge the setup-workspace composite
       # provides (same key scheme — the composite itself can't be used here
@@ -676,7 +760,7 @@ jobs:
 
       - name: Install dependencies
         # Same exclusions as Web E2E: this pwuser container has no C toolchain
-        # or sudo; the browser-test packages (db, ui, storage) and their
+        # or sudo; the browser-test packages (db, ui, assistant-ui, storage) and their
         # dependency closures are pure TS, so the two desktop-only native
         # projects are excluded from install.
         run: pnpm install --frozen-lockfile --prod=false --filter '!@brainstrike/desktop' --filter '!@brainstrike/secure-fs-native'
@@ -686,12 +770,12 @@ jobs:
         # `pnpm test:browser` puts all 47 workspace packages in turbo scope and
         # builds both desktop native addons, which this toolchain-less pwuser
         # container cannot compile (proven by this lane's first run). The
-        # filtered scope is the three packages + their pure-TS closure.
+        # filtered scope is the four packages + their pure-TS closure.
         # KEEP IN SYNC with packages defining a test:browser script —
         # scripts/__tests__/browser-lane-filter-contract.test.mjs fails
         # `pnpm test:scripts` (Static job) if a package gains test:browser
         # without being added here.
-        run: pnpm test:browser --filter=@brainstrike/db --filter=@brainstrike/storage --filter=@brainstrike/ui
+        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/db --filter=@brainstrike/storage --filter=@brainstrike/ui
 
       - name: Upload browser test artifacts
         if: failure()
@@ -700,9 +784,11 @@ jobs:
           name: browser-test-results
           path: |
             packages/db/test-results/
+            packages/assistant-ui/test-results/
             packages/ui/test-results/
             packages/storage/test-results/
             packages/db/**/__screenshots__/
+            packages/assistant-ui/**/__screenshots__/
             packages/ui/**/__screenshots__/
             packages/storage/**/__screenshots__/
           retention-days: 1
@@ -740,7 +826,7 @@ jobs:
     # composite's install command for this one caller is the documented trap;
     # this job's setup stays bespoke literal YAML on purpose.
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
       # `--user 1001` (pwuser) is the configuration shown in Playwright's
       # official GitHub Actions container example. The browsers under
       # /ms-playwright are owned by this user; it is the documented, tested path.
@@ -830,11 +916,6 @@ jobs:
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
-    # NOT folded into the setup-workspace composite (Series C R9a): the
-    # Electron-version lookup + binary cache below must run BETWEEN Node setup
-    # and `pnpm install`, which the composite's fixed step order (checkout ->
-    # pnpm -> node -> turbo cache -> install, nothing injectable in the
-    # middle) cannot express. Bespoke literal YAML on purpose.
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -845,29 +926,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Get Electron version
-        id: electron-version
-        run: |
-          version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Electron binaries
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -885,33 +945,23 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       # The desktop smoke launches the REAL Electron binary via
-      # `_electron.launch`. On an ~/.cache/electron cache miss the binary may
-      # not be extracted into node_modules, so the app throws "Electron failed
-      # to install correctly". Force-extract it (uses the warm cache when
-      # present, else downloads from GitHub Releases — NOT the Playwright CDN),
-      # then VERIFY the binary exists so any provisioning gap fails loudly here
-      # rather than cryptically inside the test. This runs immediately before
-      # the smoke so no later step (e.g. artifact extraction) can disturb it.
-      # Provision the Electron binary deterministically. electron/install.js is
-      # unreliable here: on an @electron/get cache hit it reaches its
-      # `extract-zip` step but the (un-awaited) extraction never completes and
-      # the process exits 0, leaving no dist/ or path.txt — so the app throws
-      # "Electron failed to install correctly". Instead, download the prebuilt
-      # zip directly from GitHub Releases (reliable host, NOT the Playwright
-      # CDN) and extract it with the system `unzip`, then write path.txt and
-      # hard-verify the executable exists before the smoke launches it.
+      # `_electron.launch`. Electron 43 exposes install.js only as a bin and has
+      # no install lifecycle, so pnpm cannot provision the binary. Download the
+      # prebuilt zip from GitHub Releases immediately before smoke so no later
+      # step can disturb the executable, then hard-verify it exists.
       - name: Provision Electron binary
         working-directory: apps/desktop
         run: |
           set -euo pipefail
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
           URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
           echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
-          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
           printf 'electron' > "${DIR}/path.txt"
           node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
@@ -934,3 +984,255 @@ jobs:
           path: apps/desktop/test-results/
           retention-days: 1
           if-no-files-found: ignore
+
+  # BST-1301: make a red `main` announce itself.
+  #
+  # THE GATE ALREADY EXISTS. This workflow's `on:` block subscribes to
+  # `push: branches: [main]`, so Static/Unit/Build run against every merged
+  # commit, and they fired correctly on all three red-`main` pushes of
+  # 2026-08-15 (runs 31872259629, 31872457744, 31894054632 — each one
+  # `Static` › `Lint`). What did not exist was anyone being TOLD: the red run
+  # sat in the Actions tab, and both incidents were discovered hours later
+  # only when an unrelated PR tripped over the breakage. This job adds the
+  # missing announcement; it adds NO new check and NO new trigger.
+  #
+  # The mechanism it exists to catch is toolchain drift. A PR's CI judges it
+  # under the linter/formatter on ITS BASE at the time that run happened. When
+  # a toolchain bump lands in between (#2447 took biome 2.5.2 -> 2.5.8), the
+  # already-green verdict on a stale-based PR goes quietly out of date, and
+  # nothing re-checks a merged PR against the post-merge toolchain. The
+  # failure therefore materializes for the first time ON `main`, where it
+  # blocks every branch and looks unrelated to whoever hits it next. Both
+  # 08-15 incidents were exactly this: #2437's `noUnsafeOptionalChaining`
+  # violation in app-shell's workspace-snapshot-io.test.ts (the rule narrowed
+  # in 2.5.8) and #2440's formatter drift in file-system's
+  # path-validation.test.ts (fixed by #2452).
+  #
+  # SCOPE — the REQUIRED-CHECK line, minus the two flaky lanes. The ruleset
+  # requires exactly Static, Unit, Build, Web E2E and Desktop E2E, so those
+  # five are the only checks that can block every branch, which is the
+  # everyone-trips-over-it breakage class this job targets. `web-e2e` and
+  # `desktop-e2e` are then excluded on a second, separate ground: they are the
+  # documented flaky-headless class (AGENTS.md), and a canary that cries wolf
+  # gets ignored, which is precisely the failure this job exists to prevent.
+  # Persistent E2E breakage is still caught within 24h by the scheduled
+  # notifiers in web-e2e.yml / desktop-e2e.yml.
+  #
+  # `browser-tests`, `native-windows` and `native-electron` also run on pushes
+  # to `main` and are also NOT notified — not on flakiness grounds, but because
+  # none of them is a required check. A red one of those does not block anyone
+  # else's branch, so it is not this job's class of problem. (`browser-tests`
+  # additionally "must first prove itself deterministic" per its own header
+  # before it could ever be a candidate.)
+  #
+  # WHY `!cancelled()` AND NOT `always()` — this is load-bearing, do not
+  # "simplify" it back. `== 'failure'` alone does NOT mean "the code failed",
+  # because neither `static`/`build`'s admission gate nor `unit` is a leaf
+  # verdict:
+  #   * every gated job opens with a "Require successful admission" step that
+  #     `exit 1`s whenever `needs.admission.result != 'success'`, and
+  #   * `unit` is a fan-in whose check is `[ "$SHARD_RESULT" != "success" ] &&
+  #     exit 1` — the very `!= 'success'` shape this condition avoids.
+  # Both therefore LAUNDER a cancelled upstream into a `failure` result. This
+  # is observed, not theoretical: in runs 31903009051, 31900478128 and
+  # 31900226011 (all 2026-08-15) a cancel landed while `admission` was in its
+  # 120-second sleep, `always()` still dispatched the downstream jobs, and
+  # Static, Unit AND Build all reported `failure` on a run that tested nothing.
+  # Under `always()` this job would have filed "main is red: Static, Unit,
+  # Build failed" for a cancellation. `!cancelled()` is the discriminator:
+  # it still runs when a need FAILED (that is the whole point), but never when
+  # the run was cancelled. Those three runs were `pull_request` events that the
+  # push guard would also have caught; the mechanism is not PR-specific, and
+  # relying on the push guard for it would be an accident, not a design.
+  #
+  # Residual, accepted and deliberately NOT suppressed: if `admission` ever
+  # genuinely FAILS on a push (never observed), all three gated jobs report
+  # `failure` and this job files an issue whose body blames the code. That is
+  # loud rather than silent, "Static, Unit and Build all failed at once" is
+  # itself the tell, and the linked run shows the real cause immediately.
+  # Adding an `admission` success gate here would trade a rare wrong-hypothesis
+  # issue for a silent `main` with no verdict at all — the wrong direction.
+  #
+  # NOT a required status check and NOT a new trigger. See coverage.yml's
+  # header for why adding a trigger to this file is a footgun — this job adds
+  # only a `needs:` fan-in, so PR runs skip it and the required set is
+  # untouched. Detection, not prevention: requiring branches to be up to date
+  # before merge is the complementary fix and is a branch-protection setting,
+  # i.e. the repo owner's call, not this workflow's.
+  notify-main-failure:
+    name: Notify main failure
+    needs: [static, unit, build]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      (needs.static.result == 'failure' ||
+       needs.unit.result == 'failure' ||
+       needs.build.result == 'failure')
+    runs-on: ubuntu-latest
+    # gh issue create / comment are sub-second under normal conditions; cap at
+    # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Ensure tracking label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # NO `2>/dev/null || true` HERE, unlike the four sibling notifiers.
+          # That idiom swallows the expected "label already exists" AND a real
+          # failure (token not elevated, API 5xx, org label restrictions)
+          # indistinguishably. The label does not exist until the first red
+          # `main`, so a swallowed failure on that very first run means the
+          # next step's `gh issue create --label` hard-fails (gh does not
+          # create missing labels), `set -euo pipefail` aborts, this job goes
+          # red and NOTHING IS FILED — reproducing one level up the exact "red
+          # run sits unseen in the Actions tab" outcome the job exists to
+          # remove. AGENTS.md: no silent fallbacks.
+          #
+          # `--force` removes the need to suppress anything: it PATCHes the
+          # label when it already exists instead of erroring, so a non-zero
+          # exit now means only a genuine failure and is allowed to be fatal,
+          # loudly and at the step that caused it.
+          if ! gh label create "main-broken" \
+            --repo "$REPO" \
+            --force \
+            --color b60205 \
+            --description "Auto-opened by test.yml when a push to main fails Static, Unit or Build"; then
+            echo "::error::Could not ensure the 'main-broken' label exists, so the tracking issue can be neither filed nor de-duplicated. main IS RED — see the run this job belongs to."
+            exit 1
+          fi
+
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          STATIC_RESULT: ${{ needs.static.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+
+          # Name the failed checks explicitly. A bare "main is red" makes the
+          # reader open the run to learn anything at all, which is most of the
+          # friction this job removes.
+          failed=""
+          for entry in "Static:$STATIC_RESULT" "Unit:$UNIT_RESULT" "Build:$BUILD_RESULT"; do
+            if [ "${entry#*:}" = "failure" ]; then
+              failed="${failed}${failed:+, }${entry%%:*}"
+            fi
+          done
+
+          body="\`main\` is red: **${failed}** failed on ${COMMIT_URL}.
+
+          Run: ${RUN_URL}
+
+          Every branch cut from or rebased onto \`main\` inherits this, and the PR
+          that trips over it next will see a failure unrelated to its own change.
+
+          If the failing step is Lint or Type check, suspect toolchain drift
+          (BST-1301): a PR that went green under an older linter/formatter on its
+          base can break \`main\` when a toolchain bump merges in between. Check
+          whether a lint/format/toolchain PR landed between the offending PR's
+          last green run and its merge.
+
+          This issue tracks THIS incident only. It gets a new comment on each
+          subsequent failing push, and \`notify-main-recovery\` closes it
+          automatically on the next push where Static, Unit and Build are all
+          green — so the next incident opens a fresh issue with its own title
+          and date instead of being appended to this one."
+
+          existing=$(gh issue list --repo "$REPO" \
+            --label "main-broken" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" \
+              --title "main is red: ${failed} failed ($(date -u +%Y-%m-%d))" \
+              --label "main-broken" \
+              --body "$body"
+          fi
+
+  # BST-1301, second half: close the loop the label-keyed de-duplication opens.
+  #
+  # `notify-main-failure` above keys de-duplication on an open `main-broken`
+  # issue, which is the same shape the nightly notifiers use — but the
+  # LIFECYCLES DIFFER, and copying the shape without this job would turn the
+  # canary into a stale-issue trap. For `web-e2e`/`nightly-coverage` the
+  # failure recurs on a 24-hour cadence, so the de-duplication window and the
+  # incident window are roughly the same thing. A red `main` is the opposite:
+  # the incident is typically over within the hour (force-fix or revert) while
+  # the issue stays open until a human remembers to close it. Without an
+  # automatic close, incident #2 three weeks later would NOT open an issue —
+  # it would append a comment to a stale issue still titled with incident #1's
+  # failing check and date. It would never surface in triage, and anyone who
+  # unsubscribed from the first incident would hear nothing at all. That is the
+  # canary getting muted: the exact failure the header above argues against for
+  # the E2E lanes.
+  #
+  # So: green `main` closes the issue, and the de-duplication window becomes
+  # the incident window. Push runs on `main` share the concurrency group
+  # `Test-refs/heads/main` with `cancel-in-progress: false`, so they are
+  # serialized and this cannot race the notifier above.
+  #
+  # `!cancelled()` here is belt-and-braces rather than load-bearing (the three
+  # `== 'success'` clauses already cannot hold on a cancelled run), but it
+  # keeps both halves reading the same way. Closing is idempotent: with no open
+  # `main-broken` issue — the overwhelmingly common case, since `main` is
+  # usually green — this job makes one read-only API call and exits.
+  notify-main-recovery:
+    name: Notify main recovery
+    needs: [static, unit, build]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      needs.static.result == 'success' &&
+      needs.unit.result == 'success' &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Close the tracking issue once main is green
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Deliberately NOT `.[0]`: the notifier keeps at most one open issue,
+          # so a second one means the invariant already broke somewhere. `main`
+          # is green, therefore nothing carrying this label is still true, and
+          # closing every one of them makes the invariant self-healing instead
+          # of leaving a decoy behind. `gh issue list` on a label that does not
+          # exist yet returns an empty list with exit 0 (verified against this
+          # repo with gh 2.97.0), so no label bootstrapping is needed here.
+          open_issues=$(gh issue list --repo "$REPO" \
+            --label "main-broken" --state open \
+            --json number --jq '.[].number')
+
+          if [ -z "$open_issues" ]; then
+            echo "No open main-broken issue; main was already green."
+            exit 0
+          fi
+
+          for number in $open_issues; do
+            echo "Closing #${number}: main is green again."
+            gh issue close "$number" --repo "$REPO" --reason completed \
+              --comment "\`main\` is green again — Static, Unit and Build all passed on ${COMMIT_URL}.
+
+          Run: ${RUN_URL}
+
+          Closed automatically by \`notify-main-recovery\`. The next red push to \`main\` opens a NEW issue with its own title and date rather than commenting here, so this one stays a record of a single incident."
+          done

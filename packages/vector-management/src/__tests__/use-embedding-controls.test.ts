@@ -122,14 +122,14 @@ vi.mock('@brainstrike/db/react', () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: vi.fn((selector) => {
     const state = { devicePref: 'webgpu', reinitEveryN: 100 };
     return selector(state);
   }),
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: vi.fn((selector) => {
     const state = {
       activeEmbeddingSetId: 'set-1',
@@ -179,9 +179,9 @@ vi.mock('../embedding-runtime-provider', () => ({
   })),
 }));
 
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 // Import mocked modules for manipulation
 import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db/react';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useSharedEmbeddingRuntime } from '../embedding-runtime-provider';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
 import { useEmbeddingWorkerControls } from '../vector-status/use-embedding-worker-controls';

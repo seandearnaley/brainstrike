@@ -1,6 +1,5 @@
 architecture-domain-boundaries.mjs → wired/paired/armed → cross-domain import boundaries (direction rules only; package-level escapes/undeclared deps are `turbo boundaries`' job — BST-971 division of labor)
 architecture-domain-contract.mjs → wired/paired/armed → complete and valid architecture domain map
-(turbo boundaries) → wired/paired/armed → package-escaping imports + undeclared dependencies; Static-lane step ordered before any dist-producing step; contract: scripts/__tests__/turbo-boundaries-gate.test.mjs (BST-967)
 assistant-run-id-producer-guard.mjs → wired/paired/armed → single assistant runId producer (bootstrap-only run-event schema)
 browser-events-literal-guard.mjs → wired/paired/armed → shared browser CustomEvent names
 catalog-user-choice-guard.mjs → wired/paired/armed → catalog migrations preserving user model enablement
@@ -12,11 +11,13 @@ mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union c
 model-catalog-migration-contract.mjs → wired/paired/armed → dual migration registration and model remaps
 prune-stale-dist.mjs → wired/paired/armed → stale dist artifacts pruned before non-cleaning tsc builds (global-turbo-cache poisoning class); wired into 10 package `build` scripts; contract: scripts/__tests__/prune-stale-dist.test.mjs
 secret-scan.mjs → wired/paired/armed → committed credential patterns
+turbo-boundaries.mjs → wired/paired/armed → package-escaping imports + undeclared dependencies (`turbo boundaries`, verdict scoped to files git does not ignore, since the analyzer reads build output and cannot be told not to); Static-lane step `pnpm run boundaries`, ordered before any dist-producing step for scan cost; contract: scripts/__tests__/turbo-boundaries-gate.test.mjs (BST-967)
 unit-shard-partition.mjs → wired/paired/armed → exact Unit shard partition
 verify-catalog-references.mjs → wired/paired/armed → pnpm catalog consistency
 verify-codecov-status-contract.mjs → wired/paired/armed → Codecov status contexts remaining non-gating
 verify-config-load-hash-coverage.mjs → wired/paired/armed → Turbo config-load hash coverage
 verify-mastra-schema-init-order.mjs → wired/paired/armed → lazy initialization of Mastra memory-schema constants
+verify-minimum-release-age-exclusions.mjs → wired/paired/armed → minimumReleaseAgeExclude entries expiring instead of becoming standing exemptions (publish dates recorded in scripts/minimum-release-age-exclusions.json)
 verify-no-cross-chunk-cycles.mjs → wired/paired/armed → acyclic emitted renderer chunk graph
 verify-no-source-cycles.mjs → wired/paired/armed → acyclic renderer source module graph
 verify-no-vitest-worker-mutation.mjs → wired/paired/armed → Vitest worker-global mutation

@@ -3,10 +3,9 @@
   "description": "Web Worker for off-main-thread file chunking with AST-aware code splitting and token counting.",
   "version": "0.1.0",
   "dependencies": {
-    "@babel/parser": "^8.0.0",
+    "@babel/parser": "^8.0.4",
     "@brainstrike/text-splitter": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "tiktoken": "catalog:",
+    "@brainstrike/tokenization": "workspace:*",
     "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
@@ -14,7 +13,6 @@
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "oxc-parser": "catalog:",
-    "tree-sitter-wasms": "^0.1.13",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

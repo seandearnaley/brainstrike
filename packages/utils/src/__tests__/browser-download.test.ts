@@ -1,9 +1,16 @@
-// This package's vitest environment is `node`, so only the pure half of
-// `browser-download.ts` is covered here. `downloadBlobFile`'s DOM contract
-// (anchor click, deferred vs immediate revoke) is covered in a DOM
-// environment by packages/ui/src/__tests__/debug-bundle-download.test.ts.
-import { describe, expect, it } from 'vitest';
-import { formatTimestampedDownloadFilename, sanitizeFilenameSegment } from '../browser-download';
+// This package's vitest environment is `node`, so the pure filename half and
+// `downloadBlobFile`'s desktop-bridge route (which needs no DOM — a stubbed
+// `globalThis.window` carries the bridge) are covered here. The web anchor
+// route's DOM contract (anchor click, deferred vs immediate revoke) is
+// covered in a DOM environment by
+// packages/ui/src/__tests__/debug-bundle-download.test.ts.
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { FileExportsBridge, FileExportsSaveOutcome } from '../browser-download.js';
+import {
+  downloadBlobFile,
+  formatTimestampedDownloadFilename,
+  sanitizeFilenameSegment,
+} from '../browser-download.js';
 
 const AT = new Date('2026-07-27T14:32:05.123Z');
 
@@ -101,5 +108,77 @@ describe('sanitizeFilenameSegment', () => {
     });
 
     expect(filename).toContain(`-${sanitizeFilenameSegment(raw)}.json`);
+  });
+});
+
+describe('downloadBlobFile (desktop bridge route)', () => {
+  function stubWindowWithBridge(bridge: unknown): void {
+    (globalThis as { window?: unknown }).window = { fileExports: bridge };
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, 'window');
+    vi.restoreAllMocks();
+  });
+
+  it('sends the blob bytes and filename over the bridge and resolves the written path', async () => {
+    const saveToDownloads = vi
+      .fn<FileExportsBridge['saveToDownloads']>()
+      .mockResolvedValue({ ok: true, path: '/downloads/logs (1).json' });
+    stubWindowWithBridge({ saveToDownloads });
+
+    const saved = await downloadBlobFile({ blob: new Blob(['{"a":1}']), filename: 'logs.json' });
+
+    expect(saveToDownloads).toHaveBeenCalledTimes(1);
+    const payload = saveToDownloads.mock.calls[0]?.[0];
+    expect(payload?.filename).toBe('logs.json');
+    expect(new TextDecoder().decode(payload?.bytes)).toBe('{"a":1}');
+    // Main may have countered the name (never overwrites) — the resolved path
+    // is the file actually written, for callers that name it to the user.
+    expect(saved).toEqual({ path: '/downloads/logs (1).json' });
+  });
+
+  it('throws the bridge error when the save fails (never falls back to the anchor route)', async () => {
+    stubWindowWithBridge({
+      saveToDownloads: vi
+        .fn<FileExportsBridge['saveToDownloads']>()
+        .mockResolvedValue({ error: 'disk full', ok: false }),
+    });
+
+    await expect(downloadBlobFile({ blob: new Blob(['x']), filename: 'x.md' })).rejects.toThrow(
+      'disk full'
+    );
+  });
+
+  it('throws a stable message when the save fails without an error string', async () => {
+    stubWindowWithBridge({
+      saveToDownloads: vi
+        .fn<() => Promise<FileExportsSaveOutcome>>()
+        .mockResolvedValue({ ok: false }),
+    });
+
+    await expect(downloadBlobFile({ blob: new Blob(['x']), filename: 'x.md' })).rejects.toThrow(
+      'Desktop save failed without an error message.'
+    );
+  });
+
+  it.each([
+    ['an empty object', {}],
+    ['null (present-but-broken, not absent)', null],
+  ])(
+    'throws on a present-but-malformed bridge (%s) instead of degrading to the anchor route',
+    async (_label, bridge) => {
+      stubWindowWithBridge(bridge);
+
+      await expect(downloadBlobFile({ blob: new Blob(['x']), filename: 'x.md' })).rejects.toThrow(
+        'window.fileExports bridge is malformed'
+      );
+    }
+  );
+
+  it('still refuses to run without a document when neither bridge nor DOM exists', async () => {
+    await expect(downloadBlobFile({ blob: new Blob(['x']), filename: 'x.md' })).rejects.toThrow(
+      'Downloads are unavailable outside a browser document.'
+    );
   });
 });

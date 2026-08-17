@@ -1,5 +1,5 @@
 /**
- * pg_textsearch (BM25) Spike — qualified 1.2.0 / PGlite 0.5.3 / Postgres 18.3
+ * pg_textsearch (BM25) Spike — qualified 1.3.1 / PGlite 0.5.4 / Postgres 18.3
  *
  * Evaluates `@electric-sql/pglite-pg_textsearch` (Tiger Data's BM25 index AM,
  * compacts synchronously — no background worker, which is why PGlite can ship
@@ -65,7 +65,7 @@ interface RankedRow {
   score: number;
 }
 
-describe('pg_textsearch BM25 spike (qualified 1.2.0 / PGlite 0.5.3 / PG18)', () => {
+describe('pg_textsearch BM25 spike (qualified 1.3.1 / PGlite 0.5.4 / PG18)', () => {
   let db: PGlite;
   let migrationResult: Awaited<ReturnType<typeof runMigrations>>;
 

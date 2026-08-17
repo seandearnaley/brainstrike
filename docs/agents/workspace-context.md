@@ -131,7 +131,7 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
     per-file budget and auto-injects whole. The opt-in path remains the modal
     case for other large repos.
 
-- **Preference** (`packages/preferences/src/stores/workspace-instructions-preferences-store.ts`) —
+- **Preference** (`packages/app-state/src/stores/workspace-instructions-preferences-store.ts`) —
   persisted `{ masterEnabled: true, oversizedOptInByRootId: Record<rootId, boolean> }`
   keyed by durable DB `roots.id` (NEVER a raw path); only `true` opt-ins are
   stored. Reset via the direct-call seam in `factory-reset-helpers.ts` (mirrors
@@ -146,7 +146,7 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   a warn rather than silently coercing it, then applies the fail-safe default
   (master ON, no oversized opt-ins).
 
-- **Settings UI** (`packages/preferences/src/settings/system/workspace-instructions-settings-{section,category}.tsx`,
+- **Settings UI** (`packages/settings-ui/src/settings/system/workspace-instructions-settings-{section,category}.tsx`,
   registered in the DESKTOP page-content only) lists each mounted root's detected
   file with name, size, ~token estimate (chars/4, consistent with
   `countTokensHeuristic`), injection status, and the oversized opt-in toggle. It
@@ -176,10 +176,78 @@ capability-gated, no `isElectron()` checks). Sibling to `referenced-files-contex
   Agent-level auto-add.)
 
 When changing this flow, update this section and the paired tests
-(`packages/preferences` store + settings-section + factory-reset tests;
+(`packages/app-state` store + factory-reset tests and `packages/settings-ui` settings-section tests;
 `apps/desktop/src/assistant-server/__tests__/workspace-instructions-{context,scan}.test.ts`;
 `apps/desktop/src/__tests__/ipc-context-files-handlers.test.ts`;
 `packages/app-shell` request-builder test).
+
+---
+
+## SELF-IMPROVEMENT SIGNAL INJECTION (BST-1241)
+
+Desktop can prepend a compact summary of the previous 24 hours' wasteful tool
+behavior to each fresh assistant run. This is an explicit persisted opt-in and
+defaults OFF. The renderer attaches `{ enabled }` as plain JSON; the server
+strictly parses it with malformed input failing safe to OFF.
+
+- **SQL ownership:** injection executes the app-owned
+  `SELF_IMPROVEMENT_SIGNAL_SQL` constant, never a workspace-scanned lens. A
+  mounted repository can shadow `.brainstrike/lenses/self-improvement-signal.sql`;
+  executing that untrusted copy automatically would let repository-authored SQL
+  shape a system message. The parity test parses the shipped repository lens and
+  pins its SQL body byte-equal to the app-owned constant so the reviewed query
+  and injection query cannot drift.
+- **Position and scope:** `resolveInitialAgentStream` applies the injector only
+  on the fresh-generation path, between explicit skill activation and workspace
+  instructions. Because every injector prepends, final context order is
+  workspace instructions → self-improvement signal → activated skills →
+  referenced files → conversation. Approval and resume legs retain their early
+  returns and never re-inject it. Provider `local` is excluded to protect its
+  small context budget.
+- **Untrusted DATA hardening (distinct from SQL ownership):** telemetry
+  `tool_id` is persisted VERBATIM from the original tool name, and MCP servers
+  choose arbitrary strings — so the query's *rows* are an untrusted channel
+  even though its *SQL* is app-owned. Rendering restricts each id to
+  `[A-Za-z0-9_.:-]` (rest → `_`) capped at 40 chars, so a hostile name can
+  neither smuggle newline/instruction-shaped text into the system message nor
+  inflate the prompt. Worst-case whole-block size is structural (id cap ×
+  top-5), pinned < 750 chars by test — there is no runtime truncation path.
+- **Latency + prompt-cache posture:** the 24h window anchors to the top of the
+  hour and the parsed rows are memoized per hour-key in main. One sandboxed
+  query per hour per process (the admit `EXPLAIN` + execute pair stays off the
+  per-run path of the single-connection PGlite, where `statement_timeout` is
+  inert), and the rendered block is byte-stable within the hour, so the
+  provider's cached prompt prefix (BST-587 invariant) is invalidated at most
+  hourly. Failures are NOT memoized — the next run retries; an empty no-waste
+  hour IS memoized so it cannot re-query per run.
+- **Failure posture:** query failure, malformed rows, or an unexpected column
+  contract logs a warning and injects nothing; zero qualifying waste logs at
+  debug. It never injects stale, fabricated, or guessed text, and every no-op
+  preserves the original message-array identity.
+- **Measurement/removal protocol:** compare equivalent before/after windows with
+  both the `run-outcome-tool-correlation` and `self-improvement-signal` lenses,
+  following the comparable-window method in
+  [`docs/tool-token-efficiency-2026-08-07/BASELINE.md`](../tool-token-efficiency-2026-08-07/BASELINE.md).
+  After a meaningful sample, remove the feature if truncation and zero-match
+  rates do not improve.
+
+The companion experiment-enrollment preference (BST-1251, phase 2B) rides the
+same renderer seam: a persisted `{ experimentId, variant }` pair (defaults
+null = un-enrolled, factory-reset to null) attached as
+`experimentAssignment` only when BOTH fields are set — the contract requires
+the pair jointly, and the server strictly parses it onto the run's treatment
+row (see `docs/agents/assistant-persistence.md`). Enrollment is attribution
+metadata only; it never changes runtime behavior.
+
+Paired tests: `apps/desktop/src/__tests__/assistant-server/self-improvement-signal-context.test.ts`
+(preference, provider, query/column/row failure posture, exact prompt, size, and
+SQL parity),
+`packages/app-state/src/__tests__/factory-reset-self-improvement-signal-preferences.test.ts`,
+`packages/app-state/src/__tests__/experiment-assignment-preferences-store.test.ts`,
+`packages/app-state/src/__tests__/factory-reset-experiment-assignment.test.ts`,
+`packages/settings-ui/src/__tests__/self-improvement-signal-settings-section.test.tsx`,
+`packages/settings-ui/src/__tests__/experiment-assignment-settings-section.test.tsx`,
+and `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts`.
 
 ---
 
@@ -324,7 +392,7 @@ apps/desktop/src/__tests__/assistant-server/user-slash-commands-loader.test.ts +
 ipc-domains/ipc-user-commands-handlers.test.ts,
 packages/app-shell/src/__tests__/use-user-defined-slash-commands.test.tsx +
 use-assistant-slash-commands.test.ts (F4 merge), and the REAL-trigger
-packages/ui/src/assistant-ui-panel/__tests__/slash-commands.behavior.test.tsx
+packages/assistant-ui/src/__tests__/slash-commands.behavior.test.tsx
 (F1 placeholder-fill through the actual popover + adapter + write-back).
 Explicitly DEFERRED: shell expansion (never), web (no workspace-tool bridge),
 namespaced/categorized popover grouping. (Mastra skills LANDED — see AGENT
@@ -455,9 +523,16 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   entries with winners, spec warnings, Refresh; a rejected scan renders a
   DISTINCT error state with Retry — never the empty state. Data via
   `window.skills.scan()` (`ipc-skills{,-handlers}.ts`, channel `skills:scan`,
-  preload capability-gated) which runs the SAME scan as the engine.
+  preload capability-gated) which runs the SAME scan as the engine. The
+  `SkillsBridge` interface + `SKILLS_BRIDGE_REQUIRED_METHODS` pin +
+  `resolveSkillsBridge()` live in
+  `@brainstrike/assistant-contract/skills-bridge` — NOT app-shell — because
+  both app-shell (composer "/" menu) and settings-ui consume them and
+  settings-ui cannot import app-shell (package cycle). The desktop
+  preload-runtime contract test pins `window.skills` to that constant (exact
+  set equality).
 
-- **Preference store** (`packages/preferences/src/stores/skills-preferences-store.ts`):
+- **Preference store** (`packages/app-state/src/stores/skills-preferences-store.ts`):
   `{masterEnabled: true, disabledSkillKeys}` (only `true` entries persist),
   registered in `factory-reset-helpers.ts` (FACTORY RESET CONTRACT).
 
@@ -472,13 +547,13 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   route); fs-watch refresh; `SkillSearchProcessor`; a create-skill scaffold
   action; rendering skill activations as composer chips.
 
-Paired tests: packages/assistant-contract/src/__tests__/skills.test.ts;
+Paired tests: packages/assistant-contract/src/__tests__/{skills,skills-bridge}.test.ts;
 packages/agent/src/__tests__/{skill-scan,scanned-workspace-skills,skill-tools}.spec.ts
 + mastra-skills.integration.spec.ts + tool-output-limits.spec.ts;
 apps/desktop/src/__tests__/assistant-server/{request-skills,skills-activation-context}.test.ts
 + ipc-domains/ipc-skills-handlers.test.ts;
-packages/preferences/src/stores/__tests__/skills-preferences-store.test.ts +
-src/__tests__/skills-settings-section.test.tsx;
+packages/app-state/src/stores/__tests__/skills-preferences-store.test.ts +
+packages/settings-ui/src/__tests__/skills-settings-section.test.tsx;
 packages/app-shell/src/__tests__/use-skill-slash-commands.test.tsx +
 assistant-ui-panel-wrapper-runtime.test.ts (skillsPreference opt-in field).
 
@@ -486,103 +561,112 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
-## EDIT CHECKPOINT JOURNAL (UNDO OF AGENT FILE EDITS)
+## EDIT CHECKPOINT LEDGER + SNAPSHOT UNDO (UNDO OF AGENT FILE EDITS)
 
-Every agent file mutation records an undoable journal entry so a per-tool-card
+Every agent file mutation records an ATTRIBUTION row so a per-tool-card
 **Revert** control (and a per-turn **Revert all edits** footer) can restore the
-prior state. Desktop-only (web local chat has no assistant server / thread_runs
-rows). Capability-gated, not `isElectron()`.
+prior state — from the turn's shadow-git snapshot, not from stored content
+(BST-1164 T4 engine swap). Desktop-only (web local chat has no assistant
+server / thread_runs rows). Capability-gated, not `isElectron()`.
 
 - **Capture point:** INSIDE the existing per-file `withFileLock` in all four
   `run*WorkspaceFile` functions (`assistant-tools.ts`), so the before-read →
   mutate → journal write is atomic against concurrent same-file edits.
-  `toolCallId` comes from Mastra's 2nd `execute` arg
-  (`context.agent.toolCallId`, verified against @mastra/core@1.50.0 dist types);
-  identity (runId/threadId/resourceId) from `runtimeData.memory`. Capture is
-  GATED on an active memory context and is NON-FATAL (debug on DB-absent, error
-  on DB-throw) — the tool result contract is never changed.
-- **Storage:** full BEFORE-content (capped at the 2 MB write limit), not a diff,
-  so revert is an exact independent write and conflict detection is a hash
-  compare. `after_hash`/`after_existed` are for conflict detection only (no
-  after-content — redo is deferred). Binary/oversized before-state is recorded
-  honestly via `capture_status` (`skipped_binary`/`skipped_too_large`) with null
-  content — NEVER a truncated snapshot. `capture_status` enum:
-  `ok`/`created`/`skipped_binary`/`skipped_too_large`/`expired`/`rename`; only
-  `ok`/`created`/`rename` are revertible.
+  `toolCallId` comes from Mastra's 2nd `execute` arg; identity
+  (runId/threadId/resourceId) from `runtimeData.memory`. Capture is GATED on
+  an active memory context and is NON-FATAL (debug on DB-absent, error on
+  DB-throw) — the tool result contract is never changed.
+- **Storage = IDENTITY ONLY (the T4 demotion):** op, paths, before/after
+  sha256 + size, timestamps, `reverted_at`. `before_content` is NEVER
+  populated (the schema column remains — no destructive migration in v1 —
+  pinned by `edit-checkpoint-journal.integration.test.ts`). The content-era
+  2 MB capture cap and `skipped_binary`/`skipped_too_large` states died with
+  content capture (`captureBeforeState` stream-hashes any present file);
+  those enum values (and `expired`) remain readable for legacy rows only.
+  New rows are always `ok`/`created`/`rename`.
 - **Table** `brainstrike_assistant_edit_checkpoints` (migration 051, registered in
   BOTH runners + bootstrapped byte-identically in app-shell's
-  `assistant-memory-repository.ts`). NO FK (mirrors run_usage 046 — the numbered +
-  drizzle migration paths run on a bare PGlite without the thread_runs/mastra_threads
-  parents; an FK would break the full migration suite). Purged on factory reset
-  (`db-ipc.ts` `OptionalRelationTable`).
+  `assistant-memory-repository.ts`). NO FK (mirrors run_usage 046). Purged on
+  factory reset (`db-ipc.ts` `OptionalRelationTable`).
 - **Retention** (`edit-checkpoint-journal.ts`, strict-parsed env, no silent
-  fallback): `BRAINSTRIKE_CHECKPOINT_CONTENT_BUDGET_BYTES` (32 MB) NULLs the oldest
-  non-reverted before-content to `expired`; `BRAINSTRIKE_CHECKPOINT_MAX_ROWS`
-  (500) hard-deletes the oldest rows. Pruned after every insert.
-- **LIST = renderer-direct DB (Path A):** `listThreadCheckpoints(threadId)` on the
-  PGlite repository, across ALL runs (revertible after reload). `before_content`
-  is NEVER selected — it stays in main.
+  fallback): `BRAINSTRIKE_CHECKPOINT_MAX_ROWS` (500) hard-deletes the oldest
+  rows after every insert — the whole policy; the content byte budget died
+  with content capture. (Snapshot-side retention — the 50-turn ring — lives
+  in `snapshot-startup-gc.ts`; see changeset-diff.md.)
+- **LIST = renderer-direct DB (Path A):** `listThreadCheckpoints(threadId)` on
+  the PGlite repository, across ALL runs (revertible after reload).
+- **AVAILABILITY = IPC to main:** `window.assistantCheckpoints.availability(threadId)`
+  → `assistant-checkpoint:availability` → `listCheckpointUndoAvailability`
+  (`checkpoint-snapshot-undo.ts`): per-entry `{restorable} | {restorable:false,
+  reason}` resolved from the snapshot ledger's turn brackets. Pre-engine
+  entries ("predates workspace snapshots"), failed-capture turns, and
+  uncovered roots render VISIBLY DISABLED with the reason — never a
+  click-time surprise, never silent removal. The renderer treats an id
+  MISSING from the map as unavailable (fail-safe, `availabilityForEntry`).
 - **REVERT = IPC to main (Path B):** `window.assistantCheckpoints.revertEntry/revertRun`
-  → `assistant-checkpoint:revert-*` → `edit-checkpoint-revert.ts`. Resolves the
-  stored `root_id` via the roots table and REFUSES a disconnected root (never
-  guesses); detects on-disk conflicts (hash compare, `force` overrides); applies
-  the per-op inverse (restore-write / delete-created / recreate-deleted /
-  rename-back) under the file lock; reuses the write tools' non-fatal reindex
-  seams; stamps `reverted_at` (idempotent). Reverts are NOT re-journaled.
-  `revertRun(runId)` reverts every non-reverted entry of a run in reverse apply
-  order and is HONEST about partial success — one conflicting file returns an
-  `ok:false conflict` outcome without aborting the rest.
+  → `assistant-checkpoint:revert-*` → `undoCheckpointEntry`/`undoCheckpointRun`
+  (`checkpoint-snapshot-undo.ts`). TURN-START SEMANTICS (deliberate change,
+  ruled 2026-08-05): each journaled path is restored to its state at the
+  turn's `turn-start` snapshot via `SnapshotService.restorePathsFromSnapshot`
+  — a multi-edit turn's per-file undo lands on turn start, not
+  just-before-that-edit, and the UI copy says so ("restore to turn start").
+  A `created` path is deleted (empty-ancestor pruning bounded at the root);
+  a rename is undone as restore-source + delete-destination. Resolves the
+  stored `root_id` via the roots table and REFUSES a disconnected root;
+  conflict gate = current disk sha256 vs the newest record's after-state
+  (`force` overrides); reuses the write tools' non-fatal reindex seams
+  (`checkpoint-reindex-deps.ts`, shared with rewind); stamps `reverted_at`
+  (idempotent). Reverts are NOT re-journaled. `revertRun(runId)` restores
+  every touched path exactly once (newest record per path wins the gate;
+  older records of a handled path stamp without re-touching disk) and is
+  HONEST about partial success.
 - **UI = per-entry button + per-turn footer.** The per-tool-card
   `CheckpointRevertButton` (`tool-fallback.tsx`, keyed by `toolCallId`) undoes one
-  edit. The per-turn `CheckpointTurnRevert` footer (`checkpoint-turn-revert.tsx`,
-  its own module for the assistant-panel line budget) mounts on every
-  `AssistantMessage`: it reads the turn's tool-call parts from assistant-ui
-  message state (`useAuiState(state => state.message.parts)` — same discriminant
-  live and on reload) and resolves the true revert scope via `selectTurnRevertScope`
-  against ALL of the thread's journal entries. Because the default `edit:ask`
-  policy splits ONE run across several live assistant messages (each approval
-  resume appends a new message sharing the runId) while `revertRun(runId)` reverts
-  the WHOLE run, the footer is **run-scoped**: it renders once per run — on the
-  run's LAST leg (the message holding the run's last-applied revertible tool call,
-  its "anchor") — and its count is the run's full revertible-entry total
-  (including `toolCallId:null` entries that never render but still revert), so the
-  shown count always equals what reverts. It reverts each owned run **sequentially,
-  newest first** (a shared file edited by two runs must revert in reverse order —
-  `Promise.all` can't guarantee it), through the SAME `revertRun` bridge.
-  Both controls mirror one UX contract — confirm → revert, on-disk conflict →
-  "Revert anyway" (force), idempotent after success (reverted entries drop out on
-  refetch). The turn footer additionally surfaces a **visible failure state**: an
-  unexpected executor throw or an all-fail non-conflict result (e.g. a
-  disconnected-root `not_revertible`, whose actionable message is shown) sets a
-  `failed` phase with a retry — never left stuck disabled in `reverting`, never a
-  silent return to idle. Pure capability gating: `null` on web / for turns whose
-  message owns no revertible run, never a disabled stub.
+  edit; unavailable entries render "Can't restore" with the reason tooltip.
+  The per-turn `CheckpointTurnRevert` footer (`checkpoint-turn-revert.tsx`)
+  mounts on every `AssistantMessage`: it reads the turn's tool-call parts from
+  assistant-ui message state and resolves the true revert scope via
+  `selectTurnRevertScope(ids, entries, availabilityById)` against ALL of the
+  thread's journal entries. Because the default `edit:ask` policy splits ONE
+  run across several live assistant messages while `revertRun(runId)` reverts
+  the WHOLE run, the footer is **run-scoped**: it renders once per run — on
+  the run's LAST leg — and its count is the run's full snapshot-restorable
+  total. A turn whose entries are ALL snapshot-unavailable renders a visible
+  disabled row with the reason (`unavailableReason`), never nothing. It
+  reverts each owned run **sequentially, newest first**, through the SAME
+  `revertRun` bridge. Both controls mirror one UX contract — confirm →
+  restore, on-disk conflict → "Revert anyway" (force), idempotent after
+  success. The turn footer additionally surfaces a **visible failure state**
+  with retry — never left stuck in `reverting`, never a silent return to
+  idle. Pure capability gating: `null` on web, never a disabled stub there.
 - **Revert-derived outcome labels (Task Ledger).** A successful `revertEntry`/
   `revertRun` additionally derives the run's outcome label from the POST-revert
   journal in `use-edit-checkpoints.ts` (`labelRunOutcomeFromJournal`): every
   revertible entry reverted → `verdict:'failed'`, partial → `'mixed'`, recorded
   via `repository.recordRunOutcome` with `source:'edit_revert'` into
   `brainstrike_assistant_run_outcomes` (migration 062). Labeling is SECONDARY:
-  a failure is logged and never rejects the completed revert (mirrors the
-  non-fatal capture contract), and a later explicit user verdict upserts over
-  the derived label by design. Only `ok`/`created`/`rename` capture states
-  count toward the denominator.
+  a failure is logged and never rejects the completed revert, and a later
+  explicit user verdict upserts over the derived label by design.
 - **Live-turn availability + reconciliation.** The footer must appear for the
-  turn that JUST ran (its headline "undo what the agent just did" scenario). The
-  journal rows are written in main DURING tool execution — after the thread-open
-  read — so `useEditCheckpoints` exposes a `refetch` the wrapper composes into the
-  run-lifecycle `onRunFinished`/`onRunFailed` seam (no polling); a monotonic
-  generation guard drops a stale refetch that resolves after a newer one (mid-revert
-  thread switch). A `revertRun` that unexpectedly rejects (partial on-disk revert)
-  refetches BEFORE rethrowing so the per-entry/turn controls reconcile.
-- **Key files:** `edit-checkpoint-{journal,capture,revert,errors}.ts` +
+  turn that JUST ran. The journal rows are written in main DURING tool
+  execution — after the thread-open read — so `useEditCheckpoints` exposes a
+  `refetch` the wrapper composes into the run-lifecycle
+  `onRunFinished`/`onRunFailed` seam (no polling); every entries load also
+  fetches the availability map (an availability fetch failure clears the map,
+  which renders every control disabled-with-reason — fail-safe, matching what
+  a click would do); a monotonic generation guard drops a stale refetch. A
+  `revertRun` that unexpectedly rejects refetches BEFORE rethrowing so the
+  controls reconcile.
+- **Key files:** `edit-checkpoint-{journal,capture}.ts`,
+  `checkpoint-snapshot-undo.ts`, `checkpoint-reindex-deps.ts` +
   `ipc-domains/assistant-checkpoint-*.ts` (desktop),
   `edit-checkpoint-context.tsx` (context + `selectTurnRevertScope` /
-  `useCheckpointTurnRevert`) + `tool-fallback.tsx` + `checkpoint-turn-revert.tsx`
-  (ui), `use-edit-checkpoints.ts` (app-shell — `revertEntry`/`revertRun` wired to
-  the bridge with refetch-on-success + refetch-before-rethrow, plus the run-completion
-  `refetch`) + `assistant-ui-panel-wrapper.tsx` (composes refetch into the run
-  callbacks), `packages/assistant-contract/src/edit-checkpoints.ts`.
+  `useCheckpointTurnRevert` / `availabilityForEntry`) + `tool-fallback.tsx` +
+  `checkpoint-turn-revert.tsx` (ui), `use-edit-checkpoints.ts` (app-shell) +
+  `assistant-ui-panel-wrapper.tsx`,
+  `packages/assistant-contract/src/edit-checkpoints.ts`. (The journal-content
+  engine — `edit-checkpoint-revert.ts`, `edit-checkpoint-errors.ts`,
+  `changeset-journal-view.ts` — was DELETED in T4.)
 
 When changing this flow, update this section and the paired tests.
 
@@ -645,10 +729,13 @@ producer constants, and omission guidance remain local to each projection.
 Path policy also remains explicit at each call site: context and retrieval
 escape CR, LF, U+2028, and U+2029 while preserving repeated whitespace needed
 by follow-up file tools (800- and 700-character path ceilings respectively);
-inspection and unrooted search previews collapse whitespace onto one line at an
-800-character ceiling. Rooted search `read_args` retain the producer path in
-JSON so it stays directly reusable. Malformed or over-budget output continues
-to fail visibly; the shared helpers must never add coercion or fallback.
+inspection previews collapse whitespace onto one line at an 800-character
+ceiling. Search projections (BST-1185) emit the producer path VERBATIM with
+line breaks escaped and never clip it — a clipped path is an unusable
+selector, so an oversized path overflows the projection budget and its item
+is omitted with an advancing offset instead. Malformed or over-budget output
+continues to fail visibly; the shared helpers must never add coercion or
+fallback.
 
 Conditional assembly still advertises only tools that survived runtime gates.
 Remove duplicated prose to recover prompt budget; do not remove or weaken the
@@ -731,12 +818,21 @@ one" comment):
     the desktop boot restore (`runMultiRootRestore` in
     `packages/file-explorer-hooks/src/use-file-system.ts`) rebuilds
     `activeRootIds`/`rootDescriptors` from a SEPARATE main-process-persisted
-    `rootsList` (`apps/desktop/src/ipc-domains/file-system-ipc.ts`), which is
-    plain add-order and has NO notion of Main. `setActiveRoots` is therefore
+    `rootsList`, owned only by
+    `apps/desktop/src/ipc-domains/workspace-root-registry.ts`, which is plain
+    add-order and has NO notion of Main. IPC and the renderer are projections:
+    add/restore/disconnect complete in that registry before renderer state
+    changes. A rejected disconnect leaves renderer state intact. Unavailable or
+    transiently unmountable entries remain persisted with
+    `permissionState:'unknown'`; they are retried later and excluded from the
+    mounted capability set and DB live-root convergence. The legacy
+    `lastFolderPath` is presentation-only and may reference only an
+    already-persisted mounted root; it never inserts or removes roots.
+    `setActiveRoots` is therefore
     ORDER-PRESERVING, not a blind overwrite: ids still reported keep their
     existing relative order from the already-rehydrated store (the Main slot
     survives), a newly-reported id not previously known appends at the END,
-    and an id no longer reported (pruned as missing-on-disk) drops out. This
+    and an id no longer reported as granted drops out. This
     is what makes the storage-v5 "persisting the order persists the choice"
     claim above actually hold across a restart — without it, `runMultiRootRestore`
     calling `setActiveRoots(storedDescriptors)` after hydration would silently
@@ -788,9 +884,9 @@ The one intentional omission exception is
 Tapestry ranges are relative to the FOCUSED `workspaceRootPath`, so that
 selection-default read resolves the focused path against the authoritative
 inventory instead of the thread binding. If the inventory is unavailable, the
-legacy focused-path fallback remains independent of the durable binding rather
-than attempting to validate or adopt it. Supplying `filePaths` restores the
-normal omitted-root binding rule. Disconnect transitions also revoke
+selection-default read fails visibly; focused renderer state never authorizes a
+path-backed root. Supplying `filePaths` restores the normal omitted-root binding
+rule. Disconnect transitions also revoke
 already-enriched in-flight runtime snapshots, while a later authoritative live
 root load clears that revocation after reconciliation/reconnect.
 
@@ -826,14 +922,16 @@ diverged from DB ids; web enrichment never runs, FSA roots have null paths).
 An unmatched binding stays unmatched so tool execution can fail visibly;
 unmatched/absent Main keeps `created_at` order (the legacy tiebreak) with a
 debug log. `roots[0]` is therefore GENUINELY the thread-bound/Main root — no
-`buildHookManager` change was needed. Degraded mode is unchanged: a DB
-load/query failure leaves RuntimeData untouched, so tools fall back to the
-single FOCUSED `workspaceRootPath` synthesis (the main declaration cannot
-apply there).
-When a successful DB query returns zero roots and there is no legacy focused
-path, enrichment records an explicit `workspaceRoots: []`. This is distinct
-from an unresolved/query-failed root inventory and lets `listWorkspaceContext`
-report the valid empty-workspace state without disguising a bridge failure.
+`buildHookManager` change was needed. On a DB load/query failure, RuntimeData
+remains unenriched and workspace-tool authorization fails closed; the renderer's
+FOCUSED `workspaceRootPath` is selection state only and never becomes a
+synthesized root. A successful zero-root query records an explicit
+`workspaceRoots: []`. This is distinct from an unresolved/query-failed root
+inventory and lets `listWorkspaceContext` report the valid empty-workspace state
+without disguising a bridge failure. Enrichment also clears any stale FOCUSED
+`workspaceRootPath` in that zero-root state; otherwise the trusted empty
+inventory and renderer focus would be inconsistent and stream initialization
+would fail before the empty-workspace result could be reported.
 The desktop HTTP boundary strips any client-supplied `workspaceRoots` before
 enrichment. Only the DB result may populate the trusted manifest/tool inventory;
 renderer fields can order or focus roots but can never substitute adapter ids
@@ -849,7 +947,7 @@ chrome):
   left, beside the database item): main root name (+N), popover listing every
   mounted root (path or "browser folder", Main badge, Focused marker) with a
   per-row "Set as main" → `setMainRoot`.
-- Composer chip (`packages/ui/src/assistant-ui-panel/operating-root-chip.tsx`):
+- Composer chip (`packages/assistant-ui/src/operating-root-chip.tsx`):
   "in {thread root}" at the top of the composer stack — a SIBLING of
   ThreadContextMeter (never nest it there; the meter is being reworked), fed
   by the wrapper's `operatingRoot` prop only at 2+ roots. Before a thread's first
@@ -878,7 +976,7 @@ zero/unavailable state, exact ids, Main/Focused priority) +
 `mastra-tool-execution.integration.spec.ts` (turn-one qualified read),
 `apps/desktop/src/__tests__/assistant-server/agent-stream-init-and-memory.integration.test.ts`
 (client root inventory replacement),
-`packages/ui/src/assistant-ui-panel/__tests__/operating-root-chip.test.tsx`,
+`packages/assistant-ui/src/__tests__/operating-root-chip.test.tsx`,
 `apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
 (orderWorkspaceRoots + enrichment reorder), and the
 `hooks primaryCwd follows the declared main root` describe in

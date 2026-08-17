@@ -1,5 +1,5 @@
-import type { WorkspaceCollectionSyncState } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import type { WorkspaceCollectionSyncState } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import {
   type CollectionEmbeddingCoverageSnapshot,

@@ -3,8 +3,8 @@
 ## Purpose and scope
 
 This `agent` package contains the runtime, types and utilities used by the **Brainstrike  
-Assistant**. It wraps the Mastra agent core,  
-OpenAI’s SDK and the Model‑Context Protocol (MCP) client to provide a fully streamed  
+Assistant**. It wraps the Mastra agent core, provider-specific AI SDKs, and the
+Model-Context Protocol (MCP) client to provide a fully streamed
 assistant experience with deterministic tool calls. The package exposes helpers for  
 converting UI messages into agent messages, dispatching local tools, validating  
 inputs with `zod` and merging in remote  
@@ -22,18 +22,20 @@ At a high level the package is responsible for:
     into a canonical agent format. These types ensure that streaming payloads are  
     strongly typed and always serialisable.
     
-- Creating an **agent runtime** via `createMastraAgentRuntime()`. This helper  
-    resolves the OpenAI API key from `runtime.apiKey` or the `OPENAI_API_KEY` or  
-    `AI_OPENAI_API_KEY` environment variables, merges local tools with MCP tools  
+- Creating an **agent runtime** via `createMastraAgentRuntime()`. This helper
+    validates the selected provider, resolves credentials through the shared
+    provider key resolver (with explicit keyless local-provider handling),
+    merges local tools with MCP tools
     discovered at runtime, sanitises tool IDs and configures the underlying  
     Mastra agent with streaming enabled.
     
-- Implementing a small set of **web tools** (`web.echo`, `web.searchDocs` and  
-    `web.docSummary`) that run in the browser and use zod to validate inputs.
+- Providing browser-safe documentation-search schemas and executors
+    (`searchDocsExecute`, `docSummaryExecute`). These are library exports, not
+    entries in the native-tool registry; `web.echo` is intentionally absent.
     
 - Providing the **shared retrieval building blocks** (input schemas in
-    `tools/schemas.ts`, `ContextPacker`, Workspace-Index helpers in
-    `tools/workspace-index-retrieval.ts`) consumed by the live retrieval,
+    `src/tools/schemas.ts`, `ContextPacker`, Workspace-Index helpers in
+    `src/tools/workspace-index-retrieval.ts`) consumed by the live retrieval,
     query-embedding-space, and hybrid-search tools. The tool implementations
     themselves live in `apps/desktop/src/assistant-server/` (registry-wired
     `run*` functions); a package-local DI copy was dead code and was deleted
@@ -76,7 +78,7 @@ once, execute:
 For watch mode use `pnpm test:watch`. To check coverage across all exported  
 code, use `pnpm test:coverage`. All tests should pass before you merge; the  
 CI checks in `.github/workflows` will block failing builds. To focus on a  
-specific test you can use `pnpm vitest run -t "<test name>"`[agents.md](https://agents.md/#:~:text=,t%20%22%3Ctest%20name).
+specific test you can use `pnpm vitest run -t "<test name>"` from this package.
 
 ### Type checking and linting
 
@@ -84,11 +86,11 @@ TypeScript is configured in **strict mode** – treat all `tsconfig` warnings as
 errors. The repo uses a combination of ESLint and Biome for formatting.  
 Before committing, run:
 
-`pnpm lint pnpm type-check`
+`pnpm lint && pnpm type-check`
 
-We follow a few simple rules: single quotes, no semicolons and prefer  
-functional patterns. See the root `eslint.config.js` for details. Editors  
-should be configured to respect the project `.editorconfig` and prettier rules.
+Formatting and lint policy is owned by the root Biome/Ultracite and ESLint
+configuration. Use the repository commands rather than duplicating style rules
+in this package guide.
 
 ## Architecture and best practices
 
@@ -105,16 +107,18 @@ not construct them with the OpenAI-specific SDK. The runtime merges local
 tools with any tools discovered via MCP, sanitises tool identifiers to avoid
 collisions, and exposes a disposable `agent` ready to stream responses.
 
-When adding new configuration fields, make sure they are serialisable; runtime  
-data is eventually passed over WebSockets or process boundaries. For example  
-`AbortSignal` is safe, while complex classes should be converted to plain  
-objects.
+When adding new configuration fields, make sure values crossing WebSocket or
+process boundaries are serializable plain data. `AbortSignal` and class
+instances are process-local; represent cancellation or state changes through a
+dedicated bridge/protocol rather than putting them in serialized runtime data.
 
 ### Tools
 
 Tools are the main extension point. A tool is an object with an `id`, a  
 human‑readable `description`, an optional `inputSchema` and an `execute`  
-function. Within this package the local tools live in `src/mastra/web‑tools.ts`.  
+function. Shared schemas/executors live under `src/tools/`; runtime tool
+composition lives in `src/mastra/runtime-assembly/tool-pipeline.ts`. Host-only
+implementations may live in the owning app package.
 When adding a new tool:
 
 1. **Design a clear API**. Prefer small, composable tools over monoliths.  
@@ -126,8 +130,9 @@ When adding a new tool:
     `inputSchema`. Use types like `z.string().min(1)` to avoid empty queries or  
     unreachable paths. All external inputs must be validated before use.
     
-3. **Report progress**. Long‑running tools should emit progress updates via  
-    the `normalizedProgress` helper from `src/tools/progress‑adapter.ts`. Even  
+3. **Report progress**. Long-running tools should normalize external progress
+    payloads with `normalizeProgressPayload()` from
+    `src/tools/progress-adapter.ts`. Even
     simple tools can append periodic messages to keep the UI responsive.
     
 4. **Stream output**. When possible, stream results incrementally rather than  
@@ -143,7 +148,62 @@ When adding a new tool:
     
 6. **Document your tool**. Update this AGENTS.md to describe any new tools,  
     their purpose, limitations and usage. If the tool proxies to an external  
-    service, document rate limits and fallback behaviour.
+    service, document rate limits and visible failure behavior.
+
+### `brainstrike.manageCanvas` tool (schema here, executed in desktop)
+
+Single tool with an `action` discriminated union — `create`, `update`,
+`rewrite`, `list` — persisting versioned Canvas documents
+(`brainstrike_canvas_versions`, migration 082) that the Canvas surface renders
+in the sandboxed CanvasFrame (BST-1173). The Zod schema lives in
+`src/tools/schemas-workspace.ts` (provider envelope is a strict root object
+delegating to the canonical union; root `oneOf` is rejected by the provider
+contract). Execution lives in `apps/desktop/src/assistant-server/manage-canvas-tool.ts`.
+
+Purpose and semantics:
+
+- `create {title, html}` mints a canvas (uuidv7) at version 1.
+- `update {canvasId, oldString, newString}` requires `oldString` to occur
+  EXACTLY once in the latest version; `no_match`/`ambiguous_match` are
+  structured failures. Writes a new version row — history is immutable.
+- `rewrite {canvasId, html}` replaces content as a new version.
+- `list {}` returns summaries only (never `html`), newest-first, capped at 50
+  with an explicit `truncated` flag.
+
+Limitations / invariants:
+
+- Desktop-only (web has no tool runtime; excluded from `WebNativeToolId`).
+- Mutations are hard-scoped to the calling thread: `threadId` comes from
+  runtime memory, never model input, and a cross-thread canvas id resolves to
+  the same uniform `not_found` as a nonexistent one (no existence oracle).
+- Concurrent updates race on `UNIQUE (canvas_id, version)`; the loser gets a
+  structured, retryable `version_conflict`.
+- `html`/`oldString`/`newString` are capped at 8 MB (schema-level DoS guard,
+  same as workspace-file content fields); titles at 500 chars.
+- Risk category is `edit` — durable writes must not be available in plan mode
+  or default-allowed under permission enforcement.
+
+### `brainstrike.runPython` tool
+
+Desktop-only deferred tool (BST-1067; Gate B network escalation BST-1070)
+that runs assistant-authored Python inside the OS fence, dispatched through
+the `CodeExecutor` seam — never a direct spawn. Input is `code`, optional
+`timeoutMs`, and optional `allowedDomains` (public hostnames only —
+IP literals, `localhost`, and `.local` are rejected at the schema; `[]` and
+omitted both mean no network). A domain request opens NOTHING by itself: the
+tool suspends with the exact list BEFORE the host is resolved, and only an
+explicit per-call allow on the suspension channel (which has no grant
+surface) reaches the executor with those domains; anything else denies
+(`network_denied`). Writes are confined to a per-call scratch dir that is
+deleted afterwards, and a failure to delete it is reported on the result
+rather than swallowed; READS are unrestricted, so treat anything the script
+reads as sensitive. One timeout budget spans host resolution and execution.
+Results are a six-arm discriminated union — `completed` is the only arm
+carrying `exitCode`, so a signal kill can never read as exit 0 — and both the
+executor cap and the model-facing projection are reported as UTF-8
+omitted-byte counts. Execute-risk and approval-gated; a registered suspending
+tool, so it is storage-gated and excluded for the built-in local provider.
+Full contract: `docs/agents/code-execution.md`.
 
 ### `brainstrike.runSkillScript` tool
 
@@ -161,7 +221,7 @@ tools for project mutation.
 
 This package owns the retrieval-family **contract surface** — the zod input
 schemas (`RetrievalContextInputSchema`, `HybridSearchInputSchema` in
-`tools/schemas.ts`, both entries in `NATIVE_TOOL_INPUT_SCHEMAS`), the
+`src/tools/schemas.ts`, both entries in `NATIVE_TOOL_INPUT_SCHEMAS`), the
 `ContextPacker`, and the Workspace-Index availability helpers — but NOT the
 implementations. The live tools (`brainstrike.queryEmbeddingSpace`,
 `brainstrike.hybridSearch`) are the `run*` functions in
@@ -314,9 +374,9 @@ Tips for MCP integration:
     usage and errors. Use these metrics to tune prompts and identify  
     bottlenecks.
     
-- **Fallback behaviours**. Define how your tool should behave if a remote  
-    API fails or returns invalid data. Return a structured error via a  
-    `tool‑event` with status `error` rather than throwing uncaught exceptions.
+- **Failure behavior**. Remote API failure or invalid data must remain visible.
+    Return the tool contract's structured error rather than silently switching
+    providers, fabricating a result, or throwing an unclassified exception.
     
 - **User guidance**. Add helpful messages to your tools’ descriptions so  
     that the language model selects them appropriately and does not attempt to  
@@ -325,8 +385,8 @@ Tips for MCP integration:
 
 ## Contributing guidelines
 
-Coding agents will read this file and use it to automatically run commands and  
-verify their work[agents.md](https://agents.md/#:~:text=,t%20%22%3Ctest%20name). Humans should also follow these guidelines when  
+Coding agents read this file to select package-local commands and contracts.
+Humans should also follow these guidelines when
 contributing:
 
 1. **Stay within scope**. Avoid coupling this package to unrelated parts of  

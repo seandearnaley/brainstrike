@@ -1,3 +1,18 @@
+import {
+  __resetBackgroundIndexingPreferencesStoreForTests,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { __resetImportSettingsStoreForTests } from '@brainstrike/app-state/stores/import-settings-store';
+import {
+  __resetModelRegistryStoreForTests,
+  useModelRegistryStore,
+} from '@brainstrike/app-state/stores/model-registry-store';
+import { __resetTokenPreferencesStoreForTests } from '@brainstrike/app-state/stores/token-preferences-store';
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+  useVectorStatusUIStore as useVectorStatusUIStoreDirect,
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { EmbeddingSet } from '@brainstrike/db';
 import {
@@ -5,19 +20,6 @@ import {
   registerEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
-import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  __resetImportSettingsStoreForTests,
-  __resetTokenPreferencesStoreForTests,
-  __resetVectorStatusUIStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences';
-import {
-  __resetModelRegistryStoreForTests,
-  useModelRegistryStore,
-} from '@brainstrike/preferences/stores/model-registry-store';
-import { useVectorStatusUIStore as useVectorStatusUIStoreDirect } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
 import { SearchEmbedderProvider, setActiveEmbeddingSetId } from '@brainstrike/vector-management';
@@ -27,11 +29,18 @@ import React, { type ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectionActions } from '../context-actions';
 import { DatabaseDemoPanel as DatabaseDemoPanelImplementation } from '../database-demo-panel';
-import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
+import {
+  __resetImportActivitySnapshotForTests,
+  publishImportActivitySnapshot,
+} from '../import-activity-snapshot';
+import {
+  __resetDatabaseDemoStoreForTests,
+  useDatabaseDemoStore,
+} from '../stores/database-demo-store';
 
 // Helper to wrap renders with TooltipProvider and the context-action registry
-// (CollectionBrowserView mounts the shared ActionContextMenu, whose
-// useActionRegistry throws without a provider).
+// (panel surfaces mount the shared ActionContextMenu, whose useActionRegistry
+// throws without a provider).
 const withProviders = (ui: React.ReactElement) => (
   <ActionRegistryProvider
     registry={createTestActionRegistry({ actions: collectionActions }).registry}
@@ -373,18 +382,11 @@ const { mockEnsureModelRegistry, mockUseLocalRuntimeEmbeddingModelCatalog } = vi
   };
 });
 
-vi.mock('@brainstrike/preferences', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
-  return {
-    ...actual,
-  };
-});
-
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: mockEnsureModelRegistry,
 }));
 
-vi.mock('@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog', () => ({
   useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
 }));
 
@@ -398,8 +400,8 @@ vi.mock('./csv-export-utils', () => ({
   generateFilesWithChunksCSV: vi.fn().mockReturnValue('file,chunks\ntest,file'),
 }));
 
-vi.mock('file-saver', () => ({
-  saveAs: vi.fn(),
+vi.mock('@brainstrike/utils/browser-download', () => ({
+  downloadBlobFile: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
@@ -449,45 +451,9 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   }),
 }));
 
-vi.mock('react-resizable-panels', () => {
-  const React = require('react');
-  return {
-    Group: ({
-      children,
-      onLayoutChange,
-    }: {
-      children: React.ReactNode;
-      onLayoutChange?: (sizes: number[]) => void;
-    }) => {
-      React.useEffect(() => {
-        if (onLayoutChange) {
-          onLayoutChange([75, 25]);
-        }
-      }, [onLayoutChange]);
-      return <div data-testid="panel-group">{children}</div>;
-    },
-    Panel: React.forwardRef(
-      (
-        {
-          children,
-          id,
-        }: {
-          children: React.ReactNode;
-          id?: string;
-          onCollapse?: () => void;
-          onExpand?: () => void;
-        },
-        _ref: React.Ref<unknown>
-      ) => <div data-testid={`panel-${id}`}>{children}</div>
-    ),
-    Separator: (props: React.HTMLAttributes<HTMLHRElement>) => (
-      <hr data-testid="resize-handle" {...props} />
-    ),
-  };
-});
-
 describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
+    __resetImportActivitySnapshotForTests();
     __resetDatabaseDemoStoreForTests();
     __resetModelRegistryStoreForTests();
     __resetBackgroundIndexingPreferencesStoreForTests();
@@ -609,7 +575,7 @@ describe('DatabaseDemoPanel', () => {
 
       // Model downloads emit setDownloadProgress per progress tick. The panel
       // only consumes models/providers/isLoading, so a tick must not commit a
-      // re-render of the entire collection-browser panel.
+      // re-render of the entire database panel.
       act(() => {
         useModelRegistryStore.getState().setDownloadProgress('jinaai/jina-embeddings-v3', 42);
       });
@@ -619,15 +585,25 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Basic Rendering', () => {
+    it('exposes Clear Database by name in a healthy expanded settings panel', async () => {
+      useDatabaseDemoStore.setState({ showSettings: true });
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(await screen.findByRole('button', { name: 'Clear Database' })).toBeInTheDocument();
+    });
+
     it('keeps a provider error detail visible when Error.message is empty', () => {
       const emptyMessageError = new Error('placeholder');
       emptyMessageError.message = '';
       dbProviderErrorMock.current = emptyMessageError;
+      useDatabaseDemoStore.setState({ showSettings: true });
 
       renderWithProviders(<DatabaseDemoPanel />);
 
       expect(screen.getByRole('alert')).toHaveTextContent('Database failed to initialize');
       expect(screen.getByTestId('db-init-error')).toHaveTextContent('Error');
+      expect(screen.queryByRole('button', { name: 'Clear Database' })).not.toBeInTheDocument();
       // The surface is named Collections (matching its Library tab); only the
       // engine-level error copy still speaks about the database itself.
       expect(screen.getByTestId('database-panel-loading-label')).toHaveTextContent(
@@ -635,7 +611,7 @@ describe('DatabaseDemoPanel', () => {
       );
     });
 
-    it('preserves one split-panel shell while the database repository initializes', async () => {
+    it('preserves one panel shell while the database repository initializes', async () => {
       useFileRecordRepositoryMock.mockReturnValue(null);
 
       const view = renderWithProviders(<DatabaseDemoPanel />);
@@ -655,7 +631,7 @@ describe('DatabaseDemoPanel', () => {
         '@[360px]:w-20',
         'w-7'
       );
-      expect(screen.getByTestId('database-panel-loading-top')).toHaveClass('flex-[38]');
+      expect(screen.getByTestId('database-panel-loading-top')).toHaveClass('flex-1');
       expect(screen.getByTestId('database-panel-loading-body')).toBeInTheDocument();
       expect(screen.getByTestId('database-panel-loading-actions')).toHaveClass('h-9');
 
@@ -686,12 +662,34 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.queryByTestId('mock-embedding-status-bar')).not.toBeInTheDocument();
     });
 
-    it('renders the collection browser view', async () => {
+    it('offers no import trigger of its own', async () => {
+      // BST-1212 gave importing exactly one entry point: the explorer's
+      // selection action bar, which is where the selection being imported
+      // lives. A second trigger here would be a second source of truth for the
+      // target collection, so guard the ruling where the panel is rendered
+      // rather than from an e2e assertion that a removed button is absent.
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
       });
+
+      expect(screen.queryByRole('button', { name: /^Import\s*\(/ })).not.toBeInTheDocument();
+    });
+
+    it('renders the primary panel without a collection browser tree', async () => {
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+
+      // Survivors: the collection picker + its actions still drive the tab.
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
+      // The retired browser tree and its search bar are gone.
+      expect(screen.queryByTestId('collection-tree-region')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /hybrid search/i })).not.toBeInTheDocument();
     });
 
     it('publishes and clears desktop test hook snapshots in test mode', async () => {
@@ -701,30 +699,40 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(window.__brainstrikeDatabaseDemoTestHooks__).toBeDefined();
-        expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__).toBeDefined();
       });
 
+      // The panel runs no imports of its own, so it reports idle until the
+      // surface that does (the explorer's selection bar) publishes.
       expect(window.__brainstrikeDatabaseDemoTestHooks__?.getImportSnapshot()).toEqual(
         expect.objectContaining({
           activeCollectionId: TEST_COLLECTION_ID,
           isImporting: false,
-          selectedFileCount: 1,
+          progress: null,
+          selectedFileCount: 0,
         })
       );
-      expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__?.getSnapshot()).toEqual(
+
+      publishImportActivitySnapshot({
+        progress: {
+          completed: 2,
+          current: '/workspace/b.ts',
+          errors: [],
+          phase: 'importing',
+          total: 5,
+        },
+        selectedFileCount: 5,
+      });
+      expect(window.__brainstrikeDatabaseDemoTestHooks__?.getImportSnapshot()).toEqual(
         expect.objectContaining({
-          error: null,
-          firstResultNodeId: null,
-          hasSearched: false,
-          isSearching: false,
-          resultCount: 0,
+          progress: expect.objectContaining({ completed: 2, phase: 'importing', total: 5 }),
+          selectedFileCount: 5,
         })
       );
+      __resetImportActivitySnapshotForTests();
 
       view.unmount();
 
       expect(window.__brainstrikeDatabaseDemoTestHooks__).toBeUndefined();
-      expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__).toBeUndefined();
       window.desktopLifecycle = undefined;
     });
 
@@ -734,14 +742,11 @@ describe('DatabaseDemoPanel', () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        // Trigger button's aria-label is dynamic — "Expand hybrid search" /
-        // "Collapse hybrid search" — so match by a case-insensitive regex
-        // covering both expanded and collapsed states.
-        expect(screen.getByRole('button', { name: /hybrid search/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
       });
 
       expect(screen.queryByText('No collection selected')).not.toBeInTheDocument();
-      expect(screen.getByText(/Create or select a collection/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
     });
 
     it('defers runtime model catalog loading until collection creation', async () => {
@@ -897,7 +902,7 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('File Import', () => {
-    it('disables manual import when the active collection is managed by background indexing', async () => {
+    it('explains why manual import is unavailable when the active collection is background-indexed', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
         hasHydrated: true,
@@ -908,14 +913,11 @@ describe('DatabaseDemoPanel', () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+        expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
       });
-
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
-      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
     });
 
-    it('disables manual import when the loaded active collection is the managed collection', async () => {
+    it('explains why manual import is unavailable when the loaded active collection is the managed one', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
         hasHydrated: true,
@@ -944,14 +946,11 @@ describe('DatabaseDemoPanel', () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+        expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
       });
-
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
-      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
     });
 
-    it('clears an active workspace index and keeps manual import unavailable', async () => {
+    it('clears an active workspace index without showing the managed-collection notice', async () => {
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {
           category: null,
@@ -995,49 +994,22 @@ describe('DatabaseDemoPanel', () => {
         expect(useVectorStatusUIStoreDirect.getState().activeEmbeddingSetId).toBeNull();
       });
 
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
       expect(screen.queryByText(/manual db imports are disabled/i)).not.toBeInTheDocument();
     });
 
-    it('attempts to call import function when import button is clicked', async () => {
-      const user = userEvent.setup();
+    it('offers no import trigger — importing is driven from the explorer selection bar', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+        expect(screen.getByTestId('database-panel-actions')).toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /^Import\s*\(/ });
-      await user.click(importButton);
-
-      // The component should attempt to call import, even if it fails due to missing adapters
-      // Since we're mocking the enhanced file import service, it should at least try
-      // Let's verify the button was clicked and some action was taken
-      expect(importButton).toBeInTheDocument();
-
-      // Check that a toast was called (either success or error)
-      expect(mockToast).toHaveBeenCalled();
-    });
-
-    it('shows toast when import fails due to missing adapters', async () => {
-      const user = userEvent.setup();
-      renderWithProviders(<DatabaseDemoPanel />);
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
-      });
-
-      const importButton = screen.getByRole('button', { name: /^Import\s*\(/ });
-      await user.click(importButton);
-
-      // The component should show an import error
-      // The actual error depends on setup, but import should fail
-      expect(mockToast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Import Failed',
-          variant: 'destructive',
+      expect(screen.queryByRole('button', { name: /^Import\s*\(/ })).not.toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('database-panel-actions')).queryByRole('button', {
+          name: /^Import/,
         })
-      );
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -1058,19 +1030,21 @@ describe('DatabaseDemoPanel', () => {
       const view = renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByText('loaded.txt')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
       });
 
       mockRecordLiveQueryResult.loading = true;
       view.rerender(withProviders(<DatabaseDemoPanel />));
 
-      expect(screen.getByTestId('collection-tree-region')).toHaveAttribute('aria-busy', 'false');
+      // Revalidation is a background state: no loading takeover, and only the
+      // Refresh affordance reflects the in-flight read. (`aria-busy` is not
+      // asserted here — the ready branch hardcodes `busy={false}`, so the
+      // check could never fail and would only look like coverage.)
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
-      expect(screen.getByText('loaded.txt')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
     });
 
-    it('loads file records and provides them to collection browser', async () => {
+    it('loads file records for the primary panel', async () => {
       const mockRecords = [
         {
           content: 'test content',
@@ -1090,7 +1064,6 @@ describe('DatabaseDemoPanel', () => {
 
       renderWithProviders(<DatabaseDemoPanel />);
 
-      // The panel renders and provides data to CollectionBrowserView
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
       });
@@ -1197,7 +1170,7 @@ describe('DatabaseDemoPanel', () => {
       expect(within(footer).queryByRole('button', { name: /Help/ })).not.toBeInTheDocument();
     });
 
-    it('keeps Export, Import, and Embeddings actions in the footer (not the toolbar)', async () => {
+    it('keeps Export and Embeddings actions in the footer (not the toolbar)', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
@@ -1209,9 +1182,7 @@ describe('DatabaseDemoPanel', () => {
       expect(footer).toHaveClass('@container/database-actions');
       expect(footerRow).toHaveClass('h-9', 'justify-center');
       expect(within(footerRow).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
-      expect(within(footerRow).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       expect(within(footerRow).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();
-      expect(within(footerRow).getByText('Import')).toHaveClass('hidden', '@[420px]:inline');
 
       const toolbar = screen.getByTestId('database-panel-toolbar');
       expect(within(toolbar).queryByRole('button', { name: /^Export$/ })).not.toBeInTheDocument();
@@ -1235,12 +1206,16 @@ describe('DatabaseDemoPanel', () => {
       );
     });
 
-    it('names the database split resize separator', async () => {
+    it('no longer renders the retired browser split separator', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+
       expect(
-        await screen.findByRole('separator', { name: 'Resize database panels' })
-      ).toBeInTheDocument();
+        screen.queryByRole('separator', { name: 'Resize database panels' })
+      ).not.toBeInTheDocument();
     });
   });
 

@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 /**
  * Minimal sync key/value interface compatible with Zustand's `createJSONStorage`

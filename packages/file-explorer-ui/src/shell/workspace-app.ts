@@ -1,9 +1,11 @@
 import type { ComponentType, ReactNode } from 'react';
 
 /**
- * A WorkspaceApp is a pinned, non-closable surface that lives in the workspace tab strip
- * alongside dynamic file tabs. It is the extensibility seam for plugging additional
- * "apps" (e.g. graph viewers, schedulers) into the editor area in the future.
+ * A WorkspaceApp is a closable SINGLETON surface that lives in the workspace tab
+ * strip alongside dynamic file tabs (BST-1258): at most one tab per app, opening
+ * an open app activates it, closing reveals the launcher when nothing remains.
+ * It is the extensibility seam for plugging additional "apps" (e.g. graph
+ * viewers, schedulers) into the workspace in the future.
  */
 export interface WorkspaceApp {
   /** Lucide-compatible icon component rendered in the tab strip. */
@@ -26,3 +28,11 @@ export interface WorkspaceApp {
 }
 
 export const CONTEXT_EXPLORER_APP_ID = 'context-explorer';
+/**
+ * Registry ids for the optional workspace apps. `WorkspaceApp.id` doubles as a
+ * DOM id and a persistence key (`openAppIds`), so renames must be type errors,
+ * not string drift that quietly accumulates in persisted state.
+ */
+export const CHANGES_APP_ID = 'changes';
+export const CANVAS_APP_ID = 'canvas';
+export const TERMINAL_APP_ID = 'terminal';

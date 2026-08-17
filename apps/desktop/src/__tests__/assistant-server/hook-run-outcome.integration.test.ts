@@ -18,9 +18,9 @@
 
 // Real repository (schema bootstrap + the renderer-side recordRunOutcome used
 // for the user-precedence half of the contract). Imported via app-shell's
-// narrow `./assistant-memory-repository` subpath, same convention as
+// assistant-data package, the same convention as
 // run-usage-live-loop.integration.test.ts; placement is interim per R04 (BST-984).
-import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
+import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
@@ -35,10 +35,10 @@ interface OutcomeRow {
 }
 
 async function readOutcome(db: Awaited<ReturnType<typeof wasmLoader.createPGlite>>, runId: string) {
-  const result = await db.query<OutcomeRow>(
+  const result = (await db.query(
     'SELECT thread_id, resource_id, verdict, source, detail FROM brainstrike_assistant_run_outcomes WHERE run_id = $1',
     [runId]
-  );
+  )) as { rows: OutcomeRow[] };
   return result.rows;
 }
 

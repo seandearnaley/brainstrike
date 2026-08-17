@@ -1,3 +1,4 @@
+import type { ContextTarget } from '@brainstrike/context-actions';
 import {
   bridgeActionToCommand,
   type Command,
@@ -7,8 +8,7 @@ import {
   createCommandRegistry,
   createGlobalCommands,
   type GlobalCommandHandlers,
-} from '@brainstrike/commands';
-import type { ContextTarget } from '@brainstrike/context-actions';
+} from '@brainstrike/context-actions/commands';
 import {
   type AppActionRegistryParts,
   buildAppActionRegistryParts,

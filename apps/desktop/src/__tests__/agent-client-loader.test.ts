@@ -15,14 +15,14 @@ describe('agent-client-loader', () => {
     module.clearCachedAgentClient();
 
     if (ORIGINAL_TEST_MODE === undefined) {
-      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      // must truly unset env var, not assign "undefined"
       delete process.env['BRAINSTRIKE_AGENT_TEST_MODE'];
     } else {
       process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = ORIGINAL_TEST_MODE;
     }
 
     if (ORIGINAL_VITEST === undefined) {
-      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      // must truly unset env var, not assign "undefined"
       delete process.env['VITEST'];
     } else {
       process.env['VITEST'] = ORIGINAL_VITEST;
@@ -137,7 +137,7 @@ describe('agent-client-loader', () => {
   describe('shouldForceFallback paths', () => {
     it('falls back when BRAINSTRIKE_AGENT_TEST_MODE=1 alone', async () => {
       process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = '1';
-      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      // must truly unset env var, not assign "undefined"
       delete process.env['VITEST'];
 
       const module = await import('../agent-client-loader');
@@ -149,7 +149,7 @@ describe('agent-client-loader', () => {
     });
 
     it('falls back when VITEST=true alone', async () => {
-      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      // must truly unset env var, not assign "undefined"
       delete process.env['BRAINSTRIKE_AGENT_TEST_MODE'];
       process.env['VITEST'] = 'true';
 

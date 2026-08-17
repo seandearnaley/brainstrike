@@ -2,6 +2,121 @@
 
 > Extracted from AGENTS.md (2026-07-12). Read before adding migrations, models, PGlite construction sites, or touching browser bootstrap. Keep updated with the code.
 
+## QUERY TELEMETRY BOUNDARY
+
+Database performance instrumentation uses the typed, memory-only collector in
+`packages/db/src/database-query-telemetry.ts`. Feature ownership is declared at
+the call site; never classify queries by parsing SQL or parameters. Producers
+may record duration/failure counts, live subscription/update counts, and token
+lookup/hit totals only. SQL, parameters, rows, paths, filenames, queue names,
+and content are prohibited. The collector rejects unsupported runtime record
+keys and materializes retained samples from an explicit field allowlist, so an
+untyped caller cannot smuggle caller data into the in-memory buffer.
+Per-feature query arrivals use their own bounded rolling count buckets, separate
+from the capped duration samples used for percentiles. `queryCount` and
+`queriesPerMinute` therefore report bounded-bucket rolling executions above the
+sample cap, while top-level `sampleCount` reports retained percentile inputs and
+`droppedSampleCount` exposes overflow. Failure counts and token lookup/hit totals
+use the same exact rolling bucket model; none of those totals are reconstructed
+from the capped percentile samples. Overflow is attributed to the evicted
+sample's occurrence time so it expires with that sample, not with the later query
+that forced the eviction.
+`docs/diagnostics-privacy-contract.md` is the cross-cutting privacy authority.
+
+The in-renderer live-query scheduler and Electron live-query bridge both wrap
+creation/refresh and listener lifecycle; the single embedding queue poller wraps
+its stats read. The production `@brainstrike/token-cache` store exposes a narrow
+lookup telemetry port that the file-explorer composition layer wires to this
+collector, avoiding a package dependency back to `@brainstrike/db`. File-record
+read methods report the coarse `file-tree` feature, including full and
+metadata-only managed-cache listings on both repository implementations. Keep
+these seams and their paired tests aligned when a query path moves.
+Folder-wide token-cache preloads record duration and failure with zero lookup and
+hit counts, because they are population reads rather than cache-hit decisions.
+
+`createScheduledLiveQueryHandle` OWNS its terminal state; it does not inherit it
+from the raw PGlite handle. The scheduled handle admits exactly one listener,
+releases that local ownership on the first teardown attempt, treats repeated
+unsubscribe as idempotent, and rejects later subscribe or refresh calls on the
+released handle; a caller that wants to continue must create a fresh live-query
+handle. Do not add same-handle retry or reactivation semantics.
+
+The upstream fact that justifies "no retry" is narrower than it once read here,
+and it did NOT change in the 0.5.5 bump (BST-1283): PGlite's `unsubscribe`
+detaches the callback and latches `dead = true` SYNCHRONOUSLY, before it awaits
+the teardown transaction. So a rejected teardown still leaves the listener
+detached and the raw handle permanently dead — upstream itself offers no retry,
+and the wrapper's own `active = false`-before-await mirrors that exactly. What
+0.5.5 DID change is the multi-listener case only: `unsubscribe(cb)` previously
+ran `callbacks.filter((callback) => callback !== callback)`, a shadowed
+parameter that made the predicate always false and so emptied the whole
+collection, terminalizing the handle for every listener. 0.5.5 fixes the shadow
+(`(cb) => cb !== callback`), so a handle with other listeners now stays live.
+Nothing in this repo subscribes twice to one handle, so that fix is inert here.
+
+The collector latches retention-clock failure per instance, logs the first
+producer failure, stops timer-driven publication, and
+publishes a stable explicit failed snapshot to `useSyncExternalStore` reads.
+Imperative `snapshot()` calls still throw the latched error.
+Count buckets use a boundary-inclusive bucket interval: a count can remain for
+up to one coarse bucket after its individual event crosses the strict duration-
+sample cutoff. A nonzero count with zero retained percentile inputs at that
+boundary is therefore expected.
+
+## DATABASE WORK SCHEDULER FAIRNESS
+
+`DatabaseWorkScheduler` is the single-process admission boundary around each
+PGlite host. Foreground work receives a 75 ms quiet window after its latest
+arrival, but that preference is bounded: once the background lane has been
+deferred for 250 ms, the scheduler admits exactly one background task before
+returning to foreground-first ordering. When foreground or normal work remains
+queued, at least one such task must be admitted before another background task
+can bypass it through the starvation rule. The wait clock restarts after each
+background admission, so the guarantee is one admission per bound, not a
+250 ms per-task latency ceiling. The clock restarts at admission even while the
+admitted task is running; the next forced background admission occurs only after
+both the bound has elapsed and the required foreground/normal turn has started.
+The wait clock and pending foreground-turn requirement both reset when every
+queue drains, so an idle scheduler never carries bypass debt into an unrelated
+workload. `forcedBackgroundAdmissionCount` records only starvation-rule
+admissions and is the authoritative diagnostic that the bound actually fired.
+Queueing behind multiple background tasks compounds those intervals; background
+consumers must be sized for bounded progress rather than a fixed completion
+deadline. This keeps embedding claims, completion writes, and background
+indexing live under continuous foreground polling without turning the
+background lane into an equal-priority queue.
+
+The windows are configurable through `backgroundStarvationMs` and
+`foregroundQuietMs` for deterministic tests and specialized hosts. The
+starvation bound must be positive and finite; the quiet window must be
+non-negative and finite. Invalid values throw rather than silently disabling or
+degrading either fairness rule. Fairness elapsed time uses a monotonic clock.
+Scheduler snapshots carry elapsed timestamps from that same clock origin so
+`DatabasePressureController` can age quiet and latency windows safely even over
+IPC, while wall-clock timestamps remain diagnostic only. Embedding-claim
+starvation bypass uses its renderer-local monotonic clock as well, so clock
+corrections cannot extend either admission layer. Scheduler wait and service
+metrics also use monotonic elapsed time; diagnostic wall-clock corrections must
+not distort pressure percentiles. Work admitted through the
+background lane must therefore be short and bounded. Long maintenance statements such as
+`VACUUM (ANALYZE)` may run only after the maintenance scheduler has established
+an idle database/queue state; do not use background priority as authority to run
+an unbounded maintenance statement.
+
+**Idle means SUSTAINED idle, not an instantaneous sample (BST-1333).** The DB
+host dispatches envelopes strictly serially and cannot preempt one, so a
+maintenance statement that runs for seconds blocks every renderer query behind
+it for its whole duration — a measured `VACUUM (ANALYZE) file_chunks` took
+**7.3s** and started in a momentary gap between the renderer's startup query
+bursts, which a point-in-time "is the scheduler busy right now?" check read as
+safe. `createDesktopDatabaseMaintenanceScheduler` therefore requires the work
+scheduler to have been *continuously* idle for `quietPeriodMs` (default 15s,
+observed via `subscribeToSchedulerSnapshots`) before a pass may begin, and
+`start()` seeds the window as busy so booting never counts as quiet. Skips are
+logged with reason `database-scheduler-recently-busy` and simply retry on the
+next interval — never widen this gate to "idle right now" for a statement whose
+duration is unbounded.
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.
@@ -9,6 +124,7 @@ Adding, removing, or renaming a supported AI model is a multi-layer change. Upda
 When changing the model catalog:
 1. Update the static registry (single source of truth):
    - packages/assistant-contract/src/provider-registry.ts
+   - Keep `PROVIDER_DEFINITIONS` as an array literal, each provider entry as an object literal, each provider's `models` property as an array literal, and each model entry as an object literal. `scripts/model-catalog-migration-contract.mjs` AST-parses those structural nodes; scalar provider/model fields may reference resolvable string constants.
 2. Add a numbered DB migration that upserts/deletes catalog rows, and register it in BOTH:
    - packages/db/src/migrations/index.ts (numbered MigrationRunner — used by tests)
    - the `customMigrations` ledger in packages/db/src/drizzle/migrate.ts (used by the real app)
@@ -16,14 +132,14 @@ When changing the model catalog:
 3. Preserve user choices on kept rows with `ON CONFLICT (id) DO UPDATE SET ... is_enabled = models.is_enabled`.
    - INVARIANT: never use `is_enabled = EXCLUDED.is_enabled` for a catalog refresh — it clobbers the user's toggle. Force on/off only for a deliberate (e.g. security) swap.
 4. Remap dropped IDs in the preference stores so persisted selections don't dangle:
-   - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
-   - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
+   - MODEL_ID_MIGRATIONS in packages/app-state/src/stores/assistant-model-id-migrations.ts (bump `ASSISTANT_PREFERENCES_STORE_VERSION` in `assistant-preferences-store-version.ts`)
+   - MEMORY_MODEL_TARGET_MIGRATIONS in packages/app-state/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
    - The guard canonicalizes discovered migration identifiers with
      `path.posix.join` so diagnostics and downstream checks are platform-neutral.
      Its version parser still accepts `/` or `\` for direct analyzer callers and
      fixtures, preventing Windows paths from misclassifying historical deletions
      as new remap obligations.
-5. Add any new `packages/db/__tests__/*.test.ts` to `dbUnitLaneDefinitions` in `packages/db/scripts/db-test-lane-manifest.mjs` — that is the ONLY registration needed. Both `test-lanes.mjs` (PR unit lanes) and `coverage-lanes.mjs` (nightly coverage lanes) import and derive from this single manifest: `buildDbCoverageLaneMap` resolves each test's coverage lane automatically from its unit lane via `coverageDefaultsByUnitLane`. Add an entry to `coverageOverridesByLane` only when a test needs a *different* coverage lane than its unit-lane default (e.g. build-hygiene tests like `runtime-import-extensions.test.ts` and compiler-only contracts like `migration-runner-types.test.ts` are unit-laned under `schema-migration` but overridden into the `architecture` coverage lane so they do not contend with PGlite-heavy migration tests). The one remaining manual step is introducing a brand-new *unit lane* (not just a new test in an existing one): it needs its own `coverageDefaultsByUnitLane` entry, and `buildDbCoverageLaneMap` fails LOUDLY — not silently — if that entry is missing. Verify: `node scripts/test-lanes.mjs check` and `node scripts/coverage-lanes.mjs check` (the Static job runs both on every PR; `packages/db/__tests__/db-test-lane-manifest.test.ts` also guards this in the regular unit-test run). This manifest unification is what structurally fixed the historical dual-registry drift that caused issue #1101 (registries independently maintained, one edited without the other) — that failure mode is no longer reachable for ordinary test additions.
+5. Add new `packages/db/__tests__/**/*.test.{ts,tsx}` files without a lane-registry edit. The `unit` Vitest project discovers that tree recursively; required Unit and nightly coverage both supply the complete `DB_TEST_SHARD=1/2` + `2/2` set to that project, where Vitest applies its native shard. The value is a DB-task environment input, never a Turbo CLI passthrough argument. Nightly rejoins Vitest blob reports with `--merge-reports`, so coverage is one native union rather than whichever serial lane wrote last. `scripts/__tests__/db-test-discovery-contract.test.mjs` pins the recursive include, browser exclusion, nested discovery, and a minimum 150-file floor, with mutations proving each assertion can fail. The former regex manifest and its two derived lane scripts were deleted in BST-1046; do not recreate a registration map for test placement.
 6. Every LLM model entry MUST declare `contextWindow` (and `maxOutputTokens` when documented) in
    packages/assistant-contract/src/provider-registry.ts — compile-enforced, static-registry-only
    (no DB migration). It drives the thread context meter and the auto-derived
@@ -39,6 +155,20 @@ When changing the model catalog:
    mirrored into the DB catalog: new model rows must include `"vision"` in the capabilities
    jsonb (migration 061 backfilled existing rows), and frontier-models-migration.test.ts fails
    if any LLM row is left without a vision value.
+
+### SAFE CATALOG ROLLBACK WITH LIVE USER DATA
+
+BrainStrike has no shipped production `down` path. The app applies only forward migrations through Drizzle's append-only `__drizzle_migrations` ledger; `MigrationRunner.down()` and its `_migrations` ledger are test-only. Never execute raw `down` SQL or edit the production ledger in an active local profile: the next startup can reapply the migration or continue from a schema the ledger falsely reports as current. A reviewed forward migration is the only sanctioned production recovery.
+
+Use this fail-closed procedure:
+
+1. Prefer a forward catalog migration that restores compatibility without deleting durable IDs. Treat any manual rollback as an exceptional developer/support investigation, not a supported app operation.
+2. Before an exceptional investigation, fully quit BrainStrike (all desktop processes or browser tabs/workers) to quiesce writes. On desktop, capture both `Documents/BrainStrike[-dev]/profiles/<profile>/pgdata` and the relevant Electron `userData` artifacts: Chromium renderer `localStorage` and `electron-storage.json`. On web, capture the origin's PGlite IndexedDB store and `localStorage`. Prove the complete clone can be restored into an isolated profile. BrainStrike does not ship a catalog-rollback backup command; if any required store or a verified restore is unavailable, stop.
+3. Inventory references in both storage systems. Query PGlite tables such as `models`, `brainstrike_assistant_thread_runs.model`, and `brainstrike_assistant_run_usage.model`, plus any additional model-ID columns found in the current schemas. Separately inspect `assistant-preferences.v1` in renderer `window.localStorage` on desktop and web. Inspect `assistant-memory-preferences.v1` through the Electron storage bridge (`electron-storage.json`) on desktop or browser `localStorage` on web. Include selected/current models, enabled and recent models, and observational-memory targets; record affected counts and representative IDs.
+4. Preserve historical run model text; do not rewrite conversation provenance to make a catalog change pass. If a present or future foreign key blocks deletion, design a forward migration that preserves or archives the referenced catalog identity; never disable the constraint or cascade-delete user history.
+5. Remap only mutable preference state to a supported replacement through the relevant preference-store migration contract and a store-version bump. Verify the replacement exists in the target catalog first.
+6. Rehearse the exact forward recovery against the isolated clone with the production Drizzle runner and its real ledger state. Tests may additionally exercise numbered-runner `down` then `up` behavior, but that is rollback verification—not a production deployment path. Keep the live profile untouched if any reference, constraint, reader, or ledger assertion fails.
+7. Apply only the reviewed forward migration through the production Drizzle runner. Afterward verify migration-ledger state, model-picker state, historical thread rendering, and a fresh assistant run; retain the pre-change clone through the next normal startup.
 
 ---
 
@@ -85,6 +215,219 @@ thread-deletion cleanup, and all three table-enumerating reset paths. Full
 contract: `docs/agents/assistant-persistence.md` § RUN ERROR PROVIDER
 FORENSICS.
 
+Migration 082 owns the FK-less `brainstrike_canvas_versions` ledger. Register
+it in both the numbered runner and Drizzle's append-only custom ledger, mirror
+its DDL in the renderer-lazy assistant bootstrap, and keep thread-delete plus
+factory-reset ownership explicit. A Canvas document is the rows sharing one
+app-side uuidv7 `canvas_id`; greatest `version` is current. Full contract:
+`docs/agents/assistant-persistence.md` § CANVAS DOCUMENT VERSIONS.
+
+Migration 083 owns the FK-less `brainstrike_tool_call_telemetry` ledger for
+durable model-facing per-tool counts and sizes. Register it in both migration
+runners and the reset/thread-delete registries. Mirror its DDL in the renderer-
+lazy assistant bootstrap: although only the migrated desktop main-process
+assistant server writes rows, the renderer repository's thread-delete CTE
+references every registered sidecar unconditionally. Rows contain only thread/
+run/tool ids, timestamps, numeric sizes, and booleans; raw tool inputs and
+outputs are prohibited. Migration 074's default-privilege grant makes the
+later-created table readable by the `brainstrike.querySelf` sandbox role.
+The primary key uses `crypto.randomUUID()` (matching the sibling
+`brainstrike_assistant_run_usage` writer), not a uuidv7 — this table is a
+net-new counters ledger outside any sync-related rework, so AGENTS.md's
+uuidv7-groundwork carve-out does not apply.
+
+**Substrate split (migration 092, BST-1247):** `truncated` means exactly
+"model-facing output was clipped". Substrate degradation lives in its own
+columns — `engine` (live-pass engine for search tools: 'ripgrep' | 'js-walk'
+| 'skipped'; NULL for non-search tools and all pre-092 rows), `scan_limited`,
+and `candidates_truncated` — populated by the desktop writer from flags the
+search results already carry. The pre-split OR fold made the
+`self-improvement-signal` waste ranking blame the model for the BST-1246
+ripgrep degradation (94-100% "truncation" that was mostly the capped JS-walk
+fallback). Pre-092 rows are acknowledged-ambiguous: their `truncated` keeps
+the old folded meaning, is NOT backfilled, and ages out of the lens's 24h
+window; `engine IS NULL` marks them. The lens excludes degraded calls from
+`truncation_hit_rate`/`zero_match_rate` and reports
+`substrate_degraded_rate` separately
+(`packages/db/__tests__/search-lens-self-improvement-signal.test.ts` pins
+this).
+
+**Retention (BST-1198, closes the BST-1190 deferral):** rows older than 60
+days are pruned by the existing scheduled-database-maintenance mechanism —
+`runScheduledDatabaseMaintenance` in
+`packages/db/src/services/scheduled-database-maintenance.ts`, the same
+idle-triggered pass that runs the #1716 plain `ANALYZE` sweep for
+`file_records`/`embedding_cache`, the `VACUUM (ANALYZE)` sweep that includes
+`file_chunks`, and the terminal-job prune. No
+new scheduler or timer was added, but retention did require one small
+migration:
+- `DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS` (60 days) is
+  the default; callers may override it via
+  `ScheduledDatabaseMaintenanceOptions.toolCallTelemetryRetentionMs`, resolved
+  and validated (non-negative) on every pass, like the sibling job-queue
+  options.
+- Migration 083's `brainstrike_tool_call_telemetry_tool_time_idx` is
+  `(tool_id, occurred_at DESC)` — `tool_id`-leading, so it cannot serve a bare
+  `occurred_at` range predicate as an index scan; both retention deletes
+  filter on `occurred_at` alone. **Migration 085** (version 84 is skipped —
+  claimed by the still-open BST-1192 PR #2333) adds a dedicated
+  `brainstrike_tool_call_telemetry_occurred_at_idx` on `occurred_at` so the
+  guard probe and both deletes below are real index scans, not sequential
+  scans of the whole table. Registered in both migration runners and mirrored
+  in the renderer-lazy assistant bootstrap DDL
+  (`packages/assistant-data/src/assistant-memory-repository.ts`), same as 083.
+- Idle passes (`status: 'completed'`) run a full, unbounded-by-count
+  age-DELETE — the same shape as `pruneTerminalJobs`.
+- Passes while the job queue is active (`status: 'partial'`) first run a
+  cheap `SELECT EXISTS (...)` guard probe on `occurred_at` (an index scan that
+  stops at the first match); only when it finds an expired row does an
+  `activePruneLimit`-bounded age-DELETE run, `ORDER BY occurred_at ASC` so an
+  over-limit backlog evicts oldest-first — the same oldest-first shape as
+  `DiagnosticEventsRepository.purge()`. The guard exists because the common
+  case on a ~10-minute tick is that nothing is expired yet, and without it
+  every tick would still pay for planning/running the bounded DELETE for zero
+  deletions. This still bounds telemetry growth while a long-running backfill
+  keeps the job queue busy, for the same reason job rows once needed it.
+- `brainstrike_tool_call_telemetry` is in
+  `DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES` alongside `job_queue`, so the
+  idle path's `VACUUM (ANALYZE)` actually reclaims the dead tuples the idle
+  DELETE creates (PGlite has no autovacuum launcher — without this the table's
+  heap/index disk usage would keep growing at the same rate, just as dead
+  pages instead of live rows) and gives the `token-spend-by-tool` lens planner
+  fresh column statistics it previously never got. Only the active-queue path
+  defers `VACUUM` until idle; the idle path now genuinely runs it for both
+  tables.
+- The result's `prunedToolCallTelemetryRows` field reports the count for both
+  branches; the desktop scheduler logs it alongside `prunedTerminalJobs`.
+Paired tests: `packages/db/__tests__/scheduled-database-maintenance.test.ts`
+(`tool_call_telemetry retention (BST-1198)` describe block) proves old rows
+are pruned and newer rows survive on both the idle and active-queue paths,
+that the active-queue guard probe skips the DELETE when nothing is expired,
+that an over-limit active-queue backlog evicts oldest-first, that
+`brainstrike_tool_call_telemetry` is VACUUMed on the idle path, and that the
+`token-spend-by-tool` lens output for an in-window query is unaffected by
+pruning outside that window. Migration coverage:
+`packages/db/__tests__/migration-085-tool-call-telemetry-occurred-at-index.test.ts`
+(index created on both runners; a forced-seqscan-off `EXPLAIN` probe proves
+the bare `occurred_at` predicate resolves to an index scan on it).
+
+Migration 086 owns the FK-less
+`brainstrike_token_estimate_calibration` ledger. Each row stores a durable,
+model/provider-attributed run-end pair of `estimated_prompt_tokens` and
+`final_step_prompt_tokens`; the desktop writer derives `thread_id` from
+the existing `run_id` with `INSERT ... SELECT` rather than trusting a carried
+thread id. Rows contain numbers, ids, model/provider strings, and timestamps
+only—never message content, tool content, prompts, file paths, or command text.
+The table is registered in both migration runners, the shared factory-reset
+registry, and the thread-delete sidecar list. Its DDL is mirrored in the
+renderer-lazy assistant bootstrap because that repository references every
+sidecar unconditionally even though desktop main owns normal writes.
+
+Scope is intentionally explicit. The numerator, `estimated_prompt_tokens`, is
+`RunTokenDiagnostics`'s chars/4 backstop over model-visible tool-output
+projections plus tool definitions, each counted once. The denominator,
+`final_step_prompt_tokens`, is the single latest step's prompt count, which
+already contains every prior tool output once via Mastra's resend behavior—not
+the cross-step accumulated billing total. Both figures are comparable over the
+same final-prompt-content basis; conversation/system-prompt text outside tool
+outputs and definitions is excluded from both. Only completed runs with at
+least one measured tool output persist a row.
+
+Migration 089 adds nullable positive domain/transport resolved-budget token
+columns. New calibration rows persist the concrete run tier; historical rows
+remain NULL because backfilling an anchor would fabricate evidence. The
+renderer-lazy bootstrap mirrors both the fresh final shape and idempotent
+`ADD COLUMN IF NOT EXISTS` upgrade seam. Its ordinal column order matches the
+migrated path: migration 086's trailing `occurred_at` precedes the two columns
+migration 089 appends. The estimator lens groups by model plus both tier
+columns.
+
+Migration 091 adds nullable positive `prompt_baseline_tokens`, the same run's
+prompt-composition total of system instructions, task list, and tool
+definitions. The next turn's pre-request compaction trigger reads the newest
+thread-scoped calibration row because that baseline is not yet available when
+compaction runs. Historical rows remain NULL rather than receiving fabricated
+prompt evidence. This is an additive FK-less ledger extension registered in
+both migration runners and mirrored in the renderer-lazy bootstrap's fresh
+table shape plus its idempotent `ADD COLUMN IF NOT EXISTS` upgrade seam. It
+inherits the calibration table's existing 60-day retention and
+`occurred_at`-leading maintenance path; no new retention logic or privacy
+surface is introduced.
+
+The least-new-mechanism seam is a standalone table modeled on migration 083.
+Both figures already meet in the agent/main-process stream before the existing
+desktop persistence wrapper. Extending
+`brainstrike_assistant_run_usage` would require transporting the agent-only
+diagnostic backstop into its renderer-side `handleUsage` writer, adding a new
+process-boundary mechanism without improving attribution or fidelity.
+
+Retention exactly mirrors tool-call telemetry: rows older than 60 days are
+pruned unbounded on idle passes and oldest-first in bounded batches while the
+job queue is active, with a cheap expired-row guard probe. Migration 086 ships
+the `occurred_at`-leading index from the start plus a `thread_id` index for the
+thread-delete sidecar predicate, and idle maintenance includes the table in
+`VACUUM (ANALYZE)`. Factory reset clears the evidence while normal
+restarts retain it. Paired tests cover agent emission/omission, desktop
+run/thread attribution in real PGlite, migration/reset/bootstrap parity,
+60-day maintenance, and the checked-in `estimator-calibration.sql` lens golden
+path through `parseLensFile`, `coerceLensValues`, and `AgentSqlService.query`.
+
+Migration 084 owns the FK-less
+`brainstrike_assistant_tool_projection_rewrites` overlay used by BST-1192's
+transient stale-read replay processor. Register it in both migration runners,
+the reset registry, all three table-enumerating clear paths, and the shared
+thread-delete sidecar list. Mirror its final schema in renderer lazy
+assistant bootstrap because that repository's delete CTE references every
+sidecar unconditionally even though desktop main owns normal writes. Durable
+Mastra message content is never mutated. Migration 087 adds the
+supersession/prune discriminator and nullable superseder used by BST-1200's
+recency pruning; both the migration ledger and bootstrap mirror carry the final
+shape. Supersession rewind recovery remains the processor's current-prompt
+superseder-presence check, while prune rows remain active whenever their own
+call is visible. Full contract:
+`docs/agents/assistant-persistence.md` § STALE TOOL-PROJECTION REWRITE OVERLAYS.
+
+Migration 088 owns the FK-less
+`brainstrike_assistant_compaction_ranges` overlay used by BST-1200 Milestone
+2's durable conversation summaries. Persist an exact ordered JSONB set of
+compacted message IDs rather than interpreting opaque client/UUIDv4 message IDs
+as sortable range keys. Register it in both migration runners, the reset
+registry, all three table-enumerating clear paths, and the shared thread-delete
+sidecar list. Mirror the final schema in renderer lazy assistant bootstrap for
+the same unconditional thread-delete-CTE reason as migration 084. The overlay
+processor derives liveness from the summary message's presence in Mastra's
+already-tombstone-filtered ID-bearing input-step message list; neither raw
+Mastra content nor rewind state is mutated.
+
+Migration 090 widens `brainstrike_assistant_run_usage.run_kind` to admit
+`compaction-summary`, the provider-exact auxiliary summarizer call attributed
+under its parent run. Register the constraint replacement in both migration
+runners and keep the renderer-lazy bootstrap CHECK aligned; adding only the
+TypeScript union makes real PGlite inserts fail. The numbered migration must
+replace migration 077's existing same-name CHECK and therefore uses
+main-process-only `DROP CONSTRAINT` + `ADD CONSTRAINT`. The renderer-reachable
+bootstrap must never emit that destructive statement: it installs the final
+constraint only when the catalog says it is absent, because `db:exec` rejects
+renderer schema drops.
+
+Migration 095 owns the FK-less `brainstrike_assistant_thread_workspaces`
+sidecar (BST-1268): one row per thread (`thread_id` PK) holding that thread's
+saved workspace as a versioned JSONB `payload` (open app/file tabs, editor
+view state, per-root tree expansions, root view). Register it in both
+migration runners, the shared factory-reset registry, and the thread-delete
+sidecar list, and mirror its DDL in the renderer-lazy assistant bootstrap —
+the renderer coordinator is the sole writer, and the thread-delete CTE
+references every registered sidecar unconditionally. The payload is repaired
+section-wise on read by `coerceWorkspaceSnapshot` (unknown versions fall back
+to the empty snapshot; expansion lists are capped shallowest-first), so schema
+evolution happens in the payload version, not in DDL churn. Rows contain
+workspace file paths and tab ids; message content, prompts, and file contents
+are prohibited. Paired pins:
+`packages/assistant-data/src/__tests__/thread-workspace-contract.test.ts`
+(migration↔bootstrap CREATE TABLE shape parity, sidecar-list membership,
+reset-registry membership) plus the pinned counts in
+`packages/db/__tests__/reset-table-registry.test.tsx`.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the
@@ -95,17 +438,74 @@ extension control file" error on that path only:
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
 - `pg_textsearch` (BM25 index AM, from
   `@electric-sql/pglite-pg_textsearch`) is a fail-closed, version-qualified
-  runtime dependency. The compatible package family is pinned together:
-  `@electric-sql/pglite@0.5.3`,
-  `@electric-sql/pglite-pgvector@0.0.4`, and
-  `@electric-sql/pglite-pg_textsearch@0.0.4`, whose bundled extension reports
-  exactly `pg_textsearch 1.2.0`. Do not independently bump one member.
+  runtime dependency. The compatible package family is pinned together in ONE
+  place, the `catalog:` block of `pnpm-workspace.yaml`:
+  `@electric-sql/pglite@0.5.5`,
+  `@electric-sql/pglite-pgvector@0.0.6`, and
+  `@electric-sql/pglite-pg_textsearch@0.0.7`, whose bundled extension reports
+  exactly `pg_textsearch 1.3.1`. The literal triple is enforced by
+  `packages/db/__tests__/migration-066-restore-pg-textsearch.test.ts`; keep this
+  paragraph in step with it. Do not independently bump one member — this
+  is not just a peerDependency lint warning: BST-1063 verified empirically
+  that constructing `new PGlite()` with pglite core 0.5.4 and a held-back
+  `pglite-pg_textsearch@0.0.4` (built against core 0.5.3) throws "PGlite
+  failed to initialize properly" outright, before any SQL runs. The family
+  moves as one unit or not at all.
   pg_textsearch 1.3.x introduced a persisted paged-memtable design and 1.3.1
-  produced invalid BM25 page chains during real `file_chunks` updates.
+  produced invalid BM25 page chains during real `file_chunks` updates when
+  qualified against pglite-pg_textsearch@0.0.5 — that finding quarantined
+  1.3.1 in migration 065/066. BST-1063 re-qualified the *same* extension
+  version 1.3.1 as now bundled by pglite-pg_textsearch@0.0.6 (the PGlite
+  0.5.4 bump left no lower-numbered pg_textsearch option): 6/6 durability-gate
+  runs clean (5 default-config + 1 heavier stress config) plus 3/3 clean
+  trials of the existing-user upgrade path (a BM25 index created under
+  pglite-pg_textsearch@0.0.4/extversion 1.2.0, reopened and further
+  written/read/VACUUMed under the 0.0.6/1.3.1 binary — extversion stayed
+  '1.2.0' in the catalog with no `ALTER EXTENSION UPDATE`, and the index
+  stayed valid throughout). All of that evidence is macOS arm64 only; no CI
+  lane exercises this opt-in gate on any platform, so Linux and Windows
+  remain unproven for this specific engine version. See
+  `packages/db/src/pg-textsearch-compatibility.ts` for the qualification
+  record.
+
+  That 1.3.1 qualification CARRIES FORWARD across the BST-1283 bump to
+  0.5.5/0.0.6/0.0.7 without a re-run, because both extension bumps are pure
+  peer-pin re-releases: unpacking the published tarballs and diffing the inner
+  payloads shows `pg_textsearch.so`, `pg_textsearch.control`, every versioned
+  `.sql`, and the pgvector equivalents are BYTE-IDENTICAL to 0.0.6/0.0.5; the
+  only delta in either package is its own `version` and its exact
+  `@electric-sql/pglite` peer (0.5.4 → 0.5.5). `default_version` stays
+  `1.3.1`, so `QUALIFIED_PG_TEXTSEARCH_VERSION`, `PGLITE_DATA_DIR_VERSION`
+  (`pg18`), and `BUNDLED_PG_MAJOR` (`18`) are all unchanged and no data-dir
+  migration is implied. Re-derive this the same way before assuming it of a
+  FUTURE bump — an extension release that actually rebuilds the binary does
+  need the gate re-run on the terms this section sets out.
+
+  **The guard protects greenfield installs only — RESOLVED BY RULING
+  (BST-1081, Canceled 2026-08-02): Brainstrike is a greenfield app with no
+  existing installs, so greenfield is the entire population.** The structural
+  facts stand: migration 066's Drizzle ledger key is a fixed string literal
+  (never re-runs for an already-migrated database), nothing calls
+  `ALTER EXTENSION UPDATE`, and no runtime code compares the catalog's
+  extversion against the loaded binary. They simply have nobody to affect —
+  the first public build ships a 1.3.1 family (0.5.4 when this ruling was
+  written; 0.5.5 since BST-1283 — the same 1.3.1 binary either way), so every
+  install that will ever exist runs migration 066 under it. Pre-bump
+  DEVELOPMENT databases
+  are the one exception: they land in the 1.2.0-catalog/1.3.1-binary mixed
+  state after upgrading, which is accepted (3/3 clean upgrade-path trials;
+  the BM25 index is derived data) — if such a DB misbehaves in search, reset
+  it or drop/recreate `idx_file_chunks_content_bm25` rather than debugging
+  the mixed state. If an upgrade path from a pre-1.3.1 database is ever
+  shipped, BST-1081's analysis is the spec: `ALTER EXTENSION UPDATE` alone
+  relabels without reconciling index pages (the 1.2.0→1.3.0 upgrade SQL is
+  catalog-only), so the migration must also rebuild the index under the new
+  binary, backed by a committed existing-install test.
   Migration 065 always drops the historical index/extension first; migration
   066 recreates them only after checking
-  `pg_extension.extversion = '1.2.0'`. A package drift therefore aborts
-  migration visibly before BM25 writes begin. The production lexical arm
+  `pg_extension.extversion = '1.3.1'`. A package drift therefore aborts
+  migration visibly before BM25 writes begin **on a greenfield database**.
+  The production lexical arm
   matches through migration 034's generated tsvector + GIN index and orders
   those matches with the migration-066 BM25 index. `rankNormalization` remains
   in the public options type for compatibility but is inert because
@@ -124,6 +524,41 @@ extension control file" error on that path only:
   update the whole peer-compatible package family, pass repeated gate runs on
   every supported desktop platform, and pass the normal
   migration/repository regression suite.
+
+  **Recorded exception (BST-1063, 2026-08-01):** the 1.3.1 re-qualification
+  above shipped on macOS-arm64-only gate evidence, short of the "every
+  supported desktop platform" bar this paragraph states, because the PGlite
+  0.5.4 family leaves no lower-numbered pg_textsearch option to fall back to
+  — see the "family cannot be split" finding earlier in this section. Linux
+  and Windows qualification is owed under BST-1080. This exception covers
+  *platform coverage* only. (The existing-install gap that once also blocked
+  merge is resolved by the BST-1081 greenfield ruling recorded above.)
+
+  PGlite 0.5.4 also fixed Electron process detection to key off
+  `process.type` instead of `process.versions.electron` (upstream commit
+  `7e0d6d1`, PR electric-sql/pglite#1033): the previous guard treated
+  Electron's main and utility processes as non-Node, which could break
+  PGlite's filesystem path there. This lives entirely inside PGlite's own
+  bundled code (`IN_NODE` / `isElectronWebContext`) — Brainstrike has no
+  corresponding workaround in its own source to remove, and
+  `@brainstrike/platform-utils`' `detectPlatform()` is a separate,
+  UI-facing Electron/web classifier unrelated to PGlite's internal Node-FS
+  detection. What BST-1063 actually verified for the construction sites
+  below: the db package's full unit/integration suite (which exercises
+  `wasm-loader.ts` and the worker entries, including under `jsdom`) passed
+  clean post-bump, and a source read confirmed none of the four sites hardcode
+  a PGlite version string, so the bump propagates without code changes. What
+  it did **not** verify: `process.type` is only ever defined inside a real
+  Electron process — a Node or jsdom test run cannot set it, so no test in
+  that suite exercises the exact code path this upstream fix changes. Real
+  main-process host (`apps/desktop/src/db-main.ts`) launch verification under
+  actual Electron is still **owed**, not done — do not read the passing test
+  suite as covering this. The other three construction sites
+  (`pglite-worker-entry.ts`, `browser-first-run-bootstrap-worker.ts`,
+  `wasm-loader.ts`) are worker/renderer hosts where `process.type` is also
+  never `'browser'` (Electron main), so they were never the code path this
+  fix targets in the first place; their coverage by the passing unit suite is
+  real and sufficient.
 - `live` (client-side reactive queries — loaded everywhere EXCEPT the two live-less worker hosts: `pglite-worker-entry.ts`, where the PGliteWorker client installs it, and `browser-first-run-bootstrap-worker.ts`, whose short-lived bootstrap instances serve no reactive queries)
 
 Construction sites (keep in sync when adding extensions or new sites):
@@ -134,6 +569,74 @@ Construction sites (keep in sync when adding extensions or new sites):
 
 Tests that construct PGlite directly and run migrations must also pass the full
 extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.test.ts).
+
+### CLOSING a PGlite: drain first — an overlapping statement wedges it forever
+
+`PGlite.close()` (verified on the pinned 0.5.5) deactivates the WASM backend
+(`mod._pgl_setPGliteActive(0)`) **before** it awaits the shutdown protocol and
+`closeFs()`, and `_checkReady()` only guards *entry*. A statement still in
+flight at that moment enters `execProtocolRawSync`'s **synchronous** main loop
+against a dead backend: neither that statement nor `close()` ever settles, and
+because the spin is synchronous WASM the **event loop is blocked** — no timer,
+no `AbortSignal`, no `Promise.race` timeout can recover it. `SIGKILL` is the
+only exit.
+
+Any close path must therefore drain in-flight work first. This is not
+theoretical: it wedged a CI job to its 60-minute cancellation cap (BST-1320,
+diagnosis and the Mastra-free repro in `docs/agents/mastra-boundary.md`;
+upstream [electric-sql/pglite#1084](https://github.com/electric-sql/pglite/issues/1084)).
+App-path reachability was **audited by code reading (2026-08-16,
+BST-1329/BST-1330; not instrumented)**: desktop shutdown/factory reset cannot
+hit it as an event-loop wedge — every statement reaching the DB-host utility
+process is a serially dispatched envelope and `close()` runs only as the
+`'close'` envelope, so overlap is impossible *as long as `db-host-entry.ts`
+stays strictly serial*, and `DbHostManager` caps any in-host wedge at its 2s
+ack-race kill. The `'close'`/`'reset'` handlers drain live-query handles first
+(BST-1330). The reachable exposure is the **web direct path** — web factory
+reset and the DbProvider prod-unmount close, tracked as **BST-1329**.
+
+Drains mean **canonical join points only** — sleeps, `SELECT 1` flushes, and
+`Promise.race` timeouts are rejected (a narrowed window is silent degradation,
+and no timer can fire against the blocked event loop anyway). The sanctioned
+seams, per surface:
+
+- **Desktop (main process / DB host):** the reset barrier + scheduler idle
+  join in `apps/desktop/src/platform/desktop-database-work.ts` (the idle join
+  delegates to the shared `waitForDatabaseWorkSchedulerIdle` below), the
+  awaited live-subscription cleanup in
+  `apps/desktop/src/ipc-domains/db-ipc.ts`, and the in-host live-unsubscribe
+  in `db-host-entry.ts`'s `'close'`/`'reset'` handlers (BST-1330).
+  `resetDesktopDatabaseProfile` (`desktop-reset-platform.ts`) composes them:
+  barrier → unsubscribe → idle → unsubscribe again → reset.
+- **Web direct path (BST-1329):** `packages/db/src/db-reset-drain.ts` mirrors
+  those seams for the renderer-owned PGlite — a reset-barrier scheduler facade
+  (new submissions wait out an active reset; no browser `AsyncLocalStorage`,
+  so reset-internal statements MUST run on the raw connection, never the
+  scheduled handle), `waitForDatabaseWorkSchedulerIdle` over the renderer
+  `DatabaseWorkScheduler`'s `getSnapshot`/`subscribe`, and a provider-level
+  live-query drain registry that `usePGliteLiveQuery` unsubscribes route
+  through (PGlite's live refreshes have no scheduler entry to join — the
+  purge's own DELETEs trigger them). The web drain order is deliberately
+  **idle join FIRST, then seal, then unsubscribe** — the reverse of the
+  desktop's unsubscribe-first double-cleanup: the web barrier already blocks
+  new subscriptions (`live.query` is scheduler work), so nothing can attach
+  while the scheduler drains, and joining idle first means an idle-timeout
+  abort leaves every live handle alive and subscribed instead of silently
+  killing them all. Sealing the registry closes the tail where scheduler work
+  settled before idle but its handle registration lands after the drain's
+  snapshot: a sealed `register()` immediately initiates unsubscribe and the
+  drain joins those late unsubscribes before returning; a failed reset
+  unseals on barrier release. `DbProvider.resetPGliteState` therefore runs
+  barrier → idle → seal → unsubscribeAll → purge → close, and the prod
+  unmount close joins the in-flight initialization promise plus the same
+  idle → seal → unsubscribeAll drain before `closeDirectConnection`
+  (`connectionRef` is populated before `migrate()`, so unmount-mid-init is
+  otherwise a close under running migration statements). A failed idle join
+  aborts/skips the close loudly — never close over a drain you could not
+  complete; past the seal the close is committed and unsubscribe failures
+  warn and proceed. Pinned by
+  `packages/db/__tests__/db-reset-drain.test.ts`, the BST-1329 cases in
+  `factory-reset.test.tsx`, and `db-provider-lifecycle.test.tsx`.
 
 ### The test snapshot `globalSetup` lives on ONE project — do not hoist it
 
@@ -153,9 +656,10 @@ project only**. That setup runs the whole numbered-migration chain once and
   `inject('dbSnapshotPath')`, so that job would build and discard a fully
   migrated snapshot on every run.
 
-Note this is a **per-process** property: any flow that spawns several
-`vitest run` invocations (`coverage-lanes.mjs`, one per coverage lane) pays for
-one snapshot build per invocation regardless.
+Note this is a **per-process** property: each native DB shard is its own
+`vitest run` process and therefore builds one snapshot. The two required Unit
+rows and two nightly coverage rows run those processes on separate runners;
+within each process, the selected files share that one snapshot.
 
 **There is a second, correct declaration** — `packages/db/vitest.mutation.config.ts`
 also declares the same `globalSetup`, deliberately: the Stryker lane throws in
@@ -243,6 +747,69 @@ fake-indexeddb over the production pipeline: durable fast bootstrap across
 reopen, strict post-ready writes, torn-store recovery),
 `wasm-loader-worker.test.ts` (worker runner protocol/timeout), and
 `db-provider-first-run-bootstrap.test.tsx` (wiring order + error surfacing).
+
+---
+
+## COLLECTIONS LIVE QUERY: ONE OWNER (settled 2026-08, BST-1212 — do not relitigate)
+
+`useCollections` (`packages/vector-management/src/collection-select/collection-select.tsx`)
+is the SINGLE writer of the shared `vectorStatusUIStore.cachedCollections`
+cache. It does not merely read that cache — it recomputes it through its own
+instance-local `pendingMutationsRef` and writes the result back.
+
+**At most one instance may be mounted at a time.** Two instances whose pending
+mutations differ each recompute a different "next" cache from the other's
+write and never converge: A writes X, B recomputes Y and writes it, A
+recomputes X, forever. The loop terminates as React error #185 ("maximum
+update depth"), which takes down the nearest error boundary — in the original
+report, the whole file Explorer panel, and it presented first as a Playwright
+"element was detached from the DOM" flake, not as a crash.
+
+A second surface that only needs to DISPLAY collections must:
+- read `cachedCollections` from the store,
+- seed it once with `fetchCollectionsSnapshot(db)` if it may be the first
+  surface up (that helper THROWS on an unusable handle and its rejection must
+  be surfaced, never rendered as an empty list — an empty picker reads as "no
+  collections exist" and invites a duplicate), and
+- stay current through the `onEmbeddingSetUpdated` browser event
+  (`removeCachedCollection` on `deleted`, `upsertCachedCollection` otherwise).
+  Both store mutations are idempotent, so this is safe alongside the live
+  owner. The rename dialog only DISPATCHES; it never touches the cache, so a
+  surface that skips this listener shows stale names.
+
+Reference implementation:
+`packages/db-explorer/src/components/explorer-collection-picker.tsx`.
+The sanctioned event-sync write path is
+`packages/db-explorer/src/hooks/use-collection-cache-sync.ts`; mount it on the
+dialog-hosting surface (`explorer-import-action.tsx`), never on the picker
+itself, because the popover unmounts before the outcome is announced. Seeding
+stays with each caller via `fetchCollectionsSnapshot`.
+
+---
+
+## BACKFILL TABLE MAINTENANCE (BST-1169)
+
+Embedding backfill completion must never issue `VACUUM` or `ANALYZE` directly.
+PGlite has one WASM Postgres backend, so a table-wide maintenance statement on
+that path blocks all interactive queries and worker claim/complete traffic.
+The desktop scheduled-database-maintenance pass is the sole owner instead: it
+first verifies the database work scheduler is idle, then verifies there are no
+queued or running jobs before admitting heavyweight maintenance.
+
+`file_chunks` and `job_queue` are both members of
+`DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES`; `VACUUM (ANALYZE)` reclaims their
+dead tuples and refreshes planner statistics in one idle pass. Plain `ANALYZE`
+runs before the VACUUM set so a slow or failing `file_chunks` vacuum cannot
+starve the cheap `file_records` and `embedding_cache` statistics refreshes. Do
+not also list `file_chunks` in the default plain-ANALYZE set. `file_chunks` is
+ordered last so a timeout or vacuum failure on the largest table cannot prevent
+the smaller retention-ledger vacuums from running first. Every maintenance
+statement taking at least one second emits a warning containing the exact SQL
+statement and duration; this includes queue reads, retention probes/deletes,
+plain ANALYZE, and VACUUM. That preserves one-glance attribution for single-host
+stalls. Failed or interrupted backfills leave maintenance to the same scheduled
+pass; index recovery is independent of heap reclamation and must not reacquire
+the host for an inline vacuum.
 
 ---
 

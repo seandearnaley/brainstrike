@@ -1,8 +1,13 @@
-import { addLogListener, configureLogger, type LogRecord, resetLogger } from '@brainstrike/utils';
+import { addLogListener, configureLogger, type LogRecord, resetLogger } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAppActionRegistry } from '../context-action-registry';
 
-type MutableWindow = Window & { platform?: unknown };
+// Deliberately NOT `Window & {...}`: the ambient `Window['platform']` is
+// `Partial<PlatformBridge>`, and intersecting with it would reject the
+// `= undefined` reset under exactOptionalPropertyTypes.
+interface MutableWindow {
+  platform?: unknown;
+}
 
 afterEach(() => {
   (window as MutableWindow).platform = undefined;
@@ -19,6 +24,7 @@ describe('createAppActionRegistry', () => {
 
   it('grants fs capabilities when window.platform is fully formed', () => {
     (window as MutableWindow).platform = {
+      openExternal: vi.fn(),
       openPath: vi.fn(),
       showItemInFolder: vi.fn(),
     };
@@ -52,13 +58,12 @@ describe('createAppActionRegistry', () => {
 
     const malformedRecord = records.find(
       (record) =>
-        record.scope === 'ContextActionRegistry' &&
+        record.scope === 'PlatformBridge' &&
         record.message?.includes('window.platform bridge is malformed')
     );
     expect(malformedRecord).toBeDefined();
     expect(malformedRecord?.args).toContainEqual({
-      hasOpenPath: true,
-      hasShowItemInFolder: false,
+      missing: ['openExternal', 'showItemInFolder'],
     });
   });
 
@@ -73,7 +78,7 @@ describe('createAppActionRegistry', () => {
       .mockResolvedValueOnce({ ok: false })
       .mockResolvedValueOnce({ error: 'x', ok: false })
       .mockResolvedValueOnce({ ok: true });
-    (window as MutableWindow).platform = { openPath, showItemInFolder };
+    (window as MutableWindow).platform = { openExternal: vi.fn(), openPath, showItemInFolder };
 
     const registry = createAppActionRegistry();
     const platformFs = registry.services.platformFs;

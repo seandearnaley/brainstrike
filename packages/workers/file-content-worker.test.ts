@@ -10,9 +10,17 @@ import { fileContent } from '@brainstrike/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createFileContentWorker,
+  type FileContentReadResult,
   type ProgressEvent as FileProgressEvent,
 } from './file-content-worker';
 import { MockFileSystemAdapter } from './test-helpers';
+
+function displayResult(result: FileContentReadResult | undefined): string {
+  if (!result) {
+    throw new Error('Expected a file content result.');
+  }
+  return result.status === 'accessible' ? result.content : result.message;
+}
 
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -63,7 +71,7 @@ describe('file-content-worker', () => {
     MockFileSystemAdapter.setMockFileContent('/file.txt', 'hello');
 
     const results = await worker([req]);
-    expect(results[req.compositeKey]).toBe('hello');
+    expect(results[req.compositeKey]).toEqual({ content: 'hello', status: 'accessible' });
   });
 
   it('prefers handle-based reads when a handle is available', async () => {
@@ -81,7 +89,7 @@ describe('file-content-worker', () => {
     const req = createRequest('/prefers-handle.txt');
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toBe('from-handle');
+    expect(displayResult(results[req.compositeKey])).toBe('from-handle');
     expect(readFile).toHaveBeenCalledTimes(1);
     expect(readFileByPath).not.toHaveBeenCalled();
   });
@@ -95,7 +103,10 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toMatch('File too large');
+    expect(results[req.compositeKey]).toEqual({
+      message: expect.stringContaining('File too large'),
+      status: 'inaccessible',
+    });
     expect(readSpy).not.toHaveBeenCalled();
   });
 
@@ -114,7 +125,7 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toBe('configured-limit-content');
+    expect(displayResult(results[req.compositeKey])).toBe('configured-limit-content');
     expect(readSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -125,7 +136,10 @@ describe('file-content-worker', () => {
     vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(true);
 
     const results = await worker([req]);
-    expect(results[req.compositeKey]).toMatch('Binary file');
+    expect(results[req.compositeKey]).toEqual({
+      message: expect.stringContaining('Binary file'),
+      status: 'inaccessible',
+    });
   });
 
   it('returns binary error when content is not text', async () => {
@@ -138,7 +152,7 @@ describe('file-content-worker', () => {
     vi.spyOn(fileContent, 'isTextContent').mockReturnValue(false);
 
     const results = await worker([req]);
-    expect(results[req.compositeKey]).toMatch('Binary file');
+    expect(displayResult(results[req.compositeKey])).toMatch('Binary file');
   });
 
   it('processes queued reads with concurrency limit', async () => {
@@ -184,10 +198,10 @@ describe('file-content-worker', () => {
     const results = await promise;
     vi.useRealTimers();
 
-    expect(results['root|@|/1.txt']).toBe('1.txt');
-    expect(results['root|@|/2.txt']).toBe('2.txt');
-    expect(results['root|@|/3.txt']).toBe('3.txt');
-    expect(results['root|@|/4.txt']).toBe('4.txt');
+    expect(displayResult(results['root|@|/1.txt'])).toBe('1.txt');
+    expect(displayResult(results['root|@|/2.txt'])).toBe('2.txt');
+    expect(displayResult(results['root|@|/3.txt'])).toBe('3.txt');
+    expect(displayResult(results['root|@|/4.txt'])).toBe('4.txt');
     expect(progress).toEqual([1, 2, 3, 4]);
     expect(adapter.maxActive).toBeLessThanOrEqual(2);
   });
@@ -226,7 +240,10 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toMatch('Error accessing file');
+    expect(results[req.compositeKey]).toEqual({
+      message: 'Error accessing file',
+      status: 'inaccessible',
+    });
   });
 
   it('maps structured TOO_LARGE errors from adapter reads', async () => {
@@ -241,7 +258,7 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toBe('File exceeds preview size limit');
+    expect(displayResult(results[req.compositeKey])).toBe('File exceeds preview size limit');
   });
 
   it('maps non-Error TOO_LARGE objects from adapter reads', async () => {
@@ -260,7 +277,7 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toBe('Object-based too large error');
+    expect(displayResult(results[req.compositeKey])).toBe('Object-based too large error');
   });
 
   it('reports progress for failed files', async () => {
@@ -275,9 +292,80 @@ describe('file-content-worker', () => {
     const results = await worker([successReq, failReq], (e) => progress.push(e.loaded));
 
     expect(progress).toEqual([1, 2]);
-    expect(results[successReq.compositeKey]).toBe('ok');
-    expect(results[failReq.compositeKey]).toMatch('Error accessing file');
+    expect(displayResult(results[successReq.compositeKey])).toBe('ok');
+    expect(displayResult(results[failReq.compositeKey])).toMatch('Error accessing file');
   });
+
+  it('rejects when the progress finalizer throws instead of leaving the queue promise pending', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const request = createRequest('/progress-failure.txt');
+    const schedulerFailure = new Error('progress finalizer failed');
+    let progressCalls = 0;
+
+    MockFileSystemAdapter.setMockFileContent(request.path, 'content');
+
+    const queuePromise = worker([request], () => {
+      progressCalls += 1;
+      if (progressCalls === 1) {
+        throw schedulerFailure;
+      }
+    });
+
+    await expect(queuePromise).rejects.toBe(schedulerFailure);
+    expect(progressCalls).toBe(1);
+  }, 1000);
+
+  it('rejects concurrent completions when the first progress finalizer throws', async () => {
+    let releaseReads: () => void = () => {
+      throw new Error('Read barrier was not initialized');
+    };
+    const readBarrier = new Promise<void>((resolve) => {
+      releaseReads = resolve;
+    });
+    let reportBothReadsStarted: () => void = () => {
+      throw new Error('Read-start barrier was not initialized');
+    };
+    const bothReadsStarted = new Promise<void>((resolve) => {
+      reportBothReadsStarted = resolve;
+    });
+
+    class BarrierAdapter extends MockFileSystemAdapter {
+      private readsStarted = 0;
+
+      override async readFile(handle: Parameters<MockFileSystemAdapter['readFile']>[0]) {
+        this.readsStarted += 1;
+        if (this.readsStarted === 2) {
+          reportBothReadsStarted();
+        }
+        await readBarrier;
+        return super.readFile(handle);
+      }
+    }
+
+    const adapter = new BarrierAdapter();
+    const worker = createFileContentWorker({ concurrency: 2, fileSystemAdapter: adapter });
+    const firstRequest = createRequest('/concurrent-first.txt');
+    const secondRequest = createRequest('/concurrent-second.txt');
+    const schedulerFailure = new Error('first progress finalizer failed');
+    let progressCalls = 0;
+
+    MockFileSystemAdapter.setMockFileContent(firstRequest.path, 'first');
+    MockFileSystemAdapter.setMockFileContent(secondRequest.path, 'second');
+
+    const queuePromise = worker([firstRequest, secondRequest], () => {
+      progressCalls += 1;
+      if (progressCalls === 1) {
+        throw schedulerFailure;
+      }
+    });
+
+    await bothReadsStarted;
+    releaseReads();
+
+    await expect(queuePromise).rejects.toBe(schedulerFailure);
+    expect(progressCalls).toBe(1);
+  }, 1000);
 
   it('handles empty request queue immediately', async () => {
     const adapter = new MockFileSystemAdapter();
@@ -297,8 +385,8 @@ describe('file-content-worker', () => {
     const results = await worker([req]);
 
     // The error should be the generic message, not the original error message
-    expect(results[req.compositeKey]).toBe('Error accessing file');
-    expect(results[req.compositeKey]).not.toContain('disk failure');
+    expect(displayResult(results[req.compositeKey])).toBe('Error accessing file');
+    expect(displayResult(results[req.compositeKey])).not.toContain('disk failure');
   });
 
   it('rejects text extension file with binary content', async () => {
@@ -312,7 +400,7 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toMatch('Binary file - preview not available');
+    expect(displayResult(results[req.compositeKey])).toMatch('Binary file - preview not available');
     expect(utils.isTextExtension).toHaveBeenCalledWith('txt');
     expect(fileContent.isTextContent).toHaveBeenCalledWith('binary-data');
   });
@@ -330,7 +418,7 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toMatch('Binary file - preview not available');
+    expect(displayResult(results[req.compositeKey])).toMatch('Binary file - preview not available');
   });
 
   it('accepts unknown extension file with text content', async () => {
@@ -344,7 +432,7 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toBe('text content');
+    expect(displayResult(results[req.compositeKey])).toBe('text content');
     expect(fileContent.isTextContent).toHaveBeenCalledWith('text content');
   });
 
@@ -359,7 +447,7 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toMatch('Binary file - preview not available');
+    expect(displayResult(results[req.compositeKey])).toMatch('Binary file - preview not available');
     expect(fileContent.isTextContent).toHaveBeenCalledWith('binary-data');
   });
 
@@ -378,9 +466,9 @@ describe('file-content-worker', () => {
 
     // Verify all three files were processed
     expect(Object.keys(results)).toHaveLength(3);
-    expect(results[req1.compositeKey]).toBe('content1');
-    expect(results[req2.compositeKey]).toMatch('Error accessing file');
-    expect(results[req3.compositeKey]).toBe('content3');
+    expect(displayResult(results[req1.compositeKey])).toBe('content1');
+    expect(displayResult(results[req2.compositeKey])).toMatch('Error accessing file');
+    expect(displayResult(results[req3.compositeKey])).toBe('content3');
     // Verify progress tracked all completions
     expect(progress).toHaveLength(3);
     expect(progress.map((p) => p.loaded)).toEqual([1, 2, 3]);
@@ -398,7 +486,7 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(results[req.compositeKey]).toBe('This is text content');
+    expect(displayResult(results[req.compositeKey])).toBe('This is text content');
     expect(fileContent.isTextContent).toHaveBeenCalledWith('This is text content');
   });
 

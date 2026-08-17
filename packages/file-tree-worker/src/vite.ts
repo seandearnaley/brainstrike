@@ -12,11 +12,19 @@ export type {
   WorkerToMainMessage,
 } from './index';
 export {
+  canLoadNode,
+  collectDirectoryPaths,
   collectExpandedPaths,
   createFileTreeWorkerPort,
   findNodeByPath,
+  getPathDepth,
+  isDescendantPath,
+  isLoading,
   needsLoading,
+  resetDirectoryNode,
+  setNodeLoadState,
   sortFileNodes,
+  sortTreeNodes,
   updateNodeChildren,
 } from './index';
 

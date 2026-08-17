@@ -12,28 +12,28 @@ describe('useAppActive', () => {
   it('returns true when document is focused and visible', async () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     document.hasFocus = () => true;
-    const { isAppActive } = await import('../use-app-active');
+    const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(true);
   });
 
   it('returns false when document is hidden', async () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: true });
     document.hasFocus = () => false;
-    const { isAppActive } = await import('../use-app-active');
+    const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(false);
   });
 
   it('returns false when document is visible but not focused', async () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     document.hasFocus = () => false;
-    const { isAppActive } = await import('../use-app-active');
+    const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(false);
   });
 
   it('updates when visibilitychange fires', async () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     document.hasFocus = () => true;
-    const { isAppActive } = await import('../use-app-active');
+    const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(true);
 
     // Simulate going hidden
@@ -46,7 +46,7 @@ describe('useAppActive', () => {
   it('updates when window blur/focus fires', async () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     document.hasFocus = () => true;
-    const { isAppActive } = await import('../use-app-active');
+    const { isAppActive } = await import('../use-app-active.js');
     expect(isAppActive()).toBe(true);
 
     // Simulate blur

@@ -39,27 +39,29 @@ const DEFAULT_BROWSER_DB_NAME = 'app';
  * WHEN BUMPING THIS (e.g. to 'pg19'):
  * 1. Append the just-superseded versioned name(s) (e.g. `app-pg18`, `web-pg18`)
  *    to `FALLBACK_INDEXED_DB_NAMES` in
- *    packages/preferences/src/settings/system/factory-reset-helpers.ts as
+ *    packages/app-state/src/factory-reset.ts as
  *    defense-in-depth. Automatic reclaim already covers prior versioned majors on
  *    every browser — enumerating when supported, else via the deterministic
  *    `enumerationUnavailableLegacyNames` candidate set — so this list is the
  *    secondary (user-initiated factory-reset) cleanup path, not the only one.
  * 2. Bump `BUNDLED_PG_MAJOR` in apps/desktop/src/pg-data-version.ts to match.
  *
- * DEPENDENCY-PIN LOCKSTEP (separate axis from this token): `@electric-sql/pglite`
- * and `@electric-sql/pglite-pgvector` MUST be bumped together. pgvector declares
- * an EXACT peer on a single pglite version (0.0.2 → `@electric-sql/pglite: 0.5.1`).
- * The pins live in different sets of package.json files:
- *   - `@electric-sql/pglite` (exact) — runtime `dependencies` in db, embeddings,
- *     vector-management, file-import, token-cache, desktop; a `devDependency` in
- *     agent (only its tests construct a PGlite — prod receives a DB from the caller).
- *   - `@electric-sql/pglite-pgvector` (exact) — runtime `dependencies` in db and
- *     desktop; a `devDependency` in agent (test-only). The remaining packages don't
- *     import the vector extension and correctly omit it.
- * Bumping pglite alone (e.g. to a 0.5.x patch) breaks peer resolution until
- * pgvector ships a matching release — so move both in the same change (every
- * package.json that pins them, including agent's devDependencies). There is no
- * Renovate/Dependabot in this repo to enforce it; this note is the reminder.
+ * DEPENDENCY-PIN LOCKSTEP (separate axis from this token): `@electric-sql/pglite`,
+ * `@electric-sql/pglite-pgvector`, and `@electric-sql/pglite-pg_textsearch` are a
+ * TRIPLE that MUST be bumped together. Both extension packages declare an EXACT
+ * peer on a single pglite version (e.g. pgvector 0.0.6 and pg_textsearch 0.0.7 each
+ * peer on `@electric-sql/pglite: 0.5.5`), so bumping pglite alone breaks peer
+ * resolution until BOTH extensions ship matching releases.
+ *
+ * All three are pinned in ONE place — the `catalog:` block in `pnpm-workspace.yaml`
+ * (exact versions, no caret). Every consuming package.json references them as
+ * `catalog:`, so a bump is a three-line edit there and nowhere else. Note only that
+ * agent takes pglite + pgvector as `devDependencies` (only its tests construct a
+ * PGlite — prod receives a DB from the caller), and packages that don't import a
+ * given extension correctly omit it.
+ *
+ * There is no Renovate/Dependabot in this repo to enforce the lockstep; this note
+ * is the reminder.
  */
 export const PGLITE_DATA_DIR_VERSION = 'pg18';
 

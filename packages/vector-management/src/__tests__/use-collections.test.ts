@@ -8,12 +8,21 @@ import {
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock data
+// Mock data.
+//
+// `created_at` / `last_refreshed_at` are `timestamptz`, which PGlite hands back
+// as `Date` INSTANCES — not the ISO strings `CollectionRow` used to declare.
+// Fixtures that used strings here were the reason this suite stayed green while
+// `areCollectionsEqual` could never return true (two Date instances for the same
+// instant are `!==`), so they mirror the driver now.
+const COLLECTION_CREATED_AT = '2024-01-01T00:00:00.000Z';
+const STATS_REFRESHED_AT = '2024-01-02T00:00:00.000Z';
+
 const mockCollectionRows = [
   {
     category: null,
     chunkCount: '100',
-    createdAt: '2024-01-01T00:00:00Z',
+    createdAt: new Date(COLLECTION_CREATED_AT),
     description: null,
     dimensions: 1536,
     distance: 'cosine',
@@ -23,6 +32,7 @@ const mockCollectionRows = [
     modelId: 'text-embedding-3-small',
     modelKey: 'openai',
     name: 'Test Collection',
+    statsLastRefreshedAt: new Date(STATS_REFRESHED_AT),
     systemRole: null,
     tags: null,
   },
@@ -52,6 +62,7 @@ const mockStoreState = {
     fileCount: number;
     chunkCount: number;
     embeddingCount: number;
+    statsLastRefreshedAt?: string | null;
   }>,
   cachedFileData: null,
   isEmbeddingActive: false,
@@ -90,9 +101,9 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importOriginal) => {
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@brainstrike/preferences/stores/vector-status-ui-store')>();
+    await importOriginal<typeof import('@brainstrike/app-state/stores/vector-status-ui-store')>();
   return {
     ...actual,
     useVectorStatusUIStore: vi.fn((selector: (state: typeof mockStoreState) => unknown) =>
@@ -325,7 +336,7 @@ describe('useCollections', () => {
         {
           category: null,
           chunkCount: 100,
-          createdAt: '2024-01-01T00:00:00Z',
+          createdAt: COLLECTION_CREATED_AT,
           description: null,
           dimensions: 1536,
           distance: 'cosine',
@@ -335,6 +346,7 @@ describe('useCollections', () => {
           modelId: 'text-embedding-3-small',
           modelKey: 'openai',
           name: 'Test Collection',
+          statsLastRefreshedAt: STATS_REFRESHED_AT,
           tags: null,
         },
       ];
@@ -579,12 +591,60 @@ describe('useCollections', () => {
       });
     });
 
+    it('canonicalizes an event-sourced createdAt so it sorts against query-sourced rows', async () => {
+      // `EmbeddingSet.createdAt` is typed `string` but is produced by
+      // `String(row.created_at)` in the repositories, so a `Date` there becomes
+      // 'Sun Aug 09 2026 …'. `compareCollectionsDesc` compares createdAt
+      // relationally, and 'S' > '2' — an un-normalized event entry would sort
+      // above every ISO one no matter how old it is.
+      mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
+      renderHook(() => useCollections(mockDb as never));
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(EMBEDDING_SET_UPDATED_EVENT, {
+            detail: {
+              collection: {
+                category: null,
+                chunkCount: 0,
+                // Older than the query-sourced row, in the repositories' format.
+                createdAt: String(new Date('2020-05-05T10:00:00.000Z')),
+                description: null,
+                dimensions: 1536,
+                distance: 'cosine',
+                embeddingCount: 0,
+                fileCount: 0,
+                id: 'set-legacy',
+                modelId: 'text-embedding-3-small',
+                modelKey: 'openai',
+                name: 'Event Sourced Collection',
+                tags: null,
+              },
+              id: 'set-legacy',
+              reason: 'created',
+            },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      const cached = mockStoreState.cachedCollections.find(
+        (collection) => collection.id === 'set-legacy'
+      );
+      expect(cached?.createdAt).toBe('2020-05-05T10:00:00.000Z');
+      // The older entry must not have jumped the newer one.
+      expect(mockStoreState.cachedCollections.map((collection) => collection.id)).toEqual([
+        'set-1',
+        'set-legacy',
+      ]);
+    });
+
     it('does not resurface a deleted collection from stale live-query rows before refresh catches up', async () => {
       mockStoreState.cachedCollections = [
         {
           category: null,
           chunkCount: 100,
-          createdAt: '2024-01-01T00:00:00Z',
+          createdAt: COLLECTION_CREATED_AT,
           description: null,
           dimensions: 1536,
           distance: 'cosine',
@@ -594,6 +654,7 @@ describe('useCollections', () => {
           modelId: 'text-embedding-3-small',
           modelKey: 'openai',
           name: 'Test Collection',
+          statsLastRefreshedAt: STATS_REFRESHED_AT,
           tags: null,
         },
       ];

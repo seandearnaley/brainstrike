@@ -43,8 +43,7 @@ export interface FileTreeSelectionStore {
   /** Fire subscribers. Call from an effect, never during render. */
   notify: () => void;
   /**
-   * Replace the current inputs. Render-safe (a pure write, no listener calls) —
-   * mirrors the PreviewTable HeaderSelectionStore pattern.
+   * Replace the current inputs. Render-safe: a pure write, no listener calls.
    */
   setInputs: (inputs: FileTreeSelectionInputs) => void;
   subscribe: (listener: () => void) => () => void;

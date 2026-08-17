@@ -1,21 +1,21 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  type AssistantThreadDraftRuntime,
+  createPgliteAssistantThreadRepository,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { type PromptItem, PromptItemRepository, type PromptItemUsageAction } from '@brainstrike/db';
 import { useDbInitializationStatus, usePGliteDatabase } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import { useCallback, useMemo, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
-import {
-  type AssistantThreadDraftRuntime,
-  useAssistantThreadStore,
-} from './assistant-thread-store';
 import {
   buildDraftRuntimeForProvider,
   copyProviderSettingsMap,

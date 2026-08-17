@@ -11,6 +11,7 @@
     "@stryker-mutator/typescript-checker": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "@swc/core": "catalog:",
+    "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
@@ -18,37 +19,36 @@
     "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
     "react": "^19.2.7",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "default": "./dist/index.js"
     },
     "./vitest.setup": "./src/vitest.setup.ts",
+    "./vitest.browser.setup": "./src/vitest.browser.setup.ts",
+    "./vitest.timeouts.setup": "./src/vitest.timeouts.setup.ts",
+    "./vitest-provided-context": "./src/vitest-provided-context.ts",
+    "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
+    "./test-timeouts": "./src/test-timeouts.ts",
     "./vitest.base": {
-      "types": "./dist/index.d.ts",
-      "import": "./vitest.base.mjs",
-      "require": "./dist/index.js"
+      "types": "./dist/vitest.base.d.ts",
+      "default": "./vitest.base.mjs"
     },
     "./workspace-src-aliases": "./workspace-src-aliases.mjs",
     "./electron": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "default": "./dist/index.js"
     },
     "./worker": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "default": "./dist/index.js"
     },
     "./playwright": {
       "types": "./src/playwright/failure-artifacts.ts",
-      "import": "./src/playwright/failure-artifacts.ts",
-      "require": "./src/playwright/failure-artifacts.ts"
+      "default": "./src/playwright/failure-artifacts.ts"
     }
   },
   "files": [
@@ -56,7 +56,7 @@
   ],
   "license": "MIT",
   "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
+  "module": "./dist/index.js",
   "peerDependencies": {
     "@playwright/test": "^1.58.2"
   },
@@ -65,9 +65,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "pnpm run clean && tsup src/index.ts --format esm,cjs --dts --out-dir dist",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
+    "dev": "tsc --build --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run",
@@ -81,5 +81,6 @@
       "dist/**"
     ]
   },
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "type": "module"
 }

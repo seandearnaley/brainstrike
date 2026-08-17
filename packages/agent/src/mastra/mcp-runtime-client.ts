@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import { createTool, type MCPToolProperties, type ToolExecutionContext } from '@mastra/core/tools';
@@ -210,12 +210,31 @@ function createDocumentationOnlyMcpOutputSchema(
   };
 }
 
+/**
+ * The slice of Mastra's ToolExecutionContext this client actually reads.
+ * @mastra/core 1.55 made `observe` a required member of the full interface,
+ * while the value createTool's execute callback receives is statically typed
+ * as only `{ requestContext }` — so the full interface can no longer describe
+ * the inbound context. `requestContext` stays in the slice so the callback's
+ * context type shares a property with this weak type.
+ *
+ * VERSION-COUPLED: every member here is optional, so nothing type-checks that
+ * Mastra still passes `agent`/`writer`/`abortSignal` at these positions — if
+ * an upgrade relocates one (e.g. `writer` under `agent`), progress streaming
+ * or cancellation degrades silently. Re-verify these three field paths against
+ * the installed `tools/types.d.ts` on every @mastra/core bump (they were
+ * verified at 1.55.0), alongside the doc's per-version surface checks.
+ */
+type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & {
+  requestContext?: unknown;
+};
+
 async function executeMcpTool(
   client: OfficialSdkMcpClientLike,
   serverName: string,
   toolName: string,
   input: Record<string, unknown>,
-  context: ToolExecutionContext
+  context: McpExecuteContext
 ): Promise<unknown> {
   let progressWrites = Promise.resolve();
   let progressDeliveryError: unknown;
@@ -285,8 +304,8 @@ async function executeMcpTool(
   return result.structuredContent;
 }
 
-function readToolCallMeta(context: ToolExecutionContext): Record<string, unknown> | undefined {
-  const meta = (context as ToolExecutionContext & { _meta?: unknown })._meta;
+function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {
+  const meta = (context as McpExecuteContext & { _meta?: unknown })._meta;
   if (!(meta && typeof meta === 'object' && !Array.isArray(meta))) {
     return;
   }

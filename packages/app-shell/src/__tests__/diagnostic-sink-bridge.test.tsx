@@ -1,13 +1,8 @@
 import {
   __resetDiagnosticsRetentionStoreForTests,
   useDiagnosticsRetentionStore,
-} from '@brainstrike/preferences/stores/diagnostics-retention-store';
-import {
-  LogLevel,
-  type LogRecord,
-  error as logError,
-  warn as logWarn,
-} from '@brainstrike/utils/logger';
+} from '@brainstrike/app-state/stores/diagnostics-retention-store';
+import { LogLevel, type LogRecord, error as logError, warn as logWarn } from '@brainstrike/logging';
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiagnosticSinkBridge } from '../diagnostics/diagnostic-sink-bridge';

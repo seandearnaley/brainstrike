@@ -40,7 +40,7 @@ function params(overrides: Partial<Parameters<typeof resolveRequestPersonas>[0]>
     parentProvider: 'anthropic',
     request: undefined,
     resolveApiKey: () => Promise.resolve(undefined),
-    scanUserPersonas: () => ({ entries: [], personas: [] }),
+    scanUserPersonas: () => ({ entries: [], incompleteDirs: [], personas: [] }),
     ...overrides,
   };
 }
@@ -48,7 +48,13 @@ function params(overrides: Partial<Parameters<typeof resolveRequestPersonas>[0]>
 describe('resolveRequestPersonas', () => {
   it('returns built-ins plus scanned user personas by default', async () => {
     const result = await resolveRequestPersonas(
-      params({ scanUserPersonas: () => ({ entries: [], personas: [userPersona('sec')] }) })
+      params({
+        scanUserPersonas: () => ({
+          entries: [],
+          incompleteDirs: [],
+          personas: [userPersona('sec')],
+        }),
+      })
     );
     expect(result.personas.map((persona) => persona.id)).toEqual([
       ...BUILT_IN_PERSONAS.map((persona) => persona.id),
@@ -63,7 +69,7 @@ describe('resolveRequestPersonas', () => {
         request: { delegationEnabled: false },
         scanUserPersonas: () => {
           scanned = true;
-          return { entries: [], personas: [] };
+          return { entries: [], incompleteDirs: [], personas: [] };
         },
       })
     );
@@ -77,6 +83,7 @@ describe('resolveRequestPersonas', () => {
         request: { disabledPersonaIds: ['explore', 'sec'] },
         scanUserPersonas: () => ({
           entries: [],
+          incompleteDirs: [],
           personas: [userPersona('sec'), userPersona('docs')],
         }),
       })
@@ -94,6 +101,7 @@ describe('resolveRequestPersonas', () => {
         },
         scanUserPersonas: () => ({
           entries: [],
+          incompleteDirs: [],
           personas: [
             userPersona('same', { modelId: 'claude-haiku-4-5', provider: 'anthropic' }),
             userPersona('cross', { modelId: 'gpt-5-mini', provider: 'openai' }),
@@ -111,6 +119,7 @@ describe('resolveRequestPersonas', () => {
       params({
         scanUserPersonas: () => ({
           entries: [],
+          incompleteDirs: [],
           personas: [userPersona('cross', { modelId: 'm', provider: 'openai' })],
         }),
       })

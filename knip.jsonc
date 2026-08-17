@@ -1,5 +1,5 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     // Define workspaces based on the Turborepo setup
     "apps/site": {
@@ -43,7 +43,6 @@
         "@radix-ui/react-toast",
         "@shikijs/langs",
         "@shikijs/themes",
-        "file-saver",
         "idb",
         "jszip",
         "minimatch",
@@ -88,11 +87,9 @@
         "@radix-ui/react-toast",
         "@shikijs/langs",
         "@shikijs/themes",
-        "file-saver",
         "idb",
         "jszip",
         "minimatch",
-        "react-helmet-async",
         "react-hotkeys-hook",
         "react-resizable-panels",
         "react-shiki",
@@ -112,6 +109,30 @@
         "**/*.test.{ts,tsx}",
         "**/*.stories.{ts,tsx}"
       ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/assistant-ui": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "**/*.stories.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        // Configuration/test-only imports are outside this project's production glob.
+        "@brainstrike/config",
+        "@brainstrike/context-actions",
+        "react-shiki"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/assistant-data": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -221,14 +242,14 @@
         "config": "tsconfig.json"
       }
     },
-    "packages/preferences": {
+    "packages/app-state": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
-    "packages/server-config": {
+    "packages/settings-ui": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
@@ -267,13 +288,6 @@
         "vitest.mutation.config.ts", // Used by Stryker mutation testing
         "stryker.config.js" // Mutation testing config
       ],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
-    "packages/tailwind-config": {
-      "project": ["**/*.{js,ts}"],
-      "ignore": [],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -359,10 +373,7 @@
       ],
       "ignoreDependencies": [
         // Bundled via tsup.config.ts noExternal; wasm subpath declared in src/types/wasm.d.ts
-        "tiktoken",
-        // Not imported (the python grammar is vendored to grammars/python.wasm), but pinned as the
-        // documented re-vendoring source of truth — see docs/dependency-updates-breaking-changes.md
-        "tree-sitter-wasms"
+        "tiktoken"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -377,13 +388,6 @@
         // file (apps/web + apps/desktop vite.config.mts) — knip cannot follow the alias
         "src/vite.ts"
       ],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
-    "packages/commands": {
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -464,17 +468,33 @@
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
     "babel-plugin-react-compiler", // Resolved indirectly by reactCompilerPreset in Vite config
-    "@stryker-mutator/api", // Used for JSDoc type annotations in stryker.config.js files
+    // NOTE (BST-1273, knip 6.32.2): the original justification — "used for JSDoc type
+    // annotations in stryker.config.js" — is obsolete. knip's Stryker plugin resolves that use
+    // natively, so any package carrying an `import('@stryker-mutator/api/core')` JSDoc tag is
+    // NOT flagged without this entry.
+    // UPDATED (Stryker mutation-lane unbreak): that PR added the tag to file-explorer-hooks,
+    // hooks, test-utils and utils, so this entry now masks exactly ONE package — file-explorer
+    // declares the dep and never references it. Measured by dropping the entry: the sole
+    // finding is `@stryker-mutator/api packages/file-explorer/package.json`. Deleting THAT
+    // declaration is the actual fix; do NOT delete the others, whose tags need the dep.
+    // Also measured: this entry filters unlisted-import findings too, so it would hide a tag
+    // added without a declaration — keep tag and declaration together.
+    "@stryker-mutator/api",
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
-    "@tanstack/react-table", // Used in packages/preferences for LogViewerCard table component
-    "@tanstack/react-virtual", // Used in packages/preferences for row virtualization
+    "@tanstack/react-table", // Used in packages/settings-ui for LogViewerCard table component
+    "@tanstack/react-virtual", // Used in packages/settings-ui for row virtualization
     "@jacobwolf/biome-unnecessary-effect", // Biome plugin used in biome.json for React useEffect linting
     "react-doctor" // CI/lint tool run via `pnpm run react-doctor` + the react-doctor.yml workflow, never imported
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
     "duplicates": "off", // Keep user's rule setting
-    "exports": "off" // Disable export checking for now due to false positives
+    "exports": "off", // Disable export checking for now due to false positives
+    // knip 6 splits type-only exports out of `exports` into their own `types` rule, so the
+    // 6.24 -> 6.32 bump surfaced 34 "unused exported types" that `exports: off` used to cover.
+    // They are the same false-positive class (public barrel re-exports consumed across package
+    // boundaries), so this tracks the existing `exports` decision rather than making a new one.
+    "types": "off"
   }
 }

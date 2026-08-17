@@ -11,9 +11,9 @@ import type { RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdaptersProvider } from '../adapters-context';
-import { useFileSystem } from '../use-file-system';
-import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
+import { AdaptersProvider } from '../adapters-context.js';
+import { useFileSystem } from '../use-file-system.js';
+import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers.js';
 
 // Mock the useFileExplorerStore
 const mockSetCurrentFolderId = vi.fn();
@@ -1421,7 +1421,7 @@ describe('useFileSystem', () => {
       expect(mockSetCurrentFolderId).toHaveBeenCalledExactlyOnceWith(null);
     });
 
-    it('proceeds with UI removal when adapter.removeRoot rejects (UI state wins)', async () => {
+    it('keeps renderer state intact when the authoritative adapter removal rejects', async () => {
       const { adapter, removeRootFn } = createMultiRootAdapter();
       removeRootFn.mockRejectedValue(new Error('storage unavailable'));
       const { result } = renderMultiRootHook(adapter);
@@ -1431,13 +1431,13 @@ describe('useFileSystem', () => {
         await result.current?.addRootDirectory();
       });
 
-      await act(async () => {
-        await result.current?.removeRootDirectory('root-id-b');
-      });
+      await expect(
+        act(async () => result.current?.removeRootDirectory('root-id-b'))
+      ).rejects.toThrow('storage unavailable');
 
       expect(removeRootFn).toHaveBeenCalledWith('root-id-b');
-      expect(result.current?.rootDirectoryHandles).toHaveLength(1);
-      expect(mockRemoveActiveRoot).toHaveBeenCalledExactlyOnceWith('root-id-b');
+      expect(result.current?.rootDirectoryHandles).toHaveLength(2);
+      expect(mockRemoveActiveRoot).not.toHaveBeenCalled();
     });
 
     it('proceeds with UI removal when the adapter has no removeRoot method', async () => {

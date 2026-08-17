@@ -10,7 +10,7 @@
  * web factory reset (the BST-862/BST-844 defect class).
  *
  * The union CANNOT be derived from the Drizzle schema: the 21 `pgTable`
- * exports cover only ~9 of the 27 clearable relations. Every `brainstrike_*`
+ * exports cover only ~9 of the 35 clearable relations. Every `brainstrike_*`
  * assistant table is migration-only raw DDL, the Mastra six live in
  * `@brainstrike/assistant-contract/mastra-memory-schema`, and configuration
  * tables that MUST survive reset (catalog, profile singletons) sit in the same
@@ -50,15 +50,40 @@ export type MastraResetTable =
  * RESET CONTRACT, docs/agents/platform-contracts.md).
  */
 const BRAINSTRIKE_RESET_TABLES = [
+  // Durable conversation-compaction ranges (migration 088, BST-1200). Exact
+  // message-id sets cannot outlive the conversation rows they summarize.
+  'brainstrike_assistant_compaction_ranges',
   'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',
+  // Soft-rewind tombstones (migration 080, BST-1115). Hidden-message
+  // bookkeeping over conversation content the clear just destroyed: keeping it
+  // would hide messages that no longer exist on the fresh database.
+  'brainstrike_assistant_message_tombstones',
+  // Request-build overlays for superseded native-tool projections (migration
+  // 084, BST-1192). They refer only to thread/message evidence cleared here.
+  'brainstrike_assistant_tool_projection_rewrites',
   'brainstrike_assistant_run_errors',
   'brainstrike_assistant_run_outcomes',
+  // Per-run experiment treatment records (migration 093 + assistant-data
+  // bootstrap mirror, BST-1250). Treatment evidence survives thread deletion
+  // like run_outcomes, but never a true fresh start.
+  'brainstrike_assistant_run_treatments',
   'brainstrike_assistant_run_usage',
   'brainstrike_assistant_task_lists',
   'brainstrike_assistant_thread_groups',
   'brainstrike_assistant_thread_placements',
+  'brainstrike_assistant_thread_workspaces',
   'brainstrike_assistant_tool_output_artifacts',
+  // Versioned Canvas documents (migration 082, BST-1173). Their thread-owned
+  // content must not survive the conversation and resource identities a reset
+  // just destroyed.
+  'brainstrike_canvas_versions',
+  // Durable counts/sizes-only per-tool telemetry (migration 083, BST-1190).
+  // Baselines must survive restart, but never a true fresh start.
+  'brainstrike_tool_call_telemetry',
+  // Durable estimator/provider token-count pairs (migration 086, BST-1205).
+  // Calibration evidence survives restart, but never a true fresh start.
+  'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
   // Sync-the-mind op-log seam (migration 079, BST-993). Clearing the mind
   // clears its op-log: pre-sync there is no peer the ops could replay to,
@@ -67,6 +92,13 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_mind_ops',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
+  // Shadow-git snapshot ledger (migration 081, BST-1164). Turn↔commit-oid
+  // bookkeeping for threads the clear just destroyed: keeping it would map
+  // conversations that no longer exist onto shadow commits. The shadow git
+  // dirs themselves live under desktop userData (wiped wholesale by desktop
+  // factory reset) and are unreachable from web, where these rows would
+  // otherwise dangle forever.
+  'brainstrike_workspace_snapshots',
 ] as const;
 
 /** Indexing/workspace data owned by the Drizzle schema. */
@@ -89,7 +121,7 @@ const CORE_RESET_TABLES = [
  * these previously survived a web factory reset while dying on desktop. All
  * six are seed-free caches/bookkeeping that rebuild on demand. Clear
  * Database keeps them on BOTH surfaces (desktop `db:clearAll` never cleared
- * them either — the 27-relation clear-set parity is untouched).
+ * them either — clear-set parity with {@link getResetTables} is untouched).
  *
  * `view_filter_presets` is deliberately NOT here despite being in the
  * original status-quo family: it is migration-SEEDED configuration
@@ -137,7 +169,7 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
   ];
 }
 
-/** The full 27-relation reset set (12 brainstrike + 9 core + the Mastra six). */
+/** The full 35-relation reset set (20 Brainstrike + 9 core + the Mastra six). */
 export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }

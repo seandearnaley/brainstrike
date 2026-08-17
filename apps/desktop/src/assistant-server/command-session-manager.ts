@@ -14,12 +14,13 @@ import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd';
 import { resolveShellInvocation } from './execute-command-tool';
+import { isWithinRoot } from './workspace-path';
 
 const logger = createLogger('CommandSessionManager');
 
@@ -210,11 +211,7 @@ async function resolveSessionCwd(
     throw error;
   }
 
-  const relative = path.relative(root.value, canonicalCwd);
-  const isWithinRoot =
-    canonicalCwd === root.value ||
-    (relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative));
-  if (!isWithinRoot) {
+  if (!isWithinRoot(root.value, canonicalCwd)) {
     throw new CommandSessionError(
       'cwd-outside-root',
       'The command session cwd resolves outside its workspace root.'

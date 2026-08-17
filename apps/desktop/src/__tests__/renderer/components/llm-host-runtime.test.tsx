@@ -63,7 +63,7 @@ describe('LlmHostRuntime', () => {
     initializeMock.mockResolvedValue(undefined);
 
     (
-      window as Window & {
+      window as unknown as {
         llmHost?: {
           onRequest: (callback: RequestListener) => () => void;
           reportProgress: typeof reportProgressMock;

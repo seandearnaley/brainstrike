@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 
 const workerDbIoLogger = createLogger('EmbeddingWorkerDbIo');
 

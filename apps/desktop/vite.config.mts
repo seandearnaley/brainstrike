@@ -101,9 +101,10 @@ export default defineConfig({
       '@electric-sql/pglite-pg_textsearch',
       '@brainstrike/types',
       '@brainstrike/hooks',
+      '@brainstrike/assistant-ui',
       '@brainstrike/ui',
       '@brainstrike/utils',
-      '@brainstrike/utils/workspace-indexing-qos',
+      '@brainstrike/indexing-contract/workspace-indexing-qos',
       '@brainstrike/file-explorer',
       '@brainstrike/file-explorer-hooks',
       '@brainstrike/file-explorer-ui',
@@ -188,6 +189,10 @@ export default defineConfig({
       {
         find: '@brainstrike/ui/styles.css',
         replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
+      },
+      {
+        find: '@brainstrike/assistant-ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/assistant-ui/styles.css'),
       },
       {
         find: '@brainstrike/ui/globals.css',

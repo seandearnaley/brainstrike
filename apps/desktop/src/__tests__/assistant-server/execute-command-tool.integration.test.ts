@@ -11,22 +11,27 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { RuntimeData } from '@brainstrike/agent';
+import { NATIVE_TOOL_RESULT_CHAR_BUDGET, type RuntimeData } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
+  buildTruncationMarker,
   disposeLiveChildProcesses,
+  type ExecuteCommandToolResult,
+  fitHeadAndTailToCharBudget,
   resolveShellInvocation,
   runExecuteCommand,
   type ShellOutputStreamPart,
 } from '../../assistant-server/execute-command-tool';
+import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({
@@ -51,7 +56,18 @@ async function makeWorkspace(prefix = 'brainstrike-exec-unit-'): Promise<string>
 }
 
 function singleRoot(rootPath: string): RuntimeData {
-  return { workspaceRootPath: rootPath } as RuntimeData;
+  return singleRootRuntime(rootPath);
+}
+
+function requireExecuteCommandModelOutput(
+  tools: NonNullable<RuntimeData['mastraTools']>
+): (output: unknown) => { type: 'text'; value: string } {
+  const tool = requireTool(tools, 'brainstrike.executeCommand');
+  const toModelOutput = (tool as { toModelOutput?: (output: unknown) => unknown }).toModelOutput;
+  if (typeof toModelOutput !== 'function') {
+    throw new Error("Expected tool 'brainstrike.executeCommand' to have a model output projection");
+  }
+  return (output: unknown) => toModelOutput.call(tool, output) as { type: 'text'; value: string };
 }
 
 /** True only while the OS still has a process with this pid. */
@@ -91,6 +107,81 @@ afterEach(async () => {
   }
 });
 
+describe('fitHeadAndTailToCharBudget — character-based retention', () => {
+  it('returns under-budget text unchanged without reporting truncation', () => {
+    const text = 'alpha\nbeta\ngamma';
+
+    expect(fitHeadAndTailToCharBudget(text, text.length)).toEqual({
+      text,
+      truncated: false,
+    });
+  });
+
+  it('keeps a 40/60 head-and-tail split with an exact omission marker', () => {
+    const text = Array.from(
+      { length: 20 },
+      (_, index) => `line-${index.toString().padStart(2, '0')}`
+    ).join('\n');
+
+    const result = fitHeadAndTailToCharBudget(text, 80);
+
+    expect(text).toHaveLength(159);
+    expect(result.truncated).toBe(true);
+    expect(result.text).toHaveLength(80);
+    expect(result.text.startsWith(text.slice(0, 10))).toBe(true);
+    // Uses the same marker builder the production code calls — one definition
+    // for the model-facing marker contract, not a duplicated literal.
+    expect(result.text).toContain(buildTruncationMarker(133, 159));
+    expect(result.text.endsWith(text.slice(-16))).toBe(true);
+  });
+
+  it('keeps non-empty head and tail content from one oversized line', () => {
+    const text = `${'H'.repeat(100)}${'M'.repeat(100)}${'T'.repeat(100)}`;
+
+    const result = fitHeadAndTailToCharBudget(text, 100);
+
+    expect(result.truncated).toBe(true);
+    expect(result.text).toHaveLength(100);
+    expect(result.text.startsWith('H'.repeat(18))).toBe(true);
+    expect(result.text).toContain(buildTruncationMarker(254, 300));
+    expect(result.text.endsWith('T'.repeat(28))).toBe(true);
+  });
+
+  it('never splits a UTF-16 surrogate pair at the head or tail boundary', () => {
+    // U+1F600 (😀) is an astral character: two UTF-16 code units. These exact
+    // padding lengths were verified (see PR #2314 review thread) to put the
+    // computed 40%/60% cut points AT index 8 (inside the first emoji's pair,
+    // splitting off its lone high surrogate) and at the low surrogate of the
+    // second emoji (splitting off its lone low surrogate) — reproducing the
+    // naive-slice bug before asserting the fix.
+    const emoji = '😀';
+    const text = `${'a'.repeat(7)}${emoji}${'b'.repeat(83)}${emoji}${'c'.repeat(11)}`;
+    const charBudget = 74;
+
+    const result = fitHeadAndTailToCharBudget(text, charBudget);
+
+    expect(result.truncated).toBe(true);
+    expect(result.text.length).toBeLessThanOrEqual(charBudget);
+    // A lone (unpaired) surrogate has no valid UTF-8 encoding; encoding then
+    // decoding replaces it with U+FFFD. Round-tripping through UTF-8 is the
+    // precise, encoding-agnostic proof that no boundary left a broken half.
+    const roundTripped = Buffer.from(result.text, 'utf8').toString('utf8');
+    expect(roundTripped).toBe(result.text);
+    expect(roundTripped).not.toContain('�');
+  });
+
+  it('returns empty text (not a mangled marker fragment) when the budget cannot hold the marker', () => {
+    const text = 'x'.repeat(1000);
+    // The marker for a 1000-char input is ~40 chars; a budget smaller than
+    // that cannot honestly retain any content.
+    const tinyBudget = 10;
+
+    const result = fitHeadAndTailToCharBudget(text, tinyBudget);
+
+    expect(result).toEqual({ text: '', truncated: true });
+  });
+});
+
 describe('runExecuteCommand — happy path', () => {
   it('runs echo and surfaces exitCode 0 with stdout', async () => {
     const root = await makeWorkspace();
@@ -102,6 +193,9 @@ describe('runExecuteCommand — happy path', () => {
     expect(result.signal).toBeNull();
     expect(result.cwd).toBe(root);
     expect(typeof result.durationMs).toBe('number');
+    expect(result.rootId).toBe(root);
+    expect(result.openRoots).toBeUndefined();
+    expect(result.ambiguousRootNames).toBeUndefined();
   });
 
   it('starts in the workspace root by default (pwd === root)', async () => {
@@ -110,16 +204,77 @@ describe('runExecuteCommand — happy path', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(root);
   });
+
+  it('executes and projects through the registered desktop tool', async () => {
+    const root = await makeWorkspace();
+    const tools = buildDesktopAssistantTools(singleRoot(root));
+    const execute = requireToolExecute<ExecuteCommandToolResult>(
+      tools,
+      'brainstrike.executeCommand'
+    );
+    const toModelOutput = requireExecuteCommandModelOutput(tools);
+
+    const result = await execute({ command: 'echo hello' });
+
+    expect(toModelOutput(result)).toEqual({
+      type: 'text',
+      value: `exec exit=0 ${(result.durationMs / 1000).toFixed(1)}s\nhello\n`,
+    });
+  });
+});
+
+describe('runExecuteCommand — root topology', () => {
+  it('threads same-name multi-root topology and the selected root id', async () => {
+    const rootA = await makeWorkspace('brainstrike-exec-multiroot-a-');
+    const rootB = await makeWorkspace('brainstrike-exec-multiroot-b-');
+    const runtimeData = {
+      workspaceRoots: [
+        { displayName: 'Twin', path: rootA, rootId: 'root-a' },
+        { displayName: 'twin', path: rootB, rootId: 'root-b' },
+      ],
+    } as RuntimeData;
+
+    const result = await runExecuteCommand(
+      { command: 'echo selected', root: 'root-a' },
+      runtimeData
+    );
+
+    expect(result.rootId).toBe('root-a');
+    expect(result.openRoots).toBe(2);
+    expect(result.ambiguousRootNames).toEqual(['twin']);
+  });
+});
+
+describe('runExecuteCommand — command echo bounding', () => {
+  it('echoes a command at the 200-character boundary unchanged', async () => {
+    const root = await makeWorkspace();
+    const command = `printf ok #${'x'.repeat(200 - 'printf ok #'.length)}`;
+
+    const result = await runExecuteCommand({ command }, singleRoot(root));
+
+    expect(command).toHaveLength(200);
+    expect(result.command).toBe(command);
+  });
+
+  it('echoes only the first 200 characters plus an explicit truncation note', async () => {
+    const root = await makeWorkspace();
+    const command = `printf ok #${'x'.repeat(240)}`;
+    const note = '… [command truncated: full command is in the tool call input]';
+
+    const result = await runExecuteCommand({ command }, singleRoot(root));
+
+    expect(command.length).toBeGreaterThan(200);
+    expect(result.command.slice(0, 200)).toBe(command.slice(0, 200));
+    expect(result.command.slice(200)).toBe(note);
+    expect(result.command).not.toContain(command);
+  });
 });
 
 describe('runExecuteCommand — truncated flag (no false positive on empty streams)', () => {
-  // Regression: an EMPTY stream is `''`, and `''.split('\n')` is `['']` (length
-  // 1, one empty line) — NOT `[]`. Under the absent stream's 0 budget,
-  // fitTailToCharBudget treated that single empty line as a dropped line and
-  // reported truncated:true. That flipped the overall result to truncated + a
-  // bogus "Output was truncated… re-run piping through | tail" hint on the COMMON
-  // case (any command writing to only one stream, or a silent command), pushing
-  // the model into needless re-runs. An absent stream must never be "truncated".
+  // Regression guard: an ABSENT stream must never flip the overall result to
+  // truncated + a bogus "Output was truncated…" hint on the COMMON case
+  // (output on only one stream, or a silent command). Keep the raw
+  // hasStdout/hasStderr gate even as fitting internals evolve.
 
   it('reports truncated=false when only stdout has output (empty stderr)', async () => {
     const root = await makeWorkspace();
@@ -279,18 +434,39 @@ describe('runExecuteCommand — abort kills the tree', () => {
 describe('runExecuteCommand — output bounding (no unbounded result)', () => {
   it('truncates huge output with a hint instead of returning it all', async () => {
     const root = await makeWorkspace();
-    // ~200k lines of "x" — far above the model token budget.
+    // ~50k numbered lines — far above the model budget but below the raw cap.
     const result = await runExecuteCommand(
-      { command: 'seq 1 200000 | sed "s/.*/x/"', timeoutMs: 30_000 },
+      { command: 'seq 1 50000', timeoutMs: 30_000 },
       singleRoot(root)
     );
     expect(result.exitCode).toBe(0);
     expect(result.truncated).toBe(true);
     expect(result.hint).toBeTruthy();
-    // The serialized result must be bounded (well under a megabyte of text).
-    expect(JSON.stringify(result).length).toBeLessThan(20_000);
-    // Tail bias: the LAST lines survive, so the final value is present.
-    expect(result.stdout).toContain('x');
+    // The serialized result must stay inside the native tool result budget —
+    // the actual transport guard, not an arbitrary looser number. Budgeting
+    // is done on RAW chars while this guard measures SERIALIZED chars, so
+    // this also catches JSON-escaping blowing past the budget on the edge.
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+    expect(result.stdout).toContain('[… output truncated:');
+    // Both the early diagnostic context and the most-recent output survive.
+    expect(result.stdout.startsWith('1\n2\n3\n')).toBe(true);
+    expect(result.stdout.endsWith('49999\n50000\n')).toBe(true);
+  });
+
+  it('describes head+tail retention in the truncation hint (not stale tail-only wording)', async () => {
+    const root = await makeWorkspace();
+    const result = await runExecuteCommand(
+      { command: 'seq 1 50000', timeoutMs: 30_000 },
+      singleRoot(root)
+    );
+
+    expect(result.truncated).toBe(true);
+    // Regression guard: the hint must describe the CURRENT retention shape.
+    // It must not push the model toward `| tail -n N`, which would discard
+    // the early head content this feature exists to preserve.
+    expect(result.hint).toContain('start and end of each stream');
+    expect(result.hint).not.toContain('most recent lines');
+    expect(result.hint).not.toContain('| tail -n N');
   });
 });
 
@@ -509,13 +685,13 @@ describe('resolveShellInvocation — per-platform shell selection', () => {
 
   afterEach(() => {
     if (originalShell === undefined) {
-      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      // must truly unset env var, not assign "undefined"
       delete process.env['SHELL'];
     } else {
       process.env['SHELL'] = originalShell;
     }
     if (originalComSpec === undefined) {
-      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      // must truly unset env var, not assign "undefined"
       delete process.env['ComSpec'];
     } else {
       process.env['ComSpec'] = originalComSpec;
@@ -523,7 +699,7 @@ describe('resolveShellInvocation — per-platform shell selection', () => {
   });
 
   it('uses cmd.exe with /d /s /c on win32 (NOT /bin/sh — the ENOENT bug)', () => {
-    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    // must truly unset env var, not assign "undefined"
     delete process.env['SHELL']; // SHELL is normally unset on Windows.
     process.env['ComSpec'] = 'C:\\Windows\\System32\\cmd.exe';
     const { shell, args } = resolveShellInvocation('echo hi', 'win32');
@@ -533,7 +709,7 @@ describe('resolveShellInvocation — per-platform shell selection', () => {
   });
 
   it('falls back to cmd.exe on win32 when ComSpec is unset', () => {
-    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    // must truly unset env var, not assign "undefined"
     delete process.env['ComSpec'];
     const { shell, args } = resolveShellInvocation('echo hi', 'win32');
     expect(shell).toBe('cmd.exe');
@@ -550,7 +726,7 @@ describe('resolveShellInvocation — per-platform shell selection', () => {
   });
 
   it('falls back to /bin/sh on POSIX when SHELL is unset', () => {
-    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    // must truly unset env var, not assign "undefined"
     delete process.env['SHELL'];
     const { shell, args } = resolveShellInvocation('echo hi', 'linux');
     expect(shell).toBe('/bin/sh');

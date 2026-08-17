@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+interface EmbeddingLifecycleStatus {
+  active: boolean;
+  lastError: string | null;
+  runtimeId: string;
+  runtimeKind?: 'embedding-host';
+  state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
 const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
   const hostWindow = {
     isDestroyed: vi.fn(() => false),
@@ -8,12 +16,12 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
       send: vi.fn(),
     },
   };
-  const currentStatus = {
+  const currentStatus: EmbeddingLifecycleStatus = {
     active: false,
     lastError: null,
     runtimeId: 'embedding-host-runtime',
-    runtimeKind: 'embedding-host' as const,
-    state: 'running' as const,
+    runtimeKind: 'embedding-host',
+    state: 'running',
   };
 
   return {
@@ -22,27 +30,32 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
       clearHostWindow: vi.fn(),
       destroyHostWindow: vi.fn(),
       dispose: vi.fn(),
-      ensureStarted: vi.fn(async () => ({
+      ensureStarted: vi.fn<() => Promise<EmbeddingLifecycleStatus>>(async () => ({
         active: false,
         lastError: null,
         runtimeId: 'embedding-host-runtime',
-        state: 'running' as const,
+        state: 'running',
       })),
-      getHostWindow: vi.fn(() => hostWindow),
-      getStatus: vi.fn(() => ({ ...currentStatus })),
+      getHostWindow: vi.fn<() => typeof hostWindow | null | undefined>(() => hostWindow),
+      getStatus: vi.fn<() => EmbeddingLifecycleStatus>(() => ({ ...currentStatus })),
       isHostWindow: vi.fn(() => false),
-      setStatus: vi.fn((status) => {
+      setStatus: vi.fn<(status: EmbeddingLifecycleStatus) => void>((status) => {
         currentStatus.active = status.active;
         currentStatus.lastError = status.lastError;
         currentStatus.runtimeId = status.runtimeId;
         currentStatus.runtimeKind = status.runtimeKind ?? 'embedding-host';
         currentStatus.state = status.state;
       }),
-      waitForStatus: vi.fn(async () => ({
+      waitForStatus: vi.fn<
+        (
+          predicate: (status: EmbeddingLifecycleStatus) => boolean,
+          timeoutMs: number
+        ) => Promise<EmbeddingLifecycleStatus>
+      >(async () => ({
         active: false,
         lastError: 'boom',
         runtimeId: 'embedding-host-runtime',
-        state: 'error' as const,
+        state: 'error',
       })),
     },
     mockHostWindow: hostWindow,
@@ -77,13 +90,23 @@ vi.mock('../renderer-host-lifecycle', () => ({
 
 import { EmbeddingHostManager } from '../embedding-host-manager';
 
-type TestableEmbeddingHostManager = EmbeddingHostManager & {
+// Omit<T, never> is NOT a no-op: it maps over the class's public keys and
+// yields a plain object type without private members, which is what lets the
+// intersection below redeclare private internals (syncPowerSaveBlocker) as
+// test-visible seams.
+type TestableEmbeddingHostManager = Omit<EmbeddingHostManager, never> & {
   syncPowerSaveBlocker: (status: {
     active: boolean;
     lastError: string | null;
     state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
   }) => void;
 };
+
+function createDarwinManager(): TestableEmbeddingHostManager {
+  return new EmbeddingHostManager({
+    platform: 'darwin',
+  }) as unknown as TestableEmbeddingHostManager;
+}
 
 describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   beforeEach(() => {
@@ -106,7 +129,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('keeps the blocker active across short idle gaps while the host remains running', () => {
-    const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
+    const manager = createDarwinManager();
 
     manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
     manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
@@ -119,8 +142,8 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(powerSaveBlockerStopMock).not.toHaveBeenCalled();
   });
 
-  it('stops the blocker after sustained idle while the host remains running', () => {
-    const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
+  it('stops the blocker after sustained idle while the host remains running on Darwin', () => {
+    const manager = createDarwinManager();
 
     manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
     manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
@@ -132,8 +155,38 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(powerSaveBlockerStopMock).toHaveBeenCalledWith(101);
   });
 
+  it('never invokes the blocker lifecycle for active, idle, or error states off Darwin', () => {
+    const manager = new EmbeddingHostManager({
+      platform: 'linux',
+    }) as unknown as TestableEmbeddingHostManager;
+
+    manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+    manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
+    vi.advanceTimersByTime(5001);
+    manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
+
+    expect(powerSaveBlockerStartMock).not.toHaveBeenCalled();
+    expect(powerSaveBlockerIsStartedMock).not.toHaveBeenCalled();
+    expect(powerSaveBlockerStopMock).not.toHaveBeenCalled();
+  });
+
+  it('defaults the blocker policy to the current process platform', () => {
+    const defaultManager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
+    defaultManager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+    const defaultStartCount = powerSaveBlockerStartMock.mock.calls.length;
+
+    powerSaveBlockerStartMock.mockClear();
+
+    const explicitManager = new EmbeddingHostManager({
+      platform: process.platform,
+    }) as unknown as TestableEmbeddingHostManager;
+    explicitManager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+
+    expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(defaultStartCount);
+  });
+
   it('clears a stale id and can start a fresh blocker after stop throws on a dead blocker', async () => {
-    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/utils/logger');
+    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/logging');
     setLogLevel(LogLevel.WARN);
     const warnings: string[] = [];
     const removeLogListener = addLogListener((entry) => {
@@ -149,7 +202,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       // Pre-stop check sees the blocker as started; the post-failure recheck
       // reports it dead — the id is stale, so clearing avoids the wedge.
       powerSaveBlockerIsStartedMock.mockReturnValueOnce(true).mockReturnValueOnce(false);
-      const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
+      const manager = createDarwinManager();
 
       manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
       expect(() =>
@@ -170,7 +223,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('keeps the id and retries when stop throws but the blocker is still active at the OS', async () => {
-    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/utils/logger');
+    const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/logging');
     setLogLevel(LogLevel.WARN);
     const warnings: string[] = [];
     const removeLogListener = addLogListener((entry) => {
@@ -186,7 +239,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       // isStarted stays true throughout: the OS block survived the failed stop.
       // Discarding the id here would leak an unstoppable blocker (machine never
       // sleeps); the manager must keep the handle and retry.
-      const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
+      const manager = createDarwinManager();
 
       manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
       manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
@@ -210,7 +263,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('stops the blocker immediately when the host leaves the running state', () => {
-    const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager;
+    const manager = createDarwinManager();
 
     manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
     manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
@@ -221,7 +274,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('does not stop the blocker from an idle timer after the manager is disposed', () => {
-    const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager & {
+    const manager = createDarwinManager() as TestableEmbeddingHostManager & {
       disposed: boolean;
     };
 
@@ -288,7 +341,9 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       runtimeId: 'embedding-host:next-runtime',
       state: 'running',
     });
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('next-runtime');
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      'next-runtime' as unknown as ReturnType<Crypto['randomUUID']>
+    );
     const manager = new EmbeddingHostManager();
 
     await expect(manager.reset()).resolves.toMatchObject({
@@ -327,7 +382,9 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         };
       })
     );
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('next-runtime');
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      'next-runtime' as unknown as ReturnType<Crypto['randomUUID']>
+    );
     const manager = new EmbeddingHostManager();
 
     const resetPromise = manager.reset();
@@ -363,6 +420,12 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     };
     lifecycleState.ensureStarted.mockReturnValueOnce(
       new Promise((resolve) => {
+        lifecycleState.setStatus({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:restarted-runtime',
+          state: 'starting',
+        });
         resolveRestart = () => {
           lifecycleState.setStatus(restartStatus);
           resolve(restartStatus);
@@ -375,9 +438,12 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
 
     expect(manager.getPlatformStatus()).toMatchObject({
       runtimeKind: 'embedding-host',
-      sourceState: 'stopped',
+      sourceState: 'starting',
       state: 'restarting',
     });
+    expect(lifecycleState.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'stopped' })
+    );
 
     resolveRestart();
     await expect(restartPromise).resolves.toMatchObject({
@@ -390,7 +456,9 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('reset waits for the freshly assigned runtime id before resolving', async () => {
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('next-runtime');
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
+      'next-runtime' as unknown as ReturnType<Crypto['randomUUID']>
+    );
     lifecycleState.waitForStatus.mockImplementationOnce(async (predicate) => {
       expect(
         predicate({
@@ -478,6 +546,19 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         },
         backendMismatch: false,
         selectedDevicePreference: 'webgpu',
+        telemetry: {
+          batchTransfer: { batchCount: 1, lastBytes: 12, peakBytes: 12, totalBytes: 12 },
+          cache: {
+            entries: [],
+            estimatedGpuBytes: 0,
+            estimatedHeapBytes: 0,
+            memoryEstimateUnavailableCount: 0,
+            residentCount: 0,
+          },
+          health: { failureCount: 0, lastFailure: null },
+          lastUpdatedAt: 1000,
+          peakVectorsInFlight: 1,
+        },
       },
       lastError: null,
       runtimeId: 'embedding-host-runtime',
@@ -495,6 +576,9 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
           }),
           backendMismatch: false,
           selectedDevicePreference: 'webgpu',
+          telemetry: expect.objectContaining({
+            peakVectorsInFlight: 1,
+          }),
         }),
       })
     );

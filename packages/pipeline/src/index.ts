@@ -21,21 +21,18 @@
  *
  * - Files: `file:{contentHash}:{embeddingSetId}` - same content in same set
  * - Chunks: `chunk:{fileId}:{chunkIndex}` - same file, same position
- * - Jobs: `embed:{chunkId}:{setId}:{model}` - same chunk, same config
+ *
+ * Embedding job keys are built by `buildEmbedJobDedupeKey` in
+ * `@brainstrike/indexing-contract`, which is shared with the `@brainstrike/db`
+ * enqueue path. None of these keys are a supported way to recover entity
+ * identity — parse `job_queue.chunk_id` / `job_queue.embedding_set_id` instead.
  *
  * @example
  * ```typescript
- * import {
- *   generateFileId,
- *   buildEmbedJobDedupeKey,
- *   type FileImportOutput,
- * } from '@brainstrike/pipeline';
+ * import { generateFileId, type FileImportOutput } from '@brainstrike/pipeline';
  *
  * // Generate a new file ID
  * const fileId = generateFileId();
- *
- * // Build a dedupe key for job queue
- * const dedupeKey = buildEmbedJobDedupeKey(chunkId, setId, 'text-embedding-3-small');
  * ```
  */
 
@@ -86,7 +83,6 @@ export {
 // Identifiers
 export {
   buildChunkDedupeKey,
-  buildEmbedJobDedupeKey,
   // Dedupe key builders
   buildFileDedupeKey,
   generateChunkId,

@@ -6,8 +6,8 @@ import type {
   RootDescriptor,
   WatcherHealthEvent,
   WatcherHealthTransition,
-} from './file-system';
-import type { TapestryColorName } from './tapestry-colors';
+} from './file-system.js';
+import type { TapestryColorName } from './tapestry-colors.js';
 
 /**
  * Result of a database test operation
@@ -125,11 +125,15 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaitingSince: number | null;
   readonly backgroundYieldCount: number;
   readonly currentBackgroundWaitMs: number;
+  readonly elapsedSnapshotAt: number;
+  readonly forcedBackgroundAdmissionCount: number;
   readonly foregroundQuietMs: number;
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastForegroundElapsedAt: number | null;
   readonly lastNormalAt: number | null;
+  readonly lastNormalElapsedAt: number | null;
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
@@ -212,22 +216,22 @@ export interface ElectronFileSystemAPI {
   readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
   readFile: (handle: FileHandle) => Promise<string>;
   /**
-   * Read a file directly by its absolute path.
-   * Useful for loading persisted file tabs before the file tree is available.
+   * Read by absolute path within a currently mounted root. Useful for loading
+   * persisted file tabs before the file tree is available.
    */
   readFileByPath: (absolutePath: string) => Promise<string>;
   /**
-   * Multi-root: forget a persisted root by its RootId (removes the rootsList
-   * entry and a matching lastFolderPath). Disconnect ≠ delete — DB rows are
-   * deliberately KEPT so re-adding the same folder resumes without re-indexing.
+   * Multi-root: disconnect a persisted root by its RootId. Main converges
+   * persistence and DB live status atomically from the renderer's perspective.
+   * Disconnect ≠ delete: indexed DB rows remain available for a later remount.
    */
   removeRoot: (rootId: string) => Promise<void>;
   requestDirectoryAccess: () => Promise<DirectoryHandle>;
   restoreLastFolder: () => Promise<DirectoryHandle | null>;
   /**
    * Multi-root: return every persisted root with its current permission state.
-   * Never prompts; never throws on individual stale roots — stale entries are
-   * pruned and omitted from the result.
+   * Never prompts. Missing or transiently unmountable roots remain persisted
+   * and are returned as `unknown`; malformed registry persistence throws.
    */
   restoreRoots: () => Promise<RootDescriptor[]>;
   /**

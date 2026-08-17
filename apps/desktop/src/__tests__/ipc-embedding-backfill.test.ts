@@ -1,5 +1,5 @@
 import { createDatabaseWorkScheduler } from '@brainstrike/db';
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -69,7 +69,7 @@ function createRunParams(
 ) {
   const strategy =
     'dimensionIndexMaintenanceStrategy' in options
-      ? options.dimensionIndexMaintenanceStrategy
+      ? (options.dimensionIndexMaintenanceStrategy ?? null)
       : source === 'background-indexing'
         ? 'regular'
         : null;
@@ -341,7 +341,11 @@ describe('desktop embedding backfill termination logging', () => {
 
     expect(second.requestId).toMatch(/^background-indexing-backfill:/);
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
-    resolveBackfill?.();
+    const finishBackfill = resolveBackfill as (() => void) | null;
+    if (!finishBackfill) {
+      throw new Error('Expected the background backfill to be pending.');
+    }
+    finishBackfill();
     await first;
   });
 
@@ -373,7 +377,11 @@ describe('desktop embedding backfill termination logging', () => {
       })
     );
 
-    resolveBackfill?.();
+    const finishBackfill = resolveBackfill as (() => void) | null;
+    if (!finishBackfill) {
+      throw new Error('Expected the background backfill to be pending.');
+    }
+    finishBackfill();
   });
 
   it('rejects background-indexing backfill when the dimension index strategy is unavailable', async () => {
@@ -482,7 +490,11 @@ describe('desktop embedding backfill termination logging', () => {
       expect.objectContaining({ stage: 'complete' })
     );
 
-    resolveBackfill?.();
+    const finishBackfill = resolveBackfill as (() => void) | null;
+    if (!finishBackfill) {
+      throw new Error('Expected the background backfill to be pending.');
+    }
+    finishBackfill();
 
     await vi.waitFor(() => {
       expect(event.sender.send).toHaveBeenCalledWith(
@@ -527,7 +539,11 @@ describe('desktop embedding backfill termination logging', () => {
     });
 
     expect(second.requestId).toBe(first.requestId);
-    rejectBackfill?.(new Error('drain failed'));
+    const failBackfill = rejectBackfill as ((error: Error) => void) | null;
+    if (!failBackfill) {
+      throw new Error('Expected the background backfill to be pending.');
+    }
+    failBackfill(new Error('drain failed'));
 
     await vi.waitFor(() => {
       expect(attachedEvent.sender.send).toHaveBeenCalledWith(

@@ -614,25 +614,28 @@ describe('assistant route', () => {
         { id: 'assistant-1', parts: [{ text: '   ', type: 'text' }], role: 'assistant' },
       ],
     ],
-  ])('requires the final message to be a non-empty user prompt, not %s', async (_case, messages) => {
-    mockOpenAiProviderConfig({
-      apiKey: 'test-key',
-      enabled: true,
-      provider: 'openai',
-    });
+  ])(
+    'requires the final message to be a non-empty user prompt, not %s',
+    async (_case, messages) => {
+      mockOpenAiProviderConfig({
+        apiKey: 'test-key',
+        enabled: true,
+        provider: 'openai',
+      });
 
-    const res = await POST(
-      new Request('http://localhost/api/assistant', {
-        body: JSON.stringify({ data: { provider: 'openai' }, messages }),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-      })
-    );
+      const res = await POST(
+        new Request('http://localhost/api/assistant', {
+          body: JSON.stringify({ data: { provider: 'openai' }, messages }),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        })
+      );
 
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toEqual({ error: 'empty_prompt' });
-    expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
-  });
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({ error: 'empty_prompt' });
+      expect(buildWebAssistantStreamFromPrepared).not.toHaveBeenCalled();
+    }
+  );
 
   it('returns 413 when a chunked request body exceeds the default byte limit', async () => {
     mockOpenAiProviderConfig({

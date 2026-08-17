@@ -1,8 +1,5 @@
-// Imported via the subpath rather than the `@brainstrike/utils` barrel: the barrel
-// re-exports `dev/hmr-utils`, whose top-level `import.meta` the Playwright runner
-// cannot parse ("Cannot use 'import.meta' outside a module").
-import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
-import { BACKGROUND_INDEXING_POLICY_OPTIONS } from '@brainstrike/utils/background-indexing-policy';
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
+import { BACKGROUND_INDEXING_POLICY_OPTIONS } from '@brainstrike/utils';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
@@ -125,10 +122,10 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
     await home.navigateToHome();
     await ensureDatabasePanelVisible(page);
 
-    const importButton = page
-      .getByTestId('database-demo-panel')
-      .getByRole('button', { name: /^Import\s*\(/ });
-    await expect(importButton).toBeDisabled();
+    // The import trigger itself now lives in the explorer's selection bar
+    // (BST-1212); the Database panel's remaining job is to EXPLAIN why manual
+    // imports are unavailable for a background-indexed collection. The
+    // explorer-side block is covered by explorer-import-action.test.tsx.
     await expect(page.getByText(/manual db imports are disabled/i)).toBeVisible({
       timeout: 15_000,
     });

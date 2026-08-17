@@ -5,7 +5,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
 [![Node](https://img.shields.io/badge/Node-22+-green.svg)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/License-ISC-blue.svg)](./LICENSE)
+[![License](https://img.shields.io/badge/License-ISC-blue.svg)](../../LICENSE)
 
 ## Overview
 
@@ -23,8 +23,8 @@
 
 ## Database Demo Data Ownership
 
-The database demo data surface owns collection-browser orchestration, not low-level
-database repositories.
+The database demo data surface owns the Collections panel's data orchestration,
+not low-level database repositories.
 
 Owned files:
 
@@ -36,7 +36,7 @@ Owned files:
 Allowed dependencies:
 
 - `@brainstrike/db` repository and live-query contracts.
-- `@brainstrike/preferences` database/vector status stores.
+- `@brainstrike/app-state` database/vector status stores.
 - `@brainstrike/text-splitter` only inside mapper helpers for resolved chunking strategy validation.
 
 Focused local verification:
@@ -84,7 +84,7 @@ Import files with chunking and embedding:
 
 ```typescript
 import { EnhancedFileImportService } from '@brainstrike/db-explorer';
-import { useImportSettingsStore } from '@brainstrike/preferences';
+import { useImportSettingsStore } from '@brainstrike/app-state/stores/import-settings-store';
 
 async function importFiles(files: File[]) {
   const settings = useImportSettingsStore.getState();
@@ -312,10 +312,9 @@ import type {
 - `@brainstrike/embeddings` - Embedding generation
 - `@brainstrike/file-system` - File operations
 - `@brainstrike/platform-utils` - Platform detection
-- `@brainstrike/preferences` - Import settings
+- `@brainstrike/app-state` - Import settings
 - `@brainstrike/ui` - UI components
 - `@brainstrike/utils` - Common utilities
-- `file-saver` - File download utility
 - `jszip` - ZIP file creation
 - `zustand` (peer) - State management
 - `react` (peer) - UI framework

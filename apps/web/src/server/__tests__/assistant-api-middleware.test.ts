@@ -226,29 +226,28 @@ describe('assistant API middleware local request boundary', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it.each([
-    undefined,
-    'text/plain',
-    'application/json-patch+json',
-  ])('rejects POST Content-Type %s', async (contentType) => {
-    const middleware = createAssistantApiMiddleware('dev');
-    const req = createRequest({ 'content-type': contentType });
-    const res = new ResponseSink();
-    const next = vi.fn();
-    const responsePromise = middleware(req, res as unknown as http.ServerResponse, next);
+  it.each([undefined, 'text/plain', 'application/json-patch+json'])(
+    'rejects POST Content-Type %s',
+    async (contentType) => {
+      const middleware = createAssistantApiMiddleware('dev');
+      const req = createRequest({ 'content-type': contentType });
+      const res = new ResponseSink();
+      const next = vi.fn();
+      const responsePromise = middleware(req, res as unknown as http.ServerResponse, next);
 
-    req.emit('data', Buffer.from('{}'));
-    req.emit('end');
-    await responsePromise;
+      req.emit('data', Buffer.from('{}'));
+      req.emit('end');
+      await responsePromise;
 
-    expect(res.statusCode).toBe(415);
-    expect(JSON.parse(res.body)).toEqual({
-      error: 'local_assistant_json_required',
-      message: 'Local assistant API POST requests require Content-Type: application/json.',
-    });
-    expect(req.resume).toHaveBeenCalledOnce();
-    expect(next).not.toHaveBeenCalled();
-  });
+      expect(res.statusCode).toBe(415);
+      expect(JSON.parse(res.body)).toEqual({
+        error: 'local_assistant_json_required',
+        message: 'Local assistant API POST requests require Content-Type: application/json.',
+      });
+      expect(req.resume).toHaveBeenCalledOnce();
+      expect(next).not.toHaveBeenCalled();
+    }
+  );
 
   it('admits application/json with a charset parameter', async () => {
     const middleware = createAssistantApiMiddleware('dev');
@@ -431,27 +430,30 @@ describe('assistant API middleware request body limit', () => {
         message: 'Assistant request payload contains an unsupported top-level field.',
       },
     ],
-  ] as const)('returns the canonical envelope error in %s for %s', async (mode, url, body, expected) => {
-    // Convergence (BST-973-2): the assistant path's 503 server-config gate now
-    // precedes validation, so a configured provider is needed to reach the 400s.
-    vi.stubEnv('OPENAI_API_KEY', 'test-key');
-    const middleware = createAssistantApiMiddleware(mode);
-    const req = createRequest({});
-    req.url = url;
-    const res = new ResponseSink();
-    const next = vi.fn();
-    const responsePromise = middleware(req, res as unknown as http.ServerResponse, next);
+  ] as const)(
+    'returns the canonical envelope error in %s for %s',
+    async (mode, url, body, expected) => {
+      // Convergence (BST-973-2): the assistant path's 503 server-config gate now
+      // precedes validation, so a configured provider is needed to reach the 400s.
+      vi.stubEnv('OPENAI_API_KEY', 'test-key');
+      const middleware = createAssistantApiMiddleware(mode);
+      const req = createRequest({});
+      req.url = url;
+      const res = new ResponseSink();
+      const next = vi.fn();
+      const responsePromise = middleware(req, res as unknown as http.ServerResponse, next);
 
-    if (body.length > 0) {
-      req.emit('data', Buffer.from(body));
+      if (body.length > 0) {
+        req.emit('data', Buffer.from(body));
+      }
+      req.emit('end');
+      await responsePromise;
+
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body)).toEqual(expected);
+      expect(next).not.toHaveBeenCalled();
     }
-    req.emit('end');
-    await responsePromise;
-
-    expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body)).toEqual(expected);
-    expect(next).not.toHaveBeenCalled();
-  });
+  );
 
   it('rejects last-event-id before parsing its bounded body or consulting local sessions', async () => {
     const middleware = createAssistantApiMiddleware('preview');

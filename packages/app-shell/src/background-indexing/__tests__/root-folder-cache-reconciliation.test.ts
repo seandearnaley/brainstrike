@@ -143,6 +143,7 @@ describe('root-folder-cache-reconciliation', () => {
         rootPath: '/workspace/a',
       })
     ).toEqual({
+      code: 'no-managed-collection',
       ok: false,
       reason: 'No managed collection selected.',
     });
@@ -154,6 +155,7 @@ describe('root-folder-cache-reconciliation', () => {
         rootPath: null,
       })
     ).toEqual({
+      code: 'no-root-folder',
       ok: false,
       reason: 'No root folder selected.',
     });
@@ -167,6 +169,7 @@ describe('root-folder-cache-reconciliation', () => {
         rootPath: '/workspace/a',
       })
     ).toEqual({
+      code: 'db-not-ready',
       ok: false,
       reason: 'Database is not ready.',
     });

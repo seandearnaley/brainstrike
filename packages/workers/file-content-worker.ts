@@ -5,14 +5,15 @@ import {
   getFileSizeConfig,
   getFileTooLargeMessage,
 } from '@brainstrike/file-system';
+import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
 import {
-  createLogger,
   fileContent,
-  fileExplorer,
+  getKnownFileSize,
   isBinaryExtension,
   isTextExtension,
 } from '@brainstrike/utils';
+import { getFileExtension } from '@brainstrike/utils/file-utils';
 
 export interface FileReadRequest {
   compositeKey: string;
@@ -26,6 +27,10 @@ export interface ProgressEvent {
   loaded: number;
   total: number;
 }
+
+export type FileContentReadResult =
+  | { content: string; status: 'accessible' }
+  | { message: string; status: 'inaccessible' };
 
 export interface FileContentWorkerOptions {
   concurrency?: number;
@@ -49,15 +54,13 @@ function normalizeAbortError(error: unknown): Error {
   return error instanceof Error ? error : createAbortError();
 }
 
-const logger = createLogger('FileContentWorker');
-
-function getKnownFileSize(request: FileReadRequest): number | null {
-  const size = request.handle?.size;
-  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
-    return null;
-  }
-  return size;
+function normalizeSchedulerError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error('File content queue scheduling failed.', { cause: error });
 }
+
+const logger = createLogger('FileContentWorker');
 
 function normalizeMaxFileSize(maxFileSize: unknown): number {
   if (typeof maxFileSize !== 'number' || !Number.isFinite(maxFileSize) || maxFileSize <= 0) {
@@ -83,15 +86,15 @@ export function createFileContentWorker({
     onProgress?: (e: ProgressEvent) => void,
     abortSignal?: AbortSignal
   ) {
-    const results: Record<string, string> = {};
+    const results: Record<string, FileContentReadResult> = {};
     let index = 0;
     let active = 0;
     let completed = 0;
     const total = queue.length;
 
-    return new Promise<Record<string, string>>((resolve, reject) => {
+    return new Promise<Record<string, FileContentReadResult>>((resolve, reject) => {
       let settled = false;
-      const finishResolve = (value: Record<string, string>): void => {
+      const finishResolve = (value: Record<string, FileContentReadResult>): void => {
         if (settled) {
           return;
         }
@@ -126,7 +129,9 @@ export function createFileContentWorker({
           finishResolve(results);
           return;
         }
-        void next();
+        void next().catch((error: unknown) => {
+          finishReject(normalizeSchedulerError(error));
+        });
       };
       const handleRequestSuccess = (
         request: FileReadRequest,
@@ -136,7 +141,7 @@ export function createFileContentWorker({
         if (settled) {
           return;
         }
-        results[key] = content;
+        results[key] = { content, status: 'accessible' };
         finalizeRequest(request);
       };
       const handleRequestFailure = (request: FileReadRequest, error: unknown): void => {
@@ -144,8 +149,15 @@ export function createFileContentWorker({
           return;
         }
         const message = error instanceof FileContentError ? error.message : 'Error accessing file';
-        results[request.compositeKey] = message;
+        results[request.compositeKey] = { message, status: 'inaccessible' };
         finalizeRequest(request);
+      };
+      const runRequestHandler = (handler: () => void): void => {
+        try {
+          handler();
+        } catch (error) {
+          finishReject(normalizeSchedulerError(error));
+        }
       };
       const scheduleRequest = async (request: FileReadRequest): Promise<void> => {
         active += 1;
@@ -156,12 +168,21 @@ export function createFileContentWorker({
           finishReject(normalizeAbortError(error));
           return;
         }
-        processRequest(request)
-          .then(({ key, content }) => {
-            handleRequestSuccess(request, key, content);
-          })
-          .catch((error) => {
-            handleRequestFailure(request, error);
+        void processRequest(request)
+          .then(
+            ({ key, content }) => {
+              runRequestHandler(() => {
+                handleRequestSuccess(request, key, content);
+              });
+            },
+            (error: unknown) => {
+              runRequestHandler(() => {
+                handleRequestFailure(request, error);
+              });
+            }
+          )
+          .catch((error: unknown) => {
+            finishReject(normalizeSchedulerError(error));
           });
       };
       const next = async () => {
@@ -185,13 +206,15 @@ export function createFileContentWorker({
         finishResolve(results);
         return;
       }
-      void next();
+      void next().catch((error: unknown) => {
+        finishReject(normalizeSchedulerError(error));
+      });
     });
   }
 
   async function processRequest(req: FileReadRequest): Promise<{ key: string; content: string }> {
     const effectiveMaxFileSize = getEffectiveMaxFileSize();
-    const knownFileSize = getKnownFileSize(req);
+    const knownFileSize = getKnownFileSize(req.handle?.size);
     if (knownFileSize !== null && knownFileSize > effectiveMaxFileSize) {
       throw new FileContentError(
         `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(effectiveMaxFileSize)})`,
@@ -223,7 +246,7 @@ export function createFileContentWorker({
       throw new FileContentError('Error accessing file', req.path, 'LOADING_ERROR');
     }
 
-    const extension = fileExplorer.getFileExtension(req.path);
+    const extension = getFileExtension(req.path);
 
     if (isBinaryExtension(extension)) {
       throw new FileContentError(BINARY_CONTENT_MESSAGE, req.path, 'BINARY');
@@ -248,7 +271,7 @@ export function createFileContentWorker({
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>> {
+  ): Promise<Record<string, FileContentReadResult>> {
     return runQueue(requests, onProgress, options?.abortSignal);
   };
 }

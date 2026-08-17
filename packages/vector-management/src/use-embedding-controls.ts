@@ -1,5 +1,5 @@
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db/react';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';
 import { useCallback, useRef } from 'react';

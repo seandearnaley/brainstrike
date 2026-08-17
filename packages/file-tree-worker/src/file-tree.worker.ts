@@ -31,7 +31,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   warn: 2,
 };
 
-// Default to 'info' to suppress debug logs - set WORKER_LOG_LEVEL=debug for verbose output
+// Static worker log threshold; change this constant locally for verbose diagnosis.
 const WORKER_LOG_LEVEL: LogLevel = 'info';
 
 function shouldLog(level: LogLevel): boolean {
@@ -112,7 +112,18 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
     switch (messageType) {
       case 'init': {
         const { rootNodes, folderId } = message.payload;
-        engine.setTree(rootNodes, folderId);
+        const replaced = engine.setTree(rootNodes, folderId);
+        if (!replaced) {
+          // The engine proved this init carries the tree it already holds. Announcing it
+          // would make every downstream consumer rebuild handle maps and re-render for a
+          // tree that did not change, and the snapshot alone costs a full structured clone.
+          log('debug', 'tree init skipped (identical tree)', {
+            folderId,
+            nodeCount: rootNodes.length,
+          });
+          break;
+        }
+
         log('info', 'tree initialized', { folderId, nodeCount: rootNodes.length });
 
         // Send initial snapshot

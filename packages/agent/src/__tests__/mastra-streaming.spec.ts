@@ -14,13 +14,14 @@
  * The fake Mastra stream lives in `./fixtures/mastra-stream-harness`.
  */
 import type { ReadableStream } from 'node:stream/web';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import { streamMastraAgent } from '../mastra/agent-streaming';
 import { MastraAgentError } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
+import { RunTokenDiagnostics } from '../mastra/token-measurement';
 import {
   agentInstances,
   expectLeadingContextBreakdown,
@@ -157,7 +158,7 @@ describe('mastra streaming integration', () => {
     });
   });
 
-  it('records bounded token diagnostics with actual provider prompt usage', async () => {
+  it('records bounded token diagnostics with actual accumulated provider prompt usage', async () => {
     setMockStreamParts([
       { textDelta: 'hello', type: 'text-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 11, promptTokens: 7 } },
@@ -176,9 +177,13 @@ describe('mastra streaming integration', () => {
           },
         }
       );
-      for await (const _chunk of iterator) {
-        // Drain the stream so the final diagnostics log is emitted.
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
       }
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ type: 'token-estimate-calibration' })
+      );
     } finally {
       removeLogListener();
     }
@@ -210,6 +215,248 @@ describe('mastra streaming integration', () => {
       tokenizer: 'o200k_base',
       toolDefinitionCount: 0,
     });
+  });
+
+  it('uses the final step prompt and step count for a completed multi-step calibration row', async () => {
+    const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'measured',
+      modelVisibleProjectionBackstopTokens: 8,
+      modelVisibleProjectionCount: 1,
+      toolDefinitionBackstopTokens: 2,
+      toolDefinitionCount: 0,
+    });
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 2, promptTokens: 10 } },
+      { type: 'step-finish', usage: { completionTokens: 3, promptTokens: 40 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 50 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'use a tool', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            model: 'gpt-5.6-terra',
+            provider: 'openai',
+          },
+        }
+      );
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toContainEqual({
+        type: 'token-estimate-calibration',
+        value: {
+          estimatedPromptTokens: 10,
+          finalStepPromptTokens: 40,
+          model: 'gpt-5.6-terra',
+          modelVisibleProjectionCount: 1,
+          occurredAt: expect.any(Number),
+          promptBreakdownBaselineTokens: expect.any(Number),
+          provider: 'openai',
+          resolvedDomainBudgetTokens: 3000,
+          resolvedTransportBudgetTokens: 6000,
+          stepCount: 2,
+        },
+      });
+      const breakdown = chunks.find(
+        (chunk): chunk is { breakdown: Record<string, number>; type: 'context-breakdown' } =>
+          Boolean(
+            chunk &&
+              typeof chunk === 'object' &&
+              (chunk as { type?: unknown }).type === 'context-breakdown'
+          )
+      )?.breakdown;
+      const calibration = chunks.find(
+        (
+          chunk
+        ): chunk is {
+          type: 'token-estimate-calibration';
+          value: { promptBreakdownBaselineTokens: number };
+        } =>
+          Boolean(
+            chunk &&
+              typeof chunk === 'object' &&
+              (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+          )
+      );
+      expect(calibration?.value.promptBreakdownBaselineTokens).toBe(
+        (breakdown?.['systemInstructionsTokens'] ?? 0) +
+          (breakdown?.['taskListTokens'] ?? 0) +
+          (breakdown?.['toolDefinitionsTokens'] ?? 0)
+      );
+    } finally {
+      fieldsSpy.mockRestore();
+    }
+  });
+
+  // BST-1232 review (P1): a tool-free chat turn used to be entirely
+  // ineligible for this chunk (the old gate required at least one measured
+  // tool-output projection), which meant an ordinary chat thread NEVER
+  // persisted `promptBreakdownBaselineTokens` — silently starving the next
+  // turn's compaction trigger of the one value migration 091 exists to give
+  // it. A zero-projection completed run must still emit the chunk whenever a
+  // run-start `promptBreakdown` exists to source a baseline from.
+  it('still persists a baseline-carrying calibration row when a completed run has no tool outputs', async () => {
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
+    ]);
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'answer directly', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'gpt-5.6-terra',
+          provider: 'openai',
+        },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const calibration = chunks.find(
+      (chunk): chunk is { type: 'token-estimate-calibration'; value: Record<string, unknown> } =>
+        Boolean(
+          chunk &&
+            typeof chunk === 'object' &&
+            (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+        )
+    );
+    expect(calibration).toBeDefined();
+    expect(calibration?.value).toMatchObject({
+      modelVisibleProjectionCount: 0,
+      promptBreakdownBaselineTokens: expect.any(Number),
+    });
+    expect((calibration?.value['promptBreakdownBaselineTokens'] as number) > 0).toBe(true);
+  });
+
+  it('omits token-estimate calibration when the stream ends without finish', async () => {
+    const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'measured',
+      modelVisibleProjectionBackstopTokens: 8,
+      modelVisibleProjectionCount: 1,
+      toolDefinitionCount: 0,
+    });
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
+      { textDelta: 'stream ended early', type: 'text-delta' },
+    ]);
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'gpt-5.6-terra',
+          provider: 'openai',
+        },
+      }
+    );
+
+    try {
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ type: 'token-estimate-calibration' })
+      );
+    } finally {
+      fieldsSpy.mockRestore();
+    }
+  });
+
+  it('omits token-estimate calibration when a non-watchdog stream error escapes', async () => {
+    const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'measured',
+      modelVisibleProjectionBackstopTokens: 8,
+      modelVisibleProjectionCount: 1,
+      toolDefinitionCount: 0,
+    });
+    setMockStreamParts([
+      {
+        payload: { metadata: { providerMetadata: { openrouter: { usage: { cost: 0.001 } } } } },
+        type: 'step-finish',
+        usage: { completionTokens: 1, promptTokens: 7 },
+      },
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: -1 } } },
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 7 },
+      },
+    ]);
+    const chunks: unknown[] = [];
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'use a tool', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            model: 'openai/gpt-5.6-terra',
+            provider: 'openrouter',
+          },
+        }
+      );
+      await expect(async () => {
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+      }).rejects.toThrow(/OpenRouter.*cost/i);
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ type: 'token-estimate-calibration' })
+      );
+    } finally {
+      fieldsSpy.mockRestore();
+    }
+  });
+
+  it('omits token-estimate calibration when token measurement failed', async () => {
+    const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'failed',
+      modelVisibleProjectionBackstopTokens: 0,
+      providerReportedPromptTokens: 7,
+      toolDefinitionCount: 0,
+    });
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            model: 'gpt-5.6-terra',
+            provider: 'openai',
+          },
+        }
+      );
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ type: 'token-estimate-calibration' })
+      );
+    } finally {
+      fieldsSpy.mockRestore();
+    }
   });
 
   it('carries Anthropic cache token usage through the message-finish chunk', async () => {
@@ -1030,18 +1277,26 @@ describe('mastra streaming integration', () => {
   });
 
   it('passes configured agent loop limits and input token compaction to agent.stream', async () => {
+    const memory = {
+      getMergedThreadConfig: () => ({ generateTitle: false }),
+      id: 'memory-instance',
+    };
     setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
 
     const iterator = await streamMastraAgent(
       [{ id: 'u1', parts: [{ text: 'inspect the workspace', type: 'text' }], role: 'user' }],
       {
+        memory: memory as never,
         runtime: {
           agentLoop: {
             inputTokenLimit: 8192,
             maxSteps: 12,
           },
           apiKey: 'test-key',
+          compactionOverlayLookup: { listActiveCompactionRanges: async () => [] },
+          memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
           provider: 'openai',
+          toolProjectionRewriteLookup: { listActiveRewrites: async () => new Map() },
           workspaceSkills: {} as never,
         } as never,
       }
@@ -1061,8 +1316,11 @@ describe('mastra streaming integration', () => {
     expect(options.inputProcessors?.map((processor) => processor.id)).toEqual([
       'skills-processor',
       'tool-call-filter',
+      'tool-projection-rewrite',
+      'compaction-overlay',
       'provider-history-compat',
       'openai-tool-search-history-compat',
+      'openai-duplicate-item-compat',
       'token-limiter',
     ]);
   });
@@ -1167,34 +1425,34 @@ describe('mastra streaming integration', () => {
   it.each([
     { originalToolId: 'search_tools', sanitizedToolId: 'search_tools' },
     { originalToolId: 'search.tools', sanitizedToolId: 'search_tools' },
-  ])('rejects reserved catalog meta-tool collision for $originalToolId before agent construction', async ({
-    originalToolId,
-    sanitizedToolId,
-  }) => {
-    await expect(
-      createMastraAgentRuntime({
-        runtime: { apiKey: 'key', provider: 'openai' },
-        tools: {
-          'brainstrike.listWorkspaceContext': {
-            description: 'List the current workspace context.',
-            id: 'brainstrike.listWorkspaceContext',
+  ])(
+    'rejects reserved catalog meta-tool collision for $originalToolId before agent construction',
+    async ({ originalToolId, sanitizedToolId }) => {
+      await expect(
+        createMastraAgentRuntime({
+          runtime: { apiKey: 'key', provider: 'openai' },
+          tools: {
+            'brainstrike.listWorkspaceContext': {
+              description: 'List the current workspace context.',
+              id: 'brainstrike.listWorkspaceContext',
+            },
+            [originalToolId]: {
+              description: 'Caller-owned tool.',
+              id: originalToolId,
+            },
           },
-          [originalToolId]: {
-            description: 'Caller-owned tool.',
-            id: originalToolId,
-          },
+        })
+      ).rejects.toMatchObject({
+        code: 'mastra_agent_tool_name_collision',
+        context: {
+          originalToolId,
+          reservedToolId: 'search_tools',
+          sanitizedToolId,
         },
-      })
-    ).rejects.toMatchObject({
-      code: 'mastra_agent_tool_name_collision',
-      context: {
-        originalToolId,
-        reservedToolId: 'search_tools',
-        sanitizedToolId,
-      },
-    });
-    expect(agentInstances).toHaveLength(0);
-  });
+      });
+      expect(agentInstances).toHaveLength(0);
+    }
+  );
 
   it('preserves caller-owned search_tools when no deferred catalog is installed', async () => {
     const runtime = await createMastraAgentRuntime({
@@ -1211,27 +1469,27 @@ describe('mastra streaming integration', () => {
     expect(runtime.toolSearchProcessor).toBeUndefined();
   });
 
-  it.each([
-    'load_tool',
-    'load.tool',
-  ])('preserves caller-owned %s when auto-load catalog discovery is installed', async (originalToolId) => {
-    const runtime = await createMastraAgentRuntime({
-      runtime: { apiKey: 'key', provider: 'openai' },
-      tools: {
-        'brainstrike.listWorkspaceContext': {
-          description: 'List the current workspace context.',
-          id: 'brainstrike.listWorkspaceContext',
+  it.each(['load_tool', 'load.tool'])(
+    'preserves caller-owned %s when auto-load catalog discovery is installed',
+    async (originalToolId) => {
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'key', provider: 'openai' },
+        tools: {
+          'brainstrike.listWorkspaceContext': {
+            description: 'List the current workspace context.',
+            id: 'brainstrike.listWorkspaceContext',
+          },
+          [originalToolId]: {
+            description: 'Caller-owned load helper.',
+            id: originalToolId,
+          },
         },
-        [originalToolId]: {
-          description: 'Caller-owned load helper.',
-          id: originalToolId,
-        },
-      },
-    });
+      });
 
-    expect(agentInstances[0]?.config.tools).toHaveProperty('load_tool');
-    expect(runtime.toolSearchProcessor).toBeDefined();
-  });
+      expect(agentInstances[0]?.config.tools).toHaveProperty('load_tool');
+      expect(runtime.toolSearchProcessor).toBeDefined();
+    }
+  );
 
   it('rejects a deferred MCP tool whose canonical id collides with search_tools', async () => {
     setMcpToolsets({
@@ -1541,10 +1799,12 @@ describe('mastra streaming integration', () => {
 
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
+    // The factory now materializes the router model itself (strict-content
+    // gateway wiring) instead of handing Mastra a bare descriptor.
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.id).toBe('openrouter/openai/gpt-5.6-terra');
+    expect(agent.model?.provider).toBe('openrouter');
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.apiKey).toBe('test-key');
+    expect(agent.model?.modelId).toBe('openai/gpt-5.6-terra');
   });
 
   it('bounds OpenRouter output by default while preserving an explicit override', async () => {
@@ -1604,6 +1864,88 @@ describe('mastra streaming integration', () => {
     }
     expect(agentInstances[2]?.streamCalls[0]?.options).toMatchObject({
       modelSettings: { maxOutputTokens: 32_000, temperature: 0.2 },
+    });
+  });
+
+  it('sizes the default OpenRouter output window for the reasoning the request makes (BST-1170)', async () => {
+    // Kimi K3's reasoning tokens stream into the output window (OpenRouter:
+    // reasoning tokens ARE output tokens), so the 32,000 backstop starved
+    // thinking+answer and runs died at `finishReason: length`. With reasoning
+    // active the backstop must reserve Moonshot's documented 131,072 window.
+    const finishPart = {
+      providerMetadata: { openrouter: { usage: { cost: 0 } } },
+      type: 'finish',
+      usage: { completionTokens: 1, promptTokens: 1 },
+    } as const;
+
+    setMockStreamParts([finishPart]);
+    const explicitEffortIterator = await streamMastraAgent(
+      [{ id: 'u-kimi-high', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'moonshotai/kimi-k3',
+          provider: 'openrouter',
+          providerOptions: {
+            openrouter: {
+              // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
+              provider: { require_parameters: true },
+              reasoning: { effort: 'high' },
+            },
+          },
+        },
+      }
+    );
+    for await (const _chunk of explicitEffortIterator) {
+      // drain
+    }
+    expect(agentInstances[0]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 131_072 },
+    });
+
+    setMockStreamParts([finishPart]);
+    const reasoningOffIterator = await streamMastraAgent(
+      [{ id: 'u-kimi-off', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'moonshotai/kimi-k3',
+          provider: 'openrouter',
+          providerOptions: {
+            openrouter: {
+              // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
+              provider: { require_parameters: true },
+              reasoning: { enabled: false },
+            },
+          },
+        },
+      }
+    );
+    for await (const _chunk of reasoningOffIterator) {
+      // drain
+    }
+    expect(agentInstances[1]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 32_000 },
+    });
+
+    setMockStreamParts([finishPart]);
+    // No reasoning options on the wire: the provider applies Kimi's own
+    // default (thinking on), so the window must still be the vendor window.
+    const bareIterator = await streamMastraAgent(
+      [{ id: 'u-kimi-bare', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'moonshotai/kimi-k3',
+          provider: 'openrouter',
+        },
+      }
+    );
+    for await (const _chunk of bareIterator) {
+      // drain
+    }
+    expect(agentInstances[2]?.streamCalls[0]?.options).toMatchObject({
+      modelSettings: { maxOutputTokens: 131_072 },
     });
   });
 

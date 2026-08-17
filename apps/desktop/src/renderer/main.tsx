@@ -1,26 +1,24 @@
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { DbProvider } from '@brainstrike/db/react';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
-import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
-import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
-import { initializeQueueTelemetrySink } from '@brainstrike/queue';
-import { installConsoleGuard } from '@brainstrike/utils/console-guard';
-import { installRendererErrorHooks } from '@brainstrike/utils/install-renderer-error-hooks';
 import {
   addLogListener,
+  applyLoggingPreferences,
   createLogger,
+  initializeLogging,
+  installConsoleGuard,
+  installRendererErrorHooks,
+  type LoggingPreferences,
   LogLevel,
   redactSensitiveLogValue,
-} from '@brainstrike/utils/logger';
-import { initializeLogging } from '@brainstrike/utils/logging-initializer';
-import {
-  applyLoggingPreferences,
-  type LoggingPreferences,
-} from '@brainstrike/utils/logging-preferences';
+} from '@brainstrike/logging';
+import { initializeQueueTelemetrySink } from '@brainstrike/queue';
+import { DbSchemaVerifier } from '@brainstrike/settings-ui/components/db-schema-verifier';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, useEffect } from 'react';

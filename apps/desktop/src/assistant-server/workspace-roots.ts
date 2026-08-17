@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('AssistantWorkspaceRoots');
 // Process-lifetime revocation tombstones protect in-flight runtime snapshots.
@@ -41,11 +41,10 @@ function normalizeRoot(root: RuntimeWorkspaceRoot): RuntimeWorkspaceRoot | null 
 }
 
 /**
- * The active workspace roots available to the tools. Prefers the explicit
- * `workspaceRoots` list (resolved server-side from the DB roots table, so the
- * root ids match `file_records.root_id`); otherwise synthesizes a single root
- * from `workspaceRootPath` (single-root / legacy). Roots without an absolute
- * path are dropped.
+ * The active workspace roots available to the tools. `workspaceRoots` is
+ * resolved server-side from the DB roots table, so the root ids match
+ * `file_records.root_id`. `workspaceRootPath` is renderer-selected focus state,
+ * never an authorization source. Roots without an absolute path are dropped.
  */
 export function getWorkspaceRoots(runtimeData: RuntimeData | undefined): RuntimeWorkspaceRoot[] {
   const explicit = runtimeData?.workspaceRoots;
@@ -59,10 +58,10 @@ export function getWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtime
       .map((root) => normalizeRoot(root))
       .filter((root): root is RuntimeWorkspaceRoot => root !== null);
   }
-  const single = runtimeData?.workspaceRootPath?.trim();
-  if (single && path.isAbsolute(single)) {
-    const resolved = path.resolve(single);
-    return [{ displayName: path.basename(resolved) || resolved, path: resolved, rootId: resolved }];
+  if (runtimeData?.workspaceRootPath?.trim()) {
+    throw new TypeError(
+      'The authoritative workspace root inventory is unavailable; a focused workspace path cannot authorize tool access.'
+    );
   }
   return [];
 }
@@ -250,16 +249,6 @@ export function resolveFocusedWorkspaceRoot(
     );
   }
 
-  if (runtimeData?.workspaceRoots === undefined) {
-    const [focusedRoot] = getWorkspaceRoots(runtimeData);
-    if (!focusedRoot) {
-      throw new ToolInputError(
-        'The focused workspace root is unavailable. Focus an open folder before reading selected workspace context.'
-      );
-    }
-    return assertRootStillConnected(focusedRoot);
-  }
-
   const resolvedFocusedPath = path.resolve(focusedPath);
   const matches = getWorkspaceRoots(runtimeData).filter(
     (root) => root.path === resolvedFocusedPath
@@ -275,6 +264,43 @@ export function resolveFocusedWorkspaceRoot(
     );
   }
   return resolveWorkspaceRoot(runtimeData, (matches[0] as RuntimeWorkspaceRoot).rootId);
+}
+
+/**
+ * Root-topology fields the search-result envelopes carry for the model
+ * projections (BST-1185). `openRoots` is present only when more than one
+ * folder is open (the projection's root-prefix trigger); `ambiguousRootNames`
+ * lists the LOWERCASED display names shared by more than one open root, so
+ * the projection can fall back to root ids for names `resolveWorkspaceRoot`
+ * would reject as ambiguous — ambiguity is a property of the full open-root
+ * inventory, never of one result page.
+ */
+export interface OpenRootTopology {
+  ambiguousRootNames?: string[];
+  openRoots?: number;
+}
+
+export function describeOpenRootTopology(runtimeData: RuntimeData | undefined): OpenRootTopology {
+  const roots = getWorkspaceRoots(runtimeData);
+  if (roots.length <= 1) {
+    return {};
+  }
+  const countsByName = new Map<string, number>();
+  for (const root of roots) {
+    const key = root.displayName.toLowerCase();
+    countsByName.set(key, (countsByName.get(key) ?? 0) + 1);
+  }
+  const ambiguousRootNames: string[] = [];
+  for (const [name, count] of countsByName) {
+    if (count > 1) {
+      ambiguousRootNames.push(name);
+    }
+  }
+  ambiguousRootNames.sort();
+  return {
+    openRoots: roots.length,
+    ...(ambiguousRootNames.length > 0 ? { ambiguousRootNames } : {}),
+  };
 }
 
 /**
@@ -480,12 +506,14 @@ function orderWorkspaceRootsForRuntime(
  * boundary strips client-supplied `workspaceRoots` before calling this helper;
  * pre-supplied roots are reserved for trusted in-process callers.
  *
- * On an empty result with a legacy `workspaceRootPath`, RuntimeData remains
- * unchanged so the resolver can use that single FOCUSED root. Without a legacy
- * path, an empty successful query is recorded as `workspaceRoots: []`; this is
- * the authoritative zero-root state consumed by `listWorkspaceContext`. Query
- * failures remain absent/unchanged so they cannot be mistaken for that valid
- * empty state. The main-root declaration cannot apply in degraded mode.
+ * An empty successful query is recorded as `workspaceRoots: []`; this is the
+ * authoritative zero-root state consumed by `listWorkspaceContext`. The
+ * renderer-selected `workspaceRootPath` is cleared in that state so stale
+ * focus cannot conflict with the authoritative inventory or authorize a root
+ * absent from the DB inventory. Query failures remain
+ * absent/unchanged so they cannot be mistaken for a valid empty state; tool
+ * resolution then fails closed. The main-root declaration cannot apply in
+ * degraded mode.
  */
 export async function enrichRuntimeDataWithWorkspaceRoots(
   runtimeData: RuntimeData | undefined,
@@ -509,12 +537,11 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
   }
   const orderedRoots = orderWorkspaceRootsForRuntime(roots, runtimeData);
   if (orderedRoots.length === 0) {
-    return runtimeData.workspaceRootPath
-      ? runtimeData
-      : {
-          ...runtimeData,
-          workspaceRoots: [],
-        };
+    const { workspaceRootPath: _staleFocusedPath, ...runtimeWithoutFocusedPath } = runtimeData;
+    return {
+      ...runtimeWithoutFocusedPath,
+      workspaceRoots: [],
+    };
   }
   return {
     ...runtimeData,

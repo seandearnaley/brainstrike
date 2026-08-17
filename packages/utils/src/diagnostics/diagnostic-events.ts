@@ -1,4 +1,4 @@
-import { LogLevel, type LogRecord, redactSensitiveLogValue } from '../logger';
+import { LogLevel, type LogRecord, redactSensitiveLogValue } from '@brainstrike/logging';
 
 export type DiagnosticSeverity = 'warn' | 'error' | 'fatal';
 

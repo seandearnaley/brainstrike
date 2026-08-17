@@ -18,6 +18,7 @@ import type { RuntimeData } from '../types';
 import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
+import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
 import {
   isSupportedProvider,
   listProviders,
@@ -31,6 +32,11 @@ export type LocalLanguageModelFactory = (
 ) => unknown;
 
 let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
+
+// Stateless singleton; explicit-key routers use their per-instance model
+// cache (fresh per createProvider call), so sharing this instance is for
+// tidiness, not cache reuse.
+const openRouterStrictContentGateway = new OpenRouterStrictContentGateway();
 
 export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
@@ -151,10 +157,19 @@ export function createProvider(
       // Route through Mastra's official OpenRouter model-router provider. Its
       // stream schema preserves OpenRouter's providerMetadata (including exact
       // billed cost); the generic OpenAI-compatible client discards that data.
-      return {
-        id: `openrouter/${modelName}`,
-        ...(apiKey ? { apiKey } : {}),
-      };
+      //
+      // Constructed here (not left as a bare descriptor for Mastra to
+      // materialize) so model resolution goes through the strict-content
+      // gateway: replayed assistant turns that carry only tool calls
+      // serialize as `content: null`, which Alibaba-hosted qwen/* models
+      // reject with a 400 — see openrouter-strict-content.ts.
+      return new ModelRouterLanguageModel(
+        {
+          id: `openrouter/${modelName}`,
+          ...(apiKey ? { apiKey } : {}),
+        },
+        [openRouterStrictContentGateway]
+      );
     }
 
     case 'ollama': {

@@ -48,7 +48,11 @@ describe('desktop database work platform', () => {
     if (!releaseReset) {
       throw new Error('Reset barrier did not expose a release function.');
     }
-    releaseReset();
+    const finishReset = releaseReset as (() => void) | null;
+    if (!finishReset) {
+      throw new Error('Reset barrier did not expose a release function.');
+    }
+    finishReset();
     await expect(pendingWork).resolves.toBe('ran');
     await waitForDesktopDatabaseWorkSchedulerIdle(1000);
     expect(workStarted).toBe(true);
@@ -79,7 +83,11 @@ describe('desktop database work platform', () => {
     if (!releaseWork) {
       throw new Error('Scheduled work did not expose a release function.');
     }
-    releaseWork();
+    const finishWork = releaseWork as (() => void) | null;
+    if (!finishWork) {
+      throw new Error('Scheduled work did not expose a release function.');
+    }
+    finishWork();
     await idlePromise;
     expect(idleResolved).toBe(true);
   });
@@ -112,7 +120,11 @@ describe('desktop database work platform', () => {
     if (!releaseRunningWork) {
       throw new Error('Running work did not expose a release callback.');
     }
-    releaseRunningWork();
+    const finishRunningWork = releaseRunningWork as (() => void) | null;
+    if (!finishRunningWork) {
+      throw new Error('Running work did not expose a release callback.');
+    }
+    finishRunningWork();
 
     await queuedWorkAssertion;
     expect(staleOperation).not.toHaveBeenCalled();
@@ -161,7 +173,11 @@ describe('desktop database work platform', () => {
     if (!releaseRunningWork) {
       throw new Error('Running work did not expose a release callback.');
     }
-    releaseRunningWork();
+    const finishRunningWork = releaseRunningWork as (() => void) | null;
+    if (!finishRunningWork) {
+      throw new Error('Running work did not expose a release callback.');
+    }
+    finishRunningWork();
 
     await queuedBackfillAssertion;
     expect(staleBackfillQuery).not.toHaveBeenCalled();
@@ -205,7 +221,11 @@ describe('desktop database work platform', () => {
     if (!releaseReset) {
       throw new Error('Reset barrier did not expose a release function.');
     }
-    releaseReset();
+    const finishReset = releaseReset as (() => void) | null;
+    if (!finishReset) {
+      throw new Error('Reset barrier did not expose a release function.');
+    }
+    finishReset();
   });
 
   it('rejects scheduled database work submitted from inside the active reset barrier', async () => {

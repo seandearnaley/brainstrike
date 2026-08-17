@@ -1,33 +1,40 @@
 # Agent-contract freshness report
 
-Audited revision: `f584abf144735515a192e25069ffa23a10ce38fa`.
+> **Point-in-time audit artifact—not a current health signal or routing index.**
+> The statuses below apply only to the audited revision. For current work, route
+> from `AGENTS.md`, search the relevant contract, and verify its claims against
+> current source and tests.
+
+Audited revision: `16ca56bc383c117107d16df073b5cb5d483abf74`.
 
 | Contract | Checkable references scanned | Status |
 | --- | ---: | --- |
-| docs/agents/_freshness-report.md | 0 | ACCURATE |
-| docs/agents/agent-self-query.md | 142 | ACCURATE |
-| docs/agents/assistant-persistence.md | 373 | ACCURATE |
-| docs/agents/assistant-providers.md | 413 | ACCURATE |
-| docs/agents/assistant-runtime.md | 715 | ACCURATE |
-| docs/agents/assistant-subagents.md | 102 | ACCURATE |
-| docs/agents/ci-quality.md | 269 | ACCURATE |
-| docs/agents/database.md | 74 | ACCURATE |
-| docs/agents/explorer-search-tapestry.md | 139 | ACCURATE |
+| docs/agents/_freshness-report.md | 4 | ACCURATE |
+| docs/agents/agent-self-query.md | 144 | ACCURATE |
+| docs/agents/assistant-persistence.md | 455 | ACCURATE |
+| docs/agents/assistant-providers.md | 473 | ACCURATE |
+| docs/agents/assistant-runtime.md | 840 | ACCURATE |
+| docs/agents/assistant-subagents.md | 106 | ACCURATE |
+| docs/agents/ci-quality.md | 484 | ACCURATE |
+| docs/agents/code-execution.md | 223 | ACCURATE |
+| docs/agents/database.md | 96 | ACCURATE |
+| docs/agents/explorer-search-tapestry.md | 141 | ACCURATE |
 | docs/agents/local-inference.md | 48 | ACCURATE |
-| docs/agents/mastra-boundary.md | 204 | ACCURATE |
-| docs/agents/platform-contracts.md | 371 | ACCURATE |
-| docs/agents/ui-conventions.md | 54 | ACCURATE |
-| docs/agents/workspace-context.md | 306 | ACCURATE |
+| docs/agents/mastra-boundary.md | 223 | ACCURATE |
+| docs/agents/platform-contracts.md | 458 | ACCURATE |
+| docs/agents/ui-conventions.md | 74 | ACCURATE |
+| docs/agents/workspace-context.md | 308 | ACCURATE |
 
-The deterministic scan verified 3,210 checkable references against the audited
-revision. It surfaced two paths in `assistant-providers.md` for manual review:
-`apps/desktop/.env.local` and `apps/desktop/.env` are intentionally untracked,
-optional runtime credential files (missing files are valid); their tracked
-template is `apps/desktop/.env.example`, so both references are accurate.
-The collector validates anchored project paths against their file lengths, records
-bare filename anchors, and surfaces context-only anchors for manual review.
-Manual review of the contracts changed since the prior Scribe watermark verified the
-agent SQL sandbox, lens/persona scan contracts, durable provider failures,
-thread presentation, CI coverage ratchets, reset/diagnostics, and Mastra-boundary
-rulings with their stated test seams. No factual drift or code/test contract
-conflict was found.
+The deterministic scan verified 4,077 checkable references against the audited
+revision, including the four references in the prior freshness report. Manual
+review confirmed the two optional, intentionally untracked desktop credential
+files (`apps/desktop/.env.local` and `apps/desktop/.env`),
+the generic `X` command examples, the documented negative pnpm examples, and
+the remaining generic path placeholders.
+All project paths, anchors, migration numbers, package scripts, and
+paired-test declarations resolved at the audited revision.
+
+Mechanical corrections in this sweep retargeted the local-runtime receiver-test
+reference to its current package and shortened the Hosted Web route anchor to its
+live end.
+No code-versus-test contract conflict was found.

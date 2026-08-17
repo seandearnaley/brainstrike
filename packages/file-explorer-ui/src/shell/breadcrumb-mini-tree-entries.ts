@@ -1,0 +1,147 @@
+import { type IFileNode, isPseudoFileNodeType } from '@brainstrike/types';
+import { buildFileBreadcrumbSegments } from './file-tab-breadcrumb-segments';
+
+/**
+ * Pure resolution behind the breadcrumb popover mini-tree (BST-1319).
+ *
+ * A clicked breadcrumb segment lists its PARENT directory's contents (the
+ * segment's siblings, VS Code idiom) — so the first-level segment maps to the
+ * workspace root level. Paths are treated as opaque strings sliced from the
+ * original tab path: both '/' and Windows '\\' separators are honored and
+ * never normalized, matching how segment paths feed the tree (see
+ * file-tab-breadcrumb-segments.ts).
+ */
+
+export type MiniTreeEntry =
+  | { readonly depth: number; readonly kind: 'node'; readonly node: IFileNode }
+  | {
+      /** Synthetic row surfacing a failed child load — never silent-empty. */
+      readonly depth: number;
+      readonly kind: 'error';
+      readonly message: string;
+      readonly path: string;
+    }
+  | {
+      /**
+       * Synthetic row surfacing a PARTIAL listing (a 'truncated'/'loadMore'
+       * pseudo node): dropping it silently would make an incomplete listing
+       * look like the folder's full contents.
+       */
+      readonly depth: number;
+      readonly kind: 'notice';
+      readonly message: string;
+      readonly path: string;
+    };
+
+function lastSeparatorIndex(path: string): number {
+  return Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+}
+
+/**
+ * The directory whose contents the popover lists for a clicked segment, or
+ * null for the workspace root level (first-level segments, or a parent that
+ * IS the root).
+ */
+export function resolveMiniTreeParentPath(
+  segmentPath: string,
+  rootPath: string | null
+): string | null {
+  const separatorIndex = lastSeparatorIndex(segmentPath);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  const parent = segmentPath.slice(0, separatorIndex);
+  if (rootPath !== null && parent.length <= rootPath.length) {
+    // The parent is the workspace root itself (or would escape it) — the
+    // root level is rendered from the tree's top-level nodes, not a node.
+    return null;
+  }
+  return parent;
+}
+
+/**
+ * Cumulative ancestor directories (shallowest first, parent included) to feed
+ * `loadSpecificPaths` so the parent's children are materialized in a fresh
+ * provider. Empty at the root level — the provider loads the root itself.
+ */
+export function collectMiniTreeLoadChain(
+  parentPath: string | null,
+  rootPath: string | null
+): string[] {
+  if (parentPath === null) {
+    return [];
+  }
+  return buildFileBreadcrumbSegments(parentPath, rootPath).map((segment) => segment.path);
+}
+
+/** Locate a node by path, descending only through ancestors of the target. */
+export function findMiniTreeNode(nodes: readonly IFileNode[], path: string): IFileNode | null {
+  for (const candidate of nodes) {
+    if (candidate.path === path) {
+      return candidate;
+    }
+    if (
+      candidate.type === 'directory' &&
+      candidate.children &&
+      (path.startsWith(`${candidate.path}/`) || path.startsWith(`${candidate.path}\\`))
+    ) {
+      const found = findMiniTreeNode(candidate.children, path);
+      if (found) {
+        return found;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Flatten the parent's contents into visible rows, recursing only into
+ * expanded directories. Pseudo node types (loadMore/truncated) become inert
+ * NOTICE rows — they mean the listing is PARTIAL, and dropping them silently
+ * would present an incomplete listing as the folder's full contents (the
+ * popover is a quick navigator; full browsing incl. pagination lives in the
+ * explorer pane). An expanded directory whose children FAILED to load yields
+ * a synthetic error row (visible degradation, never a silent empty branch).
+ * An unknown parent yields [] and the caller renders an explicit unavailable
+ * state.
+ */
+export function flattenMiniTreeEntries(
+  fileTree: readonly IFileNode[],
+  parentPath: string | null,
+  expandedPaths: ReadonlySet<string>
+): MiniTreeEntry[] {
+  const rootNodes =
+    parentPath === null ? fileTree : (findMiniTreeNode(fileTree, parentPath)?.children ?? []);
+  const entries: MiniTreeEntry[] = [];
+  const visit = (nodes: readonly IFileNode[], depth: number): void => {
+    for (const candidate of nodes) {
+      if (isPseudoFileNodeType(candidate.type)) {
+        entries.push({
+          depth,
+          kind: 'notice',
+          message: 'Partial listing — browse the rest in the explorer pane.',
+          path: `${candidate.path}#partial`,
+        });
+        continue;
+      }
+      entries.push({ depth, kind: 'node', node: candidate });
+      if (candidate.type !== 'directory' || !expandedPaths.has(candidate.path)) {
+        continue;
+      }
+      if (candidate.loadState === 'error') {
+        entries.push({
+          depth: depth + 1,
+          kind: 'error',
+          message: candidate.loadError ?? 'Could not load this folder.',
+          path: `${candidate.path}#load-error`,
+        });
+        continue;
+      }
+      if (candidate.children) {
+        visit(candidate.children, depth + 1);
+      }
+    }
+  };
+  visit(rootNodes, 0);
+  return entries;
+}

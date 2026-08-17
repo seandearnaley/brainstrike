@@ -33,11 +33,10 @@ describe('getWorkspaceRoots', () => {
     ]);
   });
 
-  it('synthesizes a single root from workspaceRootPath when workspaceRoots is absent', () => {
-    const roots = getWorkspaceRoots(runtime({ workspaceRootPath: '/Users/me/Solo' }));
-    expect(roots).toHaveLength(1);
-    expect(roots[0]).toMatchObject({ displayName: 'Solo', path: '/Users/me/Solo' });
-    expect(roots[0]?.rootId.length).toBeGreaterThan(0);
+  it('rejects a renderer-provided path when the authoritative inventory is absent', () => {
+    expect(() => getWorkspaceRoots(runtime({ workspaceRootPath: '/Users/me/Untrusted' }))).toThrow(
+      /authoritative workspace root inventory is unavailable/i
+    );
   });
 
   it('rejects an explicit empty root list combined with a legacy path', () => {
@@ -254,19 +253,15 @@ describe('resolveWorkspaceRoot', () => {
 });
 
 describe('resolveFocusedWorkspaceRoot', () => {
-  it('uses the focused path fallback without consulting a durable thread binding', () => {
-    expect(
+  it('rejects focused-path authorization without an authoritative inventory', () => {
+    expect(() =>
       resolveFocusedWorkspaceRoot(
         runtime({
           boundWorkspaceRootId: 'root-b',
           workspaceRootPath: '/Users/me/ProjectA',
         })
       )
-    ).toEqual({
-      displayName: 'ProjectA',
-      path: '/Users/me/ProjectA',
-      rootId: '/Users/me/ProjectA',
-    });
+    ).toThrow(/authoritative workspace root inventory is unavailable/i);
   });
 });
 
@@ -513,10 +508,12 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
     expect(db.query).not.toHaveBeenCalled();
   });
 
-  it('leaves the runtime unchanged when the DB has no roots (single-root fallback)', async () => {
+  it('records an authoritative empty inventory when the DB has no live roots', async () => {
     const input = runtime({ workspaceRootPath: '/Users/me/Solo' });
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(input, mockDb([]));
-    expect(enriched?.workspaceRoots).toBeUndefined();
+    expect(enriched?.workspaceRoots).toEqual([]);
+    expect(enriched?.workspaceRootPath).toBeUndefined();
+    expect(getWorkspaceRoots(enriched)).toEqual([]);
   });
 
   it('records an authoritative empty root list when the DB has no roots or legacy path', async () => {
@@ -524,7 +521,7 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
     expect(enriched?.workspaceRoots).toEqual([]);
   });
 
-  it('falls back (unchanged) when the roots query throws', async () => {
+  it('leaves the authoritative inventory absent when the roots query throws', async () => {
     const db: WorkspaceRootsQueryable = {
       query: vi.fn(async () => {
         throw new Error('db down');
@@ -533,6 +530,9 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
     const input = runtime({ workspaceRootPath: '/Users/me/Solo' });
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(input, db);
     expect(enriched?.workspaceRoots).toBeUndefined();
+    expect(() => getWorkspaceRoots(enriched)).toThrow(
+      /authoritative workspace root inventory is unavailable/i
+    );
   });
 
   it('does not fabricate an empty root list when the roots query throws', async () => {

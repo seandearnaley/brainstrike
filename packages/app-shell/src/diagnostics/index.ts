@@ -7,5 +7,6 @@ export * from './diagnostic-sink-health-store';
 export * from './diagnostic-sink-session';
 export * from './durable-log-source';
 export * from './system-diagnostics-panel';
+export * from './system-diagnostics-settings-category';
 export * from './use-diagnostics-purge';
 export * from './use-durable-log-source';

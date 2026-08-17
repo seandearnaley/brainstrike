@@ -1,3 +1,7 @@
+import {
+  assertEmbeddingTelemetrySnapshot,
+  type EmbeddingTelemetrySnapshot,
+} from '@brainstrike/embedding-worker';
 import type {
   BackgroundRuntimeProgress,
   BackgroundRuntimeStatus,
@@ -94,6 +98,7 @@ export interface EmbeddingHostRuntimeMetadata {
   readonly actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null;
   readonly backendMismatch: boolean;
   readonly selectedDevicePreference: 'webgpu' | 'wasm';
+  readonly telemetry: EmbeddingTelemetrySnapshot;
 }
 export type EmbeddingHostStatus = BackgroundRuntimeStatus<'embedding-host'> & {
   readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
@@ -244,6 +249,7 @@ function assertEmbeddingHostRuntimeMetadata(value: unknown): EmbeddingHostRuntim
         : assertEmbeddingWorkerRuntimeMetadata(actualWorkerMetadata),
     backendMismatch,
     selectedDevicePreference,
+    telemetry: assertEmbeddingTelemetrySnapshot(candidate['telemetry']),
   };
 }
 

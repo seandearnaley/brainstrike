@@ -3,51 +3,13 @@ import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { vi } from 'vitest';
 
-// Mock Electron module for tests that transitively import window-state.ts
-vi.mock('electron', () => ({
-  app: {
-    getAppPath: vi.fn(() => '/mock/app'),
-    getName: vi.fn(() => 'Brainstrike'),
-    getPath: vi.fn(() => '/mock/path'),
-    getVersion: vi.fn(() => '0.0.0-test'),
-    isPackaged: false,
-    isReady: vi.fn(() => true),
-    on: vi.fn(),
-    quit: vi.fn(),
-    whenReady: vi.fn(() => Promise.resolve()),
-  },
-  BrowserWindow: vi.fn(),
-  contextBridge: { exposeInMainWorld: vi.fn() },
-  dialog: {
-    showMessageBox: vi.fn(async () => ({ response: 0 })),
-  },
-  ipcMain: { handle: vi.fn(), on: vi.fn() },
-  ipcRenderer: { invoke: vi.fn(), on: vi.fn(), send: vi.fn() },
-  Menu: {
-    buildFromTemplate: vi.fn(),
-    setApplicationMenu: vi.fn(),
-  },
-  safeStorage: {
-    decryptString: vi.fn((buffer: Buffer) => Buffer.from(buffer).toString('utf-8')),
-    encryptString: vi.fn((text: string) => Buffer.from(text)),
-    getSelectedStorageBackend: vi.fn(() => 'basic_text'),
-    isEncryptionAvailable: vi.fn(() => true),
-    setUsePlainTextEncryption: vi.fn(),
-  },
-  screen: {
-    getAllDisplays: vi.fn(() => [{ workArea: { height: 1080, width: 1920, x: 0, y: 0 } }]),
-    getPrimaryDisplay: vi.fn(() => ({ workArea: { height: 1080, width: 1920, x: 0, y: 0 } })),
-  },
-  session: {
-    defaultSession: {
-      webRequest: { onHeadersReceived: vi.fn() },
-    },
-  },
-  shell: {
-    openPath: vi.fn().mockResolvedValue(''),
-    showItemInFolder: vi.fn(),
-  },
-}));
+// Mock Electron for tests that transitively import main-process modules. The
+// harness layers observable IPC and WebContents controls over the inert default
+// surface in electron-test-stub.mts, so that stub remains the surface authority.
+vi.mock(
+  'electron',
+  async () => (await import('./helpers/electron-main-test-harness')).electronMainMock
+);
 
 // Mock `electron-store` globally. Its module body destructures
 // `const {app, ipcMain, shell} = electron` at import time, so when `electron`
@@ -119,57 +81,68 @@ const mockElectronAPI = {
   },
 };
 
-// Mock window.electronAPI
-Object.defineProperty(window, 'electronAPI', {
-  value: mockElectronAPI,
-  writable: true,
-});
+// Guard: this file's `Object.defineProperty(window, ...)` calls below are
+// jsdom-only bootstrapping. `window` is always defined under this package's
+// default jsdom test environment (every existing test), but a handful of
+// files opt into `@vitest-environment node` to run real Node-only checks
+// (e.g. main-process-bundle-external-requires.test.ts, which needs esbuild —
+// esbuild does not run under jsdom, see build-main-config.test.ts's header
+// comment) — this shared setup file must not crash for them.
+if (typeof window !== 'undefined') {
+  // Mock window.electronAPI
+  Object.defineProperty(window, 'electronAPI', {
+    value: mockElectronAPI,
+    writable: true,
+  });
 
-// Mock window.secrets
-const mockSecrets = {
-  clearAll: vi.fn().mockResolvedValue({ success: true } as const),
-  deleteKey: vi.fn().mockResolvedValue(true),
-  getKey: vi.fn().mockResolvedValue(null as string | null),
-  list: vi.fn().mockResolvedValue([] as ProviderKeySource<SupportedProvider | 'tavily'>[]),
-  listStored: vi.fn().mockResolvedValue([] as string[]),
-  saveKey: vi.fn().mockResolvedValue(true as const),
-};
-Object.defineProperty(window, 'secrets', {
-  value: mockSecrets,
-  writable: true,
-});
+  // Mock window.secrets
+  const mockSecrets = {
+    clearAll: vi.fn().mockResolvedValue({ success: true } as const),
+    deleteKey: vi.fn().mockResolvedValue(true),
+    getKey: vi.fn().mockResolvedValue(null as string | null),
+    list: vi.fn().mockResolvedValue([] as ProviderKeySource<SupportedProvider | 'tavily'>[]),
+    listStored: vi.fn().mockResolvedValue([] as string[]),
+    saveKey: vi.fn().mockResolvedValue(true as const),
+  };
+  Object.defineProperty(window, 'secrets', {
+    value: mockSecrets,
+    writable: true,
+  });
 
-// Mock window.agent
-const mockAgent = {
-  chat: vi.fn().mockResolvedValue([
-    { name: 'plan', status: 'start', type: 'tool-event' },
-    { type: 'text-delta', value: 'Hello' },
-    { type: 'text-delta', value: ' world' },
-    { name: 'plan', status: 'success', type: 'tool-event' },
-  ]),
-};
-Object.defineProperty(window, 'agent', {
-  value: mockAgent,
-  writable: true,
-});
+  // Mock window.agent
+  const mockAgent = {
+    chat: vi.fn().mockResolvedValue([
+      { name: 'plan', status: 'start', type: 'tool-event' },
+      { type: 'text-delta', value: 'Hello' },
+      { type: 'text-delta', value: ' world' },
+      { name: 'plan', status: 'success', type: 'tool-event' },
+    ]),
+  };
+  Object.defineProperty(window, 'agent', {
+    value: mockAgent,
+    writable: true,
+  });
 
-Object.defineProperty(window, 'llmHost', {
-  value: {
-    ensureStarted: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-    generate: vi.fn().mockResolvedValue(null),
-    getStatus: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-    onProgress: vi.fn(() => () => {}),
-    onRequest: vi.fn(() => () => {}),
-    onStatus: vi.fn(() => () => {}),
-    reportProgress: vi.fn(),
-    reportResponse: vi.fn(),
-    reportStatus: vi.fn(),
-    reset: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-    stop: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'stopped' }),
-    warmup: vi.fn().mockResolvedValue(undefined),
-  },
-  writable: true,
-});
+  Object.defineProperty(window, 'llmHost', {
+    value: {
+      ensureStarted: vi
+        .fn()
+        .mockResolvedValue({ active: false, lastError: null, state: 'running' }),
+      generate: vi.fn().mockResolvedValue(null),
+      getStatus: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
+      onProgress: vi.fn(() => () => {}),
+      onRequest: vi.fn(() => () => {}),
+      onStatus: vi.fn(() => () => {}),
+      reportProgress: vi.fn(),
+      reportResponse: vi.fn(),
+      reportStatus: vi.fn(),
+      reset: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
+      stop: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'stopped' }),
+      warmup: vi.fn().mockResolvedValue(undefined),
+    },
+    writable: true,
+  });
+}
 
 process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = '1';
 
@@ -244,12 +217,15 @@ const mockProviderDefaultEnabledModels = Object.fromEntries(
   ])
 ) as Record<MockProviderId, string[]>;
 
+type MockModelDefinition = (typeof mockProviderDefinitions)[number]['models'][number];
+type MockEmbeddingModelDefinition = Extract<MockModelDefinition, { type: 'embedding' }>;
+
 const mockEmbeddingModels = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [
     definition.id,
     definition.models.filter((model) => model.type === 'embedding'),
   ])
-) as Record<MockProviderId, (typeof mockProviderDefinitions)[number]['models']>;
+) as Record<MockProviderId, MockEmbeddingModelDefinition[]>;
 
 const mockProviderDisplayNames = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [definition.id, definition.displayName])
@@ -268,10 +244,7 @@ function ensureDefinition(provider: string): (typeof mockProviderDefinitions)[nu
 }
 
 function cloneDefinition(definition: (typeof mockProviderDefinitions)[number]) {
-  return {
-    ...definition,
-    models: definition.models.map((model) => ({ ...model })),
-  } as (typeof mockProviderDefinitions)[number];
+  return structuredClone(definition);
 }
 
 const mockMcpToolRegistry = {

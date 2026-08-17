@@ -1,5 +1,5 @@
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
-import { createLogger } from '@brainstrike/utils/logger';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
+import { createLogger } from '@brainstrike/logging';
 import { dispatchEmbeddingSetUpdated } from './collection-select/embedding-set-events';
 
 const logger = createLogger('VectorPreferences');

@@ -148,36 +148,8 @@ export default defineConfig({
         ),
       },
       {
-        find: '@brainstrike/text-splitter/token-constants',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/text-splitter/src/token-constants.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-counting-heuristics',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/text-splitter/src/token-counting-heuristics.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/text-splitter/token-utils-accurate-lite',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/text-splitter/src/token-utils-accurate-lite.ts'
-        ),
-      },
-      {
         find: '@brainstrike/text-splitter',
         replacement: path.resolve(import.meta.dirname, '../../packages/text-splitter/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/utils/workspace-indexing-power-snapshot',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/utils/src/workspace-indexing-power-snapshot.ts'
-        ),
       },
       // @brainstrike/workers has no `src/` dir (worker files live at the
       // package root), so the registry skips it — alias its subpaths
@@ -192,13 +164,6 @@ export default defineConfig({
           '../../packages/workers/file-content-worker.ts'
         ),
       },
-      {
-        find: '@brainstrike/workers/report-generation-worker',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/workers/report-generation-worker.ts'
-        ),
-      },
       // B4: shared workspace source-alias registry (#1651), so every other
       // `@brainstrike/*` runtime import in this app's test lanes executes
       // SOURCE instead of resolving to built dist via package `exports`. These
@@ -206,7 +171,7 @@ export default defineConfig({
       // that dist existed; B4 replaced that edge with the no-build `topo`
       // transit node, which made every unaliased dist fallback fail loudly
       // from a clean state (utils/logger, db, worker-runtime, file-system,
-      // assistant-contract, app-shell/cost-tracking, storage, queue, ui, …).
+      // assistant-contract, assistant-data/cost-tracking, storage, queue, ui, …).
       // The registry closes them all at once, exactly like the packages/*
       // lanes in B3.
       ...workspaceSrcAliases(path.resolve(import.meta.dirname, '../../packages')),

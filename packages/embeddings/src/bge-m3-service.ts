@@ -1,6 +1,6 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { calculateCosineSimilarity } from './embedding-math';
-import { TransformersBackend } from './transformers-backend';
+import { calculateCosineSimilarity } from './embedding-math.js';
+import { TransformersBackend } from './transformers-backend.js';
 import type {
   EmbeddingConfig,
   EmbeddingExecutionOptions,
@@ -12,7 +12,7 @@ import type {
   EmbeddingStreamOptions,
   ModelConfig,
   SimilarityResult,
-} from './types';
+} from './types.js';
 
 export interface DownloadModelOptions {
   cacheDir?: string;

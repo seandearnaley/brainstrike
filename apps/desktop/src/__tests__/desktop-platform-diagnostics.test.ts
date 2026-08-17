@@ -1,6 +1,9 @@
-import { LogLevel } from '@brainstrike/utils/logger';
+import { LogLevel } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
-import { collectDesktopPlatformDiagnostics } from '../desktop-platform-diagnostics';
+import {
+  collectDesktopPlatformDiagnostics,
+  type DesktopPlatformDiagnosticsProviders,
+} from '../desktop-platform-diagnostics';
 
 describe('desktop platform diagnostics', () => {
   it('collects one typed snapshot across database, scheduler, hosts, logging, and reset state', async () => {
@@ -33,11 +36,14 @@ describe('desktop platform diagnostics', () => {
       backgroundWaitingSince: null,
       backgroundYieldCount: 0,
       currentBackgroundWaitMs: 0,
+      elapsedSnapshotAt: 1,
       foregroundQuietMs: 250,
       lastBackgroundYieldAt: null,
       lastCompletedAt: null,
       lastForegroundAt: null,
+      lastForegroundElapsedAt: null,
       lastNormalAt: null,
+      lastNormalElapsedAt: null,
       lastStartedAt: null,
       priorityStats: {
         background: priorityStats,
@@ -113,6 +119,18 @@ describe('desktop platform diagnostics', () => {
       sourceState: 'stopped' as const,
       state: 'stopped' as const,
     };
+    const embeddingTelemetry = {
+      batchTransfer: { batchCount: 2, lastBytes: 12, peakBytes: 24, totalBytes: 36 },
+      cache: {
+        entries: [],
+        estimatedGpuBytes: 0,
+        estimatedHeapBytes: 0,
+        memoryEstimateUnavailableCount: 0,
+        residentCount: 0,
+      },
+      lastUpdatedAt: 1000,
+      peakVectorsInFlight: 3,
+    };
     const llmHostStatus = {
       active: true,
       lastError: null,
@@ -149,7 +167,10 @@ describe('desktop platform diagnostics', () => {
       crashRecovery: { getSnapshot: vi.fn(() => crashRecovery) },
       database: { getDiagnostics: vi.fn(async () => databaseDiagnostics) },
       databaseScheduler: { getSnapshot: vi.fn(() => schedulerSnapshot) },
-      embeddingHost: { getPlatformStatus: vi.fn(() => embeddingHostStatus) },
+      embeddingHost: {
+        getPlatformStatus: vi.fn(() => embeddingHostStatus),
+        getTelemetrySnapshot: vi.fn(() => embeddingTelemetry),
+      },
       indexing: {
         getBackfillsInFlight: vi.fn(() => activeBackfills),
         getDimensionIndexMaintenanceSnapshot: vi.fn(() => dimensionIndexMaintenance),
@@ -168,7 +189,7 @@ describe('desktop platform diagnostics', () => {
         })),
       },
       telemetry: { getRuntimeMetrics: vi.fn(() => runtimeMetrics) },
-    });
+    } as unknown as DesktopPlatformDiagnosticsProviders);
 
     expect(snapshot).toMatchObject({
       crashRecovery,
@@ -197,8 +218,10 @@ describe('desktop platform diagnostics', () => {
       },
       telemetry: {
         backgroundRuntimeMetrics: runtimeMetrics,
+        embedding: embeddingTelemetry,
       },
     });
+    expect(snapshot.errors).toEqual({});
     expect(Date.parse(snapshot.collectedAt)).not.toBeNaN();
   });
 
@@ -218,6 +241,9 @@ describe('desktop platform diagnostics', () => {
       embeddingHost: {
         getPlatformStatus: vi.fn(() => {
           throw new Error('embedding unavailable');
+        }),
+        getTelemetrySnapshot: vi.fn(() => {
+          throw new Error('embedding telemetry unavailable');
         }),
       },
       indexing: {
@@ -256,6 +282,7 @@ describe('desktop platform diagnostics', () => {
       databaseScheduler: 'scheduler unavailable',
       dimensionIndexMaintenance: 'dimension maintenance unavailable',
       embeddingHost: 'embedding unavailable',
+      embeddingTelemetry: 'embedding telemetry unavailable',
       llmHost: 'llm unavailable',
       logging: 'logging unavailable',
       reset: 'reset unavailable',

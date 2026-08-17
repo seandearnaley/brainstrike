@@ -1,15 +1,6 @@
-import { ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerBackgroundRuntimeLifecycleIpcHandlers } from '../register-background-runtime-lifecycle-ipc';
-
-// The global setup provides ipcMain with handle/on as vi.fn(), but not
-// removeHandler/removeListener. Add them for cleanup to work.
-const mockIpcMain = ipcMain as unknown as {
-  handle: ReturnType<typeof vi.fn>;
-  on: ReturnType<typeof vi.fn>;
-  removeHandler: ReturnType<typeof vi.fn>;
-  removeListener: ReturnType<typeof vi.fn>;
-};
+import { mockIpcMain, resetElectronMainTestHarness } from './helpers/electron-main-test-harness';
 
 const CHANNELS = {
   ensureStarted: 'test:ensureStarted',
@@ -37,18 +28,11 @@ describe('registerBackgroundRuntimeLifecycleIpcHandlers', () => {
   let cleanup: () => void;
 
   beforeEach(() => {
-    // Ensure ipcMain has all methods needed
-    if (!mockIpcMain.removeHandler) {
-      mockIpcMain.removeHandler = vi.fn();
-    }
-    if (!mockIpcMain.removeListener) {
-      mockIpcMain.removeListener = vi.fn();
-    }
+    resetElectronMainTestHarness();
   });
 
   afterEach(() => {
     cleanup?.();
-    vi.clearAllMocks();
   });
 
   it('registers all 4 handle channels and 1 on listener', () => {

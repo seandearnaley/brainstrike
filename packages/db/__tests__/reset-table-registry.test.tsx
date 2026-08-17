@@ -17,12 +17,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  DbProvider,
-  useClearAllData,
-  useFactoryReset,
-  useFileRecordRepository,
-} from '../src/db-provider';
+import { DbProvider } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
 import {
   auditResetTableCoverage,
@@ -32,6 +27,7 @@ import {
   getResetTables,
   RESET_EXCLUDED_TABLES,
 } from '../src/reset-table-registry';
+import { useClearAllData, useFactoryReset, useFileRecordRepository } from '../src/use-db';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -68,10 +64,10 @@ function createRecordingQueryMock(cleared: Set<string>): QueryMock {
 }
 
 describe('reset-table registry', () => {
-  it('holds 28 unique relations and never contradicts the exclusion ledger', () => {
+  it('holds 37 unique relations and never contradicts the exclusion ledger', () => {
     const tables = getResetTables();
-    expect(tables).toHaveLength(28);
-    expect(new Set(tables).size).toBe(28);
+    expect(tables).toHaveLength(37);
+    expect(new Set(tables).size).toBe(37);
     // The Mastra six are part of the set, sourced from the canonical exports.
     for (const table of getMastraResetTables()) {
       expect(tables).toContain(table);
@@ -83,8 +79,8 @@ describe('reset-table registry', () => {
     // relations, disjoint from both other ledgers, wiped by purgeTablesTx
     // on top of the clear set.
     expect(getFactoryResetOnlyTables()).toHaveLength(6);
-    expect(getFactoryResetTables()).toHaveLength(34);
-    expect(new Set(getFactoryResetTables()).size).toBe(34);
+    expect(getFactoryResetTables()).toHaveLength(43);
+    expect(new Set(getFactoryResetTables()).size).toBe(43);
   });
 
   // Control tests: an instrument that cannot fail is not evidence. Prove BOTH

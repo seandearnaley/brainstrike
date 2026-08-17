@@ -44,7 +44,8 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   where `target = { line; selection? }` (match rows pass `{ line }`; chunk rows
   ALSO pass `selection: { startLine, endLine }`) → controller
   `openFileInTab(compositeKey, { line, selection? })` (ide-layout seam) →
-  `workspace-tab-host` records a one-shot view target (transient, non-persisted
+  the workspace tabs controller (`workspace-tabs-context.tsx`, BST-1258)
+  records a one-shot view target (transient, non-persisted
   `targets` slice of `editor-view-state-store`) → `CodeSurface` `initialLine`
   scrolls to the match, and `initialSelection` scrolls to AND selects the chunk's
   full line range (a real read-only CodeMirror selection, so the block is
@@ -115,6 +116,39 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
+## COLLECTION DETAILS DEBUG DRAWER
+
+The Database panel owns the collapsed-by-default Collection details drawer
+(`packages/db-explorer/src/components/collection-debug-drawer`). Its lazy body
+is the diagnostic surface for file/chunk inspection, scored retrieval preview,
+and incomplete embedding coverage.
+
+- The panel's `recordPagination` plus `onRecordPageChange` callback are the
+  drawer's only file-page source. The Files pager must not read the Zustand
+  store independently while its subtitle and rows render panel data.
+- The retrieval preview must use `useSemanticSearchExecutor` and the active
+  collection repositories. It is one-shot on explicit submit and surfaces
+  unavailable executors and failures visibly; never replace it with a SQL-only
+  or mock-only proof.
+- The drawer stays unmounted while collapsed. Its 50k-file Electron proof opens
+  only after retained-memory snapshots, measures click-to-settled latency through
+  both the coverage live query and the incomplete-file rollup, and enforces the
+  explicit 1500 ms ceiling separately from a generous Playwright locator timeout.
+  That elapsed value is an upper bound because it includes renderer IPC round
+  trips and locator polling. The import/embed Electron proof verifies retrieval
+  is available before input, runs a real drawer query, and requires embedded
+  fixture content in the scored result list.
+
+Paired tests:
+`packages/db-explorer/src/components/collection-debug-drawer/__tests__/collection-debug-drawer-content.test.tsx`,
+`packages/db-explorer/src/components/collection-debug-drawer/__tests__/collection-debug-drawer.test.tsx`,
+`apps/desktop/e2e/embedding-worker-renderer.backfill-search.desktop.test.ts`, and
+`apps/desktop/e2e/embedding-worker-renderer.memory.desktop.test.ts`.
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 ## MARKDOWN VIEWER (FILE TABS)
 
 Every file tab renders a slim `FileTabHeader` (filename + directory + actions
@@ -145,10 +179,13 @@ additionally get a Source/Preview toggle; preview is the default.
   network requests, independent of CSP. Every failure is visible (placeholder,
   toast, or error block) — no silent fallbacks.
 - **Crash safety:** MarkdownPreviewErrorBoundary offers "Open in source".
-- **Binary files:** the content worker stores the `BINARY_CONTENT_MESSAGE`
-  sentinel (`@brainstrike/types`, exact-match — indexing/import guards key on
-  it) as the tab's content; `FileTabBody` renders `BinaryFilePreview`
-  (file-explorer-ui/components) instead of a code surface. Its buttons are a
+- **Binary files:** the content worker returns an `inaccessible` structured
+  result whose message is `BINARY_CONTENT_MESSAGE` (`@brainstrike/types`).
+  Background indexing/import branches only on that discriminated status — it
+  never classifies accessibility from message text. UI loading boundaries
+  project the message to the tab's content; `FileTabBody` exact-matches it and
+  renders `BinaryFilePreview` (file-explorer-ui/components) instead of a code
+  surface. Its buttons are a
   projection of the shared context-action registry (`file.reveal-in-os`,
   `file.open-in-default-app`, one copy-path variant) — same capability gating
   as the right-click menu, so web builds without fs bridges just show fewer
@@ -159,11 +196,71 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
+## PER-FILE EXPLORER PANE (FILE TABS, BST-1269 / BST-1318)
+
+Every file tab hosts a navigation-only tree pane (own `FileTreeProvider` per
+tab root, pane-local expansions in `file-tab-pane-store`, per-thread durable
+via the workspace snapshot `editors[*].pane`).
+
+- **Absence means OPEN (BST-1318).** A compositeKey with NO store entry
+  renders the pane OPEN — the pane auto-opens with its file, revealed to the
+  file's location (mount-time reveal at nonce 0). A manual close is recorded
+  as an EXPLICIT `open: false` entry so it sticks per file across thread
+  switches and restarts; deleting the entry instead would evaporate the
+  user's choice on the next hydrate. Old snapshots without pane entries adopt
+  auto-open retroactively BY DESIGN — no migration. Every store action that
+  materializes an absent key (`togglePane`, `setPaneWidthPct`,
+  `toggleExpandedPath`) starts from the OPEN template, and truthiness checks
+  on `pane?.open` are a bug class: absent must never read as closed (a
+  review-caught regression closed the auto-opened pane on breadcrumb click).
+- **Docked RIGHT.** The pane is the SECOND panel of the file-tab split
+  (content first), mirroring the main explorer. `widthPct` (clamped 10–70 on
+  both write and hydrate) still means pane width.
+- **Reveal is one-shot LOCAL state**, never persisted: `(revealNonce,
+  revealPath)` keyed per activation; the header toggle and breadcrumb folder
+  clicks bump the nonce (re-clicking the same target re-reveals).
+
+Paired tests: `file-tab-pane-store.test.ts`,
+`file-tab-body-pane.test.tsx`, `apps/web/e2e/file-tab-pane.test.ts`. When
+changing pane semantics, update this section and those tests together.
+
+---
+
 ## TAPESTRY
 
 The per-file range model spans Explorer, Search, Tapestry, and every context
 consumer (report generator, `listWorkspaceContext`, token meters).
 
+- **Tapestry is the ONLY context preview surface (BST-1211).** The panel is a
+  natural-height `PreviewPanelSummary` plus `TapestryView`; there is no tab
+  strip, no Table View, and no
+  `activeTab` preference. Everything the table used to own went with it: column
+  visibility and widths (`context-preview-column-sizes.v1` store deleted),
+  sortable headers (preview order is now the fixed ascending-`rootFolderId`
+  comparator in `preview-panel.tsx`), page-size selection (Tapestry paginates at
+  a constant 24/page) and the shared `PreviewViewToolbar`. Group-by, group
+  collapse and the multi-select toggle live in `TapestryControls`; the
+  bulk-action bar reaches Tapestry as its `selectionActionBar` prop. The stored
+  `previewPanelPreferences.v1` blob keeps its key and serialized `footerMode`
+  name for compatibility. A legacy finite `footerHeight` is read only to infer
+  that mode using the historical rounded midpoint boundaries; retired fields
+  are ignored on read and pruned on the next write. Do not reintroduce a second
+  surface without re-reading this paragraph.
+- **Deferred rows are not current membership.** `usePreviewPanelState` derives
+  rows from selection, but `PreviewPanel` intentionally defers that large
+  snapshot. After a selection shrink, the deferred snapshot may therefore
+  retain many deselected rows for a render. The panel memoizes row and token
+  indexes for each deferred snapshot, then looks up selected keys instead of
+  filtering all deferred rows. The workspace-context snapshot projects current
+  membership immediately; the expensive Tapestry/grouping/pagination pipeline
+  consumes a paired deferred `{ rows, selection }` snapshot so it never sees an
+  old/new intersection or resets pagination transiently. The per-file Tapestry
+  cache retains entries while their row remains in the deferred index, but only
+  derives or refreshes bases for the paired selected slice. A newly selected key
+  stays absent until its paired deferred row arrives. Do not rebuild the token
+  index on current-selection changes; the selection-bound, replacement,
+  cache-retention, and dynamic-add coverage lives in `preview-panel.test.tsx`
+  and `preview-panel-deferred-selection.test.tsx`.
 - **Per-file rule, no global toggle.** "Files are membership, ranges are
   refinement, no ranges = whole file" — unconditional everywhere
   (`useTapestryRanges` retired). Selecting a file is membership ONLY; nothing
@@ -200,15 +297,66 @@ consumer (report generator, `listWorkspaceContext`, token meters).
   summaries lock to the single "Output" presentation (no per-mode toggle).
 - **Key files:** `packages/file-explorer-ui/src/utils/tapestry-range-sync.ts`,
   `packages/file-explorer-ui/src/preview/preview-panel.tsx`,
-  `packages/utils/src/report-generator.ts`,
+  `packages/file-explorer/src/context-generation.ts`,
   `apps/desktop/src/assistant-server/assistant-tools.ts` (`listWorkspaceContext`
   `detail: true` gate for per-file ranges).
+- **Context traversal boundary:** `context-generation.ts` accepts only the
+  platform-neutral `FileSystemAdapter` and `DirectoryHandle`. Raw browser File
+  System Access handles remain behind adapters/consumers. Async exports throw on
+  malformed filters or traversal failures; the synchronous preview converts
+  only known pattern-validation failures into a typed result and renders them
+  visibly.
 
 When changing this flow, update this section and the related tests.
 
 ---
 
 ## WORKSPACE INDEX TRAVERSAL
+
+### Desktop reads are mounted-root capabilities
+
+Electron Explorer and Workspace Index reads are authorized by the single
+main-process `WorkspaceRootRegistry`; renderer handles are stamped projections,
+not authority. A handle read must carry its durable `rootId`. The legacy
+absolute-path read is accepted only when contained by a currently mounted root
+(longest containing root wins); there is no raw-adapter fallback.
+
+Each mounted real root owns one lazy-loaded native `SecureRoot` whose
+constructor is the sole resolver: it opens the root directly (following
+symlinks only at that root-establishment step, because the path comes from
+the trusted folder picker or persisted store, never repository content) and
+derives `canonicalPath` from the opened handle — the pinned capability is its
+own identity authority, not a pre-open realpath. Target realpaths are checked
+with `allowMissing:false` for containment only; the native operation receives
+the original lexical relative path so even an in-root symlink is not
+rewritten to its target. Enumeration and bounded reads open each descendant
+component relative to the pinned handle with strict no-follow semantics.
+Parent, leaf, chained-link, reparse-point, and mounted-root replacement races
+therefore cannot escape. Native async work does not serialize per root: each
+enumeration opens its own fresh POSIX `.` descriptor (Windows: a fresh
+handle-relative reopen), so concurrent calls — within one root or across
+different roots — cannot share or corrupt a cursor and no lock is held across
+blocking I/O. `close()` never blocks: it revokes the capability for new
+operations while operations already in flight drain against the pinned
+handle.
+
+Symlink/reparse entries remain explicit file-shaped Explorer rows so indexing
+attempts produce the existing visible inaccessible-file result; native reads
+never follow them. Listings are bounded at 10,000 inspected entries: the
+registry never throws on truncation — it appends a trailing `'truncated'`
+pseudo-node (`` `Showing first ${inspected} entries` ``) to the listing it
+already returns, no IPC/adapter signature change. The Explorer renders this
+node as a visible, non-selectable, non-expandable tail row (mirroring the
+existing `'loadMore'` pseudo-node) rather than silently dropping the partial
+result or hard-failing the directory. The pseudo-node is excluded from the
+tri-state checkbox rollup (`isPseudoFileNodeType`), so a truncated
+directory's parent checkbox evaluates only the listed real entries — a
+directory whose entire partial listing is selected reads fully `checked`,
+not indeterminate, even though the listing itself is incomplete. File bytes
+are bounded before crossing into JavaScript. Paired coverage:
+`workspace-root-registry{,.integration}.test.ts`,
+`file-system-ipc.test.ts`, and
+`packages/secure-fs-native/test/secure-root.test.cjs`.
 
 The visible Explorer loads directories lazily. Recursive Workspace Index scans
 use `createBackgroundIndexingEntryPolicy` from
@@ -231,14 +379,193 @@ there rather than hiding entries after the adapter has already read them.
   preempted; the walker checks the abort before processing its result or
   scheduling any more descendants, bounding the drain to reads already in
   flight.
+- **Truncated listings surface in scans; they never skip silently.** The
+  registry's `'truncated'` pseudo-node (above) is Explorer-visible, but the
+  recursive scan consumers must surface it too: `walkDirectoryParallel` never
+  lets the marker enter the returned tree — it reports the affected directory
+  through `onDirectoryTruncated`, and a walk WITHOUT that handler fails with
+  `DirectoryListingTruncatedError`, including for non-root subdirectories
+  whose ordinary read errors are skipped silently. Both Workspace Index scan
+  modes install the handler: the full scan wires it through
+  `readFullTreeWithOptions`; the scoped watcher scan recognizes the marker
+  centrally in `readDirectoryWithProgress`. Each scan logs one warning and
+  reports the deduped directory count as `truncatedDirectories` in the visible
+  scan summary (`PreparedChangesSummary.truncatedDirectoryPaths` →
+  `WorkspaceCollectionSyncScanSummary`); the content-batch phase always
+  reports an empty list because only the traversal can observe truncation.
+  The debug harness returns `truncatedDirectoryPaths` so coverage audits treat
+  `expectedFileCount` as a floor, not an exact total.
+  **Truncation also disarms absence inference — retain, never delete, on
+  partial knowledge.** "Absent from a truncated listing" is not evidence of
+  deletion: full-scan missing-file reconciliation skips cached rows under any
+  truncated directory (root truncation protects every row), and the scoped
+  directory-removal reconciliation neither prefix-wipes a removed directory
+  under a truncated prefix nor exact-invalidates unobserved entries beneath
+  one (watcher-authoritative exact FILE removals still invalidate). The idle
+  coverage audit returns a `truncated-root` outcome — surfaced like
+  `unresolved-root`: warning + visible `waiting` status, never
+  `markAuditVerified`, never a recovery sync — because a fully-indexed partial
+  prefix proves nothing. Paired tests:
+  `parallel-directory-walker.test.ts` (report + fail-loud),
+  `workspace-collection-sync-service.test.ts` (full + scoped scan summaries;
+  truncation-protected invalidation), `workspace-collection-sync-scan.test.ts`
+  (scoped removal guard), `workspace-collection-sync-provider.test.tsx`
+  (truncated audit never verifies complete),
+  `workspace-collection-sync-status-helpers.test.ts` (status row), and
+  `workspace-index-debug-harness.test.ts`.
 - Workspace include/exclude filters control visible-tree filtering and
   selection. They are not the Workspace Index traversal policy; do not mutate
   custom filters to implement indexing exclusions.
+- **Flattening is iterative and order-preserving.** After discovery,
+  `flattenFileNodes` uses an explicit LIFO stack and pushes roots and children
+  in reverse so the emitted files retain recursive pre-order DFS and sibling
+  order. Do not replace it with recursion or array spreading: the paired tests
+  require 100,000 levels of nesting and 100,000 files in one directory to
+  flatten without call-stack or function-argument overflow.
+- **Chunking re-dispatch is bounded per service session (BST-1229).** A
+  hash-unchanged managed-cache row with no `chunks_processed_at` stamp may be
+  re-dispatched at most three times. The service-owned in-memory tracker keys
+  that budget by collection id, durable root/path, file-record id, and content hash; a
+  completed stamp, new record, or changed content resets it. Attempts are
+  consumed only at importer handoff, after access, worker startup, and import
+  QoS succeed; cancelled or failed pre-import scans do not spend the budget.
+  Exhaustion counts the row as scanned-but-unchanged, removes only that row from
+  later import batches, logs one explicit terminal diagnostic per exhausted
+  revision, and puts Workspace Index in its visible `error` state with the file
+  paths and recovery instruction. It does not block unrelated embedding
+  backfill, and neither asynchronous backfill progress nor a healthy scan of
+  another root can clear the terminal state.
+  Partial watcher scans preserve errors for paths they did not examine and
+  clear only errors covered by that scoped scan; an ignored root-self removal
+  preserves the existing errors. Inaccessible content reads preserve the
+  matching path errors during both scoped and full scans. Switching or disabling
+  the managed collection discards errors owned by the retired collection. Each
+  provider loop also reconciles the service against the complete mounted-root
+  identity set. The durable adapter root ID is retained through both DB routing
+  and terminal-scope reconciliation, including the `rootIdByPath` fallback for a
+  legacy mounted handle without a stamped `rootId` (never project down to path
+  plus nullable DB ID), so removing one root cannot leave its error attached to healthy sibling
+  roots and same-path web roots cannot exchange identities. Full
+  scans prune retry state for paths no longer present. If reconciliation leaves
+  only mounted roots without resolved database ids, the provider replaces any
+  retired root's terminal error with the explicit unresolved-root waiting status;
+  a zero-syncable-target loop must not leave stale status visible. Never replace
+  this with an unbounded retry. A redispatch attempt is recorded only when its
+  concrete import batch enters `processChunking`, the second content read selected
+  that file, and its managed-cache apply succeeded; unreadable files, failed
+  applies, post-base model/worker setup failures, and cancellation or failure in
+  an earlier batch must not spend untouched retry budgets. Never use a
+  quiet skip. This is intentionally not persistent sync state: restarting the
+  renderer grants a fresh bounded budget.
 
 The policy test owns the preset contract. The parallel-directory-walker test
 must also prove excluded directories are rejected before `readDirectory` is
 called. Provider/service tests own policy-switch cancellation and stale-progress
 suppression.
+
+### Token indexing has TWO trigger sources (BST-1207, decision D2)
+
+Separate from the Workspace Index above, per-file TOKEN counting is driven by
+`useBackgroundTokenIndexerIntegration`. It has two trigger sources, and both go
+through the SAME `triggerIndexing` → `planTokenIndexingDispatch` path, so the
+binary/size exclusions and the indexed/in-flight de-duplication are shared:
+
+1. **Selection** (original). Adaptive debounce; the user is waiting on it.
+2. **Visible/expanded rows** (`visibleFiles` prop, implemented in
+   `packages/file-explorer-ui/src/indexing/use-visible-file-token-indexing.ts`).
+   Feeds the tree grid's token column for rows the user only expanded. It is
+   **cached-first** — each folder's persistent cache is warmed via
+   `preloadFolder`, then every key the hot cache can already answer is dropped
+   and marked indexed. A warm is memoized only once `isPersisted` is true: the
+   worker goes operational before PGlite does, and remembering that no-op warm
+   would strand every later visible file on a full re-count. The memo is the
+   parent-owned `preloadedVisibleFoldersRef`, reset with the other indexer memos
+   on root change, tree clear, and `clearIndexedCache`.
+   It is **capped**: the visible set is every file under an expanded directory,
+   not the viewport, so one expand on a large directory can surface thousands of
+   uncached files, each costing a full-content read (IPC on desktop). A pass
+   dispatches at most `VISIBLE_FILE_INDEXING_MAX_PER_PASS` (500) keys and
+   re-arms for the remainder — but ONLY when the previous pass consumed
+   something, so a set that can never be consumed (every key parked for a
+   missing handle) cannot spin. Nothing is dropped; it is deferred.
+   Cooperative-yield counts in tests are derived from
+   `VISIBLE_FILE_INDEXING_MAX_PER_PASS / TOKEN_INDEXER_IO_BATCH_SIZE`; do not
+   copy a stale window count. Effect cleanup cancels both the debounce and the
+   async continuation's re-arm whenever effect cleanup runs, so a completed
+   dispatch cannot update the stale cursor after its tree unmounts or any
+   dependency replacement installs a new effect that owns the next pass.
+   It is **throttled** by a `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor set to 2×
+   the selection trigger's longest adaptive delay. The two debounces are
+   independent, so this is a strong bias toward selection-first, NOT a
+   guarantee — do not write code or docs that depend on strict ordering.
+   Because the Explorer tree is lazily enumerated, "in the tree" already means
+   "visible or under an expanded directory"; `collectVisibleFileSelectionKeys`
+   walks the quick-filtered tree and keys by `node.rootFolderId` so forest roots
+   stay distinct.
+
+Do not add a third trigger.
+
+Per-row metadata for the tree grid (tokens/size/type + directory rollups) is
+read through `FileRowMetadataStore`
+(`packages/file-explorer-ui/src/indexing/file-row-metadata-store.ts`), a
+per-composite-key external store. Rules that must hold: an uncounted file reads
+`pending`; a file the planner permanently retires reads `excluded` with an
+`exclusionReason`. `FileRowMetadata` is a discriminated union that requires the
+reason exactly when `tokens === 'excluded'`; do not weaken it back to an
+optional sibling property. The reason set must stay in sync with
+`planTokenIndexingDispatch` — today `'binary'` (`isBinaryFile`) and
+`'too-large'` (over the shared `DEFAULT_MAX_FILE_SIZE`), both of which the
+planner pushes into `indexedKeysToAdd` so their count never arrives. Adding a
+new permanent retirement to the planner without adding its reason here leaves
+those rows on `pending` forever AND pins every ancestor rollup to `partial`.
+A directory rollup is only `complete` when the subtree is fully enumerated AND
+every descendant's metadata has landed, otherwise it is an explicit `partial`
+marker; excluded files contribute zero tokens and their real size without
+blocking completeness. Partial reasons are explicit: `recomputing` is reserved
+for deferred rollup work that is actually queued, `incomplete-subtree` covers
+unloaded/capped/failed enumeration with neutral unavailable copy, and
+`pending-metadata` means descendant counts have not landed. Do not label an
+inert or permanently capped subtree as recomputing. A count landing for one key
+must not re-render any other row.
+
+Metadata sorting distinguishes capability from readiness. A missing
+`FileRowMetadataProvider` means the surface cannot serve a persisted metadata
+sort, so it warns and resets to loader order. A mounted provider with an empty
+root id is only temporarily unready: skip the sort for that render, emit a
+one-shot debug diagnostic (promoted to a warning if tree content is present), but preserve
+the user's persisted preference. Production and the 10k-row performance test
+must both use `createFileTreeSortMetadataReader`; never copy its closure into a
+test.
+
+`getDirectorySubtree` is TOTAL: anything the caller cannot enumerate answers
+an `isComplete: false` subtree with `incompleteReason: 'not-enumerated'`
+rather than nothing, so a cell can never throw mid-render and "this is a file"
+is not confused with "this directory is not enumerated yet". Only the deferred
+controller returns `incompleteReason: 'recomputing'`, and only after it has
+queued the path. Because rollups are cached and the store cannot see the tree,
+the caller MUST call `invalidateAll()` whenever the tree SHAPE changes (expand,
+collapse, filter, refresh, root switch) — `use-file-tree-metadata-source` does
+this off the row-model identity.
+
+Invalidation has two paths and the split is load-bearing. `useFileRowMetadataStore`
+returns an `onTokenResolved` that MUST be passed to
+`useBackgroundTokenIndexerIntegration`: every resolved count names its own
+composite key, so the store re-reads that key plus its cached ancestor rollups —
+O(affected keys), whatever the tree size. The full `invalidateAll` reconciliation
+exists only for bulk writes that name no key (`preloadFolder`, warm-cache
+hydration), which surface solely as a `cacheVersion` bump; since that bump is
+debounced at 50ms and therefore fires ~20×/s during an index run, the
+version-driven pass is coalesced behind a trailing
+`RECONCILE_METADATA_DEBOUNCE_MS` timer with a
+`RECONCILE_METADATA_MAX_WAIT_MS` starvation bound. Operational transitions and
+`FILE_EXPLORER_REFRESH_EVENT` reconcile immediately. Do not drop the
+reconciliation path (a reopened workspace's already-cached counts would sit on
+`pending` forever) and do not make it the per-count path. No third channel, no
+polling. Paired tests:
+`packages/file-explorer-ui/src/__tests__/file-row-metadata-store.test.ts`,
+`packages/file-explorer-ui/src/__tests__/file-row-metadata-render-stability.test.tsx`,
+`packages/file-explorer-ui/src/__tests__/use-file-row-metadata-store.test.tsx`,
+`packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration-visible-files.test.tsx`.
 
 ---
 
@@ -272,7 +599,11 @@ fallback.
   root-level invalidation with log-once semantics while the subscription
   stays alive. The 150ms/500-item batcher and `fileFilter.shouldIgnorePath`
   apply (DEFAULT_IGNORE_PATTERNS also feed native-level ignore globs — same
-  names, never broader). Typed watcher health
+  names, never broader). A per-subscription `ignorePatterns` override exists
+  (BST-1112, see `docs/agents/platform-contracts.md`) for main-owned callers
+  outside this pipeline, e.g. a git-metadata watcher; the Explorer refresh
+  pipeline described here NEVER passes it, so "same names, never broader"
+  holds unconditionally for this path. Typed watcher health
   (`starting|healthy|degraded|failed|stopped`) flows over one-way
   `fs:watch-health` pushes scoped to the owning WebContents (no root-path
   field on the wire); `fs:watch-retry` is MANUAL-only with escalating
@@ -343,6 +674,22 @@ fallback.
     root stays connected but UNWATCHED, with NO auto-restart (a silent retry
     loop would hide the failure) — manual Refresh is the recovery path.
 
+  **A BULK MAIN-PROCESS MUTATION MUST DRIVE ITS OWN RECOVERY.** The `errored`
+  contract above means the watcher cannot be relied on to report a burst that
+  killed it. Conversation Rewind's files-mode apply/redo therefore calls
+  `packages/app-shell/src/changes/use-rewind-explorer-recovery.ts` on success:
+  it dispatches the SAME `scope:'full'` / `source:'watcher'` event as the
+  overflow path (one event, naming every connected root from the result's
+  `rootOutcomes`) and then calls `retryWatcher` (`fs:watch-retry`) for any of
+  those roots whose health is `failed`. Two rules bind here: reuse the existing
+  refresh pipeline — never invent a second channel — and retry ONLY `failed`,
+  never `degraded` (that subscription is alive and self-recovers; retrying it
+  tears down a working watch). Refresh is dispatched BEFORE the retries and is
+  not awaited by the caller: the mutation is already complete on disk, so
+  nothing can be missed by re-enumerating first, while a hanging `subscribe`
+  would otherwise hold the visible fix. Any future main-process bulk mutation
+  outside the assistant's write tools needs the same treatment.
+
   **NO SILENT FALLBACKS:** both conditions are always warn-logged in the
   adapter even when no signal handler is attached; never revert to dropping
   these records.
@@ -364,6 +711,28 @@ fallback.
   NOT gated by `skipManualFullEvents` (nothing refreshes an overflow directly,
   so the outer authority provider must react too, else a single-root workspace
   never reloads).
+- **An identical re-enumeration is a no-op in the worker (BST-1336).** Every
+  `refreshTree` ends in `port.init(...)`, and one FSEvents overflow fires that
+  once per mounted `FileTreeProvider` on the root, so a real desktop log showed
+  a single overflow producing a legitimate 118→54 replacement immediately
+  followed by a 54→54 one — twice over, once per provider.
+  `BFSEngine.setTree` (`packages/file-tree-worker/src/bfs-engine.ts`) now
+  returns whether it replaced anything and skips the path-index and
+  expansion-set rebuild when the incoming tree is identical;
+  `file-tree.worker.ts` then skips the `tree initialized` log and the
+  `treeSnapshot` post that make downstream consumers rebuild and re-render.
+  **Node count is never the test** — `54 → 54` can be 54 different files.
+  Identity is the init folder id (an empty-tree root reset carries no node to
+  identify it) plus an order-sensitive deep compare of EVERY `WorkerFileNode`
+  field; `TREE_IDENTITY_FIELDS` is a TOTAL record over the node type, so a new
+  field fails the build instead of silently escaping the check, and absent
+  `children` vs `[]` stay distinct states. The skip additionally requires that
+  `expandedPaths` already equals `collectExpandedPaths(tree)` — `collapseAll`
+  clears the expansion sets WITHOUT touching the tree, so after a collapse the
+  replacement legitimately re-derives them and skipping would strand the
+  collapsed state that the next `complete` payload reports. Anything short of
+  that certainty replaces; the engine never guesses. The duplicate-provider ×2
+  is a separate defect and is NOT addressed here.
 - **Manual refresh contract.** `file-explorer-panel.tsx` `handleRefresh`
   awaits `refreshFileExplorer()` (the OUTER provider) and dispatches the full
   event only on SUCCESS — a cancelled or failed refresh must not trigger
@@ -374,13 +743,64 @@ fallback.
   RootSection provider reacts — that is what makes the toolbar Refresh reach
   every forest root, including the focused root's VISIBLE section.
 - **Narrow toolbar geometry.** The Explorer panel's 180px minimum width leaves
-  a 76px right grid track. Below 236px, Refresh and View Filters move into one
-  24px compact-actions menu beside the 24px Select All control, preserving the
-  symmetric 12px edge gutters and WCAG-size hit regions. At 236px, the menu is
-  replaced by the full Refresh and View Filters controls; all three right-side
-  controls are 28px with 4px gaps. Select All remains the edge action at every
-  width, preventing any sibling from intercepting its pointer region.
+  a 76px right grid track. Below 236px, Refresh, View Filters **and Expand All /
+  Collapse All** move into one 24px compact-actions menu beside the 24px Select
+  All control, preserving the symmetric 12px edge gutters and WCAG-size hit
+  regions. At 236px, the menu is replaced by the full Refresh and View Filters
+  controls; all three right-side controls are 28px with 4px gaps. Select All
+  remains the edge action at every width, preventing any sibling from
+  intercepting its pointer region.
+  Expand All / Collapse All appear at that SAME 236px step, but in the **left**
+  track beside the selection status — the right track is exactly full at every
+  step below, and these two used to avoid the problem by floating over the tree
+  (retired: the overlay covered the tree grid's column header and ate its
+  clicks; see `docs/agents/ui-conventions.md`). Adding them costs the left track
+  ~60px, so the compact selection COUNTER yields below **180px of track** — the
+  measured sum of the 12px gutter, the status cluster's 106px of content, the
+  4px gap and the 58px expansion pair. The selection-mode badge still renders
+  the compact count, so no state is lost. The status cluster is also
+  `overflow-hidden`: it is `min-w-0`, so without clipping a shrunk box spills
+  its content over the expansion buttons and swallows their clicks (observed
+  live at a 349px panel before the threshold was corrected).
+  No new breakpoint was introduced — every toolbar action has exactly one home
+  at every width.
+  At **300px** a FOURTH control joins — the tree-grid Columns popover
+  (BST-1208) — because that is the first width whose ~136px right track holds
+  four 28px controls, three 4px gaps and the 12px gutter. It sits in its own
+  `@[300px]/explorer-toolbar:contents` wrapper, before Refresh/View Filters, so
+  the documented three-control geometry at 236px is unchanged. 300px is ALSO
+  the width below which the tree grid suppresses its metadata columns
+  (`METADATA_COLUMNS_MIN_WIDTH` in
+  `packages/file-explorer-ui/src/shell/explorer-columns-context.ts`) — the
+  two are tied on purpose so the grid never shows a column the user has no way
+  to hide. Render-time width projection reserves 120px for Name and apportions
+  the remaining whole pixels with a largest-remainder allocation. On the
+  proportional-shrink path, metadata widths never collectively exceed the
+  panel budget; when even the columns' minimums do not fit, their declared
+  minimums intentionally win. Output-identical projections retain their
+  map/context identity so sub-pixel ResizeObserver churn does not repaint every
+  consumer. Pinned by `shell/explorer-columns-context.ts`,
+  `file-explorer-toolbar.test.tsx` and `explorer-column-header.test.tsx`.
+- **The cancel affordance is never width-gated.** The inline scanning
+  indicator's Cancel (X) is the ONLY way to abort a running expand-all sweep —
+  Refresh is disabled for the duration and the compact menu has never carried a
+  cancel — so `treeActionsControl` renders OUTSIDE the `@[236px]:contents
+  hidden` wrapper and the cancel button carries no container query. #1916
+  originally swept the whole tree-actions cluster into that wrapper, which left
+  the 180px default-width desktop panel with no abort at all; the desktop
+  expand-all E2E caught it once the lane started collecting again (BST-1217).
+  Only ONE cancel node may exist in the DOM — a second, narrow-width copy would
+  trip Playwright strict mode even while `display:none` — so width adaptation
+  happens by collapsing the indicator's spinner and count, never by duplicating
+  the button. To keep the 76px track's math intact, the compact-actions menu
+  yields its slot for the duration of an operation
+  (`resolveCompactToolbarActionsState` → `yielded-to-cancel`); its only live
+  item is View Filters, since its Refresh item is disabled mid-operation.
 - **Paired tests:**
+  `packages/file-tree-worker/src/bfs-engine.test.ts` (identical-tree skip,
+  including same-count-different-content and post-`collapseAll` replacement),
+  `packages/file-tree-worker/src/file-tree.worker.test.ts` (a skipped init
+  posts no snapshot),
   `packages/file-explorer-ui/src/tree/__tests__/use-file-tree-refresh-events.test.tsx`
   (tree consumer: incremental + overflow),
   `packages/file-explorer-ui/src/__tests__/use-file-system-context.test.ts`
@@ -391,8 +811,17 @@ fallback.
   `apps/desktop/src/__tests__/renderer/adapters.test.ts` (watchDirectory),
   `packages/file-explorer-hooks/src/__tests__/use-file-system-watcher.test.ts`
   (per-root lifecycle + signal threading),
+  `packages/file-explorer-ui/src/__tests__/file-explorer-panel-toolbar-logic.test.ts`
+  (compact menu yields to cancel),
+  `packages/file-explorer-ui/src/__tests__/file-explorer-toolbar.test.tsx` +
+  `tree-action-buttons.test.tsx` (cancel is never width-gated),
+  `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` (expand-all cancel
+  at the 180px default width),
   `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx`
   (per-root full resync scoping),
+  `packages/app-shell/src/changes/__tests__/use-rewind-explorer-recovery.test.tsx`
+  (post-rewind refresh + `failed`-only retry) and its wiring in
+  `packages/app-shell/src/changes/__tests__/rewind-confirm-dialog.test.tsx`,
   `packages/file-system/src/__tests__/electron-watchers.test.ts`.
 
 When changing this flow, update this section and the paired tests.

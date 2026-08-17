@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
+  DECLINED_TOOL_RESULT_KIND,
   isAssistantToolApprovalAction,
+  isCodeExecutionApprovalContext,
+  isDeclinedToolCallResult,
   isRediscoveredToolApproval,
   type RediscoveredToolApproval,
   readToolApprovalRunConfigAction,
@@ -157,5 +160,91 @@ describe('isRediscoveredToolApproval', () => {
     expect(isRediscoveredToolApproval(withoutRunId)).toBe(false);
     expect(isRediscoveredToolApproval(undefined)).toBe(false);
     expect(isRediscoveredToolApproval(null)).toBe(false);
+  });
+});
+
+describe('isCodeExecutionApprovalContext', () => {
+  const base = {
+    allowedDomains: [],
+    allowRead: [],
+    allowWrite: ['/tmp/brainstrike-run-python'],
+    defaultReadAccess: 'permissive',
+    executorKind: 'fence',
+    language: 'python',
+    policyFingerprint: 'ab12cd34',
+    scratchParentDir: '/tmp',
+    timeoutMs: 30_000,
+  } as const;
+
+  it('accepts a fully-formed execution context', () => {
+    expect(isCodeExecutionApprovalContext(base)).toBe(true);
+    expect(
+      isCodeExecutionApprovalContext({
+        ...base,
+        allowedDomains: ['pypi.org', '*.githubusercontent.com'],
+        defaultReadAccess: 'none',
+        executorKind: 'vm',
+      })
+    ).toBe(true);
+  });
+
+  it('rejects a missing or wrong-typed field (every field is load-bearing on a security card)', () => {
+    for (const key of Object.keys(base)) {
+      const { [key as keyof typeof base]: _dropped, ...withoutKey } = base;
+      expect(isCodeExecutionApprovalContext(withoutKey)).toBe(false);
+    }
+    expect(isCodeExecutionApprovalContext({ ...base, allowedDomains: 'pypi.org' })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, allowedDomains: [42] })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, allowWrite: [''] })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, defaultReadAccess: 'maybe' })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, executorKind: 'shell' })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, language: 'perl' })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, policyFingerprint: '' })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, scratchParentDir: '' })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, timeoutMs: 0 })).toBe(false);
+    expect(isCodeExecutionApprovalContext({ ...base, timeoutMs: 1.5 })).toBe(false);
+  });
+
+  it('rejects unknown own keys — the wire shape is exact, matching the approval-action discipline', () => {
+    expect(isCodeExecutionApprovalContext({ ...base, injected: true })).toBe(false);
+  });
+
+  it('rejects non-records', () => {
+    expect(isCodeExecutionApprovalContext(undefined)).toBe(false);
+    expect(isCodeExecutionApprovalContext(null)).toBe(false);
+    expect(isCodeExecutionApprovalContext('context')).toBe(false);
+    expect(isCodeExecutionApprovalContext([base])).toBe(false);
+  });
+});
+
+describe('isDeclinedToolCallResult', () => {
+  const declined = {
+    kind: DECLINED_TOOL_RESULT_KIND,
+    message: 'The user declined this tool call, so it was not executed.',
+  };
+
+  it('accepts the decline envelope, with or without the user reason', () => {
+    expect(isDeclinedToolCallResult(declined)).toBe(true);
+    expect(isDeclinedToolCallResult({ ...declined, reason: 'not this path' })).toBe(true);
+  });
+
+  it('tolerates unknown extra keys — a settled result is display data', () => {
+    // The run_python surface narrows the SAME value through its own union, so
+    // additive evolution on either side must not blank a card.
+    expect(isDeclinedToolCallResult({ ...declined, exitCode: null })).toBe(true);
+  });
+
+  it('rejects a decline that states no decision', () => {
+    // A declined card with nothing to say would be inventing the outcome.
+    expect(isDeclinedToolCallResult({ kind: DECLINED_TOOL_RESULT_KIND })).toBe(false);
+    expect(isDeclinedToolCallResult({ ...declined, message: '  ' })).toBe(false);
+  });
+
+  it('rejects other results, including error shapes that merely mention a decline', () => {
+    expect(isDeclinedToolCallResult({ kind: 'cancelled', message: 'stopped' })).toBe(false);
+    expect(isDeclinedToolCallResult(declined.message)).toBe(false);
+    expect(isDeclinedToolCallResult(undefined)).toBe(false);
+    expect(isDeclinedToolCallResult(null)).toBe(false);
+    expect(isDeclinedToolCallResult([declined])).toBe(false);
   });
 });

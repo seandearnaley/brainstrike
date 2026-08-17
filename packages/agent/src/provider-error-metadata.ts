@@ -6,6 +6,24 @@ import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from './providers/local/local-tool-
 
 export const PROVIDER_RUN_ERROR_METADATA_KEY = 'runError';
 export const PROVIDER_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_provider_error';
+/**
+ * Fallback classification for errors carrying no provider response evidence
+ * (no httpStatus, no providerRequestId, no responseHeaders): local failures —
+ * e.g. a renderer/runtime TypeError inside the stream chain — must not wear
+ * the provider-error label they wore during the 2026-08-03 grepSearch
+ * projection incident.
+ */
+export const LOCAL_RUN_ERROR_FALLBACK_CODE = 'mastra_agent_stream_local_error';
+
+/**
+ * True for run-error codes whose fault never crossed to a provider: the
+ * evidence-free local fallback and the local model's malformed-tool-arguments
+ * fault. Log fingerprints and breadcrumb messages branch on this so local
+ * faults never wear the provider label.
+ */
+export function isLocalRunErrorClassification(code: string): boolean {
+  return code === LOCAL_RUN_ERROR_FALLBACK_CODE || code === LOCAL_TOOL_CALL_ARGUMENTS_INVALID;
+}
 export const MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS = 600;
 export const MAX_PROVIDER_RUN_ERROR_CAUSES = 4;
 export const MAX_PROVIDER_RUN_ERROR_CAUSE_CHARS = 300;
@@ -16,11 +34,22 @@ const TRUNCATION_MARKER = '… [truncated]';
 
 const STABLE_PROVIDER_ERROR_CODES: ReadonlySet<string> = new Set([
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
+  LOCAL_RUN_ERROR_FALLBACK_CODE,
   LOCAL_TOOL_CALL_ARGUMENTS_INVALID,
   'context_length_exceeded',
   'max_tokens_exceeded',
   'token_limit_exceeded',
 ] as const);
+
+const CONTEXT_OVERFLOW_PROVIDER_ERROR_CODES: ReadonlySet<string> = new Set([
+  'context_length_exceeded',
+  'max_tokens_exceeded',
+  'token_limit_exceeded',
+]);
+
+export function isContextOverflowProviderErrorCode(code: string): boolean {
+  return CONTEXT_OVERFLOW_PROVIDER_ERROR_CODES.has(code);
+}
 
 export const PROVIDER_RUN_ERROR_RESPONSE_HEADER_NAMES = [
   'anthropic-ratelimit-input-tokens-limit',
@@ -253,7 +282,7 @@ function readStableCodeCandidate(value: unknown): string | undefined {
   return code && STABLE_PROVIDER_ERROR_CODES.has(code) ? code : undefined;
 }
 
-function readStableProviderCode(records: readonly Record<string, unknown>[]): string {
+function readStableProviderCode(records: readonly Record<string, unknown>[]): string | undefined {
   for (const record of records) {
     const data = readNestedRecord(record, 'data');
     const dataError = readNestedRecord(data, 'error');
@@ -279,7 +308,39 @@ function readStableProviderCode(records: readonly Record<string, unknown>[]): st
       }
     }
   }
-  return PROVIDER_RUN_ERROR_FALLBACK_CODE;
+  return;
+}
+
+// AI SDK error classes whose existence proves the call crossed to a provider:
+// APICallError is only constructed around a provider HTTP call, and RetryError
+// only wraps exhausted APICallError attempts. A local runtime fault (e.g. a
+// renderer TypeError) never wears these names.
+const API_CALL_ERROR_NAMES: ReadonlySet<string> = new Set(['AI_APICallError', 'AI_RetryError']);
+
+function isApiCallErrorMarker(record: Record<string, unknown> | undefined): boolean {
+  if (!record) {
+    return false;
+  }
+  const name = readProperty(record, 'name');
+  if (typeof name === 'string' && API_CALL_ERROR_NAMES.has(name)) {
+    return true;
+  }
+  // APICallError always carries url + requestBodyValues, even when the name
+  // was lost to serialization across a boundary.
+  return (
+    typeof readProperty(record, 'url') === 'string' &&
+    readProperty(record, 'requestBodyValues') !== undefined
+  );
+}
+
+function hasApiCallErrorMarker(records: readonly Record<string, unknown>[]): boolean {
+  return records.some((record) =>
+    [
+      record,
+      readNestedRecord(record, 'error'),
+      readNestedRecord(readNestedRecord(record, 'data'), 'error'),
+    ].some(isApiCallErrorMarker)
+  );
 }
 
 function readHttpStatus(records: readonly Record<string, unknown>[]): number | undefined {
@@ -386,8 +447,20 @@ export function extractProviderRunError(value: unknown): ProviderRunError {
   const httpStatus = readHttpStatus(records);
   const responseHeaders = readResponseHeaders(records);
   const providerRequestId = readProviderRequestId(records, responseHeaders);
+  // Without a stable typed code, classify by provider evidence: a failure with
+  // no api-call error marker, no httpStatus, no providerRequestId, and no
+  // responseHeaders never crossed to a provider, so it gets the local fallback
+  // code instead of the provider one.
+  const hasProviderEvidence =
+    httpStatus !== undefined ||
+    providerRequestId !== undefined ||
+    responseHeaders !== undefined ||
+    hasApiCallErrorMarker(records);
+  const fallbackCode = hasProviderEvidence
+    ? PROVIDER_RUN_ERROR_FALLBACK_CODE
+    : LOCAL_RUN_ERROR_FALLBACK_CODE;
   return {
-    code: readStableProviderCode(records),
+    code: readStableProviderCode(records) ?? fallbackCode,
     ...(message ? { message } : {}),
     ...(causeChain ? { causeChain } : {}),
     ...(httpStatus === undefined ? {} : { httpStatus }),

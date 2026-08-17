@@ -126,6 +126,16 @@ export interface LlmModelDefinition extends BaseModelDefinition {
     defaultEnabled?: boolean;
     mandatory: boolean;
     supportedEfforts: readonly OpenAiReasoningEffort[];
+    /**
+     * Vendor-documented completion window sized for thinking + answer, for
+     * models whose reasoning tokens stream into the output budget. Recorded
+     * from the vendor's official docs (cite them at the model entry) — never
+     * derived, and catalog-only: OpenRouter does not publish it, so it must
+     * survive live-metadata merges (`mergeOpenRouterAutoProfileModel`). Used
+     * in place of the coding output ceiling whenever reasoning is active —
+     * see `resolveOpenRouterOutputWindow` (BST-1170).
+     */
+    vendorDefaultOutputTokens?: number;
   };
   /**
    * Some providers restrict streaming; surface this so the UI can badge support.
@@ -618,6 +628,102 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
       {
+        // Capabilities and limits: official Qwen model card at commit
+        // 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,
+        // and gateway pricing: OpenRouter Models API, retrieved 2026-08-15
+        // (BST-1302).
+        contextWindow: 262_144,
+        id: 'qwen/qwen3.8-27b',
+        label: 'Qwen3.8 27B (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.45, outputPerMTok: 3.2 },
+        reasoning: {
+          // Auto intentionally follows Qwen's documented xhigh default. The
+          // official ladder skips high: xhigh, medium, low. No paid route smoke
+          // was available (BST-1302), and Qwen publishes recommended maxima for
+          // separate reasoning/final output rather than a distinct default
+          // thinking+answer reservation, so vendorDefaultOutputTokens is absent.
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        // Identity, modalities, context extension, mandatory thinking, and
+        // effort levels: official Qwen model card at revision 207bd685,
+        // retrieved 2026-08-15. Route, effective gateway limits, and pricing:
+        // OpenRouter Models API, retrieved 2026-08-15 (BST-1306).
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-2.4t-a95b',
+        label: 'Qwen3.8 2.4T A95B (OpenRouter)',
+        maxOutputTokens: 262_144,
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          // Qwen requires thinking for every interaction. Its official effort
+          // ladder deliberately skips `high`; Auto follows the xhigh default.
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      },
+      {
+        // Vendor identity, modalities, limits, and tool/structured-output support:
+        // official Alibaba Cloud Model Studio model page, retrieved 2026-08-15.
+        // Route, gateway pricing, and reasoning controls: OpenRouter Models API,
+        // retrieved 2026-08-15 (BST-1309). Cache prices are omitted because this
+        // static schema has no cache-price fields.
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-max',
+        label: 'Qwen3.8 Max (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          // Unlike the sibling Qwen routes, OpenRouter explicitly advertises
+          // `high` and `minimal` for Max; preserve the route's five-rung ladder.
+          // Alibaba documents 131,072 as a maximum, not a distinct default
+          // thinking+answer window, so there is no vendorDefaultOutputTokens fact.
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        // Capabilities and limits: official Google model page, last updated
+        // 2026-08-13. Route and gateway pricing: OpenRouter Models API,
+        // retrieved 2026-08-14 (BST-1265).
+        contextWindow: 1_048_576,
+        id: 'google/gemini-3.7-flash',
+        label: 'Gemini 3.7 Flash (OpenRouter)',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.375, outputPerMTok: 1.875 },
+        reasoning: {
+          // OpenRouter explicitly reports both mandatory=true and
+          // default_enabled=true. Preserve both so Auto uses the gateway's
+          // declared medium default rather than inferring one. Google documents
+          // 65,536 as a maximum, not a distinct default thinking+answer window,
+          // so there is no vendorDefaultOutputTokens fact to record.
+          defaultEffort: 'medium',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['high', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
         contextWindow: 262_144,
         id: 'inclusionai/ling-3.0-flash:free',
         label: 'Ling 3.0 Flash Free (OpenRouter)',
@@ -762,6 +868,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         contextWindow: 1_048_576,
         id: 'moonshotai/kimi-k3',
         label: 'Kimi K3 (OpenRouter)',
+        // Official maximum max_completion_tokens (platform.kimi.ai K3
+        // quickstart, verified 2026-08-05). OpenRouter publishes none.
+        maxOutputTokens: 1_048_576,
         pricing: { inputPerMTok: 3, outputPerMTok: 15 },
         reasoning: {
           // Auto deliberately runs below the vendor default: Kimi's `max` spends
@@ -771,6 +880,18 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           defaultEnabled: true,
           mandatory: false,
           supportedEfforts: ['max', 'high', 'low'],
+          // Official K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,
+          // verified 2026-08-05): max_completion_tokens defaults to 131,072
+          // (max 1,048,576) — the vendor's operating point for thinking +
+          // answer. Moonshot's FIRST-PARTY API cannot disable thinking, but
+          // the OpenRouter route declares reasoning optional (mandatory:
+          // false, multiple hosts serve this open-weight model); an explicit
+          // Off maps to `reasoning.enabled: false` under
+          // `provider.require_parameters`, which narrows routing to endpoints
+          // honouring it — so a reasoning-off request correctly keeps the
+          // coding ceiling instead of this window. OpenRouter publishes no
+          // max completion for this route, so the fact lives here (BST-1170).
+          vendorDefaultOutputTokens: 131_072,
         },
         supportsStreaming: true,
         type: 'llm',
@@ -1277,17 +1398,34 @@ export function resolveDefaultModel(
  * Resolve a single LLM model definition. Throws on unknown provider/model —
  * token budgeting must never silently guess a context window.
  */
-export function getLlmModelDefinition(providerId: ProviderId, modelId: string): LlmModelDefinition {
-  // O(1) map lookup; the type says it can't miss, but guard against
-  // out-of-union runtime ids (e.g. persisted prefs from an older build).
+/**
+ * Non-throwing counterpart to {@link getLlmModelDefinition}: returns
+ * `undefined` instead of throwing for a provider/model pair absent from the
+ * static registry (e.g. an OpenRouter metadata-only / auto-profile model, or
+ * a persisted preference from a retired catalog entry). Callers that must
+ * treat an unknown model as a hard error should use `getLlmModelDefinition`;
+ * callers that have a defined fallback for "unknown" (e.g. budget defaults)
+ * should use this instead of try/catch-as-control-flow.
+ */
+export function findLlmModelDefinition(
+  providerId: ProviderId,
+  modelId: string
+): LlmModelDefinition | undefined {
   const provider: ProviderDefinition | undefined = getProviderDefinition(providerId);
   if (!provider) {
-    throw new Error(`Unknown provider id for LLM model lookup: ${providerId}`);
+    return;
   }
   const model = provider.models.find(
     (definition) => definition.type === 'llm' && definition.id === modelId
   );
-  if (model?.type !== 'llm') {
+  return model?.type === 'llm' ? model : undefined;
+}
+
+export function getLlmModelDefinition(providerId: ProviderId, modelId: string): LlmModelDefinition {
+  // O(1) map lookup; the type says it can't miss, but guard against
+  // out-of-union runtime ids (e.g. persisted prefs from an older build).
+  const model = findLlmModelDefinition(providerId, modelId);
+  if (!model) {
     throw new Error(`Unknown LLM model id for provider ${providerId}: ${modelId}`);
   }
   return model;

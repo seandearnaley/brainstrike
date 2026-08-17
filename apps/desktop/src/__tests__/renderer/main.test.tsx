@@ -197,7 +197,7 @@ describe('renderer main entry', () => {
     window.history.replaceState({}, '', '/?mode=llm-host&runtimeId=llm-host:test');
     await import('../../renderer/main.tsx');
     const { logRecordToDiagnosticEvent } = await import('@brainstrike/utils/diagnostics');
-    const { configureLogger, createLogger } = await import('@brainstrike/utils/logger');
+    const { configureLogger, createLogger } = await import('@brainstrike/logging');
     const ingestBufferedRecord = window.logging?.ingestBufferedRecord;
     if (!ingestBufferedRecord) {
       throw new Error('Expected the buffered-log ingestion capability');
@@ -327,7 +327,7 @@ describe('renderer main entry', () => {
   });
 
   it('renders a fatal startup screen when the preload bridge is incomplete inside Electron', async () => {
-    window.logging = undefined;
+    (window as unknown as { logging?: Window['logging'] }).logging = undefined;
     // jsdom's default user agent has no Electron token; the fatal screen is
     // reserved for real Electron renderers whose preload broke.
     Object.defineProperty(window.navigator, 'userAgent', {
@@ -355,7 +355,7 @@ describe('renderer main entry', () => {
   });
 
   it('renders the outside-Electron notice when the bridge is absent in a plain browser', async () => {
-    window.logging = undefined;
+    (window as unknown as { logging?: Window['logging'] }).logging = undefined;
     // jsdom's default user agent carries no Electron token, matching a plain
     // browser tab pointed at the dev-server URL.
 

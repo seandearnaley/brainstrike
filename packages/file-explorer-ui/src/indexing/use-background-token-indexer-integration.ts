@@ -12,12 +12,12 @@
  * `packages/utils/src/background-work-arbiter.ts` and is enforced at the collection-sync layer.
  */
 
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
-import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
+import { createLogger } from '@brainstrike/logging';
+import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE, TOKEN_INDEXER_IO_BATCH_SIZE } from '../constants';
 import { useOptionalFileTreeIndexContext } from '../tree/file-tree-provider';
@@ -45,6 +45,8 @@ import {
 } from './background-token-indexer-selection-shrink';
 import { resolveBackgroundIndexerWorkerUrlHref } from './resolve-token-cache-worker-url';
 import { useOptionalTokenCacheContext } from './token-cache-context';
+import { useSelectedFileSizePrefetch } from './use-selected-file-size-prefetch';
+import { useVisibleFileTokenIndexing } from './use-visible-file-token-indexing';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 
@@ -90,6 +92,18 @@ export interface UseBackgroundTokenIndexerIntegrationProps {
   onTokenResolved?: (compositeKey: string, tokenCount: number) => void;
   /** Set of selected file composite keys (folderId::path format) */
   selectedFiles: Set<string>;
+  /**
+   * Composite keys of the files currently VISIBLE in the tree — rendered rows
+   * plus everything under an expanded directory (BST-1207, decision D2).
+   *
+   * This is a SECOND, lower-priority trigger source: it lets the tree grid show
+   * real token counts for rows the user merely expanded, without waiting for a
+   * selection. It is cached-first (the folder's persistent cache is warmed and
+   * consulted before anything is dispatched), throttled behind the selection
+   * trigger, and runs through the same dispatch planner, so binary/size policy
+   * and the indexed/in-flight de-duplication apply unchanged.
+   */
+  visibleFiles?: ReadonlySet<string>;
   /**
    * Web-only fallback to resolve a real `FileSystemFileHandle` for a selected file path
    * when neither the FileTreeIndex nor the local handle map has a cached entry.
@@ -149,62 +163,6 @@ function doesPreloadedSnapshotCoverSelection(
   return normalizedPaths.every((path) => preloadedPaths.has(path));
 }
 
-/**
- * Electron-style handle with path property
- */
-/**
- * Look up the file size for `compositeKey` from the handle sources the
- * indexing effect already consults -- `FileTreeIndex` first (O(1), shared
- * across folders), then the local HandleInfo map built from the current
- * tree. Returns `undefined` when neither source knows the size yet; the
- * caller can re-run after the FileTreeIndex version bumps or the local map
- * rebuilds.
- *
- * Extracted so the metadata-prefetch effect stays small and so it can be
- * unit-tested without a full render. Parking compositeKey decoding /
- * normalization here also means the effect body doesn't branch on path
- * validity.
- */
-function lookupSelectedFileSize(params: {
-  compositeKey: string;
-  getHandle: ((folderId: string, path: string) => HandleInfo | undefined) | undefined;
-  localMap: ReadonlyMap<string, HandleInfo>;
-}): { folderId: string; normalizedPath: string; fileSize: number } | null {
-  const { compositeKey, getHandle, localMap } = params;
-  let folderId: string;
-  let selectionPath: string;
-  try {
-    const decoded = decodeFileSelection(compositeKey);
-    folderId = decoded.folderId;
-    selectionPath = decoded.path;
-  } catch (error) {
-    logger.debug('Failed to decode compositeKey during size prefetch lookup', {
-      compositeKey,
-      error,
-    });
-    return null;
-  }
-  // FileTreeIndex keys by raw tree paths (same as classification loop below),
-  // so use selectionPath here and only normalize once we're committing to a
-  // cache write.
-  const handleInfo = getHandle?.(folderId, selectionPath) ?? localMap.get(compositeKey);
-  if (!handleInfo || typeof handleInfo.fileSize !== 'number') {
-    return null;
-  }
-  let normalizedPath: string;
-  try {
-    normalizedPath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
-  } catch (error) {
-    logger.debug('Failed to normalize selection path during size prefetch lookup', {
-      error,
-      folderId,
-      selectionPath,
-    });
-    return null;
-  }
-  return { fileSize: handleInfo.fileSize, folderId, normalizedPath };
-}
-
 // Foreground selection-driven dispatch is intentionally NOT gated on
 // `isImporting` or `isEmbeddingActive`. The tokenizer worker is CPU-only and
 // does not contend with the collection sync for WebGPU; PGLite serializes
@@ -259,6 +217,7 @@ export function useBackgroundTokenIndexerIntegration({
   selectedFiles,
   onTokenResolved,
   electronFileReader,
+  visibleFiles,
   webFileHandleResolver,
 }: UseBackgroundTokenIndexerIntegrationProps): UseBackgroundTokenIndexerIntegrationReturn {
   // Get the token cache context (may be null if not in provider)
@@ -305,14 +264,25 @@ export function useBackgroundTokenIndexerIntegration({
   const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // P0 optimization: Track staleness to enable lazy rebuilds
   const fileHandleMapStaleRef = useRef(true); // Start stale since map is empty
-  // P0 optimization: Track previous selection size for 0→>0 transition detection
-  const previousSelectionSizeForMapRef = useRef<number>(0);
+  // Previous INDEXABLE count (selected + visible) for 0→>0 edge detection.
+  // Widened from selection-only when the visible trigger landed: a workspace
+  // with a loaded tree is essentially never at 0, so this edge now fires only
+  // on first load. That is fine — Effect A (tree-driven) already marks the map
+  // stale and schedules a rebuild whenever EITHER count is non-zero, so the
+  // selection-specific edge it used to detect is superseded, not lost. With no
+  // `visibleFiles` prop the count is the selection size and behaviour is
+  // unchanged.
+  const previousIndexableCountForMapRef = useRef<number>(0);
 
   // P0 optimization: Track which folder selections have been preloaded to avoid repeated DB reads.
   // A folder is only considered preloaded when both the cache version and the selected-path coverage
   // match the current selection. This prevents shallow initial selections from suppressing later
   // hydration when the same folder expands to include additional files.
   const preloadedFoldersRef = useRef<Map<string, PreloadedFolderSnapshot>>(new Map());
+  // The VISIBLE trigger's own folder-warm memo. Separate from the map above
+  // (which tracks selection-path coverage) but reset in the same places. Held
+  // in useState so the Set is built ONCE, not rebuilt and discarded per render.
+  const [preloadedVisibleFolders] = useState<Set<string>>(() => new Set());
   // Track previous persistence state to clear preload memo when persistence changes
   const previousPersistedStateRef = useRef<boolean | undefined>(undefined);
   const selectionSkipReasonRef = useRef<string | null>(null);
@@ -324,6 +294,16 @@ export function useBackgroundTokenIndexerIntegration({
   fileTreeRef.current = fileTree;
   const selectedFilesSizeRef = useRef(selectedFiles.size);
   selectedFilesSizeRef.current = selectedFiles.size;
+  // The handle map is what BOTH triggers read, so "is there work to do?" has to
+  // count visible files as well — otherwise a workspace with nothing selected
+  // never builds a map and the visible trigger can never dispatch.
+  const visibleFilesSizeRef = useRef(visibleFiles?.size ?? 0);
+  // Synced in an effect, not during render: a render React discards must not
+  // leak into the deferred rebuild that reads this ref 500ms later. Declared
+  // ahead of every effect that reads it so they see this commit's value.
+  useEffect(() => {
+    visibleFilesSizeRef.current = visibleFiles?.size ?? 0;
+  }, [visibleFiles]);
 
   /**
    * Compute root fingerprint from fileTree for detecting root folder changes.
@@ -366,6 +346,7 @@ export function useBackgroundTokenIndexerIntegration({
       inFlightRef.current.clear();
       pendingNoHandleRef.current.clear();
       preloadedFoldersRef.current.clear();
+      preloadedVisibleFolders.clear();
       bumpInFlightPulse((v) => v + 1);
       logger.debug('Cleared caches due to root folder change', {
         nextRootIds: rootFingerprint,
@@ -379,7 +360,7 @@ export function useBackgroundTokenIndexerIntegration({
       previousRootIdsRef.current = rootFingerprint;
     }
     hasSeenRootRef.current = true;
-  }, [rootFingerprint]);
+  }, [preloadedVisibleFolders, rootFingerprint]);
 
   /**
    * Idempotent rebuild scheduler - only schedules if no rebuild is already queued.
@@ -410,14 +391,16 @@ export function useBackgroundTokenIndexerIntegration({
 
       // Use refs to get current values at execution time (not stale closure values)
       const currentSelectedSize = selectedFilesSizeRef.current;
+      const currentVisibleSize = visibleFilesSizeRef.current;
       const currentFileTree = fileTreeRef.current;
 
-      // Skip rebuild if no files selected and no pending operations
-      // This avoids expensive tree traversal when the map won't be used
-      if (currentSelectedSize === 0 && inFlightRef.current.size === 0) {
+      // Skip rebuild when neither trigger has work and nothing is in flight.
+      // This avoids expensive tree traversal when the map won't be used.
+      if (currentSelectedSize === 0 && currentVisibleSize === 0 && inFlightRef.current.size === 0) {
         logger.debug('Skipping handle map rebuild - no active operations', {
           inFlightCount: inFlightRef.current.size,
           selectedCount: currentSelectedSize,
+          visibleCount: currentVisibleSize,
         });
         return;
       }
@@ -454,8 +437,13 @@ export function useBackgroundTokenIndexerIntegration({
     // Mark map as stale immediately
     fileHandleMapStaleRef.current = true;
 
-    // Only schedule rebuild if there's active work (use ref to avoid dependency on selectedFiles)
-    if (selectedFilesSizeRef.current > 0 || inFlightRef.current.size > 0) {
+    // Only schedule rebuild if there's active work (use refs to avoid depending
+    // on the selected/visible set identities)
+    if (
+      selectedFilesSizeRef.current > 0 ||
+      visibleFilesSizeRef.current > 0 ||
+      inFlightRef.current.size > 0
+    ) {
       scheduleRebuildIfNeeded();
     }
 
@@ -471,12 +459,13 @@ export function useBackgroundTokenIndexerIntegration({
    * Effect B (need-driven): Watch selection size but only act on 0 → >0 transition.
    * This handles the case where selection becomes non-empty and we need the map.
    */
+  const indexableFileCount = selectedFiles.size + (visibleFiles?.size ?? 0);
   useEffect(() => {
-    const prevSize = previousSelectionSizeForMapRef.current;
-    previousSelectionSizeForMapRef.current = selectedFiles.size;
+    const prevSize = previousIndexableCountForMapRef.current;
+    previousIndexableCountForMapRef.current = indexableFileCount;
 
     // Only act on 0 → >0 transition
-    const isZeroToNonZero = prevSize === 0 && selectedFiles.size > 0;
+    const isZeroToNonZero = prevSize === 0 && indexableFileCount > 0;
     if (!isZeroToNonZero) {
       return;
     }
@@ -484,20 +473,20 @@ export function useBackgroundTokenIndexerIntegration({
     // Only rebuild if stale or empty
     const needsRebuild = fileHandleMapStaleRef.current || fileHandleMapRef.current.size === 0;
     if (!needsRebuild) {
-      logger.debug('Selection became non-empty but map is fresh, skipping rebuild');
+      logger.debug('Indexable files became non-empty but map is fresh, skipping rebuild');
       return;
     }
 
-    logger.debug('Selection transition 0 → >0, checking if rebuild needed', {
+    logger.debug('Indexable file transition 0 → >0, checking if rebuild needed', {
       hasIndex: !!indexGetHandleRef.current,
       isStale: fileHandleMapStaleRef.current,
       mapSize: fileHandleMapRef.current.size,
-      newSize: selectedFiles.size,
+      newSize: indexableFileCount,
     });
 
     // Note: scheduleRebuildIfNeeded will short-circuit if FileTreeIndex is available
     scheduleRebuildIfNeeded();
-  }, [selectedFiles.size, scheduleRebuildIfNeeded]);
+  }, [indexableFileCount, scheduleRebuildIfNeeded]);
 
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
@@ -535,31 +524,49 @@ export function useBackgroundTokenIndexerIntegration({
     []
   );
 
-  const handleFileError = useCallback((compositeKey: string, error: string) => {
-    if (compositeKey === '__worker__') {
-      // Terminal worker failures invalidate the whole in-flight queue.
-      // Keep behavior deterministic by clearing all pending file markers.
-      inFlightRef.current.clear();
-      bumpInFlightPulse((value) => value + 1);
-      logger.error('Background indexer terminal worker error', { error });
-      return;
-    }
+  const handleFileError = useCallback(
+    (compositeKey: string, error: string, reason?: IndexerErrorReason) => {
+      if (compositeKey === '__worker__') {
+        // Terminal worker failures invalidate the whole in-flight queue.
+        // Keep behavior deterministic by clearing all pending file markers.
+        inFlightRef.current.clear();
+        bumpInFlightPulse((value) => value + 1);
+        logger.error('Background indexer terminal worker error', { error });
+        return;
+      }
 
-    inFlightRef.current.delete(compositeKey);
-    indexedFilesRef.current.delete(compositeKey);
-    if (inFlightRef.current.size === 0) {
-      bumpInFlightPulse((value) => value + 1);
-    }
-    // ENOENT means the file vanished between when we cached its handle and
-    // when we tried to read it (delete, rename, git checkout, etc.). The
-    // indexer correctly removed it from in-flight above; the absence isn't
-    // alert-worthy. Other IO errors are still real bugs and stay at error.
-    if (isMissingFileError(error)) {
-      logger.debug('Background indexer skipping deleted file', { compositeKey });
-      return;
-    }
-    logger.error('Background indexer file error', { compositeKey, error });
-  }, []);
+      inFlightRef.current.delete(compositeKey);
+      if (reason === 'binary') {
+        // A binary verdict is SETTLED, not failed: the read succeeded and the
+        // answer cannot change until the file's bytes do. It has to be marked
+        // like a resolved file (in-flight only ever holds pending work), or
+        // the next visible-files pass hands the key straight back — which is
+        // how 8 files produced 149 identical error records. The retry loop,
+        // not the classification, was the flood.
+        indexedFilesRef.current.add(compositeKey);
+      } else {
+        indexedFilesRef.current.delete(compositeKey);
+      }
+      if (inFlightRef.current.size === 0) {
+        bumpInFlightPulse((value) => value + 1);
+      }
+      // Expected outcomes are not errors. Binary content is a routine answer
+      // the tree asks for constantly (BST-1207 models it as the `excluded`
+      // row state), and ENOENT means the file vanished between caching its
+      // handle and reading it (delete, rename, git checkout). Both are debug.
+      // Other IO errors are still real bugs and stay at error.
+      if (reason === 'binary') {
+        logger.debug('Background indexer excluded binary file', { compositeKey });
+        return;
+      }
+      if (isMissingFileError(error)) {
+        logger.debug('Background indexer skipping deleted file', { compositeKey });
+        return;
+      }
+      logger.error('Background indexer file error', { compositeKey, error });
+    },
+    []
+  );
 
   // Use the background token indexer when context is available
   const backgroundIndexer = useBackgroundTokenIndexer({
@@ -1061,31 +1068,17 @@ export function useBackgroundTokenIndexerIntegration({
   const tokenCacheIsOperational = tokenCache?.isOperational ?? false;
   const tokenCacheIsPersisted = tokenCache?.isPersisted ?? false;
 
-  // Prefetch file sizes into the hot cache as soon as the selection and
-  // handle sources know them. Previously sizes were only written after the
-  // background token indexer finished a batch, so any time the indexing path
-  // was gated (embedding active, adaptive debounce, large queue) the
-  // context-explorer column rendered `—` for size even though the tree
-  // already had the value. Writes are idempotent (use-token-cache no-ops when
-  // the value matches) so re-running on every selection change is cheap.
-  useEffect(() => {
-    const cache = tokenCacheRef.current;
-    if (!cache?.isOperational || selectedFiles.size === 0) {
-      return;
-    }
-    const getHandle = indexGetHandleRef.current;
-    const localMap = fileHandleMapRef.current;
-    if (!getHandle && localMap.size === 0) {
-      return;
-    }
-    for (const compositeKey of selectedFiles) {
-      const lookup = lookupSelectedFileSize({ compositeKey, getHandle, localMap });
-      if (!lookup) {
-        continue;
-      }
-      cache.updateFileSizeCache(lookup.folderId, lookup.normalizedPath, lookup.fileSize);
-    }
-  }, [selectedFiles, tokenCacheIsOperational, fileHandleMapSize, indexVersion]);
+  // Sizes also reach the hot cache ahead of any indexing batch — see
+  // `use-selected-file-size-prefetch.ts` for why that second path exists.
+  useSelectedFileSizePrefetch({
+    fileHandleMapRef,
+    fileHandleMapSize,
+    indexGetHandleRef,
+    indexVersion,
+    isTokenCacheOperational: tokenCacheIsOperational,
+    selectedFiles,
+    tokenCacheRef,
+  });
 
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
@@ -1135,9 +1128,8 @@ export function useBackgroundTokenIndexerIntegration({
     // Exit early if no files selected or no file handles available yet.
     // During startup, selection may be restored from storage before file tree has handles.
     // When FileTreeIndex is available, skip the local map size check since we use index lookups.
-    const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
     const skipReason = getSelectionSkipState({
-      hasHandleSource: Boolean(hasHandleSource),
+      hasHandleSource: Boolean(indexGetHandleRef.current) || fileHandleMapRef.current.size > 0,
       selectedCount: selectedFiles.size,
     });
     if (skipReason) {
@@ -1179,6 +1171,21 @@ export function useBackgroundTokenIndexerIntegration({
     return () => clearTimeout(timeoutId);
   }, [selectedFiles, triggerIndexing, tokenCacheIsOperational, fileHandleMapSize, indexGetHandle]);
 
+  useVisibleFileTokenIndexing({
+    fileHandleMapRef,
+    fileHandleMapSize,
+    indexedFilesRef,
+    indexGetHandleRef,
+    indexVersion,
+    inFlightRef,
+    isTokenCacheOperational: tokenCacheIsOperational,
+    isTokenCachePersisted: tokenCacheIsPersisted,
+    preloadedFolders: preloadedVisibleFolders,
+    tokenCacheRef,
+    triggerIndexing,
+    visibleFiles,
+  });
+
   // Clear indexed files cache when file tree changes significantly
   // biome-ignore lint/plugin: Intentional effect to reset cache when folder is cleared - not an event handler
   useEffect(() => {
@@ -1186,12 +1193,13 @@ export function useBackgroundTokenIndexerIntegration({
     if (fileTree.length === 0) {
       indexedFilesRef.current.clear();
       pendingNoHandleRef.current.clear();
+      preloadedVisibleFolders.clear();
       if (inFlightRef.current.size > 0) {
         inFlightRef.current.clear();
         bumpInFlightPulse((value) => value + 1);
       }
     }
-  }, [fileTree.length]);
+  }, [fileTree.length, preloadedVisibleFolders]);
 
   // Retry pending files when FileTreeIndex version changes (index was updated with new handles)
   // This handles the case where recursive selection loads handles after initial indexing attempt
@@ -1428,11 +1436,12 @@ export function useBackgroundTokenIndexerIntegration({
     indexedFilesRef.current.clear();
     inFlightRef.current.clear();
     pendingNoHandleRef.current.clear();
-    // P0 optimization: Also clear preload memo to force re-preload
+    // P0 optimization: Also clear preload memos to force re-preload
     preloadedFoldersRef.current.clear();
+    preloadedVisibleFolders.clear();
     bumpInFlightPulse((v) => v + 1);
     logger.debug('Manually cleared indexed cache', { previousSize });
-  }, []);
+  }, [preloadedVisibleFolders]);
 
   return {
     diagnostics: {

@@ -1,85 +1,23 @@
-import type { LogRecord } from '@brainstrike/utils/logger';
+import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import {
+  createDefaultLoggingPreferences,
   LogLevel,
   error as logError,
   info as logInfo,
   resetLogger,
   setLogLevel,
-} from '@brainstrike/utils/logger';
-import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
-import { createDefaultLoggingPreferences } from '@brainstrike/utils/logging-preferences';
+} from '@brainstrike/logging';
 import type { IpcMainEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoggingIpcHandlers } from '../logging-ipc';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
 import { assignWindowRole, clearWindowRoleByWebContentsId } from '../window-role';
-
-// ── Local Electron mock with webContents — copied verbatim from the harness
-// in apps/desktop/src/__tests__/logging-ipc.test.ts ─────────────────────────
-const mockAllWebContents: unknown[] = [];
-
-const mockIpcMainHandlers = new Map<string, (...args: unknown[]) => unknown>();
-const mockIpcMainListeners = new Map<string, (...args: unknown[]) => unknown>();
-
-const mockIpcMain = {
-  handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-    mockIpcMainHandlers.set(channel, handler);
-  }),
-  on: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-    mockIpcMainListeners.set(channel, handler);
-  }),
-  removeHandler: vi.fn((channel: string) => {
-    mockIpcMainHandlers.delete(channel);
-  }),
-  removeListener: vi.fn((channel: string, _handler: unknown) => {
-    mockIpcMainListeners.delete(channel);
-  }),
-};
-
-vi.mock('electron', () => ({
-  app: {
-    getAppPath: vi.fn(() => '/mock/app'),
-    getName: vi.fn(() => 'Brainstrike'),
-    getPath: vi.fn(() => '/mock/path'),
-    getVersion: vi.fn(() => '0.0.0-test'),
-    isPackaged: false,
-    isReady: vi.fn(() => true),
-    on: vi.fn(),
-    quit: vi.fn(),
-    whenReady: vi.fn(() => Promise.resolve()),
-  },
-  BrowserWindow: vi.fn(),
-  contextBridge: { exposeInMainWorld: vi.fn() },
-  dialog: {
-    showMessageBox: vi.fn(async () => ({ response: 0 })),
-  },
-  ipcMain: mockIpcMain,
-  ipcRenderer: { invoke: vi.fn(), on: vi.fn(), send: vi.fn() },
-  Menu: {
-    buildFromTemplate: vi.fn(),
-    setApplicationMenu: vi.fn(),
-  },
-  safeStorage: {
-    decryptString: vi.fn((buffer: Buffer) => Buffer.from(buffer).toString('utf-8')),
-    encryptString: vi.fn((text: string) => Buffer.from(text)),
-    getSelectedStorageBackend: vi.fn(() => 'basic_text'),
-    isEncryptionAvailable: vi.fn(() => true),
-    setUsePlainTextEncryption: vi.fn(),
-  },
-  screen: {
-    getAllDisplays: vi.fn(() => [{ workArea: { height: 1080, width: 1920, x: 0, y: 0 } }]),
-    getPrimaryDisplay: vi.fn(() => ({ workArea: { height: 1080, width: 1920, x: 0, y: 0 } })),
-  },
-  session: {
-    defaultSession: {
-      webRequest: { onHeadersReceived: vi.fn() },
-    },
-  },
-  webContents: {
-    getAllWebContents: vi.fn(() => mockAllWebContents),
-  },
-}));
+import {
+  getRegisteredIpcMainListener,
+  resetElectronMainTestHarness,
+  setMockWebContents,
+} from './helpers/electron-main-test-harness';
 
 // Import after mock is set up
 const { registerLoggingIpcHandlers } = await import('../logging-ipc');
@@ -125,19 +63,6 @@ function createMockHandlers(overrides?: Partial<LoggingIpcHandlers>): LoggingIpc
   };
 }
 
-function getRegisteredListener(channel: string): (...args: unknown[]) => unknown {
-  const listener = mockIpcMainListeners.get(channel);
-  if (!listener) {
-    throw new Error(`No ipcMain.on registration found for channel: ${channel}`);
-  }
-  return listener;
-}
-
-function setMockWebContents(contents: unknown[]) {
-  mockAllWebContents.length = 0;
-  mockAllWebContents.push(...contents);
-}
-
 function createMockWebContents(id: number) {
   return {
     getType: vi.fn(() => 'window'),
@@ -164,9 +89,7 @@ describe('durable record push', () => {
   let hiddenContents: ReturnType<typeof createMockWebContents>;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockIpcMainHandlers.clear();
-    mockIpcMainListeners.clear();
+    resetElectronMainTestHarness();
     // Ensure real-logger calls made in this file always reach listeners,
     // independent of whatever ambient LOG_LEVEL the test runner has set.
     setLogLevel(LogLevel.TRACE);
@@ -189,7 +112,7 @@ describe('durable record push', () => {
   it('does not forward an INFO record ingested from a hidden host', () => {
     const handlers = createMockHandlers();
     cleanup = registerLoggingIpcHandlers(handlers);
-    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const listener = getRegisteredIpcMainListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
     const mockEvent = { sender: { id: 9102 } } as unknown as IpcMainEvent;
 
     listener(mockEvent, createValidLogRecord({ level: LogLevel.INFO }));
@@ -203,7 +126,7 @@ describe('durable record push', () => {
   it('forwards an ERROR record ingested from a hidden host to the visible window exactly once', () => {
     const handlers = createMockHandlers();
     cleanup = registerLoggingIpcHandlers(handlers);
-    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const listener = getRegisteredIpcMainListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
     const mockEvent = { sender: { id: 9102 } } as unknown as IpcMainEvent;
 
     listener(mockEvent, createValidLogRecord({ level: LogLevel.ERROR }));
@@ -253,7 +176,7 @@ describe('durable record push', () => {
   it('every send on the durable-record channel uses the durableRecord constant', () => {
     const handlers = createMockHandlers();
     cleanup = registerLoggingIpcHandlers(handlers);
-    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const listener = getRegisteredIpcMainListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
     const mockEvent = { sender: { id: 9102 } } as unknown as IpcMainEvent;
 
     listener(mockEvent, createValidLogRecord({ level: LogLevel.FATAL }));
@@ -276,9 +199,7 @@ describe('recordDurableLog handler', () => {
   let hiddenContents: ReturnType<typeof createMockWebContents>;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockIpcMainHandlers.clear();
-    mockIpcMainListeners.clear();
+    resetElectronMainTestHarness();
     setLogLevel(LogLevel.TRACE);
 
     visibleContents = createMockWebContents(9201);
@@ -314,7 +235,7 @@ describe('recordDurableLog handler', () => {
     const recordDurableLog = vi.fn();
     const handlers = createMockHandlers({ recordDurableLog });
     cleanup = registerLoggingIpcHandlers(handlers);
-    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const listener = getRegisteredIpcMainListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
     const mockEvent = { sender: { id: 9202 } } as unknown as IpcMainEvent;
 
     listener(mockEvent, createValidLogRecord({ level: LogLevel.ERROR }));
@@ -342,7 +263,7 @@ describe('recordDurableLog handler', () => {
     const recordDurableLog = vi.fn();
     const handlers = createMockHandlers({ recordDurableLog });
     cleanup = registerLoggingIpcHandlers(handlers);
-    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const listener = getRegisteredIpcMainListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
     const untrackedSenderId = 9_999_999;
     const mockEvent = { sender: { id: untrackedSenderId } } as unknown as IpcMainEvent;
 
@@ -361,7 +282,7 @@ describe('recordDurableLog handler', () => {
     const recordDurableLog = vi.fn();
     const handlers = createMockHandlers({ recordDurableLog });
     cleanup = registerLoggingIpcHandlers(handlers);
-    const listener = getRegisteredListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
+    const listener = getRegisteredIpcMainListener(LOGGING_API_CHANNELS.ingestBufferedRecord);
     const mockEvent = { sender: { id: 9202 } } as unknown as IpcMainEvent;
 
     listener(mockEvent, createValidLogRecord({ level: LogLevel.INFO }));

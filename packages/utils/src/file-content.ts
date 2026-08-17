@@ -1,12 +1,19 @@
 import {
   isBinaryExtension as checkBinaryExtension,
   isTextExtension as checkTextExtension,
-} from './file-utils';
+} from './file-utils.js';
 
 /**
  * Maximum file size in bytes that we'll attempt to load (1MB)
  */
 const MAX_FILE_SIZE_BYTES = 1024 * 1024;
+
+export function getKnownFileSize(size: unknown): number | null {
+  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
+    return null;
+  }
+  return size;
+}
 
 /**
  * Utilities for validating and checking file content types

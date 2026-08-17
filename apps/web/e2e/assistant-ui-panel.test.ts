@@ -11,6 +11,10 @@ const ASSISTANT_UI_PANEL_ROOT_NAME = 'assistant-ui-panel';
 const ASSISTANT_UI_PANEL_TREE = {
   'README.md': '# BrainStrike test workspace',
 };
+// Report interaction latency separately from functional visibility assertions,
+// so a loaded runner identifies a performance-budget miss rather than disguising
+// it as a missing icon/color regression.
+const THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS = 1000;
 
 type MockProgressPayload =
   | {
@@ -85,7 +89,7 @@ async function readWebE2eDbPath(page: Page): Promise<string> {
 }
 
 // Assistant threads persist under the workspace-global resource id (see
-// WORKSPACE_MEMORY_RESOURCE_ID in packages/app-shell/src/assistant-memory-resource.ts —
+// WORKSPACE_MEMORY_RESOURCE_ID in packages/assistant-data/src/assistant-memory-resource.ts —
 // not exported from the package barrel, hence the literal), not the focused
 // root name, since #1214 made threads workspace-global.
 const WORKSPACE_MEMORY_RESOURCE_ID = 'brainstrike:workspace';
@@ -306,6 +310,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const threadRow = page.getByTestId('thread-row').first();
     await expect(threadRow).toBeVisible();
     await expect(threadRow).not.toContainText(/thread-[0-9a-f-]+/i);
+    const threadTab = page
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByRole('tab')
+      .first();
+    await expect(threadTab).toBeVisible();
+    await expect(threadTab.getByTestId('assistant-thread-tab-glyph-message')).toBeVisible();
 
     // Customization moved into the row's "Thread actions" popover (#1661). The
     // popover renders in a portal, so its controls are scoped to the open
@@ -317,8 +327,23 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await threadRow.getByRole('button', { name: /Thread actions/i }).click();
     const threadActions = page.getByRole('dialog');
     await threadActions.getByRole('button', { name: 'Customize' }).click();
+    const iconCustomizationStartedAt = Date.now();
     await threadActions.getByRole('button', { name: 'Use Bug icon' }).click();
+    await expect(threadRow.getByTestId('thread-icon-bug')).toBeVisible();
+    await expect(threadTab.getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
+    expect(
+      Date.now() - iconCustomizationStartedAt,
+      'Thread icon customization exceeded the click-to-paint performance budget.'
+    ).toBeLessThan(THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS);
+
+    const colorCustomizationStartedAt = Date.now();
     await threadActions.getByRole('button', { name: 'Use Rose color' }).click();
+    await expect(threadRow.getByTestId('thread-color-rose')).toBeVisible();
+    await expect(threadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
+    expect(
+      Date.now() - colorCustomizationStartedAt,
+      'Thread color customization exceeded the click-to-paint performance budget.'
+    ).toBeLessThan(THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('thread-customization-panel')).toHaveCount(0);
 
@@ -366,6 +391,152 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(reloadedThreadRow.getByTestId('thread-icon-bug')).toBeVisible();
     await expect(reloadedThreadRow.getByTestId('thread-color-rose')).toBeVisible();
     await expect(reloadedThreadRow).not.toContainText(/thread-[0-9a-f-]+/i);
+    const reloadedThreadTab = page
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByRole('tab')
+      .first();
+    await expect(reloadedThreadTab.getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
+    await expect(reloadedThreadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
+  });
+
+  test('tracks concurrent thread activity from durable runs and clears every terminal spinner', async ({
+    page,
+  }) => {
+    const elements = getPanelElements(page);
+    if (await elements.showRightPanelShim.isVisible()) {
+      await elements.showRightPanelShim.click();
+      await expect(elements.rightPanel).toBeVisible();
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    await page.getByTestId('new-agent-button').click();
+    await expect(page.getByTestId('thread-row')).toHaveCount(2);
+
+    const threads = await page.evaluate(async (resourceId) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        throw new Error('Expected web E2E hooks to be available');
+      }
+      return (await hooks.readAssistantThreads()).filter(
+        (thread) => thread.resourceId === resourceId
+      );
+    }, WORKSPACE_MEMORY_RESOURCE_ID);
+    expect(threads).toHaveLength(2);
+    const firstThread = threads[0];
+    const secondThread = threads[1];
+    if (!(firstThread && secondThread)) {
+      throw new Error('Expected two assistant threads for concurrent activity coverage');
+    }
+    const firstRunId = `e2e-active-run-${crypto.randomUUID()}`;
+    const secondRunId = `e2e-active-run-${crypto.randomUUID()}`;
+    await page.evaluate(
+      async ({ first, firstId, resourceId, second, secondId }) => {
+        const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+          .__brainstrikeWebE2ETestHooks__;
+        if (!hooks) {
+          throw new Error('Expected web E2E hooks to be available');
+        }
+        await Promise.all([
+          hooks.createAssistantThreadRun({ id: firstId, resourceId, threadId: first }),
+          hooks.createAssistantThreadRun({ id: secondId, resourceId, threadId: second }),
+        ]);
+      },
+      {
+        first: firstThread.id,
+        firstId: firstRunId,
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        second: secondThread.id,
+        secondId: secondRunId,
+      }
+    );
+
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(2);
+    await expect(
+      page.getByTestId('thread-row').locator('[data-testid^="thread-icon-"]')
+    ).toHaveCount(2);
+    await expect(page.getByTestId('thread-active-spinner').first()).toHaveCSS(
+      'animation-name',
+      'none'
+    );
+
+    await page.evaluate(async (runId) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        throw new Error('Expected web E2E hooks to be available');
+      }
+      await hooks.completeAssistantThreadRun(runId, 'completed');
+    }, firstRunId);
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+
+    await page.evaluate(async (runId) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        throw new Error('Expected web E2E hooks to be available');
+      }
+      await hooks.completeAssistantThreadRun(runId, 'failed');
+    }, secondRunId);
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
+    await expect(
+      page.getByTestId('thread-row').locator('[data-testid^="thread-icon-"]')
+    ).toHaveCount(2);
+
+    const cancellationRunId = `e2e-cancelled-run-${crypto.randomUUID()}`;
+    await page.evaluate(
+      async ({ resourceId, runId, threadId }) => {
+        const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+          .__brainstrikeWebE2ETestHooks__;
+        if (!hooks) {
+          throw new Error('Expected web E2E hooks to be available');
+        }
+        await hooks.createAssistantThreadRun({ id: runId, resourceId, threadId });
+      },
+      {
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        runId: cancellationRunId,
+        threadId: firstThread.id,
+      }
+    );
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+    await page.evaluate(async (runId) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        throw new Error('Expected web E2E hooks to be available');
+      }
+      await hooks.completeAssistantThreadRun(runId, 'cancelled');
+    }, cancellationRunId);
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
+
+    const orphanedRunId = `e2e-orphaned-run-${crypto.randomUUID()}`;
+    await page.evaluate(
+      async ({ resourceId, runId, startedAt, threadId }) => {
+        const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+          .__brainstrikeWebE2ETestHooks__;
+        if (!hooks) {
+          throw new Error('Expected web E2E hooks to be available');
+        }
+        await hooks.createAssistantThreadRun({ id: runId, resourceId, startedAt, threadId });
+        await hooks.syncDatabase();
+      },
+      {
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        runId: orphanedRunId,
+        startedAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+        threadId: firstThread.id,
+      }
+    );
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+
+    await page.reload();
+    await waitForAppLoad(page, { waitForDatabase: true });
+    await restoreAssistantFixtureRoot(page);
+    await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
   });
 
   test('keeps thread identity aligned when switching into rename mode', async ({ page }) => {
@@ -723,6 +894,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       throw new Error('Assistant tab controller boxes were unavailable before overflow.');
     }
 
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     for (let index = 1; index <= 8; index += 1) {
       await newThreadButton.click();
       await expect(tabList.getByRole('tab')).toHaveCount(initialTabCount + index);
@@ -733,6 +905,13 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       scrollWidth: element.scrollWidth,
     }));
     expect(scrollMetrics.scrollWidth).toBeGreaterThan(scrollMetrics.clientWidth);
+    await expect(scrollLeftButton).toBeEnabled();
+    await expect(scrollRightButton).toBeDisabled();
+
+    await tabScroll.evaluate((element) => {
+      element.scrollTo({ behavior: 'instant', left: 0 });
+    });
+    await expect(scrollLeftButton).toBeDisabled();
     await expect(scrollRightButton).toBeEnabled();
 
     const overflowButtonBox = await newThreadButton.boundingBox();

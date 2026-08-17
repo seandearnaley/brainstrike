@@ -28,7 +28,7 @@
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { net, protocol } from 'electron';
 import type { WorkspaceRootResolver } from './workspace-root-cwd';
 
@@ -37,27 +37,26 @@ const logger = createLogger('AssetProtocol');
 export const ASSET_PROTOCOL_SCHEME = 'brainstrike-asset';
 
 /**
- * Register the scheme's privileges. MUST run before `app.whenReady()`.
+ * Privilege descriptor for the scheme. Registered via the SINGLE
+ * `protocol.registerSchemesAsPrivileged` call in `privileged-schemes.ts` —
+ * Electron only honors ONE such call per launch, so no module may call it
+ * directly.
  *
  * `stream` + `supportFetchAPI` let `<img>` and `fetch` consume streamed
  * responses; `bypassCSP` stays `false` so the CSP still governs where these
  * URLs may be used (the renderer's `img-src` allowlist gains the scheme).
  */
-export function registerAssetProtocolPrivileges(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      privileges: {
-        bypassCSP: false,
-        corsEnabled: false,
-        secure: true,
-        standard: false,
-        stream: true,
-        supportFetchAPI: true,
-      },
-      scheme: ASSET_PROTOCOL_SCHEME,
-    },
-  ]);
-}
+export const ASSET_PROTOCOL_PRIVILEGE = {
+  privileges: {
+    bypassCSP: false,
+    corsEnabled: false,
+    secure: true,
+    standard: false,
+    stream: true,
+    supportFetchAPI: true,
+  },
+  scheme: ASSET_PROTOCOL_SCHEME,
+} as const;
 
 /**
  * Is the already-canonicalized `real` path contained in ANY mounted root?

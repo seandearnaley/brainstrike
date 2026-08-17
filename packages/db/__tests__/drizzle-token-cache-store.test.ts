@@ -7,6 +7,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { databaseQueryTelemetry } from '../src/database-query-telemetry.js';
 import {
   DrizzleTokenCacheStore,
   type TokenCacheEntry,
@@ -52,12 +53,16 @@ describe('DrizzleTokenCacheStore', () => {
       const entry = createEntry({ filePath: 'src/file1.ts' });
 
       await store.set(entry);
+      const telemetryBefore = databaseQueryTelemetry.snapshot().tokenEstimation;
       const found = await store.get(testFolderId, 'src/file1.ts');
 
       expect(found).toBeDefined();
       expect(found?.filePath).toBe('src/file1.ts');
       expect(found?.tokenCount).toBe(100);
       expect(found?.countingMode).toBe('accurate');
+      const telemetryAfter = databaseQueryTelemetry.snapshot().tokenEstimation;
+      expect(telemetryAfter.hitCount - telemetryBefore.hitCount).toBe(1);
+      expect(telemetryAfter.lookupCount - telemetryBefore.lookupCount).toBe(1);
     });
 
     it('should return null for non-existent entry', async () => {
@@ -171,11 +176,27 @@ describe('DrizzleTokenCacheStore', () => {
       await store.set(createEntry({ filePath: 'src/file2.ts', tokenCount: 200 }));
       await store.set(createEntry({ filePath: 'src/file3.ts', tokenCount: 300 }));
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot().tokenEstimation;
       const result = await store.getBatch(testFolderId, ['src/file1.ts', 'src/file3.ts']);
 
       expect(result.size).toBe(2);
       expect(result.get('src/file1.ts')?.tokenCount).toBe(100);
       expect(result.get('src/file3.ts')?.tokenCount).toBe(300);
+      const telemetryAfter = databaseQueryTelemetry.snapshot().tokenEstimation;
+      expect(telemetryAfter.hitCount - telemetryBefore.hitCount).toBe(2);
+      expect(telemetryAfter.lookupCount - telemetryBefore.lookupCount).toBe(2);
+    });
+
+    it('counts each requested duplicate path as a cache hit', async () => {
+      await store.set(createEntry({ filePath: 'src/file1.ts', tokenCount: 100 }));
+
+      const telemetryBefore = databaseQueryTelemetry.snapshot().tokenEstimation;
+      const result = await store.getBatch(testFolderId, ['src/file1.ts', 'src/file1.ts']);
+
+      expect(result.size).toBe(1);
+      const telemetryAfter = databaseQueryTelemetry.snapshot().tokenEstimation;
+      expect(telemetryAfter.hitCount - telemetryBefore.hitCount).toBe(2);
+      expect(telemetryAfter.lookupCount - telemetryBefore.lookupCount).toBe(2);
     });
 
     it('should return empty map for empty paths', async () => {
@@ -268,9 +289,16 @@ describe('DrizzleTokenCacheStore', () => {
       await store.set(createEntry({ filePath: 'src/file2.ts', tokenCount: 200 }));
       await store.set(createEntry({ filePath: 'src/file3.ts', tokenCount: 300 }));
 
+      const telemetryBefore = databaseQueryTelemetry.snapshot();
       const total = await store.getTotalTokens(testFolderId, ['src/file1.ts', 'src/file2.ts']);
 
       expect(total).toBe(300);
+      const telemetryAfter = databaseQueryTelemetry.snapshot();
+      expect(
+        telemetryAfter.features['token-estimation'].queryCount -
+          telemetryBefore.features['token-estimation'].queryCount
+      ).toBe(1);
+      expect(telemetryAfter.tokenEstimation).toEqual(telemetryBefore.tokenEstimation);
     });
 
     it('should return 0 for empty paths', async () => {

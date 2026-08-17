@@ -1,14 +1,14 @@
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { createGrepSearchService, createHybridSearchService } from '@brainstrike/db';
 import { type DbHandle, useFileChunkRepository, usePGliteDatabase } from '@brainstrike/db/react';
 import {
   buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,
 } from '@brainstrike/db-explorer/embedding-models';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import { createLogger } from '@brainstrike/logging';
 import { useIdeFileEditor } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   type ResolvedFileInfo,

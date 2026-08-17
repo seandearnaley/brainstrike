@@ -9,7 +9,24 @@ import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/por
 import type { DesktopEnvLoadFailure } from '../desktop-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { AssistantServerAuth } from './auth';
+import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import type { OpenRouterModelMetadataService } from './openrouter-model-metadata';
+import type { SnapshotRepository } from './snapshot-repository';
+import type { SnapshotService } from './snapshot-service';
+
+/**
+ * Shadow-git snapshot deps for the run-persistence seam (BST-1164 W7 T1).
+ * `service` is the ONE app-lifetime SnapshotService main.ts constructs at
+ * app-ready; `createRepository` binds the snapshot ledger rows to whatever DB
+ * handle the consumer already resolves. Threaded through
+ * {@link AssistantServerOptions}; consumed by T2's turn-boundary triggers in
+ * `assistant-server.ts` (`snapshot-turn-boundaries.ts`) — main.ts never
+ * needed editing. Consumers must never construct a second SnapshotService.
+ */
+export interface DesktopWorkspaceSnapshotDependencies {
+  readonly createRepository: (db: EditCheckpointDatabase) => SnapshotRepository;
+  readonly service: SnapshotService;
+}
 
 export interface AssistantServerOptions {
   /**
@@ -24,4 +41,6 @@ export interface AssistantServerOptions {
   listen?: boolean;
   llmHostManager?: AssistantLlmHostManager | null | undefined;
   openRouterModelMetadataService?: OpenRouterModelMetadataService;
+  /** See {@link DesktopWorkspaceSnapshotDependencies} — T1 injection point. */
+  snapshots?: DesktopWorkspaceSnapshotDependencies | null | undefined;
 }

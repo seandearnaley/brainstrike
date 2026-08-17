@@ -5,44 +5,17 @@
  * Enables proper WebGPU validation and user-friendly error messages.
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('device-detection');
 
-// WebGPU types for environments where @webgpu/types is not available
-// These are minimal type definitions for the APIs we use
-interface GPURequestAdapterOptions {
-  powerPreference?: 'low-power' | 'high-performance';
-}
-
-interface GPUAdapterInfo {
-  architecture: string;
-  description: string;
-  vendor: string;
-}
-
-interface GPUSupportedLimits {
-  maxBufferSize: number;
-  maxComputeWorkgroupsPerDimension: number;
-  maxStorageBufferBindingSize: number;
-}
-
-interface GPUAdapter {
-  features: Set<string>;
-  info?: Partial<GPUAdapterInfo>;
-  isFallbackAdapter: boolean;
-  limits: GPUSupportedLimits;
-  requestAdapterInfo?: () => Promise<GPUAdapterInfo>;
-}
-
-interface Gpu {
-  requestAdapter: (options?: GPURequestAdapterOptions) => Promise<GPUAdapter | null>;
-}
-
-// Augment Navigator type for WebGPU
+// lib.dom.d.ts already declares `Navigator.gpu: GPU` (via NavigatorGPU) and the
+// GPU/GPUAdapter types. It does not declare the legacy adapter members this
+// module still probes, so augment only those.
 declare global {
-  interface Navigator {
-    gpu?: Gpu;
+  interface GPUAdapter {
+    readonly isFallbackAdapter?: boolean;
+    requestAdapterInfo?: () => Promise<GPUAdapterInfo>;
   }
 }
 
@@ -146,7 +119,7 @@ function createTimeoutPromise<T>(ms: number, message: string): Promise<T> {
  * Probe WebGPU adapter availability (extracted for complexity reduction).
  * Includes a timeout to prevent UI hangs from unresponsive GPU drivers.
  */
-async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
+async function probeWebGPUAdapter(gpu: GPU): Promise<WebGPUProbeResult> {
   try {
     // Race adapter request against timeout to prevent UI hangs
     const adapter = await Promise.race([

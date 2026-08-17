@@ -28,4 +28,15 @@ describe('TOOL_DESCRIPTIONS', () => {
     );
     expect(getNativeToolDescription('mcp.unregistered')).toBeUndefined();
   });
+
+  it('teaches the compact search-result format once, in the search descriptions (BST-1185)', () => {
+    // The per-row read_args envelope is gone from projections; the read recipe
+    // (root-name prefix is a valid "root" selector, row numbers are line
+    // numbers) must live here instead — paid once per request, not per match.
+    const grep = TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch];
+    expect(grep).toContain('root:path');
+    expect(grep).toMatch(/line/i);
+    const glob = TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.globWorkspace];
+    expect(glob).toMatch(/root name/i);
+  });
 });

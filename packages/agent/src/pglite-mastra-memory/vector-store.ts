@@ -1,5 +1,6 @@
 import { withIndexBuildMaintenanceWorkMem } from '@brainstrike/db';
-import { createLogger, getErrorMessage } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { getErrorMessage } from '@brainstrike/utils';
 import type {
   CreateIndexParams,
   DeleteIndexParams,
@@ -63,7 +64,7 @@ const INDEX_METADATA_ID = '__index_metadata__';
  * unrelated static import of the same contract module from
  * `packages/db/src/db-provider.tsx` reordered chunk init and killed the renderer
  * at startup via the sibling defect in
- * `packages/app-shell/src/assistant-memory-repository.ts`, while type-check,
+ * `packages/assistant-data/src/assistant-memory-repository.ts`, while type-check,
  * lint and every unit suite stayed green. Only a production build exhibits it.
  *
  * Deferring the read into a function body is the durable fix: by the time

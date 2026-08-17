@@ -1,7 +1,7 @@
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 import { WINDOWS_ABSOLUTE_PATH_REGEX } from '@brainstrike/utils/relative-file-path';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 const SLASH_CODE = '/'.charCodeAt(0);

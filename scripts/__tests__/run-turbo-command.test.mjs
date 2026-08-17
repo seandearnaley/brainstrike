@@ -73,13 +73,40 @@ describe('run turbo command helper', () => {
     // helpers (e.g. spawnSync('pnpm', ['turbo', ...])), which resolve the
     // repo-local .turbo cache instead of the wrapper's shared cache dir. Only
     // run-turbo-command.mjs may name the turbo binary.
+    //
+    // One bounded exception: scripts/turbo-boundaries.mjs. `turbo boundaries`
+    // is an analysis subcommand, not a task run — it schedules nothing, reads
+    // and writes no cache, and takes no --cache-dir (the flag run-turbo-command
+    // exists to inject), so the shared-cache rationale does not reach it. The
+    // exemption is held to that: it may name the binary, never to run a task.
     const wrapperPath = resolve(process.cwd(), 'scripts/run-turbo-command.mjs');
+    const boundariesGatePath = resolve(process.cwd(), 'scripts/turbo-boundaries.mjs');
     const directTurboSpawns = findModuleFiles(process.cwd()).filter(
       (modulePath) =>
-        modulePath !== wrapperPath && /['"`]turbo['"`]/u.test(readFileSync(modulePath, 'utf8'))
+        modulePath !== wrapperPath &&
+        modulePath !== boundariesGatePath &&
+        /['"`]turbo['"`]/u.test(readFileSync(modulePath, 'utf8'))
     );
 
     assert.deepEqual(directTurboSpawns, []);
+
+    assert.ok(existsSync(boundariesGatePath), 'the exempted gate script must still exist');
+    // Scoped to the spawn's ARGUMENT LIST, not the file text: that header
+    // backticks identifiers constantly to explain turbo behaviour, and a line
+    // like "`clean` removes them" would otherwise fail this guard with a
+    // message claiming the script runs a cached task. Asserting the match
+    // exists first keeps the narrowing from going vacuous if the spawn moves.
+    const gateSource = readFileSync(boundariesGatePath, 'utf8');
+    const spawnArgs = gateSource.match(/spawnSync\(\s*process\.execPath,\s*\[([^\]]*)\]/u);
+    assert.ok(
+      spawnArgs,
+      'expected scripts/turbo-boundaries.mjs to spawn turbo via process.execPath with a literal argument list'
+    );
+    assert.doesNotMatch(
+      spawnArgs[1],
+      /['"`](?:run|build|test|type-check|dev|clean)['"`]/u,
+      'scripts/turbo-boundaries.mjs may spawn `turbo boundaries` only — a cache-bearing task run must go through run-turbo-command.mjs'
+    );
   });
 
   it('plans oldest cache entries for pruning until the cache is under the byte cap', () => {
@@ -177,13 +204,78 @@ describe('run turbo command helper', () => {
     assert.deepEqual(spawnCalls[0].args.slice(0, 2), ['run', 'build']);
   });
 
+  it('skips prepared dev dependency builds only with the explicit root marker', () => {
+    const logs = [];
+    const spawnCalls = [];
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--skip-under-prepared-dev', '--', 'run', 'build'],
+      'darwin',
+      {
+        env: {
+          BRAINSTRIKE_DEV_DEPS_PREPARED: '1',
+          HOME: makeFakeHome(),
+          TURBO_HASH: '649b8853e23bc395',
+        },
+        log: (message) => logs.push(message),
+        logError: () => {},
+        spawnSyncImpl: (...args) => {
+          spawnCalls.push(args);
+          return { status: 0 };
+        },
+      }
+    );
+
+    assert.equal(status, 0);
+    assert.deepEqual(spawnCalls, []);
+    assert.match(logs[0], /BRAINSTRIKE_DEV_DEPS_PREPARED/u);
+  });
+
+  it('fails loudly when direct turbo dev bypasses root dependency preparation', () => {
+    const errors = [];
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--skip-under-prepared-dev', '--', 'run', 'build'],
+      'darwin',
+      {
+        env: { HOME: makeFakeHome(), TURBO_HASH: '649b8853e23bc395' },
+        log: () => {},
+        logError: (message) => errors.push(message),
+        spawnSyncImpl: () => {
+          throw new Error('must not start a racy nested build');
+        },
+      }
+    );
+
+    assert.equal(status, 1);
+    assert.match(errors[0], /pnpm dev/u);
+  });
+
+  it('marks the spawned root dev graph after synchronous preparation', () => {
+    const spawnCalls = [];
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--mark-dev-deps-prepared', '--', 'run', 'dev'],
+      'darwin',
+      {
+        env: { HOME: makeFakeHome() },
+        log: () => {},
+        logError: () => {},
+        spawnSyncImpl: (_command, _args, options) => {
+          spawnCalls.push(options.env);
+          return { status: 0 };
+        },
+      }
+    );
+
+    assert.equal(status, 0);
+    assert.equal(spawnCalls[0].BRAINSTRIKE_DEV_DEPS_PREPARED, '1');
+  });
+
   it('does not skip when TURBO_HASH is set but --skip-under-turbo is absent', () => {
     const logs = [];
     const spawnCalls = [];
 
-    // Without the opt-in flag the wrapper must run turbo even under an outer
-    // turbo task (predev under `turbo run dev` has no ^build edge and NEEDS the
-    // nested build).
+    // Without either opt-in flag the wrapper must run turbo even under an outer
+    // task. Prepared dev hooks use their distinct fail-closed option; this path
+    // remains available to other nested commands that genuinely need to run.
     const status = turboCommand.runTurboCommand(
       ['node', 'run-turbo-command.mjs', '--', 'run', 'build'],
       'darwin',
@@ -394,9 +486,21 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 
-  it('only prebuild scripts use --skip-under-turbo', () => {
-    // predev under `turbo run dev` has NO ^build edge, so its nested build is
-    // load-bearing on a fresh clone — it must never skip.
+  it('every predev that re-enters turbo opts into --skip-under-prepared-dev', () => {
+    const predevs = wrapperScripts.filter(({ scriptName }) => scriptName === 'predev');
+    assert.ok(predevs.length > 0, 'expected at least one predev using run-turbo-command.mjs');
+
+    for (const { command, packageJsonPath } of predevs) {
+      assert.ok(
+        command.includes('--skip-under-prepared-dev'),
+        `${packageJsonPath} predev must pass --skip-under-prepared-dev (nested turbo races the outer watcher graph)`
+      );
+    }
+  });
+
+  it('restricts --skip-under-turbo to sound lifecycle boundaries', () => {
+    // Only prebuilds may use the ^build-backed flag. Prepared dev hooks use a
+    // separate explicit-marker flag so TURBO_HASH alone cannot authorize them.
     const offenders = packageScriptEntries()
       .filter(
         ({ command, scriptName }) =>
@@ -405,6 +509,51 @@ describe('nested prebuild turbo contract', () => {
       .map(({ packageJsonPath, scriptName }) => `${packageJsonPath}:${scriptName}`);
 
     assert.deepEqual(offenders, []);
+  });
+
+  it('restricts prepared-dev marker flags to their lifecycle owners', () => {
+    const preparedSkipOffenders = packageScriptEntries()
+      .filter(
+        ({ command, scriptName }) =>
+          command.includes('--skip-under-prepared-dev') && scriptName !== 'predev'
+      )
+      .map(({ packageJsonPath, scriptName }) => `${packageJsonPath}:${scriptName}`);
+    assert.deepEqual(preparedSkipOffenders, []);
+
+    const markerOwners = packageScriptEntries()
+      .filter(({ command }) => command.includes('--mark-dev-deps-prepared'))
+      .map(({ packageJsonPath, scriptName }) => ({ packageJsonPath, scriptName }));
+    assert.deepEqual(markerOwners, [
+      { packageJsonPath: resolve(process.cwd(), 'package.json'), scriptName: 'dev' },
+    ]);
+
+    assert.match(
+      readFileSync(resolve(process.cwd(), 'scripts/ensure-desktop-dev-deps.mjs'), 'utf8'),
+      /'--skip-under-prepared-dev'/u,
+      'desktop predev preparation must use the explicit prepared-graph skip flag'
+    );
+
+    const wrapperPath = resolve(process.cwd(), 'scripts/run-turbo-command.mjs');
+    const desktopHelperPath = resolve(process.cwd(), 'scripts/ensure-desktop-dev-deps.mjs');
+    const automationModules = findModuleFiles(process.cwd()).filter(
+      (modulePath) => modulePath !== wrapperPath
+    );
+    assert.deepEqual(
+      automationModules.filter((modulePath) =>
+        readFileSync(modulePath, 'utf8').includes('--mark-dev-deps-prepared')
+      ),
+      [],
+      'automation helpers must not mint the root preparation marker'
+    );
+    assert.deepEqual(
+      automationModules
+        .filter((modulePath) =>
+          readFileSync(modulePath, 'utf8').includes('--skip-under-prepared-dev')
+        )
+        .sort(),
+      [desktopHelperPath],
+      'only the desktop predev helper may use the prepared-graph skip flag outside package scripts'
+    );
   });
 
   it('prebuild filter lists stay within the outer ^build graph (workspace dep closure)', () => {
@@ -485,41 +634,108 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 
-  it('predev guards and filters mirror the prebuild filter list', () => {
-    // predev's `[ -f .../dist/... ]` fast path and its fallback nested build
-    // must cover the same packages prebuild builds, or a standalone `dev` run
-    // starts vite against missing dist artifacts.
-    const byPackage = new Map();
-    for (const entry of wrapperScripts) {
-      const bucket = byPackage.get(entry.packageJsonPath) ?? {};
-      bucket[entry.scriptName] = entry.command;
-      byPackage.set(entry.packageJsonPath, bucket);
+  it('builds all app dev dependencies before the outer watcher graph starts', () => {
+    const rootManifest = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
+    const desktopManifest = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'apps/desktop/package.json'), 'utf8')
+    );
+    const webManifest = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'apps/web/package.json'), 'utf8')
+    );
+    const rootPredev = rootManifest.scripts.predev;
+    const webPrebuild = webManifest.scripts.prebuild;
+    const webPredev = webManifest.scripts.predev;
+
+    assert.match(
+      rootManifest.scripts.dev,
+      /^node scripts\/run-turbo-command\.mjs --mark-dev-deps-prepared -- run dev\b/u
+    );
+    assert.equal(
+      rootPredev,
+      'node scripts/ensure-desktop-dev-deps.mjs',
+      'root predev must complete the full desktop dependency graph before turbo launches persistent watchers'
+    );
+    assert.equal(desktopManifest.scripts.predev, 'node ../../scripts/ensure-desktop-dev-deps.mjs');
+    assert.match(
+      webPredev,
+      /^node \.\.\/\.\.\/scripts\/run-turbo-command\.mjs --skip-under-prepared-dev -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u,
+      'standalone web dev must build dependencies, while the root turbo graph must skip its nested build'
+    );
+    const devDryRun = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          require.resolve('turbo/bin/turbo'),
+          'run',
+          'dev',
+          '--filter=@brainstrike/web',
+          '--filter=@brainstrike/desktop',
+          '--dry=json',
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            NO_UPDATE_NOTIFIER: '1',
+            TURBO_TELEMETRY_DISABLED: '1',
+          },
+          maxBuffer: 64 * 1024 * 1024,
+        }
+      )
+    );
+    for (const appName of ['@brainstrike/web', '@brainstrike/desktop']) {
+      const appDevTask = devDryRun.tasks.find(
+        (task) => task.task === 'dev' && task.package === appName
+      );
+      assert.ok(appDevTask, `expected ${appName}#dev in the resolved dev graph`);
+      assert.ok(
+        (appDevTask.environmentVariables.specified.passThroughEnv ?? []).includes(
+          'BRAINSTRIKE_DEV_DEPS_PREPARED'
+        ),
+        `${appName}#dev must pass the root preparation marker through Turbo strict-env mode`
+      );
     }
 
-    for (const [packageJsonPath, scriptsByName] of byPackage) {
-      if (!(scriptsByName.prebuild && scriptsByName.predev)) {
-        continue;
-      }
-
-      const prebuildFilters = parseFilterList(scriptsByName.prebuild).sort();
-      const predevFilters = parseFilterList(scriptsByName.predev).sort();
-      assert.deepEqual(
-        predevFilters,
-        prebuildFilters,
-        `${packageJsonPath}: predev's nested build filters must match prebuild's`
-      );
-
-      const guardedPackages = [
-        ...scriptsByName.predev.matchAll(/-f \.\.\/\.\.\/packages\/([^/]+)\//gu),
-      ]
-        .map(
-          ([, dir]) => JSON.parse(readFileSync(join('packages', dir, 'package.json'), 'utf8')).name
-        )
-        .sort();
-      assert.deepEqual(
-        guardedPackages,
-        prebuildFilters,
-        `${packageJsonPath}: predev's dist existence guards must cover exactly the prebuild filter list`
+    const preparedGraph = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          require.resolve('turbo/bin/turbo'),
+          'run',
+          'desktop-dev-dependencies',
+          '--filter=@brainstrike/desktop',
+          '--dry=json',
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            NO_UPDATE_NOTIFIER: '1',
+            TURBO_TELEMETRY_DISABLED: '1',
+          },
+          maxBuffer: 64 * 1024 * 1024,
+        }
+      )
+    );
+    const preparedBuilds = new Set(
+      preparedGraph.tasks
+        .filter((task) => task.task === 'build' && task.command !== '<NONEXISTENT>')
+        .map((task) => task.package)
+    );
+    const webPredevFilters = parseFilterList(webPredev);
+    const webPrebuildFilters = parseFilterList(webPrebuild);
+    assert.ok(webPredevFilters.length > 0, 'web predev must declare at least one --filter=<pkg>');
+    assert.ok(
+      webPrebuildFilters.length > 0,
+      'web prebuild must declare at least one --filter=<pkg>'
+    );
+    const webPreparationFilters = new Set([...webPredevFilters, ...webPrebuildFilters]);
+    for (const filter of webPreparationFilters) {
+      assert.ok(
+        preparedBuilds.has(filter),
+        `root dev preparation must include ${filter} before web and desktop watchers start`
       );
     }
   });

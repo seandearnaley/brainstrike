@@ -1,15 +1,16 @@
 import type { ClaimedJob, IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { createLogger, generateUUID } from '@brainstrike/utils';
-import { SimpleEmbeddingService, type SimpleEmbeddingServiceOptions } from '../bge-m3-service';
+import { generateUUID } from '@brainstrike/utils';
+import { SimpleEmbeddingService, type SimpleEmbeddingServiceOptions } from '../bge-m3-service.js';
 import type {
   EmbeddingProviderError,
   EmbeddingProviderType,
   LocalProviderType,
-} from '../provider-types';
-import { isLocalProviderType } from '../provider-types';
+} from '../provider-types.js';
+import { isLocalProviderType } from '../provider-types.js';
 import type {
   EmbeddingConfig,
   EmbeddingResult,
@@ -18,10 +19,10 @@ import type {
   EmbeddingStreamOptions,
   EmbeddingWorkerRuntimeMetadata,
   ModelConfig,
-} from '../types';
-import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance';
-import type { EmbeddingCacheInterface } from './embedding-cache-types';
-import { getModelConfigFromDb } from './embedding-model-config';
+} from '../types.js';
+import { EmbeddingCacheMaintenanceController } from './embedding-cache-maintenance.js';
+import type { EmbeddingCacheInterface } from './embedding-cache-types.js';
+import { getModelConfigFromDb } from './embedding-model-config.js';
 import {
   buildHostedProviderConfig,
   createHostedProviderInstance,
@@ -37,44 +38,44 @@ import {
   toSupportedHostedProvider,
   validateHostedEmbeddingDimensions,
   WorkerRateLimitError,
-} from './embedding-provider-runtime';
-import { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
+} from './embedding-provider-runtime.js';
+import { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller.js';
 import {
   filterCacheMisses,
   lookupCacheHits,
   reconstructResults,
   storeToCacheAsync,
-} from './embedding-worker-cache-io';
-import { type LoadedChunkItem, loadAndFilterChunks } from './embedding-worker-chunk-filter';
+} from './embedding-worker-cache-io.js';
+import { type LoadedChunkItem, loadAndFilterChunks } from './embedding-worker-chunk-filter.js';
 import {
   assertVectorEmbeddingColumn,
   resolveEmbeddingSetDimension,
   resolveIdType,
-} from './embedding-worker-db-io';
-import { classifyFailure, JobProcessingError } from './embedding-worker-failures';
+} from './embedding-worker-db-io.js';
+import { classifyFailure, JobProcessingError } from './embedding-worker-failures.js';
 import {
   assertEmbedChunkJob,
   type EmbedChunkPayload,
   type EmbeddingJobModel,
   resolveJobModel,
   resolveTargetSetId,
-} from './embedding-worker-job-payload';
+} from './embedding-worker-job-payload.js';
 import {
   CLAIM_SIZE_RESOLVER_RETRY_BACKOFF_MS,
   DEFAULT_CLAIM_BATCH_SIZE,
   resolveIdlePollBackoffOptions,
   resolvePositiveIntegerOption,
   shouldLogIdleBackoff,
-} from './embedding-worker-scheduler';
+} from './embedding-worker-scheduler.js';
 
-export type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types';
-export { clearModelConfigCache, invalidateModelConfigCache } from './embedding-model-config';
+export type { CachedEmbedding, EmbeddingCacheInterface } from './embedding-cache-types.js';
+export { clearModelConfigCache, invalidateModelConfigCache } from './embedding-model-config.js';
 export type {
   EmbeddingStatsRefreshController,
   EmbeddingStatsRefreshControllerOptions,
   StatsRefreshReason,
-} from './embedding-stats-refresh-controller';
-export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller';
+} from './embedding-stats-refresh-controller.js';
+export { createEmbeddingStatsRefreshController } from './embedding-stats-refresh-controller.js';
 
 const workerLogger = createLogger('EmbeddingWorker');
 

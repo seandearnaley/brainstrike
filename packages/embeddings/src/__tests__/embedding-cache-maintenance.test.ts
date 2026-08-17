@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EmbeddingCacheMaintenanceController } from '../worker/embedding-cache-maintenance';
-import type { EmbeddingCacheInterface } from '../worker/embedding-worker';
+import { EmbeddingCacheMaintenanceController } from '../worker/embedding-cache-maintenance.js';
+import type { EmbeddingCacheInterface } from '../worker/embedding-worker.js';
 
 function deferred<T>(): {
   readonly promise: Promise<T>;

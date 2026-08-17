@@ -20,6 +20,15 @@
       "@brainstrike/assistant-contract/*": [
         "../assistant-contract/dist/*.d.ts"
       ],
+      "@brainstrike/assistant-data": [
+        "../assistant-data/dist/index.d.ts"
+      ],
+      "@brainstrike/assistant-data/cost-tracking": [
+        "../assistant-data/dist/cost-tracking/index.d.ts"
+      ],
+      "@brainstrike/assistant-data/assistant-thread-run-reaper": [
+        "../assistant-data/dist/assistant-thread-run-reaper.d.ts"
+      ],
       "@brainstrike/types": [
         "../types/dist/index.d.ts"
       ],
@@ -31,6 +40,9 @@
       ],
       "@brainstrike/text-splitter/*": [
         "../text-splitter/dist/*.d.ts"
+      ],
+      "@brainstrike/tokenization": [
+        "../tokenization/dist/index.d.ts"
       ],
       "@brainstrike/db": [
         "../db/dist/index.d.ts"
@@ -68,9 +80,6 @@
       "@brainstrike/platform-utils/*": [
         "../platform-utils/dist/*.d.ts"
       ],
-      "@brainstrike/preferences/*": [
-        "../preferences/dist/*.d.ts"
-      ],
       "@brainstrike/utils": [
         "../utils/dist/index.d.ts"
       ],
@@ -82,6 +91,9 @@
       ],
       "@brainstrike/file-explorer-hooks": [
         "../file-explorer-hooks/dist/index.d.ts"
+      ],
+      "@brainstrike/file-explorer/*": [
+        "../file-explorer/dist/*.d.ts"
       ],
       "@brainstrike/file-explorer-ui": [
         "../file-explorer-ui/dist/index.d.ts"
@@ -145,13 +157,25 @@
   ],
   "references": [
     {
+      "path": "../app-state"
+    },
+    {
       "path": "../assistant-contract"
+    },
+    {
+      "path": "../assistant-data"
+    },
+    {
+      "path": "../assistant-ui"
     },
     {
       "path": "../types"
     },
     {
       "path": "../ui"
+    },
+    {
+      "path": "../file-explorer"
     },
     {
       "path": "../file-explorer-hooks"
@@ -169,7 +193,7 @@
       "path": "../indexing-contract"
     },
     {
-      "path": "../preferences"
+      "path": "../settings-ui"
     },
     {
       "path": "../db-explorer"
@@ -182,6 +206,12 @@
     },
     {
       "path": "../context-actions"
+    },
+    {
+      "path": "../logging"
+    },
+    {
+      "path": "../tokenization"
     }
   ]
 }

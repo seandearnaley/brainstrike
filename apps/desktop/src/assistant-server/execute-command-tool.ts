@@ -7,11 +7,16 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import { isWithinRoot } from './workspace-path';
+import {
+  describeOpenRootTopology,
+  type OpenRootTopology,
+  resolveWorkspaceRoot,
+} from './workspace-roots';
 
 export const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
 
@@ -23,6 +28,8 @@ const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;
 const DEFAULT_TIMEOUT_MS = 120_000;
 /** Hard ceiling on the per-call timeout so a bad value cannot wedge the host. */
 const MAX_TIMEOUT_MS = 600_000;
+/** Maximum command-input characters repeated in the model-facing result. */
+const MAX_ECHOED_COMMAND_CHARS = 200;
 /**
  * Hard ceiling on RAW captured output bytes. Independent of (and larger than)
  * the model-facing token budget: this stops a runaway command from filling
@@ -42,7 +49,7 @@ const MAX_CAPTURED_OUTPUT_BYTES = 1_000_000;
 const MAX_STREAMED_OUTPUT_BYTES = 256_000;
 /** Visible notice appended to the live stream once the streaming cap is hit. */
 const STREAM_TRUNCATION_NOTICE =
-  '\n[output truncated — live streaming stopped; the final result keeps the most recent lines]\n';
+  '\n[output truncated — live streaming stopped; the final result keeps the start and end of each stream]\n';
 /**
  * Grace period between the polite SIGTERM and the forceful SIGKILL when tearing
  * down a process tree. A well-behaved child exits on SIGTERM; a wedged one is
@@ -93,6 +100,7 @@ export function resolveShellInvocation(
 }
 
 export interface ExecuteCommandToolResult {
+  ambiguousRootNames?: string[];
   command: string;
   /** Absolute, containment-checked directory the command started in. */
   cwd: string;
@@ -104,13 +112,16 @@ export interface ExecuteCommandToolResult {
   exitCode: number | null;
   /** Actionable next step when output was truncated to fit the model budget. */
   hint?: string;
+  openRoots?: number;
+  /** Durable id of the workspace root the command was resolved against. */
+  rootId: string;
   /** Display name of the workspace root the command was resolved against. */
   rootName: string;
   /** Terminating signal name when the process was killed (else null). */
   signal: string | null;
-  /** Budget-fitted tail of captured stderr (most-recent lines win). */
+  /** Budget-fitted head and tail of captured stderr (early + recent context). */
   stderr: string;
-  /** Budget-fitted tail of captured stdout (most-recent lines win). */
+  /** Budget-fitted head and tail of captured stdout (early + recent context). */
   stdout: string;
   /** True when the command was killed because it exceeded its timeout. */
   timedOut: boolean;
@@ -205,11 +216,11 @@ async function resolveCommandCwd(
   runtimeData: RuntimeData | undefined,
   rootQualifier: string | undefined,
   requestedCwd: string | undefined
-): Promise<{ cwd: string; rootName: string }> {
+): Promise<{ cwd: string; rootId: string; rootName: string }> {
   const root = resolveWorkspaceRoot(runtimeData, rootQualifier);
   const canonicalRootPath = await fsPromises.realpath(root.path);
   if (requestedCwd === undefined || requestedCwd.trim().length === 0) {
-    return { cwd: canonicalRootPath, rootName: root.displayName };
+    return { cwd: canonicalRootPath, rootId: root.rootId, rootName: root.displayName };
   }
   // A relative cwd is resolved against the root; an absolute cwd is taken as-is.
   // Either way the canonical (symlink-resolved) result must be inside the root.
@@ -226,18 +237,12 @@ async function resolveCommandCwd(
     }
     throw error;
   }
-  const relativeFromRoot = path.relative(canonicalRootPath, canonicalCwd);
-  const withinRoot =
-    canonicalCwd === canonicalRootPath ||
-    (relativeFromRoot.length > 0 &&
-      !relativeFromRoot.startsWith('..') &&
-      !path.isAbsolute(relativeFromRoot));
-  if (!withinRoot) {
+  if (!isWithinRoot(canonicalRootPath, canonicalCwd)) {
     throw new Error(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );
   }
-  return { cwd: canonicalCwd, rootName: root.displayName };
+  return { cwd: canonicalCwd, rootId: root.rootId, rootName: root.displayName };
 }
 
 export interface SpawnOutcome {
@@ -487,118 +492,205 @@ function runShellCommand(args: {
   });
 }
 
-/** Keep the largest TAIL (last N lines) of `lines` that fits `charBudget`. */
-function fitTailToCharBudget(
-  lines: readonly string[],
+/**
+ * Build the visible omission marker separately so tests can pin the exact
+ * model-facing contract and its character cost when output is budget-fitted.
+ */
+export function buildTruncationMarker(omittedChars: number, totalChars: number): string {
+  return `[… output truncated: ${omittedChars} chars omitted of ${totalChars} total …]`;
+}
+
+/** True when `codeUnit` is the LEADING half of a UTF-16 surrogate pair. */
+function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff;
+}
+
+/** True when `codeUnit` is the TRAILING half of a UTF-16 surrogate pair. */
+function isLowSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xdc_00 && codeUnit <= 0xdf_ff;
+}
+
+/**
+ * Keep early diagnostics and recent status from oversized output within one
+ * hard character budget. Exported so the single-line slicing boundary and the
+ * marker-inclusive size invariant can be tested without spawning a process.
+ */
+export function fitHeadAndTailToCharBudget(
+  text: string,
   charBudget: number
 ): {
   text: string;
   truncated: boolean;
 } {
-  if (charBudget <= 0 || lines.length === 0) {
-    return { text: '', truncated: lines.length > 0 };
+  if (text.length <= charBudget) {
+    return { text, truncated: false };
   }
-  // Walk from the LAST line backwards, accumulating until the next line would
-  // overflow. +1 per joined newline.
-  const kept: string[] = [];
-  let used = 0;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i] ?? '';
-    const cost = line.length + (kept.length > 0 ? 1 : 0);
-    if (used + cost > charBudget) {
-      break;
-    }
-    kept.push(line);
-    used += cost;
+
+  const boundedBudget = Math.max(0, Math.floor(charBudget));
+  const totalChars = text.length;
+  // N can never have more digits than M, so the N=M marker reserves the
+  // maximum marker width before retained content receives the remaining room.
+  const reservedMarkerLength = buildTruncationMarker(totalChars, totalChars).length;
+  // A budget too small to even hold the marker cannot honestly retain any
+  // content. Say so plainly instead of returning a mangled marker fragment —
+  // the reservation below then guarantees the assembled result fits, so no
+  // trailing defensive slice is needed.
+  if (boundedBudget < reservedMarkerLength) {
+    return { text: '', truncated: true };
   }
-  kept.reverse();
-  return { text: kept.join('\n'), truncated: kept.length < lines.length };
+  const retainedBudget = boundedBudget - reservedMarkerLength;
+  const headBudget = Math.floor(retainedBudget * 0.4);
+  const tailBudget = retainedBudget - headBudget;
+  const rawHead = text.slice(0, headBudget);
+  // `slice` cuts UTF-16 code units, not characters — a boundary landing
+  // inside a surrogate pair (emoji, CJK ext-B, ...) would otherwise leave a
+  // lone surrogate that JSON.stringify escapes into a literal replacement
+  // character. Snap the cut back off the pair instead of splitting it.
+  const head =
+    rawHead.length > 0 && isHighSurrogate(rawHead.charCodeAt(rawHead.length - 1))
+      ? rawHead.slice(0, -1)
+      : rawHead;
+  const rawTail = tailBudget > 0 ? text.slice(-tailBudget) : '';
+  const tail =
+    rawTail.length > 0 && isLowSurrogate(rawTail.charCodeAt(0)) ? rawTail.slice(1) : rawTail;
+  const omittedChars = totalChars - head.length - tail.length;
+  const marker = buildTruncationMarker(omittedChars, totalChars);
+
+  return {
+    text: `${head}${marker}${tail}`,
+    truncated: true,
+  };
 }
 
 /**
- * Bound captured output to the model token budget, keeping the TAIL (the most
- * recent lines — where errors and final status live). ANSI escape codes are
- * stripped FIRST: test runners, builds, and git emit color/cursor escapes that
- * pollute the model-facing text and waste the token budget.
+ * Truncation guidance attached whenever either stream was budget-fitted.
+ * Describes the CURRENT head+tail retention shape — must never regress to
+ * language that implies tail-only retention (e.g. advising `| tail -n N`,
+ * which would discard the head content this feature exists to preserve).
+ */
+export const TRUNCATION_HINT =
+  'Output was truncated to fit the budget; the start and end of each stream are shown with a marker where content was omitted (stdout prioritized). Re-run scoped to produce less output, or filter with grep/sed, if you need the omitted middle.';
+
+/**
+ * Bound captured output to the model token budget, keeping a 40% HEAD for early
+ * diagnostics and a 60% TAIL for recent output and final status. ANSI escape
+ * codes are stripped FIRST: test runners, builds, and git emit color/cursor
+ * escapes that pollute the model-facing text and waste the token budget.
  *
  * FAIR SPLIT (deterministic, stdout-priority): the two streams are budgeted
  * INDEPENDENTLY so a chatty stderr (build/test progress is commonly on stderr)
  * can never starve the stdout result the model actually wants. stdout gets the
  * larger share of the per-stream budget and any leftover; stderr keeps a
- * guaranteed minimum tail. Each stream then keeps its own most-recent lines.
+ * guaranteed minimum share. Each non-empty stream then applies its own 40/60
+ * character split, with the truncation marker charged to that same budget.
+ *
+ * SERIALIZED-SIZE CORRECTED: the nominal RAW content budget approximates the
+ * transport guard, but JSON escaping can push the true SERIALIZED size over
+ * it; when that happens this falls back to a bisection against the measured
+ * serialized size (see the comment at that fallback for the full rationale).
  */
 function buildResult(args: {
   command: string;
   cwd: string;
   durationMs: number;
   outcome: SpawnOutcome;
+  rootId: string;
   rootName: string;
+  topology: OpenRootTopology;
 }): ExecuteCommandToolResult {
-  const { command, cwd, durationMs, outcome, rootName } = args;
-  // Strip ANSI before line-splitting/budgeting so escape codes never reach the
-  // model or consume the token budget.
-  const stdoutLines = stripAnsi(outcome.stdout).split('\n');
-  const stderrLines = stripAnsi(outcome.stderr).split('\n');
+  const { command, cwd, durationMs, outcome, rootId, rootName, topology } = args;
+  // Strip ANSI before budgeting so escape codes never reach the model or
+  // consume the token budget.
+  const stdoutText = stripAnsi(outcome.stdout);
+  const stderrText = stripAnsi(outcome.stderr);
 
   // The echoed command can be up to the schema max (10k chars); bound it so it
   // cannot blow the result envelope (the model already knows what it sent).
-  const MaxEchoedCommandChars = 500;
   const echoedCommand =
-    command.length > MaxEchoedCommandChars
-      ? `${command.slice(0, MaxEchoedCommandChars)}…`
+    command.length > MAX_ECHOED_COMMAND_CHARS
+      ? `${command.slice(0, MAX_ECHOED_COMMAND_CHARS)}… [command truncated: full command is in the tool call input]`
       : command;
 
-  // Reserve a small envelope for the base fields + hint, then split the rest:
-  // stdout-priority (60%) with the remainder to stderr. If one stream is empty,
-  // the other gets the whole content budget.
-  const envelopeReserveChars = 1200;
-  const contentBudget = Math.max(0, NATIVE_TOOL_RESULT_CHAR_BUDGET - envelopeReserveChars);
+  // Preserve the raw pre-ANSI guard: an ABSENT stream is never truncated. This
+  // prevents a false "output was truncated" result for silent commands and the
+  // common case where only one stream has content.
   const hasStdout = outcome.stdout.length > 0;
   const hasStderr = outcome.stderr.length > 0;
-  let stdoutBudget: number;
-  let stderrBudget: number;
-  if (hasStdout && hasStderr) {
-    stdoutBudget = Math.floor(contentBudget * 0.6);
-    stderrBudget = contentBudget - stdoutBudget;
-  } else if (hasStdout) {
-    stdoutBudget = contentBudget;
-    stderrBudget = 0;
-  } else {
-    stdoutBudget = 0;
-    stderrBudget = contentBudget;
+
+  // Reserve a small envelope for the base fields + hint, then split the rest:
+  // stdout-priority (60%) with the remainder to stderr. If one stream is
+  // empty, the other gets the whole content budget.
+  const envelopeReserveChars = 1200;
+  const nominalContentBudget = Math.max(0, NATIVE_TOOL_RESULT_CHAR_BUDGET - envelopeReserveChars);
+
+  const buildForContentBudget = (contentBudget: number): ExecuteCommandToolResult => {
+    let stdoutBudget: number;
+    let stderrBudget: number;
+    if (hasStdout && hasStderr) {
+      stdoutBudget = Math.floor(contentBudget * 0.6);
+      stderrBudget = contentBudget - stdoutBudget;
+    } else if (hasStdout) {
+      stdoutBudget = contentBudget;
+      stderrBudget = 0;
+    } else {
+      stdoutBudget = 0;
+      stderrBudget = contentBudget;
+    }
+    const fittedStdout = hasStdout
+      ? fitHeadAndTailToCharBudget(stdoutText, stdoutBudget)
+      : { text: '', truncated: false };
+    const fittedStderr = hasStderr
+      ? fitHeadAndTailToCharBudget(stderrText, stderrBudget)
+      : { text: '', truncated: false };
+    const truncated = fittedStdout.truncated || fittedStderr.truncated;
+    return {
+      ...topology,
+      command: echoedCommand,
+      cwd,
+      durationMs,
+      exitCode: outcome.exitCode,
+      rootId,
+      rootName,
+      signal: outcome.signal,
+      stderr: fittedStderr.text,
+      stdout: fittedStdout.text,
+      timedOut: outcome.timedOut,
+      truncated,
+      ...(truncated ? { hint: TRUNCATION_HINT } : {}),
+    };
+  };
+
+  const nominalResult = buildForContentBudget(nominalContentBudget);
+  if (JSON.stringify(nominalResult).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET) {
+    return nominalResult;
   }
 
-  // An ABSENT stream is `''`, which `.split('\n')` turns into `['']` (one empty
-  // line, length 1 — NOT `[]`). Fitting that under the stream's 0 budget would
-  // count the empty line as dropped and report truncated:true — a false "output
-  // was truncated" on the COMMON case (a silent command, or output on only one
-  // stream). Only fit streams that actually have content; an absent stream is
-  // never truncated.
-  const fittedStdout = hasStdout
-    ? fitTailToCharBudget(stdoutLines, stdoutBudget)
-    : { text: '', truncated: false };
-  const fittedStderr = hasStderr
-    ? fitTailToCharBudget(stderrLines, stderrBudget)
-    : { text: '', truncated: false };
-  const truncated = fittedStdout.truncated || fittedStderr.truncated;
-
-  return {
-    command: echoedCommand,
-    cwd,
-    durationMs,
-    exitCode: outcome.exitCode,
-    rootName,
-    signal: outcome.signal,
-    stderr: fittedStderr.text,
-    stdout: fittedStdout.text,
-    timedOut: outcome.timedOut,
-    truncated,
-    ...(truncated
-      ? {
-          hint: 'Output was truncated to fit the budget; only the most recent lines of each stream are shown (stdout prioritized). Re-run piping through "| tail -n N", or scope the command to produce less output.',
-        }
-      : {}),
-  };
+  // The RAW content budget above assumes ~1 serialized char per retained
+  // char, but JSON escaping expands `\n`/`"`/`\` to 2 chars each — a
+  // newline-heavy stream (e.g. `seq`, one value per line) is enough to tip
+  // the actual SERIALIZED size over NATIVE_TOOL_RESULT_CHAR_BUDGET even
+  // though the raw estimate looked safe. Binary-search the content budget
+  // against the REAL serialized size instead of guessing a fixed reserve —
+  // same bisection-on-measured-size shape as fitContentTextToModelBudget in
+  // packages/agent/src/mastra/tool-model-output.ts. Monotonic: a larger
+  // content budget can only retain equal-or-more characters, so serialized
+  // length is non-decreasing in contentBudget, which is what makes the
+  // bisection valid. contentBudget=0 is the guaranteed-fits floor (envelope
+  // only, both streams reduced to an empty budget-fitted string).
+  let low = 0;
+  let high = nominalContentBudget;
+  let best = buildForContentBudget(0);
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = buildForContentBudget(mid);
+    if (JSON.stringify(candidate).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
 }
 
 /**
@@ -617,7 +709,8 @@ export async function runExecuteCommand(
   runtimeData: RuntimeData | undefined,
   options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
 ): Promise<ExecuteCommandToolResult> {
-  const { cwd, rootName } = await resolveCommandCwd(runtimeData, input.root, input.cwd);
+  const topology = describeOpenRootTopology(runtimeData);
+  const { cwd, rootId, rootName } = await resolveCommandCwd(runtimeData, input.root, input.cwd);
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   const startedAt = Date.now();
@@ -646,5 +739,13 @@ export async function runExecuteCommand(
     });
   }
 
-  return buildResult({ command: input.command, cwd, durationMs, outcome, rootName });
+  return buildResult({
+    command: input.command,
+    cwd,
+    durationMs,
+    outcome,
+    rootId,
+    rootName,
+    topology,
+  });
 }

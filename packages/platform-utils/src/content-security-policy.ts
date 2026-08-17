@@ -13,7 +13,7 @@
 // at runtime, so this edge must stay `import type` (erased under
 // verbatimModuleSyntax) — importing a runtime value from `./index` here would
 // create a real circular import.
-import type { Platform } from './index';
+import type { Platform } from './index.js';
 
 export type CspEnvironment = 'development' | 'production';
 
@@ -24,6 +24,7 @@ interface CspDirectives {
   'font-src': string[];
   'form-action': string[];
   'frame-ancestors': string[];
+  'frame-src': string[];
   'img-src': string[];
   'object-src': string[];
   'script-src': string[];
@@ -119,6 +120,13 @@ function getContentSecurityPolicyDirectives(env: CspEnvironment, target: Platfor
     'font-src': isDev ? ["'self'", 'data:', 'http://localhost:*'] : ["'self'", 'data:'],
     'form-action': ["'self'"],
     'frame-ancestors': ["'none'"],
+    // The Canvas sandbox shell (BST-1173) is the ONLY framed document in
+    // either app. Electron serves it via the brainstrike-canvas: protocol
+    // (its own CSP header; exempt from the global stamp in setup-security);
+    // web serves it same-origin at /canvas-frame.html with per-path headers.
+    // Explicit frame-src also stops frames from falling back to default-src
+    // (which would otherwise allow arbitrary localhost frames in dev).
+    'frame-src': isElectron ? ['brainstrike-canvas:'] : ["'self'"],
     'img-src': buildImgSrc(isDev, isElectron),
     'object-src': ["'none'"],
     'script-src': buildScriptSrc(isDev, isElectron),

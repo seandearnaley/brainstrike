@@ -211,7 +211,7 @@ describe('processFileChunking', () => {
     expect(mockRepository.findById).not.toHaveBeenCalled();
   });
 
-  it('returns early when file record not found', async () => {
+  it('returns early when file record not found, without stamping chunk info', async () => {
     mockRepository.findById.mockResolvedValue(null);
 
     const result = await processFileChunking(
@@ -224,9 +224,43 @@ describe('processFileChunking', () => {
     );
 
     expect(result.enhancedResult.chunksCreated).toBe(0);
+    // No row exists to stamp — this skip stays transient.
+    expect(mockRepository.update).not.toHaveBeenCalled();
   });
 
-  it('returns early when file has no content', async () => {
+  it('stamps an empty-content record as chunked (zero chunks) so background sync stops re-dispatching it', async () => {
+    // Regression: a 0-byte file imports with content '' (falsy). The skip
+    // path used to return WITHOUT setting chunks_processed_at, so the
+    // background sync's !hasCompletedChunking re-dispatch re-imported and
+    // re-warned on the same file every pass, forever (observed live: one
+    // empty file produced ~2,000 durable warn records).
+    mockRepository.findById.mockResolvedValue({
+      content: '',
+      id: 'file-1',
+      name: 'empty.txt',
+      path: '/empty.txt',
+    });
+
+    const result = await processFileChunking(
+      { existed: false, id: 'file-1', imported: true },
+      0,
+      1,
+      0,
+      { chunkRepository: mockChunkRepository as never, repository: mockRepository as never },
+      { updateProgress: mockUpdateProgress }
+    );
+
+    expect(result.enhancedResult.chunksCreated).toBe(0);
+    expect(mockRepository.update).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({
+        chunksCount: 0,
+        chunksProcessedAt: expect.any(String),
+      })
+    );
+  });
+
+  it('stamps a record missing its content field as chunked (zero chunks)', async () => {
     mockRepository.findById.mockResolvedValue({
       id: 'file-1',
       name: 'test.txt',
@@ -244,6 +278,10 @@ describe('processFileChunking', () => {
     );
 
     expect(result.enhancedResult.chunksCreated).toBe(0);
+    expect(mockRepository.update).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({ chunksCount: 0, chunksProcessedAt: expect.any(String) })
+    );
   });
 
   it('successfully processes file chunks via worker', async () => {

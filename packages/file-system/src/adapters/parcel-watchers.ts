@@ -13,20 +13,32 @@
 //   same-path record plus stale descendants without a full-tree rescan.
 // - `fileFilter.shouldIgnorePath` stays the authoritative ignore check;
 //   DEFAULT_IGNORE_PATTERNS also feed native-level ignore globs purely as a
-//   resource saving (same names, no broadening).
+//   resource saving (same names, no broadening). Both clauses are
+//   conditional on `options.ignorePatterns` being unset: a per-subscription
+//   override (BST-1112) REPLACES both layers for that subscription — its own
+//   regex stands in for `shouldIgnorePath`, and its own native globs may be
+//   broader or narrower than the defaults.
 import fs from 'node:fs';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils';
-import { DEFAULT_IGNORE_PATTERNS, fileFilter } from '@brainstrike/utils/path-filter';
+import { createLogger } from '@brainstrike/logging';
+import {
+  buildIgnorePatternRegex,
+  DEFAULT_IGNORE_PATTERNS,
+  fileFilter,
+} from '@brainstrike/utils/path-filter';
 import type {
   DirectoryHandle,
   FileSystemChange,
   WatcherFailure,
   WatcherHealthState,
   WatcherHealthTransition,
-} from '../types';
-import { createFileSystemChangeBatcher } from './electron-watchers';
-import { loadParcelWatcher, type ParcelWatcherModule, selectParcelBackend } from './parcel-backend';
+} from '../types.js';
+import { createFileSystemChangeBatcher } from './electron-watchers.js';
+import {
+  loadParcelWatcher,
+  type ParcelWatcherModule,
+  selectParcelBackend,
+} from './parcel-backend.js';
 
 const logger = createLogger('ParcelWatchers');
 
@@ -42,6 +54,15 @@ export class ParcelSubscribeTimeoutError extends Error {
 }
 
 export interface StartParcelWatchOptions {
+  /**
+   * Per-subscription ignore override (BST-1112): when provided, REPLACES
+   * DEFAULT_IGNORE_PATTERNS for THIS subscription only — both the native
+   * ignore globs passed to `module.subscribe` and the `shouldIgnorePath`
+   * guard applied to every event. `undefined` (the default) keeps the
+   * default patterns unchanged. `[]` means "ignore nothing" — it does NOT
+   * fall back to the defaults.
+   */
+  ignorePatterns?: readonly string[] | undefined;
   /** Test seam: overrides the lazy binding load. */
   loadModule?: () => Promise<ParcelWatcherModule>;
   /**
@@ -59,8 +80,8 @@ interface ParcelEvent {
   type: 'create' | 'delete' | 'update';
 }
 
-function nativeIgnoreGlobs(): string[] {
-  return DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`]);
+function nativeIgnoreGlobs(patterns: readonly string[]): string[] {
+  return patterns.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`]);
 }
 
 export async function startParcelWatch(
@@ -70,6 +91,12 @@ export async function startParcelWatch(
 ): Promise<() => void> {
   const backend = selectParcelBackend();
   const timeoutMs = options.subscribeTimeoutMs ?? PARCEL_SUBSCRIBE_TIMEOUT_MS;
+  // undefined -> shared default patterns/regex (unchanged behavior); a
+  // provided array (including []) REPLACES the default at both layers.
+  const ignorePatterns = options.ignorePatterns;
+  const ignoreRegex = ignorePatterns === undefined ? null : buildIgnorePatternRegex(ignorePatterns);
+  const shouldIgnore = (eventPath: string): boolean =>
+    ignoreRegex ? ignoreRegex.test(eventPath) : fileFilter.shouldIgnorePath(eventPath);
 
   // Health transitions fire exactly once per state change; a repeated cause
   // (e.g. an FSEvents error storm) cannot re-emit the same state.
@@ -137,7 +164,7 @@ export async function startParcelWatch(
 
   const processEvent = async (event: ParcelEvent): Promise<void> => {
     const eventPath = rerootEventPath(event.path);
-    if (fileFilter.shouldIgnorePath(eventPath)) {
+    if (shouldIgnore(eventPath)) {
       return;
     }
     if (event.type === 'delete') {
@@ -222,7 +249,10 @@ export async function startParcelWatch(
 
   const subscribePromise = module.subscribe(handle.path, handleBackendCallback, {
     backend,
-    ignore: nativeIgnoreGlobs(),
+    // Must agree with the `ignoreRegex` derivation above (undefined -> default
+    // patterns, defined -> override REPLACES defaults) — that agreement is
+    // the whole per-subscription-override feature.
+    ignore: nativeIgnoreGlobs(ignorePatterns ?? DEFAULT_IGNORE_PATTERNS),
   });
 
   let timedOut = false;

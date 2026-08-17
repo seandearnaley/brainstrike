@@ -172,21 +172,21 @@ describe('PromptItemRepository', () => {
     ).rejects.toThrow(/expected 384/i);
   });
 
-  it.each([
-    'l2',
-    'ip',
-  ] as const)('fails closed when similarity search is configured with a %s profile', async (distance) => {
-    await db.query(
-      `UPDATE prompt_embedding_profiles
+  it.each(['l2', 'ip'] as const)(
+    'fails closed when similarity search is configured with a %s profile',
+    async (distance) => {
+      await db.query(
+        `UPDATE prompt_embedding_profiles
        SET distance = $1
        WHERE id = 'default'`,
-      [distance]
-    );
+        [distance]
+      );
 
-    await expect(repository.searchSimilar(vector(0))).rejects.toThrow(
-      new RegExp(`prompt similarity search only supports cosine distance.*${distance}`, 'i')
-    );
-  });
+      await expect(repository.searchSimilar(vector(0))).rejects.toThrow(
+        new RegExp(`prompt similarity search only supports cosine distance.*${distance}`, 'i')
+      );
+    }
+  );
 
   it('treats LIKE metacharacters in text filters as literals', async () => {
     await Promise.all([

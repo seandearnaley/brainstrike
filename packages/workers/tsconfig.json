@@ -28,6 +28,9 @@
       "path": "../file-system"
     },
     {
+      "path": "../logging"
+    },
+    {
       "path": "../utils"
     }
   ]

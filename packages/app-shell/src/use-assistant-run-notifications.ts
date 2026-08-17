@@ -3,7 +3,7 @@
  * docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS"). This is the ONLY layer that
  * reads live browser state (`document.hasFocus`/`visibilityState`,
  * `Notification.permission`) and the notification preferences store — the
- * UI package (`@brainstrike/ui/assistant-ui-panel`) only reports raw run
+ * UI package (`@brainstrike/assistant-ui`) only reports raw run
  * events/approval requests up via callback props, mirroring the existing
  * `onUsage` seam.
  *
@@ -14,14 +14,14 @@
  * notify on their behalf.
  */
 
+import { getNotificationPermissionState } from '@brainstrike/app-state/notifications/notification-permission';
+import { createRunNotificationDispatcher } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
+import type { AssistantNotificationFocusState } from '@brainstrike/app-state/notifications/should-notify';
+import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
 import type {
   AssistantRunEvent,
   AssistantToolApprovalRequest,
 } from '@brainstrike/assistant-contract';
-import { getNotificationPermissionState } from '@brainstrike/preferences/notifications/notification-permission';
-import { createRunNotificationDispatcher } from '@brainstrike/preferences/notifications/run-notification-dispatcher';
-import type { AssistantNotificationFocusState } from '@brainstrike/preferences/notifications/should-notify';
-import { useNotificationPreferencesStore } from '@brainstrike/preferences/stores/notification-preferences-store';
 import { useMemo, useRef } from 'react';
 
 export interface AssistantRunNotificationCallbacks {

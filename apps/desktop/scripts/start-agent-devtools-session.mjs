@@ -193,12 +193,12 @@ export function resolvePnpmInvocation({
     const entrypoint = pathApi.basename(npmExecPath).toLowerCase();
     if (
       pathApi.isAbsolute(npmExecPath) &&
-      (entrypoint === 'pnpm.cjs' || entrypoint === 'pnpm.js')
+      (entrypoint === 'pnpm.cjs' || entrypoint === 'pnpm.js' || entrypoint === 'pnpm.mjs')
     ) {
       return { argsPrefix: [npmExecPath], command: execPath };
     }
     throw new Error(
-      'Agent DevTools npm_execpath must point to an absolute pnpm.cjs or pnpm.js entry.'
+      'Agent DevTools npm_execpath must point to an absolute pnpm.cjs, pnpm.js, or pnpm.mjs entry.'
     );
   }
   if (platform === 'win32') {

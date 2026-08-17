@@ -63,26 +63,28 @@ describe('reconcileRoots', () => {
     expect(update?.[1]).toEqual(['db-1']);
   });
 
-  it.each([
-    'needs-regrant',
-    'snapshot-stale',
-  ])('does NOT resurrect a matched %s row to live (only disconnected is reversed)', async (status) => {
-    const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status }];
-    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
-      sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
-    );
+  it.each(['needs-regrant', 'snapshot-stale'])(
+    'does NOT resurrect a matched %s row to live (only disconnected is reversed)',
+    async (status) => {
+      const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status }];
+      const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+        sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
+      );
 
-    const result = await reconcileRoots({
-      adapterRoots: [pathRoot('adapter-1', 'my-project', '/workspace/my-project')],
-      platformKind: 'path',
-      query,
-    });
+      const result = await reconcileRoots({
+        adapterRoots: [pathRoot('adapter-1', 'my-project', '/workspace/my-project')],
+        platformKind: 'path',
+        query,
+      });
 
-    // Still mapped (registration succeeds), but the stale/ungranted status is
-    // left intact — a bare path remount must not skip its re-verification.
-    expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
-    expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(false);
-  });
+      // Still mapped (registration succeeds), but the stale/ungranted status is
+      // left intact — a bare path remount must not skip its re-verification.
+      expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+      expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE roots'))).toBe(
+        false
+      );
+    }
+  );
 
   it('keeps the mapping when the live-status flip fails (logged, not fatal)', async () => {
     const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status: 'disconnected' }];

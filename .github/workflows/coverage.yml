@@ -133,7 +133,7 @@ jobs:
       - name: Clear coverage directories
         run: |
           find packages apps -maxdepth 3 -type d \( -name "coverage" -o -name "coverage-*" \) -prune -exec rm -rf {} +
-          rm -rf .nyc_output
+          rm -rf packages/db/.vitest-reports .nyc_output
 
       # See test.yml's Unit job for the rationale. Coverage instrumentation
       # runs tests so it has the same build-dependency requirement.
@@ -155,14 +155,63 @@ jobs:
       # packages — dependents add no patch-coverage signal. `!./` excludes
       # the root workspace's `test:coverage` script (which delegates to
       # `turbo run test:coverage` over every workspace).
-      - name: Run affected-only coverage
+      # DB is deliberately isolated from the recursive package runner. Its
+      # PGlite suite is CPU-contention-sensitive (`db#test` is cache:false for
+      # the same reason), and sharing this 2-vCPU host made a type-contract
+      # test exceed 10s after 24 minutes on run 30704747207. Use the same two
+      # native Vitest shards as Unit/nightly, sequentially on this one host,
+      # then let Vitest merge its own blobs. No timeout or assertion is relaxed.
+      - name: Run affected DB coverage
         env:
+          BASE_REF: ${{ github.base_ref }}
           COVERAGE: "true"
           NODE_ENV: test
+          TEST_TIMEOUT_MULTIPLIER: "2"
+          TURBO_TEST_MODE: coverage
+        run: |
+          db_package=$(pnpm --filter "@brainstrike/db[origin/$BASE_REF]" list --depth=-1 --parseable)
+          if [ -z "$db_package" ]; then
+            echo "@brainstrike/db is unchanged; skipping DB coverage."
+            exit 0
+          fi
+          for db_test_shard in 1/2 2/2; do
+            DB_TEST_SHARD="$db_test_shard" pnpm turbo run test:coverage:db:shard \
+              --filter="@brainstrike/db" \
+              --concurrency=1 \
+              --summarize \
+              --log-order=grouped \
+              --cache-dir=.turbo
+          done
+          blob_count=$(find packages/db/.vitest-reports -maxdepth 1 -type f -name "blob-*.json" | wc -l | tr -d ' ')
+          if [ "$blob_count" -ne 2 ]; then
+            echo "::error::Expected two Vitest DB blob reports; found ${blob_count}."
+            exit 1
+          fi
+          pnpm --filter @brainstrike/db exec vitest \
+            --merge-reports=.vitest-reports \
+            --project=unit \
+            --coverage \
+            --coverage.reportsDirectory=coverage \
+            --coverage.reporter=json \
+            --coverage.reporter=lcov \
+            --coverage.reporter=text
+          if [ ! -f packages/db/coverage/coverage-final.json ]; then
+            echo "::error::Vitest merged no DB coverage-final.json artifact."
+            exit 1
+          fi
+
+      - name: Run other affected-package coverage
+        env:
           BASE_REF: ${{ github.base_ref }}
+          COVERAGE: "true"
+          NODE_ENV: test
         # --if-present skips packages that don't define `test:coverage`.
-        # Explicit --workspace-concurrency=4; same rationale as Unit.
-        run: pnpm --filter "[origin/$BASE_REF]" --filter "!./" --workspace-concurrency=4 run --if-present test:coverage
+        # DB ran alone above; the remaining lightweight packages retain the
+        # established workspace concurrency instead of serializing globally.
+        run: >-
+          pnpm --filter "[origin/$BASE_REF]" --filter "!./"
+          --filter "!@brainstrike/db" --workspace-concurrency=4
+          run --if-present test:coverage
 
       - name: Prepare coverage workspace
         id: coverage

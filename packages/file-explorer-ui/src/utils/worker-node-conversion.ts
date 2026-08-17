@@ -6,8 +6,8 @@
  */
 
 import type { WorkerFileNode } from '@brainstrike/file-tree-worker';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('WorkerNodeConversion');
 
@@ -15,11 +15,12 @@ const logger = createLogger('WorkerNodeConversion');
  * Convert an IFileNode to a WorkerFileNode by stripping the handle.
  * The path serves as the handleKey for looking up handles on the main thread.
  *
- * NOTE: 'loadMore' nodes are UI-only placeholders and are filtered out.
+ * NOTE: 'loadMore' and 'truncated' nodes are UI-only placeholders and are
+ * filtered out.
  */
 export function toWorkerFileNode(node: IFileNode): WorkerFileNode | null {
-  // Skip 'loadMore' nodes - they're UI-only placeholders
-  if (node.type === 'loadMore') {
+  // Skip 'loadMore'/'truncated' nodes - they're UI-only placeholders
+  if (node.type === 'loadMore' || node.type === 'truncated') {
     return null;
   }
 
@@ -57,7 +58,7 @@ export function toWorkerFileNode(node: IFileNode): WorkerFileNode | null {
 
 /**
  * Convert an array of IFileNodes to WorkerFileNodes.
- * Filters out 'loadMore' UI placeholder nodes.
+ * Filters out 'loadMore'/'truncated' UI placeholder nodes.
  */
 export function toWorkerFileNodes(nodes: IFileNode[]): WorkerFileNode[] {
   return nodes.map(toWorkerFileNode).filter((node): node is WorkerFileNode => node !== null);

@@ -102,11 +102,6 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   }),
 }));
 
-// Mock react-helmet-async
-vi.mock('react-helmet-async', () => ({
-  HelmetProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
-
 // TODO: These integration tests need complex mock setup for routing and providers.
 // They are currently skipped pending a refactoring of the test infrastructure.
 describe.skip('RootLayoutContent Integration Tests', () => {

@@ -8,7 +8,6 @@ import {
 } from '@brainstrike/agent/tool-metadata';
 import { render } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { HelmetProvider } from 'react-helmet-async';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SettingsPageContent from '../page-content';
 
@@ -26,7 +25,7 @@ interface MockToolDisplayMetadata {
 interface MockToolsOperations {
   disableTools: (ids: string[]) => Promise<void>;
   enableTools: (ids: string[]) => Promise<void>;
-  executeToolTest: (
+  executeToolTest?: (
     toolId: string,
     input: unknown
   ) => Promise<{ success: false; error: string; durationMs: number }>;
@@ -102,7 +101,7 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   useDurableLogSource: () => undefined,
 }));
 
-vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
+vi.mock('@brainstrike/app-shell/cost-tracking-settings', () => ({
   createCostTrackingSettingsCategory: (): MockSettingsCategory => ({
     content: <div data-testid="cost-tracking-category" />,
     id: 'cost-tracking',
@@ -141,9 +140,34 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
   useOptionalTokenCacheContext: () => null,
 }));
 
-vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal) => {
+vi.mock('@brainstrike/settings-ui/settings-page-content', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@brainstrike/preferences/settings-page-content')>();
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-page-content')>();
+  return {
+    ...actual,
+    SettingsPageContent: ({
+      categories,
+    }: {
+      categories: MockSettingsCategory[];
+      defaultCategoryId?: string;
+    }) => {
+      mockState.renderedCategoryIds = categories.map((category) => category.id);
+      return (
+        <div data-testid="settings-layout">
+          {categories.map((category) => (
+            <section data-testid={`category-${category.id}`} key={category.id}>
+              {category.content}
+            </section>
+          ))}
+        </div>
+      );
+    },
+  };
+});
+
+vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-category-factories')>();
   return {
     ...actual,
     createAppearanceSettingsCategory: (): MockSettingsCategory => ({
@@ -166,27 +190,10 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
       id: 'token-counting',
       title: 'Token Counting',
     }),
-    SettingsPageContent: ({
-      categories,
-    }: {
-      categories: MockSettingsCategory[];
-      defaultCategoryId?: string;
-    }) => {
-      mockState.renderedCategoryIds = categories.map((category) => category.id);
-      return (
-        <div data-testid="settings-layout">
-          {categories.map((category) => (
-            <section data-testid={`category-${category.id}`} key={category.id}>
-              {category.content}
-            </section>
-          ))}
-        </div>
-      );
-    },
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', () => ({
   useNativeToolPreferencesStore: {
     getState: () => ({
       isToolEnabled: (toolId: string) => mockState.nativeEnabledToolIds.has(toolId),
@@ -196,7 +203,7 @@ vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => (
   },
 }));
 
-vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
+vi.mock('@brainstrike/settings-ui/settings/tools/index', () => ({
   createToolsSettingsCategory: (options: CapturedToolsOptions): MockSettingsCategory => {
     mockState.capturedToolsOptions = options;
     return {
@@ -207,23 +214,18 @@ vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
   },
 }));
 
-vi.mock('@brainstrike/preferences/settings/system/logging-settings-section', () => ({
+vi.mock('@brainstrike/settings-ui/settings/system/logging-settings-section', () => ({
   LoggingSettingsSection: (props: CapturedLoggingProps) => {
     mockState.capturedLoggingProps = props;
     return <div data-testid="logging-settings-section" />;
   },
 }));
 
-vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
   ModelSelectionPage: () => <div data-testid="model-selection-page" />,
 }));
 
-const renderPage = () =>
-  render(
-    <HelmetProvider>
-      <SettingsPageContent />
-    </HelmetProvider>
-  );
+const renderPage = () => render(<SettingsPageContent />);
 
 function getNativeToolIdAt(index: number): string {
   const id = WEB_NATIVE_TOOL_IDS[index];
@@ -312,7 +314,7 @@ describe('SettingsPageContent tool operations', () => {
     expect(mockState.setToolsEnabledMock).toHaveBeenCalledTimes(2);
   });
 
-  test('resets tools and reports unsupported tool execution in web mode', async () => {
+  test('resets tools without exposing a permanently unsupported web playground', async () => {
     renderPage();
     const operations = mockState.capturedToolsOptions?.operations;
     expect(operations).toBeDefined();
@@ -320,20 +322,7 @@ describe('SettingsPageContent tool operations', () => {
     await operations?.resetTools();
     expect(mockState.resetToolsMock).toHaveBeenCalledTimes(1);
 
-    const performanceNowSpy = vi
-      .spyOn(performance, 'now')
-      .mockReturnValueOnce(100.1)
-      .mockReturnValueOnce(108.7);
-
-    const toolId = getNativeToolIdAt(0);
-    const result = await operations?.executeToolTest(toolId, { query: 'abc' });
-    expect(result).toEqual({
-      durationMs: 9,
-      error: `Tool execution not yet implemented for ${toolId}. Web app requires API integration for tool execution.`,
-      success: false,
-    });
-
-    performanceNowSpy.mockRestore();
+    expect(operations?.executeToolTest).toBeUndefined();
   });
 
   test('wires logging source and factory reset callbacks from browser stores', async () => {

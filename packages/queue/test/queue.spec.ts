@@ -1,14 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createWorkerpoolAdapter } from '../src/adapters/browser-workerpool';
-import { createBrowserEmbeddingQueue } from '../src/browser';
+import { createWorkerpoolAdapter as createWorkerpoolAdapterBase } from '../src/adapters/browser-workerpool.js';
+import { createBrowserEmbeddingQueue } from '../src/browser.js';
+import type { WorkerpoolAdapterOptions } from '../src/browser-workerpool-options.js';
 import {
   addQueueTelemetryListener,
   createQueueTelemetryAggregator,
   emitQueueTelemetry,
   type QueueTelemetryEvent,
-} from '../src/telemetry';
+} from '../src/telemetry.js';
 
 const TEST_WORKER_URL = 'https://example.invalid/embedding.worker.js';
+const TEST_TELEMETRY_SINK = {
+  recordBatch: vi.fn(),
+  recordFailure: vi.fn(),
+  recordPipelineCache: vi.fn(),
+  removeSource: vi.fn(),
+};
+
+function createWorkerpoolAdapter(options: Omit<WorkerpoolAdapterOptions, 'telemetry'> = {}) {
+  return createWorkerpoolAdapterBase({
+    ...options,
+    telemetry: TEST_TELEMETRY_SINK,
+  });
+}
 
 type CancellablePromise = Promise<unknown> & { cancel: () => void };
 
@@ -50,6 +64,7 @@ const workerpoolMocks = vi.hoisted(() => {
 
   let implementation = createDefaultImplementation();
   let statsImpl: undefined | (() => { pendingTasks: number });
+  let workerInstanceId: string | null = null;
 
   const execSpy = vi.fn<
     [
@@ -58,13 +73,62 @@ const workerpoolMocks = vi.hoisted(() => {
       options?: { readonly on?: (event: unknown) => void; readonly priority?: number },
     ],
     Promise<unknown> & { cancel: () => void }
-  >((method, args, options) => implementation(method, args, options));
+  >((method, args, options) => {
+    if (workerInstanceId === null) {
+      throw new Error('Expected the workerpool mock to create a managed worker.');
+    }
+    const [payload] = args;
+    options?.on?.({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 100,
+      entry: {
+        cacheKey: 'local:test|webgpu|fp16',
+        createdAt: 50,
+        device: 'webgpu',
+        dtype: 'fp16',
+        lastUsedAt: 100,
+        memory: { gpuBytes: 1024, heapBytes: 0, reason: 'model-size-estimate' },
+        model: 'local:test',
+        residencyMs: 50,
+      },
+      event: 'hit',
+      id: (payload as { id: string }).id,
+      type: 'diagnostic',
+      workerInstanceId,
+    });
+    return implementation(method, args, options);
+  });
 
-  const poolSpy = vi.fn((_script: unknown, _options: unknown) => ({
-    exec: execSpy,
-    stats: statsImpl,
-    terminate,
-  }));
+  const poolSpy = vi.fn((script: unknown, options: unknown) => {
+    const poolOptions = options as {
+      onCreateWorker?: (args: {
+        script?: string;
+        workerOpts?: WorkerOptions;
+      }) => { script?: string; workerOpts?: WorkerOptions } | undefined;
+    };
+    const createdWorker = poolOptions.onCreateWorker?.({
+      script: typeof script === 'string' ? script : undefined,
+      workerOpts: { type: 'module' },
+    });
+    const taggedScript = createdWorker?.script;
+    if (!taggedScript) {
+      throw new Error('Expected the adapter to tag its managed worker script.');
+    }
+    workerInstanceId = new URL(taggedScript).hash
+      ? new URLSearchParams(new URL(taggedScript).hash.slice(1)).get(
+          'brainstrike-embedding-worker-instance'
+        )
+      : null;
+    if (workerInstanceId === null) {
+      throw new Error('Expected the adapter to assign a managed worker identity.');
+    }
+    return {
+      exec: execSpy,
+      stats: statsImpl,
+      terminate,
+    };
+  });
 
   return {
     cancel,
@@ -77,6 +141,7 @@ const workerpoolMocks = vi.hoisted(() => {
       poolSpy.mockClear();
       implementation = createDefaultImplementation();
       statsImpl = undefined;
+      workerInstanceId = null;
     },
     setImplementation(
       fn: (
@@ -585,7 +650,7 @@ describe('createBrowserEmbeddingQueue', () => {
   it('uses workerpool when Worker is available', async () => {
     setWorkerSupport();
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: TEST_WORKER_URL },
+      worker: { telemetry: TEST_TELEMETRY_SINK, workerUrl: TEST_WORKER_URL },
     });
     const result = await queue.add(minimalTask);
     expect(result.metadata.device).toBe('webgpu');
@@ -595,7 +660,7 @@ describe('createBrowserEmbeddingQueue', () => {
     (globalThis as Partial<typeof globalThis>).Worker = undefined;
     expect(() =>
       createBrowserEmbeddingQueue({
-        worker: { workerUrl: TEST_WORKER_URL },
+        worker: { telemetry: TEST_TELEMETRY_SINK, workerUrl: TEST_WORKER_URL },
       })
     ).toThrow('Embedding queue requires Web Workers; this environment does not support them.');
   });
@@ -607,6 +672,18 @@ describe('createBrowserEmbeddingQueue', () => {
     );
     expect(() => createBrowserEmbeddingQueue()).toThrow(
       'createBrowserEmbeddingQueue requires an explicit worker.workerUrl.'
+    );
+  });
+
+  it('fails fast when renderer telemetry composition is missing', () => {
+    setWorkerSupport();
+    // @ts-expect-error Exercise the runtime guard retained for untyped JavaScript callers.
+    expect(() => createWorkerpoolAdapterBase({ workerUrl: TEST_WORKER_URL })).toThrow(
+      'Workerpool embedding telemetry sink is required.'
+    );
+    // @ts-expect-error Exercise the runtime guard retained for untyped JavaScript callers.
+    expect(() => createBrowserEmbeddingQueue({ worker: { workerUrl: TEST_WORKER_URL } })).toThrow(
+      'Workerpool embedding telemetry sink is required.'
     );
   });
 });

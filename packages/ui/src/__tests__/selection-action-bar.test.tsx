@@ -164,6 +164,55 @@ describe('SelectionActionBar', () => {
     expect(onClear).toHaveBeenCalledTimes(2);
   });
 
+  it('omits the clear control when the consumer reports nothing to clear', () => {
+    render(
+      <SelectionActionBar
+        actions={[]}
+        clearButtonAriaLabel="Clear file selection"
+        onClear={vi.fn()}
+        showClearButton={false}
+        summary="No files selected"
+      />
+    );
+
+    expect(screen.queryByRole('button', { name: 'Clear file selection' })).not.toBeInTheDocument();
+  });
+
+  it('renders composed trailing content alongside declarative actions', () => {
+    render(
+      <SelectionActionBar
+        actions={actions}
+        onClear={vi.fn()}
+        summary="2 selected"
+        trailingContent={<button type="button">Import into collection…</button>}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Import into collection…' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move selected items' })).toBeInTheDocument();
+  });
+
+  it('separates the status from trailing content even without declarative actions', () => {
+    render(
+      <SelectionActionBar
+        actions={[]}
+        onClear={vi.fn()}
+        summary="2 selected"
+        trailingContent={<button type="button">Import into collection…</button>}
+      />
+    );
+
+    const toolbar = screen.getByRole('toolbar');
+    expect(screen.getByRole('button', { name: 'Import into collection…' })).toBeInTheDocument();
+    expect(toolbar.querySelector('[aria-hidden="true"].w-px')).not.toBeNull();
+  });
+
+  it('omits the separator when there is nothing to separate', () => {
+    render(<SelectionActionBar actions={[]} onClear={vi.fn()} summary="2 selected" />);
+
+    expect(screen.getByRole('toolbar').querySelector('[aria-hidden="true"].w-px')).toBeNull();
+  });
+
   it('removes transitions when reduced motion is requested', () => {
     render(<SelectionActionBar actions={actions} onClear={vi.fn()} summary="1 selected" />);
 

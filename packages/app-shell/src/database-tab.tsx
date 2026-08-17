@@ -1,11 +1,12 @@
 import type { QueueAdapter } from '@brainstrike/queue';
-import { type ComponentType, type ReactElement, useEffect, useState } from 'react';
+import { Button } from '@brainstrike/ui';
+import type { ComponentType, ReactElement } from 'react';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
+import { useLazyComponentWithEmbeddingQueue } from './use-lazy-component-with-embedding-queue';
 
 type DatabaseTabChunkModule = typeof import('./database-tab-chunk');
 
 interface LoadedDatabaseTabProps {
-  readonly chunkingMode?: 'host-proxy' | 'local';
   readonly embeddingQueue?: QueueAdapter | null;
 }
 
@@ -21,81 +22,53 @@ function loadDatabaseTabModule(): Promise<DatabaseTabChunkModule> {
   });
 }
 
+function loadDatabaseTabComponent(): Promise<ComponentType<LoadedDatabaseTabProps>> {
+  return loadDatabaseTabModule().then((module) => module.DatabaseTab);
+}
+
 export function preloadDatabaseTab(): Promise<void> {
   return loadDatabaseTabModule().then(() => undefined);
 }
 
 interface DatabaseTabProps {
-  readonly chunkingMode?: 'host-proxy' | 'local';
   // Callers must pass a referentially stable loader (useCallback at the app root).
   // This component treats the first resolved queue for a given loader as canonical
   // and does not silently swap queue instances during unrelated parent re-renders.
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
 }
 
-export function DatabaseTab({
-  chunkingMode = 'local',
-  loadEmbeddingQueue = null,
-}: DatabaseTabProps): ReactElement {
-  const [resolvedComponent, setResolvedComponent] =
-    useState<ComponentType<LoadedDatabaseTabProps> | null>(() => databaseTabChunkComponent);
-  const [embeddingQueue, setEmbeddingQueue] = useState<QueueAdapter | null>(null);
-  const [loadError, setLoadError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    if (resolvedComponent && (embeddingQueue || !loadEmbeddingQueue)) {
-      return;
-    }
-
-    let cancelled = false;
-    const modulePromise = resolvedComponent
-      ? Promise.resolve(null)
-      : loadDatabaseTabModule().then((module) => module.DatabaseTab);
-    const queuePromise =
-      embeddingQueue || !loadEmbeddingQueue ? Promise.resolve(null) : loadEmbeddingQueue();
-
-    void Promise.all([modulePromise, queuePromise])
-      .then(([resolvedDatabaseTab, resolvedQueue]) => {
-        if (!cancelled) {
-          if (resolvedDatabaseTab) {
-            setResolvedComponent(() => resolvedDatabaseTab);
-          }
-          if (resolvedQueue) {
-            setEmbeddingQueue(resolvedQueue);
-          }
-          setLoadError(null);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setLoadError(
-            error instanceof Error ? error : new Error('Failed to load database tools.')
-          );
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [embeddingQueue, loadEmbeddingQueue, resolvedComponent]);
-
-  const queueReady = !loadEmbeddingQueue || embeddingQueue !== null;
-  const ready = resolvedComponent !== null && queueReady;
+export function DatabaseTab({ loadEmbeddingQueue = null }: DatabaseTabProps): ReactElement {
+  const {
+    component: resolvedComponent,
+    embeddingQueue,
+    loadError,
+    ready,
+    retry,
+  } = useLazyComponentWithEmbeddingQueue<LoadedDatabaseTabProps>({
+    initialComponent: databaseTabChunkComponent,
+    label: 'database tab',
+    load: loadDatabaseTabComponent,
+    loadEmbeddingQueue,
+  });
 
   let content: ReactElement;
   if (loadError) {
     content = (
       <div
-        className="flex h-full min-h-0 flex-1 items-center justify-center p-4 text-destructive text-sm"
+        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-destructive text-sm"
         data-testid="database-tab-load-error"
         role="alert"
       >
-        Failed to load database tools: {loadError.message}
+        <span>Failed to load database tools: {loadError.message}</span>
+        {/* The failure stays visible; it just stops being terminal. */}
+        <Button data-testid="database-tab-load-retry" onClick={retry} size="sm" variant="outline">
+          Retry
+        </Button>
       </div>
     );
-  } else if (ready) {
+  } else if (ready && resolvedComponent) {
     const ResolvedComponent = resolvedComponent;
-    content = <ResolvedComponent chunkingMode={chunkingMode} embeddingQueue={embeddingQueue} />;
+    content = <ResolvedComponent embeddingQueue={embeddingQueue} />;
   } else {
     content = <DatabaseTabLoadingState />;
   }

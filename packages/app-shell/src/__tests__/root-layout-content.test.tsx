@@ -1,5 +1,5 @@
-import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
-import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { PanelLayoutState } from '@brainstrike/ui';
@@ -8,8 +8,10 @@ import userEvent from '@testing-library/user-event';
 import type React from 'react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
+import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
 
 vi.mock('@brainstrike/file-explorer-hooks', async () => {
   const { createContext } = await import('react');
@@ -22,16 +24,49 @@ vi.mock('@brainstrike/file-explorer-hooks', async () => {
   };
 });
 
+interface CapturedWorkspaceApp {
+  readonly id: string;
+  readonly label: string;
+  readonly render: () => React.ReactNode;
+}
+let capturedWorkspaceApps: readonly CapturedWorkspaceApp[] = [];
+
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  CANVAS_APP_ID: 'canvas',
+  CHANGES_APP_ID: 'changes',
+  CONTEXT_EXPLORER_APP_ID: 'context-explorer',
+  ContextExplorerAppBody: () => <div data-testid="context-explorer-app-body" />,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
   RootDataDeletionProvider: ({ children }: { children: React.ReactNode }) => children,
+  TERMINAL_APP_ID: 'terminal',
   useFileSystem: () => ({
     rootDirectoryHandle: null,
   }),
-  WorkspaceTabHost: ({ className }: { className?: string }) => (
-    <div className={className} data-testid="workspace-tab-host" />
+  // The real strip/body/provider are exercised in file-explorer-ui's own
+  // suite; here we only assert the REGISTRY the shell passes down and that
+  // each app body renders through the workspace body slot.
+  WorkspaceBody: () => (
+    <div data-testid="workspace-body-stub">
+      {capturedWorkspaceApps.map((app) => (
+        <div data-app-id={app.id} key={app.id}>
+          {app.render()}
+        </div>
+      ))}
+    </div>
   ),
+  WorkspaceOpenFileBridge: () => null,
+  WorkspaceTabStrip: () => <div data-testid="workspace-tab-strip-stub" />,
+  WorkspaceTabsProvider: ({
+    apps,
+    children,
+  }: {
+    apps: readonly CapturedWorkspaceApp[];
+    children: React.ReactNode;
+  }) => {
+    capturedWorkspaceApps = apps;
+    return <>{children}</>;
+  },
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
@@ -76,6 +111,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       children,
       leftPanelContent,
       rightPanelContent,
+      rightPanelChrome,
       consoleContent,
       panelConstraints,
       panelIdPrefix,
@@ -83,6 +119,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       children: React.ReactNode;
       leftPanelContent?: React.ReactNode;
       rightPanelContent?: React.ReactNode;
+      rightPanelChrome?: { headerContent?: React.ReactNode };
       consoleContent?: React.ReactNode;
       panelConstraints?: { mainContentMinSize?: string; rightPanelMinSize?: string };
       panelIdPrefix?: string;
@@ -90,6 +127,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       mockHandlers.ideLayoutProps.push({ panelConstraints, panelIdPrefix });
       return (
         <div data-testid="ide-layout">
+          {rightPanelChrome?.headerContent ? (
+            <div data-testid="ide-right-panel-header-slot">{rightPanelChrome.headerContent}</div>
+          ) : null}
           {leftPanelContent}
           {children}
           {rightPanelContent}
@@ -136,6 +176,12 @@ vi.mock('../command-palette-host', () => ({
 // file-open seam; mock it the same way as the command palette host.
 vi.mock('../quick-open-host', () => ({
   QuickOpenHost: () => <div data-testid="quick-open-host" />,
+}));
+
+// The coordinator binds real stores + PGlite; this layout-routing suite mocks
+// it like every other child surface.
+vi.mock('../thread-workspace/thread-workspace-coordinator', () => ({
+  ThreadWorkspaceCoordinator: () => null,
 }));
 
 vi.mock('../agent-sidebar-panel', () => ({
@@ -195,6 +241,7 @@ vi.mock('../database-panel', () => ({
 
 describe('RootLayoutContent', () => {
   beforeEach(() => {
+    rendererLongTaskTelemetry.reset();
     mockHandlers.onNavigationClick = vi.fn();
     mockHandlers.onOpenSettings = vi.fn();
     mockHandlers.ideLayoutProps = [];
@@ -217,6 +264,7 @@ describe('RootLayoutContent', () => {
   });
 
   afterEach(() => {
+    rendererLongTaskTelemetry.reset();
     vi.useRealTimers();
     vi.resetAllMocks();
   });
@@ -274,6 +322,66 @@ describe('RootLayoutContent', () => {
     expect(screen.queryByTestId('ide-console-content')).not.toBeInTheDocument();
   });
 
+  it('keeps one long-task observer while reading current route and feature-flag context', () => {
+    const callbacks: PerformanceObserverCallback[] = [];
+    const disconnect = vi.fn();
+    class MockPerformanceObserver {
+      static readonly supportedEntryTypes = ['longtask'];
+
+      constructor(callback: PerformanceObserverCallback) {
+        callbacks.push(callback);
+      }
+
+      observe(): void {}
+
+      disconnect(): void {
+        disconnect();
+      }
+    }
+    vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
+
+    const view = renderComponent({
+      gitPageContent: <div data-testid="git-page">Git</div>,
+    });
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'unavailable',
+    });
+    view.rerender(
+      <RootLayoutContent
+        contextExplorerPageContent={<div data-testid="context-explorer-page">Context Explorer</div>}
+        diagnosticFeatureFlags={['diagnostics-v2']}
+        gitPageContent={<div data-testid="git-page">Git</div>}
+        navigationItems={navigationItems}
+        settingsPageContent={<div data-testid="settings-page">Settings</div>}
+      />
+    );
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'available',
+      sampleCount: 0,
+    });
+    act(() => {
+      mockHandlers.onNavigationClick('/git');
+    });
+
+    expect(callbacks).toHaveLength(1);
+    const callback = callbacks[0];
+    if (!callback) {
+      throw new Error('Expected the renderer long-task observer callback.');
+    }
+    act(() => {
+      callback(createRecentLongTaskEntryList([{ duration: 90 }]), {} as PerformanceObserver);
+    });
+
+    expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
+      featureFlagContextAvailability: 'available',
+      featureFlags: [{ count: 1, flag: 'diagnostics-v2' }],
+      routes: [{ count: 1, route: 'git' }],
+    });
+
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('forwards the app embedding queue loader to the prompt workbench', () => {
     const loadEmbeddingQueue = vi.fn(async () => ({ id: 'queue' }) as unknown as QueueAdapter);
     renderComponent({ loadEmbeddingQueue });
@@ -322,21 +430,23 @@ describe('RootLayoutContent', () => {
   });
 
   it('keeps the current shell tab active when settings opens and closes', async () => {
-    usePanelLayoutStore.setState({ activeTab: 'terminal' });
+    // BST-1270: Terminal left the shell-route system for the workspace tab
+    // strip, so the git route now pins this behavior.
+    usePanelLayoutStore.setState({ activeTab: 'git' });
     const user = userEvent.setup();
-    renderComponent({ terminalPageContent: <div data-testid="terminal-page">Terminal</div> });
+    renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
 
     act(() => {
       usePanelLayoutStore.getState().openSettings();
     });
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByTestId('terminal-route')).not.toHaveClass('hidden');
+    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
 
     await user.click(screen.getByRole('button', { name: 'Close' }));
 
     expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
-    expect(usePanelLayoutStore.getState().activeTab).toBe('terminal');
-    expect(screen.getByTestId('terminal-route')).not.toHaveClass('hidden');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('git');
+    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
   });
 
   it('closes settings when navigating to another shell tab', () => {
@@ -405,14 +515,14 @@ describe('RootLayoutContent', () => {
     const user = userEvent.setup();
     renderComponent({
       gitPageContent: <div>Git</div>,
-      terminalPageContent: <div>Terminal</div>,
+      notesPageContent: <div>Notes</div>,
     });
 
     await user.click(screen.getByRole('button', { name: 'Select Prompts tab' }));
     const promptManager = screen.getByTestId('connected-prompt-manager');
     expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
 
-    for (const path of ['/git', '/terminal']) {
+    for (const path of ['/git', '/notes']) {
       act(() => {
         mockHandlers.onNavigationClick(path);
       });
@@ -588,5 +698,44 @@ describe('RootLayoutContent', () => {
     view.unmount();
 
     expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
+  it('registers Changes as a workspace app (not a nav-rail route) when changesPageContent is present', () => {
+    renderComponent({ changesPageContent: <div data-testid="changes-page">Changes</div> });
+
+    // No nav-rail item and no top-level KeepMountedRoute for Changes —
+    // it registers as a workspace app tab (BST-1258).
+    expect(screen.queryByTestId('changes-route')).not.toBeInTheDocument();
+    expect(capturedWorkspaceApps.map((app) => app.id)).toEqual(['context-explorer', 'changes']);
+    // The registry renders each app body through the workspace body slot.
+    expect(screen.getByTestId('changes-page')).toBeInTheDocument();
+  });
+
+  it('registers the full desktop registry in canonical order with the Files label', () => {
+    renderComponent({
+      canvasPanelContent: <div data-testid="canvas-page">Canvas</div>,
+      changesPageContent: <div data-testid="changes-page">Changes</div>,
+    });
+
+    expect(capturedWorkspaceApps.map((app) => app.id)).toEqual([
+      'context-explorer',
+      'changes',
+      'canvas',
+    ]);
+    expect(capturedWorkspaceApps.map((app) => app.label)).toEqual(['Files', 'Changes', 'Canvas']);
+    expect(screen.getByTestId('canvas-page')).toBeInTheDocument();
+    // The Files app body is the nested explorer surface (still hosting the
+    // contextExplorerPageContent the app wrappers pass in).
+    expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
+    // The strip renders in the panel header slot (workspaceHeaderContent).
+    expect(screen.getByTestId('workspace-tab-strip-stub')).toBeInTheDocument();
+  });
+
+  it('registers only the Files app when optional surfaces are absent (capability gate)', () => {
+    renderComponent();
+
+    expect(capturedWorkspaceApps.map((app) => app.id)).toEqual(['context-explorer']);
+    expect(capturedWorkspaceApps[0]?.label).toBe('Files');
+    expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
   });
 });

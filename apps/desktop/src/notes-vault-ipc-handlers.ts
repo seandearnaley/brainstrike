@@ -42,13 +42,13 @@ import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
+import { createLogger } from '@brainstrike/logging';
 import { WELCOME_NOTE_CONTENT, WELCOME_NOTE_NAME } from '@brainstrike/notes-vault/core';
 import type {
   NotesVaultBridgeEntry,
   NotesVaultBridgeRoot,
   NotesVaultResult,
 } from '@brainstrike/notes-vault/desktop-contract';
-import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
 import { isWithinRoot } from './assistant-server/workspace-path';

@@ -1,6 +1,6 @@
 import type { AgentMessage, RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from './workspace-roots';
 
 const logger = createLogger('AssistantWorkspaceInstructions');
@@ -182,11 +182,8 @@ function rootHeadingLabel(
  * file injects TRUNCATED only when its root is opted in, else `null` (detected
  * but not injected — surfaced in Settings, no prompt note).
  *
- * Oversized opt-in is keyed by the durable DB `roots.id`. A DB-less LEGACY root
- * (synthesized from `workspaceRootPath` with `rootId` = the raw path — see
- * `getWorkspaceRoots`) can never appear in the Settings scan (which loads roots
- * from the DB only), so its opt-in is un-settable: `optIns[rawPath]` is never
- * `true` and an oversized file at such a root stays un-injected (fail-closed).
+ * Oversized opt-in is keyed by the durable DB `roots.id`. Root authorization is
+ * likewise DB-backed; renderer focus paths never synthesize roots here.
  */
 function resolveInjectableBody(
   found: FoundContextFile,

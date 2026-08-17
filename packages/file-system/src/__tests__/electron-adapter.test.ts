@@ -3,9 +3,9 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ElectronFileSystemAdapter } from '../adapters/electron-adapter';
-import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
-import type { DirectoryHandle, FileHandle } from '../types';
+import { ElectronFileSystemAdapter } from '../adapters/electron-adapter.js';
+import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors.js';
+import type { DirectoryHandle, FileHandle } from '../types.js';
 
 // Tiny polling helper to await a condition without importing testing-library
 async function waitForCondition(check: () => boolean, timeoutMs = 1000, intervalMs = 10) {
@@ -429,7 +429,7 @@ describe('ElectronFileSystemAdapter', () => {
 
       // Re-import adapter after module reset
       const { ElectronFileSystemAdapter: FreshAdapter } = await import(
-        '../adapters/electron-adapter'
+        '../adapters/electron-adapter.js'
       );
       const cachedAdapter = new FreshAdapter({ cache: true });
 

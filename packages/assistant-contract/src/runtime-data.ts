@@ -1,3 +1,9 @@
+import {
+  type GoogleThinkingLevel,
+  OPENAI_REASONING_EFFORT_VALUES,
+  type OpenAiReasoningEffort,
+  type OpenAiReasoningSummary,
+} from '@brainstrike/types';
 import type { AssistantTaskItem } from './assistant-task-list.js';
 import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
 import type { SkillsContextRequest } from './skills.js';
@@ -18,15 +24,17 @@ export interface AssistantRunSteeringControl {
   stopRequested(): boolean;
 }
 
-export type OpenAiReasoningEffort =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
-export type OpenAiReasoningSummary = 'auto' | 'detailed';
+/**
+ * Re-exported, never re-declared. `@brainstrike/types` is the leaf that owns
+ * these reasoning vocabularies; a second declaration here would be free to
+ * drift from the pickers that read them.
+ */
+export {
+  type GoogleThinkingLevel,
+  OPENAI_REASONING_EFFORT_VALUES,
+  type OpenAiReasoningEffort,
+  type OpenAiReasoningSummary,
+};
 
 export interface OpenAiProviderOptions extends RuntimeJsonObject {
   reasoningEffort?: OpenAiReasoningEffort;
@@ -58,7 +66,13 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.8).
+ * `@ai-sdk/anthropic` (4.0.39), held there by
+ * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
+ *
+ * `budgetTokens` is OPTIONAL upstream and required here on purpose: an
+ * `enabled` request without an explicit budget is not a shape this app emits.
+ * The mirror contract compares union membership, not field optionality, so
+ * that narrowing stays deliberate rather than becoming an accident.
  *
  * `adaptive` is the modern form and the only one carrying `display`, which
  * governs whether reasoning is RETURNED. `display` defaults to `omitted`
@@ -75,8 +89,6 @@ export interface AnthropicProviderOptions extends RuntimeJsonObject {
   effort?: AnthropicEffort;
   thinking?: AnthropicThinkingOptions;
 }
-
-export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 export interface GoogleProviderOptions extends RuntimeJsonObject {
   thinkingConfig?: {
@@ -158,12 +170,20 @@ export interface RuntimeWorkspaceContextMetadata {
   tokenBudget?: number;
 }
 
+/**
+ * Mirrors `WorkspaceCollectionSyncState` (`@brainstrike/app-state/stores/workspace-collection-sync-status-store`)
+ * for this dependency-light wire contract — this package must not import
+ * app-state, so the union is duplicated deliberately and must be kept in
+ * sync by hand. `unconfigured` (BST-1335): no workspace root has been
+ * selected yet; setup is incomplete, not a failure.
+ */
 export type RuntimeWorkspaceIndexStatusState =
   | 'blocked'
   | 'disabled'
   | 'idle'
   | 'paused'
   | 'recovering'
+  | 'unconfigured'
   | 'waiting'
   | 'scanning'
   | 'importing'
@@ -200,6 +220,27 @@ export interface WorkspaceInstructionsContextRequest {
    * durable DB `roots.id`; only `true` entries are meaningful.
    */
   oversizedOptInByRootId?: Record<string, boolean>;
+}
+
+/** Renderer-attached opt-in for the self-improvement signal injection (BST-1241). */
+export interface SelfImprovementSignalPreferenceRequest {
+  readonly enabled?: boolean;
+}
+
+/**
+ * Renderer-attached experiment enrollment for this run (BST-1250, recursive
+ * self-improvement phase 2A). Persisted verbatim in the per-run treatment
+ * record so control/intervention runs stay attributable; absent = un-enrolled.
+ * The pair is atomic, so both fields are REQUIRED (review: optional fields
+ * let a well-behaved producer typecheck its way into a warn loop); the
+ * server-side strict parse remains the untrusted-wire guard. The renderer
+ * producer is the experiment-assignment preference store (BST-1251, phase
+ * 2B): the pair only rides the wire when both fields are set, and absent
+ * still means un-enrolled.
+ */
+export interface ExperimentAssignmentRequest {
+  readonly experimentId: string;
+  readonly variant: string;
 }
 
 /**
@@ -255,6 +296,7 @@ export interface RuntimeData {
   contextTokenCount?: number;
   embeddingSetId?: string;
   enabledNativeToolIds?: readonly string[];
+  experimentAssignment?: ExperimentAssignmentRequest;
   includeFileReport?: boolean;
   includeProjectTree?: boolean;
   /**
@@ -281,8 +323,9 @@ export interface RuntimeData {
   modelSettings?: RuntimeModelSettings;
   /**
    * Plan mode (opt-in, per-request). When `true`, the agent runtime constrains
-   * the tool map to read-only + `submitPlan`/`askUser` (edit/execute tools are
-   * omitted) and prepends a PLAN-MODE instruction block, so the model
+   * the tool map to risk ∈ {read, mcp} (edit/execute tools are omitted;
+   * `submitPlan`/`askUser` survive because they are classified `read`, not
+   * because they suspend) and prepends a PLAN-MODE instruction block, so the model
    * investigates and proposes a plan for approval before any changes. Sent over
    * the wire ONLY when `true` (presence-means-on, like `permissionPolicyRequest`).
    * Excluded for the built-in local provider. Agent-only enforcement.
@@ -291,6 +334,12 @@ export interface RuntimeData {
   projectId?: string;
   provider?: 'anthropic' | 'google' | 'local' | 'openai' | 'openrouter' | string;
   providerOptions?: RuntimeProviderOptions;
+  /**
+   * The user's explicit reasoning-effort selection. Absent means Auto; this is
+   * intentionally distinct from providerOptions, which carries the resolved
+   * wire effort after catalog defaults/auto profiles are applied.
+   */
+  requestedReasoningEffort?: OpenAiReasoningEffort;
   selectionFilePaths?: readonly string[];
   /**
    * Multi-root: selected files belonging to ACTIVE roots OTHER than the
@@ -302,6 +351,7 @@ export interface RuntimeData {
   selectionFilePathsFromOtherRoots?: number;
   selectionFolderId?: string;
   selectionSnapshotId?: string;
+  selfImprovementSignalPreference?: SelfImprovementSignalPreferenceRequest;
   signal?: AbortSignal;
   /**
    * Renderer-supplied Agent Skills preference (from the skills preferences

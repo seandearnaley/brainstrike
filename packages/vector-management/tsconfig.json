@@ -34,10 +34,13 @@
       "path": "../indexing-contract"
     },
     {
-      "path": "../preferences"
+      "path": "../app-state"
     },
     {
       "path": "../ui"
+    },
+    {
+      "path": "../logging"
     },
     {
       "path": "../utils"

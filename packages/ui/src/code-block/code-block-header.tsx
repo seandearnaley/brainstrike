@@ -1,11 +1,10 @@
 import { CheckIcon, CopyIcon } from 'lucide-react';
 import type * as React from 'react';
-// NOTE: keep this exact import path — the chat-pipeline tests
-// (markdown-text.test.tsx) mock '../assistant-ui-panel/tooltip-icon-button'
-// and rely on this header resolving to the same module.
-import { TooltipIconButton } from '../assistant-ui-panel/tooltip-icon-button';
 import { useCopyToClipboard } from '../hooks/use-copy-to-clipboard';
 import { cn } from '../lib/utils';
+// NOTE: keep this exact import path — the chat-pipeline tests mock the shared
+// tooltip-icon-button seam and rely on this header resolving to the same module.
+import { TooltipIconButton } from '../tooltip-icon-button';
 
 export interface CodeBlockHeaderProps {
   readonly className?: string;

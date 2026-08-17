@@ -1,6 +1,7 @@
 import { expect, type Locator, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState } from './utils/app-state';
+import { clickExplorerTreeAction } from './utils/file-tree-locators';
 import {
   CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
   contextExplorerActiveNavLocator,
@@ -95,9 +96,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(explorer.filterInput).toHaveValue('tsx');
 
     // Expand all matching items - this reveals nested files
-    const expandAllBtn = page.getByTestId('expand-all-button-small');
-    await expect(expandAllBtn).toBeVisible({ timeout: 5000 });
-    await expandAllBtn.click();
+    await clickExplorerTreeAction(page, 'expand-all');
     // Wait for expansion to complete - nested component files should be visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 5000 });
@@ -217,9 +216,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(explorer.filterInput).toHaveValue('ts');
 
     // Expand all to reveal nested files
-    const expandAllBtn = page.getByTestId('expand-all-button-small');
-    await expect(expandAllBtn).toBeVisible({ timeout: 5000 });
-    await expandAllBtn.click();
+    await clickExplorerTreeAction(page, 'expand-all');
     // Wait for expansion - nested files should now be visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 5000 });
@@ -277,9 +274,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(explorer.filterInput).toHaveValue('ts');
 
     // Expand all to reveal nested files
-    const expandAllBtn = page.getByTestId('expand-all-button-small');
-    await expect(expandAllBtn).toBeVisible({ timeout: 5000 });
-    await expandAllBtn.click();
+    await clickExplorerTreeAction(page, 'expand-all');
     // Wait for expansion - nested files should now be visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 5000 });

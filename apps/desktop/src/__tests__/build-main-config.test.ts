@@ -6,12 +6,44 @@ import {
   MAIN_PROCESS_ENTRY_POINTS,
 } from '../../scripts/build-main-config.mjs';
 
+interface DesktopPackageConfig {
+  build?: { asarUnpack?: readonly string[] };
+  dependencies?: Record<string, string>;
+}
+
+function packagedTypeScriptServerViolations(packageJson: DesktopPackageConfig): string[] {
+  const violations: string[] = [];
+  if (packageJson.dependencies?.['@typescript/old'] !== 'catalog:') {
+    violations.push('desktop must ship the classic TypeScript implementation as a dependency');
+  }
+
+  const asarUnpack = packageJson.build?.asarUnpack ?? [];
+  for (const requiredPattern of [
+    '**/node_modules/@typescript/old/**',
+    '**/node_modules/typescript-language-server/**',
+    '**/node_modules/typescript/**',
+  ]) {
+    if (!asarUnpack.includes(requiredPattern)) {
+      violations.push(`desktop must unpack ${requiredPattern}`);
+    }
+  }
+  return violations;
+}
+
+function readDesktopPackageConfig(): DesktopPackageConfig {
+  return JSON.parse(
+    fs.readFileSync(path.resolve(import.meta.dirname, '../../package.json'), 'utf8')
+  ) as DesktopPackageConfig;
+}
+
 /**
  * Contract for the bundled main-process build (Electron performance checklist
  * recipe 7: "Bundle your code"). The runtime resolves these outputs by exact
  * path, so the entry list and output layout must stay pinned:
  * - package.json "main" → dist/main.js
- * - BrowserWindow preload → dist/preload.js (visible window AND hidden hosts)
+ * - visible BrowserWindow preload → dist/preload.js
+ * - hidden renderer host preload → dist/hidden-preload.js
+ * - main-thread watchdog worker → dist/main-watchdog-worker.js
  * - utilityProcess.fork sibling lookups → dist/db-host-entry.js,
  *   dist/parser-host-entry.js (resolved relative to module.filename of the
  *   bundled main.js, so outputs must stay FLAT in dist/)
@@ -20,21 +52,44 @@ describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
       'db-host-entry': 'src/db-host-entry.ts',
+      'hidden-preload': 'src/hidden-preload.ts',
       main: 'src/main-bootstrap.ts',
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
+      'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
     });
   });
 
-  it('unpacks the logging transport worker for a plain packaged-worker path', () => {
-    const packageJson = JSON.parse(
-      fs.readFileSync(path.resolve(import.meta.dirname, '../../package.json'), 'utf8')
-    ) as {
-      build?: { asarUnpack?: readonly string[] };
+  it('unpacks worker-thread entries for plain packaged-worker paths', () => {
+    const packageJson = readDesktopPackageConfig();
+
+    expect(packageJson.build?.asarUnpack).toEqual(
+      expect.arrayContaining(['dist/main-log-transport.js', 'dist/main-watchdog-worker.js'])
+    );
+  });
+
+  it('ships and unpacks the classic TypeScript server used by LSP diagnostics', () => {
+    expect(packagedTypeScriptServerViolations(readDesktopPackageConfig())).toEqual([]);
+  });
+
+  it('money test: an omitted TypeScript implementation or unpack rule fails loudly', () => {
+    const packageJson = readDesktopPackageConfig();
+    const mutatedPackage = {
+      ...packageJson,
+      build: {
+        ...packageJson.build,
+        asarUnpack: packageJson.build?.asarUnpack?.filter(
+          (pattern) => pattern !== '**/node_modules/@typescript/old/**'
+        ),
+      },
+      dependencies: { ...packageJson.dependencies, '@typescript/old': '^6' },
     };
 
-    expect(packageJson.build?.asarUnpack).toContain('dist/main-log-transport.js');
+    expect(packagedTypeScriptServerViolations(mutatedPackage)).toEqual([
+      'desktop must ship the classic TypeScript implementation as a dependency',
+      'desktop must unpack **/node_modules/@typescript/old/**',
+    ]);
   });
 
   it('bundles app code only, as flat CJS for the Electron main process', () => {
@@ -61,14 +116,17 @@ describe('main-process bundle config', () => {
     expect(MAIN_PROCESS_BUILD_OPTIONS.tsconfigRaw).toBe('{}');
   });
 
-  it('inlines @brainstrike/notes-vault/core from source (sole packages-external exception)', () => {
-    // The notes-vault dist is bundler-target ESM with extensionless relative
-    // imports — Node's runtime resolver cannot require() it from the CJS main
-    // bundle, so this ONE subpath is aliased to source and bundled. Dropping
-    // the alias would crash app launch on the welcome-note constants import
-    // in notes-vault-ipc-handlers.ts.
+  it('inlines the two audited ESM-only main-process subpaths from source', () => {
     const aliases = MAIN_PROCESS_BUILD_OPTIONS.alias as Record<string, string>;
-    expect(Object.keys(aliases)).toEqual(['@brainstrike/notes-vault/core']);
+    expect(Object.keys(aliases)).toEqual([
+      '@brainstrike/assistant-data/assistant-thread-run-reaper',
+      '@brainstrike/notes-vault/core',
+    ]);
+    expect(
+      aliases['@brainstrike/assistant-data/assistant-thread-run-reaper']?.endsWith(
+        path.join('packages', 'assistant-data', 'src', 'assistant-thread-run-reaper.ts')
+      )
+    ).toBe(true);
     expect(
       aliases['@brainstrike/notes-vault/core']?.endsWith(
         path.join('packages', 'notes-vault', 'src', 'core', 'index.ts')

@@ -1,6 +1,6 @@
 import * as React from 'react';
+import { useResolvedTheme } from '../hooks/use-resolved-theme';
 import { Popover, PopoverContent, PopoverTrigger } from '../popover';
-import { useTheme } from '../theme-provider';
 import { ModelPickerContent } from './model-picker-content';
 import { ModelPickerTrigger } from './model-picker-trigger';
 import type { ModelPickerProps } from './types';
@@ -21,21 +21,7 @@ export function ModelPicker({
 }: ModelPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
-  const { theme: configuredTheme } = useTheme();
-
-  const [resolvedTheme, setResolvedTheme] = React.useState<'light' | 'dark'>('light');
-
-  React.useEffect(() => {
-    if (configuredTheme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      setResolvedTheme(mediaQuery.matches ? 'dark' : 'light');
-      const handler = (e: MediaQueryListEvent) => setResolvedTheme(e.matches ? 'dark' : 'light');
-      mediaQuery.addEventListener('change', handler);
-      return () => mediaQuery.removeEventListener('change', handler);
-    }
-    setResolvedTheme(configuredTheme);
-    return;
-  }, [configuredTheme]);
+  const resolvedTheme = useResolvedTheme();
 
   const filteredModels = React.useMemo(
     () => filterModels(models, searchQuery, modelType),

@@ -449,6 +449,120 @@ describe('ThreadSearchRepository', () => {
     });
   });
 
+  describe('soft-rewind tombstones (BST-1115)', () => {
+    async function tombstone(messageId: string, threadId: string): Promise<void> {
+      await db.query(
+        `INSERT INTO brainstrike_assistant_message_tombstones (message_id, thread_id, rewind_id)
+         VALUES ($1, $2, 'rewind-1')`,
+        [messageId, threadId]
+      );
+    }
+
+    async function undoRewind(): Promise<void> {
+      await db.query(
+        `DELETE FROM brainstrike_assistant_message_tombstones WHERE rewind_id = 'rewind-1'`
+      );
+    }
+
+    beforeEach(async () => {
+      await seedThread('thread-rewind', 'Rewound conversation');
+      await seedMessage({
+        content: v2Content('We should tune hnsw ef_search and iterative scan for recall.'),
+        id: 'msg-kept',
+        role: 'assistant',
+        threadId: 'thread-rewind',
+      });
+      await seedMessage({
+        content: v2Content('Actually tune hnsw the other way, ignore the iterative scan.'),
+        id: 'msg-rewound',
+        role: 'assistant',
+        threadId: 'thread-rewind',
+      });
+      await repository.sync();
+    });
+
+    it('drops a tombstoned message from the lexical arm', async () => {
+      await tombstone('msg-rewound', 'thread-rewind');
+
+      const matches = await repository.fullTextSearch('hnsw', {
+        limit: 10,
+        resourceId: RESOURCE_ID,
+      });
+
+      expect(matches.map((match) => match.messageId)).toEqual(['msg-kept']);
+    });
+
+    it('drops a tombstoned message from the semantic arm', async () => {
+      await repository.storeEmbedding({
+        contentHash: await currentHash('msg-kept'),
+        embedding: vec(1),
+        messageId: 'msg-kept',
+        modelKey: PROFILE_MODEL_KEY,
+      });
+      await repository.storeEmbedding({
+        contentHash: await currentHash('msg-rewound'),
+        embedding: vec(1),
+        messageId: 'msg-rewound',
+        modelKey: PROFILE_MODEL_KEY,
+      });
+      await tombstone('msg-rewound', 'thread-rewind');
+
+      const matches = await repository.searchSimilar(vec(1), {
+        limit: 10,
+        resourceId: RESOURCE_ID,
+        threshold: 0.5,
+      });
+
+      expect(matches.map((match) => match.messageId)).toEqual(['msg-kept']);
+    });
+
+    it('restores both arms when the rewind batch is undone (redo)', async () => {
+      await repository.storeEmbedding({
+        contentHash: await currentHash('msg-rewound'),
+        embedding: vec(1),
+        messageId: 'msg-rewound',
+        modelKey: PROFILE_MODEL_KEY,
+      });
+      await tombstone('msg-rewound', 'thread-rewind');
+      await undoRewind();
+
+      const lexical = await repository.fullTextSearch('hnsw', {
+        limit: 10,
+        resourceId: RESOURCE_ID,
+      });
+      const semantic = await repository.searchSimilar(vec(1), {
+        limit: 10,
+        resourceId: RESOURCE_ID,
+        threshold: 0.5,
+      });
+
+      expect(lexical.map((match) => match.messageId).sort()).toEqual(['msg-kept', 'msg-rewound']);
+      expect(semantic.map((match) => match.messageId)).toEqual(['msg-rewound']);
+    });
+
+    it('keeps the index row and its embedding while the message is hidden', async () => {
+      await repository.storeEmbedding({
+        contentHash: await currentHash('msg-rewound'),
+        embedding: vec(1),
+        messageId: 'msg-rewound',
+        modelKey: PROFILE_MODEL_KEY,
+      });
+      await tombstone('msg-rewound', 'thread-rewind');
+
+      // Filtering happens at the SEARCH ARMS only. If sync skipped tombstoned
+      // rows instead, the source/index count fast path would never agree again
+      // and redo would owe a re-embed. Both must hold: a second pass reports no
+      // work, and the vector survives.
+      const result = await repository.sync();
+      expect(result).toMatchObject({ deletedOrphans: 0, inserted: 0 });
+      const rows = await db.query<{ embedded: boolean }>(
+        `SELECT embedding IS NOT NULL AS embedded
+         FROM brainstrike_thread_message_index WHERE message_id = 'msg-rewound'`
+      );
+      expect(rows.rows[0]?.embedded).toBe(true);
+    });
+  });
+
   describe('embedding lifecycle', () => {
     it('lists pending rows newest-first and CASes stores on content hash', async () => {
       await seedThread('thread-1', 'Pending');

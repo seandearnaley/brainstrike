@@ -92,7 +92,6 @@ Current coverage: ~30% overall (100% for testable renderer components)
 - File system and storage adapters return predictable mock data
 
 ### React Dependencies
-- `react-helmet-async`: Mocked to avoid SSR complexity
 - `react-router-dom`: Mocked with basic navigation functions
 - `@brainstrike/*` packages: Mocked with simple component stubs
 

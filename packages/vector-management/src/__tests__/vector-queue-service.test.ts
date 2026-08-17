@@ -1,6 +1,6 @@
 import type { Job } from '@brainstrike/db';
 import { checkApiKeyAvailability } from '@brainstrike/embeddings';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils/logger';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   calculateLatency,

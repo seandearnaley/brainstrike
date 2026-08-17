@@ -1,4 +1,5 @@
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import {
   createDeferredDimensionIndexBuilder,
   type DeferredDimensionIndexBuilder,

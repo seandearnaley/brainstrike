@@ -1,0 +1,70 @@
+import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SystemDiagnosticsPanel } from '../diagnostics/system-diagnostics-panel';
+
+vi.mock('@brainstrike/vector-management', () => ({
+  QueueDiagnosticsPanel: () => <div>Queue Diagnostics Mock</div>,
+}));
+
+vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
+  useOptionalTokenCacheContext: () => null,
+}));
+
+describe('SystemDiagnosticsPanel embedding provider errors', () => {
+  afterEach(() => {
+    (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
+    (window as Window & { embeddingHost?: unknown }).embeddingHost = undefined;
+  });
+
+  it('surfaces desktop embedding telemetry provider failures', async () => {
+    (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
+      getSnapshot: vi.fn(async () => ({
+        collectedAt: '2026-08-01T00:00:00.000Z',
+        embeddingHost: {
+          active: false,
+          lastError: null,
+          pendingRequestCount: 0,
+          runtimeId: 'embedding-host:idle',
+          runtimeKind: 'embedding-host',
+          sourceState: 'running',
+          state: 'idle',
+        },
+        errors: { embeddingTelemetry: 'embedding telemetry unavailable' },
+        llmHost: {
+          active: false,
+          lastError: null,
+          pendingRequestCount: 0,
+          runtimeId: 'llm-host:idle',
+          runtimeKind: 'llm-host',
+          sourceState: 'running',
+          state: 'idle',
+        },
+        reset: { userDataPath: '/tmp/brainstrike-user-data' },
+        telemetry: {
+          backgroundRuntimeMetrics: [],
+          embedding: {
+            batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
+            cache: {
+              entries: [],
+              estimatedGpuBytes: 0,
+              estimatedHeapBytes: 0,
+              memoryEstimateUnavailableCount: 0,
+              residentCount: 0,
+            },
+            health: { failureCount: 0, lastFailure: null },
+            lastUpdatedAt: null,
+            peakVectorsInFlight: 0,
+          },
+        },
+      })),
+    };
+    (window as Window & { embeddingHost?: unknown }).embeddingHost = {
+      onStatus: vi.fn(() => () => undefined),
+    };
+
+    render(<SystemDiagnosticsPanel />);
+
+    expect(await screen.findByText('Embedding telemetry unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('embedding telemetry unavailable');
+  });
+});

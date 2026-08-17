@@ -24,6 +24,18 @@ describe('file-explorer-ui index exports', () => {
     expect(indexSource).toContain("export * from './tree';");
   });
 
+  it('exports the preview summary without the stale footer component name', () => {
+    expect(index).toHaveProperty('PreviewPanelSummary');
+    expect(index).not.toHaveProperty('PreviewPanelFooter');
+  });
+
+  it('does not expose retired preview footer-height helpers', () => {
+    expect(index).not.toHaveProperty('PREVIEW_FOOTER_HEIGHTS');
+    expect(index).not.toHaveProperty('clampPreviewFooterHeight');
+    expect(index).not.toHaveProperty('getPreviewFooterModeHeight');
+    expect(index).not.toHaveProperty('inferPreviewFooterMode');
+  });
+
   it('documents ownership for each public slice barrel', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const publicSlices = ['indexing', 'preview', 'shell', 'tree'] as const;
@@ -113,17 +125,11 @@ describe('file-explorer-ui index exports', () => {
   it('keeps preview implementation files inside the preview slice', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const previewImplementationMoves = [
-      ['hooks/use-preview-panel-persistence.ts', 'preview/use-preview-panel-persistence.ts'],
       ['hooks/use-preview-panel-preferences.ts', 'preview/use-preview-panel-preferences.ts'],
       ['hooks/use-preview-panel-report-actions.ts', 'preview/use-preview-panel-report-actions.ts'],
-      ['preview-column-visibility-controls.tsx', 'preview/preview-column-visibility-controls.tsx'],
-      ['preview-column-visibility.ts', 'preview/preview-column-visibility.ts'],
-      ['preview-footer-layout.ts', 'preview/preview-footer-layout.ts'],
-      ['preview-panel-footer.tsx', 'preview/preview-panel-footer.tsx'],
+      ['preview-footer-layout.ts', 'preview/preview-summary-mode.ts'],
+      ['preview-panel-footer.tsx', 'preview/preview-panel-summary.tsx'],
       ['preview-panel.tsx', 'preview/preview-panel.tsx'],
-      ['preview-table-row.tsx', 'preview/preview-table-row.tsx'],
-      ['preview-table.tsx', 'preview/preview-table.tsx'],
-      ['preview-view-toolbar.tsx', 'preview/preview-view-toolbar.tsx'],
       ['use-preview-panel-state.ts', 'preview/use-preview-panel-state.ts'],
     ] as const;
 
@@ -133,9 +139,14 @@ describe('file-explorer-ui index exports', () => {
     const missingPreviewFiles = previewImplementationMoves
       .map(([, previewPath]) => previewPath)
       .filter((filePath) => !existsSync(path.join(sourceRoot, filePath)));
+    const stalePreviewFiles = [
+      'preview/preview-footer-layout.ts',
+      'preview/preview-panel-footer.tsx',
+    ].filter((filePath) => existsSync(path.join(sourceRoot, filePath)));
 
     expect(legacyFiles).toEqual([]);
     expect(missingPreviewFiles).toEqual([]);
+    expect(stalePreviewFiles).toEqual([]);
   });
 
   it('keeps indexing implementation files inside the indexing slice', () => {
@@ -180,7 +191,13 @@ describe('file-explorer-ui index exports', () => {
       ['use-file-system-context.ts', 'shell/use-file-system-context.ts'],
       ['use-selection-manager-context.ts', 'shell/use-selection-manager-context.ts'],
       ['workspace-app.ts', 'shell/workspace-app.ts'],
-      ['workspace-tab-host.tsx', 'shell/workspace-tab-host.tsx'],
+      // BST-1258 split the former workspace-tab-host.tsx into a controller
+      // context, strip, body, launcher, and file-tab-body — all shell-sliced.
+      ['workspace-tabs-context.tsx', 'shell/workspace-tabs-context.tsx'],
+      ['workspace-tab-strip.tsx', 'shell/workspace-tab-strip.tsx'],
+      ['workspace-body.tsx', 'shell/workspace-body.tsx'],
+      ['workspace-launcher.tsx', 'shell/workspace-launcher.tsx'],
+      ['file-tab-body.tsx', 'shell/file-tab-body.tsx'],
     ] as const;
 
     const legacyFiles = shellImplementationMoves
@@ -231,7 +248,9 @@ describe('file-explorer-ui index exports', () => {
 
     expect(shell.FileExplorerProvider).toBe(index.FileExplorerProvider);
     expect(shell.FileExplorerPanel).toBe(index.FileExplorerPanel);
-    expect(shell.WorkspaceTabHost).toBe(index.WorkspaceTabHost);
+    expect(shell.WorkspaceTabsProvider).toBe(index.WorkspaceTabsProvider);
+    expect(shell.WorkspaceTabStrip).toBe(index.WorkspaceTabStrip);
+    expect(shell.WorkspaceBody).toBe(index.WorkspaceBody);
     expect(shell.useFileExplorer).toBe(index.useFileExplorer);
     expect(shell.useFileSystem).toBe(index.useFileSystem);
     expect(shell.useSelectionManager).toBe(index.useSelectionManager);

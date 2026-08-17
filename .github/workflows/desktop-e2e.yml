@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '53 7 * * *'
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Desktop E2E suite to run
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - memory-baseline
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,50 +35,18 @@ env:
 jobs:
   desktop-full-regression:
     name: Desktop Full Regression
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    # NOT folded into the setup-workspace composite (Series C R9a): the
-    # Electron-version lookup + binary cache below must run BETWEEN Node setup
-    # and `pnpm install`, which the composite's fixed step order cannot
-    # express — see the matching note in test.yml's desktop-e2e job. The
-    # turbo cache step keeps its own literal YAML too, re-keyed on
-    # lockfile+turbo.jsonc content (same pattern as the composite) instead of
-    # a private per-job-per-sha key.
+    # 30m broad regression + 2m AI Tools nightly lane + setup/build headroom.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-turbo-
-
-      - name: Get Electron version
-        id: electron-version
-        run: |
-          version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Electron binaries
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       - name: Build desktop
         run: pnpm run build --filter @brainstrike/desktop
@@ -83,24 +60,22 @@ jobs:
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 
-      # Provision the Electron binary deterministically. electron/install.js is
-      # unreliable in CI: on an @electron/get cache hit it can exit 0 without
-      # completing extraction, leaving no dist/ or path.txt, so the app throws
-      # "Electron failed to install correctly". Download the prebuilt zip from
-      # GitHub Releases (reliable host, NOT the Playwright CDN), extract it, and
-      # hard-verify the executable exists before the test launches it.
+      # Electron 43 exposes install.js only as a bin and has no install lifecycle,
+      # so pnpm cannot provision the binary. Download the prebuilt zip from
+      # GitHub Releases, extract it, and hard-verify the executable before launch.
       - name: Provision Electron binary
         working-directory: apps/desktop
         run: |
           set -euo pipefail
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
           URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
           echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
-          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
           printf 'electron' > "${DIR}/path.txt"
           node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
@@ -130,37 +105,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Cache Turbo artifacts
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-turbo-
-
-      - name: Get Electron version
-        id: electron-version
-        run: |
-          version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Electron binaries
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          turbo-cache: 'true'
 
       - name: Build desktop
         run: pnpm run build --filter @brainstrike/desktop
@@ -174,24 +122,22 @@ jobs:
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 
-      # Provision the Electron binary deterministically. electron/install.js is
-      # unreliable in CI: on an @electron/get cache hit it can exit 0 without
-      # completing extraction, leaving no dist/ or path.txt, so the app throws
-      # "Electron failed to install correctly". Download the prebuilt zip from
-      # GitHub Releases (reliable host, NOT the Playwright CDN), extract it, and
-      # hard-verify the executable exists before the test launches it.
+      # Electron 43 exposes install.js only as a bin and has no install lifecycle,
+      # so pnpm cannot provision the binary. Download the prebuilt zip from
+      # GitHub Releases, extract it, and hard-verify the executable before launch.
       - name: Provision Electron binary
         working-directory: apps/desktop
         run: |
           set -euo pipefail
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
           URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
           echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
-          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
           printf 'electron' > "${DIR}/path.txt"
           node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
@@ -199,20 +145,35 @@ jobs:
       # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
       - name: Run desktop embedding regression
         working-directory: apps/desktop
+        env:
+          DESKTOP_E2E_SUITE: ${{ inputs.suite || 'full' }}
         run: |
           unset NO_COLOR
-          BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
-            e2e/embedding-worker-renderer.smoke.desktop.test.ts \
-            e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
-            e2e/embedding-worker-renderer.memory.desktop.test.ts \
-            e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
-            e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
-            --project=regression \
-            --workers=1 \
-            --retries=0 \
-            --max-failures=1 \
-            --global-timeout=3000000 \
-            --grep="@desktop-embedding-"
+          if [[ "$DESKTOP_E2E_SUITE" == "memory-baseline" ]]; then
+            BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
+              e2e/embedding-worker-renderer.memory.desktop.test.ts \
+              --project=regression \
+              --workers=1 \
+              --retries=0 \
+              --max-failures=0 \
+              --global-timeout=3000000 \
+              --grep="@desktop-embedding-memory"
+          else
+            BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
+              e2e/embedding-worker-renderer.smoke.desktop.test.ts \
+              e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
+              e2e/embedding-worker-renderer.memory.desktop.test.ts \
+              e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
+              e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
+              e2e/embedding-worker-renderer.crash-b.desktop.test.ts \
+              e2e/embedding-backfill-capacity.desktop.test.ts \
+              --project=regression \
+              --workers=1 \
+              --retries=0 \
+              --max-failures=1 \
+              --global-timeout=3000000 \
+              --grep="@desktop-embedding-"
+          fi
 
       - name: Upload desktop embedding traces
         if: failure()

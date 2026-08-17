@@ -544,7 +544,7 @@ describe('run persistence through the HTTP path', () => {
     let insertSettled = false;
     let eventYieldedBeforeInsertSettled = false;
 
-    mockDesktopDatabase.query.mockImplementation((sql: unknown) => {
+    mockDesktopDatabase.query.mockImplementation(((sql: unknown) => {
       if (typeof sql === 'string' && sql.includes('INSERT INTO brainstrike_assistant_run_events')) {
         return new Promise<void>((resolve) => {
           resolveInsert = () => {
@@ -554,7 +554,7 @@ describe('run persistence through the HTTP path', () => {
         });
       }
       return Promise.resolve({ rows: [] });
-    });
+    }) as unknown as (...args: unknown[]) => Promise<{ rows: unknown[] }>);
     (convertAssistantUiMessages as Mock).mockReturnValueOnce([
       { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },
     ]);

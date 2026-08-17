@@ -113,9 +113,12 @@ describe('resolveToolRiskCategory', () => {
         'brainstrike.stringReplaceWorkspaceFile',
         'brainstrike.deleteWorkspaceFile',
         'brainstrike.renameWorkspaceFile',
+        // Canvas mutations persist durable state → 'edit' (PR #2294 review).
+        'brainstrike.manageCanvas',
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
         'brainstrike.manageCommandSession',
+        'brainstrike.runPython',
         'brainstrike.runSkillScript',
       ]);
       const readTools = entries.filter(([id]) => !explicitlyNonRead.has(id));
@@ -139,6 +142,8 @@ describe('buildNativeToolRiskMap', () => {
     'brainstrike.stringReplaceWorkspaceFile',
     'brainstrike.deleteWorkspaceFile',
     'brainstrike.renameWorkspaceFile',
+    // Canvas mutations persist durable state → 'edit' (PR #2294 review).
+    'brainstrike.manageCanvas',
   ];
 
   it('maps every native tool id to its resolved risk category', () => {
@@ -166,11 +171,13 @@ describe('buildNativeToolRiskMap', () => {
     expect(riskByTool['brainstrike.executeCommand']).toBe('execute');
     expect(riskByTool['brainstrike.manageCommandSession']).toBe('execute');
     expect(riskByTool['brainstrike.runSkillScript']).toBe('execute');
+    expect(riskByTool['brainstrike.runPython']).toBe('execute');
 
     const nonRead = new Set<string>([
       ...EDIT_TOOLS,
       'brainstrike.executeCommand',
       'brainstrike.manageCommandSession',
+      'brainstrike.runPython',
       'brainstrike.runSkillScript',
     ]);
     const readTools = Object.keys(riskByTool).filter((id) => !nonRead.has(id));
@@ -193,6 +200,12 @@ describe('buildNativeToolRiskMap', () => {
     expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageTaskList']?.category).toBe('action');
     expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageTaskList']?.requiresApproval).toBe(false);
     expect(buildNativeToolRiskMap()['brainstrike.manageTaskList']).toBe('read');
+  });
+
+  it("classifies manageCanvas as 'edit': durable writes must not be plan-mode/default-allow (PR #2294)", () => {
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageCanvas']?.category).toBe('action');
+    expect(NATIVE_TOOL_DEFAULTS['brainstrike.manageCanvas']?.requiresApproval).toBe(false);
+    expect(buildNativeToolRiskMap()['brainstrike.manageCanvas']).toBe('edit');
   });
 });
 

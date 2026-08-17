@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { PROVIDER_RUN_ERROR_FALLBACK_CODE } from '../../provider-error-metadata';
+import {
+  LOCAL_RUN_ERROR_FALLBACK_CODE,
+  PROVIDER_RUN_ERROR_FALLBACK_CODE,
+} from '../../provider-error-metadata';
 import type { RuntimeData, StreamChunkTool } from '../../types';
 import {
   asMastraStreamPart,
@@ -49,14 +52,12 @@ describe('asMastraStreamPart', () => {
     expect(asMastraStreamPart(part)).toBe(part);
   });
 
-  it.each([
-    [null],
-    [undefined],
-    ['text-delta'],
-    [42],
-  ])('maps the non-object %p to an unknown-typed part', (value) => {
-    expect(asMastraStreamPart(value)).toEqual({ type: 'unknown' });
-  });
+  it.each([[null], [undefined], ['text-delta'], [42]])(
+    'maps the non-object %p to an unknown-typed part',
+    (value) => {
+      expect(asMastraStreamPart(value)).toEqual({ type: 'unknown' });
+    }
+  );
 });
 
 describe('readFinishReason', () => {
@@ -397,12 +398,21 @@ describe('resolveProviderError', () => {
     expect(anthropic.detail).toBe('slow down');
   });
 
-  it('omits the prefix when OpenRouter yielded only the fallback code', () => {
-    const { detail, runError } = resolveProviderError(new Error('opaque'), {
+  it('omits the prefix when OpenRouter yielded only a fallback classification', () => {
+    // A bare Error carries no provider response evidence, so it classifies as
+    // a local error — and the local code is a classification, not a stable
+    // provider code, so it must never be prefixed onto the visible detail.
+    const local = resolveProviderError(new Error('opaque'), {
       provider: 'openrouter',
     } as RuntimeData);
-    expect(runError.code).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
-    expect(detail).toBe('opaque');
+    expect(local.runError.code).toBe(LOCAL_RUN_ERROR_FALLBACK_CODE);
+    expect(local.detail).toBe('opaque');
+
+    const provider = resolveProviderError({ message: 'opaque', statusCode: 500 }, {
+      provider: 'openrouter',
+    } as RuntimeData);
+    expect(provider.runError.code).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
+    expect(provider.detail).toBe('opaque');
   });
 });
 
@@ -413,9 +423,23 @@ describe('buildProviderErrorDiagnosticCode', () => {
     ).toBe(`${PROVIDER_RUN_ERROR_FALLBACK_CODE}:429`);
   });
 
+  it('reports the local classification code on its own, never nested under the provider prefix', () => {
+    expect(buildProviderErrorDiagnosticCode({ code: LOCAL_RUN_ERROR_FALLBACK_CODE })).toBe(
+      `${LOCAL_RUN_ERROR_FALLBACK_CODE}:no_status`
+    );
+  });
+
   it('marks a missing http status explicitly rather than emitting undefined', () => {
     expect(buildProviderErrorDiagnosticCode({ code: 'rate_limited' })).toBe(
       'mastra_agent_stream_provider_error:rate_limited:no_status'
+    );
+  });
+
+  it('namespaces the local-model tool-arguments fault under the local classification', () => {
+    // local_tool_call_arguments_invalid is raised before anything crosses to a
+    // provider — it must not wear the provider prefix in the log fingerprint.
+    expect(buildProviderErrorDiagnosticCode({ code: 'local_tool_call_arguments_invalid' })).toBe(
+      `${LOCAL_RUN_ERROR_FALLBACK_CODE}:local_tool_call_arguments_invalid:no_status`
     );
   });
 });
@@ -544,13 +568,14 @@ describe('purity', () => {
     ],
   ];
 
-  it.each(
-    cases
-  )('%s is referentially transparent and never mutates a frozen argument', (_name, run) => {
-    // A deep-frozen argument makes any in-place write throw in ESM strict
-    // mode, and two identical results rule out a clock/uuid/counter.
-    expect(run()).toEqual(run());
-  });
+  it.each(cases)(
+    '%s is referentially transparent and never mutates a frozen argument',
+    (_name, run) => {
+      // A deep-frozen argument makes any in-place write throw in ESM strict
+      // mode, and two identical results rule out a clock/uuid/counter.
+      expect(run()).toEqual(run());
+    }
+  );
 });
 
 describe('purity is structural, not just observed', () => {

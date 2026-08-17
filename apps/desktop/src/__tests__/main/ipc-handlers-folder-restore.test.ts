@@ -1,247 +1,86 @@
-import path from 'node:path';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock Electron modules first
+type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
+const handlers = new Map<string, IpcHandler>();
+
 vi.mock('electron', () => ({
-  app: {
-    getPath: vi.fn(),
-  },
+  app: { getPath: vi.fn() },
   ipcMain: {
-    handle: vi.fn(),
+    handle: vi.fn((channel: string, handler: IpcHandler) => {
+      handlers.set(channel, handler);
+    }),
   },
 }));
 
-import { ipcMain } from 'electron';
-// Import after mocking
 import { registerIpcHandlers } from '../../ipc-handlers';
 
-function resolveTestPath(testPath: string): string {
-  return path.resolve(testPath);
-}
-
-describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
-  let mockFileSystem: ElectronFileSystemAdapter;
-  let mockStorage: ElectronStorageAdapter;
-  let mockStore: Record<string, unknown>;
-  let registeredHandlers: Map<string, (...args: unknown[]) => unknown>;
+describe('IPC handlers - last-folder preference', () => {
+  let fileSystem: ElectronFileSystemAdapter;
+  let storage: ElectronStorageAdapter;
+  let storedValues: Map<string, string>;
 
   beforeEach(() => {
+    handlers.clear();
     vi.clearAllMocks();
-    registeredHandlers = new Map();
-
-    // Mock IPC main to capture registered handlers
-    const mockIpcMain = vi.mocked(ipcMain);
-    mockIpcMain.handle.mockImplementation(
-      (channel: string, handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => {
-        registeredHandlers.set(channel, (...args: unknown[]) =>
-          handler({} as IpcMainInvokeEvent, ...args)
-        );
-      }
-    );
-
-    // Mock file system adapter
-    mockFileSystem = {
-      exists: vi.fn(),
-      readDirectory: vi.fn(),
-      readFile: vi.fn(),
-      requestDirectoryAccess: vi.fn(),
+    process.env['NODE_ENV'] = 'development';
+    storedValues = new Map();
+    fileSystem = {
+      exists: vi.fn(async () => true),
+      readDirectory: vi.fn(async () => []),
+      readFile: vi.fn(async () => ''),
+      requestDirectoryAccess: vi.fn(async () => ({
+        kind: 'directory',
+        name: 'workspace',
+        path: '/test/workspace',
+        platform: 'electron',
+      })),
       watchDirectory: vi.fn(),
-    } as ElectronFileSystemAdapter;
-
-    // Mock storage adapter with proper vitest mock functions
-    mockStorage = {
-      clear: vi.fn(),
-      getAllKeys: vi.fn(),
-      getItem: vi.fn(),
-      removeItem: vi.fn(),
-      setItem: vi.fn(),
+    } as unknown as ElectronFileSystemAdapter;
+    storage = {
+      clear: vi.fn(async () => storedValues.clear()),
+      getAllKeys: vi.fn(async () => [...storedValues.keys()]),
+      getItem: vi.fn(async (key: string) => storedValues.get(key) ?? null),
+      removeItem: vi.fn(async (key: string) => storedValues.delete(key)),
+      setItem: vi.fn(async (key: string, value: string) => {
+        storedValues.set(key, value);
+      }),
     } as unknown as ElectronStorageAdapter;
-
-    // Mock store
-    mockStore = {} as Record<string, unknown>;
-
-    // Register handlers
-    registerIpcHandlers(mockFileSystem, mockStorage, mockStore as never);
+    registerIpcHandlers(fileSystem, storage, () => null);
   });
 
-  describe('fs:restoreLastFolder handler', () => {
-    it('should register the restoreLastFolder handler', () => {
-      expect(registeredHandlers.has('fs:restoreLastFolder')).toBe(true);
-    });
-
-    it('should return null when no last folder path is stored', async () => {
-      vi.mocked(mockStorage.getItem).mockResolvedValue(null);
-
-      const handler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await handler?.();
-
-      expect(mockStorage.getItem).toHaveBeenCalledWith('lastFolderPath');
-      expect(result).toBeNull();
-    });
-
-    it('should return null when stored folder path does not exist', async () => {
-      const testPath = '/test/folder/path';
-      const resolvedPath = resolveTestPath(testPath);
-      vi.mocked(mockStorage.getItem).mockResolvedValue(testPath);
-      vi.mocked(mockFileSystem.exists).mockResolvedValue(false);
-
-      const handler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await handler?.();
-
-      expect(mockStorage.getItem).toHaveBeenCalledWith('lastFolderPath');
-      expect(mockFileSystem.exists).toHaveBeenCalledWith(resolvedPath);
-      expect(mockStorage.removeItem).toHaveBeenCalledWith('lastFolderPath');
-      expect(result).toBeNull();
-    });
-
-    it('should return DirectoryHandle when stored folder exists', async () => {
-      const testPath = '/test/folder/path';
-      const resolvedPath = resolveTestPath(testPath);
-      const expectedHandle: DirectoryHandle = {
-        kind: 'directory' as const,
-        name: path.basename(resolvedPath),
-        path: resolvedPath,
-        platform: 'electron' as const,
-      };
-
-      vi.mocked(mockStorage.getItem).mockResolvedValue(testPath);
-      vi.mocked(mockFileSystem.exists).mockResolvedValue(true);
-
-      const handler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await handler?.();
-
-      expect(mockStorage.getItem).toHaveBeenCalledWith('lastFolderPath');
-      expect(mockFileSystem.exists).toHaveBeenCalledWith(resolvedPath);
-      expect(mockStorage.removeItem).not.toHaveBeenCalled();
-      expect(result).toEqual(expectedHandle);
-    });
-
-    it('should propagate storage read errors', async () => {
-      vi.mocked(mockStorage.getItem).mockRejectedValue(new Error('Storage error'));
-
-      const handler = registeredHandlers.get('fs:restoreLastFolder');
-
-      await expect(handler?.()).rejects.toThrow('Storage error');
-      expect(mockStorage.getItem).toHaveBeenCalledWith('lastFolderPath');
-      expect(mockFileSystem.exists).not.toHaveBeenCalled();
-    });
-
-    it('should handle file system exists check errors gracefully', async () => {
-      const testPath = '/test/folder/path';
-      vi.mocked(mockStorage.getItem).mockResolvedValue(testPath);
-      vi.mocked(mockFileSystem.exists).mockRejectedValue(new Error('File system error'));
-
-      const handler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await handler?.();
-
-      expect(result).toBeNull();
-    });
+  it('registers the last-folder channels', () => {
+    expect(handlers.has('fs:restoreLastFolder')).toBe(true);
+    expect(handlers.has('fs:saveLastFolder')).toBe(true);
   });
 
-  describe('fs:saveLastFolder handler', () => {
-    it('should register the saveLastFolder handler', () => {
-      expect(registeredHandlers.has('fs:saveLastFolder')).toBe(true);
-    });
+  it('does not let lastFolderPath create a second root authority', async () => {
+    storedValues.set('lastFolderPath', '/test/workspace');
 
-    it('should save folder path to storage', async () => {
-      const testPath = '/test/folder/path';
-      const resolvedPath = resolveTestPath(testPath);
-      vi.mocked(mockStorage.setItem).mockResolvedValue(undefined);
-
-      const handler = registeredHandlers.get('fs:saveLastFolder');
-      await handler?.(testPath);
-
-      expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
-    });
-
-    it('should propagate storage write errors', async () => {
-      const testPath = '/test/folder/path';
-      const resolvedPath = resolveTestPath(testPath);
-      vi.mocked(mockStorage.setItem).mockRejectedValue(new Error('Storage error'));
-
-      const handler = registeredHandlers.get('fs:saveLastFolder');
-
-      await expect(handler?.(testPath)).rejects.toThrow('Storage error');
-      expect(mockStorage.setItem).toHaveBeenCalledWith('lastFolderPath', resolvedPath);
-    });
+    await expect(
+      handlers.get('fs:restoreLastFolder')?.({} as IpcMainInvokeEvent)
+    ).resolves.toBeNull();
+    await expect(
+      handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, '/test/workspace')
+    ).rejects.toThrow('must reference a persisted mounted root');
+    expect(storedValues.has('rootsList')).toBe(false);
   });
 
-  describe('Integration scenarios', () => {
-    it('should handle save and restore cycle correctly', async () => {
-      const testPath = '/test/folder/path';
-      const resolvedPath = resolveTestPath(testPath);
+  it('saves and restores only a root already mounted by the registry', async () => {
+    const descriptor = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as {
+      handle: DirectoryHandle;
+    };
 
-      // Save folder path
-      vi.mocked(mockStorage.setItem).mockResolvedValue(undefined);
-      const saveHandler = registeredHandlers.get('fs:saveLastFolder');
-      await saveHandler?.(testPath);
+    await handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, descriptor.handle.path);
 
-      // Restore folder path
-      vi.mocked(mockStorage.getItem).mockResolvedValue(testPath);
-      vi.mocked(mockFileSystem.exists).mockResolvedValue(true);
-      const restoreHandler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await restoreHandler?.();
-
-      expect(result).toEqual({
-        kind: 'directory',
-        name: path.basename(resolvedPath),
-        path: resolvedPath,
-        platform: 'electron',
-      });
-    });
-
-    it('should clean up invalid paths during restore', async () => {
-      const invalidPath = '/invalid/path';
-
-      // Setup storage to return invalid path
-      vi.mocked(mockStorage.getItem).mockResolvedValue(invalidPath);
-      vi.mocked(mockFileSystem.exists).mockResolvedValue(false);
-      vi.mocked(mockStorage.removeItem).mockResolvedValue(undefined);
-
-      const restoreHandler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await restoreHandler?.();
-
-      expect(mockStorage.removeItem).toHaveBeenCalledWith('lastFolderPath');
-      expect(result).toBeNull();
-    });
-
-    it('should handle Windows-style paths correctly', async () => {
-      const windowsPath = 'C:\\Users\\Test\\Documents';
-
-      vi.mocked(mockStorage.getItem).mockResolvedValue(windowsPath);
-      vi.mocked(mockFileSystem.exists).mockResolvedValue(true);
-
-      const restoreHandler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await restoreHandler?.();
-
-      expect(result).toEqual({
-        kind: 'directory',
-        name: path.basename(windowsPath),
-        path: windowsPath,
-        platform: 'electron',
-      });
-    });
-
-    it('should handle Unix-style paths correctly', async () => {
-      const unixPath = '/home/user/documents';
-      const resolvedPath = resolveTestPath(unixPath);
-
-      vi.mocked(mockStorage.getItem).mockResolvedValue(unixPath);
-      vi.mocked(mockFileSystem.exists).mockResolvedValue(true);
-
-      const restoreHandler = registeredHandlers.get('fs:restoreLastFolder');
-      const result = await restoreHandler?.();
-
-      expect(result).toEqual({
-        kind: 'directory',
-        name: path.basename(resolvedPath),
-        path: resolvedPath,
-        platform: 'electron',
-      });
+    await expect(
+      handlers.get('fs:restoreLastFolder')?.({} as IpcMainInvokeEvent)
+    ).resolves.toMatchObject({
+      path: descriptor.handle.path,
+      rootId: descriptor.handle.rootId,
     });
   });
 });

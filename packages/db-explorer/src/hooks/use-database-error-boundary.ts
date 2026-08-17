@@ -1,5 +1,5 @@
+import { createLogger } from '@brainstrike/logging';
 import type { useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback } from 'react';
 
 export interface DatabaseErrorBoundaryOptions {

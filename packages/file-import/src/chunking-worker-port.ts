@@ -20,7 +20,7 @@ import type {
   WorkerResponse,
 } from '@brainstrike/chunking-worker';
 import type { FileChunkInsert, FileSymbolInsert, FileSymbolRefInsert } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 import { createRequestTracker, createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 
 const logger = createLogger('ChunkingWorkerPort');

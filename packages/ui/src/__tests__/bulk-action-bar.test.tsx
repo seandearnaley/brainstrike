@@ -4,13 +4,17 @@
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { BulkAction } from '../collection-browser/bulk-action-bar';
-import { BulkActionBar } from '../collection-browser/bulk-action-bar';
-import type { CollectionNodeType } from '../collection-browser/types';
+import type { BulkAction, CollectionNodeType } from '../bulk-action-bar';
+import * as bulkActionBarModule from '../bulk-action-bar';
+import { BulkActionBar } from '../bulk-action-bar/bulk-action-bar';
 
 describe('BulkActionBar', () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it('is exported from its module barrel', () => {
+    expect(bulkActionBarModule.BulkActionBar).toBeDefined();
   });
 
   const mockNodeTypes = new Map<string, CollectionNodeType>([

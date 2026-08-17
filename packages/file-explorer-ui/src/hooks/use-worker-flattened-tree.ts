@@ -30,7 +30,7 @@ export interface UseWorkerFlattenedTreeOptions {
    */
   enabled?: boolean;
   /** Current set of expanded directory paths */
-  expandedPaths: Set<string>;
+  expandedPaths: ReadonlySet<string>;
   /** Whether to force worker flattening regardless of threshold */
   forceWorker?: boolean;
   /** Ref to the worker port */

@@ -9,7 +9,7 @@
  * are token-budgeted with truncated + hint.
  */
 import type { WebSearchInput } from '@brainstrike/agent';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/utils';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   runWebSearch,
@@ -106,7 +106,7 @@ describe('runWebSearch (desktop webSearch tool)', () => {
     const fetchImpl = vi.fn((_, init?: RequestInit) => {
       // The key reaches Tavily via the auth header (server-side only).
       const headers = init?.headers as Record<string, string> | undefined;
-      expect(headers?.authorization).toBe(`Bearer ${SECRET_TAVILY_KEY}`);
+      expect(headers?.['authorization']).toBe(`Bearer ${SECRET_TAVILY_KEY}`);
       return Promise.resolve(
         okJsonResponse(
           tavilyBody([{ content: 'AbortController', title: 'MDN', url: 'https://mdn.example/ac' }])
@@ -160,7 +160,11 @@ describe('runWebSearch (desktop webSearch tool)', () => {
 
   it('returns a NON-FATAL error result (logged) when Tavily responds non-OK; run continues', async () => {
     const records: LogRecord[] = [];
-    const removeListener = addLogListener((record) => records.push(record), LogLevel.ERROR);
+    const removeListener = addLogListener((record) => {
+      if (record.level === LogLevel.ERROR) {
+        records.push(record);
+      }
+    });
     try {
       const fetchImpl = vi.fn(() =>
         Promise.resolve({ json: () => Promise.resolve({}), ok: false, status: 401 } as Response)
@@ -177,7 +181,7 @@ describe('runWebSearch (desktop webSearch tool)', () => {
       expect(result.error).toContain('401');
       expect(result.results).toEqual([]);
       // It was logged, and the log must not contain the key.
-      expect(records.some((r) => r.message.includes('webSearch'))).toBe(true);
+      expect(records.some((r) => r.message?.includes('webSearch') === true)).toBe(true);
       expect(JSON.stringify(records)).not.toContain(SECRET_TAVILY_KEY);
     } finally {
       removeListener();

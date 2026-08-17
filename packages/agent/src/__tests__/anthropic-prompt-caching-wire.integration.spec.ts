@@ -128,7 +128,7 @@ describe('anthropic prompt caching wire contract', () => {
     // Tail breakpoint: the final content block of the final message.
     const messages = request.body['messages'] as Record<string, unknown>[];
     const lastMessage = messages.at(-1);
-    const lastContent = (lastMessage?.['content'] as Record<string, unknown>[]).at(-1);
+    const lastContent = (lastMessage?.['content'] as Record<string, unknown>[] | undefined)?.at(-1);
     expect(lastContent?.['cache_control']).toEqual({ type: 'ephemeral' });
 
     // Response cache usage survives to the finish chunk (Anthropic-gated path).

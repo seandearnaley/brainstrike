@@ -1,6 +1,6 @@
-import { __resetVectorStatusUIStoreForTests } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { __resetVectorStatusUIStoreForTests } from '@brainstrike/app-state/stores/vector-status-ui-store';
+import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
-import { encodeFileSelection } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';

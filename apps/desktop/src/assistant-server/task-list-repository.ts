@@ -42,7 +42,7 @@ function isAssistantTaskItemArray(value: unknown): value is AssistantTaskItem[] 
  * `AssistantTaskItem[]` shape (missing/mistyped field, unknown status) is
  * corruption, not absence — this THROWS rather than silently degrading to `[]`
  * or building on unvalidated data (mirrors the require*-throws convention in
- * app-shell's assistant-memory-repository.ts for structurally-required
+ * assistant-data's assistant-memory-repository.ts for structurally-required
  * fields). Both call sites already have a boundary for this: the per-turn
  * re-injection read in assistant-server/agent-stream-init.ts catches and logs a warn (a corrupt
  * row this turn legitimately degrades to "no plan"), and the manageTaskList

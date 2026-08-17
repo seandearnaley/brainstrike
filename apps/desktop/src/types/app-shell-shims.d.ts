@@ -14,7 +14,7 @@
  * - packages/app-shell/src/root-layout-content.tsx (RootLayoutContent)
  */
 
-import type { LogSourceAdapter } from '@brainstrike/preferences/settings/system/logging-settings-section';
+import type { LogSourceAdapter } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
 import type { LucideIcon } from 'lucide-react';
 import type React from 'react';
 
@@ -33,6 +33,7 @@ declare module '@brainstrike/app-shell/types' {
 declare module '@brainstrike/app-shell/root-layout-content' {
   export const RootLayoutContent: React.ComponentType;
   export interface RootLayoutContentProps {
+    changesPageContent?: React.ReactNode;
     contextExplorerPageContent: React.ReactNode;
     contextExplorerPanelContent?: React.ReactNode;
     databaseTabChunkingMode?: 'host-proxy' | 'local';
@@ -44,13 +45,20 @@ declare module '@brainstrike/app-shell/root-layout-content' {
   }
 }
 
-declare module '@brainstrike/app-shell/git-panel' {
-  export const GitPanel: React.ComponentType;
-  /** True when the desktop `window.git` bridge is present and fully formed. */
-  export function isGitBridgeAvailable(): boolean;
+declare module '@brainstrike/app-shell/changes' {
+  /** The Changes surface (BST-1114): header + changed-files tree + diff pane. */
+  export const ChangesSurface: React.ComponentType;
+  /** True when the desktop `window.changes` bridge is present and fully formed. */
+  export function isChangesBridgeAvailable(): boolean;
 }
 
-declare module '@brainstrike/app-shell/git-panel/availability' {
+// NOTE: no shims for the `/changes/availability`, `/git-panel/availability`,
+// and `/terminal-panel/availability` subpaths — tsconfig `paths` pins them to
+// real app-shell source (an ambient declaration here would shadow that pin and
+// hide the true export surface, e.g. the *_BRIDGE_REQUIRED_METHODS constants).
+
+declare module '@brainstrike/app-shell/git-panel' {
+  export const GitPanel: React.ComponentType;
   /** True when the desktop `window.git` bridge is present and fully formed. */
   export function isGitBridgeAvailable(): boolean;
 }

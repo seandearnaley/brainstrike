@@ -1,14 +1,14 @@
+import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { resetFileSizeConfig, setFileSizeConfig } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
-import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createFileContentProcessor,
   DirectFileContentProcessor,
   WorkerFileContentProcessor,
-} from '../file-content-processor';
+} from '../file-content-processor.js';
 
 // Mock the worker
 vi.mock('@brainstrike/workers/file-content-worker', () => ({
@@ -29,8 +29,8 @@ vi.mock('@brainstrike/utils/file-content', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/utils/file-explorer-utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/file-explorer-utils')>();
+vi.mock('@brainstrike/file-explorer/file-tree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer/file-tree')>();
   return {
     ...actual,
     fileExplorer: {
@@ -92,7 +92,7 @@ describe('DirectFileContentProcessor', () => {
     const results = await processor.processFiles([mockRequest]);
 
     expect(results).toEqual({
-      'root1|@|/test.txt': 'file content',
+      'root1|@|/test.txt': { content: 'file content', status: 'accessible' },
     });
     expect(mockReadFile).toHaveBeenCalledWith({
       _internal: mockFileNode.handle,
@@ -148,7 +148,10 @@ describe('DirectFileContentProcessor', () => {
     const results = await processor.processFiles([mockRequest]);
 
     expect(results).toEqual({
-      'root1|@|/test.txt': 'Binary file - preview not available',
+      'root1|@|/test.txt': {
+        message: 'Binary file - preview not available',
+        status: 'inaccessible',
+      },
     });
   });
 
@@ -166,7 +169,10 @@ describe('DirectFileContentProcessor', () => {
 
     const results = await processor.processFiles([oversizedRequest]);
 
-    expect(results['root1|@|/test.txt']).toMatch('File too large');
+    expect(results['root1|@|/test.txt']).toEqual({
+      message: expect.stringContaining('File too large'),
+      status: 'inaccessible',
+    });
     expect(mockReadFile).not.toHaveBeenCalled();
   });
 
@@ -190,7 +196,7 @@ describe('DirectFileContentProcessor', () => {
 
     const results = await processor.processFiles([oversizedByDefaultRequest]);
 
-    expect(results['root1|@|/test.txt']).toBe('file content');
+    expect(results['root1|@|/test.txt']).toEqual({ content: 'file content', status: 'accessible' });
     expect(mockReadFile).toHaveBeenCalledTimes(1);
   });
 
@@ -203,7 +209,7 @@ describe('DirectFileContentProcessor', () => {
     const results = await processor.processFiles([mockRequest]);
 
     expect(results).toEqual({
-      'root1|@|/test.txt': 'Error accessing file',
+      'root1|@|/test.txt': { message: 'Error accessing file', status: 'inaccessible' },
     });
   });
 
@@ -216,7 +222,7 @@ describe('DirectFileContentProcessor', () => {
     const results = await processor.processFiles([mockRequest]);
 
     expect(results).toEqual({
-      'root1|@|/test.txt': 'Custom error',
+      'root1|@|/test.txt': { message: 'Custom error', status: 'inaccessible' },
     });
   });
 
@@ -258,8 +264,8 @@ describe('DirectFileContentProcessor', () => {
     const results = await processor.processFiles([mockRequest, request2], onProgress);
 
     expect(results).toEqual({
-      'root1|@|/test.txt': 'content-test.txt',
-      'root1|@|/test2.txt': 'content-test2.txt',
+      'root1|@|/test.txt': { content: 'content-test.txt', status: 'accessible' },
+      'root1|@|/test2.txt': { content: 'content-test2.txt', status: 'accessible' },
     });
     expect(onProgress).toHaveBeenCalledTimes(2);
     expect(onProgress).toHaveBeenNthCalledWith(1, {
@@ -278,7 +284,8 @@ describe('DirectFileContentProcessor', () => {
     const processor = new DirectFileContentProcessor();
     const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
     mockReadFile.mockClear();
-    const { fileContent, fileExplorer } = await import('@brainstrike/utils');
+    const { fileExplorer } = await import('@brainstrike/file-explorer/file-tree');
+    const { fileContent } = await import('@brainstrike/utils/file-content');
     mockReadFile.mockResolvedValue('file content');
     vi.mocked(fileExplorer.getFileExtension).mockReturnValue('txt');
     vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
@@ -296,7 +303,7 @@ describe('DirectFileContentProcessor', () => {
     const results = await processor.processFiles([requestWithInvalidSize]);
 
     expect(results).toEqual({
-      'root1|@|/test.txt': 'file content',
+      'root1|@|/test.txt': { content: 'file content', status: 'accessible' },
     });
 
     const firstCall = mockReadFile.mock.calls[0]?.[0] as { size?: number };
@@ -336,7 +343,9 @@ describe('DirectFileContentProcessor', () => {
 describe('WorkerFileContentProcessor', () => {
   it('should create and use worker', async () => {
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    const mockWorker = vi.fn().mockResolvedValue({ key1: 'result1' });
+    const mockWorker = vi.fn().mockResolvedValue({
+      key1: { content: 'result1', status: 'accessible' as const },
+    });
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const processor = new WorkerFileContentProcessor(mockFileSystemAdapter, 3);
@@ -363,7 +372,7 @@ describe('WorkerFileContentProcessor', () => {
       undefined,
       undefined
     );
-    expect(results).toEqual({ key1: 'result1' });
+    expect(results).toEqual({ key1: { content: 'result1', status: 'accessible' } });
   });
 
   it('should pass progress callback to worker', async () => {

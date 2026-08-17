@@ -25,13 +25,17 @@ interface RepairableMockQueue {
   requeueFailed: QueueRepairFunction;
 }
 
-function withQueueRepair<T extends object>(jobQueue: T): T & RepairableMockQueue {
+type EmbeddingBackfillJobQueue = Parameters<typeof enqueueEmbeddingBackfill>[1];
+
+function withQueueRepair<T extends object>(
+  jobQueue: T
+): T & RepairableMockQueue & EmbeddingBackfillJobQueue {
   const repairableQueue = jobQueue as Partial<RepairableMockQueue>;
   return {
     ...jobQueue,
     repairUnclaimableQueued: repairableQueue.repairUnclaimableQueued ?? vi.fn(async () => 0),
     requeueFailed: repairableQueue.requeueFailed ?? vi.fn(async () => 0),
-  };
+  } as unknown as T & RepairableMockQueue & EmbeddingBackfillJobQueue;
 }
 
 function isBackfillCandidateCountQuery(sql: string): boolean {
@@ -63,19 +67,32 @@ function isDimensionIndexMaintenanceQuery(sql: string): boolean {
   );
 }
 
-function withMaintenanceExec<
-  T extends { query: (sql: string, params?: readonly unknown[]) => unknown },
->(db: T): T & { maintenance: { exec: (sql: string, params?: readonly unknown[]) => unknown } } {
+type EmbeddingBackfillDatabase = Parameters<typeof enqueueEmbeddingBackfill>[0];
+
+function withMaintenanceExec<T extends object>(
+  db: T
+): T &
+  EmbeddingBackfillDatabase & {
+    maintenance: { exec: (sql: string, params?: readonly unknown[]) => Promise<unknown> };
+  } {
+  const query = (
+    db as unknown as {
+      query: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
+    }
+  ).query;
   return {
     ...db,
     maintenance: {
-      exec: vi.fn((sql: string, params?: readonly unknown[]) => db.query(sql, params)),
+      exec: vi.fn((sql: string, params?: readonly unknown[]) => query(sql, params)),
     },
-  };
+  } as unknown as T &
+    EmbeddingBackfillDatabase & {
+      maintenance: { exec: (sql: string, params?: readonly unknown[]) => Promise<unknown> };
+    };
 }
 
 function enqueueTestEmbeddingBackfill(
-  db: Parameters<typeof enqueueEmbeddingBackfill>[0],
+  db: object,
   jobQueue: Parameters<typeof enqueueEmbeddingBackfill>[1],
   embeddingSetId: string,
   onProgress: (done: number, total: number) => void,
@@ -588,8 +605,6 @@ describe('embedding-backfill', () => {
       'candidate-batch',
       'pending',
       'final-counts',
-      'vacuum-chunks',
-      'vacuum-jobs',
       'estimate-embedded-rows',
       'tune-index-memory',
       'rebuild-index',
@@ -716,8 +731,6 @@ describe('embedding-backfill', () => {
       'candidate-batch',
       'pending',
       'final-counts',
-      'vacuum-chunks',
-      'vacuum-jobs',
       'request-maintenance',
     ]);
     expect(maintenanceDb.maintenance.exec).not.toHaveBeenCalledWith(
@@ -758,6 +771,10 @@ describe('embedding-backfill', () => {
         }
         if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
           queryOrder.push('resume-index');
+          return { rows: [] };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_maintenance')) {
+          queryOrder.push('request-maintenance');
           return { rows: [] };
         }
         if (isDimensionIndexMaintenanceQuery(sql)) {
@@ -838,6 +855,10 @@ describe('embedding-backfill', () => {
           queryOrder.push('resume-index');
           return { rows: [] };
         }
+        if (sql.includes('INSERT INTO embedding_dimension_index_maintenance')) {
+          queryOrder.push('request-maintenance');
+          return { rows: [] };
+        }
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
@@ -866,6 +887,7 @@ describe('embedding-backfill', () => {
             throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
           },
           backlogPollMs: 1,
+          dimensionIndexMaintenanceStrategy: 'regular',
           drainTimeoutMs: 10,
           maxQueueDepth: 64,
         }
@@ -928,6 +950,10 @@ describe('embedding-backfill', () => {
           queryOrder.push('resume-index');
           return { rows: [] };
         }
+        if (sql.includes('INSERT INTO embedding_dimension_index_maintenance')) {
+          queryOrder.push('request-maintenance');
+          return { rows: [] };
+        }
         if (sql.startsWith('VACUUM')) {
           queryOrder.push(sql.includes('file_chunks') ? 'vacuum-chunks' : 'vacuum-jobs');
           return { rows: [] };
@@ -957,6 +983,7 @@ describe('embedding-backfill', () => {
             throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
           },
           backlogPollMs: 1,
+          dimensionIndexMaintenanceStrategy: 'regular',
           drainTimeoutMs: 10,
           maxQueueDepth: 64,
           rebuildDimensionIndexOnCompletion: false,
@@ -964,10 +991,16 @@ describe('embedding-backfill', () => {
       )
     ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
 
+    const pendingChecksBeforeDrain = queryOrder.filter((event) => event === 'pending').length;
     pendingJobs = 0;
     await vi.waitFor(() => {
-      expect(queryOrder).toContain('vacuum-jobs');
+      expect(queryOrder).toContain('request-maintenance');
     });
+    expect(queryOrder.filter((event) => event === 'pending')).toHaveLength(
+      pendingChecksBeforeDrain + 1
+    );
+    expect(queryOrder).not.toContain('vacuum-chunks');
+    expect(queryOrder).not.toContain('vacuum-jobs');
     expect(queryOrder).not.toContain('rebuild-index');
     expect(queryOrder).not.toContain('resume-index');
     expect(maintenanceDb.maintenance.exec).not.toHaveBeenCalledWith(
@@ -2029,6 +2062,115 @@ describe('embedding-backfill', () => {
     vi.useRealTimers();
   });
 
+  // Regression: the capacity deadline used to be plain wall-clock, so a large
+  // collection failed purely because the embedding worker — the ONLY thing that
+  // can lower queue depth, and something this loop neither owns nor paces — took
+  // longer than the budget. The deadline now measures consumer liveness: every
+  // completed job restarts it, and it only expires when the worker has completed
+  // nothing at all, which is the one condition waiting longer cannot resolve.
+  it('keeps waiting for queue capacity while the embedding worker keeps completing jobs', async () => {
+    let capacityCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (isEmbeddingSetCapacityQuery(sql)) {
+          capacityCalls += 1;
+          // Depth stays pinned for the first five polls while `succeeded` keeps
+          // advancing — a slow but demonstrably live consumer.
+          return {
+            rows: [
+              {
+                queued: capacityCalls <= 5 ? 1 : 0,
+                running: 0,
+                succeeded: capacityCalls,
+              },
+            ],
+          };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return { rows: [{ failed: 0, queued: 0, running: 0, succeeded: 1 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return { rows: [{ contentHash: 'hash-1', fileRecordId: '101', id: '1' }] };
+        }
+        if (sql.startsWith('VACUUM')) {
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({ id: `job-${index}`, ...job }))
+      ),
+    };
+
+    const result = await enqueueTestEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-123',
+      () => undefined,
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 1,
+        // Deliberately shorter than the total wait this test forces: a wall-clock
+        // budget would have thrown before capacity ever freed.
+        queueCapacityTimeoutMs: 5,
+      }
+    );
+
+    expect(capacityCalls).toBeGreaterThan(5);
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 1 });
+  });
+
+  it('names the stalled consumer when the queue capacity deadline expires', async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          // `succeeded` never advances: the consumer is not running at all.
+          return { rows: [{ failed: 0, queued: 64, running: 0, succeeded: 0 }] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, withQueueRepair({}), 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        queueCapacityTimeoutMs: 5,
+      })
+    ).rejects.toThrow(/The embedding worker completed no jobs for 5ms/u);
+  });
+
   it('admits a scoped backfill while unrelated embedding sets fill the shared queue', async () => {
     let pendingCountCalls = 0;
     const queryOrder: string[] = [];
@@ -2525,7 +2667,7 @@ describe('embedding-backfill', () => {
     expect(result).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 2 });
   });
 
-  it('vacuums backfill tables only after scoped jobs drain', async () => {
+  it('leaves table vacuuming to the idle database maintenance scheduler', async () => {
     let currentTime = 0;
     let pendingCountCalls = 0;
     let succeededCountCalls = 0;
@@ -2630,13 +2772,13 @@ describe('embedding-backfill', () => {
       options
     );
 
-    const firstVacuumIndex = queryEvents.indexOf('vacuum-file-chunks');
     const finalPendingIndex = queryEvents.lastIndexOf(`pending-${pendingCountCalls}`);
-    expect(firstVacuumIndex).toBeGreaterThanOrEqual(0);
-    expect(firstVacuumIndex).toBeGreaterThan(finalPendingIndex);
+    expect(finalPendingIndex).toBeGreaterThanOrEqual(0);
+    expect(queryEvents).not.toContain('vacuum-file-chunks');
+    expect(queryEvents).not.toContain('vacuum-job-queue');
   });
 
-  it('runs a single post-drain vacuum for a 20k-candidate backfill', async () => {
+  it('does not synchronously vacuum after a 20k-candidate backfill', async () => {
     const candidateCount = 20_000;
     let currentTime = 0;
     let queueStatsCalls = 0;
@@ -2741,6 +2883,6 @@ describe('embedding-backfill', () => {
 
     const enqueueBatchCount = vi.mocked(jobQueue.enqueueBatch).mock.calls.length;
     expect(enqueueBatchCount).toBe(Math.ceil(candidateCount / 32));
-    expect(vacuumFileChunksCount).toBe(1);
+    expect(vacuumFileChunksCount).toBe(0);
   }, 60_000);
 });

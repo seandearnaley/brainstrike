@@ -1,5 +1,6 @@
+import { createLogger } from '@brainstrike/logging';
 import { emitQueueTelemetry, type QueueTelemetryAdapter } from '@brainstrike/queue';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { generateUUID } from '@brainstrike/utils';
 import type { IDatabase } from '../repositories/interfaces.js';
 
 // 'expired' was in this union (and remains in migration 007's CHECK, which is

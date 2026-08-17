@@ -380,20 +380,37 @@ function trackClient(options: {
 // Every case here drives a REAL local HTTP/SSE server through real fetches —
 // sub-second when idle, but the 5s vitest default flaked on loaded machines
 // (the suite is env-sensitive by contract, per the *.integration.* suffix).
-describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
-  it.each([
-    'file:///tmp/mcp.sock',
-    'ftp://example.test/mcp',
-  ])('rejects the non-HTTP remote URL %s', (url) => {
-    expect(
-      () =>
-        new ExplicitHttpMcpClient({
-          name: 'invalid-url-canary',
-          transport: 'streamable-http',
-          url,
-        })
-    ).toThrow('MCP HTTP URL must use http: or https:');
+/**
+ * Asserts the session DELETE was issued AFTER every protocol request, without
+ * requiring it to be last overall.
+ *
+ * `connect()` leaves an SSE **GET** stream open and a reconnect GET can be
+ * recorded after the DELETE under load, which is what made the positional
+ * `requests.at(-1)` assertion fail intermittently (#1638, BST-1083). Filtering
+ * GETs out keeps the part of the ordering that IS a contract — the DELETE
+ * follows every POST — while dropping only the part that never was.
+ */
+function expectSessionDeletedLast(requests: readonly RecordedRequest[], pathname: string): void {
+  expect(requests.filter((request) => request.method !== 'GET').at(-1)).toMatchObject({
+    method: 'DELETE',
+    pathname,
   });
+}
+
+describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
+  it.each(['file:///tmp/mcp.sock', 'ftp://example.test/mcp'])(
+    'rejects the non-HTTP remote URL %s',
+    (url) => {
+      expect(
+        () =>
+          new ExplicitHttpMcpClient({
+            name: 'invalid-url-canary',
+            transport: 'streamable-http',
+            url,
+          })
+      ).toThrow('MCP HTTP URL must use http: or https:');
+    }
+  );
 
   it('rejects embedded URL credentials before making a request', () => {
     expect(
@@ -406,29 +423,26 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     ).toThrow('MCP HTTP URL must not include credentials');
   });
 
-  it.each([
-    'Accept',
-    'content-TYPE',
-    'MCP-Session-Id',
-    'mcp-PROTOCOL-version',
-    'Last-Event-ID',
-  ])('rejects the protocol-owned configured header %s before requesting', (header) => {
-    let fetchCalled = false;
-    expect(
-      () =>
-        new ExplicitHttpMcpClient({
-          fetch: async () => {
-            fetchCalled = true;
-            return new Response(null, { status: 500 });
-          },
-          headers: { [header]: 'caller-controlled-value' },
-          name: 'protocol-header-canary',
-          transport: 'streamable-http',
-          url: 'https://example.test/mcp',
-        })
-    ).toThrow(`Configured MCP header "${header}" is protocol-owned`);
-    expect(fetchCalled).toBe(false);
-  });
+  it.each(['Accept', 'content-TYPE', 'MCP-Session-Id', 'mcp-PROTOCOL-version', 'Last-Event-ID'])(
+    'rejects the protocol-owned configured header %s before requesting',
+    (header) => {
+      let fetchCalled = false;
+      expect(
+        () =>
+          new ExplicitHttpMcpClient({
+            fetch: async () => {
+              fetchCalled = true;
+              return new Response(null, { status: 500 });
+            },
+            headers: { [header]: 'caller-controlled-value' },
+            name: 'protocol-header-canary',
+            transport: 'streamable-http',
+            url: 'https://example.test/mcp',
+          })
+      ).toThrow(`Configured MCP header "${header}" is protocol-owned`);
+      expect(fetchCalled).toBe(false);
+    }
+  );
 
   it('uses Streamable HTTP at a misleading /sse path without transport inference', async () => {
     const requests: RecordedRequest[] = [];
@@ -633,11 +647,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     await client.connect();
     await client.close();
 
-    // The session DELETE must have been issued, but under load an SSE reconnect
-    // GET /mcp can land after it, so we don't require it to be the final request.
-    expect(
-      requests.some((request) => request.method === 'DELETE' && request.pathname === '/mcp')
-    ).toBe(true);
+    expectSessionDeletedLast(requests, '/mcp');
     expect(signals.some((signal) => signal.aborted)).toBe(true);
   });
 
@@ -665,7 +675,7 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     await client.connect();
     await expect(client.close()).rejects.toThrow(/Failed to terminate session/);
 
-    expect(requests.at(-1)).toMatchObject({ method: 'DELETE', pathname: '/mcp' });
+    expectSessionDeletedLast(requests, '/mcp');
     expect(signals.some((signal) => signal.aborted)).toBe(true);
     await expect(client.listTools()).rejects.toThrow('Explicit HTTP MCP client is closed');
   });

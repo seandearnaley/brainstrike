@@ -10,8 +10,8 @@ import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 import { useExpandAll } from '../../hooks/use-expand-all';
 
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/utils')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...original,
     createLogger: () => ({

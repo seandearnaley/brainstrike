@@ -29,7 +29,7 @@ vi.mock('../transformers-backend', () => {
 
 describe('SimpleEmbeddingService (lightweight)', () => {
   it('initializes with model and generates embedding', async () => {
-    const { SimpleEmbeddingService } = await import('../bge-m3-service');
+    const { SimpleEmbeddingService } = await import('../bge-m3-service.js');
     const svc = new SimpleEmbeddingService();
     await svc.initializeWithModel('jinaai/jina-embeddings-v2-base-code', undefined, 'wasm');
     const out = await svc.generateEmbedding('hello');

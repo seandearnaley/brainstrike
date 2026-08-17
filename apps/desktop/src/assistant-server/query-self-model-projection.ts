@@ -16,12 +16,15 @@
  *     correctness failure, not merely a formatting one.
  */
 
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import type { QuerySelfResult } from './query-self-tool';
 import {
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   isRecord,
   makeWorkspaceTextModelOutput as makeTextModelOutput,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
@@ -80,9 +83,13 @@ function escapeCell(value: string): string {
  * those two renderings and keep every added item as a separate line; otherwise
  * a longer prefix could serialize shorter and silently strand items that fit.
  */
-function fitLargestPrefix(itemCount: number, buildLines: (kept: number) => string[]): string[] {
+function fitLargestPrefix(
+  itemCount: number,
+  buildLines: (kept: number) => string[],
+  domainModelResultCharBudget: number
+): string[] {
   const full = buildLines(itemCount);
-  if (serializedChars(full) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(full) <= domainModelResultCharBudget) {
     return full;
   }
 
@@ -92,7 +99,7 @@ function fitLargestPrefix(itemCount: number, buildLines: (kept: number) => strin
   while (low <= high) {
     const kept = Math.floor((low + high) / 2);
     const candidate = buildLines(kept);
-    if (serializedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) <= domainModelResultCharBudget) {
       best = candidate;
       low = kept + 1;
     } else {
@@ -133,30 +140,44 @@ function clipColumnLine(columns: readonly string[], maxChars: number): string {
  * discovery, the thing that makes this tool usable, precisely when the schema is
  * largest.
  */
-function fitLines(header: string, body: readonly string[], note: (dropped: number) => string) {
-  return fitLargestPrefix(body.length, (kept) => {
-    const dropped = body.length - kept;
-    return [header, ...body.slice(0, kept), ...(dropped > 0 ? [note(dropped)] : [])];
-  });
+function fitLines(
+  header: string,
+  body: readonly string[],
+  note: (dropped: number) => string,
+  domainModelResultCharBudget: number
+) {
+  return fitLargestPrefix(
+    body.length,
+    (kept) => {
+      const dropped = body.length - kept;
+      return [header, ...body.slice(0, kept), ...(dropped > 0 ? [note(dropped)] : [])];
+    },
+    domainModelResultCharBudget
+  );
 }
 
-function assertProjectionFits(lines: readonly string[]): void {
-  if (serializedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+function assertProjectionFits(lines: readonly string[], domainModelResultCharBudget: number): void {
+  if (decodedChars(lines) <= domainModelResultCharBudget) {
     return;
   }
   throw new RangeError(
-    `querySelf model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+    `querySelf model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
   );
 }
 
 function parseQuerySelfResult(output: unknown): QuerySelfResult {
   if (!isRecord(output) || typeof output['kind'] !== 'string') {
-    throw new TypeError('querySelf model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'querySelf model projection received a malformed result'
+    );
   }
   return output as unknown as QuerySelfResult;
 }
 
-function projectTables(result: Extract<QuerySelfResult, { kind: 'tables' }>): string[] {
+function projectTables(
+  result: Extract<QuerySelfResult, { kind: 'tables' }>,
+  domainModelResultCharBudget: number
+): string[] {
   const body = result.tables.map((table) => {
     // reltuples is -1 until a table has been analyzed; report that honestly as
     // "unknown" rather than printing a fabricated 0 row count.
@@ -172,11 +193,15 @@ function projectTables(result: Extract<QuerySelfResult, { kind: 'tables' }>): st
   return fitLines(
     `tables | count=${result.tables.length}`,
     body,
-    (dropped) => `…${dropped} more listed tables omitted to fit the output budget`
+    (dropped) => `…${dropped} more listed tables omitted to fit the output budget`,
+    domainModelResultCharBudget
   );
 }
 
-function projectLenses(result: Extract<QuerySelfResult, { kind: 'lenses' }>): string[] {
+function projectLenses(
+  result: Extract<QuerySelfResult, { kind: 'lenses' }>,
+  domainModelResultCharBudget: number
+): string[] {
   const body = result.lenses.map((lens) => {
     const params = lens.params
       .map((param) =>
@@ -214,11 +239,15 @@ function projectLenses(result: Extract<QuerySelfResult, { kind: 'lenses' }>): st
   return fitLines(
     `lenses | count=${result.lenses.length} invalid=${result.invalid.length}`,
     body,
-    (dropped) => `…${dropped} more lenses omitted to fit the output budget`
+    (dropped) => `…${dropped} more lenses omitted to fit the output budget`,
+    domainModelResultCharBudget
   );
 }
 
-function projectColumns(result: Extract<QuerySelfResult, { kind: 'columns' }>): string[] {
+function projectColumns(
+  result: Extract<QuerySelfResult, { kind: 'columns' }>,
+  domainModelResultCharBudget: number
+): string[] {
   if (result.columns.length === 0) {
     return [
       `columns | table=${singleLine(result.table)} | not_found`,
@@ -234,7 +263,8 @@ function projectColumns(result: Extract<QuerySelfResult, { kind: 'columns' }>): 
   return fitLines(
     `columns | table=${singleLine(result.table)} | count=${result.columns.length}`,
     body,
-    (dropped) => `…${dropped} more columns omitted to fit the output budget`
+    (dropped) => `…${dropped} more columns omitted to fit the output budget`,
+    domainModelResultCharBudget
   );
 }
 
@@ -261,11 +291,14 @@ function clipPlanLine(line: string): string {
   } more characters clipped]`;
 }
 
-function projectPlan(result: Extract<QuerySelfResult, { kind: 'plan' }>): string[] {
+function projectPlan(
+  result: Extract<QuerySelfResult, { kind: 'plan' }>,
+  domainModelResultCharBudget: number
+): string[] {
   const lines = result.plan.map((line) => clipPlanLine(escapeCell(line)));
   const header = `plan | analyzed=${result.analyzed}`;
 
-  if (serializedChars([header, ...lines]) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars([header, ...lines]) <= domainModelResultCharBudget) {
     return [header, ...lines];
   }
 
@@ -276,18 +309,25 @@ function projectPlan(result: Extract<QuerySelfResult, { kind: 'plan' }>): string
   const tail = lines.slice(-PLAN_TAIL_LINES);
   const head = lines.slice(0, Math.max(0, lines.length - PLAN_TAIL_LINES));
 
-  return fitLargestPrefix(head.length, (kept) => {
-    const dropped = head.length - kept;
-    return [
-      header,
-      ...head.slice(0, kept),
-      ...(dropped > 0 ? [`…${dropped} more plan line(s) omitted to fit the output budget`] : []),
-      ...tail,
-    ];
-  });
+  return fitLargestPrefix(
+    head.length,
+    (kept) => {
+      const dropped = head.length - kept;
+      return [
+        header,
+        ...head.slice(0, kept),
+        ...(dropped > 0 ? [`…${dropped} more plan line(s) omitted to fit the output budget`] : []),
+        ...tail,
+      ];
+    },
+    domainModelResultCharBudget
+  );
 }
 
-function projectRows(result: Extract<QuerySelfResult, { kind: 'rows' }>): string[] {
+function projectRows(
+  result: Extract<QuerySelfResult, { kind: 'rows' }>,
+  domainModelResultCharBudget: number
+): string[] {
   const header = (kept: number, dropped: number): string =>
     `rows | returned=${kept}${dropped > 0 ? ` | omitted=${dropped}` : ''} | truncated=${
       result.truncated || dropped > 0
@@ -302,35 +342,42 @@ function projectRows(result: Extract<QuerySelfResult, { kind: 'rows' }>): string
 
   // Keep the largest complete prefix that fits. Equality with the budget is
   // acceptable; central code only throws ABOVE it.
-  return fitLargestPrefix(rowLines.length, (kept) => {
-    const dropped = rowLines.length - kept;
-    const hint =
-      dropped > 0
-        ? `omitted ${dropped} row(s) to fit the output budget; select fewer columns or aggregate`
-        : result.hint;
-    return [
-      header(kept, dropped),
-      columnLine,
-      ...rowLines.slice(0, kept),
-      ...(hint ? [singleLine(hint)] : []),
-    ];
-  });
+  return fitLargestPrefix(
+    rowLines.length,
+    (kept) => {
+      const dropped = rowLines.length - kept;
+      const hint =
+        dropped > 0
+          ? `omitted ${dropped} row(s) to fit the output budget; select fewer columns or aggregate`
+          : result.hint;
+      return [
+        header(kept, dropped),
+        columnLine,
+        ...rowLines.slice(0, kept),
+        ...(hint ? [singleLine(hint)] : []),
+      ];
+    },
+    domainModelResultCharBudget
+  );
 }
 
-export function projectQuerySelfModelOutput(output: unknown): WorkspaceTextModelOutput {
+export function projectQuerySelfModelOutput(
+  output: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WorkspaceTextModelOutput {
   const result = parseQuerySelfResult(output);
 
   const lines =
     result.kind === 'tables'
-      ? projectTables(result)
+      ? projectTables(result, domainModelResultCharBudget)
       : result.kind === 'columns'
-        ? projectColumns(result)
+        ? projectColumns(result, domainModelResultCharBudget)
         : result.kind === 'plan'
-          ? projectPlan(result)
+          ? projectPlan(result, domainModelResultCharBudget)
           : result.kind === 'lenses'
-            ? projectLenses(result)
-            : projectRows(result);
+            ? projectLenses(result, domainModelResultCharBudget)
+            : projectRows(result, domainModelResultCharBudget);
 
-  assertProjectionFits(lines);
+  assertProjectionFits(lines, domainModelResultCharBudget);
   return makeTextModelOutput(lines);
 }

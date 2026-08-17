@@ -13,8 +13,18 @@ import {
   type ToolOutputArtifactPage,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
+import { assertSafeRegexSource } from '@brainstrike/utils';
 import { z } from 'zod';
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
+import {
+  decodedTextModelOutputChars,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+} from '../stream/tool-output-limits';
+import {
+  clipGrepProjectionLine,
+  formatGrepContentHeader,
+  formatGrepContentRow,
+  GREP_MATCH_LINE_MAX_CHARS,
+} from './grep-model-format';
 
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_ENCODER = new TextEncoder();
@@ -44,16 +54,60 @@ const ArtifactCursorSchema = z
   .min(1)
   .max(2048)
   .refine(isToolOutputArtifactCursor, 'Malformed tool output artifact cursor')
-  .describe(
-    'Opaque continuation cursor from the prior result. Copy it byte-for-byte; never decode, pad, edit, or recreate it.'
-  );
+  .describe('Prior cursor; copy byte-for-byte, never edit or recreate it.');
+
+const ArtifactSearchPatternSchema = z.string().min(1).max(2000);
+
+function requireSearchPatternForFlags(
+  input: {
+    readonly caseSensitive?: boolean | undefined;
+    readonly isRegex?: boolean | undefined;
+    readonly pattern?: string | undefined;
+  },
+  context: z.RefinementCtx
+): void {
+  if (input.pattern === undefined) {
+    for (const field of ['caseSensitive', 'isRegex'] as const) {
+      if (input[field] !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: `${field} requires pattern.`,
+          path: [field],
+        });
+      }
+    }
+    return;
+  }
+  if (input.isRegex !== true) {
+    return;
+  }
+  // Fail-fast: mirrors GrepSearchInputSchema's regex refine
+  // (schemas-search.ts) — reject an invalid pattern at parse rather than
+  // deferring the failure to execution (no silent fallback). ReDoS-shape
+  // safety is a separate, execution-time check (assertSafeRegexSource in
+  // createSearchMatcher, matching the shared guard grepSearch's own matcher
+  // uses) since it is about the pattern's SHAPE, not its syntax.
+  try {
+    new RegExp(input.pattern);
+  } catch {
+    context.addIssue({
+      code: 'custom',
+      message: 'pattern is not a valid JavaScript regular expression (isRegex is true)',
+      path: ['pattern'],
+    });
+  }
+}
 
 export const ReadToolOutputArtifactCursorInputSchema = z
   .object({
+    caseSensitive: z.boolean().optional(),
     cursor: ArtifactCursorSchema,
+    isRegex: z.boolean().optional(),
     maxBytes: ArtifactPageSizeSchema,
+    pattern: ArtifactSearchPatternSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(requireSearchPatternForFlags);
 
 export type ReadToolOutputArtifactCursorInput = z.infer<
   typeof ReadToolOutputArtifactCursorInputSchema
@@ -62,9 +116,12 @@ export type ReadToolOutputArtifactCursorInput = z.infer<
 export const ReadToolOutputArtifactInputSchema = z
   .object({
     artifactRef: ToolOutputArtifactReferenceSchema.optional(),
+    caseSensitive: z.boolean().optional(),
     cursor: ArtifactCursorSchema.optional(),
+    isRegex: z.boolean().optional(),
     maxBytes: ArtifactPageSizeSchema,
     mode: z.enum(['artifact', 'cursor']),
+    pattern: ArtifactSearchPatternSchema.optional(),
   })
   .strict()
   .superRefine((input, context) => {
@@ -83,6 +140,15 @@ export const ReadToolOutputArtifactInputSchema = z
           path: ['cursor'],
         });
       }
+      for (const field of ['caseSensitive', 'isRegex', 'pattern'] as const) {
+        if (input[field] !== undefined) {
+          context.addIssue({
+            code: 'custom',
+            message: `${field} must be omitted in artifact mode.`,
+            path: [field],
+          });
+        }
+      }
       return;
     }
     if (!input.cursor) {
@@ -99,6 +165,7 @@ export const ReadToolOutputArtifactInputSchema = z
         path: ['artifactRef'],
       });
     }
+    requireSearchPatternForFlags(input, context);
   });
 
 export type ReadToolOutputArtifactInput = z.infer<typeof ReadToolOutputArtifactInputSchema>;
@@ -134,6 +201,7 @@ export type ToolOutputArtifactReadFailureReason =
   | 'artifact_incoherent'
   | 'artifact_not_found'
   | 'invalid_input'
+  | 'invalid_search_pattern'
   | 'malformed_cursor'
   | 'non_progress'
   | 'storage_failed';
@@ -148,6 +216,8 @@ function messageForReadFailure(reason: ToolOutputArtifactReadFailureReason): str
       return 'The tool output artifact is unavailable in this thread.';
     case 'invalid_input':
       return 'The tool output artifact read input is invalid.';
+    case 'invalid_search_pattern':
+      return 'The tool output artifact search pattern is invalid.';
     case 'malformed_cursor':
       return 'The tool output artifact continuation cursor is malformed.';
     case 'non_progress':
@@ -160,9 +230,18 @@ function messageForReadFailure(reason: ToolOutputArtifactReadFailureReason): str
 export class ToolOutputArtifactReadError extends Error {
   constructor(
     readonly reason: ToolOutputArtifactReadFailureReason,
-    cause?: unknown
+    cause?: unknown,
+    /**
+     * Overrides the reason's generic message with a dynamic, specific one
+     * (e.g. echoing which field/pattern was the problem) so this failure is
+     * never indistinguishable from an unrelated `invalid_input`/`malformed_cursor`
+     * case sharing the same reason code.
+     */
+    message?: string
   ) {
-    super(messageForReadFailure(reason), { ...(cause === undefined ? {} : { cause }) });
+    super(message ?? messageForReadFailure(reason), {
+      ...(cause === undefined ? {} : { cause }),
+    });
     this.name = 'ToolOutputArtifactReadError';
   }
 }
@@ -173,6 +252,25 @@ export interface ReadToolOutputArtifactPageOptions {
 }
 
 const TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID = NATIVE_TOOL_ID.readToolOutputArtifact;
+
+/**
+ * Search's SCAN window, decoupled from the page/projection byte budget
+ * (`maxBytes`, capped at TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES = 8000). A
+ * search call that only scanned one page-sized slice per call would need the
+ * same number of round-trips as plain paging to find a deep match, defeating
+ * the whole motivation for search over paging. 16x the max page bytes
+ * (128,000 bytes / ~125KB) meaningfully reduces round-trips for a
+ * multi-hundred-KB artifact while staying a bounded, predictable per-call
+ * read cost — far short of reading an entire (up to 16MB,
+ * TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES) artifact in one call. The
+ * RENDERED matches stay bounded by the unchanged domain projection budget
+ * (MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) via the standard
+ * fit-with-continuation loop in projectToolOutputArtifactSearchResult: a
+ * caller may still request a smaller scan explicitly via `maxBytes` (bounded
+ * as before), but omitting it now defaults to this larger scan rather than
+ * the small page default.
+ */
+const TOOL_OUTPUT_ARTIFACT_SEARCH_SCAN_BYTES = TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES * 16;
 
 interface ToolOutputArtifactModelPage {
   readonly complete?: true;
@@ -193,6 +291,31 @@ export interface ToolOutputArtifactModelProjection {
   readonly type: 'json';
   readonly value: ToolOutputArtifactModelPage;
 }
+
+interface ToolOutputArtifactSearchMatch {
+  readonly line: number;
+  readonly lineText: string;
+  readonly offsetByte: number;
+}
+
+export interface ToolOutputArtifactSearchResult {
+  readonly artifactRef: ToolOutputArtifactReference;
+  readonly endByte: number;
+  readonly matches: readonly ToolOutputArtifactSearchMatch[];
+  readonly nextCursor?: string;
+  readonly offsetByte: number;
+  readonly searchLimited: boolean;
+  readonly type: 'artifact_search';
+}
+
+export interface ToolOutputArtifactSearchProjection {
+  readonly type: 'text';
+  readonly value: string;
+}
+
+export type ToolOutputArtifactModelOutput =
+  | ToolOutputArtifactModelProjection
+  | ToolOutputArtifactSearchProjection;
 
 function referencesMatch(
   left: ToolOutputArtifactReference,
@@ -314,7 +437,128 @@ function buildModelPage(
  * the model sees a shorter byte-exact prefix and a recomputed cursor. The raw
  * page remains unchanged for display and persistence.
  */
-export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifactModelProjection {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isToolOutputArtifactSearchResult(value: unknown): value is ToolOutputArtifactSearchResult {
+  if (!(isRecord(value) && value['type'] === 'artifact_search')) {
+    return false;
+  }
+  const matches = value['matches'];
+  return (
+    isToolOutputArtifactReference(value['artifactRef']) &&
+    Number.isSafeInteger(value['endByte']) &&
+    (value['endByte'] as number) >= 0 &&
+    Array.isArray(matches) &&
+    matches.every(
+      (match) =>
+        isRecord(match) &&
+        Number.isSafeInteger(match['line']) &&
+        (match['line'] as number) > 0 &&
+        typeof match['lineText'] === 'string' &&
+        Number.isSafeInteger(match['offsetByte']) &&
+        (match['offsetByte'] as number) >= 0
+    ) &&
+    (value['nextCursor'] === undefined || isToolOutputArtifactCursor(value['nextCursor'])) &&
+    Number.isSafeInteger(value['offsetByte']) &&
+    (value['offsetByte'] as number) >= 0 &&
+    typeof value['searchLimited'] === 'boolean'
+  );
+}
+
+function searchContinuation(result: ToolOutputArtifactSearchResult, kept: number): string | null {
+  let cursor: string | undefined;
+  if (kept < result.matches.length) {
+    const nextMatch = result.matches[kept];
+    if (nextMatch && nextMatch.offsetByte > result.offsetByte) {
+      cursor = encodeToolOutputArtifactCursor(result.artifactRef, nextMatch.offsetByte);
+    }
+  } else if (result.searchLimited) {
+    cursor = result.nextCursor;
+  }
+  if (kept < result.matches.length || result.searchLimited) {
+    if (!cursor) {
+      throw new TypeError(
+        'Tool output artifact search projection received a limited result without continuation guidance'
+      );
+    }
+    return `continue: reuse the prior brainstrike.readToolOutputArtifact search input with cursor=${cursor}`;
+  }
+  return null;
+}
+
+function projectToolOutputArtifactSearchResult(
+  result: ToolOutputArtifactSearchResult,
+  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): ToolOutputArtifactSearchProjection {
+  const artifactLine = `artifact bytes ${result.offsetByte}-${result.endByte}`;
+  const keptRows: string[] = [];
+  let kept = 0;
+  for (const match of result.matches) {
+    const candidateKept = kept + 1;
+    const row = formatGrepContentRow(
+      match.line,
+      clipGrepProjectionLine(match.lineText, GREP_MATCH_LINE_MAX_CHARS, 'line')
+    );
+    const continuation = searchContinuation(result, candidateKept);
+    const candidateLines = [
+      formatGrepContentHeader({
+        kept: candidateKept,
+        lowerBound: result.searchLimited,
+        offset: 0,
+        total: result.matches.length,
+      }),
+      artifactLine,
+      ...keptRows,
+      row,
+      ...(continuation ? [continuation] : []),
+    ];
+    if (decodedTextModelOutputChars(candidateLines.join('\n')) > domainModelResultCharBudget) {
+      break;
+    }
+    keptRows.push(row);
+    kept = candidateKept;
+  }
+  const continuation = searchContinuation(result, kept);
+  const lines = [
+    formatGrepContentHeader({
+      kept,
+      lowerBound: result.searchLimited,
+      offset: 0,
+      total: result.matches.length,
+    }),
+    artifactLine,
+    ...keptRows,
+    ...(continuation ? [continuation] : []),
+  ];
+  if (decodedTextModelOutputChars(lines.join('\n')) > domainModelResultCharBudget) {
+    throw new RangeError(
+      `Tool output artifact search projection exceeds the ${domainModelResultCharBudget}-character domain budget`
+    );
+  }
+  return { type: 'text', value: lines.join('\n') };
+}
+
+export function projectToolOutputArtifactPage(
+  output: ToolOutputArtifactPage,
+  domainModelResultCharBudget?: number
+): ToolOutputArtifactModelProjection;
+export function projectToolOutputArtifactPage(
+  output: ToolOutputArtifactSearchResult,
+  domainModelResultCharBudget?: number
+): ToolOutputArtifactSearchProjection;
+export function projectToolOutputArtifactPage(
+  output: unknown,
+  domainModelResultCharBudget?: number
+): ToolOutputArtifactModelOutput;
+export function projectToolOutputArtifactPage(
+  output: unknown,
+  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): ToolOutputArtifactModelOutput {
+  if (isToolOutputArtifactSearchResult(output)) {
+    return projectToolOutputArtifactSearchResult(output, domainModelResultCharBudget);
+  }
   if (!isToolOutputArtifactPage(output)) {
     throw new TypeError('Tool output artifact reader returned an invalid page.');
   }
@@ -328,7 +572,7 @@ export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifa
   // Prefer the complete page when it fits before binary-searching the strictly
   // cursor-bearing prefixes.
   const completePage = buildModelPage(output, decoded);
-  if (JSON.stringify(completePage).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (JSON.stringify(completePage).length <= domainModelResultCharBudget) {
     return completePage;
   }
 
@@ -339,7 +583,7 @@ export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifa
   while (low <= high) {
     const kept = Math.floor((low + high) / 2);
     const candidate = buildModelPage(output, codePoints.slice(0, kept).join(''));
-    if (JSON.stringify(candidate).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (JSON.stringify(candidate).length <= domainModelResultCharBudget) {
       best = candidate;
       low = kept + 1;
     } else {
@@ -350,6 +594,227 @@ export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifa
     throw new RangeError('Tool output artifact model projection could not retain one code point.');
   }
   return best;
+}
+
+interface DecodedArtifactSlice {
+  readonly artifactRef: ToolOutputArtifactReference;
+  readonly decoded: string;
+  readonly endByte: number;
+  readonly offsetByte: number;
+}
+
+async function readDecodedArtifactSlice(
+  input: ReadToolOutputArtifactInput,
+  options: ReadToolOutputArtifactPageOptions,
+  defaultMaxBytes: number = TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES
+): Promise<DecodedArtifactSlice> {
+  const { artifactRef, offsetByte } = resolveReadPosition(input);
+  // An explicit caller maxBytes (bounded by ArtifactPageSizeSchema, max
+  // TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES) always wins; otherwise fall back to
+  // the caller-supplied default, which differs by call site: plain paging
+  // defaults to the small page/projection size, search defaults to the much
+  // larger TOOL_OUTPUT_ARTIFACT_SEARCH_SCAN_BYTES (see readToolOutputArtifactSearch).
+  const maxBytes = input.maxBytes ?? defaultMaxBytes;
+  const remainingBytes = artifactRef.byteLength - offsetByte;
+  const readLimit = Math.max(1, Math.min(remainingBytes, maxBytes));
+  const result = requireAvailableRange(
+    await readScopedRange(options.reader, {
+      artifactId: artifactRef.id,
+      limitBytes: readLimit,
+      offsetByte,
+    }),
+    artifactRef,
+    options.now ?? (() => new Date())
+  );
+  const expectedBytes = Math.min(readLimit, remainingBytes);
+  validateFoundRange({ expectedBytes, offsetByte, reference: artifactRef, result });
+  if (remainingBytes === 0) {
+    return { artifactRef, decoded: '', endByte: offsetByte, offsetByte };
+  }
+  const decoded = decodeUtf8Prefix(result.bytes, maxBytes);
+  const endByte = offsetByte + TEXT_ENCODER.encode(decoded).byteLength;
+  if (endByte <= offsetByte) {
+    throw new ToolOutputArtifactReadError('non_progress');
+  }
+  return { artifactRef, decoded, endByte, offsetByte };
+}
+
+function createSearchMatcher(
+  pattern: string,
+  isRegex: boolean,
+  caseSensitive: boolean
+): (line: string) => boolean {
+  if (isRegex) {
+    // Model-supplied regex source is run per line across the scanned slice,
+    // same shape of risk as the workspace grep matcher (grep-search-service.ts)
+    // and the glob path filter. Reject over-long or catastrophic-backtracking
+    // shapes BEFORE compiling; never silently fall back to literal matching.
+    let regex: RegExp;
+    try {
+      assertSafeRegexSource(pattern);
+      regex = new RegExp(pattern, caseSensitive ? '' : 'i');
+    } catch (cause) {
+      // Reason AND message are both pattern-specific here (never the generic
+      // invalid_input text) so the model can tell its pattern was the
+      // problem instead of retrying blindly against an unrelated field.
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new ToolOutputArtifactReadError(
+        'invalid_search_pattern',
+        cause,
+        `The tool output artifact search pattern is invalid: ${detail}`
+      );
+    }
+    return (line) => regex.test(line);
+  }
+  const needle = caseSensitive ? pattern : pattern.toLowerCase();
+  return (line) => (caseSensitive ? line : line.toLowerCase()).includes(needle);
+}
+
+function findSearchMatches(
+  decoded: string,
+  offsetByte: number,
+  matchesLine: (line: string) => boolean
+): ToolOutputArtifactSearchMatch[] {
+  const matches: ToolOutputArtifactSearchMatch[] = [];
+  const lineBreaks = /\r\n|\r|\n/gu;
+  let line = 1;
+  let lineStartCodeUnit = 0;
+  let lineStartByte = offsetByte;
+  for (let lineBreak = lineBreaks.exec(decoded); lineBreak; lineBreak = lineBreaks.exec(decoded)) {
+    const lineText = decoded.slice(lineStartCodeUnit, lineBreak.index);
+    if (matchesLine(lineText)) {
+      matches.push({ line, lineText, offsetByte: lineStartByte });
+    }
+    const consumed = decoded.slice(lineStartCodeUnit, lineBreaks.lastIndex);
+    lineStartByte += TEXT_ENCODER.encode(consumed).byteLength;
+    lineStartCodeUnit = lineBreaks.lastIndex;
+    line += 1;
+  }
+  // A slice ending exactly at a line break (or an empty slice) leaves no
+  // trailing partial line: `decoded.slice(lineStartCodeUnit)` is '' with
+  // nothing real behind it. Handing that '' to the matcher would emit a
+  // phantom row for a line that does not exist whenever the pattern can
+  // match an empty string (`^$`, `.*`, `\d*`). A GENUINE blank line in the
+  // middle of the content is unaffected: it is matched inside the loop
+  // above, against the real '' between two consecutive line breaks.
+  const lineText = decoded.slice(lineStartCodeUnit);
+  if (lineText.length > 0 && matchesLine(lineText)) {
+    matches.push({ line, lineText, offsetByte: lineStartByte });
+  }
+  return matches;
+}
+
+/**
+ * Index one past the last complete line-break sequence in `text`, or -1 if
+ * none exists. A trailing bare `\r` at the very end of `text` is never
+ * treated as the alignment boundary: its `\n` may have fallen just past the
+ * byte window, and cutting there would split one CRLF line break across two
+ * search calls (a narrow, benign edge case — worst case a single spurious
+ * empty-line entry, never a missed match or a false anchor match, so it is
+ * intentionally not chased further than this).
+ */
+function lastLineBreakEnd(text: string): number {
+  const pattern = /\r\n|\r|\n/gu;
+  let end = -1;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    const isTrailingBareCarriageReturn = match[0] === '\r' && pattern.lastIndex === text.length;
+    if (!isTrailingBareCarriageReturn) {
+      end = pattern.lastIndex;
+    }
+  }
+  return end;
+}
+
+/**
+ * Trim a raw byte-bounded search slice back to its last complete line
+ * boundary so every line handed to the matcher is real: never a fragment
+ * artificially split by the maxBytes window. Without this, a literal
+ * straddling a page boundary is never found (each half is tested as if it
+ * were a whole line) and `^`/`$` anchors falsely match at the artificial
+ * fragment edges instead of true line start/end.
+ *
+ * The trimmed tail is not lost: it is re-scanned whole, from its real start,
+ * on the next call once the cursor resumes at the recomputed `endByte`.
+ *
+ * When the raw slice already reaches the true end of the artifact, the
+ * trailing content — even without a line terminator — is a genuine final
+ * line and is returned unmodified.
+ *
+ * When no line-break exists anywhere in the raw slice and more of the
+ * artifact remains, one line spans at least the whole maxBytes window. That
+ * line cannot be searched as a complete unit within this budget: rather than
+ * silently scanning a partial fragment (reintroducing the same straddling
+ * bug), this throws a visible, actionable error. The model can retry with a
+ * larger maxBytes (up to TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES) or fall back to
+ * cursor paging, which has no line-alignment requirement.
+ */
+function alignSearchSliceToLineBoundary(slice: DecodedArtifactSlice): {
+  readonly decoded: string;
+  readonly endByte: number;
+} {
+  const { artifactRef, decoded, endByte, offsetByte } = slice;
+  if (endByte >= artifactRef.byteLength) {
+    return { decoded, endByte };
+  }
+  const boundary = lastLineBreakEnd(decoded);
+  if (boundary === -1) {
+    throw new ToolOutputArtifactReadError(
+      'invalid_input',
+      new RangeError(
+        `Tool output artifact search line exceeds the ${TEXT_ENCODER.encode(decoded).byteLength}-byte scan window starting at offset ${offsetByte}; increase maxBytes (max ${TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES}) or use cursor paging for this region.`
+      )
+    );
+  }
+  const truncated = decoded.slice(0, boundary);
+  return { decoded: truncated, endByte: offsetByte + TEXT_ENCODER.encode(truncated).byteLength };
+}
+
+async function readToolOutputArtifactSearch(
+  input: ReadToolOutputArtifactInput & { readonly pattern: string },
+  options: ReadToolOutputArtifactPageOptions
+): Promise<ToolOutputArtifactSearchResult> {
+  const slice = await readDecodedArtifactSlice(
+    input,
+    options,
+    TOOL_OUTPUT_ARTIFACT_SEARCH_SCAN_BYTES
+  );
+  const aligned = alignSearchSliceToLineBoundary(slice);
+  const matches = findSearchMatches(
+    aligned.decoded,
+    slice.offsetByte,
+    createSearchMatcher(input.pattern, input.isRegex ?? false, input.caseSensitive ?? false)
+  );
+  const searchLimited = aligned.endByte < slice.artifactRef.byteLength;
+  return {
+    artifactRef: slice.artifactRef,
+    endByte: aligned.endByte,
+    matches,
+    ...(searchLimited
+      ? { nextCursor: encodeToolOutputArtifactCursor(slice.artifactRef, aligned.endByte) }
+      : {}),
+    offsetByte: slice.offsetByte,
+    searchLimited,
+    type: 'artifact_search',
+  };
+}
+
+export function readToolOutputArtifact(
+  unsafeInput: ReadToolOutputArtifactInput & { readonly pattern: string },
+  options: ReadToolOutputArtifactPageOptions
+): Promise<ToolOutputArtifactSearchResult>;
+export function readToolOutputArtifact(
+  unsafeInput: unknown,
+  options: ReadToolOutputArtifactPageOptions
+): Promise<ToolOutputArtifactPage | ToolOutputArtifactSearchResult>;
+export async function readToolOutputArtifact(
+  unsafeInput: unknown,
+  options: ReadToolOutputArtifactPageOptions
+): Promise<ToolOutputArtifactPage | ToolOutputArtifactSearchResult> {
+  const input = parseReadInput(unsafeInput);
+  if (input.pattern !== undefined) {
+    return readToolOutputArtifactSearch({ ...input, pattern: input.pattern }, options);
+  }
+  return readToolOutputArtifactPage(input, options);
 }
 
 function validateFoundRange(args: {
@@ -384,12 +849,22 @@ function parseReadInput(unsafeInput: unknown): ReadToolOutputArtifactInput {
     unsafeInput && typeof unsafeInput === 'object'
       ? (unsafeInput as { cursor?: unknown; mode?: unknown })
       : undefined;
-  throw new ToolOutputArtifactReadError(
-    cursorInput?.mode === 'cursor' && !isToolOutputArtifactCursor(cursorInput.cursor)
-      ? 'malformed_cursor'
-      : 'invalid_input',
-    parsed.error
-  );
+  if (cursorInput?.mode === 'cursor' && !isToolOutputArtifactCursor(cursorInput.cursor)) {
+    throw new ToolOutputArtifactReadError('malformed_cursor', parsed.error);
+  }
+  // Fail-fast regex validity (requireSearchPatternForFlags) surfaces here as
+  // a zod issue on the `pattern` path; name the pattern as the problem in
+  // the thrown message too, not just the generic invalid-input text, so it
+  // is never indistinguishable from a bad cursor/other field.
+  const patternIssue = parsed.error.issues.find((issue) => issue.path[0] === 'pattern');
+  if (patternIssue) {
+    throw new ToolOutputArtifactReadError(
+      'invalid_search_pattern',
+      parsed.error,
+      `The tool output artifact search pattern is invalid: ${patternIssue.message}`
+    );
+  }
+  throw new ToolOutputArtifactReadError('invalid_input', parsed.error);
 }
 
 function resolveReadPosition(input: ReadToolOutputArtifactInput): {
@@ -460,23 +935,11 @@ export async function readToolOutputArtifactPage(
   options: ReadToolOutputArtifactPageOptions
 ): Promise<ToolOutputArtifactPage> {
   const input = parseReadInput(unsafeInput);
-  const { artifactRef, offsetByte } = resolveReadPosition(input);
-  const maxBytes = input.maxBytes ?? TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES;
-  const remainingBytes = artifactRef.byteLength - offsetByte;
-  const readLimit = Math.max(1, Math.min(remainingBytes, maxBytes));
-  const result = requireAvailableRange(
-    await readScopedRange(options.reader, {
-      artifactId: artifactRef.id,
-      limitBytes: readLimit,
-      offsetByte,
-    }),
-    artifactRef,
-    options.now ?? (() => new Date())
-  );
-
-  const expectedBytes = Math.min(readLimit, remainingBytes);
-  validateFoundRange({ expectedBytes, offsetByte, reference: artifactRef, result });
-  if (remainingBytes === 0) {
+  if (input.pattern !== undefined) {
+    throw new ToolOutputArtifactReadError('invalid_input');
+  }
+  const { artifactRef, decoded, offsetByte } = await readDecodedArtifactSlice(input, options);
+  if (offsetByte === artifactRef.byteLength) {
     return {
       artifactRef,
       content: '',
@@ -484,8 +947,6 @@ export async function readToolOutputArtifactPage(
       offsetByte,
     };
   }
-
-  const decoded = decodeUtf8Prefix(result.bytes, maxBytes);
   const fitted = fitProviderContent(decoded);
   const endByte = offsetByte + fitted.sourceByteLength;
   if (endByte <= offsetByte) {

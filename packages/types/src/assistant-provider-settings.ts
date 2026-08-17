@@ -3,11 +3,11 @@
  *
  * These types are intentionally hosted in `@brainstrike/types` (a leaf
  * package with no runtime deps) so both `@brainstrike/ui` and
- * `@brainstrike/preferences` can share a single canonical definition.
+ * `@brainstrike/app-state` can share a single canonical definition.
  *
  * Previously the same shapes were duplicated in
- * `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` and
- * `packages/preferences/src/stores/assistant-preferences-store.ts` because
+ * `packages/assistant-ui/src/assistant-ui-panel.tsx` and
+ * `packages/app-state/src/stores/assistant-preferences-store.ts` because
  * `preferences` depends on `ui` (forbidding the reverse import). Reviewers
  * flagged this duplication five times on PR #873; centralising here is the
  * structural fix.
@@ -20,19 +20,46 @@
  *     `SupportedProvider` brand is available.
  */
 
-export type OpenAiReasoningEffort =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
+/**
+ * THE reasoning-effort vocabulary, weakest to strongest.
+ *
+ * This is the union's MEMBERSHIP, not an offered list. Nothing here says a
+ * given model accepts every value: what a particular model offers is resolved
+ * per-family by `resolveReasoningControlsAvailability`
+ * (`@brainstrike/assistant-contract/model-reasoning`), and narrowing an offered
+ * list must never be expressed by narrowing this declaration — see the
+ * `ANTHROPIC_REASONING_EFFORTS` ruling in `docs/agents/assistant-providers.md`.
+ * Its only job is to be the single place the values are written down.
+ *
+ * Declared as a value so the one place that needs them at RUNTIME — the Hosted
+ * Web request-boundary `z.enum` in
+ * `apps/web/src/server/web-assistant-runtime-schema.ts` — derives from the same
+ * source as the type it validates. It was previously a fourth hand-copy: a
+ * narrower copy rejects an effort the picker offers, a wider one lets a value
+ * the provider rejects reach the wire, and both fail at runtime against a green
+ * type-check.
+ */
+export const OPENAI_REASONING_EFFORT_VALUES = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+
+export type OpenAiReasoningEffort = (typeof OPENAI_REASONING_EFFORT_VALUES)[number];
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 /**
- * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.8).
+ * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39).
  * `xhigh`/`max` are real wire values — omitting them made the picker offer a
  * strictly narrower range than the provider accepts.
+ *
+ * The provider ships this as a zod schema it never exports as a value, so the
+ * union is retyped by hand. It is no longer only a comment:
+ * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs` compares this
+ * declaration — and the version named above — against the installed package.
  */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';

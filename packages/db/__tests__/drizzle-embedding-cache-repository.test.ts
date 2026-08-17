@@ -604,7 +604,7 @@ describe('createEmbeddingCacheRepository promotion (BST-989)', () => {
     );
     const { createDatabaseWorkScheduler, createScheduledDbHandle, createPriorityDbHandle } =
       await import('../src/database-work-scheduler.js');
-    const { createDbHandle } = await import('../src/db-provider.js');
+    const { createDbHandle } = await import('../src/db-handle.js');
     const db = await createMigratedTestDb();
     try {
       // The exact production web stack (embedding-runtime-controller):
@@ -661,7 +661,7 @@ describe('createEmbeddingCacheRepository promotion (BST-989)', () => {
       // unconditionally installs `.raw` (= the bridge executor) — a marker
       // guard on the direct branch alone would be bypassed by extractPGlite
       // unwrapping that `.raw` (review #2166 round 3).
-      const { createDbHandle } = await import('../src/db-provider.js');
+      const { createDbHandle } = await import('../src/db-handle.js');
       const futureBridgeExecutor = {
         exec: async (sql: string) => (db as unknown as { exec: (s: string) => unknown }).exec(sql),
         query: async (sql: string, params?: unknown[]) => real.query(sql, params),

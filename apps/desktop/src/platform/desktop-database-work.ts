@@ -7,6 +7,8 @@ import {
   type DatabaseWorkScheduler,
   type DatabaseWorkSchedulerOptions,
   type DatabaseWorkSchedulerSnapshot,
+  DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS as SHARED_DATABASE_WORK_IDLE_TIMEOUT_MS,
+  waitForDatabaseWorkSchedulerIdle,
 } from '@brainstrike/db';
 import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow } from 'electron';
@@ -20,7 +22,8 @@ interface ResolveDatabaseWorkOptionsHostManagers {
   readonly embeddingHostManager?: DatabaseWorkHostWindowMatcher;
 }
 
-const DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS = 5000;
+// Re-exported from @brainstrike/db so both surfaces share one timeout (BST-1329).
+const DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS = SHARED_DATABASE_WORK_IDLE_TIMEOUT_MS;
 export const DATABASE_WORK_INVALIDATED_BY_RECOVERY_MESSAGE =
   'Database work was canceled because runtime corruption recovery is replacing the active local database.';
 
@@ -263,59 +266,20 @@ export async function runWithDesktopDatabaseResetBarrier<T>(
   }
 }
 
-function isDesktopDatabaseWorkSchedulerIdle(snapshot: DatabaseWorkSchedulerSnapshot): boolean {
-  return (
-    snapshot.runningPriority === null &&
-    snapshot.queued.foreground === 0 &&
-    snapshot.queued.normal === 0 &&
-    snapshot.queued.background === 0
-  );
-}
-
+/**
+ * Delegates to the shared idle join in `@brainstrike/db` (BST-1329) — this was
+ * a line-for-line duplicate of it, and a drain primitive whose whole job is to
+ * be correct under a wedge is exactly where two copies must not diverge. The
+ * label keeps the desktop-specific error wording this app's tests pin.
+ */
 export async function waitForDesktopDatabaseWorkSchedulerIdle(
   timeoutMs = DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS
 ): Promise<void> {
-  if (isDesktopDatabaseWorkSchedulerIdle(desktopDatabaseWorkScheduler.getSnapshot())) {
-    return;
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    let unsubscribe: (() => void) | null = null;
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-
-    const cleanup = () => {
-      if (timeout) {
-        clearTimeout(timeout);
-        timeout = null;
-      }
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
-    };
-
-    const resolveIfIdle = (snapshot: DatabaseWorkSchedulerSnapshot) => {
-      if (!isDesktopDatabaseWorkSchedulerIdle(snapshot)) {
-        return;
-      }
-      cleanup();
-      resolve();
-    };
-
-    timeout = setTimeout(() => {
-      const snapshot = desktopDatabaseWorkScheduler.getSnapshot();
-      cleanup();
-      reject(
-        new Error(
-          `Desktop database work did not become idle within ${timeoutMs}ms. ` +
-            `running=${snapshot.runningLabel ?? 'none'} queued=${JSON.stringify(snapshot.queued)}`
-        )
-      );
-    }, timeoutMs);
-
-    unsubscribe = desktopDatabaseWorkScheduler.subscribe(resolveIfIdle);
-    resolveIfIdle(desktopDatabaseWorkScheduler.getSnapshot());
-  });
+  await waitForDatabaseWorkSchedulerIdle(
+    desktopDatabaseWorkScheduler,
+    timeoutMs,
+    'Desktop database work'
+  );
 }
 
 export function resetDesktopDatabaseWorkSchedulerForTests(

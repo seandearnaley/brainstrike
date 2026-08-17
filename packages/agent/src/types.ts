@@ -11,6 +11,12 @@ import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  type GoogleThinkingLevel,
+  OPENAI_REASONING_EFFORT_VALUES,
+  type OpenAiReasoningEffort,
+  type OpenAiReasoningSummary,
+} from '@brainstrike/types';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { AssistantPermissionPolicyRequest } from './mastra/permission-policy-request';
@@ -19,6 +25,41 @@ import type { RuntimeAssistantMemorySettings } from './memory-settings';
 import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
 import type { AgentHookRunner } from './tools/hook-runner';
+
+interface ToolProjectionRewriteEntryBase {
+  readonly markerText: string;
+  readonly toolCallId: string;
+}
+
+export type ToolProjectionRewriteEntry =
+  | (ToolProjectionRewriteEntryBase & {
+      readonly kind: 'prune';
+      readonly supersededByToolCallId: null;
+    })
+  | (ToolProjectionRewriteEntryBase & {
+      readonly kind: 'supersession';
+      readonly supersededByToolCallId: string;
+    });
+
+/** Desktop-injected, read-only access to durable request-build overlays. */
+export interface ToolProjectionRewriteLookup {
+  readonly listActiveRewrites: (
+    threadId: string
+  ) => Promise<ReadonlyMap<string, ToolProjectionRewriteEntry>>;
+}
+
+/** One durable compaction summary and the exact raw message ids it replaces. */
+export interface CompactionRangeEntry {
+  readonly compactedMessageIds: readonly string[];
+  readonly compactionMessageId: string;
+}
+
+/** Desktop-injected, read-only access to durable compaction overlays. */
+export interface CompactionRangeLookup {
+  readonly listActiveCompactionRanges: (
+    threadId: string
+  ) => Promise<readonly CompactionRangeEntry[]>;
+}
 
 // The 7 supporting types below are byte-identical and dependency-free in both
 // @brainstrike/agent and @brainstrike/assistant-contract; the dependency-light
@@ -103,7 +144,7 @@ export interface AssistantUiMessage {
 /**
  * Agent runtime data. Extends the dependency-light `assistant-contract`
  * `RuntimeData` (the canonical wire/UI contract) and overrides only the two
- * fields that bind to runtime libraries, plus three server-only fields. The
+ * fields that bind to runtime libraries, plus server-only fields. The
  * shared fields — including `provider` (which now inherits `'local'`) — live
  * in the contract; this is what removes the old "keep the two declarations in
  * sync" drift hazard.
@@ -115,6 +156,17 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * streamed UI state, and branch topology share one identity. Agent-only.
    */
   assistantMessageId?: string;
+  /**
+   * Desktop-injected lookup for durable conversation-compaction overlays.
+   * The input-step processor filters only the transient ID-bearing message
+   * list; durable Mastra rows remain unchanged. Server-side only.
+   */
+  compactionOverlayLookup?: CompactionRangeLookup;
+  /**
+   * Desktop-injected recovery callback for terminal provider context overflow.
+   * It may commit deterministic compaction, but never retries the current turn.
+   */
+  contextOverflowRecovery?: () => Promise<{ readonly applied: boolean }>;
   /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed into the
    * tool-execute seam so PreToolUse hooks can block a permitted tool and
@@ -196,6 +248,13 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    */
   providerOptions?: RuntimeProviderOptions;
   /**
+   * Desktop-injected lookup for superseded native-tool projection overlays.
+   * The input processor consults it only while building a provider request;
+   * durable Mastra message content is never changed. Server-side only, never
+   * serialized over IPC/HTTP. Agent-only — mirrors `hookRunner`.
+   */
+  toolProjectionRewriteLookup?: ToolProjectionRewriteLookup;
+  /**
    * Server-injected Agent Skills engine (desktop). When present (and the
    * provider is not the built-in local model), the runtime folds Mastra's
    * `skill`/`skill_read`/`skill_search` tools into the local tool map BEFORE
@@ -215,15 +274,17 @@ export interface RuntimeMemoryContext {
   threadId: string;
 }
 
-export type OpenAiReasoningEffort =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
-export type OpenAiReasoningSummary = 'auto' | 'detailed';
+/**
+ * Re-exported, never re-declared. This package is the one that actually hands
+ * `providerOptions` to the SDK, so a local copy narrower than the picker's
+ * would drop a selected value on the floor with nothing to catch it.
+ */
+export {
+  type GoogleThinkingLevel,
+  OPENAI_REASONING_EFFORT_VALUES,
+  type OpenAiReasoningEffort,
+  type OpenAiReasoningSummary,
+};
 
 export interface OpenAiProviderOptions extends JSONObject {
   reasoningEffort?: OpenAiReasoningEffort;
@@ -238,17 +299,19 @@ export interface OpenRouterProviderOptions extends JSONObject {
   };
 }
 
-/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.8). */
+/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39). */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.8). `display` governs whether reasoning is
+ * `@ai-sdk/anthropic` (4.0.39). `display` governs whether reasoning is
  * RETURNED and defaults to `omitted` provider-side, so it must be asked for.
  * Kept in step with the identical declaration in
  * `@brainstrike/assistant-contract` — this package is what actually hands
  * `providerOptions` to the SDK, so a narrower type here would silently fail
- * to represent what the app sends.
+ * to represent what the app sends. Both this copy and that one are compared
+ * against the installed provider by
+ * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
  */
 export type AnthropicThinkingOptions =
   | { type: 'adaptive'; display?: 'omitted' | 'summarized' }
@@ -259,8 +322,6 @@ export interface AnthropicProviderOptions extends JSONObject {
   effort?: AnthropicEffort;
   thinking?: AnthropicThinkingOptions;
 }
-
-export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 export interface GoogleProviderOptions extends JSONObject {
   thinkingConfig?: {
@@ -315,7 +376,16 @@ export interface StreamChunkRunEvent {
 export interface StreamChunkTool {
   name: string;
   payload?: unknown;
-  status: 'start' | 'progress' | 'success' | 'error';
+  /**
+   * `'declined'` is the approval lifecycle's DECLINE terminal (@mastra/core
+   * 1.59 `tool-output-denied`, BST-1282). It is its own status, not a flavour
+   * of `'error'`, precisely because the two must diverge downstream: both
+   * settle the call, but a decline must NOT queue the visible
+   * "I couldn't complete the tool action because it failed" fallback, and must
+   * not paint the tool card with destructive failure chrome. Nothing ran and
+   * nothing broke — the user made a choice.
+   */
+  status: 'start' | 'progress' | 'success' | 'error' | 'declined';
   type: 'tool-event';
 }
 /**
@@ -349,6 +419,55 @@ export interface StreamChunkContextBreakdown {
 export interface StreamChunkChildRunUsage {
   type: 'child-run-usage';
   value: AssistantChildRunUsage;
+}
+/**
+ * Internal run-end payload consumed by the desktop durable telemetry sink.
+ * `occurredAt` is captured at the actual tool-call/projection moment (epoch
+ * ms), not at run-end flush time — a long run's calls must not all collapse
+ * onto the same timestamp (review fix).
+ */
+export interface ToolCallTelemetrySample {
+  /** BST-1247: candidate-set cap hit in the search substrate (not output clipping). */
+  readonly candidatesTruncated: boolean;
+  /** Live-pass engine for search tools; absent for non-search tools. */
+  readonly engine?: 'js-walk' | 'ripgrep' | 'skipped';
+  readonly isPaginationFollowup: boolean;
+  readonly modelFacingChars: number;
+  readonly occurredAt: number;
+  /** BST-1247: bounded scan/walk cap hit in the search substrate. */
+  readonly scanLimited: boolean;
+  readonly toolId: string;
+  /** Model-facing output was clipped — output clipping ONLY (BST-1247). */
+  readonly truncated: boolean;
+  readonly zeroMatch?: boolean;
+}
+export interface StreamChunkToolCallTelemetry {
+  readonly type: 'tool-call-telemetry';
+  readonly value: readonly ToolCallTelemetrySample[];
+}
+/**
+ * Run-end calibration pair over the final prompt's estimator-visible share.
+ * `estimatedPromptTokens` counts model-visible tool-output projections plus
+ * tool definitions once; `finalStepPromptTokens` is the most recent provider
+ * step's prompt size, which contains prior tool outputs once via Mastra's resend
+ * behavior. Conversation/system-prompt text outside those shares is excluded.
+ */
+export interface TokenEstimateCalibrationSample {
+  readonly estimatedPromptTokens: number;
+  readonly finalStepPromptTokens: number;
+  readonly model: string;
+  readonly modelVisibleProjectionCount: number;
+  readonly occurredAt: number;
+  /** System instructions + task list + tool definitions from this run's prompt breakdown. */
+  readonly promptBreakdownBaselineTokens?: number;
+  readonly provider: string;
+  readonly resolvedDomainBudgetTokens?: number;
+  readonly resolvedTransportBudgetTokens?: number;
+  readonly stepCount: number;
+}
+export interface StreamChunkTokenEstimateCalibration {
+  readonly type: 'token-estimate-calibration';
+  readonly value: TokenEstimateCalibrationSample;
 }
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
@@ -406,6 +525,8 @@ export type StreamChunk =
   | StreamChunkRunEvent
   | StreamChunkShellOutput
   | StreamChunkText
+  | StreamChunkTokenEstimateCalibration
+  | StreamChunkToolCallTelemetry
   | StreamChunkTool
   | StreamChunkToolApprovalRequired
   | StreamChunkToolSuspendRequired

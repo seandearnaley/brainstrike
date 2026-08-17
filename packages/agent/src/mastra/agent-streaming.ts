@@ -21,17 +21,22 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import {
   getLlmModelDefinition,
+  listProviderLlmModels,
   resolveOpenRouterCodingMaxOutputTokens,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
+import { generateUUID } from '@brainstrike/utils';
 import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
+import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
@@ -50,6 +55,7 @@ import {
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
 } from './agent-runtime';
+import { buildCompactionOverlayInputProcessor } from './compaction-overlay-processor';
 import { buildProviderHistoryCompatInputProcessor } from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
@@ -66,6 +72,7 @@ import {
   truncateStreamDetail,
 } from './mastra-chunk-decoding';
 import { MCP_PROGRESS_STREAM_PART_TYPE, mapMcpProgressStreamPart } from './mcp-runtime-client';
+import { buildOpenAIDuplicateItemCompatInputProcessor } from './openai-duplicate-item-compat';
 import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './openai-tool-search-history-compat';
 import type { PermissionAskToolMetadata } from './permission-tool-gate';
 import { ProjectionAwareTokenLimiter } from './projection-aware-token-limiter';
@@ -107,6 +114,7 @@ import {
   resolveDelegationPersona,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
+import { buildToolProjectionRewriteInputProcessor } from './tool-projection-rewrite-processor';
 import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
@@ -188,6 +196,7 @@ const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
   'tool-execution-start': 'ignored',
   'tool-execution-suspended': 'ignored',
   'tool-output': 'mapped',
+  'tool-output-denied': 'mapped',
   'tool-result': 'mapped',
   tripwire: 'mapped',
   watch: 'ignored',
@@ -233,7 +242,41 @@ function warnForUnrecognizedMastraStreamPart(
   });
 }
 
-function processMastraStreamPart(
+async function makeRecoveredProviderErrorTermination(
+  part: unknown,
+  error: unknown,
+  lifecycleState: ToolLifecycleState,
+  runtimeData?: RuntimeData
+): Promise<ProcessStreamPartResult> {
+  const providerError = resolveProviderError(error, runtimeData);
+  let detail = providerError.detail;
+  if (
+    isContextOverflowProviderErrorCode(providerError.runError.code) &&
+    runtimeData?.contextOverflowRecovery
+  ) {
+    try {
+      const recovery = await runtimeData.contextOverflowRecovery();
+      if (recovery.applied) {
+        detail =
+          'A deterministic compaction was applied after the provider reported a context overflow. Please resend this message or continue the conversation; the next request now has additional headroom.';
+      }
+    } catch (recoveryError) {
+      logger.warn('Deterministic context-overflow compaction failed', {
+        code: 'deterministic_compaction_failed',
+        error: recoveryError,
+      });
+    }
+  }
+  return makeProviderErrorTermination(
+    detail,
+    lifecycleState,
+    part,
+    runtimeData,
+    providerError.runError
+  );
+}
+
+async function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
   lifecycleState: ToolLifecycleState,
@@ -241,7 +284,7 @@ function processMastraStreamPart(
   askTools?: ReadonlyMap<string, PermissionAskToolMetadata>,
   delegationToolPersonas: ReadonlyMap<string, string> = new Map(),
   runtimeData?: RuntimeData
-): ProcessStreamPartResult {
+): Promise<ProcessStreamPartResult> {
   const p = asMastraStreamPart(part);
 
   // Dynamic OM bookkeeping branches before the typed switch: failure variants
@@ -299,6 +342,7 @@ function processMastraStreamPart(
       }
       // Same usage-candidate order as makeFinishChunk (top-level, then payload).
       accumulateSteppedUsage(lifecycleState, readStreamPartUsage(p));
+      lifecycleState.stepCount += 1;
       const stepFinishedChunk = makeRunEventChunk(
         'run.step.finished',
         'completed',
@@ -401,6 +445,17 @@ function processMastraStreamPart(
     case 'tool-call':
     case 'tool-result':
     case 'tool-error':
+    // @mastra/core 1.59: the DECLINE terminal of the approval lifecycle. A
+    // `requireApproval` call the user declined never reaches the tool and never
+    // produces a later `tool-result`/`tool-error` for the same id, so this part
+    // is the ONLY chance to settle it. `'ignored'` would reproduce the hang
+    // mastra shipped this chunk to fix: the renderer's tool part stays pending
+    // forever and the durable `tool.started` never pairs off. It sits with the
+    // other TERMINALS on purpose — a declined DELEGATION (`agent-<persona>`,
+    // reachable under an explicit global approval gate) must also pair off the
+    // `subagent.started` its own `tool-call` emitted, so the decline cannot
+    // take a path that skips the subagent lifecycle.
+    case 'tool-output-denied':
       return mapToolLifecyclePart(
         part,
         toolNames,
@@ -444,13 +499,11 @@ function processMastraStreamPart(
       // we threw here; the throw produced a data-stream error frame that the
       // renderer did not surface, leaving the thread hung on a forever-spinning
       // "Generation step started" (the "large white pause"). See docs/agents/assistant-runtime.md.
-      const providerError = resolveProviderError(p.error ?? p.payload?.error, runtimeData);
-      return makeProviderErrorTermination(
-        providerError.detail,
-        lifecycleState,
+      return makeRecoveredProviderErrorTermination(
         part,
-        runtimeData,
-        providerError.runError
+        p.error ?? p.payload?.error,
+        lifecycleState,
+        runtimeData
       );
     }
     case 'tripwire': {
@@ -740,13 +793,36 @@ interface BrainstrikeAgentStreamOptions {
   requireToolApproval?: ApprovalGate;
 }
 
+/**
+ * Default OpenRouter output window when the client sent no explicit
+ * `modelSettings.maxOutputTokens` (BST-1170). Reasoning tokens are output
+ * tokens on OpenRouter, so the window is sized for the reasoning state the
+ * request actually carries: an active-reasoning request on a catalogued model
+ * with a vendor-documented completion window reserves that window; everything
+ * else keeps the coding ceiling. Undeclared routes have no recorded facts and
+ * keep the ceiling — the base contract, not a per-model guess.
+ */
+function resolveOpenRouterBackstopMaxOutputTokens(runtimeData: RuntimeData): number {
+  const modelId = runtimeData.model?.trim() || getDefaultModel('openrouter');
+  const definition = listProviderLlmModels('openrouter').find(({ id }) => id === modelId);
+  if (!definition) {
+    return resolveOpenRouterCodingMaxOutputTokens();
+  }
+  const reasoning = runtimeData.providerOptions?.openrouter?.reasoning;
+  const explicitEffort = reasoning?.enabled === false ? 'none' : reasoning?.effort;
+  return resolveOpenRouterOutputWindow(
+    definition,
+    resolveOpenRouterReasoningActive(definition, explicitEffort)
+  );
+}
+
 function buildModelSettingsOption(
   runtimeData: RuntimeData | undefined
 ): Pick<BrainstrikeAgentStreamOptions, 'modelSettings'> {
   let modelSettings = runtimeData?.modelSettings;
   if (runtimeData?.provider === 'openrouter') {
     modelSettings = {
-      maxOutputTokens: resolveOpenRouterCodingMaxOutputTokens(),
+      maxOutputTokens: resolveOpenRouterBackstopMaxOutputTokens(runtimeData),
       ...modelSettings,
     };
   } else if (runtimeData?.provider === 'local') {
@@ -877,6 +953,21 @@ function buildToolLoopOptions(
   const openAIToolSearchHistoryCompat = buildOpenAIToolSearchHistoryCompatInputProcessor(
     runtimeData?.provider ?? ''
   );
+  // Mastra's sealed-boundary re-key can leave the same assistant response
+  // persisted under two message ids; OpenAI rejects any request that carries
+  // an item id twice (BST-1095). Runs LAST among the compat processors so it
+  // sees the item references the earlier rewrites produced.
+  const openAIDuplicateItemCompat = buildOpenAIDuplicateItemCompatInputProcessor(
+    runtimeData?.provider ?? ''
+  );
+  const toolProjectionRewrite = buildToolProjectionRewriteInputProcessor(
+    runtimeData?.toolProjectionRewriteLookup,
+    runtimeData?.memory?.threadId
+  );
+  const compactionOverlay = buildCompactionOverlayInputProcessor(
+    runtimeData?.compactionOverlayLookup,
+    runtimeData?.memory?.threadId
+  );
   const tokenLimiter = inputTokenLimit
     ? new ProjectionAwareTokenLimiter({
         limit: inputTokenLimit,
@@ -899,8 +990,13 @@ function buildToolLoopOptions(
     skillsProcessor,
     toolSearchProcessor,
     toolHistoryFilter,
+    toolProjectionRewrite,
+    // Adjacent for readability only: processInputStep always runs before the
+    // rewrite processor's processLLMRequest, independent of array position.
+    compactionOverlay,
     historyCompat,
     openAIToolSearchHistoryCompat,
+    openAIDuplicateItemCompat,
     tokenLimiter,
   ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
 
@@ -962,6 +1058,8 @@ async function* streamChunksFromMastra({
   titleMessages,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
+  const calibrationState = { emitted: false };
+  const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
     delegationLifecycle: createDelegationLifecycleTracker(),
@@ -972,6 +1070,7 @@ async function* streamChunksFromMastra({
     sawStepBilledCost: false,
     sawStepWithoutBilledCost: false,
     stepBilledCostUsd: 0,
+    stepCount: 0,
     steppedCompletionTokens: 0,
     steppedPromptTokens: 0,
     streamStartedAtMs: Date.now(),
@@ -1012,7 +1111,7 @@ async function* streamChunksFromMastra({
       (error) => streamAbortContext.abort(error)
     );
     for await (const part of source) {
-      const { chunks, finished } = processMastraStreamPart(
+      const { chunks, finished } = await processMastraStreamPart(
         part,
         toolNames,
         lifecycleState,
@@ -1038,6 +1137,15 @@ async function* streamChunksFromMastra({
       // completion callback fired before Mastra emitted this part, so the
       // child's usage must not land after a finishing part closes the stream.
       yield* drainDelegationUsageChunks(delegationUsage);
+      yield* drainTokenEstimateCalibrationChunk(
+        finished,
+        runtime,
+        runtimeData,
+        lifecycleState,
+        calibrationState,
+        promptBreakdown
+      );
+      yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       for (const chunk of chunks) {
         yield chunk;
       }
@@ -1053,16 +1161,22 @@ async function* streamChunksFromMastra({
     const endChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeMissingFinishStreamChunks(lifecycleState);
+    yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
     for (const chunk of endChunks) {
       yield chunk;
     }
   } catch (error) {
     if (!isStreamWatchdogError(error)) {
+      // Best-effort telemetry must not be lost on an ordinary stream/projector
+      // failure after earlier tool calls already completed — drain whatever
+      // was accumulated before propagating the failure (review fix).
+      yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
       throw error;
     }
     const terminalChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeStreamWatchdogTermination(error, lifecycleState, runtimeData);
+    yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
     for (const chunk of terminalChunks) {
       yield chunk;
     }
@@ -1217,6 +1331,109 @@ function logTokenDiagnostics(
   logger.info(context, 'mastra run token measurement recorded');
 }
 
+function* drainToolCallTelemetryChunks(
+  terminal: boolean,
+  runtime: MastraAgentRuntime,
+  state: { emitted: boolean }
+): Generator<StreamChunk> {
+  if (!(terminal && !state.emitted)) {
+    return;
+  }
+  state.emitted = true;
+  const value = runtime.tokenDiagnostics.toolCallTelemetry();
+  if (value.length > 0) {
+    yield { type: 'tool-call-telemetry', value };
+  }
+}
+
+/**
+ * Emit one completed-run pair on the final-prompt-content basis. The numerator
+ * counts model-visible tool-output projections plus tool definitions once; the
+ * denominator is the latest step prompt, which contains every prior tool
+ * output once through Mastra's resend behavior—not the cross-step billing sum.
+ * Conversation/system-prompt text outside tool outputs and definitions is
+ * excluded from both, and a run without a measured tool output is ineligible.
+ */
+function* drainTokenEstimateCalibrationChunk(
+  terminal: boolean,
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined,
+  lifecycleState: ToolLifecycleState,
+  state: { emitted: boolean },
+  promptBreakdown: AssistantContextBreakdown | undefined
+): Generator<StreamChunk> {
+  if (!(terminal && !state.emitted)) {
+    return;
+  }
+  state.emitted = true;
+  const finalStepPromptTokens = lifecycleState.latestStepPromptTokens;
+  const model = runtimeData?.model;
+  const provider = runtimeData?.provider;
+  if (finalStepPromptTokens === undefined || !(model && provider)) {
+    return;
+  }
+  const fields = runtime.tokenDiagnostics.toLogFields();
+  if (fields['measurementStatus'] === 'failed') {
+    return;
+  }
+  const modelVisibleProjectionCount = fields['modelVisibleProjectionCount'] as number;
+  // BST-1232 review (P1): a run with zero measured tool-output projections
+  // used to be entirely ineligible for this chunk, which meant an ordinary
+  // tool-free chat turn NEVER persisted `promptBreakdownBaselineTokens` —
+  // silently starving the next turn's compaction trigger of the one value
+  // this migration exists to give it. The estimator-vs-provider RATIO this
+  // chunk also carries (estimatedPromptTokens/finalStepPromptTokens) is
+  // still only meaningful when real tool-output measurement happened
+  // (BST-1205); that eligibility gate now lives in the consuming
+  // `estimator-calibration.sql` lens (`model_visible_projection_count > 0`)
+  // instead of the writer, so a zero-projection row can be written here
+  // without resurrecting a meaningless ratio sample downstream. A row is
+  // still skipped only when there is NOTHING new to report: no measured
+  // tool output AND no prompt breakdown to source a baseline from.
+  if (modelVisibleProjectionCount === 0 && !promptBreakdown) {
+    return;
+  }
+  // Comparable final-prompt basis: the numerator counts model-visible tool
+  // outputs and tool definitions once; the latest step prompt already contains
+  // every prior tool output once via Mastra's resend behavior. Conversation and
+  // system-prompt text outside those shares remain excluded from both figures.
+  const estimatedPromptTokens =
+    (fields['modelVisibleProjectionBackstopTokens'] as number) +
+    ((fields['toolDefinitionBackstopTokens'] as number | undefined) ?? 0);
+  yield {
+    type: 'token-estimate-calibration',
+    value: {
+      estimatedPromptTokens,
+      finalStepPromptTokens,
+      model,
+      modelVisibleProjectionCount,
+      occurredAt: Date.now(),
+      provider,
+      // BST-1232 review: `taskListTokens` absent genuinely means "no task
+      // list" (0 is honest), but `toolDefinitionsTokens` absent means tool-
+      // definition measurement FAILED for this run (see
+      // `RunTokenDiagnostics.toolDefinitionContextBreakdown()`'s own "absent,
+      // never zero-faked" contract) — folding that to 0 would silently
+      // understate the baseline by roughly the whole tool catalog
+      // (~9.8k tokens) while looking like valid evidence to the next turn's
+      // trigger. Omit the field entirely rather than persist a fabricated
+      // partial sum (no-silent-fallbacks); migration 091's NULL already
+      // means exactly "no trustworthy baseline for this row".
+      ...(promptBreakdown && promptBreakdown.toolDefinitionsTokens !== undefined
+        ? {
+            promptBreakdownBaselineTokens:
+              promptBreakdown.systemInstructionsTokens +
+              (promptBreakdown.taskListTokens ?? 0) +
+              promptBreakdown.toolDefinitionsTokens,
+          }
+        : {}),
+      resolvedDomainBudgetTokens: runtime.resolvedToolResultBudget.domainModelResultTokens,
+      resolvedTransportBudgetTokens: runtime.resolvedToolResultBudget.transportResultTokens,
+      stepCount: lifecycleState.stepCount,
+    },
+  };
+}
+
 async function createStreamIteratorFromRuntime({
   runtime,
   runtimeData,
@@ -1356,6 +1573,12 @@ function resolveResumeApprovalGate(
   // all-allowed posture: the function below then gates nothing (askTools.has is
   // always false), honoring "Allow all tools this session".
   const isExplicitGlobalApproval = askTools.size === 0 && !permissionEnforced;
+  // Since the @mastra/core 1.56 approval rework there is no self-approving
+  // exemption: run_python is an ordinary ask-set tool (the permission gate's
+  // `requireApproval` clone is its Gate A), so re-gating it on a resumed leg
+  // is exactly the framework's own idiom — approve is consumed pre-execution
+  // and the tool runs once, never a loop. Only Mastra-INTERNAL bookkeeping
+  // tools stay exempt (the D4 defect).
   return ({ toolName }: { toolName: string }): boolean =>
     !isApprovalExemptInternalTool(toolName) && (isExplicitGlobalApproval || askTools.has(toolName));
 }
@@ -1466,8 +1689,23 @@ async function createToolApprovalIteratorFromRuntime({
       });
     }
 
+    // BST-1232 review (P2): prompt composition is unchanged across a resume
+    // (same composed instructions, same tool definitions), so the SAME
+    // baseline the initial turn would have reported still applies here — it
+    // was simply never computed on this leg. `messages: []` is honest for a
+    // resume: no new user messages are sent, so the message-side counts this
+    // breakdown also carries (attachmentsCount, and historyMessagesTokens
+    // when not memory-backed) are correctly zero/omitted rather than stale.
+    const promptBreakdown = computePromptBreakdown({
+      instructionBreakdown: runtime.instructionBreakdown,
+      memoryBacked: Boolean(memoryOption),
+      messages: [],
+      toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
+    });
+
     return streamChunksFromMastra({
       ...(delegationUsage ? { delegationUsage } : {}),
+      promptBreakdown,
       runtime,
       stream: fullStream,
       streamAbortContext,
@@ -1642,8 +1880,26 @@ export interface DiscoveredSuspendedApproval {
   readonly toolName: string;
 }
 
-export interface ListSuspendedApprovalsResult {
+/**
+ * A non-approval `suspend()` pause discovered from workflow storage
+ * (BST-1084): a tool that called `suspend()` (submitPlan/askUser) whose run
+ * survived a restart/reload. `suspendPayload` comes off the durable snapshot
+ * (Mastra's `AgentRunToolCall.suspendPayload`), so the rediscovered notice
+ * renders the real plan/question. `toolName` is the ORIGINAL dotted name,
+ * mapped exactly like approvals.
+ */
+export interface DiscoveredSuspendedPause {
+  readonly runId: string;
+  readonly suspendedAt: string;
+  readonly suspendPayload?: unknown;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+
+export interface ListSuspendedRunsResult {
   readonly approvals: readonly DiscoveredSuspendedApproval[];
+  /** Non-approval suspend() pauses (BST-1084). Same ordering as approvals. */
+  readonly suspends: readonly DiscoveredSuspendedPause[];
 }
 
 /**
@@ -1681,6 +1937,86 @@ function resolveDiscoveredApprovalToolName(
   return registeredToolName;
 }
 
+type SuspendedRunsForClassification = Awaited<ReturnType<Agent['listSuspendedRuns']>>['runs'];
+
+/**
+ * Classify a suspended run's tool calls into approvals vs suspend() pauses.
+ *
+ * Mastra's documented contract: `run.toolCalls` contains only calls the run is
+ * CURRENTLY suspended on ("A suspended tool call inside a suspended agent run
+ * — either waiting on a tool-call approval or on resume data for a tool that
+ * called suspend()", AgentRunToolCall). A call can be suspended for exactly
+ * ONE reason at a time — even a tool that is both approval-gated and
+ * suspending composes the two transports SERIALLY (pinned by the BOTH-FLAGS
+ * integration proof). The id set below is a CANARY for that contract: if an
+ * upstream change ever lists one call in both roles, the approval (the
+ * earlier gate) wins and the duplicate is logged loudly instead of producing
+ * two cards for one call. Only a call missing its ids (e.g. a
+ * delegation-thread run) is tolerated + skipped.
+ */
+function classifySuspendedToolCalls(
+  runs: SuspendedRunsForClassification,
+  toolNameMap: ReadonlyMap<string, string>
+): { approvals: DiscoveredSuspendedApproval[]; suspends: DiscoveredSuspendedPause[] } {
+  const approvals: DiscoveredSuspendedApproval[] = [];
+  const suspends: DiscoveredSuspendedPause[] = [];
+  const approvalToolCallIds = new Set<string>();
+  for (const run of runs) {
+    const suspendedAt = run.suspendedAt.toISOString();
+    for (const toolCall of run.toolCalls) {
+      if (!(toolCall.toolCallId && toolCall.toolName)) {
+        logger.debug('skipping suspended tool call without ids', {
+          code: 'mastra_agent_suspended_run_skipped',
+          requiresApproval: toolCall.requiresApproval,
+          runId: run.runId,
+          toolName: toolCall.toolName,
+        });
+        continue;
+      }
+      // Snapshots store the REGISTERED (sanitized) id; every client-facing
+      // surface is keyed by the ORIGINAL name — map it back here so the
+      // desktop route's riskByTool lookup and per-tool overrides match.
+      const toolName = resolveDiscoveredApprovalToolName(toolCall.toolName, toolNameMap, run.runId);
+      if (toolCall.requiresApproval) {
+        approvalToolCallIds.add(toolCall.toolCallId);
+        approvals.push({
+          runId: run.runId,
+          suspendedAt,
+          toolCallId: toolCall.toolCallId,
+          toolName,
+          ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
+        });
+        continue;
+      }
+      if (approvalToolCallIds.has(toolCall.toolCallId)) {
+        logger.warn('suspended tool call listed as BOTH approval and suspend; approval wins', {
+          code: 'mastra_agent_suspended_run_duplicate_tool_call',
+          runId: run.runId,
+          toolCallId: toolCall.toolCallId,
+          toolName,
+        });
+        continue;
+      }
+      // BST-1084: a tool that called suspend() — carry its durable payload
+      // so the rediscovered notice renders the real plan/question.
+      suspends.push({
+        runId: run.runId,
+        suspendedAt,
+        toolCallId: toolCall.toolCallId,
+        toolName,
+        ...(toolCall.suspendPayload === undefined
+          ? {}
+          : { suspendPayload: toolCall.suspendPayload }),
+      });
+    }
+  }
+  const bySuspendedAt = (a: { suspendedAt: string }, b: { suspendedAt: string }): number =>
+    Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt);
+  approvals.sort(bySuspendedAt);
+  suspends.sort(bySuspendedAt);
+  return { approvals, suspends };
+}
+
 /**
  * Restart-safe discovery of pending tool approvals for a thread. Rebuilds a
  * FRESH runtime (like {@link streamMastraToolApprovalAction}) and calls the
@@ -1688,16 +2024,17 @@ function resolveDiscoveredApprovalToolName(
  * it works after a process restart / renderer reload given only the thread
  * context. It is INERT: listing performs no inference and never resumes a run.
  *
- * Returns ONLY approval-gated tool calls (`requiresApproval === true`) that carry
- * a `toolCallId` + `toolName`. Non-approval `suspend()` pauses (submitPlan/askUser)
- * and delegation-thread runs are tolerated and skipped without error (logged at
- * debug) — a unified suspend rediscovery is a follow-up. Storage is REQUIRED (no
- * storage ⇒ no discovery, never a silent empty result).
+ * Returns approval-gated tool calls (`requiresApproval === true`) in
+ * `approvals` AND non-approval `suspend()` pauses (submitPlan/askUser) in
+ * `suspends` (BST-1084) — both requiring a `toolCallId` + `toolName`, both
+ * name-mapped to the original dotted form. Only a call missing its ids (e.g.
+ * a delegation-thread run) is tolerated + skipped (logged at debug). Storage
+ * is REQUIRED (no storage ⇒ no discovery, never a silent empty result).
  */
 export async function listSuspendedMastraRuns(
   filter: { readonly threadId: string; readonly resourceId: string },
   options: MastraAgentRuntimeOptions = {}
-): Promise<ListSuspendedApprovalsResult> {
+): Promise<ListSuspendedRunsResult> {
   assertNoUnsupportedDirectStreamOptions(options);
   if (!options.storage) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
@@ -1721,46 +2058,17 @@ export async function listSuspendedMastraRuns(
       threadId: filter.threadId,
     });
 
-    const approvals: DiscoveredSuspendedApproval[] = [];
-    for (const run of runs) {
-      const suspendedAt = run.suspendedAt.toISOString();
-      for (const toolCall of run.toolCalls) {
-        if (!(toolCall.requiresApproval && toolCall.toolCallId && toolCall.toolName)) {
-          logger.debug('skipping non-approval suspended tool call', {
-            code: 'mastra_agent_suspended_run_skipped',
-            requiresApproval: toolCall.requiresApproval,
-            runId: run.runId,
-            toolName: toolCall.toolName,
-          });
-          continue;
-        }
-        approvals.push({
-          runId: run.runId,
-          suspendedAt,
-          toolCallId: toolCall.toolCallId,
-          // Snapshots store the REGISTERED (sanitized) id; every client-facing
-          // surface is keyed by the ORIGINAL name — map it back here so the
-          // desktop route's riskByTool lookup and per-tool overrides match.
-          toolName: resolveDiscoveredApprovalToolName(
-            toolCall.toolName,
-            runtime.toolNameMap,
-            run.runId
-          ),
-          ...(toolCall.args === undefined ? {} : { args: toolCall.args }),
-        });
-      }
-    }
-
-    approvals.sort((a, b) => Date.parse(a.suspendedAt) - Date.parse(b.suspendedAt));
+    const { approvals, suspends } = classifySuspendedToolCalls(runs, runtime.toolNameMap);
 
     logger.info('discovered suspended approvals', {
       approvalCount: approvals.length,
       code: 'mastra_agent_suspended_runs_discovered',
       runCount: runs.length,
+      suspendCount: suspends.length,
       threadId: filter.threadId,
     });
 
-    return { approvals };
+    return { approvals, suspends };
   } finally {
     await runtime.dispose();
   }
@@ -1791,6 +2099,57 @@ function validateToolResumeAction(action: AssistantToolResumeAction): void {
   }
 }
 
+/**
+ * The suspend-resume transport answers a tool's OWN `suspend()` pause and
+ * nothing else. Refuse when the targeted call is suspended for APPROVAL
+ * (BST-1097): the two pause kinds carry different resume shapes, and a generic
+ * resume payload delivered to an approval pause would reach a self-approving
+ * tool as if its gates were already settled — e.g. `{action:'allow'}` answering
+ * run_python's Gate A would skip the approval card entirely. Mirrors
+ * `readResumedApprovalToolCall`, which enforces the symmetric direction
+ * (`requiresApproval === true`) for the approval transport. A missing run or
+ * tool call fails visibly here with the same typed error family — never a
+ * silent fallthrough to a blind resume.
+ */
+async function assertResumedCallIsSuspendPause(
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined,
+  action: AssistantToolResumeAction
+): Promise<{ readonly toolName: string }> {
+  const memoryContext = runtimeData?.memory;
+  const { runs } = await runtime.agent.listSuspendedRuns(
+    memoryContext
+      ? { resourceId: memoryContext.resourceId, threadId: memoryContext.threadId }
+      : undefined
+  );
+  const run = runs.find((candidate) => candidate.runId === action.runId);
+  const toolCall = run?.toolCalls.find((candidate) => candidate.toolCallId === action.toolCallId);
+  if (!toolCall) {
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      context: { runId: action.runId, toolCallId: action.toolCallId },
+      detail: 'Suspended tool snapshot is missing the requested tool call.',
+    });
+  }
+  if (toolCall.requiresApproval) {
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      context: { runId: action.runId, toolCallId: action.toolCallId },
+      detail:
+        'The requested tool call is suspended for APPROVAL; answer it through the approval transport, not the suspend-resume transport.',
+    });
+  }
+  if (!toolCall.toolName) {
+    // The rider decision below keys on the tool's ask registration; a
+    // snapshot with no tool name cannot be classified — refuse rather than
+    // guessing (a wrong guess either denies a valid resume or widens a
+    // payload the tool's schema will reject).
+    throw createMastraAgentError('mastra_agent_stream_failure', {
+      context: { runId: action.runId, toolCallId: action.toolCallId },
+      detail: 'Suspended tool snapshot has no tool name for the requested tool call.',
+    });
+  }
+  return { toolName: toolCall.toolName };
+}
+
 async function createToolResumeIteratorFromRuntime({
   runtime,
   runtimeData,
@@ -1801,7 +2160,53 @@ async function createToolResumeIteratorFromRuntime({
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
   try {
     validateToolResumeAction(action);
+    const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
+    // 1.56+ RIDER: Mastra re-checks an approval-gated tool's `requireApproval`
+    // on EVERY leg, including the resume of a plain (Gate B-style) suspension,
+    // and converts a resume without `approved: true` into its generic denial
+    // BEFORE execute() runs.
+    //
+    // The rider states a HISTORICAL fact, and the evidence is structural, not
+    // the current policy: `assertResumedCallIsSuspendPause` above proved this
+    // pause is a PLAIN suspension, and a plain suspension can only be raised
+    // from inside execute() — which the framework only reaches after the
+    // call's pre-execution gate settled under the policy in force at
+    // invocation ('ask' ⇒ an approval was collected; 'allow' ⇒ none was
+    // required). A policy tightened mid-suspension does not retroactively
+    // un-settle that gate, and the resume itself is an explicit user decision
+    // on this very call. `askTools.has` below only answers "will the REBUILT
+    // runtime re-check this tool at all" — when it will not, the payload
+    // passes through untouched.
+    //
+    // Scope: plain-OBJECT payloads only. Spreading a string/array resume
+    // (the LEGACY pre-envelope askUser answer shape — the notice now sends
+    // the `{answer}` envelope, AskUserResumeData) would mangle it into an
+    // index map, so a non-object payload is passed through unchanged — and if
+    // the tool is ask-gated, that legacy resume may hit the framework's
+    // denial. Loud, not silent: the warn below names the tool and the fix (an
+    // object resume envelope). Pinned by unit tests in
+    // mastra-tool-approval-chunks.spec.ts.
+    const isPlainObjectResume =
+      typeof action.resumeData === 'object' &&
+      action.resumeData !== null &&
+      !Array.isArray(action.resumeData);
+    const toolIsReChecked = runtime.askTools.has(suspendedCall.toolName);
+    if (toolIsReChecked && !isPlainObjectResume) {
+      logger.warn(
+        'Ask-gated suspending tool has a non-object resume payload; the 1.56+ approval rider cannot be attached and Mastra may deny the resume. Give the tool an object resume envelope to make it ask-compatible.',
+        {
+          code: 'mastra_agent_resume_rider_unattachable',
+          runId: action.runId,
+          toolCallId: action.toolCallId,
+          toolName: suspendedCall.toolName,
+        }
+      );
+    }
+    const resumeData =
+      toolIsReChecked && isPlainObjectResume
+        ? { ...(action.resumeData as Record<string, unknown>), approved: true }
+        : action.resumeData;
     const delegationUsage =
       runtime.personasById.size > 0
         ? createDelegationUsageCapture(runtime.personasById, runtimeData)
@@ -1831,7 +2236,7 @@ async function createToolResumeIteratorFromRuntime({
 
     // resumeData is validated by Mastra against the suspended tool's resumeSchema.
     const streamResult = await runtime.agent.resumeStream(
-      action.resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
+      resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
       resumeOptions as AgentResumeStreamOptions
     );
 
@@ -1848,8 +2253,21 @@ async function createToolResumeIteratorFromRuntime({
       });
     }
 
+    // BST-1232 review (P2): same rationale as the approval-resume leg above —
+    // prompt composition (instructions + tool definitions) is unchanged
+    // across a suspended-tool resume, so the same baseline applies; it was
+    // simply never threaded through on this leg. See the approval-resume
+    // leg's comment for why `messages: []` is the honest choice here.
+    const promptBreakdown = computePromptBreakdown({
+      instructionBreakdown: runtime.instructionBreakdown,
+      memoryBacked: Boolean(memoryOption),
+      messages: [],
+      toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
+    });
+
     return streamChunksFromMastra({
       ...(delegationUsage ? { delegationUsage } : {}),
+      promptBreakdown,
       runtime,
       stream: fullStream,
       streamAbortContext,

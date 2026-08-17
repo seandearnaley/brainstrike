@@ -15,89 +15,105 @@ cleanupUnusedCatalogs: true
 # scope a catalog does NOT have, and what guarantees ONE react instance.
 # scripts/verify-catalog-references.mjs enforces this "never both" rule.
 #
-# Comments must stay at column 0: `cleanupUnusedCatalogs: true` lets pnpm rewrite
-# this file, and a rewrite DELETES comments indented inside the catalog: block
-# (verified). Column-0 comments above a block survive.
+# Comment placement — RE-MEASURED 2026-08-15 on pnpm 11.15.0 (BST-1311). An
+# indented comment inside the catalog: block SURVIVES a pnpm rewrite. Measured by
+# adding a catalog entry no package references, which forces cleanupUnusedCatalogs
+# to act: pnpm pruned that entry and left an indented comment above a different
+# entry untouched. This SUPERSEDES an earlier note here that said such comments
+# are deleted — whatever pnpm did when that was written, this pnpm does not.
+# Two caveats before relying on it: pnpm only rewrites when an install actually
+# re-resolves (an "Already up to date" install leaves the file alone, and does not
+# prune either), and a comment attached to an entry that is itself pruned has no
+# measured verdict — so keep rationale beside entries that stay.
 catalog:
-  '@anthropic-ai/sandbox-runtime': 0.0.67
-  '@assistant-ui/react': '~0.14.26'
-  '@assistant-ui/react-data-stream': ^0.12.18
-  '@assistant-ui/react-markdown': ^0.14.5
+  '@anthropic-ai/sandbox-runtime': 0.0.73
+  '@assistant-ui/react': '~0.15.13'
+  '@assistant-ui/react-data-stream': ^0.12.26
+  '@assistant-ui/react-markdown': ^0.14.10
   '@assistant-ui/styles': ^0.3.7
   '@babel/core': ^8.0.1
   '@babel/plugin-transform-runtime': ^8.0.1
   '@babel/runtime': ^8.0.0
-  '@electric-sql/pglite': 0.5.3
-  '@electric-sql/pglite-pg_textsearch': 0.0.4
-  '@electric-sql/pglite-pgvector': 0.0.4
-  '@fontsource-variable/geist': ^5.2.9
-  '@fontsource-variable/geist-mono': ^5.2.8
+  '@electric-sql/pglite': 0.5.5
+  '@electric-sql/pglite-pg_textsearch': 0.0.7
+  '@electric-sql/pglite-pgvector': 0.0.6
+  '@fontsource-variable/geist': ^5.3.0
+  '@fontsource-variable/geist-mono': ^5.3.0
   '@huggingface/transformers': ^4.2.0
-  '@modelcontextprotocol/sdk': ^1.29.0
-  '@parcel/watcher': ^2.5.6
-  '@playwright/test': ^1.61.1
-  '@radix-ui/react-accordion': ^1.2.15
-  '@radix-ui/react-checkbox': ^1.3.6
-  '@radix-ui/react-dialog': ^1.1.18
-  '@radix-ui/react-scroll-area': ^1.2.13
-  '@radix-ui/react-tabs': ^1.1.16
-  '@radix-ui/react-toast': ^1.2.18
+  '@modelcontextprotocol/sdk': ^1.30.0
+  '@openrouter/ai-sdk-provider': 2.10.0
+  '@parcel/watcher': ^2.6.0
+  '@playwright/test': ^1.62.1
+  '@radix-ui/react-accordion': ^1.2.20
+  '@radix-ui/react-checkbox': ^1.3.11
+  '@radix-ui/react-dialog': ^1.1.23
+  '@radix-ui/react-scroll-area': ^1.2.18
+  '@radix-ui/react-tabs': ^1.1.21
+  '@radix-ui/react-toast': ^1.2.23
   '@rolldown/plugin-babel': ^0.2.3
-  '@shikijs/langs': ^4.3.1
-  '@shikijs/themes': ^4.3.1
-  '@stryker-mutator/api': ^9.6.1
-  '@stryker-mutator/core': ^9.6.1
-  '@stryker-mutator/typescript-checker': ^9.6.1
-  '@stryker-mutator/vitest-runner': ^9.6.1
-  '@swc/core': ^1.15.43
+  '@shikijs/langs': ^4.4.3
+  '@shikijs/themes': ^4.4.3
+  # LOCKSTEP: typescript-checker and vitest-runner peer-depend on
+  # `@stryker-mutator/core` at an EXACT version ("10.0.0"), never a range, so the
+  # `^` below is looser than what the plugins actually accept. Bump all four in
+  # one change. A desync does NOT fail the install — strict-peer-dependencies is
+  # off, so pnpm only warns, and Stryker then dies at plugin load the next time
+  # someone runs `pnpm mutation`. See BST-1287.
+  '@stryker-mutator/api': ^10.0.0
+  '@stryker-mutator/core': ^10.0.0
+  '@stryker-mutator/typescript-checker': ^10.0.0
+  '@stryker-mutator/vitest-runner': ^10.0.0
+  # PINNED: 1.16.0 breaks the build — see the @swc/core note in `overrides:` below.
+  '@swc/core': ~1.15.47
   '@tailwindcss/typography': ^0.5.20
-  '@tailwindcss/vite': ^4.3.2
-  '@tanstack/react-table': ^8.21.3
-  '@tanstack/react-virtual': ^3.14.6
-  '@testing-library/jest-dom': ^6.9.1
+  '@tailwindcss/vite': ^4.3.3
+  '@tanstack/react-table': ^9.1.2
+  '@tanstack/react-virtual': ^3.14.9
+  '@testing-library/dom': ^10.4.1
+  '@testing-library/jest-dom': ^7.0.1
   '@testing-library/react': ^16.3.2
-  '@testing-library/user-event': ^14.6.1
-  '@types/file-saver': 2.0.7
-  '@types/node': ^26.1.0
-  '@types/react': ^19.2.17
-  '@types/react-dom': ^19.2.3
-  '@vitejs/plugin-react': ^6.0.3
+  '@testing-library/user-event': ^14.6.4
+  '@types/node': ^24.13.3
+  '@types/react': ^19.2.18
+  '@types/react-dom': ^19.2.4
+  '@typescript/native': 'npm:typescript@7.0.2'
+  '@typescript/old': 'npm:typescript@6.0.3'
+  '@vitejs/plugin-react': ^6.0.5
   '@vitest/browser-playwright': ^4.1.10
   '@vitest/coverage-v8': ^4.1.10
   '@vitest/ui': ^4.1.10
   bindings: 1.5.0
-  concurrently: ^10.0.3
+  concurrently: ^10.0.4
   drizzle-orm: 0.45.2
-  electron: ^43.1.1
-  esbuild: ^0.28.1
+  electron: ^43.4.0
+  esbuild: ^0.28.2
+  eslint-plugin-react-refresh: ^0.5.4
   fake-indexeddb: ^6.2.5
-  file-saver: 2.0.5
   glob: ^13.0.6
-  happy-dom: ^20.10.6
+  happy-dom: ^20.11.2
   idb: ^8.0.3
-  jsdom: 29.1.1
+  jsdom: 30.0.1
   jszip: ^3.10.1
-  knip: ^6.24.0
-  lucide-react: ^1.23.0
+  knip: ^6.32.2
+  lucide-react: ^1.31.0
   mermaid: ^11.16.0
   minimatch: ^10.2.5
-  node-addon-api: 8.9.0
+  node-addon-api: 8.9.2
   node-gyp: 13.0.1
-  oxc-parser: ^0.138.0
+  oxc-parser: ^0.144.0
   pino: ^10.3.1
-  playwright: ^1.61.1
-  react-helmet-async: ^2.0.5
+  playwright: ^1.62.1
   react-hotkeys-hook: ^5.3.3
-  react-resizable-panels: ^4.12.1
+  react-resizable-panels: ^4.12.2
   react-router-dom: ^7.18.1
-  react-shiki: ^0.10.1
+  react-shiki: ^0.11.1
   remark-gfm: ^4.0.1
-  shiki: ^4.3.1
-  tailwindcss: ^4.3.2
+  shiki: ^4.4.3
+  tailwindcss: ^4.3.3
   tiktoken: ^1.0.22
   tsup: ^8.5.1
-  typescript: ^6.0.3
-  vite: ^8.1.5
+  typescript: 'npm:@typescript/typescript6@6.0.2'
+  vite: ^8.2.1
   vite-plugin-static-copy: ^4.1.1
   vite-plugin-top-level-await: ^1.6.0
   vite-plugin-wasm: ^3.6.0
@@ -106,12 +122,69 @@ catalog:
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.0
   zod: ^4.4.3
-  zustand: ^5.0.14
+  zustand: ^5.0.15
 overrides:
-  react: ^19.2.4
-  react-dom: ^19.2.4
-  react-helmet-async>react: ^19.0.0
-  react-helmet-async>react-dom: ^19.0.0
+  react: ^19.2.8
+  react-dom: ^19.2.8
+  # @swc/core 1.16.0 BREAKS the desktop build (BST-1311). vite-plugin-top-level-await
+  # constructs SWC AST nodes in JS, and 1.16.0's Rust-side AST change makes
+  # Compiler.printSync reject them with "missing field `type`". Proven by A/B:
+  # pristine main at 1.15.47 builds green; the same tree with only the swc bump
+  # fails at @brainstrike/desktop#build.
+  #
+  # This SUBTREE-scoped override is what actually holds the line. The plugin
+  # declares its own `@swc/core: ^1.12.14`, which the catalog does NOT constrain —
+  # so before this, the only thing pinning 1.15.47 was the lockfile, and any
+  # `pnpm update` or dedupe could have resolved 1.16.0 and broken the build with
+  # no warning. The catalog was narrowed to `~1.15.47` in the same change to close
+  # the direct-dependency path.
+  #
+  # What the narrowing is and is NOT, measured: widening the catalog back to
+  # `^1.16.0` while these overrides stand does NOT put the plugin on 1.16.0 — it
+  # stays on 1.15.47, because the override wins. What widening actually does is
+  # split the tree into TWO @swc/core resolutions, 1.15.47 for the plugin and
+  # 1.16.0 for the four catalog consumers (packages/{hooks,types,utils,test-utils},
+  # which take it as a devDependency with no source import). So the narrowing is
+  # single-resolution hygiene and a second line of defence, NOT the thing keeping
+  # the build green — the override is. Do not widen it casually on that basis,
+  # but do not mistake it for the load-bearing pin either.
+  #
+  # Subtree-scoped on purpose: a BARE `@swc/core` override would shadow the
+  # catalog entry entirely, which scripts/verify-catalog-references.mjs rejects
+  # ("never both").
+  #
+  # @swc/wasm is pinned for the SAME reason, and it is NOT belt-and-braces. The
+  # plugin depends on both packages directly (`@swc/core: ^1.12.14`,
+  # `@swc/wasm: ^1.12.14`) and picks between them at require() time —
+  # dist/swc.js is `try { require("@swc/core") } catch { require("@swc/wasm") }`,
+  # with VITE_TLA_FORCE_WASM=true forcing the fallback and VITE_TLA_FORCE_NATIVE=true
+  # rethrowing instead. So the wasm copy is live code on any tree where the native
+  # binding fails to load — a platform with no prebuilt binary, or an install that
+  # skipped build scripts. `@swc/core: true` in allowBuilds makes the native path
+  # the normal one HERE; it does not make the fallback dead. Measured, not
+  # assumed: with this override removed, `pnpm update -r --depth Infinity
+  # @swc/wasm` resolves 1.16.0 (published 2026-08-14, so the gap was live), and
+  # driving the plugin's own transformModule + printSync over that build throws
+  #
+  #   failed to deserialize program: unknown variant `BlockStatement`
+  #
+  # where @swc/core 1.15.47 prints the very same AST fine. The message DIFFERS
+  # from the native path's "missing field `type`" — same Rust-side AST
+  # deserialization break, different wording — so do not grep for the core error
+  # when diagnosing a wasm-path failure. Left unpinned this reproduces ONLY
+  # where the fallback is taken, which is the worst form of this bug.
+  #
+  # Blast radius is BOTH apps, not just desktop: topLevelAwait() is used at
+  # apps/web/vite.config.mts:184, apps/desktop/vite.config.mts:134, and desktop's
+  # worker.plugins at :267. Desktop is only where the build happens to fail first,
+  # so retiring the desktop usage alone would NOT retire these pins.
+  #
+  # Remove both once vite-plugin-top-level-await ships a release compatible with
+  # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not), widen the catalog
+  # back to a caret range, and delete scripts/__tests__/swc-ast-break-block.test.mjs,
+  # which fails until all three are done together.
+  vite-plugin-top-level-await>@swc/core: ~1.15.47
+  vite-plugin-top-level-await>@swc/wasm: ~1.15.43
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true
@@ -132,14 +205,74 @@ allowBuilds:
   puppeteer: true
   sharp: true
   '@parcel/watcher': false
-# These two exact versions are pinned exceptions to any future minimumReleaseAge
-# policy: @mastra/memory@1.22.1's tool-approval 'output-denied' state handling
-# (the fix this repo's upgrade specifically needed, see docs/dependency-updates-
-# breaking-changes.md) shipped alongside @mastra/core@1.50.0,
-# published <24h before this pin. Verified via npm registry metadata: both carry
-# GitHub Actions OIDC provenance from the canonical mastra-ai/mastra repo, a
-# maintainer list consistent with prior releases, and match the 'latest' dist-tag.
-# Remove this exclude once these versions age past whatever minimumReleaseAge
-# floor is configured (none is configured today, so this is currently a no-op).
-minimumReleaseAgeExclude:
-  - '@mastra/core@1.50.0'
+# Supply-chain floor (BST-1183): refuse any npm version published less than 1
+# day ago. That window is where typosquats, compromised-maintainer publishes and
+# malicious postinstall payloads get found and unpublished. Before this the repo
+# had no release-age protection at all (measured on pnpm 11.15.0:
+# `pnpm config get minimumReleaseAge` returned undefined).
+#
+# The value is in MINUTES. 1440 = 1 day.
+#
+# LOWERED from 4320 (3 days) to 1440 (1 day) on 2026-08-15, BST-1302, and this
+# is a deliberate loosening of a security control rather than a tuning tweak.
+# The 2026-08 sweep hit the floor on 25 of 94 outdated packages simultaneously —
+# mastra, the PGlite triple, all three AI SDK providers, stryker, pragmatic-dnd,
+# swc, turbo — none landable in the same pass, each otherwise needing its own
+# pinned exclusion plus ledger record. That is friction the floor was not meant
+# to create, and the pressure it generates is toward blanket exclusions, which
+# are strictly worse than a shorter floor. 1 day still refuses the same-day
+# malicious publish; it gives up the tail of the detection window. Raising it
+# back is a one-line change if that trade stops being worth it.
+#
+# IT APPLIES TO `--frozen-lockfile` TOO. Measured, not assumed: pnpm re-checks
+# every LOCKFILE ENTRY against the cutoff and exits 1 on anything newer ("The
+# lockfile contains entries that the active policies reject"), so this is not
+# only a `pnpm add`/`pnpm update` resolution gate — it is a CI gate. Two direct
+# consequences:
+#   - The floor cannot exceed the age of the newest entry in the committed
+#     lockfile, or CI breaks the moment it lands. At 7 days this repo failed on
+#     react-doctor@0.9.3 + turbo@2.10.8 (then 6.0 and 6.7 days old); 1 day
+#     leaves correspondingly more margin than the 3 days it replaced.
+#   - Bumping any dependency to a release younger than 1 day now needs an
+#     explicit exclusion. That is the policy working, not a defect.
+#
+# Need something fresher? Do NOT lower the floor further. Pin that one exact
+# version in minimumReleaseAgeExclude below, with a record in
+# scripts/minimum-release-age-exclusions.json — the guard in
+# scripts/verify-minimum-release-age-exclusions.mjs then forces you to delete it
+# once it ages out, so the exception cannot quietly become permanent.
+#
+# The guard DERIVES its expiry window from this value (floor +
+# EXCLUSION_GRACE_DAYS), so lowering the floor also shortens how long an
+# exclusion may live: 1 + 7 = 8 days, where it was 3 + 7 = 10. Nothing to change
+# in the guard — it reads this number — but an exclusion added today expires two
+# days sooner than one added under the old floor.
+#
+# The 30-day MAX_EXCLUSION_AGE_DAYS in that guard is now ONLY the fallback for a
+# tree with no floor configured. Nothing cross-checks the two and they cannot
+# "cross": because the window is derived (floor + grace) it always exceeds the
+# floor, so the inversion hazard this comment used to warn about is impossible
+# by construction. The guard's assertMaxAgeClearsFloor() was deleted when the
+# window became derived.
+minimumReleaseAge: 1440
+# minimumReleaseAgeExclude entries are TEMPORARY, and enforced as temporary by
+# scripts/verify-minimum-release-age-exclusions.mjs (wired into `pnpm lint`).
+# Each entry must:
+#   * pin ONE exact version (`- 'name@1.2.3'`) — a bare name or version glob
+#     exempts releases that do not exist yet, so it could never age out;
+#   * carry a matching record in scripts/minimum-release-age-exclusions.json
+#     giving npm's publish timestamp and the reason this version was needed
+#     before it had aged;
+#   * be DELETED, together with its record, once that version is older than the
+#     DERIVED window — minimumReleaseAge plus EXCLUSION_GRACE_DAYS, currently
+#     1 + 7 = 8 days. Past that point the floor admits the version anyway, so
+#     the exemption is inert and the guard fails until it is removed. The window
+#     moves with the floor; do not hard-code it here.
+# Per-entry provenance prose lives in that JSON ledger, NOT here. Two reasons:
+# an indented comment in this block is deleted whenever pnpm rewrites the file,
+# and this block is edited by nearly every dependency PR — keeping the rationale
+# out of it removes the merge-conflict hotspot it had become.
+# The guard exists because an earlier entry ('@mastra/core@1.50.0') outlived its
+# justification by a month: its cleanup note pointed at a minimumReleaseAge floor
+# that was never configured, so nothing ever triggered the removal.
+minimumReleaseAgeExclude: []

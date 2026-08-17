@@ -7,8 +7,8 @@ import type {
   EmbeddingService,
   EmbeddingStatus,
   SimilarityResult,
-} from '../types';
-import { startEmbeddingWorker } from '../worker/embedding-worker';
+} from '../types.js';
+import { startEmbeddingWorker } from '../worker/embedding-worker.js';
 
 // Mock isNodejsMainProcess to allow local model execution in test
 vi.mock('@brainstrike/utils', async (importOriginal) => {

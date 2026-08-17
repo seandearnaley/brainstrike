@@ -1,8 +1,11 @@
-import type { WorkerpoolAdapterOptions } from './browser-workerpool-options';
-import type { QueueAdapter } from './types';
-import { supportsWorkers } from './util';
+import {
+  assertWorkerpoolEmbeddingTelemetrySink,
+  type WorkerpoolAdapterOptions,
+} from './browser-workerpool-options.js';
+import type { QueueAdapter } from './types.js';
+import { supportsWorkers } from './util.js';
 
-export type { WorkerpoolAdapterOptions } from './browser-workerpool-options';
+export type { WorkerpoolAdapterOptions } from './browser-workerpool-options.js';
 
 export interface CreateBrowserEmbeddingQueueOptions {
   /**
@@ -28,6 +31,7 @@ export function createBrowserEmbeddingQueue(
   if (!(typeof options.worker?.workerUrl === 'string' && options.worker.workerUrl.length > 0)) {
     throw new Error('createBrowserEmbeddingQueue requires an explicit worker.workerUrl.');
   }
+  assertWorkerpoolEmbeddingTelemetrySink(options.worker.telemetry);
   return createLazyWorkerpoolAdapter(options.worker);
 }
 
@@ -59,7 +63,7 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
       return loadedAdapter;
     }
     if (!adapterPromise) {
-      adapterPromise = import('./adapters/browser-workerpool')
+      adapterPromise = import('./adapters/browser-workerpool.js')
         .then(({ createWorkerpoolAdapter }) => {
           const adapter = createWorkerpoolAdapter(options);
           loadedAdapter = adapter;

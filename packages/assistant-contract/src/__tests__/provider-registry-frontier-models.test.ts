@@ -119,12 +119,16 @@ describe('frontier model refresh (2026-07)', () => {
           'qwen/qwen3.7-max',
           'qwen/qwen3.7-plus',
           'qwen/qwen3.6-flash',
+          'qwen/qwen3.8-27b',
           'qwen/qwen3-coder-next',
           'meta/muse-spark-1.1',
           'moonshotai/kimi-k3',
           'inclusionai/ling-3.0-flash:free',
           'poolside/laguna-s-2.1',
           'poolside/laguna-xs-2.1',
+          'qwen/qwen3.8-2.4t-a95b',
+          'qwen/qwen3.8-max',
+          'google/gemini-3.7-flash',
           'google/gemini-3.6-flash',
           'google/gemini-3.5-flash-lite',
           'meituan/longcat-2.0',
@@ -167,7 +171,8 @@ describe('frontier model refresh (2026-07)', () => {
         supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
       });
       expect(kimi.contextWindow).toBe(1_048_576);
-      expect(kimi.maxOutputTokens).toBeUndefined();
+      // Official Moonshot maximum completion window (BST-1170).
+      expect(kimi.maxOutputTokens).toBe(1_048_576);
       expect(kimi.reasoning).toEqual({
         // Auto runs below the vendor default; recorded, not derived (BST-833).
         autoEffort: 'low',
@@ -175,6 +180,9 @@ describe('frontier model refresh (2026-07)', () => {
         defaultEnabled: true,
         mandatory: false,
         supportedEfforts: ['max', 'high', 'low'],
+        // Official Moonshot completion window for always-on thinking
+        // (BST-1170); OpenRouter publishes no max completion for this route.
+        vendorDefaultOutputTokens: 131_072,
       });
     });
 
@@ -238,6 +246,90 @@ describe('frontier model refresh (2026-07)', () => {
         vision: 'supported',
       });
     });
+
+    it('declares Gemini 3.7 Flash from vendor capabilities and gateway metadata', () => {
+      const gemini = getLlmModelDefinition('openrouter', 'google/gemini-3.7-flash');
+
+      expect(gemini).toEqual({
+        contextWindow: 1_048_576,
+        id: 'google/gemini-3.7-flash',
+        label: 'Gemini 3.7 Flash (OpenRouter)',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.375, outputPerMTok: 1.875 },
+        reasoning: {
+          defaultEffort: 'medium',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['high', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('declares Qwen3.8 27B from vendor capabilities and gateway metadata', () => {
+      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-27b');
+
+      expect(qwen).toEqual({
+        contextWindow: 262_144,
+        id: 'qwen/qwen3.8-27b',
+        label: 'Qwen3.8 27B (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.45, outputPerMTok: 3.2 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('declares Qwen3.8 2.4T A95B from vendor capabilities and gateway metadata', () => {
+      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-2.4t-a95b');
+
+      expect(qwen).toEqual({
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-2.4t-a95b',
+        label: 'Qwen3.8 2.4T A95B (OpenRouter)',
+        maxOutputTokens: 262_144,
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      });
+    });
+
+    it('declares Qwen3.8 Max from vendor capabilities and gateway metadata', () => {
+      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-max');
+
+      expect(qwen).toEqual({
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-max',
+        label: 'Qwen3.8 Max (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
   });
 });
 
@@ -248,7 +340,13 @@ describe('contextWindow metadata', () => {
         if (model.type === 'llm') {
           expect(model.contextWindow, `${provider.id}/${model.id}`).toBeGreaterThan(0);
           if (model.maxOutputTokens !== undefined) {
-            expect(model.maxOutputTokens).toBeLessThan(model.contextWindow);
+            // Equality is a real vendor contract: Kimi K3's official maximum
+            // max_completion_tokens equals its 1M context window (BST-1170).
+            // A configured reservation the context cannot fit is still
+            // visibly blocked by the input-budget validation.
+            expect(model.maxOutputTokens, `${provider.id}/${model.id}`).toBeLessThanOrEqual(
+              model.contextWindow
+            );
           }
         }
       }

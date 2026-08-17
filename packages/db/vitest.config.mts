@@ -2,8 +2,33 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
+import { withBoundedTraceChunkNames } from '../config/src/vitest-browser.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export function resolveDbTestShard(
+  environment: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  const shard = environment['DB_TEST_SHARD'];
+  if (!shard) {
+    if (environment['DB_TEST_SHARD_REQUIRED'] === 'true') {
+      throw new Error('DB_TEST_SHARD is required for the DB native-shard task');
+    }
+    return;
+  }
+  const match = /^(?<index>[1-9]\d*)\/(?<count>[1-9]\d*)$/u.exec(shard);
+  if (!match?.groups) {
+    throw new Error(`DB_TEST_SHARD must use Vitest's i/N form; received "${shard}"`);
+  }
+  const index = Number(match.groups.index);
+  const count = Number(match.groups.count);
+  if (index > count) {
+    throw new Error(`DB_TEST_SHARD index must not exceed its count; received "${shard}"`);
+  }
+  return shard;
+}
+
+const dbTestShard = resolveDbTestShard();
 
 /**
  * Shared workspace source aliases. Vitest inline `projects` do NOT inherit the
@@ -23,9 +48,11 @@ const sharedAliases: Record<string, string> = {
   '@brainstrike/file-explorer-hooks': path.resolve(__dirname, '../file-explorer-hooks/src'),
   '@brainstrike/file-explorer-ui': path.resolve(__dirname, '../file-explorer-ui/src'),
   '@brainstrike/indexing-contract': path.resolve(__dirname, '../indexing-contract/src/index.ts'),
+  '@brainstrike/logging': path.resolve(__dirname, '../logging/src/index.ts'),
   '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
   '@brainstrike/queue': path.resolve(__dirname, '../queue/src'),
   '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
+  '@brainstrike/tokenization': path.resolve(__dirname, '../tokenization/src/index.ts'),
   '@brainstrike/types': path.resolve(__dirname, '../types/src'),
   '@brainstrike/ui': path.resolve(__dirname, '../ui/src'),
   '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
@@ -66,6 +93,10 @@ export default defineConfig({
     alias: sharedAliases,
   },
   test: {
+    // `shard` is a Vitest runner option, not a per-project option. Keeping it
+    // beside `projects` ensures the selected unit project is actually split;
+    // Vitest deliberately strips this option from inline project configs.
+    ...(dbTestShard ? { shard: dbTestShard } : {}),
     projects: [
       {
         // Inline projects do not inherit the top-level resolve.alias, so the
@@ -81,7 +112,7 @@ export default defineConfig({
           // (React db-provider/hook tests, browser-storage/first-run-bootstrap,
           // wasm-loader) opt back in per-file with `// @vitest-environment jsdom`.
           environment: 'node',
-          exclude: ['node_modules', 'dist', 'helpers/**', '**/*.browser.test.{ts,tsx}'],
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
           // Build the migrated PGlite snapshot ONCE per process (see
           // helpers/db-snapshot-global.ts) so per-test boots are cheap restores.
           globalSetup: ['./__tests__/helpers/db-snapshot-global.ts'],
@@ -114,18 +145,23 @@ export default defineConfig({
             enabled: true,
             headless: true,
             instances: [{ browser: 'chromium' }],
-            provider: playwright({
-              launchOptions: {
-                args: process.env['CI']
-                  ? [
-                      '--no-sandbox',
-                      '--disable-dev-shm-usage',
-                      '--disable-setuid-sandbox',
-                      '--disable-features=VizDisplayCompositor',
-                    ]
-                  : [],
-              },
-            }),
+            // withBoundedTraceChunkNames: long test names otherwise overflow
+            // the 255-byte attachment filename and the ENAMETOOLONG masks the
+            // real failure (see @brainstrike/config's vitest-browser).
+            provider: withBoundedTraceChunkNames(
+              playwright({
+                launchOptions: {
+                  args: process.env['CI']
+                    ? [
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-setuid-sandbox',
+                        '--disable-features=VizDisplayCompositor',
+                      ]
+                    : [],
+                },
+              })
+            ),
             // Capture screenshots on failure for quick visual debugging
             screenshotFailures: true,
             // Playwright trace: capture only for failing tests in CI

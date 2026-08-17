@@ -19,13 +19,9 @@ import {
   type ProviderDimensionParameter,
   parseEmbeddingProviderModelKey as parseProviderModelKey,
 } from '@brainstrike/indexing-contract';
+import { createLogger, LogLevel } from '@brainstrike/logging';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import {
-  createBulkOperationContext,
-  createLogger,
-  generateUUID,
-  LogLevel,
-} from '@brainstrike/utils';
+import { createBulkOperationContext, generateUUID } from '@brainstrike/utils';
 import { dispatchEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { processChunking } from './chunking';
@@ -224,6 +220,7 @@ interface RunEnhancedImportParams<TFileNode = unknown> {
   baseImportRunner: BaseImportRunner<TFileNode>;
   chunking: ChunkingConfiguration;
   embedding?: EmbeddingConfiguration;
+  onChunkingStart?: (baseResults: readonly FileImportResult[]) => void;
   ports?: RunEnhancedImportPorts;
   processChunkingImpl?: typeof processChunking;
   processEmbeddingsImpl?: typeof processEmbeddings;
@@ -1014,6 +1011,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
   baseImportRunner,
   chunking,
   embedding,
+  onChunkingStart,
   ports,
   progressHandlers,
   processChunkingImpl = processChunking,
@@ -1135,6 +1133,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
     let enhancedResults: EnhancedImportResult[];
     try {
       throwIfAborted(abortSignal);
+      onChunkingStart?.(baseResults);
       enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
     } finally {
       // Always exit bulk mode, even on error

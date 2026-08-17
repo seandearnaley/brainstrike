@@ -5,9 +5,9 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Guards the narrowed `globalDependencies` tsconfig contract in turbo.jsonc
+ * Guards the narrowed `global.inputs` tsconfig contract in turbo.jsonc
  * (Series B2, PR #1649). The per-package tsconfig globs were removed from
- * globalDependencies, which is only sound while three invariants hold:
+ * the global inputs, which is only sound while three invariants hold:
  *
  *  (a) packages/config/tsconfig/ is the ONLY packages/<pkg>/tsconfig/ directory,
  *      so the kept "packages/*\/tsconfig/*.json" glob covers exactly the shared
@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
  *
  * A violation of any invariant creates an invisible cache input — the
  * #1066/#1207 stale-green class. Fix the offending tsconfig/package.json,
- * do not delete this test or re-broaden globalDependencies.
+ * do not delete this test or re-broaden global.inputs.
  */
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -94,6 +94,50 @@ function stripJsonc(source) {
 
 function readJsonc(filePath) {
   return JSON.parse(stripJsonc(readFileSync(filePath, 'utf8')));
+}
+
+function globalInputsFromTurboConfig(config) {
+  assert.equal(
+    config.futureFlags?.globalConfiguration,
+    true,
+    'turbo.jsonc must enable futureFlags.globalConfiguration while using the Turborepo 3.0 global block'
+  );
+  assert.equal(
+    config.concurrency,
+    undefined,
+    'turbo.jsonc concurrency must live under global.concurrency, not the deprecated top-level key'
+  );
+  assert.equal(
+    config.globalDependencies,
+    undefined,
+    'turbo.jsonc inputs must live under global.inputs, not the deprecated top-level globalDependencies key'
+  );
+  // A build/test parallelism calibration, inherited by CI's uncapped Build job
+  // on a 4-vCPU runner. `turbo run dev`'s persistent-task floor is NOT this
+  // number's problem — the root dev script carries its own --concurrency (see
+  // turbo-global-configuration.test.mjs), so this stays pinned.
+  assert.equal(
+    config.global?.concurrency,
+    '40',
+    'turbo.jsonc must preserve the calibrated global concurrency of 40'
+  );
+  assert.ok(
+    Array.isArray(config.global?.inputs),
+    'turbo.jsonc must declare the Turborepo 3.0 global.inputs array'
+  );
+  assert.ok(
+    config.global.inputs.length >= 9,
+    `Only ${config.global.inputs.length} global input(s) remain (expected >= 9) — discovery or migration collapsed.`
+  );
+  return config.global.inputs;
+}
+
+function assertRequiredGlobalInput(config, requiredInput) {
+  const globalInputs = globalInputsFromTurboConfig(config);
+  assert.ok(
+    globalInputs.includes(requiredInput),
+    `turbo.jsonc global.inputs must keep "${requiredInput}" — it is a load-bearing cross-package cache input.`
+  );
 }
 
 /** Workspace package dirs: packages/<name>, apps/<name> (those with a package.json). */
@@ -192,7 +236,7 @@ test('(a) packages/config/tsconfig/ is the only packages/*/tsconfig/ directory',
     presetDirs,
     ['packages/config/tsconfig'],
     `Only packages/config/tsconfig/ may exist as a <pkg>/tsconfig/ preset dir; found: ${presetDirs.join(', ')}. ` +
-      'The turbo.jsonc globalDependencies glob "packages/*/tsconfig/*.json" is calibrated to cover exactly the shared ' +
+      'The turbo.jsonc global.inputs glob "packages/*/tsconfig/*.json" is calibrated to cover exactly the shared ' +
       'presets — a second preset dir would be hashed globally (over-invalidation) or, if relocated elsewhere, silently ' +
       'NOT hashed at all (#1066/#1207 stale-green class). Keep shared presets in packages/config/tsconfig/.'
   );
@@ -227,7 +271,7 @@ test('(b) every tsconfig extends target stays in-package, in the shared preset d
         violations.push(
           `${path.relative(repoRoot, tsconfigPath)} extends "${target}" → ${path.relative(repoRoot, resolved)}, ` +
             'which is outside its own package, packages/config/tsconfig/, and the repo-root tsconfig.json. ' +
-            'Nothing hashes that file for this package (turbo.jsonc globalDependencies only carries the root ' +
+            'Nothing hashes that file for this package (turbo.jsonc global.inputs only carries the root ' +
             'tsconfig + the config presets), so edits to it would replay stale-green caches.'
         );
       }
@@ -281,15 +325,36 @@ test('(c) every cross-package tsconfig references edge is mirrored by a workspac
   );
 });
 
-test('turbo.jsonc keeps the two load-bearing tsconfig globs in globalDependencies', () => {
+test('turbo.jsonc uses the 3.0 global configuration and keeps both load-bearing tsconfig inputs', () => {
   const turboConfig = readJsonc(path.join(repoRoot, 'turbo.jsonc'));
-  const globalDependencies = turboConfig.globalDependencies ?? [];
   for (const requiredGlob of ['tsconfig*.json', 'packages/*/tsconfig/*.json']) {
-    assert.ok(
-      globalDependencies.includes(requiredGlob),
-      `turbo.jsonc globalDependencies must keep "${requiredGlob}" — it is the sole hash carrier for a tsconfig ` +
-        'read across package boundaries (root tsconfig for config#type-check; packages/config/tsconfig/base.json ' +
-        'for its ~40 raw-path extends consumers). Removing it recreates the #1066/#1207 invisible-input class.'
-    );
+    assertRequiredGlobalInput(turboConfig, requiredGlob);
   }
+});
+
+test('money controls: legacy layout and a missing global input both fail the contract', () => {
+  const turboConfig = readJsonc(path.join(repoRoot, 'turbo.jsonc'));
+  const legacyLayout = structuredClone(turboConfig);
+  legacyLayout.futureFlags.globalConfiguration = false;
+  legacyLayout.globalDependencies = legacyLayout.global.inputs;
+  Reflect.deleteProperty(legacyLayout, 'global');
+
+  assert.throws(
+    () => globalInputsFromTurboConfig(legacyLayout),
+    /futureFlags\.globalConfiguration/,
+    'control failed: moving back to the deprecated layout must make the guard red'
+  );
+
+  const missingPresetInput = structuredClone(turboConfig);
+  missingPresetInput.global.inputs = missingPresetInput.global.inputs.filter(
+    (input) => input !== 'packages/*/tsconfig/*.json'
+  );
+  // Keep the entry-count floor satisfied so this control reaches the specific
+  // load-bearing-input assertion it is intended to prove can fail.
+  missingPresetInput.global.inputs.push('control-only-nonexistent-input');
+  assert.throws(
+    () => assertRequiredGlobalInput(missingPresetInput, 'packages/*/tsconfig/*.json'),
+    /load-bearing cross-package cache input/,
+    'control failed: deleting the shared-preset input must make the guard red'
+  );
 });

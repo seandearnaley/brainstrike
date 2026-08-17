@@ -107,7 +107,7 @@ vi.mock('node:fs', () => ({
 }));
 
 const { createLoggerMock } = vi.hoisted(() => ({
-  createLoggerMock: vi.fn(() => ({
+  createLoggerMock: vi.fn((_scope: string) => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),
@@ -116,10 +116,9 @@ const { createLoggerMock } = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock('@brainstrike/utils/logger', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
-    '@brainstrike/utils/logger'
-  );
+vi.mock('@brainstrike/logging', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
   return {
     ...actual,
     createLogger: createLoggerMock,

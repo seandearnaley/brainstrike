@@ -7,7 +7,7 @@
  * Migration SQL is bundled as JSON at build time via the export-migrations script.
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { assertNoLegacyMigrationLedger } from '../architecture/db-migration-authority.js';
 import { migration015ModelRegistry } from '../migrations/015-model-registry.js';
@@ -69,6 +69,25 @@ import { migration076AssistantRunErrors } from '../migrations/076-assistant-run-
 import { migration077RunUsageKind } from '../migrations/077-run-usage-kind.js';
 import { migration078JobQueueDedupeActiveIndex } from '../migrations/078-job-queue-dedupe-active-index.js';
 import { migration079MindOpsLog } from '../migrations/079-mind-ops-log.js';
+import { migration080AssistantMessageTombstones } from '../migrations/080-assistant-message-tombstones.js';
+import { migration081WorkspaceSnapshots } from '../migrations/081-workspace-snapshots.js';
+import { migration082CanvasDocuments } from '../migrations/082-canvas-documents.js';
+import { migration083ToolCallTelemetry } from '../migrations/083-tool-call-telemetry.js';
+import { migration084AssistantToolProjectionRewrites } from '../migrations/084-assistant-tool-projection-rewrites.js';
+import { migration085ToolCallTelemetryOccurredAtIndex } from '../migrations/085-tool-call-telemetry-occurred-at-index.js';
+import { migration086TokenEstimateCalibration } from '../migrations/086-token-estimate-calibration.js';
+import { migration087ToolProjectionRewriteKinds } from '../migrations/087-tool-projection-rewrite-kinds.js';
+import { migration088AssistantCompactionRanges } from '../migrations/088-assistant-compaction-ranges.js';
+import { migration089TokenEstimateCalibrationResolvedBudgets } from '../migrations/089-token-estimate-calibration-resolved-budgets.js';
+import { migration090CompactionSummaryRunUsageKind } from '../migrations/090-compaction-summary-run-usage-kind.js';
+import { migration091TokenEstimateCalibrationPromptBaseline } from '../migrations/091-token-estimate-calibration-prompt-baseline.js';
+import { migration092ToolCallTelemetrySubstrateSplit } from '../migrations/092-tool-call-telemetry-substrate-split.js';
+import { migration093AssistantRunTreatments } from '../migrations/093-assistant-run-treatments.js';
+import { migration094OpenRouterGemini37Flash } from '../migrations/094-openrouter-gemini-3-7-flash.js';
+import { migration095AssistantThreadWorkspaces } from '../migrations/095-assistant-thread-workspaces.js';
+import { migration096OpenRouterQwen3827B } from '../migrations/096-openrouter-qwen-3-8-27b.js';
+import { migration097OpenRouterQwen38TwoPointFourT } from '../migrations/097-openrouter-qwen-3-8-2-4t-a95b.js';
+import { migration098OpenRouterQwen38Max } from '../migrations/098-openrouter-qwen-3-8-max.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -252,6 +271,52 @@ const customMigrations: Migration[] = [
     migration078JobQueueDedupeActiveIndex
   ),
   customMigration('custom-079-mind-ops-log', migration079MindOpsLog),
+  customMigration(
+    'custom-080-assistant-message-tombstones',
+    migration080AssistantMessageTombstones
+  ),
+  customMigration('custom-081-workspace-snapshots', migration081WorkspaceSnapshots),
+  customMigration('custom-082-canvas-documents', migration082CanvasDocuments),
+  customMigration('custom-083-tool-call-telemetry', migration083ToolCallTelemetry),
+  customMigration(
+    'custom-084-assistant-tool-projection-rewrites',
+    migration084AssistantToolProjectionRewrites
+  ),
+  customMigration(
+    'custom-085-tool-call-telemetry-occurred-at-index',
+    migration085ToolCallTelemetryOccurredAtIndex
+  ),
+  customMigration('custom-086-token-estimate-calibration', migration086TokenEstimateCalibration),
+  customMigration(
+    'custom-087-tool-projection-rewrite-kinds',
+    migration087ToolProjectionRewriteKinds
+  ),
+  customMigration('custom-088-assistant-compaction-ranges', migration088AssistantCompactionRanges),
+  customMigration(
+    'custom-089-token-estimate-calibration-resolved-budgets',
+    migration089TokenEstimateCalibrationResolvedBudgets
+  ),
+  customMigration(
+    'custom-090-compaction-summary-run-usage-kind',
+    migration090CompactionSummaryRunUsageKind
+  ),
+  customMigration(
+    'custom-091-token-estimate-calibration-prompt-baseline',
+    migration091TokenEstimateCalibrationPromptBaseline
+  ),
+  customMigration(
+    'custom-092-tool-call-telemetry-substrate-split',
+    migration092ToolCallTelemetrySubstrateSplit
+  ),
+  customMigration('custom-093-assistant-run-treatments', migration093AssistantRunTreatments),
+  customMigration('custom-094-openrouter-gemini-3-7-flash', migration094OpenRouterGemini37Flash),
+  customMigration('custom-095-assistant-thread-workspaces', migration095AssistantThreadWorkspaces),
+  customMigration('custom-096-openrouter-qwen-3-8-27b', migration096OpenRouterQwen3827B),
+  customMigration(
+    'custom-097-openrouter-qwen-3-8-2-4t-a95b',
+    migration097OpenRouterQwen38TwoPointFourT
+  ),
+  customMigration('custom-098-openrouter-qwen-3-8-max', migration098OpenRouterQwen38Max),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

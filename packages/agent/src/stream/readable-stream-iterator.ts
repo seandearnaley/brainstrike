@@ -1,5 +1,5 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { createLogger } from '@brainstrike/utils/logger';
+import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('ReadableStreamIterator');
 

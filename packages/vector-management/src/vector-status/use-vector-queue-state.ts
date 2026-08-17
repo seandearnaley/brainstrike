@@ -1,10 +1,7 @@
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
-import {
-  type ActiveBackfillState,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { createLogger } from '@brainstrike/logging';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
-import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
 import type { EmbeddingRuntimeController } from './embedding-runtime-controller';
@@ -16,6 +13,27 @@ import {
   type QueueCounts,
   type VectorQueueService,
 } from './vector-queue-service';
+import {
+  ACTIVE_SET_QUEUE_COUNTS_QUERY,
+  COVERAGE_QUERY,
+  type CoverageRow,
+  createBackfillCancellationError,
+  DEFAULT_COVERAGE,
+  DEFAULT_METRICS,
+  DEFAULT_QUEUE_COUNTS,
+  EMBEDDINGS_QUEUE_PARAMS,
+  isBackfillCancellationError,
+  LAST_ERROR_QUERY,
+  LATENCY_ROWS_QUERY,
+  type LastErrorRow,
+  type LatencyRow,
+  QUEUE_COUNTS_QUERY,
+  type QueueCountsRow,
+  reconcileBackfillStateAfterReload,
+  subscribeBackfillProgress,
+  THROUGHPUT_QUERY,
+  type ThroughputRow,
+} from './vector-queue-state-queries';
 
 const logger = createLogger('useVectorQueueState');
 
@@ -66,255 +84,6 @@ export interface UseVectorQueueStateResult {
    */
   validateApiKey: () => Promise<ApiKeyValidationResult>;
   wipeQueue: () => Promise<void>;
-}
-
-const DEFAULT_COVERAGE: { total: number; withSet: number } = { total: 0, withSet: 0 };
-const DEFAULT_QUEUE_COUNTS: QueueCounts = { failed: 0, queued: 0, running: 0, succeeded: 0 };
-const EMBEDDINGS_QUEUE_PARAMS: readonly [string] = [EMBEDDINGS_QUEUE];
-
-const QUEUE_COUNTS_QUERY = `
-  SELECT
-    COUNT(*) FILTER (WHERE state = 'queued')::int    AS "queued",
-    COUNT(*) FILTER (WHERE state = 'running')::int   AS "running",
-    COUNT(*) FILTER (WHERE state = 'failed')::int    AS "failed",
-    COUNT(*) FILTER (WHERE state = 'succeeded')::int AS "succeeded"
-  FROM job_queue
-  WHERE queue = $1
-`.trim();
-
-const ACTIVE_SET_QUEUE_COUNTS_QUERY = `
-  SELECT
-    COUNT(*) FILTER (WHERE state = 'queued')::int    AS "queued",
-    COUNT(*) FILTER (WHERE state = 'running')::int   AS "running",
-    COUNT(*) FILTER (WHERE state = 'failed')::int    AS "failed",
-    COUNT(*) FILTER (WHERE state = 'succeeded')::int AS "succeeded"
-  FROM job_queue
-  WHERE queue = $1
-    AND job_type = 'embed_chunk'
-    AND embedding_set_id = $2
-`.trim();
-
-const ISO_UTC_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"' as const;
-
-const THROUGHPUT_QUERY = `
-  SELECT COUNT(*)::int AS count
-    FROM job_queue
-   WHERE queue = $1
-     AND state = 'succeeded'
-     AND updated_at >= TO_CHAR(
-       (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - INTERVAL '60 seconds',
-       '${ISO_UTC_FORMAT}'
-     )
-`.trim();
-
-const LAST_ERROR_QUERY = `
-  SELECT error
-    FROM job_queue
-   WHERE queue = $1
-     AND state = 'failed'
-ORDER BY updated_at DESC
-   LIMIT 1
-`.trim();
-
-const LATENCY_ROWS_QUERY = `
-  SELECT id, run_at AS "runAt", updated_at AS "updatedAt"
-    FROM job_queue
-   WHERE queue = $1
-     AND state = 'succeeded'
-     AND updated_at >= TO_CHAR(
-       (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - INTERVAL '5 minutes',
-       '${ISO_UTC_FORMAT}'
-     )
-ORDER BY updated_at DESC
-   LIMIT 200
-`.trim();
-
-const COVERAGE_QUERY = `
-  WITH target AS (SELECT $1::text AS embedding_set_id)
-  SELECT
-    COUNT(*)::int AS "totalChunks",
-    COUNT(*) FILTER (
-      WHERE (
-        c.embedding_set_id = target.embedding_set_id
-        OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
-      )
-      AND c.embedding IS NOT NULL
-    )::int AS "chunksWithEmbeddingsForSet"
-  FROM file_chunks c
-  JOIN file_records fr ON fr.id = c.file_record_id
-  JOIN target ON fr.embedding_set_id = target.embedding_set_id
-`.trim();
-
-interface QueueCountsRow {
-  failed: number | string | null;
-  queued: number | string | null;
-  running: number | string | null;
-  succeeded: number | string | null;
-}
-
-interface ThroughputRow {
-  count: number | string | null;
-}
-
-interface LastErrorRow {
-  error: string | null;
-}
-
-interface LatencyRow {
-  id: string;
-  runAt: string;
-  updatedAt: string;
-}
-
-interface CoverageRow {
-  chunksWithEmbeddingsForSet: number | string | null;
-  totalChunks: number | string | null;
-}
-
-// Default metrics when EmbeddingQueueProvider is not available
-const DEFAULT_METRICS = {
-  latencyP95Ms: 0,
-  throughputPerMinute: 0,
-  windowErrorCount: 0,
-} as const;
-
-function isBackfillCancellationError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  return error.name === 'AbortError';
-}
-
-/**
- * Build a cancellation error recognized by isBackfillCancellationError (name ===
- * 'AbortError'). Used to re-raise a desktop `{ canceled: true }` enqueue result so
- * a deliberately-canceled backfill is handled identically to a local AbortSignal
- * cancel — never reported as a completion.
- */
-function createBackfillCancellationError(): Error {
-  const error = new Error('Embedding backfill was canceled.');
-  error.name = 'AbortError';
-  return error;
-}
-
-function subscribeBackfillProgress(
-  controller: EmbeddingRuntimeController,
-  activeEmbeddingSetId: string,
-  setActiveBackfill: (backfill: {
-    embeddingSetId: string;
-    progress: NonNullable<BackfillProgress>;
-    requestId: string;
-  }) => void
-): () => void {
-  return controller.onBackfillProgress((progress) => {
-    if (progress.embeddingSetId !== activeEmbeddingSetId) {
-      return;
-    }
-    setActiveBackfill({
-      embeddingSetId: progress.embeddingSetId,
-      progress: { done: progress.current, total: progress.total },
-      requestId: progress.requestId,
-    });
-  });
-}
-
-function shouldClearRecoveredBackfillState(
-  currentBackfill: ActiveBackfillState | null,
-  activeEmbeddingSetId: string,
-  isJobQueueActive: boolean
-): boolean {
-  return (
-    currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
-    (isJobQueueActive || currentBackfill.requestId.startsWith('recovered:'))
-  );
-}
-
-function shouldSkipRecoveredBackfillRestore(
-  currentBackfill: ActiveBackfillState | null,
-  activeEmbeddingSetId: string
-): boolean {
-  return (
-    currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
-    !currentBackfill.requestId.startsWith('recovered:')
-  );
-}
-
-function createRecoveredBackfillState(activeEmbeddingSetId: string): ActiveBackfillState {
-  return {
-    embeddingSetId: activeEmbeddingSetId,
-    progress: null,
-    requestId: `recovered:${activeEmbeddingSetId}:${Date.now()}`,
-  };
-}
-
-interface ReconcileBackfillStateAfterReloadParams {
-  activeEmbeddingSetId: string;
-  cleanupRecoveryRef: React.MutableRefObject<(() => void) | null>;
-  clearTransientBackfillState: (expectedEmbeddingSetId?: string | null) => void;
-  controller: EmbeddingRuntimeController;
-  isCancelled: () => boolean;
-  markCancelled: () => void;
-  setActiveBackfill: (backfill: ActiveBackfillState | null) => void;
-  setIsJobQueueActive: (active: boolean) => void;
-}
-
-async function reconcileBackfillStateAfterReload({
-  activeEmbeddingSetId,
-  clearTransientBackfillState,
-  cleanupRecoveryRef,
-  controller,
-  isCancelled,
-  markCancelled,
-  setActiveBackfill,
-  setIsJobQueueActive,
-}: ReconcileBackfillStateAfterReloadParams): Promise<void> {
-  const inFlight = await controller.getBackfillsInFlight();
-  if (isCancelled()) {
-    return;
-  }
-
-  if (!inFlight.some((backfill) => backfill.embeddingSetId === activeEmbeddingSetId)) {
-    const currentState = useVectorStatusUIStore.getState();
-    if (
-      shouldClearRecoveredBackfillState(
-        currentState.activeBackfill,
-        activeEmbeddingSetId,
-        currentState.isJobQueueActive
-      )
-    ) {
-      clearTransientBackfillState(activeEmbeddingSetId);
-    }
-    return;
-  }
-
-  const currentBackfill = useVectorStatusUIStore.getState().activeBackfill;
-  if (shouldSkipRecoveredBackfillRestore(currentBackfill, activeEmbeddingSetId)) {
-    return;
-  }
-
-  setIsJobQueueActive(true);
-  setActiveBackfill(createRecoveredBackfillState(activeEmbeddingSetId));
-
-  const unsubscribe = subscribeBackfillProgress(
-    controller,
-    activeEmbeddingSetId,
-    (backfill: {
-      embeddingSetId: string;
-      progress: NonNullable<BackfillProgress>;
-      requestId: string;
-    }) => {
-      if (isCancelled()) {
-        return;
-      }
-      setActiveBackfill(backfill);
-    }
-  );
-
-  cleanupRecoveryRef.current = () => {
-    markCancelled();
-    unsubscribe();
-  };
 }
 
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {

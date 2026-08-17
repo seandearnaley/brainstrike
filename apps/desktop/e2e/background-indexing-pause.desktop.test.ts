@@ -123,7 +123,14 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(indexingPopover.getByText('Chunks', { exact: true })).toBeVisible();
     const popoverBeforeDiagnostics = await requireBoundingBox(indexingPopover);
 
-    await expect(indexingTrigger).toContainText('Blocked');
+    // BST-1335: this test bootstraps the managed collection but never selects a
+    // workspace root, so the sync status is `unconfigured` — setup incomplete,
+    // nothing broken. It previously read 'Blocked' (alarming amber) only because
+    // the no-root case was misclassified as `error`; asserting that again would
+    // re-pin the bug this change removed. The pause control stays hidden either
+    // way: `shouldShowWorkspaceCollectionSyncPauseControl` is an allow-list of
+    // running/pausable states and excludes `unconfigured`.
+    await expect(indexingTrigger).toContainText('No root selected');
     await expect(
       indexingPopover.getByRole('button', { name: 'Pause workspace index' })
     ).toHaveCount(0);

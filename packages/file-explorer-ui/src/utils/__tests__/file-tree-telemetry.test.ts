@@ -1,5 +1,5 @@
 import type { WorkerFileNode } from '@brainstrike/file-tree-worker';
-import { addLogListener, configureLogger, LogLevel, resetLogger } from '@brainstrike/utils/logger';
+import { addLogListener, configureLogger, LogLevel, resetLogger } from '@brainstrike/logging';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {

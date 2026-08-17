@@ -133,16 +133,12 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
       const api = (
         window as Window & {
           electronAPI?: {
-            fileSystem?: { saveLastFolder?: (folderPath: string) => Promise<void> };
             storage?: { setItem?: (key: string, value: string) => Promise<void> };
           };
         }
       ).electronAPI;
 
-      if (!api?.fileSystem?.saveLastFolder) {
-        throw new Error('Electron fileSystem.saveLastFolder bridge is not available');
-      }
-      if (!api.storage?.setItem) {
+      if (!api?.storage?.setItem) {
         throw new Error('Electron storage.setItem bridge is not available');
       }
       if (!fileExplorerStore?.setState) {
@@ -199,16 +195,20 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
       });
 
       await api.storage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
-      // Storage v5: write the rootsList entry FIRST with the fixed RootId so the
-      // saveLastFolder upsert below finds the path and keeps our id (it only
-      // inserts a random-UUID entry when the path is absent).
+      // Storage v5: write the rootsList entry with the fixed RootId so main's
+      // restoreRoots() resolves restoredFolderPath to this exact id on boot.
       await api.storage.setItem(
         'rootsList',
         JSON.stringify([
           { addedAt: restoredRootAddedAt, path: restoredFolderPath, rootId: restoredRootId },
         ])
       );
-      await api.fileSystem.saveLastFolder(restoredFolderPath);
+      // Seed the lastFolderPath preference directly: this block seeds
+      // persisted startup state for a restore regression test, it does not
+      // exercise the setLastFolder IPC — and setLastFolder now throws unless
+      // its path already references a persisted, mounted root, which is not
+      // yet true at this pre-boot seeding step.
+      await api.storage.setItem('lastFolderPath', restoredFolderPath);
     },
     {
       nextFileExplorerState: fileExplorerState,

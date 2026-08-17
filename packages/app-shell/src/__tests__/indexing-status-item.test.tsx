@@ -1,18 +1,18 @@
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
   type IndexingManagedCollectionStatsState,
   useIndexingActivityStore,
-} from '@brainstrike/preferences/stores/indexing-activity-store';
+} from '@brainstrike/app-state/stores/indexing-activity-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -381,6 +381,31 @@ describe('IndexingStatusItem', () => {
     expect(screen.getByTestId('indexing-action-region')).toHaveClass('h-11');
   });
 
+  it('shows a neutral "No root selected" status, not Blocked/Ready, when unconfigured (BST-1335)', () => {
+    useBackgroundIndexingPreferencesStore.setState({ enabled: true, paused: false });
+    useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+      activeRootPath: null,
+      lastError: null,
+      managedCollectionId: 'collection-a',
+      state: 'unconfigured',
+    });
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: null,
+      managedCollectionId: 'collection-a',
+      managedCollectionName: null,
+      paused: false,
+      pauseReasons: [],
+      state: 'unconfigured',
+    });
+
+    render(<IndexingStatusItem />);
+
+    const status = screen.getByTestId('indexing-status-item');
+    expect(status).toHaveTextContent('Workspace IndexNo root selected');
+    expect(status).toHaveClass('text-muted-foreground');
+  });
+
   it('keeps the pause action available while a bound Workspace Index waits for restore', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
@@ -418,5 +443,28 @@ describe('IndexingStatusItem', () => {
     const popover = await screen.findByTestId('indexing-status-popover');
     expect(within(popover).getByText('75% · updating')).toBeInTheDocument();
     expect(within(popover).getByTestId('managed-stat-files')).toHaveTextContent('24');
+  });
+
+  it('clicking the pause action updates the background indexing preferences store', async () => {
+    useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId('collection-a');
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: null,
+      managedCollectionId: 'collection-a',
+      managedCollectionName: 'Workspace Index',
+      paused: false,
+      pauseReasons: [],
+      state: 'idle',
+    });
+
+    render(<IndexingStatusItem />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+
+    const pauseButton = await screen.findByRole('button', { name: 'Pause workspace index' });
+    await userEvent.click(pauseButton);
+
+    await waitFor(() => {
+      expect(useBackgroundIndexingPreferencesStore.getState().paused).toBe(true);
+    });
   });
 });

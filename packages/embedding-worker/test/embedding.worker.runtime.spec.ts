@@ -1,3 +1,7 @@
+import {
+  EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+} from '@brainstrike/indexing-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EmbedWorkerRequest, EmbedWorkerSuccess } from '../src';
 
@@ -90,6 +94,7 @@ describe('embedding worker runtime', () => {
     transformersImportState.error = null;
     transformersImportState.env = { allowRemoteModels: false };
     vi.unstubAllGlobals();
+    vi.stubGlobal('reportError', vi.fn());
   });
 
   afterEach(() => {
@@ -139,7 +144,9 @@ describe('embedding worker runtime', () => {
   describe('global error handlers', () => {
     it('sets up onerror handler in worker context', async () => {
       // Use null (not undefined) to simulate browser Worker where the property exists
+      const close = vi.fn();
       const mockSelf = {
+        close,
         onerror: null as ((event: ErrorEvent | string) => void) | null,
         onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
       };
@@ -156,6 +163,7 @@ describe('embedding worker runtime', () => {
         message: 'Worker uncaught error: Test error message',
         type: 'error',
       });
+      expect(close).not.toHaveBeenCalled();
     });
 
     it('handles ErrorEvent objects in onerror', async () => {
@@ -226,6 +234,212 @@ describe('embedding worker runtime', () => {
         id: 'global',
         type: 'error',
       });
+    });
+
+    it('reports an idle unhandled rejection through the owner-visible worker error channel', async () => {
+      const close = vi.fn();
+      const reportError = vi.fn(() => {
+        expect(mockSelf.onerror).toBeNull();
+      });
+      const mockSelf = {
+        close,
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      vi.stubGlobal('reportError', reportError);
+      await import('../src/embedding.worker');
+      const rejection = new Error('idle rejection');
+
+      mockSelf.onunhandledrejection?.({ reason: rejection } as PromiseRejectionEvent);
+
+      expect(reportError).toHaveBeenCalledWith(rejection);
+      expect(close).not.toHaveBeenCalled();
+    });
+
+    it('requests adapter recovery for an idle workerpool rejection', async () => {
+      const telemetryPostMessage = vi.fn();
+      vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}idle-failed-worker`);
+      vi.stubGlobal('location', {
+        hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=idle-failure-channel`,
+      });
+      vi.stubGlobal(
+        'BroadcastChannel',
+        class {
+          readonly close = vi.fn();
+          readonly postMessage = telemetryPostMessage;
+        } as unknown as typeof BroadcastChannel
+      );
+      const close = vi.fn();
+      const mockSelf = {
+        close,
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      const reportError = vi.fn();
+      vi.stubGlobal('reportError', reportError);
+      await import('../src/embedding.worker');
+
+      mockSelf.onunhandledrejection?.({
+        reason: new Error('idle pool rejection'),
+      } as PromiseRejectionEvent);
+
+      expect(telemetryPostMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Worker unhandled rejection: idle pool rejection',
+          type: 'worker-lifetime-error',
+          workerInstanceId: 'idle-failed-worker',
+        })
+      );
+      expect(reportError).not.toHaveBeenCalled();
+      expect(close).not.toHaveBeenCalled();
+    });
+
+    it('quarantines an idle failed worker before adapter recovery is delivered', async () => {
+      vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}quarantined-worker`);
+      vi.stubGlobal('location', {
+        hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=quarantine-channel`,
+      });
+      vi.stubGlobal(
+        'BroadcastChannel',
+        class {
+          readonly close = vi.fn();
+          readonly postMessage = vi.fn();
+        } as unknown as typeof BroadcastChannel
+      );
+      const mockSelf = {
+        close: vi.fn(),
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      const runEmbedding = await loadWorker();
+
+      mockSelf.onunhandledrejection?.({
+        reason: new Error('idle pool rejection'),
+      } as PromiseRejectionEvent);
+
+      await expect(
+        runEmbedding({
+          deviceHint: 'wasm',
+          id: 'task-before-recovery-delivery',
+          model: 'bge-m3',
+          texts: ['must not run'],
+          type: 'embed',
+        })
+      ).rejects.toThrow('cannot accept work after an idle global failure');
+      expect(pipelineMock).not.toHaveBeenCalled();
+    });
+
+    it('scopes global failures to the active workerpool request', async () => {
+      const close = vi.fn();
+      const mockSelf = {
+        close,
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      let resolveInference!: (value: Float32Array) => void;
+      pipelineMock.mockResolvedValue(
+        () =>
+          new Promise<Float32Array>((resolve) => {
+            resolveInference = resolve;
+          })
+      );
+      const runEmbedding = await loadWorker();
+      const embeddingPromise = runEmbedding({
+        deviceHint: 'wasm',
+        id: 'active-global-failure',
+        model: 'bge-m3',
+        texts: ['hello'],
+        type: 'embed',
+      });
+      await flushMicrotasks();
+      await waitForAssertion(() => expect(resolveInference).toBeTypeOf('function'));
+
+      mockSelf.onerror?.('active request failed globally');
+
+      expect(workerEmitMock).toHaveBeenCalledWith({
+        cause: undefined,
+        id: 'active-global-failure',
+        message: 'Worker uncaught error: active request failed globally',
+        type: 'error',
+      });
+      expect(close).toHaveBeenCalledTimes(1);
+      mockSelf.onunhandledrejection?.({
+        reason: new Error('active request rejected globally'),
+      } as PromiseRejectionEvent);
+      expect(workerEmitMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'active-global-failure',
+          message: 'Worker unhandled rejection: active request rejected globally',
+          type: 'error',
+        })
+      );
+      expect(close).toHaveBeenCalledTimes(2);
+      resolveInference(new Float32Array([1, 0, 0]));
+      await embeddingPromise;
+    });
+
+    it('notifies an active direct stream before closing on a global failure', async () => {
+      const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
+      const postMessage = vi.fn();
+      const close = vi.fn();
+      const mockSelf = {
+        addEventListener: vi.fn(
+          (type: string, listener: (event: MessageEvent<unknown>) => void) => {
+            if (type === 'message') {
+              messageListeners.add(listener);
+            }
+          }
+        ),
+        close,
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+        postMessage,
+      };
+      vi.stubGlobal('self', mockSelf);
+      let resolveInference!: (value: Float32Array) => void;
+      pipelineMock.mockResolvedValue(
+        () =>
+          new Promise<Float32Array>((resolve) => {
+            resolveInference = resolve;
+          })
+      );
+      await import('../src/embedding.worker');
+      const [handleMessage] = [...messageListeners];
+      if (!handleMessage) {
+        throw new Error('Expected worker message handler to be registered');
+      }
+      handleMessage({
+        data: {
+          request: {
+            deviceHint: 'wasm',
+            id: 'active-stream-global-failure',
+            model: 'bge-m3',
+            texts: ['hello'],
+            type: 'embed',
+          },
+          type: 'stream-embed',
+        },
+      } as MessageEvent<unknown>);
+      await waitForAssertion(() => expect(resolveInference).toBeTypeOf('function'));
+
+      mockSelf.onunhandledrejection?.({
+        reason: new Error('stream rejected globally'),
+      } as PromiseRejectionEvent);
+
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'active-stream-global-failure',
+          message: 'Worker unhandled rejection: stream rejected globally',
+          type: 'error',
+        }),
+        []
+      );
+      expect(close).toHaveBeenCalledTimes(1);
+      resolveInference(new Float32Array([1, 0, 0]));
     });
   });
 
@@ -311,6 +525,18 @@ describe('embedding worker runtime', () => {
 
   it('notifies active streaming requests before closing on WebGPU device loss', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
+    const telemetryPostMessage = vi.fn();
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}worker-device-loss`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=device-loss-channel`,
+    });
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        readonly close = vi.fn();
+        readonly postMessage = telemetryPostMessage;
+      } as unknown as typeof BroadcastChannel
+    );
     const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
     const postMessage = vi.fn();
     const closeMock = vi.fn();
@@ -380,6 +606,11 @@ describe('embedding worker runtime', () => {
       },
       []
     );
+    expect(telemetryPostMessage).toHaveBeenCalledWith({
+      reason: 'device-lost',
+      type: 'telemetry-source-closed',
+      workerInstanceId: 'worker-device-loss',
+    });
     expect(closeMock).toHaveBeenCalledTimes(1);
   });
 
@@ -416,6 +647,51 @@ describe('embedding worker runtime', () => {
         message: 'Streaming request payload must be an object.',
         type: 'error',
       },
+      []
+    );
+
+    handleMessage({
+      data: {
+        request: {
+          deviceHint: 'wasm',
+          estimatedModelBytes: 0,
+          id: 'invalid-model-size',
+          model: 'bge-m3',
+          texts: ['hello'],
+          type: 'embed',
+        },
+        type: 'stream-embed',
+      },
+    } as MessageEvent<unknown>);
+    handleMessage({
+      data: {
+        request: {
+          deviceHint: 'wasm',
+          id: 'invalid-dimension',
+          model: 'bge-m3',
+          targetDimension: 0,
+          texts: ['hello'],
+          type: 'embed',
+        },
+        type: 'stream-embed',
+      },
+    } as MessageEvent<unknown>);
+    await flushMicrotasks();
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'invalid-model-size',
+        message: expect.stringContaining('estimatedModelBytes must be a positive safe integer'),
+        type: 'error',
+      }),
+      []
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'invalid-dimension',
+        message: expect.stringContaining('invalid target dimension'),
+        type: 'error',
+      }),
       []
     );
   });
@@ -673,6 +949,51 @@ describe('embedding worker runtime', () => {
       type: 'embed',
     });
     expect(pipelineMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('scopes active WebGPU device loss to the workerpool request id', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    vi.stubGlobal('self', {
+      close: vi.fn(),
+      onerror: undefined,
+      onunhandledrejection: undefined,
+    });
+    let resolveLost!: (info: { readonly reason?: string; readonly message: string }) => void;
+    await setOrtWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      lost: new Promise((resolve) => {
+        resolveLost = resolve;
+      }),
+      queue: { submit: vi.fn() },
+    });
+    let resolveInference!: (value: Float32Array) => void;
+    pipelineMock.mockResolvedValue(
+      () =>
+        new Promise<Float32Array>((resolve) => {
+          resolveInference = resolve;
+        })
+    );
+    const runEmbedding = await loadWorker();
+    const embeddingPromise = runEmbedding({
+      deviceHint: 'webgpu',
+      id: 'active-device-loss',
+      model: 'bge-m3',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    await flushMicrotasks();
+
+    resolveLost({ message: 'device was lost', reason: 'destroyed' });
+    await waitForAssertion(() =>
+      expect(workerEmitMock).toHaveBeenCalledWith({
+        cause: 'reason=destroyed',
+        id: 'active-device-loss',
+        message: 'WebGPU device lost: device was lost',
+        type: 'error',
+      })
+    );
+    resolveInference(new Float32Array([1, 0, 0]));
+    await embeddingPromise;
   });
 
   it('handles keep-alive tick failures by stopping the timer', async () => {

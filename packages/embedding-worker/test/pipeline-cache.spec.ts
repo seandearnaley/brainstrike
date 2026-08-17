@@ -1,3 +1,7 @@
+import {
+  EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+} from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   installMockOrtWebGpuDevice,
@@ -262,12 +266,14 @@ describe('pipeline cache metadata and dispose', () => {
 
   it('emits pipeline cache diagnostics for cache load and hit timestamps', async () => {
     vi.useFakeTimers({ now: 1000 });
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}pool-worker-a`);
 
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
     const runEmbedding = await loadWorker();
 
     await runEmbedding({
       deviceHint: 'wasm',
+      estimatedModelBytes: 300 * 1024 * 1024,
       id: 'cache-diagnostics-load',
       model: 'diagnostic-model',
       texts: ['hello'],
@@ -300,9 +306,9 @@ describe('pipeline cache metadata and dispose', () => {
             dtype: 'fp16',
             lastUsedAt: 0,
             memory: {
-              gpuBytes: null,
-              heapBytes: null,
-              reason: 'browser-runtime-unavailable',
+              gpuBytes: 0,
+              heapBytes: 300 * 1024 * 1024,
+              reason: 'model-size-estimate',
             },
             model: 'diagnostic-model',
           }),
@@ -310,6 +316,7 @@ describe('pipeline cache metadata and dispose', () => {
         event: 'loaded',
         id: 'cache-diagnostics-load',
         type: 'diagnostic',
+        workerInstanceId: 'pool-worker-a',
       }),
       expect.objectContaining({
         cacheSize: 1,
@@ -323,8 +330,147 @@ describe('pipeline cache metadata and dispose', () => {
         event: 'hit',
         id: 'cache-diagnostics-hit',
         type: 'diagnostic',
+        workerInstanceId: 'pool-worker-a',
       }),
     ]);
+  });
+
+  it('broadcasts idle cache eviction telemetry outside a workerpool request', async () => {
+    vi.useFakeTimers({ now: 1000 });
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}pool-worker-idle`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=pool-idle-telemetry`,
+    });
+    const channelMessages: unknown[] = [];
+    class MockBroadcastChannel {
+      constructor(readonly name: string) {}
+
+      postMessage(message: unknown): void {
+        channelMessages.push(message);
+      }
+    }
+    vi.stubGlobal(
+      'BroadcastChannel',
+      MockBroadcastChannel as unknown as typeof globalThis.BroadcastChannel
+    );
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      id: 'idle-cache-load',
+      model: 'idle-cache-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    workerEmitMock.mockClear();
+
+    await vi.advanceTimersByTimeAsync(330_000);
+
+    expect(channelMessages).toContainEqual(
+      expect.objectContaining({
+        cacheSize: 0,
+        event: 'evicted',
+        reason: 'idle-timeout',
+        type: 'diagnostic',
+        workerInstanceId: 'pool-worker-idle',
+      })
+    );
+    expect(workerEmitMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'evicted', reason: 'idle-timeout' })
+    );
+  });
+
+  it('keeps inference available when cached model-size telemetry changes', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      estimatedModelBytes: 100,
+      id: 'size-first',
+      model: 'size-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    await expect(
+      runEmbedding({
+        deviceHint: 'wasm',
+        estimatedModelBytes: 200,
+        id: 'size-second',
+        model: 'size-model',
+        texts: ['world'],
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ vectors: expect.any(Array) });
+
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[EmbeddingWorker]',
+      'Embedding model size metadata changed for a cached pipeline; keeping the original estimate',
+      expect.objectContaining({ cachedBytes: 100, requestedBytes: 200 })
+    );
+  });
+
+  it('labels missing model-size metadata separately from runtime memory support', async () => {
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      id: 'size-unknown',
+      model: 'unknown-size-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entries: [
+          expect.objectContaining({
+            memory: expect.objectContaining({ reason: 'model-size-unknown' }),
+          }),
+        ],
+        event: 'loaded',
+      })
+    );
+  });
+
+  it('keeps unknown model-size attribution immutable across cache hits', async () => {
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      id: 'size-unknown-first',
+      model: 'unknown-size-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    workerEmitMock.mockClear();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      estimatedModelBytes: 1024,
+      id: 'size-known-later',
+      model: 'unknown-size-model',
+      texts: ['world'],
+      type: 'embed',
+    });
+
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entry: expect.objectContaining({
+          memory: {
+            gpuBytes: null,
+            heapBytes: null,
+            reason: 'model-size-unknown',
+          },
+        }),
+        event: 'hit',
+      })
+    );
   });
 
   it('loadPipeline removes entry on failure so retry works', async () => {

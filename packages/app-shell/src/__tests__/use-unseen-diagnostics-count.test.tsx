@@ -42,7 +42,7 @@ beforeEach(() => {
     error: null,
     loading: false,
     refresh: vi.fn(),
-    rows: [{ count: 0 }],
+    rows: [{ errorCount: 0, warningCount: 0 }],
   });
   resetDiagnosticsSeenStore();
 });
@@ -60,14 +60,17 @@ describe('useUnseenDiagnosticsCount', () => {
     expect(args.query).toContain('COUNT(*)');
   });
 
-  // The table's CHECK constraint already restricts severity to warn/error/
-  // fatal, so a severity predicate here would be redundant AND would diverge
-  // silently if that constraint ever changes. Pinned so nobody adds one
-  // "for clarity".
-  it('carries no severity predicate', () => {
+  // The table's CHECK constraint defines the complete warn+ set. The query
+  // partitions that set only for honest UI labels: fatal shares the error
+  // bucket, while warn remains visibly distinct.
+  it('partitions warnings from errors without excluding fatal rows', () => {
     renderHook(() => useUnseenDiagnosticsCount());
 
-    expect(lastLiveQueryArgs().query).not.toContain('severity');
+    const query = lastLiveQueryArgs().query;
+    expect(query).toContain("severity IN ('error', 'fatal')");
+    expect(query).toContain("severity = 'warn'");
+    expect(query).toContain('AS "errorCount"');
+    expect(query).toContain('AS "warningCount"');
   });
 
   // `usePGliteLiveQuery` uses `cacheKey` as the SOLE re-subscription dep when
@@ -105,23 +108,31 @@ describe('useUnseenDiagnosticsCount', () => {
   it('disables the query until a database handle exists', () => {
     usePGliteDatabaseMock.mockReturnValue(null);
 
-    renderHook(() => useUnseenDiagnosticsCount());
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [],
+    });
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
 
     expect(lastLiveQueryArgs().enabled).toBe(false);
+    expect(result.current).toEqual({ error: null, errorCount: 0, warningCount: 0 });
   });
 
-  it('coerces a string COUNT to a number and reports a query error verbatim', () => {
+  it('coerces both string counts to numbers and reports a query error verbatim', () => {
     const error = new Error('live query subscribe failed');
     usePGliteLiveQueryMock.mockReturnValue({
       error,
       loading: false,
       refresh: vi.fn(),
-      rows: [{ count: '7' }],
+      rows: [{ errorCount: '7', warningCount: '3' }],
     });
 
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
 
-    expect(result.current.count).toBe(7);
+    expect(result.current.errorCount).toBe(7);
+    expect(result.current.warningCount).toBe(3);
     expect(result.current.error).toBe(error);
   });
 
@@ -135,7 +146,64 @@ describe('useUnseenDiagnosticsCount', () => {
 
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
 
-    expect(result.current.count).toBe(0);
+    expect(result.current.errorCount).toBe(0);
+    expect(result.current.warningCount).toBe(0);
     expect(result.current.error).toBeNull();
+  });
+
+  it('keeps the enabled transition render quiet before the aggregate row arrives', () => {
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [],
+    });
+
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
+
+    expect(result.current).toEqual({ error: null, errorCount: 0, warningCount: 0 });
+  });
+
+  it.each([
+    ['null', null],
+    ['blank string', ''],
+    ['space-padded decimal string', ' 7 '],
+    ['control-whitespace-padded decimal string', '\t7\n'],
+    ['boolean true', true],
+    ['boolean false', false],
+    ['empty array', []],
+    ['array of one number', [2]],
+    ['plain object', {}],
+  ])('fails loud when an aggregate count is %s', (_label, invalidCount) => {
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [{ errorCount: invalidCount, warningCount: '2' }],
+    });
+
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
+
+    expect(result.current).toMatchObject({ errorCount: 0, warningCount: 0 });
+    expect(result.current.error).toEqual(
+      new Error('Unseen diagnostics query returned invalid aggregate counts')
+    );
+  });
+
+  it('surfaces malformed aggregates as unavailable instead of returning NaN counts', () => {
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [{ errorCount: 'not-a-number', warningCount: '2' }],
+    });
+
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
+
+    expect(result.current.errorCount).toBe(0);
+    expect(result.current.warningCount).toBe(0);
+    expect(result.current.error).toEqual(
+      new Error('Unseen diagnostics query returned invalid aggregate counts')
+    );
   });
 });

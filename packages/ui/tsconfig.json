@@ -29,13 +29,16 @@
   ],
   "references": [
     {
-      "path": "../assistant-contract"
-    },
-    {
       "path": "../context-actions"
     },
     {
+      "path": "../hooks"
+    },
+    {
       "path": "../../packages/types"
+    },
+    {
+      "path": "../logging"
     },
     {
       "path": "../utils"

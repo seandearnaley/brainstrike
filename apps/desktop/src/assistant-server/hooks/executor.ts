@@ -10,7 +10,7 @@
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import type { ScopedLogger } from '@brainstrike/utils';
+import type { ScopedLogger } from '@brainstrike/logging';
 import { createCredentialIsolatedChildEnvironment } from '../../desktop-env';
 import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict';
 import {

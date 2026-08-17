@@ -157,6 +157,57 @@ describe('runAssistantTurn', () => {
     expect(recordThreadRunStatus).toHaveBeenCalledWith('run-1', 'failed', 'stream broke');
   });
 
+  it('threads explicit OpenRouter model effort into output-limit recovery context', async () => {
+    const turn = baseParams({
+      runtimeData: {
+        model: 'moonshotai/kimi-k3',
+        provider: 'openrouter',
+        providerOptions: {
+          openrouter: {
+            provider: { require_parameters: true },
+            reasoning: { effort: 'max' },
+          },
+        },
+        requestedReasoningEffort: 'max',
+      },
+    });
+
+    const result = await runAssistantTurn(turn.params as never);
+    if (!result.ok) {
+      throw new Error('expected turn');
+    }
+
+    expect(turn.sessions.create).toHaveBeenCalledWith(expect.anything(), {
+      outputLimitContext: {
+        model: 'moonshotai/kimi-k3',
+        provider: 'openrouter',
+        reasoningEffort: 'max',
+      },
+    });
+  });
+
+  it('does not mistake Auto for an explicit resolved max effort', async () => {
+    const turn = baseParams({
+      runtimeData: {
+        model: 'moonshotai/kimi-k3',
+        provider: 'openrouter',
+        providerOptions: {
+          openrouter: {
+            provider: { require_parameters: true },
+            reasoning: { effort: 'max' },
+          },
+        },
+      },
+    });
+
+    const result = await runAssistantTurn(turn.params as never);
+    if (!result.ok) {
+      throw new Error('expected turn');
+    }
+
+    expect(turn.sessions.create).toHaveBeenCalledWith(expect.anything(), {});
+  });
+
   it('threads assistantMessageId into session creation only when present, and stamps both headers', async () => {
     const withId = baseParams({ assistantMessageId: 'msg-42' });
     const withoutId = baseParams();

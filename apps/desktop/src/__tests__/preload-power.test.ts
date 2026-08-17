@@ -1,5 +1,5 @@
 import Module from 'node:module';
-import type { LogRecord } from '@brainstrike/utils';
+import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   CHUNKING_HOST_CHUNK_BATCH_CHANNEL,
@@ -43,11 +43,13 @@ import {
 // CJS require('electron') in preload.ts resolves via Node's native module loader,
 // which returns the Electron binary path (a string), not the API object.
 // vi.mock only intercepts ESM import(), so we must patch Module._load for CJS.
-const mockOn = vi.fn();
-const mockRemoveListener = vi.fn();
-const mockExposeInMainWorld = vi.fn();
-const mockInvoke = vi.fn();
-const mockSend = vi.fn();
+type IpcListener = (...args: unknown[]) => void;
+
+const mockOn = vi.fn<(channel: string, listener: IpcListener) => void>();
+const mockRemoveListener = vi.fn<(channel: string, listener: IpcListener) => void>();
+const mockExposeInMainWorld = vi.fn<(key: string, api: unknown) => void>();
+const mockInvoke = vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>();
+const mockSend = vi.fn<(channel: string, ...args: unknown[]) => void>();
 
 const mockElectron = {
   clipboard: { readText: vi.fn(() => ''), writeText: vi.fn() },
@@ -60,18 +62,18 @@ const mockElectron = {
   },
 };
 
-const originalLoad = Module._load;
-// @ts-expect-error -- Module._load signature is internal
-Module._load = function (id: string, ...rest: unknown[]) {
+type ModuleLoader = (this: typeof Module, id: string, ...rest: unknown[]) => unknown;
+const moduleWithLoader = Module as unknown as { _load: ModuleLoader };
+const originalLoad = moduleWithLoader._load;
+moduleWithLoader._load = function (this: typeof Module, id: string, ...rest: unknown[]) {
   if (id === 'electron') {
     return mockElectron;
   }
-  // @ts-expect-error -- forwarding to original
   return originalLoad.call(this, id, ...rest);
 };
 
 afterAll(() => {
-  Module._load = originalLoad;
+  moduleWithLoader._load = originalLoad;
 });
 
 describe('preload power bridge', () => {
@@ -81,16 +83,16 @@ describe('preload power bridge', () => {
   });
 
   afterAll(() => {
-    process.env['ELECTRON_IS_E2E_TEST'] = undefined;
+    Reflect.deleteProperty(process.env, 'ELECTRON_IS_E2E_TEST');
   });
 
   function getPowerApi() {
-    const call = mockExposeInMainWorld.mock.calls.find(([key]: [string]) => key === 'power');
+    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'power');
     return call?.[1] as { onPowerState: (cb: (state: string) => void) => () => void } | undefined;
   }
 
   function getElectronApi() {
-    const call = mockExposeInMainWorld.mock.calls.find(([key]: [string]) => key === 'electronAPI');
+    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'electronAPI');
     return call?.[1] as
       | {
           dbLive: {
@@ -101,9 +103,7 @@ describe('preload power bridge', () => {
   }
 
   function getEmbeddingHostApi() {
-    const call = mockExposeInMainWorld.mock.calls.find(
-      ([key]: [string]) => key === 'embeddingHost'
-    );
+    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'embeddingHost');
     return call?.[1] as
       | {
           ensureStarted: () => Promise<unknown>;
@@ -119,7 +119,7 @@ describe('preload power bridge', () => {
   }
 
   function getChunkingHostApi() {
-    const call = mockExposeInMainWorld.mock.calls.find(([key]: [string]) => key === 'chunkingHost');
+    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'chunkingHost');
     return call?.[1] as
       | {
           ensureStarted: () => Promise<unknown>;
@@ -138,7 +138,7 @@ describe('preload power bridge', () => {
   }
 
   function getLlmHostApi() {
-    const call = mockExposeInMainWorld.mock.calls.find(([key]: [string]) => key === 'llmHost');
+    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'llmHost');
     return call?.[1] as
       | {
           ensureStarted: () => Promise<unknown>;
@@ -164,7 +164,7 @@ describe('preload power bridge', () => {
   }
 
   function getLoggingApi() {
-    const call = mockExposeInMainWorld.mock.calls.find(([key]: [string]) => key === 'logging');
+    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'logging');
     return call?.[1] as
       | {
           ingestBufferedRecord: (record: LogRecord) => void;
@@ -173,11 +173,10 @@ describe('preload power bridge', () => {
   }
 
   function getDesktopLifecycleApi() {
-    const call = mockExposeInMainWorld.mock.calls.find(
-      ([key]: [string]) => key === 'desktopLifecycle'
-    );
+    const call = mockExposeInMainWorld.mock.calls.find(([key]) => key === 'desktopLifecycle');
     return call?.[1] as
       | {
+          isTestMode: boolean;
           noteReloadIntent: (reason: string) => Promise<void>;
         }
       | undefined;
@@ -204,7 +203,7 @@ describe('preload power bridge', () => {
     powerApi?.onPowerState(cb);
 
     const ipcListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === 'app:power-state'
+      ([channel]) => channel === 'app:power-state'
     )?.[1] as (event: unknown, state: string) => void;
 
     ipcListener(null, 'suspend');
@@ -235,7 +234,7 @@ describe('preload power bridge', () => {
     const secondCleanup = electronApi?.dbLive.onUpdate(secondCallback);
 
     const updateSubscriptions = mockOn.mock.calls.filter(
-      ([channel]: [string]) => channel === 'db:live-query:update'
+      ([channel]) => channel === 'db:live-query:update'
     );
     expect(updateSubscriptions).toHaveLength(1);
 
@@ -273,7 +272,7 @@ describe('preload power bridge', () => {
     const healthyCleanup = electronApi?.dbLive.onUpdate(healthyCallback);
 
     const updateSubscriptions = mockOn.mock.calls.filter(
-      ([channel]: [string]) => channel === 'db:live-query:update'
+      ([channel]) => channel === 'db:live-query:update'
     );
     expect(updateSubscriptions).toHaveLength(1);
 
@@ -370,10 +369,10 @@ describe('preload power bridge', () => {
     expect(mockOn).toHaveBeenCalledWith(EMBEDDING_HOST_COMMAND_EVENT, expect.any(Function));
 
     const statusListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === EMBEDDING_HOST_STATUS_EVENT
+      ([channel]) => channel === EMBEDDING_HOST_STATUS_EVENT
     )?.[1] as (event: unknown, status: unknown) => void;
     const commandListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === EMBEDDING_HOST_COMMAND_EVENT
+      ([channel]) => channel === EMBEDDING_HOST_COMMAND_EVENT
     )?.[1] as (event: unknown, command: unknown) => void;
 
     statusListener(null, { active: false, lastError: null, state: 'running' });
@@ -456,13 +455,13 @@ describe('preload power bridge', () => {
     expect(mockOn).toHaveBeenCalledWith(CHUNKING_HOST_REQUEST_EVENT, expect.any(Function));
 
     const statusListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === CHUNKING_HOST_STATUS_EVENT
+      ([channel]) => channel === CHUNKING_HOST_STATUS_EVENT
     )?.[1] as (event: unknown, status: unknown) => void;
     const progressListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === CHUNKING_HOST_PROGRESS_EVENT
+      ([channel]) => channel === CHUNKING_HOST_PROGRESS_EVENT
     )?.[1] as (event: unknown, progress: unknown) => void;
     const requestListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === CHUNKING_HOST_REQUEST_EVENT
+      ([channel]) => channel === CHUNKING_HOST_REQUEST_EVENT
     )?.[1] as (event: unknown, request: unknown) => void;
 
     statusListener(null, { active: false, lastError: null, state: 'running' });
@@ -585,13 +584,13 @@ describe('preload power bridge', () => {
     expect(mockOn).toHaveBeenCalledWith(LLM_HOST_REQUEST_EVENT, expect.any(Function));
 
     const statusListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === LLM_HOST_STATUS_EVENT
+      ([channel]) => channel === LLM_HOST_STATUS_EVENT
     )?.[1] as (event: unknown, payload: unknown) => void;
     const progressListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === LLM_HOST_PROGRESS_EVENT
+      ([channel]) => channel === LLM_HOST_PROGRESS_EVENT
     )?.[1] as (event: unknown, payload: unknown) => void;
     const requestListener = mockOn.mock.calls.find(
-      ([channel]: [string]) => channel === LLM_HOST_REQUEST_EVENT
+      ([channel]) => channel === LLM_HOST_REQUEST_EVENT
     )?.[1] as (event: unknown, payload: unknown) => void;
 
     statusListener(null, { active: false, lastError: null, state: 'idle' });
@@ -623,7 +622,7 @@ describe('preload power bridge', () => {
     loggingApi?.ingestBufferedRecord({
       args: ['forwarded'],
       bindings: { runtime: 'electron-renderer' },
-      level: 'info',
+      level: LogLevel.INFO,
       message: 'forwarded',
       scope: 'EmbeddingHostRuntime',
       timestamp: 123,

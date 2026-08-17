@@ -1,25 +1,15 @@
 import { usePagination } from '@brainstrike/hooks';
+import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import {
   type BulkAction,
   BulkActionBar,
-  Button,
   type CollectionNodeType,
   EmptyState,
   SelectionActionBarOverlay,
-  TablePagination,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
 } from '@brainstrike/ui';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
-import { createLogger } from '@brainstrike/utils/logger';
-import { FileText, FileX2, LayoutGrid, RotateCcw, Table as TableIcon } from 'lucide-react';
+import { FileText, FileX2 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -50,21 +40,17 @@ import {
 import { getTokenUsageMetrics } from '../utils/token-usage-metrics';
 import { useWorkspaceContextCurationStore } from '../workspace-context-curation-store';
 import { tapestryLineRangeToToolRange } from '../workspace-context-line-ranges';
-import { ColumnVisibilityControls } from './preview-column-visibility-controls';
-import { PreviewPanelFooter } from './preview-panel-footer';
-import { PreviewTable } from './preview-table';
-import { PreviewViewToolbar } from './preview-view-toolbar';
-import { DEFAULT_PAGE_SIZE, usePreviewPanelPreferences } from './use-preview-panel-preferences';
+import { PreviewPanelSummary } from './preview-panel-summary';
+import { usePreviewPanelPreferences } from './use-preview-panel-preferences';
 import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 
 const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
-const TAPESTRY_MAX_PAGE_SIZE = 24;
+const TAPESTRY_PAGE_SIZE = 24;
 const EMPTY_PAGINATION_INFO = {};
 
 interface PreviewPanelProps {
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
-  estimateTokenCost?: (tokens: number) => number;
   fileContents: { [compositeKey: string]: string };
   fileSizes?: { [compositeKey: string]: number };
   folderSummaryThreshold?: number;
@@ -72,14 +58,12 @@ interface PreviewPanelProps {
   loadingFiles: Set<string>;
   onCopyContext?: (options: ContextExportOptions) => void;
   onDownloadContext?: (options: ContextExportOptions) => void;
-  onFileClick?: (compositeKey: string) => void;
   onFolderSummaryThresholdChange?: (threshold: number) => void;
   onIncludeProjectTreeChange?: (checked: boolean) => void;
   onProjectTreeUsesViewFiltersChange?: (checked: boolean) => void;
   onRequestFileContent?: (compositeKey: string) => void;
   onSelectionChange: (files: Set<string>) => void;
   onTokenBudgetChange?: (budget: number) => void;
-  pageSize?: number;
   performUndoableAction: (
     key: string,
     itemKey: string,
@@ -93,6 +77,7 @@ interface PreviewPanelProps {
   projectTreeTokenCount?: number;
   projectTreeTokenCountLoading?: boolean;
   projectTreeUsesViewFilters?: boolean;
+  projectTreeValidationError?: string | undefined;
   /**
    * Resolve a RootId to its display name (multi-root, Phase 6) so context
    * snapshots can label same-relative-path files from different roots.
@@ -100,7 +85,7 @@ interface PreviewPanelProps {
   resolveRootDisplayName?: ((rootId: string) => string | undefined) | undefined;
   /**
    * Resolve a RootId to its absolute root path (storage v5 descriptor) so
-   * table rows can relativize file paths for display.
+   * preview rows can relativize file paths for display.
    */
   resolveRootPath?: ((rootId: string) => string | undefined) | undefined;
   selectedFiles: Set<string>;
@@ -108,40 +93,43 @@ interface PreviewPanelProps {
   tokenCounting: TokenCountingState;
 }
 
-function handleNullValues(aVal: unknown, bVal: unknown): number | null {
-  if (aVal === null && bVal === null) {
-    return 0;
-  }
-  if (aVal === null) {
-    return 1;
-  }
-  if (bVal === null) {
+/**
+ * Fixed preview ordering: files grouped by their owning root.
+ *
+ * The Table View owned the only sort controls (column headers plus a reset
+ * button), so BST-1211 retired the sort preference with it. This reproduces
+ * that surface's DEFAULT ordering exactly — ascending `rootFolderId`, ties
+ * resolved by `Array.prototype.sort` stability, i.e. source order.
+ */
+function compareByRootFolderId(a: TableRowData, b: TableRowData): number {
+  if (a.rootFolderId < b.rootFolderId) {
     return -1;
   }
-  return null;
-}
-
-function compareValues(aVal: unknown, bVal: unknown, field: keyof TableRowData): number {
-  const nullResult = handleNullValues(aVal, bVal);
-  if (nullResult !== null) {
-    return nullResult;
-  }
-
-  // Numeric sorting for tokens and size
-  if (field === 'tokens' || field === 'size') {
-    return (Number(aVal) || 0) - (Number(bVal) || 0);
-  }
-
-  // String sorting for other fields
-  const aStr = String(aVal);
-  const bStr = String(bVal);
-  if (aStr < bStr) {
-    return -1;
-  }
-  if (aStr > bStr) {
+  if (a.rootFolderId > b.rootFolderId) {
     return 1;
   }
   return 0;
+}
+
+interface IndexedRowData {
+  order: number;
+  row: TableRowData;
+}
+
+function deriveSelectedRows(
+  rowDataByCompositeKey: ReadonlyMap<string, IndexedRowData>,
+  selectedFiles: ReadonlySet<string>
+): TableRowData[] {
+  const selectedRows: IndexedRowData[] = [];
+  for (const compositeKey of selectedFiles) {
+    const indexedRow = rowDataByCompositeKey.get(compositeKey);
+    if (indexedRow) {
+      selectedRows.push(indexedRow);
+    }
+  }
+
+  selectedRows.sort((a, b) => a.order - b.order);
+  return selectedRows.map(({ row }) => row);
 }
 
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
@@ -156,8 +144,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     resolveRootPath,
     tokenCounting,
     performUndoableAction,
-    onFileClick,
-    pageSize = 50,
     onDownloadContext,
     onCopyContext,
     includeProjectTree = false,
@@ -166,6 +152,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onProjectTreeUsesViewFiltersChange,
     projectTreeTokenCount = 0,
     projectTreeTokenCountLoading = false,
+    projectTreeValidationError,
     tokenBudget,
     onTokenBudgetChange,
     folderSummaryThreshold,
@@ -175,6 +162,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Local selection state for preview panel - separate from file tree selections
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
+  // Multi-select affordance. Deliberately NOT persisted: the retired table
+  // stored this as `columnVisibility.checkbox` but pinned it back to `true` on
+  // every load, so "enabled on mount" has always been the effective behaviour.
+  const [selectionControlsEnabled, setSelectionControlsEnabled] = useState(true);
 
   const tapestryRangesByKey = useWorkspaceContextCurationStore(
     (store) => store.tapestryRangesByKey
@@ -205,57 +196,39 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   >(new Map());
 
   const {
-    activeTab,
     collapsedGroups,
-    columnVisibility,
     groupingConfig,
-    pageSize: persistedPageSize,
-    setActiveTab,
     setCollapsedGroups,
-    setColumnVisibility,
     setGroupingConfig,
-    setPageSize,
-    setSortDirection,
-    setSortField,
     setTapestryScale,
     setFooterMode,
-    sortDirection,
-    sortField,
     tapestryScale,
     footerMode,
   } = usePreviewPanelPreferences({
-    activeTab: 'table',
     footerMode: 'default',
     groupingConfig: 'none',
-    sortDirection: 'asc',
-    sortField: 'rootFolderId',
   });
-
-  // Gate expensive Tapestry computations behind active tab.
-  const isTapestryActive = activeTab === 'tapestry';
-  const effectiveColumnVisibility = useMemo(() => {
-    // Folder-based grouping already carries the root context in the group row,
-    // so keeping the standalone folder column only duplicates that information.
-    if (groupingConfig === 'directory' || groupingConfig === 'rootFolder') {
-      return { ...columnVisibility, rootFolderId: false };
-    }
-    return columnVisibility;
-  }, [columnVisibility, groupingConfig]);
 
   const state = usePreviewPanelState({
     decodeFileSelection,
     fileContents,
     fileSizes,
     loadingFiles,
-    onSelectionChange,
-    performUndoableAction,
     selectedFiles,
     tokenCounting,
   });
 
   const { totalStats, flatListItems } = state;
-  // Defer large list snapshots so expensive token summary work does not block UI updates.
-  const deferredFlatListItems = useDeferredValue(flatListItems);
+  // Defer row membership and its selection as one snapshot. Keeping them
+  // paired prevents the gallery pipeline from observing an old/new
+  // intersection while React advances the expensive row derivation.
+  const previewRowsInput = useMemo(
+    () => ({ flatListItems, selectedFiles }),
+    [flatListItems, selectedFiles]
+  );
+  const deferredPreviewRowsInput = useDeferredValue(previewRowsInput);
+  const deferredFlatListItems = deferredPreviewRowsInput.flatListItems;
+  const deferredSelectedFiles = deferredPreviewRowsInput.selectedFiles;
   // Compute the content snapshot for context-selected token summary.
   // Uses a pure useMemo — no ref access during render.
   const selectedFileContentSnapshot = useMemo(
@@ -267,25 +240,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       }),
     [fileContents, selectedFiles, deferredTapestryRangesByKey]
   );
+  // Build the O(N) token index only when the deferred snapshot advances, not
+  // when current selection changes while that snapshot is intentionally stale.
+  const deferredTokenCountByFile = useMemo(
+    () => createTokenCountByFile(deferredFlatListItems),
+    [deferredFlatListItems]
+  );
 
-  const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
-    const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
-
-    return computeContextSelectedTokenSummary({
-      fileContents: selectedFileContentSnapshot,
+  const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(
+    () =>
+      computeContextSelectedTokenSummary({
+        fileContents: selectedFileContentSnapshot,
+        selectedFiles,
+        sourcePendingCount: totalStats.pendingCount,
+        sourceSelectedTokens: totalStats.totalTokens,
+        tapestryRangesByKey: deferredTapestryRangesByKey,
+        tokenCountByFile: deferredTokenCountByFile,
+      }),
+    [
+      deferredTokenCountByFile,
+      totalStats,
       selectedFiles,
-      sourcePendingCount: totalStats.pendingCount,
-      sourceSelectedTokens: totalStats.totalTokens,
-      tapestryRangesByKey: deferredTapestryRangesByKey,
-      tokenCountByFile,
-    });
-  }, [
-    deferredFlatListItems,
-    totalStats,
-    selectedFiles,
-    deferredTapestryRangesByKey,
-    selectedFileContentSnapshot,
-  ]);
+      deferredTapestryRangesByKey,
+      selectedFileContentSnapshot,
+    ]
+  );
 
   const tokenUsage = useMemo(
     () =>
@@ -311,9 +290,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     ]
   );
 
-  // Transform list items to simplified table data - only files.
+  // Transform list items to simplified row data - only files.
   // The useMemo already provides cross-render memoization, so no per-item cache is needed.
-  const tableData: TableRowData[] = useMemo(() => {
+  const rowData: TableRowData[] = useMemo(() => {
     const fileItems = deferredFlatListItems.filter(
       (item): item is FileItem => item.type === 'file'
     );
@@ -358,29 +337,49 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, decodeFileSelection, resolveRootDisplayName, resolveRootPath]);
 
+  // Index the deferred snapshot once. When selection shrinks, React may briefly
+  // retain many old rows here; selection-dependent work below must not scan them.
+  const rowDataByCompositeKey = useMemo(
+    () => new Map(rowData.map((row, order) => [row.compositeKey, { order, row }] as const)),
+    [rowData]
+  );
+
+  // The context snapshot follows current membership immediately without
+  // scanning the potentially stale deferred rows.
+  const currentSelectedRowData = useMemo(
+    () => deriveSelectedRows(rowDataByCompositeKey, selectedFiles),
+    [rowDataByCompositeKey, selectedFiles]
+  );
+
+  // Expensive gallery work follows the paired deferred selection and rows, so
+  // it never observes an old/new intersection. Newly selected files appear as
+  // soon as the paired deferred snapshot advances.
+  const selectedRowData = useMemo(
+    () => deriveSelectedRows(rowDataByCompositeKey, deferredSelectedFiles),
+    [deferredSelectedFiles, rowDataByCompositeKey]
+  );
+
   useEffect(() => {
     const selectedFolderIds = new Set<string>();
-    const files = tableData
-      .filter((item) => selectedFiles.has(item.compositeKey))
-      .map((item) => {
-        selectedFolderIds.add(item.rootFolderId);
-        const ranges = (deferredTapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
-          ...tapestryLineRangeToToolRange(range),
-          isActive: range.isActive !== false,
-        }));
-        const hasRanges = ranges.length > 0;
-        const rootDisplayName = resolveRootDisplayName?.(item.rootFolderId);
-        return {
-          approxTokens: item.tokens ?? null,
-          outputApproxTokens: hasRanges ? null : (item.tokens ?? null),
-          path: item.path,
-          ranges,
-          // Multi-root (Phase 6): citations need the root identity to
-          // disambiguate the same relative path across roots.
-          rootId: item.rootFolderId,
-          ...(rootDisplayName !== undefined && { rootDisplayName }),
-        };
-      });
+    const files = currentSelectedRowData.map((item) => {
+      selectedFolderIds.add(item.rootFolderId);
+      const ranges = (deferredTapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
+        ...tapestryLineRangeToToolRange(range),
+        isActive: range.isActive !== false,
+      }));
+      const hasRanges = ranges.length > 0;
+      const rootDisplayName = resolveRootDisplayName?.(item.rootFolderId);
+      return {
+        approxTokens: item.tokens ?? null,
+        outputApproxTokens: hasRanges ? null : (item.tokens ?? null),
+        path: item.path,
+        ranges,
+        // Multi-root (Phase 6): citations need the root identity to
+        // disambiguate the same relative path across roots.
+        rootId: item.rootFolderId,
+        ...(rootDisplayName !== undefined && { rootDisplayName }),
+      };
+    });
     const selectionFolderId =
       selectedFolderIds.size === 1 ? (Array.from(selectedFolderIds)[0] ?? null) : null;
 
@@ -401,9 +400,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     projectTreeTokenCount,
     projectTreeTokenCountLoading,
     resolveRootDisplayName,
-    selectedFiles,
     setWorkspaceContextSnapshot,
-    tableData,
+    currentSelectedRowData,
     deferredTapestryRangesByKey,
     tokenBudget,
   ]);
@@ -413,7 +411,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     const cache = tapestryBaseCacheRef.current;
     const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();
 
-    for (const item of tableData) {
+    for (const item of selectedRowData) {
       const content = fileContents[item.compositeKey];
       const isLoading = loadingFiles.has(item.compositeKey);
       const cached = cache.get(item.compositeKey);
@@ -442,31 +440,38 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
 
     return map;
-  }, [tableData, fileContents, loadingFiles]);
+  }, [selectedRowData, fileContents, loadingFiles]);
 
-  // Persist per-file cache after render — useEffect is a safe place for ref mutation.
+  // Prune only when the deferred row index advances. Selection-only updates
+  // must not scan or evict the larger deferred cache.
   // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
   useEffect(() => {
-    const newCache = new Map<
-      string,
-      {
-        base: ReturnType<typeof buildTapestryFileBase>;
-        content: string | undefined;
-        isLoading: boolean;
+    const cache = tapestryBaseCacheRef.current;
+    for (const compositeKey of cache.keys()) {
+      if (!rowDataByCompositeKey.has(compositeKey)) {
+        cache.delete(compositeKey);
       }
-    >();
-    for (const item of tableData) {
+    }
+  }, [rowDataByCompositeKey]);
+
+  // Persist selected bases after render in O(S). Deselected bases remain warm
+  // until their row leaves the deferred snapshot in the pruning effect above.
+  // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
+  useEffect(() => {
+    const cache = tapestryBaseCacheRef.current;
+    for (const item of selectedRowData) {
       const base = tapestryFileBaseByKey.get(item.compositeKey);
       if (base) {
-        newCache.set(item.compositeKey, {
+        cache.set(item.compositeKey, {
           base,
           content: fileContents[item.compositeKey],
           isLoading: loadingFiles.has(item.compositeKey),
         });
+      } else {
+        cache.delete(item.compositeKey);
       }
     }
-    tapestryBaseCacheRef.current = newCache;
-  }, [tapestryFileBaseByKey, tableData, fileContents, loadingFiles]);
+  }, [tapestryFileBaseByKey, selectedRowData, fileContents, loadingFiles]);
 
   useEffect(() => {
     // Capture pending totals outside the setState updater to avoid mutating the
@@ -508,19 +513,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Memoized sorted and grouped data
   const { sortedData, groupedData } = useMemo(() => {
-    // First sort the data
-    const sorted = [...tableData].sort((a, b) => {
-      const comparison = compareValues(a[sortField], b[sortField], sortField);
-      return sortDirection === 'desc' ? -comparison : comparison;
-    });
+    const sorted = [...selectedRowData].sort(compareByRootFolderId);
 
-    // Then group the sorted data
     const config =
       GROUPING_CONFIGS[groupingConfig as keyof typeof GROUPING_CONFIGS] ?? GROUPING_CONFIGS.none;
     const grouped = groupData(sorted, config);
 
     return { groupedData: grouped, sortedData: sorted };
-  }, [tableData, sortField, sortDirection, groupingConfig]);
+  }, [selectedRowData, groupingConfig]);
 
   // Calculate total items for pagination (including group headers)
   const totalItems = useMemo(() => {
@@ -551,45 +551,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return flattened;
   }, [groupedData, groupingConfig, sortedData]);
 
-  // Use prop if explicitly provided (different from default), otherwise persisted, otherwise default
-  // This allows tests to override the page size while still supporting user persistence
-  const effectivePageSize =
-    pageSize === DEFAULT_PAGE_SIZE ? (persistedPageSize ?? pageSize) : pageSize;
-
-  // Use pagination hooks (table + tapestry)
-  const tablePagination = usePagination({
-    pageSize: effectivePageSize,
+  const pagination = usePagination({
+    pageSize: TAPESTRY_PAGE_SIZE,
     totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
   });
-  const tapestryPageSize = Math.min(effectivePageSize, TAPESTRY_MAX_PAGE_SIZE);
-  const tapestryPagination = usePagination({
-    pageSize: tapestryPageSize,
-    totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
-  });
-
-  const {
-    currentPage: tableCurrentPage,
-    goToPage: goToTablePage,
-    resetToFirstPage: resetTableToFirstPage,
-  } = tablePagination;
-  const {
-    currentPage: tapestryCurrentPage,
-    goToPage: goToTapestryPage,
-    resetToFirstPage: resetTapestryToFirstPage,
-  } = tapestryPagination;
-  const resetAllPages = useCallback(() => {
-    resetTableToFirstPage();
-    resetTapestryToFirstPage();
-  }, [resetTableToFirstPage, resetTapestryToFirstPage]);
-
-  // Handle page size changes - reset to first page when size changes
-  const handlePageSizeChange = useCallback(
-    (newPageSize: number) => {
-      setPageSize(newPageSize);
-      resetAllPages();
-    },
-    [setPageSize, resetAllPages]
-  );
+  const { currentPage, goToPage, resetToFirstPage, startIndex, endIndex, totalPages } = pagination;
 
   // Use group selection hook
   const groupSelection = useGroupSelection({
@@ -609,20 +575,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     isAllSelected,
   } = groupSelection;
 
-  const selectionControlsEnabled = columnVisibility.checkbox;
-
   // Current page data
-  const tablePageData =
-    groupingConfig === 'none'
-      ? flattenedData.slice(tablePagination.startIndex, tablePagination.endIndex)
-      : [];
-  const tapestryPageData =
-    groupingConfig === 'none'
-      ? flattenedData.slice(tapestryPagination.startIndex, tapestryPagination.endIndex)
-      : [];
+  const currentPageData = useMemo(
+    () => (groupingConfig === 'none' ? flattenedData.slice(startIndex, endIndex) : []),
+    [endIndex, flattenedData, groupingConfig, startIndex]
+  );
+
+  const visibleFilesOnPage = useMemo(
+    () =>
+      getVisibleFilesOnPage({
+        collapsedGroups,
+        currentPageData,
+        endIndex,
+        groupedData,
+        groupingConfig,
+        startIndex,
+      }),
+    [collapsedGroups, currentPageData, endIndex, groupedData, groupingConfig, startIndex]
+  );
+
   const isDesktopPreviewTestMode = window.desktopLifecycle?.isTestMode ?? false;
-  const tablePageDataPathsKey = isDesktopPreviewTestMode
-    ? tablePageData.map((item) => item.path).join('\u0000')
+  // Content digest of the ONLY sub-state the snapshot below reads out of
+  // `visibleFilesOnPage` (the paths). NUL-joined so a path containing the
+  // separator cannot forge a collision.
+  const visiblePathsKey = isDesktopPreviewTestMode
+    ? visibleFilesOnPage.map((item) => item.path).join('\0')
     : '';
 
   useEffect(() => {
@@ -632,8 +609,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
     window.__brainstrikeContextExplorerPreviewTestHooks__ = {
       getSnapshot: () => ({
-        activeTab,
-        renderedFilePaths: tablePageData.map((item) => item.path),
+        renderedFilePaths: visibleFilesOnPage.map((item) => item.path),
         selectedFilesCount: selectedFiles.size,
         totalRows: flattenedData.length,
       }),
@@ -642,71 +618,27 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return () => {
       window.__brainstrikeContextExplorerPreviewTestHooks__ = undefined;
     };
-  }, [
-    activeTab,
-    flattenedData.length,
-    isDesktopPreviewTestMode,
-    selectedFiles.size,
-    tablePageDataPathsKey,
-  ]);
+    // `visibleFilesOnPage` is DELIBERATELY excluded in favour of
+    // `visiblePathsKey`. `getSnapshot` reads nothing from that array but each
+    // item's `path`, so the key is a complete digest of the closure's
+    // dependency: a new array identity with unchanged paths would produce a
+    // byte-identical snapshot, and re-running the effect for it would only
+    // reinstall the same hook. Adding the array itself would re-run this on
+    // every pagination/selection re-render for no observable difference.
+    // (react-doctor exhaustive-deps, triaged on PR #2381.)
+  }, [flattenedData.length, isDesktopPreviewTestMode, selectedFiles.size, visiblePathsKey]);
 
-  const tableVisibleFilesOnPage = useMemo(
-    () =>
-      getVisibleFilesOnPage({
-        collapsedGroups,
-        currentPageData: tablePageData,
-        endIndex: tablePagination.endIndex,
-        groupedData,
-        groupingConfig,
-        startIndex: tablePagination.startIndex,
-      }),
-    [
-      collapsedGroups,
-      groupedData,
-      groupingConfig,
-      tablePageData,
-      tablePagination.endIndex,
-      tablePagination.startIndex,
-    ]
-  );
-
-  const tapestryVisibleFilesOnPage = useMemo(
-    () =>
-      getVisibleFilesOnPage({
-        collapsedGroups,
-        currentPageData: tapestryPageData,
-        endIndex: tapestryPagination.endIndex,
-        groupedData,
-        groupingConfig,
-        startIndex: tapestryPagination.startIndex,
-      }),
-    [
-      collapsedGroups,
-      groupedData,
-      groupingConfig,
-      tapestryPageData,
-      tapestryPagination.endIndex,
-      tapestryPagination.startIndex,
-    ]
-  );
-
-  const tapestryGroupedPageSections = useMemo(
+  const groupedPageSections = useMemo(
     () =>
       groupingConfig === 'none'
         ? []
         : buildGroupedPageSections({
             collapsedGroups,
-            endIndex: tapestryPagination.endIndex,
+            endIndex,
             groupedData,
-            startIndex: tapestryPagination.startIndex,
+            startIndex,
           }),
-    [
-      collapsedGroups,
-      groupedData,
-      groupingConfig,
-      tapestryPagination.endIndex,
-      tapestryPagination.startIndex,
-    ]
+    [collapsedGroups, endIndex, groupedData, groupingConfig, startIndex]
   );
 
   const pageInfo = useMemo(() => {
@@ -738,36 +670,34 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const tapestryUngroupedFiles = useMemo(
     () =>
       groupingConfig === 'none'
-        ? tapestryPageData
+        ? currentPageData
             .map((item) => buildTapestryFile(item))
             .filter((item): item is NonNullable<typeof item> => item !== null)
         : [],
-    [buildTapestryFile, groupingConfig, tapestryPageData]
+    [buildTapestryFile, currentPageData, groupingConfig]
   );
 
   const tapestryGroupedSections = useMemo(
     () =>
       groupingConfig === 'none'
         ? []
-        : tapestryGroupedPageSections.map((section) => ({
+        : groupedPageSections.map((section) => ({
             ...section,
             items: section.items
               .map((item) => buildTapestryFile(item))
               .filter((item): item is NonNullable<typeof item> => item !== null),
           })),
-    [buildTapestryFile, groupingConfig, tapestryGroupedPageSections]
+    [buildTapestryFile, groupedPageSections, groupingConfig]
   );
 
-  const activeRangesCount = useMemo(() => {
-    // Skip computation when Tapestry tab is not active
-    if (!isTapestryActive) {
-      return 0;
-    }
-    return Object.values(tapestryRangesByKey).reduce(
-      (acc, ranges) => acc + ranges.filter((range) => range.isActive).length,
-      0
-    );
-  }, [isTapestryActive, tapestryRangesByKey]);
+  const activeRangesCount = useMemo(
+    () =>
+      Object.values(tapestryRangesByKey).reduce(
+        (acc, ranges) => acc + ranges.filter((range) => range.isActive).length,
+        0
+      ),
+    [tapestryRangesByKey]
+  );
 
   const handleTapestryRangesChange = useCallback((fileId: string, ranges: TapestryRange[]) => {
     setTapestryRangesByKey((prev) => reconcileUserOwnedTapestryRanges(prev, fileId, ranges));
@@ -852,34 +782,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [previewSelections.size]
   );
 
-  // Handle sort changes
-  const handleSort = useCallback(
-    (field: keyof TableRowData) => {
-      if (sortField === field) {
-        setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-      } else {
-        setSortField(field);
-        setSortDirection('asc');
-      }
-      resetAllPages();
-    },
-    [sortField, setSortDirection, setSortField, resetAllPages]
-  );
-
-  const resetSort = useCallback(() => {
-    setSortField('rootFolderId');
-    setSortDirection('asc');
-    resetAllPages();
-  }, [setSortField, setSortDirection, resetAllPages]);
-
   const handleSelectionControlsToggle = useCallback(
     (enabled: boolean) => {
-      setColumnVisibility({ ...columnVisibility, checkbox: enabled });
+      setSelectionControlsEnabled(enabled);
       if (!enabled) {
         deselectAll();
       }
     },
-    [columnVisibility, deselectAll, setColumnVisibility]
+    [deselectAll]
   );
 
   const handleGroupingChange = useCallback(
@@ -896,27 +806,49 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   useEffect(() => {
     if (prevGroupingConfigRef.current !== groupingConfig) {
       prevGroupingConfigRef.current = groupingConfig;
-      resetAllPages();
+      resetToFirstPage();
     }
-  }, [groupingConfig, resetAllPages]);
+  }, [groupingConfig, resetToFirstPage]);
+
+  const selectionActionBar =
+    previewSelections.size > 0 ? (
+      <SelectionActionBarOverlay className="flex justify-center px-3">
+        <output aria-atomic="true" aria-live="polite" className="sr-only">
+          {contextSelectionSummaryText}
+        </output>
+        <BulkActionBar
+          actions={contextSelectionActions}
+          className="pointer-events-auto w-full max-w-3xl"
+          clearButtonAriaLabel="Clear context selection"
+          clearButtonLabel="Clear Selection"
+          compact
+          nodeTypes={contextSelectionNodeTypes}
+          onClearSelection={deselectAll}
+          selectedIds={previewSelections}
+          summarySubtext={null}
+          summaryText={contextSelectionSummaryText}
+        />
+      </SelectionActionBarOverlay>
+    ) : null;
 
   if (selectedFiles.size === 0) {
     return (
       <div className="@container flex h-full flex-col overflow-hidden bg-panel-surface">
-        <PreviewPanelFooter
+        <PreviewPanelSummary
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
-          footerMode={footerMode}
           includeProjectTree={includeProjectTree}
           onCopyContext={handleCopyContext}
           onDownloadContext={handleDownloadContext}
           onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
-          onFooterModeChange={setFooterMode}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
+          onSummaryModeChange={setFooterMode}
           onTokenBudgetChange={onTokenBudgetChange}
           projectTreeUsesViewFilters={projectTreeUsesViewFilters}
+          projectTreeValidationError={projectTreeValidationError}
           selectedFilesCount={selectedFiles.size}
           selectedTokensPendingCount={0}
+          summaryMode={footerMode}
           tokenCounting={tokenCounting}
           tokenUsage={tokenUsage}
           totalFiles={0}
@@ -935,207 +867,65 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   return (
     <div className="@container flex h-full flex-col overflow-hidden bg-panel-surface">
-      <PreviewPanelFooter
+      <PreviewPanelSummary
         folderSummaryThreshold={folderSummaryThreshold ?? 5}
-        footerMode={footerMode}
         includeProjectTree={includeProjectTree}
         onCopyContext={handleCopyContext}
         onDownloadContext={handleDownloadContext}
         onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
-        onFooterModeChange={setFooterMode}
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
         onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
+        onSummaryModeChange={setFooterMode}
         onTokenBudgetChange={onTokenBudgetChange}
         projectTreeUsesViewFilters={projectTreeUsesViewFilters}
+        projectTreeValidationError={projectTreeValidationError}
         selectedFilesCount={selectedFiles.size}
         selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
+        summaryMode={footerMode}
         tokenCounting={tokenCounting}
         tokenUsage={tokenUsage}
         totalFiles={totalStats.totalFiles}
         treeLoading={projectTreeTokenCountLoading}
       />
 
-      <Tabs className="flex min-h-0 flex-1 flex-col" onValueChange={setActiveTab} value={activeTab}>
-        <div className="flex flex-shrink-0 items-center justify-between border-b bg-muted/30 px-3">
-          <TabsList className="h-9 gap-4 bg-transparent p-0">
-            <TabsTrigger
-              className="h-9 rounded-none border-transparent border-b-2 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
-              value="table"
-            >
-              <TableIcon className="mr-2 size-3.5" />
-              Table View
-            </TabsTrigger>
-            <TabsTrigger
-              className="h-9 rounded-none border-transparent border-b-2 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
-              value="tapestry"
-            >
-              <LayoutGrid className="mr-2 size-3.5" />
-              Tapestry View
-            </TabsTrigger>
-          </TabsList>
-        </div>
-
-        {activeTab === 'table' ? (
-          <TooltipProvider delayDuration={400}>
-            <PreviewViewToolbar
-              additionalControls={
-                <>
-                  {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          aria-label="Reset sort"
-                          className="h-9 w-9 p-0"
-                          data-testid="reset-sort-button"
-                          onClick={resetSort}
-                          size="sm"
-                          title="Reset sort"
-                          variant="ghost"
-                        >
-                          <RotateCcw className="size-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Reset sort to default (by folder)</TooltipContent>
-                    </Tooltip>
-                  )}
-                  <ColumnVisibilityControls
-                    columnVisibility={columnVisibility}
-                    onColumnVisibilityChange={setColumnVisibility}
-                  />
-                </>
-              }
-              canCollapseExpandGroups={groupingConfig !== 'none' && groupedData.length > 1}
-              groupingConfig={groupingConfig}
-              onCollapseAllGroups={() =>
-                setCollapsedGroups(new Set(groupedData.map((group) => String(group.groupKey))))
-              }
-              onExpandAllGroups={() => setCollapsedGroups(new Set())}
-              onGroupingChange={handleGroupingChange}
-              onSelectionControlsToggle={handleSelectionControlsToggle}
-              selectionControlsEnabled={selectionControlsEnabled}
-            />
-          </TooltipProvider>
-        ) : null}
-
-        <TabsContent
-          className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
-          value="table"
-        >
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {/* Table */}
-            <FileExplorerErrorBoundary>
-              <PreviewTable
-                collapsedGroups={collapsedGroups}
-                columnVisibility={effectiveColumnVisibility}
-                currentPageData={tablePageData}
-                groupedData={groupedData}
-                groupingConfig={groupingConfig}
-                handleGroupDeselectAll={handleGroupDeselectAll}
-                handleGroupSelectAll={handleGroupSelectAll}
-                isAllSelected={isAllSelected}
-                isGroupFullySelected={isGroupFullySelected}
-                isGroupPartiallySelected={isGroupPartiallySelected}
-                onDeselectAll={deselectAll}
-                onFileClick={onFileClick}
-                onSelectAllOnPage={selectAllOnPage}
-                onSort={handleSort}
-                onToggleSelection={toggleItemSelection}
-                pagination={tablePagination}
-                previewSelections={previewSelections}
-                scrollAreaClassName={previewSelections.size > 0 ? 'pb-20' : undefined}
-                sortDirection={sortDirection}
-                sortField={sortField}
-                toggleGroupCollapse={toggleGroupCollapse}
-                visibleFilesOnPage={tableVisibleFilesOnPage}
-              />
-            </FileExplorerErrorBoundary>
-
-            {flattenedData.length === 0 && (
-              <div className="flex-1">
-                <EmptyState
-                  description="Try adjusting your filters or selecting more files"
-                  icon={<FileX2 />}
-                  title="No matching files"
-                />
-              </div>
-            )}
-
-            {previewSelections.size > 0 && (
-              <SelectionActionBarOverlay className="flex justify-center px-3">
-                <output aria-atomic="true" aria-live="polite" className="sr-only">
-                  {contextSelectionSummaryText}
-                </output>
-                <BulkActionBar
-                  actions={contextSelectionActions}
-                  className="pointer-events-auto w-full max-w-3xl"
-                  clearButtonAriaLabel="Clear context selection"
-                  clearButtonLabel="Clear Selection"
-                  compact
-                  nodeTypes={contextSelectionNodeTypes}
-                  onClearSelection={deselectAll}
-                  selectedIds={previewSelections}
-                  summarySubtext={null}
-                  summaryText={contextSelectionSummaryText}
-                />
-              </SelectionActionBarOverlay>
-            )}
-          </div>
-
-          {/* Pagination */}
-          <TablePagination
-            currentPage={tableCurrentPage}
-            onPageChange={goToTablePage}
-            onPageSizeChange={handlePageSizeChange}
-            pageSize={effectivePageSize}
-            totalItems={flattenedData.length}
-            totalPages={tablePagination.totalPages}
-            {...paginationInfo}
-          />
-        </TabsContent>
-
-        <TabsContent
-          className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
-          value="tapestry"
-        >
-          <FileExplorerErrorBoundary>
-            <TapestryView
-              activeRangesCount={activeRangesCount}
-              groupedSections={tapestryGroupedSections}
-              groupingConfig={groupingConfig}
-              isAllSelected={isAllSelected}
-              isEmpty={flattenedData.length === 0}
-              isGroupFullySelected={isGroupFullySelected}
-              isGroupPartiallySelected={isGroupPartiallySelected}
-              onDeselectAll={deselectAll}
-              onGroupDeselectAll={handleGroupDeselectAll}
-              onGroupingChange={handleGroupingChange}
-              onGroupSelectAll={handleGroupSelectAll}
-              onRangesChange={handleTapestryRangesChange}
-              onResetRanges={handleResetTapestryRanges}
-              onScaleChange={setTapestryScale}
-              onSelectAllOnPage={selectAllOnPage}
-              onSelectionControlsToggle={handleSelectionControlsToggle}
-              onToggleGroupCollapse={toggleGroupCollapse}
-              onToggleSelection={toggleItemSelection}
-              pagination={{
-                currentPage: tapestryCurrentPage,
-                onPageChange: goToTapestryPage,
-                pageSize: tapestryPageSize,
-                totalItems: flattenedData.length,
-                totalPages: tapestryPagination.totalPages,
-                ...paginationInfo,
-              }}
-              previewSelections={previewSelections}
-              scale={tapestryScale}
-              showSelectionControls={selectionControlsEnabled}
-              totalFiles={flattenedData.length}
-              ungroupedFiles={tapestryUngroupedFiles}
-              visibleFilesOnPage={tapestryVisibleFilesOnPage}
-              {...(onRequestFileContent ? { onRequestFileContent } : {})}
-            />
-          </FileExplorerErrorBoundary>
-        </TabsContent>
-      </Tabs>
+      <FileExplorerErrorBoundary>
+        <TapestryView
+          activeRangesCount={activeRangesCount}
+          groupedSections={tapestryGroupedSections}
+          groupingConfig={groupingConfig}
+          isAllSelected={isAllSelected}
+          isEmpty={flattenedData.length === 0}
+          isGroupFullySelected={isGroupFullySelected}
+          isGroupPartiallySelected={isGroupPartiallySelected}
+          onDeselectAll={deselectAll}
+          onGroupDeselectAll={handleGroupDeselectAll}
+          onGroupingChange={handleGroupingChange}
+          onGroupSelectAll={handleGroupSelectAll}
+          onRangesChange={handleTapestryRangesChange}
+          onResetRanges={handleResetTapestryRanges}
+          onScaleChange={setTapestryScale}
+          onSelectAllOnPage={selectAllOnPage}
+          onSelectionControlsToggle={handleSelectionControlsToggle}
+          onToggleGroupCollapse={toggleGroupCollapse}
+          onToggleSelection={toggleItemSelection}
+          pagination={{
+            currentPage,
+            onPageChange: goToPage,
+            pageSize: TAPESTRY_PAGE_SIZE,
+            totalItems: flattenedData.length,
+            totalPages,
+            ...paginationInfo,
+          }}
+          previewSelections={previewSelections}
+          scale={tapestryScale}
+          selectionActionBar={selectionActionBar}
+          showSelectionControls={selectionControlsEnabled}
+          totalFiles={flattenedData.length}
+          ungroupedFiles={tapestryUngroupedFiles}
+          visibleFilesOnPage={visibleFilesOnPage}
+          {...(onRequestFileContent ? { onRequestFileContent } : {})}
+        />
+      </FileExplorerErrorBoundary>
     </div>
   );
 });

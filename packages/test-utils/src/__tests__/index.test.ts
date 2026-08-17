@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createFileNode, resetAllMocks, resetStore } from '..';
+import { createFileNode, resetAllMocks, resetStore } from '../index.js';
 
 describe('index re-exports', () => {
   it('should export createFileNode', () => {

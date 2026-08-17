@@ -19,6 +19,7 @@ import {
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
 import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
+import { singleRootRuntime } from './_tool-test-helpers';
 
 const queryMock = vi.fn();
 
@@ -26,8 +27,8 @@ vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => ({ query: queryMock })),
 }));
 
-vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
     createLogger: () => ({
@@ -53,7 +54,7 @@ async function makeWorkspace(files: Record<string, string>): Promise<string> {
 }
 
 function singleRoot(rootPath: string): RuntimeData {
-  return { workspaceRootPath: rootPath } as RuntimeData;
+  return singleRootRuntime(rootPath);
 }
 
 /** No indexed rows — the index pass returns zero matches. */
@@ -104,9 +105,18 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     // lack rg) and both yield identical matches. The js-walk fallback is pinned
     // in its own dedicated test below; here we only assert the live pass ran.
     expect(result.liveEngine).not.toBe('skipped');
-    expect(projectGrepSearchModelOutput(result).value).toContain(
-      'read_args={"path":"src/fresh.ts"'
-    );
+    // End-to-end format regression (BST-1185): real tool result → compact
+    // path-grouped projection, no per-row envelope, silent happy-path header.
+    // The live engine is an environment detail (CI runners lack rg): ripgrep
+    // yields a fully silent header; the js-walk fallback surfaces exactly its
+    // own degradation flag and nothing else.
+    const projected = projectGrepSearchModelOutput(result).value;
+    expect(projected.split('\n')[0]).toMatch(/^grep content 1-1\/1( \| live=js-walk)?$/);
+    expect(projected).toContain('src/fresh.ts');
+    expect(projected).toContain('  1: const FRESHLY_EDITED_TOKEN = 42;');
+    expect(projected).not.toContain('read_args=');
+    expect(projected).not.toContain('source=');
+    expect(projected).not.toContain('candidates_truncated');
   });
 
   it('files mode: a fresh-only file is surveyed and labelled live', async () => {
@@ -120,7 +130,8 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     expect(result.files).toHaveLength(1);
     expect(result.files[0]?.path).toBe('a/only-on-disk.ts');
     expect(result.files[0]?.source).toBe('live');
-    expect(projectGrepSearchModelOutput(result).value).toContain('grep files | page=1-1/1');
+    expect(projectGrepSearchModelOutput(result).value).toContain('grep files 1-1/1 matches=1');
+    expect(projectGrepSearchModelOutput(result).value).toContain('a/only-on-disk.ts:1 (1 match)');
   });
 
   it('projects the producer zero-match variant without inventing a fallback result', async () => {
@@ -136,9 +147,7 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
       totalMatches: 0,
       truncated: false,
     });
-    expect(projectGrepSearchModelOutput(result).value).toContain(
-      'grep files | page=empty@offset=0/0'
-    );
+    expect(projectGrepSearchModelOutput(result).value).toContain('grep files empty@offset=0/0');
   });
 });
 
@@ -281,7 +290,7 @@ describe('grepSearch hybrid — live caps surface in truncated (mode parity)', (
     return root;
   }
 
-  it('content mode ORs the live candidate cap into truncated with terminal guidance', async () => {
+  it('content mode surfaces the live candidate cap as candidatesTruncated with terminal guidance', async () => {
     const root = await makeCappedWorkspace();
 
     const result = await runGrepSearch(
@@ -292,19 +301,21 @@ describe('grepSearch hybrid — live caps surface in truncated (mode parity)', (
       throw new Error('expected content result');
     }
     // Only the capped candidate's match is counted, so pagination looks
-    // "complete" — but the live cap left an on-disk match unreached, and that
-    // MUST surface as truncated (same semantics as files mode), with terminal
-    // guidance instead of an offset (offsets cannot reach uncounted matches).
+    // "complete" — but the live cap left an on-disk match unreached. BST-1247:
+    // that is a SUBSTRATE condition, so it surfaces as candidatesTruncated
+    // (never folded into `truncated`, which now means output clipping only),
+    // with the SAME terminal guidance (the hint gate unions all three flags).
     expect(result.matches).toHaveLength(1);
     expect(result.totalMatches).toBe(1);
-    expect(result.truncated).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.candidatesTruncated).toBe(true);
     expect(result.liveNote).toMatch(/candidate-file cap/i);
     expect(result.hint).toMatch(/narrow|different|specific/i);
     expect(result.hint).not.toContain('Continue with offset:');
     expect(projectGrepSearchModelOutput(result).value).toContain('continue:');
   });
 
-  it('files mode reports the same truncated=true for the same capped live pass', async () => {
+  it('files mode reports the same candidatesTruncated for the same capped live pass', async () => {
     const root = await makeCappedWorkspace();
 
     const result = await runGrepSearch({ pattern: 'CAP_TOKEN' }, singleRoot(root));
@@ -312,10 +323,146 @@ describe('grepSearch hybrid — live caps surface in truncated (mode parity)', (
       throw new Error('expected files result');
     }
     expect(result.files).toHaveLength(1);
-    expect(result.truncated).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.candidatesTruncated).toBe(true);
     expect(result.liveNote).toMatch(/candidate-file cap/i);
     expect(result.hint).toBeDefined();
     expect(projectGrepSearchModelOutput(result).value).toContain('continue:');
+  });
+});
+
+describe('grepSearch hybrid — totalMatches when the index pass is capped', () => {
+  /**
+   * A file whose matches exceed the per-call index materialization cap, indexed
+   * and on disk with IDENTICAL content — the ordinary case for any pattern with
+   * more hits than `maxResults`.
+   *
+   * The index arm reports its UNCAPPED unique count in `totalMatches` but
+   * materializes only `offset + maxResults` rows. Live-only counting must not
+   * treat the unmaterialized remainder as newly-discovered lines, or the same
+   * physical line is counted twice: once inside the index total, once as a
+   * "live-only" addition.
+   */
+  const CAPPED_LINE_COUNT = 61;
+
+  async function makeIndexCappedWorkspace(): Promise<string> {
+    const lines = Array.from(
+      { length: CAPPED_LINE_COUNT },
+      (_unused, index) => `PAGED_TOKEN row ${index + 1}`
+    );
+    const content = `${lines.join('\n')}\n`;
+    const root = await makeWorkspace({ 'docs/big.txt': content });
+    // The index holds the SAME file content, so every on-disk match also exists
+    // in the index — the merged set is exactly CAPPED_LINE_COUNT lines.
+    queryMock.mockResolvedValue({
+      rows: [{ content, path: 'docs/big.txt', start_line: 1 }],
+    });
+    return root;
+  }
+
+  it('reports the true match count when maxResults caps the index pass', async () => {
+    const root = await makeIndexCappedWorkspace();
+
+    const result = await runGrepSearch(
+      { maxResults: 20, outputMode: 'content', pattern: 'PAGED_TOKEN' },
+      singleRoot(root)
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content result');
+    }
+    expect(result.matches).toHaveLength(20);
+    // Every returned line exists in BOTH passes; none is a live-only discovery.
+    expect(result.matches.every((match) => match.source === 'both')).toBe(true);
+    expect(result.totalMatches).toBe(CAPPED_LINE_COUNT);
+    expect(result.hint).toContain(`of ${CAPPED_LINE_COUNT}`);
+  });
+
+  it('reports the same total on the first page as on the last', async () => {
+    // The two pages are deliberately NOT symmetric: only the page SIZE differs,
+    // and both now request the same internal cap from the index arm, so this
+    // pins that the reported total is independent of where the caller is in the
+    // page sequence. Before the fix these disagreed (117 on page 1 vs 61 on the
+    // last), which is what made the advertised total unusable.
+    const root = await makeIndexCappedWorkspace();
+
+    const firstPage = await runGrepSearch(
+      { maxResults: 5, offset: 0, outputMode: 'content', pattern: 'PAGED_TOKEN' },
+      singleRoot(root)
+    );
+    const lastPage = await runGrepSearch(
+      {
+        maxResults: 5,
+        offset: CAPPED_LINE_COUNT - 3,
+        outputMode: 'content',
+        pattern: 'PAGED_TOKEN',
+      },
+      singleRoot(root)
+    );
+    if (firstPage.outputMode !== 'content' || lastPage.outputMode !== 'content') {
+      throw new Error('expected content results');
+    }
+    // A total that shrinks as the caller pages through is a total the caller
+    // cannot act on: page 1 advertises matches that paging can never reach.
+    expect(firstPage.totalMatches).toBe(lastPage.totalMatches);
+    expect(firstPage.totalMatches).toBe(CAPPED_LINE_COUNT);
+  });
+
+  it('counts fresh live-only lines even when the merged set is SMALLER than the index total', async () => {
+    // The lossy shape both PR #2233 reviewers identified. The index counts more
+    // than the live pass can see — a STALE index (the file has since been
+    // trimmed on disk) is the cheapest way to produce it, but the live pass's
+    // own caps (per-file --max-count, --max-filesize, the candidate cap) reach
+    // the same state on a fresh index.
+    //
+    // Here the merged set stays well BELOW `indexResult.totalMatches`, so any
+    // total derived only from the index count silently absorbs the genuinely
+    // fresh, live-only file — the exact over-correction a `max()` of the two
+    // floors would make. Pinned so nobody "simplifies" it back.
+    const indexedContent = `${Array.from(
+      { length: CAPPED_LINE_COUNT },
+      (_unused, index) => `PAGED_TOKEN row ${index + 1}`
+    ).join('\n')}\n`;
+    const root = await makeWorkspace({
+      // On disk the file now holds only the first 5 of the indexed lines...
+      'docs/big.txt': `${Array.from({ length: 5 }, (_unused, index) => `PAGED_TOKEN row ${index + 1}`).join('\n')}\n`,
+      // ...and this file is on disk ONLY — the index has never seen it.
+      'src/fresh.ts': 'const PAGED_TOKEN = "brand new";\n',
+    });
+    queryMock.mockResolvedValue({
+      rows: [{ content: indexedContent, path: 'docs/big.txt', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch(
+      { maxResults: 5, outputMode: 'content', pattern: 'PAGED_TOKEN' },
+      singleRoot(root)
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content result');
+    }
+    // The fresh file is a CONFIRMED location neither pass can double-count, so
+    // it must appear in the total. (It sorts after `docs/`, so it lands on a
+    // later page rather than this one — that is paging, not counting.)
+    expect(result.totalMatches).toBe(CAPPED_LINE_COUNT + 1);
+  });
+
+  it('still counts genuinely fresh live-only lines on top of the index total', async () => {
+    // Index is capped AND the disk has an extra line the index does not hold:
+    // the live-only line is a real discovery and must still be counted.
+    const root = await makeIndexCappedWorkspace();
+    await fsPromises.appendFile(
+      path.join(root, 'docs', 'big.txt'),
+      'PAGED_TOKEN freshly appended\n',
+      'utf8'
+    );
+
+    const result = await runGrepSearch(
+      { maxResults: 5, outputMode: 'content', pattern: 'PAGED_TOKEN' },
+      singleRoot(root)
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content result');
+    }
+    expect(result.totalMatches).toBe(CAPPED_LINE_COUNT + 1);
   });
 });
 
