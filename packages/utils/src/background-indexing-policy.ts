@@ -178,6 +178,50 @@ export const UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES: readonly string[] =
   ...EXCLUDED_DIRECTORY_PATH_PREFIXES,
 ]);
 
+/**
+ * Watcher-facing forms of the same exclusions (BST-1342), both derived from
+ * {@link UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES} so the "same rule as
+ * the index side" claim is structural. Worktree churn flooding FSEvents was
+ * the trigger for the 2026-08-17 run-5189 DB-saturation failure: every
+ * overflow invalidated the root and each full refresh re-reconciled the
+ * whole tree.
+ *
+ * Event FILTERING must stay root-relative (relativize, then reuse
+ * {@link isExcludedBackgroundIndexingPath}) — a subscription root opened
+ * INSIDE an excluded tree must watch normally. The native predicate below
+ * exists for exactly that root-gating decision, not for event filtering.
+ */
+export const UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS: readonly string[] = Object.freeze(
+  UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES.flatMap((prefix) => [
+    `**/${prefix}`,
+    `**/${prefix}/**`,
+  ])
+);
+
+const NATIVE_SEPARATOR = String.raw`[\\/]`;
+const UNCONDITIONAL_EXCLUDED_NATIVE_PATH_REGEX = new RegExp(
+  `(?:^|${NATIVE_SEPARATOR})(?:${UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES.map((prefix) =>
+    prefix
+      .split('/')
+      .map((segment) => segment.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
+      .join(NATIVE_SEPARATOR)
+  ).join('|')})(?:$|${NATIVE_SEPARATOR})`,
+  'i'
+);
+
+/**
+ * True when a NATIVE path (posix or windows separators, any case — the `i`
+ * flag deliberately mirrors `matchesExcludedPathPrefix`'s lowercasing)
+ * contains an unconditionally excluded tree at any depth. Segment-anchored:
+ * near-miss names (`.claude/worktrees-backup`, `x.claude/worktrees`) never
+ * match. Use it to gate a WHOLE SUBSCRIPTION ROOT ("is this root itself
+ * inside an excluded tree?"); per-event filtering must relativize and reuse
+ * {@link isExcludedBackgroundIndexingPath} instead.
+ */
+export function isUnconditionalExcludedNativePath(path: string): boolean {
+  return UNCONDITIONAL_EXCLUDED_NATIVE_PATH_REGEX.test(path);
+}
+
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 const HARD_EXCLUDED_DIRECTORY_SUFFIXES = ['.app', '.framework'];
 

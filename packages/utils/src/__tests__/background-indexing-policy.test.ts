@@ -3,11 +3,50 @@ import {
   BACKGROUND_INDEXING_POLICY_OPTIONS,
   createBackgroundIndexingEntryPolicy,
   DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE,
+  isUnconditionalExcludedNativePath,
+  UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
 } from '../background-indexing-policy.js';
 
 describe('background-indexing-policy', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // BST-1342: the watcher must drop `.claude/worktrees` events with the SAME
+  // exclusion the index policy already applies — but watcher event paths are
+  // NATIVE (absolute, either separator), unlike the root-relative
+  // `/`-separated contract of isExcludedBackgroundIndexingPath.
+  describe('isUnconditionalExcludedNativePath (BST-1342)', () => {
+    it('matches the excluded tree at any depth with posix separators', () => {
+      expect(
+        isUnconditionalExcludedNativePath('/Users/x/repo/.claude/worktrees/agent-1/src/a.ts')
+      ).toBe(true);
+      expect(isUnconditionalExcludedNativePath('/repo/.claude/worktrees')).toBe(true);
+      expect(isUnconditionalExcludedNativePath('.claude/worktrees/file')).toBe(true);
+    });
+
+    it('matches windows separators and mixed case', () => {
+      expect(isUnconditionalExcludedNativePath('C:\\repo\\.claude\\worktrees\\agent-1\\a.ts')).toBe(
+        true
+      );
+      expect(isUnconditionalExcludedNativePath('C:\\repo\\.CLAUDE\\Worktrees\\a.ts')).toBe(true);
+    });
+
+    it('stays segment-anchored: near-miss names never match', () => {
+      expect(isUnconditionalExcludedNativePath('/repo/.claude/worktrees-backup/a.ts')).toBe(false);
+      expect(isUnconditionalExcludedNativePath('/repo/x.claude/worktrees/a.ts')).toBe(false);
+      expect(isUnconditionalExcludedNativePath('/repo/.claude/other/worktrees/a.ts')).toBe(false);
+      expect(isUnconditionalExcludedNativePath('/repo/src/index.ts')).toBe(false);
+    });
+  });
+
+  describe('UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS (BST-1342)', () => {
+    it('exposes the excluded trees as native-watcher ignore globs', () => {
+      expect(UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS).toEqual([
+        '**/.claude/worktrees',
+        '**/.claude/worktrees/**',
+      ]);
+    });
   });
 
   it('defaults to the balanced preset metadata', () => {
