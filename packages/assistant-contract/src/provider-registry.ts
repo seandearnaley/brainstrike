@@ -710,9 +710,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 0.08, outputPerMTok: 0.2 },
         // NVIDIA documents reasoning as optional on/off but publishes no effort
-        // ladder. The empty ladder reduces offline controls to `none`, matching
-        // live OpenRouter metadata for an optional on/off-only route.
-        reasoning: { mandatory: false, supportedEfforts: [] },
+        // ladder. Declare only the explicit `none` control so offline menus and
+        // persisted model-switch settings preserve the verified off state.
+        reasoning: { mandatory: false, supportedEfforts: ['none'] },
         supportsStreaming: true,
         type: 'llm',
         vision: 'unsupported',
