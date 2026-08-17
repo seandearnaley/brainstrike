@@ -24,12 +24,17 @@ interface MaterializedDirectoryCountCacheEntry {
   weight: number;
 }
 
+interface MaterializedPathSetSignature {
+  key: string;
+  totalPathLength: number;
+}
+
 const CACHE_ENTRY_WEIGHT = 32;
-const MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES = 4;
+const DEFAULT_MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES = 4;
 // Approximate retained UTF-16 units plus per-entry container overhead. The
 // structural tier is deliberately small because every entry strongly retains
 // a path snapshot and its derived ancestor map; the identity tier stays weak.
-const MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT = 8_000_000;
+const DEFAULT_MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT = 8_000_000;
 
 let descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
 let materializedDirectoryCountCache = new WeakMap<
@@ -39,6 +44,11 @@ let materializedDirectoryCountCache = new WeakMap<
 const materializedStructuralCache = new Map<string, MaterializedDirectoryCountCacheEntry>();
 let materializedDirectoryCountBuilds = 0;
 let materializedStructuralCacheHits = 0;
+let materializedStructuralCacheConsumers = 0;
+let materializedStructuralCacheGeneration = 0;
+let materializedStructuralCacheMaxEntries = DEFAULT_MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES;
+let materializedStructuralCacheMaxWeight = DEFAULT_MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT;
+let materializedStructuralPrecheckRejections = 0;
 let materializedStructuralCacheWeight = 0;
 
 function matchesAnyPathVariant(path: string, matcher: (value: string) => boolean): boolean {
@@ -94,7 +104,9 @@ function buildMaterializedDirectoryCounts(
   });
 }
 
-function getMaterializedPathSetSignature(materializedPaths: ReadonlySet<string>): string {
+function getMaterializedPathSetSignature(
+  materializedPaths: ReadonlySet<string>
+): MaterializedPathSetSignature {
   const sampleWidth = 8;
   let combinedPathHash = 0;
   let totalPathLength = 0;
@@ -111,7 +123,10 @@ function getMaterializedPathSetSignature(materializedPaths: ReadonlySet<string>)
     }
     combinedPathHash = (combinedPathHash + (pathHash >>> 0)) >>> 0;
   }
-  return `${materializedPaths.size}:${totalPathLength}:${combinedPathHash}`;
+  return {
+    key: `${materializedPaths.size}:${totalPathLength}:${combinedPathHash}`,
+    totalPathLength,
+  };
 }
 
 function areMaterializedPathSetsEqual(
@@ -131,12 +146,10 @@ function areMaterializedPathSetsEqual(
 
 function estimateMaterializedProjectionWeight(
   materializedPaths: ReadonlySet<string>,
+  totalPathLength: number,
   counts: ReadonlyMap<string, number>
 ): number {
-  let weight = (materializedPaths.size + counts.size) * CACHE_ENTRY_WEIGHT;
-  for (const path of materializedPaths) {
-    weight += path.length;
-  }
+  let weight = (materializedPaths.size + counts.size) * CACHE_ENTRY_WEIGHT + totalPathLength;
   for (const directoryPath of counts.keys()) {
     weight += directoryPath.length;
   }
@@ -145,11 +158,12 @@ function estimateMaterializedProjectionWeight(
 
 function rememberMaterializedStructuralProjection(
   signature: string,
+  totalPathLength: number,
   materializedPaths: ReadonlySet<string>,
   counts: ReadonlyMap<string, number>
 ): void {
-  const weight = estimateMaterializedProjectionWeight(materializedPaths, counts);
-  if (weight > MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT) {
+  const weight = estimateMaterializedProjectionWeight(materializedPaths, totalPathLength, counts);
+  if (weight > materializedStructuralCacheMaxWeight) {
     return;
   }
 
@@ -160,8 +174,8 @@ function rememberMaterializedStructuralProjection(
   }
 
   while (
-    materializedStructuralCache.size >= MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES ||
-    materializedStructuralCacheWeight + weight > MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT
+    materializedStructuralCache.size >= materializedStructuralCacheMaxEntries ||
+    materializedStructuralCacheWeight + weight > materializedStructuralCacheMaxWeight
   ) {
     const oldestEntry = materializedStructuralCache.entries().next();
     if (oldestEntry.done) {
@@ -194,15 +208,25 @@ function getMaterializedDirectoryCounts(
   }
 
   const signature = getMaterializedPathSetSignature(materializedPaths);
-  const structurallyCached = materializedStructuralCache.get(signature);
+  const minimumRetainedWeight =
+    materializedPaths.size * CACHE_ENTRY_WEIGHT + signature.totalPathLength;
+  const isStructurallyCacheable = minimumRetainedWeight <= materializedStructuralCacheMaxWeight;
+  if (!isStructurallyCacheable) {
+    materializedStructuralPrecheckRejections += 1;
+    const counts = buildMaterializedDirectoryCounts(materializedPaths);
+    materializedDirectoryCountCache.set(materializedPaths, counts);
+    return counts;
+  }
+
+  const structurallyCached = materializedStructuralCache.get(signature.key);
   if (
     structurallyCached &&
     areMaterializedPathSetsEqual(materializedPaths, structurallyCached.materializedPaths)
   ) {
     // Refresh insertion order so the bounded structural tier evicts least
     // recently used projections first.
-    materializedStructuralCache.delete(signature);
-    materializedStructuralCache.set(signature, structurallyCached);
+    materializedStructuralCache.delete(signature.key);
+    materializedStructuralCache.set(signature.key, structurallyCached);
     materializedDirectoryCountCache.set(materializedPaths, structurallyCached.counts);
     materializedStructuralCacheHits += 1;
     return structurallyCached.counts;
@@ -210,7 +234,12 @@ function getMaterializedDirectoryCounts(
 
   const counts = buildMaterializedDirectoryCounts(materializedPaths);
   materializedDirectoryCountCache.set(materializedPaths, counts);
-  rememberMaterializedStructuralProjection(signature, materializedPaths, counts);
+  rememberMaterializedStructuralProjection(
+    signature.key,
+    signature.totalPathLength,
+    materializedPaths,
+    counts
+  );
   return counts;
 }
 
@@ -219,29 +248,67 @@ export function clearSelectionProjectionStructuralCache(): void {
   materializedStructuralCacheWeight = 0;
 }
 
-export function __resetSelectionProjectionCachesForTests(): void {
+/**
+ * Keeps the module-global structural tier alive while at least one unresolved
+ * resolver needs hydration fallback. The idempotent release is safe for React
+ * StrictMode's setup-cleanup-setup replay; only the last live consumer clears.
+ */
+export function acquireSelectionProjectionStructuralCache(): () => void {
+  materializedStructuralCacheConsumers += 1;
+  const generation = materializedStructuralCacheGeneration;
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    if (generation !== materializedStructuralCacheGeneration) {
+      return;
+    }
+    materializedStructuralCacheConsumers -= 1;
+    if (materializedStructuralCacheConsumers === 0) {
+      clearSelectionProjectionStructuralCache();
+    }
+  };
+}
+
+export function __resetSelectionProjectionCachesForTests(limits?: {
+  maxMaterializedStructuralEntries: number;
+  maxMaterializedStructuralWeight: number;
+}): void {
   descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
   materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, ReadonlyMap<string, number>>();
   clearSelectionProjectionStructuralCache();
+  materializedStructuralCacheGeneration += 1;
+  materializedStructuralCacheConsumers = 0;
+  materializedStructuralCacheMaxEntries =
+    limits?.maxMaterializedStructuralEntries ?? DEFAULT_MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES;
+  materializedStructuralCacheMaxWeight =
+    limits?.maxMaterializedStructuralWeight ?? DEFAULT_MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT;
   materializedDirectoryCountBuilds = 0;
   materializedStructuralCacheHits = 0;
+  materializedStructuralPrecheckRejections = 0;
 }
 
 export function __getSelectionProjectionCacheStatsForTests(): {
+  activeStructuralCacheConsumers: number;
   materializedDirectoryCountBuilds: number;
   materializedStructuralEntries: number;
   materializedStructuralHits: number;
+  materializedStructuralPrecheckRejections: number;
   materializedStructuralWeight: number;
   maxMaterializedStructuralEntries: number;
   maxMaterializedStructuralWeight: number;
 } {
   return {
+    activeStructuralCacheConsumers: materializedStructuralCacheConsumers,
     materializedDirectoryCountBuilds,
     materializedStructuralEntries: materializedStructuralCache.size,
     materializedStructuralHits: materializedStructuralCacheHits,
+    materializedStructuralPrecheckRejections,
     materializedStructuralWeight: materializedStructuralCacheWeight,
-    maxMaterializedStructuralEntries: MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES,
-    maxMaterializedStructuralWeight: MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT,
+    maxMaterializedStructuralEntries: materializedStructuralCacheMaxEntries,
+    maxMaterializedStructuralWeight: materializedStructuralCacheMaxWeight,
   };
 }
 

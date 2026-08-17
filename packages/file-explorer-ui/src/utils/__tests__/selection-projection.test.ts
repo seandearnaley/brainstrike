@@ -214,17 +214,16 @@ describe('selection-projection', () => {
   });
 
   it('evicts cumulative weight before reaching the entry-count limit', () => {
+    __resetSelectionProjectionCachesForTests({
+      maxMaterializedStructuralEntries: 4,
+      maxMaterializedStructuralWeight: 300,
+    });
     const descriptor = createDescriptor();
     const initialStats = __getSelectionProjectionCacheStatsForTests();
-    const weightedPathSets = Array.from({ length: 3 }, (_, selectionIndex) => {
-      const longSegment = `${selectionIndex}-${'x'.repeat(1000)}`;
-      return new Set(
-        Array.from(
-          { length: 3000 },
-          (_, pathIndex) => `root-${selectionIndex}/${longSegment}/file-${pathIndex}.ts`
-        )
-      );
-    });
+    const weightedPathSets = Array.from(
+      { length: 3 },
+      (_, selectionIndex) => new Set([`/root-${selectionIndex}/nested/file.ts`])
+    );
 
     for (const materializedPaths of weightedPathSets) {
       getDirectorySelectedCount(descriptor, null, 'folder-1', '/', materializedPaths);
@@ -245,16 +244,29 @@ describe('selection-projection', () => {
   });
 
   it('skips individually oversized structural entries', () => {
+    __resetSelectionProjectionCachesForTests({
+      maxMaterializedStructuralEntries: 4,
+      maxMaterializedStructuralWeight: 40,
+    });
     const descriptor = createDescriptor();
-    const initialStats = __getSelectionProjectionCacheStatsForTests();
-    const oversizedPath = `/${'x'.repeat(initialStats.maxMaterializedStructuralWeight + 1)}`;
+    const oversizedPaths = new Set(['/oversized.ts']);
 
-    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set([oversizedPath]));
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', oversizedPaths);
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(oversizedPaths));
 
     expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      materializedDirectoryCountBuilds: 2,
       materializedStructuralEntries: 0,
+      materializedStructuralPrecheckRejections: 2,
       materializedStructuralWeight: 0,
     });
+  });
+
+  it('restores production structural-cache limits between tests', () => {
+    const stats = __getSelectionProjectionCacheStatsForTests();
+
+    expect(stats.maxMaterializedStructuralEntries).toBe(4);
+    expect(stats.maxMaterializedStructuralWeight).toBe(8_000_000);
   });
 
   it('does not report a query-selected path before the manifest is ready unless it is materialized', () => {

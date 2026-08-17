@@ -315,7 +315,15 @@ Windowing and performance:
   only a lookup bucket; exact Set membership is verified before reuse, so a
   key collision can cost a rebuild but can never return another selection's
   counts. The tier snapshots paths only for verification and never becomes a
-  canonical selection source. Do not make it unbounded or use it to replace
+  canonical selection source. Signature construction carries total path length
+  into weight accounting so the hot path never rescans selection paths merely
+  to estimate retention. A deterministic minimum-weight precheck rejects
+  structurally uncacheable oversized selections before lookup, exact-set
+  verification, full weight estimation, or snapshot creation. Unresolved
+  resolver consumers acquire shared ownership of this MODULE-GLOBAL tier;
+  releases are idempotent for React StrictMode replay, and only the final live
+  consumer release clears strong entries. Do not make the tier unbounded, clear
+  another live consumer's entries, or use it to replace
   `selectionModel.materializedPaths`.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
 - Consumers with per-row hidden checkboxes may set `reserveCheckboxSpace` on the tree column so empty/group rows stay aligned with selectable rows without rendering a misleading disabled checkbox. Checkbox-only multi-select surfaces set `selectOnRowClick={false}` so row chrome moves focus without mutating selection.
