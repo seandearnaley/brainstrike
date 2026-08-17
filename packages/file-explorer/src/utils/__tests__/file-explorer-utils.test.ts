@@ -246,6 +246,23 @@ describe('file-explorer-utils', () => {
       expect(savedState['folder-a']?.selectedFilePaths).toEqual(
         new Set(['folder-a|@|a.ts', 'folder-a|@|b.ts'])
       );
+
+      for (const status of ['loading', 'error'] as const) {
+        mockState.querySelectionManifest = {
+          directoryCounts: new Map<string, number>(),
+          errorMessage: status === 'error' ? 'snapshot unavailable' : null,
+          filePaths: [],
+          fingerprint: 'fingerprint-a',
+          pathSet: new Set<string>(),
+          snapshotId: 'snapshot-a',
+          status,
+        };
+
+        expect(getFocusedSelectionCount(mockState)).toBe(2);
+        expect(saveFolderState(mockState, 'folder-a', 2000)['folder-a']?.selectedFilePaths).toEqual(
+          new Set(['folder-a|@|a.ts', 'folder-a|@|b.ts'])
+        );
+      }
     });
   });
 

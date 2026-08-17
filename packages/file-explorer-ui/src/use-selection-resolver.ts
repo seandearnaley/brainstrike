@@ -269,6 +269,7 @@ export function useSelectionResolver(): SelectionResolverState {
     );
   const loadTokenRef = useRef(0);
   const loadingPromotionStartRef = useRef<LoadingPromotionStart | null>(null);
+  const isQueryManifestInvalidated = querySelectionManifest === null;
 
   useEffect(() => {
     loadTokenRef.current += 1;
@@ -438,6 +439,10 @@ export function useSelectionResolver(): SelectionResolverState {
     return cancelPendingLoad;
   }, [
     db,
+    // Folder hydration can clear a ready manifest while preserving descriptor
+    // identity. Track only null/non-null invalidation so ready/loading/error
+    // publications do not re-arm reads or recreate the old publish loop.
+    isQueryManifestInvalidated,
     selectionModel.mode,
     selectionModel.queryDescriptor?.manifestFingerprint,
     selectionModel.queryDescriptor?.manifestSnapshotId,

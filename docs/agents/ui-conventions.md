@@ -90,7 +90,10 @@ Windowing and performance:
   snapshots—must resolve the descriptor plus manifest rather than reading raw
   `manifest.filePaths`. A terminal read error remains visible until the
   descriptor or database lifecycle changes; the resolver does not silently
-  retry or coerce the failed snapshot.
+  retry or coerce the failed snapshot. The read timeout starts only after a
+  database handle exists; if database initialization itself never completes,
+  the loading state remains visible rather than being misreported as a snapshot
+  read timeout.
 - Forest-mode scale contracts (PR #1734 audit; pinned by
   `forest-tree-actions-context.test.tsx`, `forest-section-filtering.test.tsx`,
   and the `filteredPathSet`-skip tests in

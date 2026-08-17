@@ -40,16 +40,15 @@ function getEffectiveFocusedQueryPaths(state: FocusedSelectionState): string[] {
   const descriptor = state.selectionModel.queryDescriptor;
   const manifest = state.querySelectionManifest;
   if (!descriptor) {
-    return manifest?.filePaths ?? Array.from(state.selectionModel.materializedPaths ?? []);
+    return manifest?.filePaths ?? [];
   }
 
-  const resolvedSelection = resolveQuerySelection(descriptor, manifest);
   if (
     manifest?.status === 'ready' &&
     manifest.fingerprint === descriptor.manifestFingerprint &&
     manifest.snapshotId === descriptor.manifestSnapshotId
   ) {
-    return resolvedSelection.filePaths;
+    return resolveQuerySelection(descriptor, manifest).filePaths;
   }
 
   const fallbackPaths = new Set(state.selectionModel.materializedPaths ?? []);
@@ -59,7 +58,7 @@ function getEffectiveFocusedQueryPaths(state: FocusedSelectionState): string[] {
   for (const path of descriptor.includedPaths) {
     fallbackPaths.add(path);
   }
-  return fallbackPaths.size > 0 ? Array.from(fallbackPaths) : resolvedSelection.filePaths;
+  return Array.from(fallbackPaths);
 }
 
 /**

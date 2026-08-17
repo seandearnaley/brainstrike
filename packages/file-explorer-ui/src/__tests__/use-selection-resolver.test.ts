@@ -127,6 +127,67 @@ describe('useSelectionResolver', () => {
     expect(state.setQuerySelectionManifest).toHaveBeenCalledTimes(1);
   });
 
+  it('reloads a matching snapshot when the ready manifest is invalidated', async () => {
+    const state = {
+      currentFolderId: 'folder-1',
+      querySelectionManifest: {
+        directoryCounts: new Map<string, number>(),
+        errorMessage: null,
+        filePaths: ['/src/index.ts'],
+        fingerprint: 'fp-1',
+        pathSet: new Set(['/src/index.ts']),
+        snapshotId: 'snapshot-1',
+        status: 'ready' as const,
+      } as null | {
+        directoryCounts: Map<string, number>;
+        errorMessage: null;
+        filePaths: string[];
+        fingerprint: string;
+        pathSet: Set<string>;
+        snapshotId: string;
+        status: 'ready';
+      },
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: new Set<string>(),
+        mode: 'query' as const,
+        queryDescriptor: {
+          coveredDirectoryPaths: ['/src'],
+          excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
+          totalSelectedCount: 1,
+          useRegex: false,
+        },
+      },
+      setQuerySelectionManifest: vi.fn((manifest) => {
+        state.querySelectionManifest = manifest;
+      }),
+    };
+
+    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useFileExplorerStoreContextMock.mockReturnValue({ getState: () => state });
+    loadQuerySelectionSnapshotMock.mockResolvedValue(['/src/index.ts']);
+
+    const { rerender } = renderHook(() => useSelectionResolver());
+    expect(loadQuerySelectionSnapshotMock).not.toHaveBeenCalled();
+
+    state.querySelectionManifest = null;
+    rerender();
+
+    await waitFor(() => {
+      expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('preserves filtered materialized paths when no snapshot can be loaded', () => {
     const state = {
       currentFolderId: 'folder-1',
