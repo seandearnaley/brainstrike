@@ -5,6 +5,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS } from '@brainstrike/utils/background-indexing-policy';
 import { DEFAULT_IGNORE_PATTERNS } from '@brainstrike/utils/path-filter';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -119,14 +120,44 @@ describe('startParcelWatch', () => {
     stop();
   });
 
-  it('uses exactly the default ignore glob array when no override is given (BST-1112)', async () => {
+  it('uses the default segment globs plus the unconditional excluded-path globs when no override is given (BST-1112, BST-1342)', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(makeHandle(root), collect, {
       loadModule: () => Promise.resolve(fake.module),
     });
-    expect(fake.lastSubscribeArgs.ignore).toEqual(
-      DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`])
-    );
+    expect(fake.lastSubscribeArgs.ignore).toEqual([
+      ...DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`]),
+      ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
+    ]);
+    stop();
+  });
+
+  it('drops .claude/worktrees events at the default guard while delivering siblings (BST-1342)', async () => {
+    // The 2026-08-17 run-5189 failure: worktree churn flooded FSEvents, each
+    // overflow invalidated the root, and the rescan storm saturated the DB
+    // host. Worktree copies are already excluded from indexing by
+    // UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES; the DEFAULT watcher
+    // guard must drop their events with the same policy. (Per-subscription
+    // overrides still replace this entirely — the git-inventory watcher's
+    // `ignorePatterns: []` keeps seeing worktree git metadata.)
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+    });
+
+    const worktreeSrc = join(root, '.claude', 'worktrees', 'agent-1', 'src');
+    await mkdir(worktreeSrc, { recursive: true });
+    const worktreeFile = join(worktreeSrc, 'copy.ts');
+    await writeFile(worktreeFile, 'x');
+    const siblingFile = join(root, 'kept.ts');
+    await writeFile(siblingFile, 'y');
+
+    fake.emit([
+      { path: worktreeFile, type: 'create' },
+      { path: siblingFile, type: 'create' },
+    ]);
+    await waitForBatch(batches);
+    expect(batches[0]).toEqual([{ kind: 'file', path: siblingFile, type: 'added' }]);
     stop();
   });
 

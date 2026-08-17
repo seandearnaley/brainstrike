@@ -11,16 +11,26 @@
 // - Normalization reuses the safe-invalidation idiom: any removed or
 //   unstat-able path becomes `directory`/`removed`, which invalidates the
 //   same-path record plus stale descendants without a full-tree rescan.
-// - `fileFilter.shouldIgnorePath` stays the authoritative ignore check;
-//   DEFAULT_IGNORE_PATTERNS also feed native-level ignore globs purely as a
-//   resource saving (same names, no broadening). Both clauses are
-//   conditional on `options.ignorePatterns` being unset: a per-subscription
-//   override (BST-1112) REPLACES both layers for that subscription — its own
-//   regex stands in for `shouldIgnorePath`, and its own native globs may be
-//   broader or narrower than the defaults.
+// - The DEFAULT ignore check is `fileFilter.shouldIgnorePath` PLUS the
+//   background-indexing policy's unconditional excluded-path prefixes
+//   (`.claude/worktrees`, BST-1342): trees no consumer may ever index also
+//   never emit watch events, because worktree churn flooding FSEvents is what
+//   drove the run-5189 overflow → full-refresh → DB-saturation failure
+//   (2026-08-17). DEFAULT_IGNORE_PATTERNS and the excluded-path globs also
+//   feed native-level ignore globs purely as a resource saving (same rules,
+//   no broadening). Both clauses are conditional on `options.ignorePatterns`
+//   being unset: a per-subscription override (BST-1112) REPLACES all default
+//   layers for that subscription — its own regex stands in for the default
+//   check, and its own native globs may be broader or narrower than the
+//   defaults (the git-inventory watcher's `ignorePatterns: []` relies on
+//   this to keep seeing worktree git metadata).
 import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
+import {
+  isUnconditionalExcludedNativePath,
+  UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
+} from '@brainstrike/utils/background-indexing-policy';
 import {
   buildIgnorePatternRegex,
   DEFAULT_IGNORE_PATTERNS,
@@ -96,7 +106,9 @@ export async function startParcelWatch(
   const ignorePatterns = options.ignorePatterns;
   const ignoreRegex = ignorePatterns === undefined ? null : buildIgnorePatternRegex(ignorePatterns);
   const shouldIgnore = (eventPath: string): boolean =>
-    ignoreRegex ? ignoreRegex.test(eventPath) : fileFilter.shouldIgnorePath(eventPath);
+    ignoreRegex
+      ? ignoreRegex.test(eventPath)
+      : fileFilter.shouldIgnorePath(eventPath) || isUnconditionalExcludedNativePath(eventPath);
 
   // Health transitions fire exactly once per state change; a repeated cause
   // (e.g. an FSEvents error storm) cannot re-emit the same state.
@@ -252,7 +264,12 @@ export async function startParcelWatch(
     // Must agree with the `ignoreRegex` derivation above (undefined -> default
     // patterns, defined -> override REPLACES defaults) — that agreement is
     // the whole per-subscription-override feature.
-    ignore: nativeIgnoreGlobs(ignorePatterns ?? DEFAULT_IGNORE_PATTERNS),
+    ignore: ignorePatterns
+      ? nativeIgnoreGlobs(ignorePatterns)
+      : [
+          ...nativeIgnoreGlobs(DEFAULT_IGNORE_PATTERNS),
+          ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
+        ],
   });
 
   let timedOut = false;

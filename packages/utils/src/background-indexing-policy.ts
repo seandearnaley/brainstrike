@@ -178,6 +178,39 @@ export const UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES: readonly string[] =
   ...EXCLUDED_DIRECTORY_PATH_PREFIXES,
 ]);
 
+/**
+ * Watcher-facing forms of the same exclusions (BST-1342). Watcher event paths
+ * are NATIVE — absolute, either separator — unlike the root-relative
+ * `/`-separated contract of {@link isExcludedBackgroundIndexingPath}, so the
+ * watcher cannot reuse that predicate directly. Worktree churn flooding
+ * FSEvents was the trigger for the 2026-08-17 run-5189 DB-saturation failure:
+ * every overflow invalidated the root and each full refresh re-reconciled the
+ * whole tree.
+ */
+export const UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS: readonly string[] = Object.freeze(
+  EXCLUDED_DIRECTORY_PATH_PREFIXES.flatMap((prefix) => [`**/${prefix}`, `**/${prefix}/**`])
+);
+
+const NATIVE_SEPARATOR = String.raw`[\\/]`;
+const UNCONDITIONAL_EXCLUDED_NATIVE_PATH_REGEX = new RegExp(
+  `(?:^|${NATIVE_SEPARATOR})(?:${EXCLUDED_DIRECTORY_PATH_PREFIXES.map((prefix) =>
+    prefix
+      .split('/')
+      .map((segment) => segment.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
+      .join(NATIVE_SEPARATOR)
+  ).join('|')})(?:$|${NATIVE_SEPARATOR})`,
+  'i'
+);
+
+/**
+ * True when a NATIVE path (posix or windows separators, any case) contains an
+ * unconditionally excluded tree at any depth. Segment-anchored: near-miss
+ * names (`.claude/worktrees-backup`, `x.claude/worktrees`) never match.
+ */
+export function isUnconditionalExcludedNativePath(path: string): boolean {
+  return UNCONDITIONAL_EXCLUDED_NATIVE_PATH_REGEX.test(path);
+}
+
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 const HARD_EXCLUDED_DIRECTORY_SUFFIXES = ['.app', '.framework'];
 
