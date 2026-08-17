@@ -25,7 +25,11 @@ export interface SelectionResolverState {
 
 const EMPTY_RELATIVE_PATHS: string[] = [];
 export const QUERY_SELECTION_LOADING_PROMOTION_MS = 100;
-const inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
+let inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
+
+export function __resetSelectionResolverCachesForTests(): void {
+  inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
+}
 
 function loadQuerySelectionSnapshotDeduped(db: DbHandle, snapshotId: string): Promise<string[]> {
   let loadsForDatabase = inFlightSnapshotLoads.get(db);
@@ -55,7 +59,7 @@ function buildMaterializedFallbackPaths(args: {
   materializedPaths: Set<string> | null;
 }): string[] {
   const { descriptor, materializedPaths } = args;
-  const nextPaths = new Set(materializedPaths ?? EMPTY_RELATIVE_PATHS);
+  const nextPaths = new Set(materializedPaths ?? []);
   for (const excludedPath of descriptor.excludedPaths) {
     nextPaths.delete(excludedPath);
   }
@@ -68,6 +72,13 @@ function buildMaterializedFallbackPaths(args: {
   }
 
   return Array.from(nextPaths).sort(defaultCollator.compare);
+}
+
+function buildMaterializedBasePaths(materializedPaths: Set<string> | null): string[] {
+  if (!materializedPaths || materializedPaths.size === 0) {
+    return EMPTY_RELATIVE_PATHS;
+  }
+  return Array.from(materializedPaths).sort(defaultCollator.compare);
 }
 
 function buildExactMaterializedManifest(args: {
@@ -93,7 +104,7 @@ function buildExactMaterializedManifest(args: {
   }
 
   return buildQuerySelectionManifest({
-    filePaths: Array.from(exactSelectedPaths),
+    filePaths: buildMaterializedBasePaths(materializedPaths),
     fingerprint: descriptor.manifestFingerprint,
     snapshotId: descriptor.manifestSnapshotId,
   });
@@ -265,23 +276,11 @@ export function useSelectionResolver(): SelectionResolverState {
     if (!descriptor.manifestSnapshotId) {
       setManifest(
         buildQuerySelectionManifest({
-          filePaths: buildMaterializedFallbackPaths({
-            descriptor,
-            materializedPaths: latestState.selectionModel.materializedPaths,
-          }),
+          filePaths: buildMaterializedBasePaths(latestState.selectionModel.materializedPaths),
           fingerprint: descriptor.manifestFingerprint,
           snapshotId: null,
         })
       );
-      return;
-    }
-
-    if (!db) {
-      ensureLoadingManifest({
-        descriptor,
-        latestManifest,
-        setManifest,
-      });
       return;
     }
 
@@ -311,6 +310,14 @@ export function useSelectionResolver(): SelectionResolverState {
         setManifest,
       });
     }, QUERY_SELECTION_LOADING_PROMOTION_MS);
+    const cancelPendingLoad = () => {
+      clearTimeout(loadingPromotionTimer);
+      loadTokenRef.current += 1;
+    };
+
+    if (!db) {
+      return cancelPendingLoad;
+    }
 
     void loadQuerySelectionSnapshotDeduped(db, descriptor.manifestSnapshotId)
       .then((filePaths) => {
@@ -347,6 +354,11 @@ export function useSelectionResolver(): SelectionResolverState {
         const currentManifest = currentState.querySelectionManifest;
         if (
           !isCurrentQueryDescriptor(currentState, descriptor) ||
+          matchesDescriptorManifest({
+            descriptor,
+            manifest: currentManifest,
+            status: 'ready',
+          }) ||
           (matchesDescriptorManifest({
             descriptor,
             manifest: currentManifest,
@@ -365,10 +377,7 @@ export function useSelectionResolver(): SelectionResolverState {
         );
       });
 
-    return () => {
-      clearTimeout(loadingPromotionTimer);
-      loadTokenRef.current += 1;
-    };
+    return cancelPendingLoad;
   }, [
     db,
     selectionModel.mode,
