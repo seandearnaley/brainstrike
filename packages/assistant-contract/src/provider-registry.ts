@@ -709,9 +709,10 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         label: 'Nemotron 3.5 Lightning (OpenRouter)',
         maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 0.08, outputPerMTok: 0.2 },
-        // NVIDIA documents only reasoning on/off, not an effort ladder. Leave
-        // reasoning undeclared so runtime metadata can expose supported controls
-        // without turning an unverified static ladder into an API contract.
+        // NVIDIA documents reasoning as optional on/off but publishes no effort
+        // ladder. The empty ladder reduces offline controls to `none`, matching
+        // live OpenRouter metadata for an optional on/off-only route.
+        reasoning: { mandatory: false, supportedEfforts: [] },
         supportsStreaming: true,
         type: 'llm',
         vision: 'unsupported',

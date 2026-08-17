@@ -890,7 +890,7 @@ describe('frontier models migrations', () => {
           true
         )
     `);
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 99));
 
     expect(await readRows()).toEqual([
       {

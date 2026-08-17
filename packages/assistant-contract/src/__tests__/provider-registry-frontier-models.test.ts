@@ -341,11 +341,11 @@ describe('frontier model refresh (2026-07)', () => {
         label: 'Nemotron 3.5 Lightning (OpenRouter)',
         maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 0.08, outputPerMTok: 0.2 },
+        reasoning: { mandatory: false, supportedEfforts: [] },
         supportsStreaming: true,
         type: 'llm',
         vision: 'unsupported',
       });
-      expect(nemotron.reasoning).toBeUndefined();
     });
   });
 });
