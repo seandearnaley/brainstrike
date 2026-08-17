@@ -9,7 +9,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __getSelectionProjectionCacheStatsForTests,
   __resetSelectionProjectionCachesForTests,
-  clearSelectionProjectionStructuralCache,
   getDirectorySelectedCount,
   getQuerySelectionMatchingCount,
   getSelectionCount,
@@ -110,7 +109,7 @@ describe('selection-projection', () => {
 
     expect(__getSelectionProjectionCacheStatsForTests().materializedStructuralEntries).toBe(1);
 
-    clearSelectionProjectionStructuralCache();
+    __resetSelectionProjectionCachesForTests();
 
     expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
       materializedStructuralEntries: 0,
@@ -118,7 +117,7 @@ describe('selection-projection', () => {
     });
   });
 
-  it('verifies structural-key collisions by exact materialized-path membership', () => {
+  it('separates paths that differ only in their middle segment', () => {
     __resetSelectionProjectionCachesForTests();
     const descriptor = createDescriptor();
     const firstMaterializedPaths = new Set(['/common/a/file.ts']);
@@ -148,6 +147,20 @@ describe('selection-projection', () => {
     expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
       materializedDirectoryCountBuilds: 2,
       materializedStructuralHits: 0,
+    });
+
+    expect(
+      getDirectorySelectedCount(
+        descriptor,
+        null,
+        'folder-1',
+        '/common/a',
+        new Set(firstMaterializedPaths)
+      )
+    ).toBe(1);
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      materializedDirectoryCountBuilds: 2,
+      materializedStructuralHits: 1,
     });
   });
 

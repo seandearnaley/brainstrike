@@ -107,18 +107,12 @@ function buildMaterializedDirectoryCounts(
 function getMaterializedPathSetSignature(
   materializedPaths: ReadonlySet<string>
 ): MaterializedPathSetSignature {
-  const sampleWidth = 8;
   let combinedPathHash = 0;
   let totalPathLength = 0;
   for (const path of materializedPaths) {
     totalPathLength += path.length;
     let pathHash = Math.imul(2_166_136_261 ^ path.length, 16_777_619);
-    const prefixEnd = Math.min(sampleWidth, path.length);
-    for (let index = 0; index < prefixEnd; index += 1) {
-      pathHash = Math.imul(pathHash ^ path.charCodeAt(index), 16_777_619);
-    }
-    const suffixStart = Math.max(prefixEnd, path.length - sampleWidth);
-    for (let index = suffixStart; index < path.length; index += 1) {
+    for (let index = 0; index < path.length; index += 1) {
       pathHash = Math.imul(pathHash ^ path.charCodeAt(index), 16_777_619);
     }
     combinedPathHash = (combinedPathHash + (pathHash >>> 0)) >>> 0;
@@ -207,6 +201,10 @@ function getMaterializedDirectoryCounts(
     return cached;
   }
 
+  // Strong entries are owned by useSelectionResolver's unresolved-selection
+  // lifecycle. Projection callers currently render below that resolver, so a
+  // first render may admit before its acquire effect runs; future callers
+  // outside that provider must not populate this tier without owning cleanup.
   const signature = getMaterializedPathSetSignature(materializedPaths);
   const minimumRetainedWeight =
     materializedPaths.size * CACHE_ENTRY_WEIGHT + signature.totalPathLength;
@@ -243,7 +241,7 @@ function getMaterializedDirectoryCounts(
   return counts;
 }
 
-export function clearSelectionProjectionStructuralCache(): void {
+function clearSelectionProjectionStructuralCache(): void {
   materializedStructuralCache.clear();
   materializedStructuralCacheWeight = 0;
 }
