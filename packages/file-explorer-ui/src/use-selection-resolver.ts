@@ -442,6 +442,9 @@ export function useSelectionResolver(): SelectionResolverState {
     // Folder hydration can clear a ready manifest while preserving descriptor
     // identity. Track only null/non-null invalidation so ready/loading/error
     // publications do not re-arm reads or recreate the old publish loop.
+    // `setQuerySelection` also publishes materializedPaths and its fresh
+    // manifest atomically; if that contract changes, add a materialization
+    // revision dependency here rather than restoring descriptor object identity.
     isQueryManifestInvalidated,
     selectionModel.mode,
     selectionModel.queryDescriptor?.manifestFingerprint,
