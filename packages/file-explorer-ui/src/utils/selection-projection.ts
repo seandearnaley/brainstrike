@@ -19,7 +19,7 @@ interface DescriptorMatchers {
 }
 
 interface MaterializedDirectoryCountCacheEntry {
-  counts: Map<string, number>;
+  counts: ReadonlyMap<string, number>;
   materializedPaths: ReadonlySet<string>;
   weight: number;
 }
@@ -32,7 +32,10 @@ const MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES = 4;
 const MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT = 8_000_000;
 
 let descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
-let materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, Map<string, number>>();
+let materializedDirectoryCountCache = new WeakMap<
+  ReadonlySet<string>,
+  ReadonlyMap<string, number>
+>();
 const materializedStructuralCache = new Map<string, MaterializedDirectoryCountCacheEntry>();
 let materializedDirectoryCountBuilds = 0;
 let materializedStructuralCacheHits = 0;
@@ -92,11 +95,23 @@ function buildMaterializedDirectoryCounts(
 }
 
 function getMaterializedPathSetSignature(materializedPaths: ReadonlySet<string>): string {
+  const sampleWidth = 8;
+  let combinedPathHash = 0;
   let totalPathLength = 0;
   for (const path of materializedPaths) {
     totalPathLength += path.length;
+    let pathHash = Math.imul(2_166_136_261 ^ path.length, 16_777_619);
+    const prefixEnd = Math.min(sampleWidth, path.length);
+    for (let index = 0; index < prefixEnd; index += 1) {
+      pathHash = Math.imul(pathHash ^ path.charCodeAt(index), 16_777_619);
+    }
+    const suffixStart = Math.max(prefixEnd, path.length - sampleWidth);
+    for (let index = suffixStart; index < path.length; index += 1) {
+      pathHash = Math.imul(pathHash ^ path.charCodeAt(index), 16_777_619);
+    }
+    combinedPathHash = (combinedPathHash + (pathHash >>> 0)) >>> 0;
   }
-  return `${materializedPaths.size}:${totalPathLength}`;
+  return `${materializedPaths.size}:${totalPathLength}:${combinedPathHash}`;
 }
 
 function areMaterializedPathSetsEqual(
@@ -131,7 +146,7 @@ function estimateMaterializedProjectionWeight(
 function rememberMaterializedStructuralProjection(
   signature: string,
   materializedPaths: ReadonlySet<string>,
-  counts: Map<string, number>
+  counts: ReadonlyMap<string, number>
 ): void {
   const weight = estimateMaterializedProjectionWeight(materializedPaths, counts);
   if (weight > MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT) {
@@ -168,7 +183,7 @@ function rememberMaterializedStructuralProjection(
 
 function getMaterializedDirectoryCounts(
   materializedPaths: ReadonlySet<string> | null | undefined
-): Map<string, number> | null {
+): ReadonlyMap<string, number> | null {
   if (!(materializedPaths && materializedPaths.size > 0)) {
     return null;
   }
@@ -199,13 +214,17 @@ function getMaterializedDirectoryCounts(
   return counts;
 }
 
+export function clearSelectionProjectionStructuralCache(): void {
+  materializedStructuralCache.clear();
+  materializedStructuralCacheWeight = 0;
+}
+
 export function __resetSelectionProjectionCachesForTests(): void {
   descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
-  materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, Map<string, number>>();
-  materializedStructuralCache.clear();
+  materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, ReadonlyMap<string, number>>();
+  clearSelectionProjectionStructuralCache();
   materializedDirectoryCountBuilds = 0;
   materializedStructuralCacheHits = 0;
-  materializedStructuralCacheWeight = 0;
 }
 
 export function __getSelectionProjectionCacheStatsForTests(): {

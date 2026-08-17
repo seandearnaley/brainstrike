@@ -14,6 +14,7 @@ import {
 } from './shell/file-explorer-provider';
 import { defaultCollator } from './utils/file-node-collator';
 import { loadQuerySelectionSnapshot } from './utils/query-selection-snapshot';
+import { clearSelectionProjectionStructuralCache } from './utils/selection-projection';
 
 export interface SelectionResolverState {
   effectiveRelativePaths: string[];
@@ -310,6 +311,13 @@ export function useSelectionResolver(): SelectionResolverState {
         querySelectionManifest.fingerprint === selectionModel.queryDescriptor.manifestFingerprint &&
         querySelectionManifest.snapshotId === selectionModel.queryDescriptor.manifestSnapshotId
     );
+
+  useEffect(() => {
+    if (isQuerySelectionReady) {
+      clearSelectionProjectionStructuralCache();
+    }
+    return clearSelectionProjectionStructuralCache;
+  }, [currentFolderId, isQuerySelectionReady, selectionModel.mode]);
 
   const queryMaterializedFallbackPaths = useMemo(() => {
     const descriptor = selectionModel.queryDescriptor;

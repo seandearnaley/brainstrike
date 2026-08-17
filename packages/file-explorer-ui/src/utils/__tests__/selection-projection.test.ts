@@ -4,11 +4,12 @@ import type {
   SelectionQueryDescriptor,
 } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   __getSelectionProjectionCacheStatsForTests,
   __resetSelectionProjectionCachesForTests,
+  clearSelectionProjectionStructuralCache,
   getDirectorySelectedCount,
   getQuerySelectionMatchingCount,
   getSelectionCount,
@@ -62,6 +63,10 @@ function createSelectionModel(overrides: Partial<SelectionModel> = {}): Selectio
 }
 
 describe('selection-projection', () => {
+  beforeEach(() => {
+    __resetSelectionProjectionCachesForTests();
+  });
+
   it('reuses materialized directory counts across structurally equal hydrated sets', () => {
     __resetSelectionProjectionCachesForTests();
     const descriptor = createDescriptor();
@@ -84,20 +89,61 @@ describe('selection-projection', () => {
     });
   });
 
+  it('keeps ordinary equal-length path sets in separate structural buckets', () => {
+    const descriptor = createDescriptor();
+    const firstMaterializedPaths = new Set(['/a/file.ts']);
+    const secondMaterializedPaths = new Set(['/b/file.ts']);
+
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/a', firstMaterializedPaths);
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/b', secondMaterializedPaths);
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/a', new Set(firstMaterializedPaths));
+
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      materializedDirectoryCountBuilds: 2,
+      materializedStructuralHits: 1,
+    });
+  });
+
+  it('clears strongly retained projections after their resolver lifetime', () => {
+    const descriptor = createDescriptor();
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/src', new Set(['/src/index.ts']));
+
+    expect(__getSelectionProjectionCacheStatsForTests().materializedStructuralEntries).toBe(1);
+
+    clearSelectionProjectionStructuralCache();
+
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      materializedStructuralEntries: 0,
+      materializedStructuralWeight: 0,
+    });
+  });
+
   it('verifies structural-key collisions by exact materialized-path membership', () => {
     __resetSelectionProjectionCachesForTests();
     const descriptor = createDescriptor();
-    const firstMaterializedPaths = new Set(['/a/file.ts']);
-    const collidingMaterializedPaths = new Set(['/b/file.ts']);
+    const firstMaterializedPaths = new Set(['/common/a/file.ts']);
+    const collidingMaterializedPaths = new Set(['/common/b/file.ts']);
 
     expect(
-      getDirectorySelectedCount(descriptor, null, 'folder-1', '/a', firstMaterializedPaths)
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/common/a', firstMaterializedPaths)
     ).toBe(1);
     expect(
-      getDirectorySelectedCount(descriptor, null, 'folder-1', '/a', collidingMaterializedPaths)
+      getDirectorySelectedCount(
+        descriptor,
+        null,
+        'folder-1',
+        '/common/a',
+        collidingMaterializedPaths
+      )
     ).toBe(0);
     expect(
-      getDirectorySelectedCount(descriptor, null, 'folder-1', '/b', collidingMaterializedPaths)
+      getDirectorySelectedCount(
+        descriptor,
+        null,
+        'folder-1',
+        '/common/b',
+        collidingMaterializedPaths
+      )
     ).toBe(1);
     expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
       materializedDirectoryCountBuilds: 2,
@@ -105,8 +151,7 @@ describe('selection-projection', () => {
     });
   });
 
-  it('bounds structurally cached materialized projections by entry count and weight', () => {
-    __resetSelectionProjectionCachesForTests();
+  it('evicts the oldest structural entry at the count limit', () => {
     const descriptor = createDescriptor();
     const initialStats = __getSelectionProjectionCacheStatsForTests();
     const materializedPathSets = Array.from(
@@ -130,39 +175,66 @@ describe('selection-projection', () => {
     expect(__getSelectionProjectionCacheStatsForTests().materializedDirectoryCountBuilds).toBe(
       materializedPathSets.length + 1
     );
+  });
 
-    __resetSelectionProjectionCachesForTests();
-    for (const materializedPaths of materializedPathSets.slice(0, 8)) {
+  it('promotes a structural hit before evicting the least recently used entry', () => {
+    const descriptor = createDescriptor();
+    const initialStats = __getSelectionProjectionCacheStatsForTests();
+    const materializedPathSets = Array.from(
+      { length: initialStats.maxMaterializedStructuralEntries + 1 },
+      (_, index) => new Set([`/${'directory'.repeat(index + 1)}/file.ts`])
+    );
+
+    for (const materializedPaths of materializedPathSets.slice(
+      0,
+      initialStats.maxMaterializedStructuralEntries
+    )) {
       getDirectorySelectedCount(descriptor, null, 'folder-1', '/', materializedPaths);
     }
     getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(materializedPathSets[0]));
-    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', materializedPathSets[8]);
+    getDirectorySelectedCount(
+      descriptor,
+      null,
+      'folder-1',
+      '/',
+      materializedPathSets[initialStats.maxMaterializedStructuralEntries]
+    );
+
     const afterPromotionAndChurn = __getSelectionProjectionCacheStatsForTests();
     getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(materializedPathSets[1]));
     const afterEvictedRead = __getSelectionProjectionCacheStatsForTests();
     getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(materializedPathSets[0]));
+
     expect(afterEvictedRead.materializedDirectoryCountBuilds).toBe(
       afterPromotionAndChurn.materializedDirectoryCountBuilds + 1
     );
     expect(__getSelectionProjectionCacheStatsForTests().materializedDirectoryCountBuilds).toBe(
       afterEvictedRead.materializedDirectoryCountBuilds
     );
+  });
 
-    __resetSelectionProjectionCachesForTests();
-    const weightedPathSets = Array.from({ length: 5 }, (_, selectionIndex) => {
-      const longSegment = `${selectionIndex}-${'x'.repeat(900)}`;
+  it('evicts cumulative weight before reaching the entry-count limit', () => {
+    const descriptor = createDescriptor();
+    const initialStats = __getSelectionProjectionCacheStatsForTests();
+    const weightedPathSets = Array.from({ length: 3 }, (_, selectionIndex) => {
+      const longSegment = `${selectionIndex}-${'x'.repeat(1000)}`;
       return new Set(
         Array.from(
-          { length: 2000 },
+          { length: 3000 },
           (_, pathIndex) => `root-${selectionIndex}/${longSegment}/file-${pathIndex}.ts`
         )
       );
     });
+
     for (const materializedPaths of weightedPathSets) {
       getDirectorySelectedCount(descriptor, null, 'folder-1', '/', materializedPaths);
     }
+
     const afterWeightChurn = __getSelectionProjectionCacheStatsForTests();
     expect(afterWeightChurn.materializedStructuralEntries).toBeLessThan(weightedPathSets.length);
+    expect(afterWeightChurn.materializedStructuralEntries).toBeLessThan(
+      initialStats.maxMaterializedStructuralEntries
+    );
     expect(afterWeightChurn.materializedStructuralWeight).toBeLessThanOrEqual(
       initialStats.maxMaterializedStructuralWeight
     );
@@ -170,10 +242,15 @@ describe('selection-projection', () => {
     expect(__getSelectionProjectionCacheStatsForTests().materializedDirectoryCountBuilds).toBe(
       afterWeightChurn.materializedDirectoryCountBuilds + 1
     );
+  });
 
-    __resetSelectionProjectionCachesForTests();
+  it('skips individually oversized structural entries', () => {
+    const descriptor = createDescriptor();
+    const initialStats = __getSelectionProjectionCacheStatsForTests();
     const oversizedPath = `/${'x'.repeat(initialStats.maxMaterializedStructuralWeight + 1)}`;
+
     getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set([oversizedPath]));
+
     expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
       materializedStructuralEntries: 0,
       materializedStructuralWeight: 0,
