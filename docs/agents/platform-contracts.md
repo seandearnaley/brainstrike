@@ -644,8 +644,12 @@ indexed state only.
   `DEFAULT_IGNORE_PATTERNS` for its own subscription only — both the native
   ignore globs and the `fileFilter.shouldIgnorePath` guard — e.g. a
   main-owned git-metadata watcher that needs `.git/HEAD` events the default
-  patterns would drop. `undefined` keeps the default patterns unchanged;
-  `[]` means "ignore nothing", never a silent fallback to defaults. Overrides
+  patterns would drop. `undefined` selects the default layers: the
+  `fileFilter.shouldIgnorePath` guard PLUS (BST-1342) the background-indexing
+  policy's unconditional excluded-path prefixes (`.claude/worktrees`),
+  applied root-relatively and skipped entirely when the subscription root
+  itself sits inside an excluded tree. `[]` means "ignore nothing", never a
+  silent fallback to defaults. Overrides
   cannot reach the desktop `fs:watch` IPC domain: `StartFileSystemWatch`
   takes no `ignorePatterns`, and that domain deduplicates native
   subscriptions on `(ownerId, resolvedPath)` only. Any future caller that
