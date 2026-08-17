@@ -1,0 +1,371 @@
+name: Release
+
+# Desktop release pipeline (manifest-last contract: apps/site/RELEASES.md).
+#
+# Trigger with a stable tag `v<major>.<minor>.<patch>` that matches
+# apps/desktop/package.json's version, or workflow_dispatch for a dry run
+# (build + smoke + hash, no publish).
+#
+# Runner placement: Linux packaging runs on Ubicloud per the repo's cost
+# direction. Ubicloud offers Linux (x64/arm64) only, so the macOS and Windows
+# legs stay on GitHub-hosted runners — there is no Ubicloud option for them.
+# The Ubicloud runner contract test (scripts/__tests__/
+# ubicloud-runner-contract.test.mjs) deliberately constrains test.yml only.
+#
+# Publication ordering (deliberate, do not reorder):
+#   1. build + smoke-test + hash on every target OS
+#   2. upload immutable assets to the public releases repo
+#   3. verify every public URL answers
+#   4. generate manifest v2 from the actual upload records
+#   5. open a PR that lands the manifest in apps/site/public/ — the site's own
+#      test lane re-validates it with the production schema before merge
+# The site can never name an asset that is not already reachable.
+#
+# Code signing (drop-in, not yet configured): macOS signing + notarization
+# activates when these repo secrets exist — CSC_LINK (base64 .p12),
+# CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+# Until then CSC_IDENTITY_AUTO_DISCOVERY=false keeps builds deliberately
+# unsigned rather than half-signed. Windows Authenticode is a later addition
+# (Azure Trusted Signing) and ships unsigned for now.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  # Unsigned until signing secrets land; see header.
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  context:
+    name: Release context
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve and assert the authoritative version
+        id: resolve
+        run: |
+          PKG_VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            if [[ "${TAG}" != "v${PKG_VERSION}" ]]; then
+              echo "::error::Tag ${TAG} does not match apps/desktop/package.json version ${PKG_VERSION}. One authoritative version, no exceptions."
+              exit 1
+            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            TAG="v${PKG_VERSION}"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  build-macos:
+    name: Build macOS (arm64 + x64)
+    needs: [context]
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Build desktop dependency graph
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+
+      - name: Package DMGs
+        run: pnpm --filter @brainstrike/desktop run dist --mac dmg --arm64 --x64 --publish never
+
+      - name: Smoke-test packaged apps
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          cd apps/desktop/release
+          ls -la ./*.dmg
+          for ARCH in arm64 x64; do
+            DMG="Brainstrike-${VERSION}-${ARCH}.dmg"
+            [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
+            MOUNT=$(hdiutil attach "$DMG" -nobrowse -readonly | awk -F'\t' '/\/Volumes\//{print $NF; exit}')
+            APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' | head -1)
+            BIN="$APP/Contents/MacOS/$(defaults read "$APP/Contents/Info" CFBundleExecutable)"
+            lipo -archs "$BIN" | grep -q "${ARCH/x64/x86_64}" || { echo "::error::${DMG} binary is not ${ARCH}"; hdiutil detach "$MOUNT"; exit 1; }
+            if [[ "$ARCH" == "arm64" ]]; then
+              OUT=$("$BIN" --version 2>/dev/null | tail -1 || true)
+              echo "${DMG} --version => ${OUT}"
+              [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::${DMG} did not report version ${VERSION}"; hdiutil detach "$MOUNT"; exit 1; }
+            fi
+            hdiutil detach "$MOUNT"
+          done
+
+      - name: Record asset metadata
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          mkdir -p release-records
+          node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync, statSync, writeFileSync } = require("node:fs");
+            const version = process.argv[1];
+            const records = ["arm64", "x64"].map((arch) => {
+              const name = `Brainstrike-${version}-${arch}.dmg`;
+              const file = `apps/desktop/release/${name}`;
+              return {
+                name,
+                sizeBytes: statSync(file).size,
+                sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+                platform: "macos",
+                architecture: arch,
+                package: "dmg",
+              };
+            });
+            writeFileSync("release-records/macos.json", JSON.stringify(records, null, 2));
+            console.log(JSON.stringify(records, null, 2));
+          ' "$VERSION"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          path: |
+            apps/desktop/release/*.dmg
+            release-records/macos.json
+          retention-days: 3
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows (x64)
+    needs: [context]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+
+      - name: Build desktop dependency graph
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+
+      - name: Package NSIS installer
+        run: pnpm --filter @brainstrike/desktop run dist --win nsis --x64 --publish never
+
+      - name: Smoke-test installer
+        shell: pwsh
+        run: |
+          $Version = "${{ needs.context.outputs.version }}"
+          $Installer = "apps/desktop/release/Brainstrike-$Version-x64.exe"
+          if (-not (Test-Path $Installer)) { Write-Error "missing $Installer"; exit 1 }
+          $proc = Start-Process -FilePath (Resolve-Path $Installer) -ArgumentList "/S" -PassThru
+          if (-not $proc.WaitForExit(300000)) { Write-Error "silent install timed out"; exit 1 }
+          if ($proc.ExitCode -ne 0) { Write-Error "silent install exited $($proc.ExitCode)"; exit 1 }
+          $App = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Recurse -Filter "*.exe" |
+            Where-Object { $_.Name -match "BrainStrike|Brainstrike" } | Select-Object -First 1
+          if (-not $App) { Write-Error "installed executable not found under LOCALAPPDATA\Programs"; exit 1 }
+          Write-Host "installed app: $($App.FullName)"
+
+      - name: Record asset metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          mkdir -p release-records
+          node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync, statSync, writeFileSync } = require("node:fs");
+            const version = process.argv[1];
+            const name = `Brainstrike-${version}-x64.exe`;
+            const file = `apps/desktop/release/${name}`;
+            const records = [{
+              name,
+              sizeBytes: statSync(file).size,
+              sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+              platform: "windows",
+              architecture: "x64",
+              package: "nsis",
+            }];
+            writeFileSync("release-records/windows.json", JSON.stringify(records, null, 2));
+            console.log(JSON.stringify(records, null, 2));
+          ' "$VERSION"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: |
+            apps/desktop/release/*.exe
+            release-records/windows.json
+          retention-days: 3
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux (x64)
+    needs: [context]
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      - name: Build desktop dependency graph
+        run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
+
+      - name: Package AppImage
+        run: pnpm --filter @brainstrike/desktop run dist --linux AppImage --x64 --publish never
+
+      - name: Smoke-test AppImage
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          APPIMAGE="apps/desktop/release/Brainstrike-${VERSION}-x64.AppImage"
+          [[ -f "$APPIMAGE" ]] || { echo "::error::missing ${APPIMAGE}"; exit 1; }
+          chmod +x "$APPIMAGE"
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+          OUT=$(xvfb-run -a "$APPIMAGE" --appimage-extract-and-run --no-sandbox --version 2>/dev/null | tail -1 || true)
+          echo "AppImage --version => ${OUT}"
+          [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::AppImage did not report version ${VERSION}"; exit 1; }
+
+      - name: Record asset metadata
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.context.outputs.version }}"
+          mkdir -p release-records
+          node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync, statSync, writeFileSync } = require("node:fs");
+            const version = process.argv[1];
+            const name = `Brainstrike-${version}-x64.AppImage`;
+            const file = `apps/desktop/release/${name}`;
+            const records = [{
+              name,
+              sizeBytes: statSync(file).size,
+              sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+              platform: "linux",
+              architecture: "x64",
+              package: "appimage",
+            }];
+            writeFileSync("release-records/linux.json", JSON.stringify(records, null, 2));
+            console.log(JSON.stringify(records, null, 2));
+          ' "$VERSION"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            release-records/linux.json
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    name: Publish release + manifest PR
+    needs: [context, build-macos, build-windows, build-linux]
+    if: needs.context.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: staging
+
+      - name: Stage assets and checksums
+        id: stage
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          find staging -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) -exec mv {} assets/ \;
+          mkdir -p release-records
+          find staging -name '*.json' -path '*release-records*' -exec mv {} release-records/ \;
+          ls -la assets release-records
+          cd assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Create release in the public binaries repo
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.context.outputs.tag }}"
+          VERSION="${{ needs.context.outputs.version }}"
+          gh release create "$TAG" \
+            --repo seandearnaley/brainstrike-releases \
+            --title "Brainstrike ${VERSION}" \
+            --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (x64 AppImage); verify with SHA256SUMS. Source commit: ${GITHUB_SHA}." \
+            assets/*
+
+      - name: Verify every public asset URL
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.context.outputs.tag }}"
+          for FILE in assets/*; do
+            NAME=$(basename "$FILE")
+            URL="https://github.com/seandearnaley/brainstrike-releases/releases/download/${TAG}/${NAME}"
+            CODE=$(curl -sIL -o /dev/null -w '%{http_code}' "$URL")
+            echo "${CODE} ${URL}"
+            [[ "$CODE" == "200" ]] || { echo "::error::${URL} answered ${CODE}"; exit 1; }
+          done
+
+      - name: Generate manifest from upload records
+        run: |
+          node scripts/generate-release-manifest.mjs \
+            --tag "${{ needs.context.outputs.tag }}" \
+            --source-commit "${GITHUB_SHA}" \
+            --records-dir release-records
+          cat apps/site/public/release-manifest.json
+
+      - name: Open manifest PR (site test lane re-validates schema)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.context.outputs.tag }}"
+          BRANCH="release/manifest-${TAG}"
+          git config user.name "brainstrike-release-bot"
+          git config user.email "releases@brainstrike.ai"
+          git switch -c "$BRANCH"
+          git add apps/site/public/release-manifest.json
+          git commit \
+            -m "release: publish ${TAG} manifest" \
+            -m "Generated from verified upload records after all assets went live (manifest-last contract, apps/site/RELEASES.md)."
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "release: publish ${TAG} download manifest" \
+            --body "Manifest v2 for ${TAG}, generated from the verified upload records of https://github.com/seandearnaley/brainstrike-releases/releases/tag/${TAG}. Every asset URL was probed (HTTP 200) before this manifest was written. The site test lane validates this file with the production schema. Merging deploys the download chooser with live links." \
+            --base main \
+            --head "$BRANCH"

@@ -1,0 +1,27 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Windows/Linux app icon: full-bleed rounded square. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141816" />
+      <stop offset="0.55" stop-color="#0a0d0c" />
+      <stop offset="1" stop-color="#060807" />
+    </linearGradient>
+    <radialGradient id="glow" cx="0.32" cy="0.78" r="0.9">
+      <stop offset="0" stop-color="#ff5533" stop-opacity="0.14" />
+      <stop offset="0.5" stop-color="#ff5533" stop-opacity="0.04" />
+      <stop offset="1" stop-color="#ff5533" stop-opacity="0" />
+    </radialGradient>
+    <clipPath id="rsq">
+      <rect width="1024" height="1024" rx="128" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#rsq)">
+    <rect width="1024" height="1024" fill="url(#bg)" />
+    <rect width="1024" height="1024" fill="url(#glow)" />
+  </g>
+  <!-- Brand mark from apps/site/public/favicon.svg, 48-unit grid scaled 14.2x -->
+  <g transform="translate(171.2 171.2) scale(14.2)">
+    <path d="M35 6c-3-2-7-3-11-3C13 3 4 12 4 23c0 6 2 11 6 14l1 7h10" fill="none" stroke="#ff5533" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter" />
+    <path d="m29 4-15 23h11L20 44l16-25H25L34 5" fill="none" stroke="#fffdf2" stroke-width="3.4" stroke-linejoin="miter" />
+  </g>
+</svg>

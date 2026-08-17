@@ -4,6 +4,7 @@
   "build": {
     "appId": "com.brainstrike.desktop",
     "productName": "BrainStrike Desktop",
+    "artifactName": "Brainstrike-${version}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
