@@ -25,6 +25,16 @@ const isDev = nodeEnv !== 'production';
 const isTest = detectTestEnvironment();
 const shouldLog = isDev && !isTest;
 
+function isPersistEnvelope(value: unknown): value is { state: unknown; version?: number } {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'state' in value &&
+      (value as { state?: unknown }).state !== undefined
+  );
+}
+
 function isRehydratedFileExplorerState(
   state: FileExplorerState | undefined
 ): state is FileExplorerState {
@@ -73,10 +83,36 @@ export const createPersistOptions = (
     } catch (error) {
       // Ignore potential localStorage access errors in restricted environments
       if (shouldLog) {
-        logger.warn('Could not perform legacy settings migration:', error);
+        logger.warn('Could not perform legacy settings migration', {
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
       }
     }
   }
+
+  const persistedStorage = createStorageWrapper(
+    storageAdapter,
+    useWorker,
+    workerStorage,
+    shouldLog,
+    recordPersistedStateDiscard
+  ) as PersistStorage<SerializedState>;
+  const validatedPersistedStorage: PersistStorage<SerializedState> = {
+    ...persistedStorage,
+    getItem: async (name) => {
+      const envelope = await persistedStorage.getItem(name);
+      if (envelope === null || isPersistEnvelope(envelope)) {
+        return envelope;
+      }
+
+      recordPersistedStateDiscard();
+      if (shouldLog) {
+        logger.error('Persisted storage envelope missing state; clearing value', { name });
+      }
+      await persistedStorage.removeItem(name);
+      return null;
+    },
+  };
 
   return {
     merge: (persisted, current) => {
@@ -105,7 +141,9 @@ export const createPersistOptions = (
         return;
       }
       if (error) {
-        logger.warn('onRehydrateStorage - Storage rehydration failed:', error);
+        logger.warn('onRehydrateStorage - Storage rehydration failed', {
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
         return;
       }
       if (!isRehydratedFileExplorerState(state)) {
@@ -122,13 +160,7 @@ export const createPersistOptions = (
 
     partialize: (state) => createPersistedFileExplorerSnapshot(state).state,
 
-    storage: createStorageWrapper(
-      storageAdapter,
-      useWorker,
-      workerStorage,
-      shouldLog,
-      recordPersistedStateDiscard
-    ) as PersistStorage<SerializedState>,
+    storage: validatedPersistedStorage,
     version: FILE_EXPLORER_STORAGE_VERSION,
   };
 };

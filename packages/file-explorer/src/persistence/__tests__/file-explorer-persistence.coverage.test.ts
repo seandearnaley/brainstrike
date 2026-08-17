@@ -81,10 +81,9 @@ describe('file-explorer-persistence coverage', () => {
       setItem: async () => {},
     });
 
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      'Could not perform legacy settings migration:',
-      expect.any(Error)
-    );
+    expect(mockLogger.warn).toHaveBeenCalledWith('Could not perform legacy settings migration', {
+      errorName: 'Error',
+    });
   });
 
   it('logs rehydrate success and failure in dev browser mode', async () => {
@@ -116,8 +115,8 @@ describe('file-explorer-persistence coverage', () => {
       true
     );
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      'onRehydrateStorage - Storage rehydration failed:',
-      expect.any(Error)
+      'onRehydrateStorage - Storage rehydration failed',
+      { errorName: 'Error' }
     );
   });
 

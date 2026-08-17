@@ -45,8 +45,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+function isArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function hasArrayContainer(value: Record<string, unknown>, key: string): boolean {
+  return value[key] === undefined || isArray(value[key]);
+}
+
+function looksLikeSerializedFolderState(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    hasArrayContainer(value, 'excludeFilters') &&
+    hasArrayContainer(value, 'expandedDirectoryPaths') &&
+    hasArrayContainer(value, 'includeFilters') &&
+    hasArrayContainer(value, 'selectedFilePaths')
+  );
 }
 
 function looksLikeSerializedState(value: unknown): value is SerializedState {
@@ -60,10 +76,10 @@ function looksLikeSerializedState(value: unknown): value is SerializedState {
   return Boolean(
     (currentFolderId === null || typeof currentFolderId === 'string') &&
       isRecord(folderStates) &&
-      Object.values(folderStates).every(isRecord) &&
-      isStringArray(candidate['folderAccessOrder']) &&
-      isStringArray(candidate['selectedFilePaths']) &&
-      isStringArray(candidate['expandedDirectoryPaths'])
+      Object.values(folderStates).every(looksLikeSerializedFolderState) &&
+      isArray(candidate['folderAccessOrder']) &&
+      isArray(candidate['selectedFilePaths']) &&
+      isArray(candidate['expandedDirectoryPaths'])
   );
 }
 

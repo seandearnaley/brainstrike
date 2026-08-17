@@ -11,8 +11,14 @@ export type StorageOperationResult =
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const getErrorMetadata = (error: unknown, name: string): { errorName: string; name: string } => ({
+  errorName: error instanceof Error ? error.name : typeof error,
+  name,
+});
+
 async function getItemFromWorker(
   workerStorage: WorkerStorage,
+  storageAdapter: StorageAdapter,
   name: string,
   shouldLog: boolean,
   onDiscard?: () => void
@@ -27,7 +33,17 @@ async function getItemFromWorker(
     } catch {
       onDiscard?.();
       if (shouldLog) {
-        logger.error('Invalid JSON from worker storage; ignoring value', { name });
+        logger.error('Invalid JSON from worker storage; clearing value', { name });
+      }
+      try {
+        await storageAdapter.removeItem(name);
+      } catch (removeError) {
+        if (shouldLog) {
+          logger.error('Failed to remove invalid storage entry', {
+            errorName: removeError instanceof Error ? removeError.name : typeof removeError,
+            name,
+          });
+        }
       }
       return null;
     }
@@ -56,7 +72,10 @@ async function getItemFromStorage(
       await storageAdapter.removeItem(name);
     } catch (removeError) {
       if (shouldLog) {
-        logger.error('Failed to remove invalid storage entry', { error: removeError, name });
+        logger.error('Failed to remove invalid storage entry', {
+          errorName: removeError instanceof Error ? removeError.name : typeof removeError,
+          name,
+        });
       }
     }
     return null;
@@ -71,10 +90,13 @@ async function getItemWithWorkerFallback(
   onDiscard?: () => void
 ): Promise<unknown> {
   try {
-    return await getItemFromWorker(workerStorage, name, shouldLog, onDiscard);
+    return await getItemFromWorker(workerStorage, storageAdapter, name, shouldLog, onDiscard);
   } catch (error) {
     if (shouldLog) {
-      logger.error('Worker getItem failed, falling back to main thread:', error);
+      logger.error(
+        'Worker getItem failed, falling back to main thread',
+        getErrorMetadata(error, name)
+      );
     }
     return await getItemFromStorage(storageAdapter, name, shouldLog, onDiscard);
   }
@@ -90,7 +112,7 @@ async function getItemWithStorageOnly(
     return await getItemFromStorage(storageAdapter, name, shouldLog, onDiscard);
   } catch (error) {
     if (shouldLog) {
-      logger.error('Error getting item from storage:', error);
+      logger.error('Error getting item from storage', getErrorMetadata(error, name));
     }
     return null;
   }

@@ -49,10 +49,10 @@ describe('StorageWrapper', () => {
       const result = await wrapper.getItem('test-key');
 
       expect(result).toBeNull();
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Error getting item from storage:',
-        expect.any(Error)
-      );
+      expect(mockLogger.error).toHaveBeenCalledWith('Error getting item from storage', {
+        errorName: 'Error',
+        name: 'test-key',
+      });
     });
 
     it('should not log errors when storage fails and shouldLog=false', async () => {
@@ -108,8 +108,8 @@ describe('StorageWrapper', () => {
 
       expect(result).toEqual({ source: 'adapter' });
       expect(mockLogger.error).toHaveBeenCalledWith(
-        'Worker getItem failed, falling back to main thread:',
-        expect.any(Error)
+        'Worker getItem failed, falling back to main thread',
+        { errorName: 'Error', name: 'test-key' }
       );
     });
 
@@ -138,26 +138,31 @@ describe('StorageWrapper', () => {
       const result = await wrapper.getItem('bad-json');
 
       expect(result).toBeNull();
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Failed to remove invalid storage entry',
-        expect.objectContaining({ error: expect.any(Error), name: 'bad-json' })
-      );
+      expect(mockLogger.error).toHaveBeenCalledWith('Failed to remove invalid storage entry', {
+        errorName: 'Error',
+        name: 'bad-json',
+      });
     });
 
-    it('returns null for invalid worker JSON and logs the parse failure', async () => {
+    it('clears invalid worker JSON and reports the discard', async () => {
+      const onDiscard = vi.fn();
+      await mockStorage.setItem('bad-json', '{nope');
       vi.mocked(mockWorkerStorage.getItem).mockResolvedValueOnce('{nope');
       const wrapper = createStorageWrapper(
         mockStorage,
         true,
         mockWorkerStorage as WorkerStorage,
-        true
+        true,
+        onDiscard
       );
 
       const result = await wrapper.getItem('bad-json');
 
       expect(result).toBeNull();
+      expect(onDiscard).toHaveBeenCalledTimes(1);
+      expect(await mockStorage.getItem('bad-json')).toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith(
-        'Invalid JSON from worker storage; ignoring value',
+        'Invalid JSON from worker storage; clearing value',
         { name: 'bad-json' }
       );
     });
@@ -309,11 +314,10 @@ describe('StorageWrapper', () => {
       expect(setResult.success).toBe(false);
       expect(removeResult.success).toBe(false);
       expect(mockLogger.error).toHaveBeenCalledTimes(3);
-      expect(mockLogger.error).toHaveBeenNthCalledWith(
-        1,
-        'Error getting item from storage:',
-        expect.any(Error)
-      );
+      expect(mockLogger.error).toHaveBeenNthCalledWith(1, 'Error getting item from storage', {
+        errorName: 'Error',
+        name: 'test',
+      });
       expect(mockLogger.error).toHaveBeenNthCalledWith(
         2,
         'Error setting item in storage:',
@@ -345,10 +349,10 @@ describe('StorageWrapper', () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, true);
 
       await wrapper.getItem('test');
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Error getting item from storage:',
-        expect.any(Error)
-      );
+      expect(mockLogger.error).toHaveBeenCalledWith('Error getting item from storage', {
+        errorName: 'Error',
+        name: 'test',
+      });
 
       mockLogger.error.mockClear();
 
@@ -369,7 +373,7 @@ describe('StorageWrapper', () => {
       expect(removeResult.success).toBe(false);
     });
 
-    it('should pass the actual error object to logger', async () => {
+    it('should redact the actual read error object from logger metadata', async () => {
       const testError = new Error('Specific test error');
       const customErrorStorage: StorageAdapter = {
         clear: vi.fn().mockRejectedValue(testError),
@@ -382,7 +386,11 @@ describe('StorageWrapper', () => {
       const wrapper = createStorageWrapper(customErrorStorage, false, null, true);
 
       await wrapper.getItem('test');
-      expect(mockLogger.error).toHaveBeenCalledWith('Error getting item from storage:', testError);
+      expect(mockLogger.error).toHaveBeenCalledWith('Error getting item from storage', {
+        errorName: 'Error',
+        name: 'test',
+      });
+      expect(mockLogger.error).not.toHaveBeenCalledWith(expect.any(String), testError);
     });
   });
 });

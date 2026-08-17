@@ -97,6 +97,55 @@ describe('persisted explorer recovery notice', () => {
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
   });
 
+  it('records a discard notice when a malformed persist envelope is removed', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.setItem(
+      FILE_EXPLORER_STORAGE_KEY,
+      JSON.stringify({ version: FILE_EXPLORER_STORAGE_VERSION })
+    );
+
+    const store = await createHydratedStore(storage);
+
+    const recoveredRawValue = await storage.getItem(FILE_EXPLORER_STORAGE_KEY);
+    const recoveredEnvelope = JSON.parse(recoveredRawValue ?? 'null') as {
+      state?: unknown;
+      version?: number;
+    } | null;
+    expect(recoveredEnvelope).toMatchObject({
+      state: expect.any(Object),
+      version: FILE_EXPLORER_STORAGE_VERSION,
+    });
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
+  it('reports malformed nested folder selection containers', async () => {
+    const storage = new MemoryStorageAdapter();
+    await seedPersistedState(storage, {
+      ...validSerializedState,
+      folderStates: {
+        'folder-1': { selectedFilePaths: 'not-an-array' },
+      },
+    });
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().folderStates).toEqual({});
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
+  it('salvages valid string entries from top-level persisted arrays', async () => {
+    const storage = new MemoryStorageAdapter();
+    await seedPersistedState(storage, {
+      ...validSerializedState,
+      selectedFilePaths: ['src/index.ts', null],
+    });
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().selectedFilePaths).toEqual(new Set(['src/index.ts']));
+    expect(store.getState().persistenceRecoveryNotice).toBeNull();
+  });
+
   it('does not record a discard notice when no persisted state exists', async () => {
     const store = await createHydratedStore(new MemoryStorageAdapter());
 
