@@ -108,13 +108,31 @@ jobs:
           cd apps/desktop/release
           ls -la ./*.dmg
           for ARCH in arm64 x64; do
-            DMG="Brainstrike-${VERSION}-${ARCH}.dmg"
+            DMG="Brainstrike-${VERSION}-macos-${ARCH}.dmg"
             [[ -f "$DMG" ]] || { echo "::error::missing ${DMG}"; exit 1; }
             MOUNT=$(hdiutil attach "$DMG" -nobrowse -readonly | awk -F'\t' '/\/Volumes\//{print $NF; exit}')
             APP=$(find "$MOUNT" -maxdepth 1 -name '*.app' | head -1)
             BIN="$APP/Contents/MacOS/$(defaults read "$APP/Contents/Info" CFBundleExecutable)"
-            lipo -archs "$BIN" | grep -q "${ARCH/x64/x86_64}" || { echo "::error::${DMG} binary is not ${ARCH}"; hdiutil detach "$MOUNT"; exit 1; }
+            WANT="${ARCH/x64/x86_64}"
+            # The Electron shell binary matches the requested arch by
+            # construction (per-arch dist download). The real cross-arch risk
+            # on this arm64 runner is the npmRebuild-compiled native addons in
+            # an x64 DMG, so sweep every unpacked .node file too.
+            FAILED_ADDONS=0
+            for NODE_ADDON in "$BIN" $(find "$APP/Contents/Resources/app.asar.unpacked" -name '*.node' 2>/dev/null); do
+              if ! lipo -archs "$NODE_ADDON" | grep -q "$WANT"; then
+                echo "::error::${DMG}: $(basename "$NODE_ADDON") is not ${ARCH} (archs: $(lipo -archs "$NODE_ADDON"))"
+                FAILED_ADDONS=1
+              fi
+            done
+            if [[ "$FAILED_ADDONS" -ne 0 ]]; then
+              hdiutil detach "$MOUNT"
+              exit 1
+            fi
             if [[ "$ARCH" == "arm64" ]]; then
+              # main-bootstrap.ts handles --version explicitly (packaged
+              # Electron apps have no default handler) and exits before any
+              # GUI or host work.
               OUT=$("$BIN" --version 2>/dev/null | tail -1 || true)
               echo "${DMG} --version => ${OUT}"
               [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::${DMG} did not report version ${VERSION}"; hdiutil detach "$MOUNT"; exit 1; }
@@ -132,7 +150,7 @@ jobs:
             const { readFileSync, statSync, writeFileSync } = require("node:fs");
             const version = process.argv[1];
             const records = ["arm64", "x64"].map((arch) => {
-              const name = `Brainstrike-${version}-${arch}.dmg`;
+              const name = `Brainstrike-${version}-macos-${arch}.dmg`;
               const file = `apps/desktop/release/${name}`;
               return {
                 name,
@@ -168,6 +186,8 @@ jobs:
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
 
       - name: Build desktop dependency graph
         run: pnpm turbo run build --filter=@brainstrike/desktop... --concurrency=4
@@ -179,7 +199,7 @@ jobs:
         shell: pwsh
         run: |
           $Version = "${{ needs.context.outputs.version }}"
-          $Installer = "apps/desktop/release/Brainstrike-$Version-x64.exe"
+          $Installer = "apps/desktop/release/Brainstrike-$Version-windows-x64.exe"
           if (-not (Test-Path $Installer)) { Write-Error "missing $Installer"; exit 1 }
           $proc = Start-Process -FilePath (Resolve-Path $Installer) -ArgumentList "/S" -PassThru
           if (-not $proc.WaitForExit(300000)) { Write-Error "silent install timed out"; exit 1 }
@@ -199,7 +219,7 @@ jobs:
             const { createHash } = require("node:crypto");
             const { readFileSync, statSync, writeFileSync } = require("node:fs");
             const version = process.argv[1];
-            const name = `Brainstrike-${version}-x64.exe`;
+            const name = `Brainstrike-${version}-windows-x64.exe`;
             const file = `apps/desktop/release/${name}`;
             const records = [{
               name,
@@ -247,7 +267,11 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ needs.context.outputs.version }}"
-          APPIMAGE="apps/desktop/release/Brainstrike-${VERSION}-x64.AppImage"
+          # linux.artifactName pins the x64 literal: electron-builder's
+          # ${arch} macro rewrites x64 -> x86_64 for AppImage names
+          # (builder-util getArtifactArchName), which would break both this
+          # check and the record step.
+          APPIMAGE="apps/desktop/release/Brainstrike-${VERSION}-linux-x64.AppImage"
           [[ -f "$APPIMAGE" ]] || { echo "::error::missing ${APPIMAGE}"; exit 1; }
           chmod +x "$APPIMAGE"
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
@@ -264,7 +288,7 @@ jobs:
             const { createHash } = require("node:crypto");
             const { readFileSync, statSync, writeFileSync } = require("node:fs");
             const version = process.argv[1];
-            const name = `Brainstrike-${version}-x64.AppImage`;
+            const name = `Brainstrike-${version}-linux-x64.AppImage`;
             const file = `apps/desktop/release/${name}`;
             const records = [{
               name,
@@ -293,10 +317,22 @@ jobs:
     needs: [context, build-macos, build-windows, build-linux]
     if: needs.context.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
+      # ref: main — the manifest PR must branch from current main, not the tag
+      # commit. token: the PAT, because `git push` uses the credential checkout
+      # persists (the default GITHUB_TOKEN is contents:read here) and the
+      # PAT-pushed branch also gets CI, which GITHUB_TOKEN pushes do not.
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
 
       - name: Download build artifacts
         uses: actions/download-artifact@v7
@@ -309,12 +345,46 @@ jobs:
         id: stage
         run: |
           set -euo pipefail
-          mkdir -p assets
-          find staging -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) -exec mv {} assets/ \;
-          mkdir -p release-records
-          find staging -name '*.json' -path '*release-records*' -exec mv {} release-records/ \;
+          mkdir -p assets release-records
+          # -n: a filename collision across build artifacts must surface as a
+          # missing asset in the count below, never a silent overwrite.
+          find staging -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) -exec mv -n {} assets/ \;
+          find staging -name '*.json' -path '*release-records*' -exec mv -n {} release-records/ \;
           ls -la assets release-records
+          ASSET_COUNT=$(find assets -type f | wc -l)
+          [[ "$ASSET_COUNT" -eq 4 ]] || { echo "::error::expected 4 assets (2 DMG, 1 EXE, 1 AppImage), found ${ASSET_COUNT}"; exit 1; }
           cd assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Cross-check staged digests against build records
+        run: |
+          set -euo pipefail
+          # The manifest digests come from the build runners' records; the
+          # published SHA256SUMS comes from the staged files. They must agree,
+          # or an artifact was corrupted in the upload/download round-trip.
+          node -e '
+            const { readFileSync, readdirSync } = require("node:fs");
+            const sums = new Map(
+              readFileSync("assets/SHA256SUMS", "utf8")
+                .trim()
+                .split("\n")
+                .map((line) => {
+                  const [sha, name] = line.split(/\s+/);
+                  return [name, sha];
+                })
+            );
+            let failures = 0;
+            for (const file of readdirSync("release-records")) {
+              for (const record of JSON.parse(readFileSync(`release-records/${file}`, "utf8"))) {
+                const staged = sums.get(record.name);
+                if (staged !== record.sha256) {
+                  console.error(`::error::${record.name}: record sha256 ${record.sha256} != staged ${staged ?? "(missing)"}`);
+                  failures += 1;
+                }
+              }
+            }
+            if (failures > 0) { process.exit(1); }
+            console.log(`${sums.size - 1} assets cross-checked against build records.`);
+          '
 
       - name: Create release in the public binaries repo
         env:
@@ -323,11 +393,17 @@ jobs:
           set -euo pipefail
           TAG="${{ needs.context.outputs.tag }}"
           VERSION="${{ needs.context.outputs.version }}"
-          gh release create "$TAG" \
-            --repo seandearnaley/brainstrike-releases \
-            --title "Brainstrike ${VERSION}" \
-            --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (x64 AppImage); verify with SHA256SUMS. Source commit: ${GITHUB_SHA}." \
-            assets/*
+          # view-or-create + upload --clobber keeps this job resumable: any
+          # downstream step (URL probe, manifest PR) can fail on its own, and a
+          # re-run must retry rather than die on an existing release. Assets
+          # are immutable in content (cross-checked against build records
+          # above); re-uploading identical bytes is not a mutation.
+          gh release view "$TAG" --repo seandearnaley/brainstrike-releases >/dev/null 2>&1 \
+            || gh release create "$TAG" \
+              --repo seandearnaley/brainstrike-releases \
+              --title "Brainstrike ${VERSION}" \
+              --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (x64 AppImage); verify with SHA256SUMS. Source commit: ${GITHUB_SHA}."
+          gh release upload "$TAG" assets/* --repo seandearnaley/brainstrike-releases --clobber
 
       - name: Verify every public asset URL
         run: |
@@ -348,6 +424,13 @@ jobs:
             --source-commit "${GITHUB_SHA}" \
             --records-dir release-records
           cat apps/site/public/release-manifest.json
+
+      - name: Validate generated manifest with the site's production schema
+        # RELEASES.md step 7: validate BEFORE publishing the manifest. The
+        # generator's own checks are a convenience mirror; parseReleaseManifest
+        # is the authority, and running it here means the pipeline — not a
+        # human reviewing the manifest PR — catches schema drift.
+        run: pnpm --filter @brainstrike/site exec vitest run src/releases/public-manifest.test.ts
 
       - name: Open manifest PR (site test lane re-validates schema)
         env:

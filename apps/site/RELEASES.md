@@ -13,7 +13,9 @@ If cryptographic manifest authentication becomes a requirement, introduce a vers
 1. Choose a public binary-only release repository or public object store/CDN and a canonical website origin.
 2. Establish one authoritative desktop application version. Assert that the tag, packaged application metadata, manifest version, and source commit agree.
 3. Build on each target operating system. Emit only architectures the matrix actually built; never derive architecture claims from electron-builder package targets.
-4. Sign the final Windows installers. Sign and notarize the final macOS DMGs. Define the Linux signing/checksum policy. Fail the pipeline if required signing evidence is absent.
+4. Sign the final Windows installers. Sign and notarize the final macOS DMGs. Define the Linux signing/checksum policy. Once signing credentials are configured, fail the pipeline if required signing evidence is absent — never ship a half-signed matrix.
+
+   **Staged signing posture (settled 2026-08-17):** v0.1.x ships deliberately unsigned macOS and Windows builds while Apple Developer enrollment and Windows Authenticode are pending. This is an explicit, documented state — `CSC_IDENTITY_AUTO_DISCOVERY=false` in the release workflow prevents accidental half-signing, every asset publishes a SHA-256 digest, and the download surface must present the unsigned caveat honestly. macOS signing + notarization activates automatically when the signing secrets exist; the fail-on-absent-evidence rule above takes over from that point.
 5. Smoke-test each packaged application on its target OS, then calculate byte size and SHA-256 from the final signed artifact.
 6. Upload immutable, versioned assets first. Generate manifest v2 from the uploaded artifact records rather than handwritten filenames.
 7. Validate the generated manifest with the same schema used by the site, verify every public URL, then publish the manifest last. This ordering prevents the site from naming an asset that is not yet reachable.

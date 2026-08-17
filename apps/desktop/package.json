@@ -4,7 +4,6 @@
   "build": {
     "appId": "com.brainstrike.desktop",
     "productName": "BrainStrike Desktop",
-    "artifactName": "Brainstrike-${version}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
@@ -29,6 +28,7 @@
       "**/node_modules/vscode-languageserver-textdocument/**"
     ],
     "mac": {
+      "artifactName": "Brainstrike-${version}-macos-${arch}.${ext}",
       "category": "public.app-category.productivity",
       "target": "dmg",
       "icon": "build/icon.icns",
@@ -44,10 +44,12 @@
       ]
     },
     "win": {
+      "artifactName": "Brainstrike-${version}-windows-${arch}.${ext}",
       "target": "nsis",
       "icon": "build/icon.ico"
     },
     "linux": {
+      "artifactName": "Brainstrike-${version}-linux-x64.${ext}",
       "target": "AppImage",
       "icon": "build/icons"
     }
