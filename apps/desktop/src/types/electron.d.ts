@@ -341,6 +341,16 @@ declare global {
       reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
     };
     /**
+     * Env bootstrap visibility bridge (BST-1363). Shape defined ONCE in
+     * `@brainstrike/assistant-contract/env-bootstrap-bridge`
+     * (`EnvBootstrapBridge`); the preload-runtime contract test pins the
+     * exposed key set to `ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS`. Read-only
+     * and names-only: variable VALUES never cross this bridge. Absent on web
+     * — the settings section is gated on this bridge existing, never on an
+     * `isElectron()` check.
+     */
+    envBootstrap?: import('@brainstrike/assistant-contract/env-bootstrap-bridge').EnvBootstrapBridge;
+    /**
      * Desktop-only file-export save bridge. Absent on web (no preload) —
      * consumers MUST capability-check `window.fileExports` (which
      * `@brainstrike/utils`'s `downloadBlobFile` does; call sites should go

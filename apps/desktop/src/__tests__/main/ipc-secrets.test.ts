@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
@@ -96,16 +97,29 @@ describe('registerSecretsIpcHandlers', () => {
     clearTestModeSecrets();
   });
 
+  function skippedEnvBootstrapReport(): EnvBootstrapReport {
+    return {
+      appliedVariableCount: 0,
+      credentialVariablesPresent: [],
+      deprecatedVariablesInFiles: [],
+      failures: [],
+      loadedFiles: [],
+      nonCredentialVariablesPresent: [],
+      skipped: true,
+    };
+  }
+
   async function bootstrap(
     secretsService: SecretsServiceMock,
-    envFileFailures: readonly DesktopEnvLoadFailure[] = []
+    envFileFailures: readonly DesktopEnvLoadFailure[] = [],
+    readEnvBootstrapReport: () => EnvBootstrapReport = skippedEnvBootstrapReport
   ) {
     const { registerSecretsIpcHandlers } = await import('../../ipc-secrets');
     const { ipcMain } = await import('electron');
 
     registerSecretsIpcHandlers(
       secretsService as unknown as import('../../secrets').SecretsService,
-      { envFileFailures }
+      { envFileFailures, readEnvBootstrapReport }
     );
 
     const handleMock = ipcMain.handle as unknown as Mock<
@@ -474,6 +488,7 @@ describe('registerSecretsIpcHandlers', () => {
         ['secrets:list'],
         ['secrets:listStored'],
         ['secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN],
+        ['secrets:envBootstrap'],
       ];
 
       for (const [channel, ...args] of calls) {
@@ -491,6 +506,74 @@ describe('registerSecretsIpcHandlers', () => {
       expect(secretsService.clearAll).not.toHaveBeenCalled();
     }
   );
+
+  describe('env bootstrap projection channel (BST-1363)', () => {
+    const devReport: EnvBootstrapReport = {
+      appliedVariableCount: 2,
+      credentialVariablesPresent: ['BRAINSTRIKE_OPENAI_API_KEY'],
+      deprecatedVariablesInFiles: ['OPENAI_API_KEY'],
+      failures: [],
+      loadedFiles: [{ file: 'dev', path: '/app/root/.env' }],
+      nonCredentialVariablesPresent: ['AWS_REGION'],
+      skipped: false,
+    };
+
+    function secretsServiceStub(): SecretsServiceMock {
+      return {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn().mockResolvedValue([]),
+        saveKey: vi.fn(),
+      };
+    }
+
+    it('returns the recorded bootstrap projection without re-running env loading', async () => {
+      process.env['NODE_ENV'] = 'production';
+      const readEnvBootstrapReport = vi.fn(() => devReport);
+      const { getHandler } = await bootstrap(secretsServiceStub(), [], readEnvBootstrapReport);
+
+      const result = await getHandler('secrets:envBootstrap')?.(createInvokeEvent());
+
+      expect(result).toEqual(devReport);
+      expect(readEnvBootstrapReport).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-reads the projection on every invoke so a restart-fresh value is never cached', async () => {
+      process.env['NODE_ENV'] = 'production';
+      const readEnvBootstrapReport = vi.fn(() => devReport);
+      const { getHandler } = await bootstrap(secretsServiceStub(), [], readEnvBootstrapReport);
+
+      await getHandler('secrets:envBootstrap')?.(createInvokeEvent());
+      await getHandler('secrets:envBootstrap')?.(createInvokeEvent());
+
+      expect(readEnvBootstrapReport).toHaveBeenCalledTimes(2);
+    });
+
+    it('surfaces the projection even when env files failed to parse', async () => {
+      process.env['NODE_ENV'] = 'production';
+      const failureReport: EnvBootstrapReport = {
+        ...devReport,
+        appliedVariableCount: 0,
+        failures: [
+          {
+            code: 'env_file_invalid',
+            file: 'dev-local',
+            message:
+              'Desktop environment file "dev-local" is invalid at line 4: unsupported variable name.',
+            path: '/app/root/.env.local',
+          },
+        ],
+        loadedFiles: [],
+      };
+      const { getHandler } = await bootstrap(secretsServiceStub(), [], () => failureReport);
+
+      // `secrets:list` THROWS on env-file failures by design; this channel is
+      // the one that must still answer — it exists to explain the failure.
+      await expect(getHandler('secrets:envBootstrap')?.(createInvokeEvent())).resolves.toEqual(
+        failureReport
+      );
+    });
+  });
 
   describe('typed credential channels (BST-1348)', () => {
     const oauthCredential = {

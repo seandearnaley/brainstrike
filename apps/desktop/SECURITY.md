@@ -90,6 +90,36 @@ The application implements a comprehensive Content Security Policy that differs 
 - No sensitive data stored in plain text
 - Proper cleanup of temporary data
 
+## Env Bootstrap Visibility (BST-1363)
+
+The `secrets:envBootstrap` channel reports how desktop `.env` loading went so a
+silently-rejected file becomes repairable. It is a READ-ONLY projection with a
+hard payload rule.
+
+### Names only, never values
+- The payload carries variable NAMES, env-file PATHS, an applied-variable
+  count, and the loader's own parse-failure messages. It never carries a
+  variable's VALUE — nor a prefix, hash, or length of one.
+- This is structural, not a filter: the producer
+  (`src/desktop-env-report.ts`) intersects the allow-listed NAME sets with
+  mere PRESENCE in the process environment, reading a value only to ask "is
+  this non-blank?". No code path copies a value into the result, so there is
+  nothing to accidentally forget to redact.
+- Pinned by `src/__tests__/desktop-env-report.test.ts`, which seeds a
+  distinctive fake key value and asserts the serialized payload does not
+  contain it.
+- Paths are file locations, not file contents; they exist so the UI can reveal
+  a file the user must go edit.
+
+### Sender policy
+- Registers with the same fail-closed `{ roles: ['visible-ui'] }` policy as
+  every other secrets channel — hidden renderer hosts (llm/embedding/chunking)
+  and untracked senders are rejected before the handler runs, and the hidden
+  preload exposes no `envBootstrap` bridge (contract test).
+- The handler re-projects the RECORDED bootstrap result; it never re-runs env
+  file loading, so this channel cannot be used to make the main process read
+  files on renderer demand.
+
 ## Provider OAuth Subscription Auth (BST-1355)
 
 Governed by the signed legal gate `docs/OAUTH_LEGAL_REVIEW_GATE.md`; its 8

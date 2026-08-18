@@ -110,11 +110,21 @@ vi.mock('@brainstrike/ui', () => ({
   TableHeader: ({ children }: { children: React.ReactNode }) => <thead>{children}</thead>,
   TableRow: ({
     children,
+    className,
+    'data-highlighted': highlighted,
     'data-testid': testId,
+    ref,
   }: {
     children: React.ReactNode;
+    className?: string;
+    'data-highlighted'?: string;
     'data-testid'?: string;
-  }) => <tr data-testid={testId}>{children}</tr>,
+    ref?: React.Ref<HTMLTableRowElement>;
+  }) => (
+    <tr className={className} data-highlighted={highlighted} data-testid={testId} ref={ref}>
+      {children}
+    </tr>
+  ),
   TooltipIconButton: ({
     children,
     tooltip,

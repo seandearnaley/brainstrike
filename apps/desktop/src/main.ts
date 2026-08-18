@@ -66,6 +66,7 @@ import {
 } from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
+import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import {
@@ -1688,6 +1689,16 @@ if (singleInstanceLockAcquired) {
       const secretsService = createSecretsService();
       registerSecretsIpcHandlers(secretsService, {
         envFileFailures: desktopEnvLoadResult.failures,
+        // Projected per invoke from the RECORDED bootstrap result — loading is
+        // never re-run (initializeDesktopEnvironment throws on double-init).
+        readEnvBootstrapReport: () =>
+          buildDesktopEnvBootstrapReport({
+            appRoot: app.getAppPath(),
+            env: process.env,
+            isPackaged: app.isPackaged,
+            result: desktopEnvLoadResult,
+            userDataPath: app.getPath('userData'),
+          }),
       });
       // Provider OAuth engine (BST-1355). Descriptor registry ships EMPTY —
       // BST-1356 registers the first real provider. The browser opener is the

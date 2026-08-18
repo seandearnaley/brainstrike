@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DESKTOP_ENV_FILE_LABELS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import {
   listProviders,
   providerDeprecatedEnvKeys,
@@ -176,7 +177,7 @@ export function loadDesktopEnvironment({
     return emptyResult(true);
   }
 
-  const candidates = buildCandidates(appRoot, userDataPath, isPackaged);
+  const candidates = buildDesktopEnvCandidates(appRoot, userDataPath, isPackaged);
   const parsedCandidates: ParsedDesktopEnvCandidate[] = [];
   const failures: DesktopEnvLoadFailure[] = [];
 
@@ -261,7 +262,13 @@ function collectDeprecatedVariableNames(
   return [...names];
 }
 
-function buildCandidates(
+/**
+ * The candidate files for a launch mode, in load order. Exported as the SINGLE
+ * source of env-file paths: the BST-1363 settings projection maps recorded
+ * file ids back to paths through this same function, so a path shown in
+ * Settings can never drift from a path the loader actually read.
+ */
+export function buildDesktopEnvCandidates(
   appRoot: string,
   userDataPath: string,
   isPackaged: boolean
@@ -288,7 +295,10 @@ function readAndParseCandidate(
     return {
       code: 'env_file_unreadable',
       file: candidate.file,
-      message: `Desktop environment file "${candidate.file}" could not be read.`,
+      // Failure text names the FILE the user must open, not the loader's
+      // internal id — this message reaches Settings, the assistant status
+      // probe, and the secrets:list error verbatim.
+      message: `Desktop environment file "${DESKTOP_ENV_FILE_LABELS[candidate.file]}" could not be read.`,
     };
   }
 
@@ -306,7 +316,7 @@ function readAndParseCandidate(
     return {
       code: 'env_file_invalid',
       file: candidate.file,
-      message: `Desktop environment file "${candidate.file}" is invalid at line ${parseError.line}: ${parseError.message}`,
+      message: `Desktop environment file "${DESKTOP_ENV_FILE_LABELS[candidate.file]}" is invalid at line ${parseError.line}: ${parseError.message}`,
     };
   }
 }
