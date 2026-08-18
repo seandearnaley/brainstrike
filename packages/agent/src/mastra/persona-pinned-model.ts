@@ -14,6 +14,7 @@
 
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
+import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { apiKeyAuthInput, type ProviderAuthInput } from '../providers/provider-auth-input';
 import type { RuntimeData } from '../types';
@@ -67,6 +68,19 @@ export function createPersonaPinnedModelResolver(
 
     if (pin.provider === params.parentProvider) {
       return params.instantiate(pin.provider, params.auth, pin.modelId, params.runtime);
+    }
+
+    if (findProviderDefinition(pin.provider)?.authType === 'aws') {
+      // Cross-provider pin keys are bearer STRINGS (personaProviderApiKeys)
+      // with no region seat, so an aws-authType pin (Bedrock) cannot be
+      // built even when a bearer is mapped — a region-less api_key input
+      // would only fail later and less legibly in the factory. Personas
+      // cannot pin Bedrock until BST-1353/BST-1358 design region-carrying
+      // pins (PR #2522 review, finding 5). Same-provider pins above DO work:
+      // they reuse the parent's full aws auth input, region included.
+      throw new Error(
+        `pinned provider '${pin.provider}' uses AWS auth, which persona pins cannot carry a region for yet (BST-1353/BST-1358); persona '${persona.id}' is skipped`
+      );
     }
 
     const mappedKey = params.runtime?.personaProviderApiKeys?.[pin.provider];

@@ -15,6 +15,7 @@ import { MastraAgentError } from '../mastra/mastra-agent-error';
 import {
   MISSING_AWS_REGION_DETAIL,
   type ProviderAuthInput,
+  providerFetchOptions,
 } from '../providers/provider-auth-input';
 import {
   createEmbeddingProvider,
@@ -179,6 +180,52 @@ describe('createProvider bedrock case (BST-1350)', () => {
     );
   });
 
+  it('SECURITY: rejects regions that are not AWS region format (hostname injection)', () => {
+    // The region is interpolated into the request hostname
+    // (bedrock-runtime.<region>.amazonaws.com); a hostile region would ship
+    // the bearer + prompts to an attacker host. The typed error text stays
+    // STATIC — the hostile value is never echoed.
+    for (const region of [
+      'evil.example.com/',
+      'us-east-1.evil.example.com',
+      'us-east-1/',
+      'us-east-1#x',
+      ' us-east-1',
+      'us east 1',
+      'US-EAST-1',
+    ]) {
+      let thrown: unknown;
+      try {
+        createProvider(
+          'bedrock',
+          { apiKey: 'bearer', kind: 'aws', region },
+          'anthropic.claude-sonnet-5'
+        );
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(MastraAgentError);
+      expect((thrown as MastraAgentError).code).toBe('mastra_agent_runtime_init_failed');
+      expect((thrown as MastraAgentError).message).toContain('region');
+      expect((thrown as MastraAgentError).message).not.toContain('evil.example.com');
+    }
+  });
+
+  it('rejects a region-only aws input typed — no ambient SDK credential fallback (BST-1353)', () => {
+    // Phase 1 is bearer-only: without an apiKey the AI SDK would fall back to
+    // ambient AWS env credentials, which is BST-1353's explicit job — never
+    // an implicit behavior here.
+    expectTypedInitFailure(
+      () =>
+        createProvider(
+          'bedrock',
+          { kind: 'aws', region: 'us-east-1' },
+          'anthropic.claude-sonnet-5'
+        ),
+      'BST-1353'
+    );
+  });
+
   it('rejects custom_fetch auth input typed (no consumer on the bedrock case)', () => {
     expectTypedInitFailure(
       () =>
@@ -189,6 +236,24 @@ describe('createProvider bedrock case (BST-1350)', () => {
         ),
       'custom_fetch'
     );
+  });
+
+  it('providerFetchOptions projects the aws bearer ONLY for aws-authType providers', () => {
+    // Finding 9 (PR #2522 review): bedrock builds its SDK settings through
+    // the same providerFetchOptions seam as every other case, so a future
+    // fetch-carrying kind composes; a non-aws provider receiving an aws
+    // input still fails typed (never a silent bearer reuse).
+    expect(providerFetchOptions(AWS_AUTH, 'bedrock')).toEqual({
+      apiKey: 'test-bedrock-bearer',
+    });
+    let thrown: unknown;
+    try {
+      providerFetchOptions(AWS_AUTH, 'openai');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(MastraAgentError);
+    expect((thrown as MastraAgentError).message).toContain('aws');
   });
 
   it('is excluded from persistent memory (PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS)', () => {

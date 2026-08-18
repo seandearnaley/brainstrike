@@ -69,6 +69,23 @@ export class MalformedCredentialError extends Error {
   }
 }
 
+/**
+ * AWS region identifier format (BST-1350 review — SECURITY). The region is
+ * interpolated into the Bedrock request HOSTNAME
+ * (`bedrock-runtime.<region>.amazonaws.com`), so a value like
+ * `evil.example.com/` would redirect the bearer token and prompt content to
+ * an attacker-controlled host. Accept only the documented AWS region shape:
+ * lowercase geography words joined by hyphens ending in a number (covers
+ * `us-east-1`, `us-gov-west-1`, `ap-southeast-4`, `il-central-1`, …).
+ * Enforced here (stored credentials, both modes) AND at the factory auth
+ * input (`assertValidProviderAuthInput`) — never trimmed or coerced.
+ */
+export const AWS_REGION_PATTERN = /^[a-z]{2}(-[a-z]+)+-\d+$/;
+
+export function isValidAwsRegion(region: string): boolean {
+  return AWS_REGION_PATTERN.test(region);
+}
+
 function isStringRecord(value: unknown): value is Record<string, string> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
@@ -135,6 +152,7 @@ export function isAwsCredential(
   if (
     candidate.type !== 'aws' ||
     typeof candidate.region !== 'string' ||
+    !isValidAwsRegion(candidate.region) ||
     !(candidate.metadata === undefined || isStringRecord(candidate.metadata))
   ) {
     return false;

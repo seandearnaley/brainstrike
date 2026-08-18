@@ -22,6 +22,8 @@
  * enter RuntimeData or a Mastra RequestContext — RequestContext.toJSON drops
  * functions, so a fetch closure would vanish silently.
  */
+import { isValidAwsRegion } from '@brainstrike/assistant-contract';
+import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 
 /**
@@ -31,6 +33,24 @@ import { createMastraAgentError } from '../mastra/mastra-agent-error';
  */
 export const MISSING_AWS_REGION_DETAIL =
   'Amazon Bedrock requires an AWS region and none was resolved. Configure an AWS region for Bedrock in Settings (stored with the key), or set AWS_REGION when using an environment bearer key.';
+
+/**
+ * SECURITY (PR #2522 review, finding 1): the region is interpolated into the
+ * Bedrock request hostname, so a non-region value (e.g. `evil.example.com/`)
+ * would exfiltrate the bearer token and prompt content. The message stays
+ * STATIC — the (attacker-controllable) value is never echoed.
+ */
+export const INVALID_AWS_REGION_DETAIL =
+  'The configured AWS region is not a valid AWS region identifier (expected a value like "us-east-1"). Fix the region for Bedrock in Settings or in AWS_REGION.';
+
+/**
+ * Phase-1 bearer requirement (PR #2522 review, finding 4): without an apiKey
+ * the AI SDK would fall back to ambient AWS environment credentials —
+ * profile/credential-chain auth is BST-1353's EXPLICIT job, never an
+ * implicit fallback here.
+ */
+export const MISSING_AWS_BEARER_KEY_DETAIL =
+  'Amazon Bedrock requires a Bedrock API key (bearer token) in phase 1. AWS profile/credential-chain auth is not supported yet (BST-1353).';
 
 export type ProviderAuthInput =
   | { kind: 'api_key'; apiKey: string }
@@ -63,6 +83,12 @@ export function assertValidProviderAuthInput(auth: ProviderAuthInput | undefined
           detail: MISSING_AWS_REGION_DETAIL,
         });
       }
+      if (!isValidAwsRegion(auth.region)) {
+        throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+          context: { authKind: 'aws' },
+          detail: INVALID_AWS_REGION_DETAIL,
+        });
+      }
       return;
     default:
       assertNeverAuthInput(auth);
@@ -77,8 +103,11 @@ export interface ProviderFetchOptions {
 /**
  * Project an auth input onto the AI SDK `create*` factory options
  * (`{ apiKey?, fetch? }`). Generic on purpose: ANY provider case built on an
- * AI SDK factory consumes this helper unchanged. `aws` has no bearer/fetch
- * projection — it throws typed until BST-1350/BST-1353 add a consumer.
+ * AI SDK factory consumes this helper unchanged. `aws` projects its bearer
+ * key ONLY for providers whose registry authType is `'aws'` (bedrock,
+ * BST-1350) — on any other provider it throws typed, because silently
+ * reusing a Bedrock bearer as e.g. an OpenAI api key would be a credential
+ * confusion, not a projection.
  */
 export function providerFetchOptions(
   auth: ProviderAuthInput | undefined,
@@ -95,9 +124,12 @@ export function providerFetchOptions(
     case 'custom_fetch':
       return { apiKey: auth.apiKey, fetch: auth.fetch };
     case 'aws':
+      if (findProviderDefinition(provider)?.authType === 'aws') {
+        return auth.apiKey ? { apiKey: auth.apiKey } : {};
+      }
       throw createMastraAgentError('mastra_agent_runtime_init_failed', {
         context: { authKind: 'aws', provider },
-        detail: `Provider "${provider}" does not consume aws auth input yet (BST-1350/BST-1353).`,
+        detail: `Only aws-authType providers consume aws auth input (BST-1350); provider "${provider}" cannot.`,
       });
     default:
       return assertNeverAuthInput(auth);
@@ -129,7 +161,7 @@ export function bearerApiKeyOnly(
     case 'aws':
       throw createMastraAgentError('mastra_agent_runtime_init_failed', {
         context: { authKind: 'aws', provider },
-        detail: `Provider "${provider}" does not consume aws auth input yet (BST-1350/BST-1353).`,
+        detail: `Provider "${provider}" is not an aws-authType provider and cannot consume aws auth input (BST-1350).`,
       });
     default:
       return assertNeverAuthInput(auth);

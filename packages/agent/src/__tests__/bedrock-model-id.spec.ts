@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { resolveBedrockModelId } from '../providers/bedrock-model-id';
 
 /**
- * BST-1350: cross-region inference-profile prefixing, ported from opencode's
- * `resolveModelID` (packages/core/src/plugin/provider/amazon-bedrock.ts) and
- * its test expectations. The table is deliberately NARROW — models/regions
- * outside it pass through unprefixed, and an already-prefixed id is NEVER
+ * BST-1350 (revised per PR #2522 review, finding 2/3): cross-region
+ * inference-profile prefixing is derived from models.dev GROUND TRUTH
+ * (amazon-bedrock provider, retrieved 2026-08-18) — a prefix is emitted only
+ * when models.dev lists that exact regional profile id. When no regional
+ * profile exists for a model+region, the id passes through UNPREFIXED and
+ * Bedrock itself reports the routing outcome. Already-prefixed ids are NEVER
  * double-prefixed.
  */
 describe('resolveBedrockModelId', () => {
@@ -28,51 +30,44 @@ describe('resolveBedrockModelId', () => {
   });
 
   describe('us regions', () => {
-    const prefixRequired = [
-      'amazon.nova-micro-v1:0',
-      'amazon.nova-lite-v1:0',
-      'amazon.nova-pro-v1:0',
-      'amazon.nova-premier-v1:0',
-      'anthropic.claude-sonnet-5',
+    const usProfileIds = [
       'anthropic.claude-fable-5',
-      'deepseek.v3.2',
+      'anthropic.claude-opus-4-8',
+      'anthropic.claude-sonnet-5',
+      'anthropic.claude-sonnet-4-6',
+      'anthropic.claude-haiku-4-5-20251001-v1:0',
+      'deepseek.r1-v1:0',
+      'meta.llama4-maverick-17b-instruct-v1:0',
+      'meta.llama4-scout-17b-instruct-v1:0',
     ];
-    it('prefixes the nova/claude/deepseek families with us.', () => {
-      expect(resolveBedrockModelId('amazon.nova-micro-v1:0', 'us-east-1')).toBe(
-        'us.amazon.nova-micro-v1:0'
-      );
-      expect(resolveBedrockModelId('amazon.nova-lite-v1:0', 'us-west-2')).toBe(
-        'us.amazon.nova-lite-v1:0'
-      );
-      expect(resolveBedrockModelId('amazon.nova-pro-v1:0', 'us-east-2')).toBe(
-        'us.amazon.nova-pro-v1:0'
-      );
-      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'us-east-1')).toBe(
-        'us.anthropic.claude-sonnet-5'
-      );
-      expect(resolveBedrockModelId('deepseek.v3.2', 'us-east-1')).toBe('us.deepseek.v3.2');
+
+    it('prefixes exactly the models with a us. profile (claude, deepseek r1, llama4)', () => {
+      for (const id of usProfileIds) {
+        expect(resolveBedrockModelId(id, 'us-east-1')).toBe(`us.${id}`);
+        expect(resolveBedrockModelId(id, 'us-west-2')).toBe(`us.${id}`);
+      }
     });
 
-    it('prefixes nova-premier and nova-2 substrings', () => {
-      expect(resolveBedrockModelId('amazon.nova-premier-v1:0', 'us-east-1')).toBe(
-        'us.amazon.nova-premier-v1:0'
+    it('leaves models WITHOUT a us. profile unprefixed (nova, deepseek v3.2)', () => {
+      // models.dev lists NO us.amazon.nova-* and no us.deepseek.v3.2 —
+      // the previously shipped substring table over-prefixed both families.
+      expect(resolveBedrockModelId('amazon.nova-pro-v1:0', 'us-east-1')).toBe(
+        'amazon.nova-pro-v1:0'
       );
-      expect(resolveBedrockModelId('amazon.nova-2-lite-v1:0', 'us-east-1')).toBe(
-        'us.amazon.nova-2-lite-v1:0'
+      expect(resolveBedrockModelId('amazon.nova-lite-v1:0', 'us-east-1')).toBe(
+        'amazon.nova-lite-v1:0'
       );
-    });
-
-    it('leaves models outside the table unprefixed', () => {
-      expect(resolveBedrockModelId('meta.llama4-maverick-17b-instruct-v1:0', 'us-east-1')).toBe(
-        'meta.llama4-maverick-17b-instruct-v1:0'
+      expect(resolveBedrockModelId('amazon.nova-micro-v1:0', 'us-west-2')).toBe(
+        'amazon.nova-micro-v1:0'
       );
+      expect(resolveBedrockModelId('deepseek.v3.2', 'us-east-1')).toBe('deepseek.v3.2');
       expect(resolveBedrockModelId('cohere.command-r-plus-v1:0', 'us-east-1')).toBe(
         'cohere.command-r-plus-v1:0'
       );
     });
 
     it('excludes us-gov regions from the us. prefix', () => {
-      for (const id of prefixRequired) {
+      for (const id of usProfileIds) {
         expect(resolveBedrockModelId(id, 'us-gov-west-1')).toBe(id);
         expect(resolveBedrockModelId(id, 'us-gov-east-1')).toBe(id);
       }
@@ -80,7 +75,7 @@ describe('resolveBedrockModelId', () => {
   });
 
   describe('eu regions', () => {
-    it('prefixes claude/nova-lite/nova-micro/llama3/pixtral in listed eu regions', () => {
+    it('prefixes the claude family (the only eu.-profiled family) in listed eu regions', () => {
       for (const region of [
         'eu-west-1',
         'eu-west-2',
@@ -94,77 +89,102 @@ describe('resolveBedrockModelId', () => {
           'eu.anthropic.claude-sonnet-5'
         );
       }
+      expect(resolveBedrockModelId('anthropic.claude-fable-5', 'eu-west-1')).toBe(
+        'eu.anthropic.claude-fable-5'
+      );
+      expect(
+        resolveBedrockModelId('anthropic.claude-haiku-4-5-20251001-v1:0', 'eu-central-1')
+      ).toBe('eu.anthropic.claude-haiku-4-5-20251001-v1:0');
+    });
+
+    it('leaves non-claude models unprefixed in eu (models.dev lists no eu. profiles for them)', () => {
+      // The opencode-era table prefixed nova-lite/micro, llama3, and pixtral
+      // in eu; models.dev lists no such eu. profiles today.
       expect(resolveBedrockModelId('amazon.nova-lite-v1:0', 'eu-west-1')).toBe(
-        'eu.amazon.nova-lite-v1:0'
+        'amazon.nova-lite-v1:0'
       );
       expect(resolveBedrockModelId('amazon.nova-micro-v1:0', 'eu-central-1')).toBe(
-        'eu.amazon.nova-micro-v1:0'
+        'amazon.nova-micro-v1:0'
       );
       expect(resolveBedrockModelId('meta.llama3-1-70b-instruct-v1:0', 'eu-west-2')).toBe(
-        'eu.meta.llama3-1-70b-instruct-v1:0'
+        'meta.llama3-1-70b-instruct-v1:0'
       );
       expect(resolveBedrockModelId('mistral.pixtral-large-2502-v1:0', 'eu-north-1')).toBe(
-        'eu.mistral.pixtral-large-2502-v1:0'
+        'mistral.pixtral-large-2502-v1:0'
       );
     });
 
-    it('leaves other models and unlisted eu regions unprefixed', () => {
-      // nova-pro is NOT in the eu table (unlike the us/apac tables).
-      expect(resolveBedrockModelId('amazon.nova-pro-v1:0', 'eu-west-1')).toBe(
-        'amazon.nova-pro-v1:0'
-      );
-      // eu-central-2 is not in the listed eu region set.
+    it('leaves unlisted eu regions unprefixed', () => {
       expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'eu-central-2')).toBe(
         'anthropic.claude-sonnet-5'
-      );
-      // llama4 does not match the llama3 substring.
-      expect(resolveBedrockModelId('meta.llama4-scout-17b-instruct-v1:0', 'eu-west-1')).toBe(
-        'meta.llama4-scout-17b-instruct-v1:0'
       );
     });
   });
 
-  describe('ap regions', () => {
-    it('routes ap-southeast-2/4 claude-sonnet-4-5 and claude-haiku to au.', () => {
-      expect(
-        resolveBedrockModelId('anthropic.claude-sonnet-4-5-20250929-v1:0', 'ap-southeast-2')
-      ).toBe('au.anthropic.claude-sonnet-4-5-20250929-v1:0');
-      expect(
-        resolveBedrockModelId('anthropic.claude-haiku-4-5-20251001-v1:0', 'ap-southeast-4')
-      ).toBe('au.anthropic.claude-haiku-4-5-20251001-v1:0');
+  describe('au regions (ap-southeast-2/4)', () => {
+    it('prefixes the claude models that HAVE au. profiles', () => {
+      for (const id of [
+        'anthropic.claude-sonnet-5',
+        'anthropic.claude-sonnet-4-6',
+        'anthropic.claude-opus-4-8',
+        'anthropic.claude-haiku-4-5-20251001-v1:0',
+      ]) {
+        expect(resolveBedrockModelId(id, 'ap-southeast-2')).toBe(`au.${id}`);
+        expect(resolveBedrockModelId(id, 'ap-southeast-4')).toBe(`au.${id}`);
+      }
     });
 
-    it('routes other au-region claude models through the apac table (opencode parity)', () => {
-      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'ap-southeast-2')).toBe(
-        'apac.anthropic.claude-sonnet-5'
+    it('leaves fable-5 unprefixed in au — models.dev lists no au./apac. profile for it', () => {
+      expect(resolveBedrockModelId('anthropic.claude-fable-5', 'ap-southeast-2')).toBe(
+        'anthropic.claude-fable-5'
       );
     });
 
-    it('uses jp. for ap-northeast-1 and apac. elsewhere', () => {
-      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'ap-northeast-1')).toBe(
-        'jp.anthropic.claude-sonnet-5'
+    it('leaves nova unprefixed in au', () => {
+      expect(resolveBedrockModelId('amazon.nova-pro-v1:0', 'ap-southeast-2')).toBe(
+        'amazon.nova-pro-v1:0'
       );
-      expect(resolveBedrockModelId('amazon.nova-pro-v1:0', 'ap-south-1')).toBe(
-        'apac.amazon.nova-pro-v1:0'
+    });
+  });
+
+  describe('jp region (ap-northeast-1)', () => {
+    it('prefixes the claude models that HAVE jp. profiles', () => {
+      for (const id of [
+        'anthropic.claude-sonnet-5',
+        'anthropic.claude-sonnet-4-6',
+        'anthropic.claude-opus-4-8',
+        'anthropic.claude-haiku-4-5-20251001-v1:0',
+      ]) {
+        expect(resolveBedrockModelId(id, 'ap-northeast-1')).toBe(`jp.${id}`);
+      }
+    });
+
+    it('leaves fable-5 and nova unprefixed in jp', () => {
+      expect(resolveBedrockModelId('anthropic.claude-fable-5', 'ap-northeast-1')).toBe(
+        'anthropic.claude-fable-5'
+      );
+      expect(resolveBedrockModelId('amazon.nova-pro-v1:0', 'ap-northeast-1')).toBe(
+        'amazon.nova-pro-v1:0'
+      );
+    });
+  });
+
+  describe('other ap regions', () => {
+    it('never emits apac. — models.dev lists no apac. profiles at all today', () => {
+      expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'ap-south-1')).toBe(
+        'anthropic.claude-sonnet-5'
       );
       expect(resolveBedrockModelId('amazon.nova-lite-v1:0', 'ap-southeast-1')).toBe(
-        'apac.amazon.nova-lite-v1:0'
+        'amazon.nova-lite-v1:0'
       );
       expect(resolveBedrockModelId('amazon.nova-micro-v1:0', 'ap-northeast-2')).toBe(
-        'apac.amazon.nova-micro-v1:0'
+        'amazon.nova-micro-v1:0'
       );
-    });
-
-    it('leaves models outside the apac table unprefixed', () => {
-      expect(resolveBedrockModelId('deepseek.v3.2', 'ap-south-1')).toBe('deepseek.v3.2');
-      expect(
-        resolveBedrockModelId('meta.llama4-maverick-17b-instruct-v1:0', 'ap-northeast-1')
-      ).toBe('meta.llama4-maverick-17b-instruct-v1:0');
     });
   });
 
   describe('other regions', () => {
-    it('never prefixes outside us/eu/ap', () => {
+    it('never prefixes outside the mapped groups', () => {
       expect(resolveBedrockModelId('anthropic.claude-sonnet-5', 'ca-central-1')).toBe(
         'anthropic.claude-sonnet-5'
       );

@@ -25,6 +25,7 @@ import {
   apiKeyAuthInput,
   assertValidProviderAuthInput,
   bearerApiKeyOnly,
+  MISSING_AWS_BEARER_KEY_DETAIL,
   type ProviderAuthInput,
   type ProviderFetchOptions,
   providerFetchOptions,
@@ -216,11 +217,21 @@ export function createProvider(
       // BST-1350 phase 1: bearer-key ("Bedrock API key") auth only. The aws
       // auth input is REQUIRED — a bearer key alone (api_key kind) or absent
       // auth carries no region, and region is mandatory (typed failure, never
-      // a silent default). SigV4/profile-chain credentialProvider support
-      // lands with BST-1353.
+      // a silent default). The bearer itself is mandatory too: without it the
+      // AI SDK would fall back to AMBIENT AWS environment credentials, and
+      // profile/credential-chain auth is BST-1353's explicit job.
       const awsAuth = requireAwsAuthInput(auth, validatedProvider);
+      if (!awsAuth.apiKey) {
+        throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+          context: { authKind: 'aws', provider: validatedProvider },
+          detail: MISSING_AWS_BEARER_KEY_DETAIL,
+        });
+      }
+      // SDK settings ride the SAME providerFetchOptions seam as every other
+      // AI SDK factory case (PR #2522 review, finding 9) — a future
+      // fetch-carrying auth kind composes without a bespoke branch here.
       const bedrockProvider = createAmazonBedrock({
-        ...(awsAuth.apiKey ? { apiKey: awsAuth.apiKey } : {}),
+        ...providerFetchOptions(awsAuth, validatedProvider),
         region: awsAuth.region,
       });
       // The catalog stores UNPREFIXED Bedrock model ids; the cross-region

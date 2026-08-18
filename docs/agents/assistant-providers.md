@@ -1190,6 +1190,38 @@ SigV4 / profile-chain auth lands with BST-1353.
   SecretReadError-shaped, and a missing region is a CONFIG failure, so it
   rides to the factory's actionable typed error instead of a misclassified
   secret failure.
+- **Region FORMAT is SECURITY-enforced (PR #2522 review, finding 1).** The
+  region is interpolated into the request hostname
+  (`bedrock-runtime.<region>.amazonaws.com`), so a hostile "region" such as
+  `evil.example.com/` exfiltrates the bearer token and prompt content. The
+  shared `AWS_REGION_PATTERN` / `isValidAwsRegion`
+  (assistant-contract provider-credential.ts) is enforced in BOTH layers:
+  `isAwsCredential` (stored credentials, both modes — a bad region is
+  `malformed_credential`, never coerced) and `assertValidProviderAuthInput`
+  (`INVALID_AWS_REGION_DETAIL`, static text that never echoes the value).
+- **The bearer key is REQUIRED in phase 1 (finding 4).** A region-only aws
+  input throws `MISSING_AWS_BEARER_KEY_DETAIL` — without it the AI SDK would
+  fall back to ambient AWS environment credentials, and profile/
+  credential-chain auth is BST-1353's explicit, opt-in job.
+- **Persona pins cannot target Bedrock cross-provider (finding 5).**
+  `personaProviderApiKeys` carries bearer STRINGS with no region seat, so
+  `createPersonaPinnedModelResolver` throws the pin-unresolvable path naming
+  BST-1353/BST-1358 for any aws-authType pin (skip-with-warn upstream).
+  SAME-provider pins work: they reuse the parent's full aws auth input.
+- **NO prompt caching yet (finding 7 — BST-1354).** Anthropic-direct requests
+  ride `wrapAnthropicModelWithPromptCaching`; the Bedrock route does NOT, so
+  Claude-on-Bedrock agentic runs re-pay the full prompt as uncached input
+  every step — up to ~10x input cost versus the cached direct route. BST-1354
+  owns the Bedrock cache-breakpoint wrapper; do not bolt it on ad hoc here.
+- **DB catalog enablement (finding 8).** Migration 100 seeds the provider row
+  and every model row `is_enabled = false` — the same shape as the
+  openrouter seed. Enablement comes from `useBedrockDefaults`
+  (packages/app-shell), which mirrors `useOpenRouterDefaults`: on the first
+  readable bedrock configuration it enables `BEDROCK_RECOMMENDED_MODEL_IDS`
+  (assistant-contract) through the idempotent, user-choice-preserving
+  `initializeProviderModelDefaults`. Keep the two hooks parallel; the panel
+  wrapper consumes them through the ONE composed seam
+  `useProviderModelDefaults` (wrapper composition budget).
 - **Credential projection** (`providerAuthInputFromCredential`): on an
   aws-auth provider an `api_key` credential (env bearer) and an aws/bearer
   credential both project to `{ kind: 'aws', region, apiKey }`;
@@ -1197,11 +1229,15 @@ SigV4 / profile-chain auth lands with BST-1353.
   `credential_type_unsupported` with a static BST-1353 pointer; an aws
   credential stored for a NON-aws provider throws too.
 - **Model ids are stored UNPREFIXED** (registry + DB catalog, migration
-  100). The cross-region inference-profile prefix (`us.`/`eu.`/`jp.`/
-  `apac.`/`au.`; `global.` passes through) is applied per request by
-  `packages/agent/src/providers/bedrock-model-id.ts` — a deliberately
-  narrow table ported from opencode, never double-prefixing and excluding
-  `us-gov*`.
+  100). The cross-region inference-profile prefix (`us.`/`eu.`/`jp.`/`au.`;
+  `global.`/`apac.` pass through if already present) is applied per request
+  by `packages/agent/src/providers/bedrock-model-id.ts`. Since the PR #2522
+  review (finding 2/3) the tables are EXACT profile-id sets derived from
+  models.dev ground truth (dated in the module header) — a prefix is emitted
+  only when models.dev lists that regional profile; otherwise the id is sent
+  verbatim and Bedrock reports the outcome. Never double-prefixes; `us-gov*`
+  excluded; no `apac.` profiles exist today. Refresh procedure lives in the
+  module header.
 - **Exclusions:** no embeddings (`createEmbeddingProvider` throws), not a
   persistent-memory provider (`PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`),
   no reasoning controls yet (`resolveReasoningControlsAvailability`), and
@@ -1214,11 +1250,16 @@ SigV4 / profile-chain auth lands with BST-1353.
   non-credential file name.
 
 Pinned by `packages/agent/src/__tests__/provider-factory.bedrock.spec.ts` +
-`bedrock-model-id.spec.ts`,
+`bedrock-model-id.spec.ts`, the aws-pin cases in
+`packages/agent/src/mastra/__tests__/persona-pinned-model.spec.ts`, the
+region-format cases in
+`packages/assistant-contract/src/__tests__/provider-credential.test.ts` +
+`bedrock-defaults.test.ts`,
 `packages/assistant-service/src/__tests__/provider-credential-projection.test.ts`
-+ the BST-1350 blocks in `request.test.ts`, the aws block in
-`packages/settings-ui/.../__tests__/api-keys-settings.test.tsx`, and the
-BST-1350 pins in `apps/desktop/src/__tests__/main/desktop-env.test.ts`.
++ the BST-1350 blocks in `request.test.ts`,
+`packages/app-shell/src/hooks/use-bedrock-model-defaults.test.tsx`, the aws
+block in `packages/settings-ui/.../__tests__/api-keys-settings.test.tsx`, and
+the BST-1350 pins in `apps/desktop/src/__tests__/main/desktop-env.test.ts`.
 
 ---
 

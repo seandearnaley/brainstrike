@@ -141,8 +141,8 @@ import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
-import { useOpenRouterDefaults } from './hooks/use-openrouter-model-defaults';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
+import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
@@ -255,7 +255,7 @@ export function AssistantUiPanelWrapper({
   const dbError = useDbProviderError();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
 
-  useOpenRouterDefaults(
+  useProviderModelDefaults(
     configuredProviders,
     db,
     secretsVersion,

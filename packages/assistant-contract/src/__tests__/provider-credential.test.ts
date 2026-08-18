@@ -193,6 +193,52 @@ describe('parseStoredCredential — hard failures (tagged but unrecognizable, ne
     expectMalformed('{"type":"aws","mode":"profile_chain","region":"us-east-1","profile":[]}');
   });
 
+  it('SECURITY: throws for aws regions that are not AWS region format (BST-1350 review)', () => {
+    // The region flows into the Bedrock request HOSTNAME
+    // (bedrock-runtime.<region>.amazonaws.com). A hostile "region" like
+    // `evil.example.com/` redirects the bearer token and prompts to an
+    // attacker host, so the stored credential guard rejects anything that is
+    // not a plain AWS region identifier — in BOTH modes.
+    const hostileRegions = [
+      'evil.example.com/',
+      'us-east-1.evil.example.com',
+      'us-east-1/',
+      'us-east-1#',
+      ' us-east-1',
+      'us-east-1 ',
+      'us east 1',
+      'US-EAST-1',
+      '',
+      'useast1',
+      'us-',
+    ];
+    for (const region of hostileRegions) {
+      expectMalformed(JSON.stringify({ bearerKey: 'k', mode: 'bearer', region, type: 'aws' }));
+      expectMalformed(JSON.stringify({ mode: 'profile_chain', region, type: 'aws' }));
+    }
+  });
+
+  it('accepts every real AWS region shape (incl. us-gov and two-word geographies)', () => {
+    for (const region of [
+      'us-east-1',
+      'us-west-2',
+      'us-gov-west-1',
+      'ap-southeast-4',
+      'eu-central-2',
+      'ca-central-1',
+      'il-central-1',
+      'ap-northeast-1',
+    ]) {
+      const credential: ProviderCredential = {
+        bearerKey: 'k',
+        mode: 'bearer',
+        region,
+        type: 'aws',
+      };
+      expect(parseStoredCredential(JSON.stringify(credential))).toEqual(credential);
+    }
+  });
+
   it('throws for api_key with an EMPTY key (an empty key is never a configured credential)', () => {
     expectMalformed('{"type":"api_key","key":""}');
   });
