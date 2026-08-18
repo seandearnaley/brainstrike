@@ -12,6 +12,7 @@ import type {
   AnthropicEffort,
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
+  BedrockReasoningEffort,
   GoogleThinkingLevel,
   OpenAiReasoningEffort,
 } from '@brainstrike/types';
@@ -33,6 +34,19 @@ export const OPENAI_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
 };
 
 export const ANTHROPIC_EFFORT_LABELS: Record<AnthropicEffort, string> = {
+  high: 'High',
+  low: 'Low',
+  max: 'Max',
+  medium: 'Medium',
+  xhigh: 'Extra',
+};
+
+/**
+ * Same words as the Anthropic ladder, kept as its own record because the two
+ * mirror independent upstream enums — an addition to either must not silently
+ * relabel the other's menu.
+ */
+export const BEDROCK_EFFORT_LABELS: Record<BedrockReasoningEffort, string> = {
   high: 'High',
   low: 'Low',
   max: 'Max',
@@ -122,6 +136,24 @@ export function buildEffortControlModel(
         options: availability.efforts.map((effort) => ({
           isModelDefault: false,
           label: ANTHROPIC_EFFORT_LABELS[effort],
+          value: effort,
+        })),
+      };
+    }
+    case 'bedrock': {
+      const current = settings.bedrockEffort;
+      return {
+        // Its own settings key, not `anthropicEffort` — Bedrock has no
+        // thinking-budget control, so the Anthropic pair would leave a toggle
+        // writing state the Bedrock request builder drops (BST-1354).
+        buildUpdate: (value) => ({
+          bedrockEffort: value === 'auto' ? undefined : (value as BedrockReasoningEffort),
+        }),
+        currentLabel: current ? BEDROCK_EFFORT_LABELS[current] : 'Auto',
+        currentValue: current ?? 'auto',
+        options: availability.efforts.map((effort) => ({
+          isModelDefault: false,
+          label: BEDROCK_EFFORT_LABELS[effort],
           value: effort,
         })),
       };

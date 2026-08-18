@@ -36,18 +36,74 @@ describe('model pricing metadata', () => {
     }
   });
 
-  it('non-Anthropic providers declare no cache rates (their caching is provider-automatic)', () => {
+  /**
+   * BST-1354 replaced the old "Anthropic first-party only" pin. Bedrock
+   * caching is real and separately billed, so the invariant is no longer about
+   * a provider NAME — it is that a cache RATE and a cache DIALECT travel
+   * together. A rate without `promptCaching` would price a discount the
+   * runtime never requests; a dialect without a rate would under-report spend.
+   */
+  it('declares cache rates on exactly the routes that declare a prompt-caching dialect', () => {
     for (const provider of listProviders()) {
-      if (provider.id === 'anthropic') {
-        continue;
-      }
       for (const model of provider.models) {
         if (model.type !== 'llm' || model.pricing === undefined) {
           continue;
         }
-        expect(model.pricing.cacheReadPerMTok, `${provider.id}/${model.id}`).toBeUndefined();
-        expect(model.pricing.cacheWritePerMTok, `${provider.id}/${model.id}`).toBeUndefined();
+        const label = `${provider.id}/${model.id}`;
+        if (model.promptCaching === undefined) {
+          expect(model.pricing.cacheReadPerMTok, label).toBeUndefined();
+          expect(model.pricing.cacheWritePerMTok, label).toBeUndefined();
+          continue;
+        }
+        // A caching route always publishes a read rate; the WRITE premium is
+        // optional because Nova bills writes at the ordinary input rate.
+        expect(model.pricing.cacheReadPerMTok, label).toBeGreaterThan(0);
       }
+    }
+  });
+
+  it('prices Anthropic-on-Bedrock cache tokens at the Anthropic multipliers', () => {
+    const claudeRoutes = listProviderLlmModels('bedrock').filter(
+      (model) => model.bedrockReasoning !== undefined && model.promptCaching === 'bedrock'
+    );
+    expect(claudeRoutes.length).toBeGreaterThan(0);
+    for (const model of claudeRoutes) {
+      const pricing = model.pricing;
+      if (!pricing) {
+        throw new Error(`bedrock/${model.id} must declare pricing`);
+      }
+      expect(pricing.cacheReadPerMTok, `bedrock/${model.id} cacheReadPerMTok`).toBeCloseTo(
+        pricing.inputPerMTok * 0.1,
+        10
+      );
+      expect(pricing.cacheWritePerMTok, `bedrock/${model.id} cacheWritePerMTok`).toBeCloseTo(
+        pricing.inputPerMTok * 1.25,
+        10
+      );
+    }
+  });
+
+  it('prices Amazon Nova cache reads at 0.25x input with no write premium', () => {
+    const novaRoutes = listProviderLlmModels('bedrock').filter(
+      (model) => model.id.startsWith('amazon.nova') && model.promptCaching === 'bedrock'
+    );
+    expect(novaRoutes.map((model) => model.id)).toEqual([
+      'amazon.nova-pro-v1:0',
+      'amazon.nova-lite-v1:0',
+      'amazon.nova-micro-v1:0',
+    ]);
+    for (const model of novaRoutes) {
+      const pricing = model.pricing;
+      if (!pricing) {
+        throw new Error(`bedrock/${model.id} must declare pricing`);
+      }
+      expect(pricing.cacheReadPerMTok, `bedrock/${model.id} cacheReadPerMTok`).toBeCloseTo(
+        pricing.inputPerMTok * 0.25,
+        10
+      );
+      // AWS bills Nova cache WRITES at the ordinary input rate — absence here
+      // means "no premium", and must not drift into an invented rate.
+      expect(pricing.cacheWritePerMTok, `bedrock/${model.id} cacheWritePerMTok`).toBeUndefined();
     }
   });
 

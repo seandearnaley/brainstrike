@@ -1,10 +1,14 @@
 import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
   type AnthropicProviderOptions,
+  BEDROCK_BUDGET_TOKENS_BY_EFFORT,
+  BEDROCK_REASONING_EFFORTS,
+  type BedrockProviderOptions,
   DESKTOP_NATIVE_TOOL_IDS,
   type DesktopNativeToolId,
   DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
   deriveEffectiveInputBudget,
+  findLlmModelDefinition,
   type GoogleProviderOptions,
   getLlmModelDefinition,
   type HookTrustRequest,
@@ -20,6 +24,7 @@ import {
   type ProviderKeySource,
   type RuntimeAssistantMemorySettings,
   type RuntimeData,
+  resolveBedrockReasoningDisplay,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterCodingMaxOutputTokens,
   resolveOpenRouterOutputWindow,
@@ -1596,6 +1601,48 @@ function buildAnthropicOptions(
   ]);
 }
 
+/**
+ * Bedrock reasoning (BST-1354).
+ *
+ * The wire shape is chosen by the model's REGISTRY dialect, never by sniffing
+ * the model id: adaptive Claude routes reject the legacy `enabled` form, and
+ * Amazon Nova has no token budget at all. An effort the route does not offer
+ * yields NO options rather than a config the API would reject — persisted
+ * settings outlive model switches, and `bedrockEffort` is provider-wide while
+ * the ladder is per model.
+ */
+function buildBedrockOptions(
+  modelName: string | undefined,
+  settings: AssistantProviderSettings
+): BedrockProviderOptions | undefined {
+  const effort = settings.bedrockEffort;
+  if (!(modelName && effort)) {
+    return;
+  }
+  const dialect = findLlmModelDefinition('bedrock', modelName)?.bedrockReasoning;
+  if (!(dialect && BEDROCK_REASONING_EFFORTS[dialect].includes(effort))) {
+    return;
+  }
+  if (dialect === 'adaptive') {
+    return {
+      reasoningConfig: {
+        // The one Bedrock dialect whose `display` the SDK forwards, so it is
+        // the one that carries the shared visibility switch.
+        display: resolveBedrockReasoningDisplay(settings),
+        maxReasoningEffort: effort,
+        type: 'adaptive',
+      },
+    };
+  }
+  if (dialect === 'max-reasoning-effort') {
+    return { reasoningConfig: { maxReasoningEffort: effort, type: 'enabled' } };
+  }
+  // `budget-tokens`: the offered ladder is exactly the keys of the budget
+  // record, checked above, so this lookup is total.
+  const budgetTokens = BEDROCK_BUDGET_TOKENS_BY_EFFORT[effort as 'high' | 'max'];
+  return { reasoningConfig: { budgetTokens, type: 'enabled' } };
+}
+
 function buildGoogleOptions(
   modelName: string | undefined,
   settings: AssistantProviderSettings
@@ -1666,6 +1713,10 @@ export function buildProviderOptions(
     case 'anthropic': {
       const anthropic = buildAnthropicOptions(settings);
       return anthropic ? { anthropic } : undefined;
+    }
+    case 'bedrock': {
+      const bedrock = buildBedrockOptions(modelName, settings);
+      return bedrock ? { bedrock } : undefined;
     }
     case 'google': {
       const google = buildGoogleOptions(modelName, settings);
