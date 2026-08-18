@@ -700,6 +700,24 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'supported',
       },
       {
+        // Identity, GA status, text modality, optional reasoning, and native
+        // context: official NVIDIA model card at revision d468880b, retrieved
+        // 2026-08-17. Route, effective hosted limits, and gateway pricing:
+        // OpenRouter Models API, retrieved 2026-08-17 (BST-1343).
+        contextWindow: 262_144,
+        id: 'nvidia/nemotron-3.5-lightning',
+        label: 'Nemotron 3.5 Lightning (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.08, outputPerMTok: 0.2 },
+        // NVIDIA documents reasoning as optional on/off but publishes no effort
+        // ladder. Declare only the explicit `none` control so offline menus and
+        // persisted model-switch settings preserve the verified off state.
+        reasoning: { mandatory: false, supportedEfforts: ['none'] },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      },
+      {
         // Capabilities and limits: official Google model page, last updated
         // 2026-08-13. Route and gateway pricing: OpenRouter Models API,
         // retrieved 2026-08-14 (BST-1265).

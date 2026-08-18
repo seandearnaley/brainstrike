@@ -70,6 +70,7 @@ describe('frontier models migrations', () => {
       'poolside/laguna-s-2.1',
       'poolside/laguna-xs-2.1',
       'qwen/qwen3.8-2.4t-a95b',
+      'nvidia/nemotron-3.5-lightning',
       'google/gemini-3.7-flash',
       'google/gemini-3.6-flash',
       'google/gemini-3.5-flash-lite',
@@ -591,7 +592,7 @@ describe('frontier models migrations', () => {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 97));
 
     const readRows = async (): Promise<
       Array<{
@@ -621,13 +622,13 @@ describe('frontier models migrations', () => {
         capabilities: { streaming: true, type: 'llm', vision: false },
         id: 'qwen/qwen3.8-2.4t-a95b',
         is_enabled: false,
-        sort_order: 2,
+        sort_order: 1,
       },
       {
         capabilities: { streaming: true, type: 'llm', vision: true },
         id: 'google/gemini-3.7-flash',
         is_enabled: false,
-        sort_order: 4,
+        sort_order: 3,
       },
     ]);
 
@@ -657,20 +658,20 @@ describe('frontier models migrations', () => {
           true
         )
     `);
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 97));
 
     expect(await readRows()).toEqual([
       {
         capabilities: { streaming: true, type: 'llm', vision: false },
         id: 'qwen/qwen3.8-2.4t-a95b',
         is_enabled: true,
-        sort_order: 2,
+        sort_order: 1,
       },
       {
         capabilities: { streaming: true, type: 'llm', vision: true },
         id: 'google/gemini-3.7-flash',
         is_enabled: false,
-        sort_order: 4,
+        sort_order: 3,
       },
     ]);
 
@@ -689,7 +690,7 @@ describe('frontier models migrations', () => {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 98));
 
     const readRows = async (): Promise<
       Array<{
@@ -784,7 +785,7 @@ describe('frontier models migrations', () => {
           true
         )
     `);
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 98));
 
     expect(await readRows()).toEqual([
       {
@@ -810,6 +811,109 @@ describe('frontier models migrations', () => {
         id: 'google/gemini-3.7-flash',
         is_enabled: false,
         sort_order: 4,
+      },
+    ]);
+  });
+
+  it('adds Nemotron 3.5 Lightning disabled, preserves its toggle, and rolls back migration 099', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version <= 98));
+
+    const migration099 = migrations.find((migration) => migration.version === 99);
+    if (!migration099) {
+      throw new Error('Migration 099 is missing');
+    }
+
+    const readRows = async (): Promise<
+      Array<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        id: string;
+        is_enabled: boolean;
+        sort_order: number;
+      }>
+    > => {
+      const result = await db.query<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        id: string;
+        is_enabled: boolean;
+        sort_order: number;
+      }>(`
+        SELECT id, capabilities, is_enabled, sort_order
+        FROM models
+        WHERE provider_id = 'openrouter'
+          AND id IN ('nvidia/nemotron-3.5-lightning', 'qwen/qwen3.8-max')
+        ORDER BY sort_order
+      `);
+      return result.rows;
+    };
+
+    await runner.runMigration(migration099);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'nvidia/nemotron-3.5-lightning',
+        is_enabled: false,
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'qwen/qwen3.8-max',
+        is_enabled: false,
+        sort_order: 2,
+      },
+    ]);
+
+    await runner.down(migrations, 98);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'qwen/qwen3.8-max',
+        is_enabled: false,
+        sort_order: 1,
+      },
+    ]);
+
+    await db.query(`
+      INSERT INTO models
+        (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled)
+      VALUES
+        (
+          'nvidia/nemotron-3.5-lightning',
+          'openrouter',
+          'stale name',
+          'stale tagline',
+          '[]',
+          '{"type":"llm","streaming":false,"vision":true}',
+          99,
+          true
+        )
+    `);
+    await runner.up(migrations.filter((migration) => migration.version <= 99));
+
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'nvidia/nemotron-3.5-lightning',
+        is_enabled: true,
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'qwen/qwen3.8-max',
+        is_enabled: false,
+        sort_order: 2,
+      },
+    ]);
+
+    await runner.down(migrations, 98);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'qwen/qwen3.8-max',
+        is_enabled: false,
+        sort_order: 1,
       },
     ]);
   });

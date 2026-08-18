@@ -97,6 +97,7 @@ import { migration095AssistantThreadWorkspaces } from './095-assistant-thread-wo
 import { migration096OpenRouterQwen3827B } from './096-openrouter-qwen-3-8-27b.js';
 import { migration097OpenRouterQwen38TwoPointFourT } from './097-openrouter-qwen-3-8-2-4t-a95b.js';
 import { migration098OpenRouterQwen38Max } from './098-openrouter-qwen-3-8-max.js';
+import { migration099OpenRouterNemotron35Lightning } from './099-openrouter-nemotron-3-5-lightning.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -200,6 +201,7 @@ export const migrations: Migration[] = [
   migration096OpenRouterQwen3827B,
   migration097OpenRouterQwen38TwoPointFourT,
   migration098OpenRouterQwen38Max,
+  migration099OpenRouterNemotron35Lightning,
 ];
 
 // Export base migrations (without chunks table) for test environments
