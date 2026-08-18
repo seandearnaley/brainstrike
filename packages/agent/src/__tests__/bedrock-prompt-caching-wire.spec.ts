@@ -9,6 +9,14 @@ import { createProvider } from '../providers/provider-factory';
  *
  * The second turn is the whole point — the first turn can only write a cache;
  * the saving shows up when the next step reads it back.
+ *
+ * UNIT lane, deliberately. The `.integration` suffix marks ENV-SENSITIVE tests
+ * (real PGlite, native binaries, wall-clock timing) and nothing here is: the
+ * only I/O is a stubbed `fetch`, and the model comes straight from
+ * `createProvider`. It does NOT run the Mastra loop — that is what makes it
+ * differ from its Anthropic counterpart, which imports `streamMastraAgent` and
+ * stays in the integration lane. Keeping this one in the unit lane puts the
+ * central cost proof in the required Unit check.
  */
 
 interface CapturedRequest {

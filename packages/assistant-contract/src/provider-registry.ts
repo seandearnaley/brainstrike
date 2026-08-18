@@ -91,10 +91,14 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * - `max-reasoning-effort` — `{type:'enabled', maxReasoningEffort}`, the
    *   Amazon Nova extended-thinking shape (no token budget exists there).
    *
-   * Pinned against the installed `@ai-sdk/amazon-bedrock`'s own
-   * `getModelCapabilities().supportsAdaptiveThinking` by
-   * `bedrock-reasoning-dialect-contract.spec.ts`, so an SDK upgrade that moves
-   * a route between dialects fails a test instead of failing in production.
+   * Pinned by `bedrock-reasoning-dialect-contract.spec.ts` against
+   * `getModelCapabilities()` from **`@ai-sdk/anthropic/internal`** — that is
+   * the real source of truth; `@ai-sdk/amazon-bedrock` imports the same table
+   * rather than owning one. So an **`@ai-sdk/anthropic`** bump can move a
+   * route between dialects even when the Bedrock package is untouched; the pin
+   * fails a test instead of failing in production. The pin also asserts
+   * `isKnownModel`, because that table DEFAULTS an unrecognized id to
+   * adaptive — without the assertion a typo'd id would pass silently.
    */
   bedrockReasoning?: 'adaptive' | 'budget-tokens' | 'max-reasoning-effort';
   /**
@@ -1534,7 +1538,10 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         pricing: { inputPerMTok: 0.33, outputPerMTok: 2.75 },
         supportsStreaming: true,
         type: 'llm',
-        vision: 'unsupported',
+        // models.dev reports `modalities.input: [text, image, video]`. Do NOT
+        // read vision off the sibling `attachment` flag — that field is about
+        // file attachments and is false here despite image input working.
+        vision: 'supported',
       },
       // amazon.nova-premier is not listed by models.dev for Bedrock
       // (2026-08-18), so it is deliberately absent.

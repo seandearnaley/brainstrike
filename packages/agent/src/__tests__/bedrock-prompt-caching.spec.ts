@@ -91,6 +91,102 @@ describe('applyBedrockPromptCacheBreakpoints', () => {
     expect(result.prompt[0]?.providerOptions?.['bedrock']).toBeUndefined();
   });
 
+  it('honors an explicit cache point declared on a content PART', () => {
+    // The SDK reads part-level provider metadata too, so a part-level point is
+    // a real checkpoint that must count against the ceiling — adding ours to
+    // the same message would spend two of the four on one boundary.
+    const result = applyBedrockPromptCacheBreakpoints({
+      prompt: [
+        {
+          content: [
+            { providerOptions: { bedrock: { cachePoint: CACHE_POINT } }, text: 'hi', type: 'text' },
+          ],
+          role: 'user',
+        },
+      ],
+    });
+    expect(result.prompt[0]?.providerOptions).toBeUndefined();
+  });
+
+  it('honors a part-level explicit point under the amazonBedrock alias', () => {
+    const result = applyBedrockPromptCacheBreakpoints({
+      prompt: [
+        {
+          content: [
+            {
+              providerOptions: { amazonBedrock: { cachePoint: CACHE_POINT } },
+              text: 'hi',
+              type: 'text',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+    });
+    expect(result.prompt[0]?.providerOptions).toBeUndefined();
+  });
+
+  it('never exceeds the four-checkpoint ceiling when explicit points exist mid-history', () => {
+    // Two explicit points buried in history leave room for only two of ours.
+    const explicit = { bedrock: { cachePoint: CACHE_POINT } };
+    const result = applyBedrockPromptCacheBreakpoints({
+      prompt: [
+        message('system', 'a'),
+        message('system', 'b'),
+        { ...message('user', 'old one'), providerOptions: explicit },
+        { ...message('assistant', 'old two'), providerOptions: explicit },
+        message('user', 'turn'),
+        message('assistant', 'answer'),
+        message('user', 'newest'),
+      ],
+    });
+    const total = result.prompt.filter(
+      (entry) => entry.providerOptions?.['bedrock']?.['cachePoint'] !== undefined
+    ).length;
+    expect(total).toBe(4);
+    // Ours were dropped lowest-priority-first, so the two SYSTEM blocks (the
+    // largest stable prefix) survive and the tail placements yield.
+    expect(cachePointsOf(result.prompt)).toEqual([
+      'system',
+      'system',
+      'user',
+      'assistant',
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('adds nothing once four explicit points already exist', () => {
+    const explicit = { bedrock: { cachePoint: CACHE_POINT } };
+    const prompt = [
+      { ...message('system', 'a'), providerOptions: explicit },
+      { ...message('system', 'b'), providerOptions: explicit },
+      { ...message('user', 'c'), providerOptions: explicit },
+      { ...message('assistant', 'd'), providerOptions: explicit },
+      message('user', 'newest'),
+    ];
+    const result = applyBedrockPromptCacheBreakpoints({ prompt });
+    expect(result.prompt.at(-1)?.providerOptions).toBeUndefined();
+    expect(result).toEqual({ prompt });
+  });
+
+  it('drops the second-to-last tail placement before the last one', () => {
+    // Three explicit points leave budget for exactly one of ours: the newest
+    // boundary, which is what the NEXT step reads back.
+    const explicit = { bedrock: { cachePoint: CACHE_POINT } };
+    const result = applyBedrockPromptCacheBreakpoints({
+      prompt: [
+        { ...message('system', 'a'), providerOptions: explicit },
+        { ...message('system', 'b'), providerOptions: explicit },
+        { ...message('user', 'old'), providerOptions: explicit },
+        message('assistant', 'answer'),
+        message('user', 'newest'),
+      ],
+    });
+    expect(cachePointsOf(result.prompt)).toEqual(['system', 'system', 'user', undefined, 'user']);
+  });
+
   it('never mutates the input prompt', () => {
     const original = message('user', 'hi');
     const prompt = [original];

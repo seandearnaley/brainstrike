@@ -28,6 +28,37 @@ describe('BedrockMessageHygiene', () => {
     expect(prompt).toEqual([{ content: [{ text: 'real content', type: 'text' }], role: 'user' }]);
   });
 
+  it('drops a WHITESPACE-ONLY text part, matching the reasoning check', () => {
+    // Converse rejects a blank text block, and "blank" there means no visible
+    // content — a part of three spaces is exactly as empty as `''`.
+    const prompt = run([
+      {
+        content: [
+          { text: '   ', type: 'text' },
+          { text: 'real content', type: 'text' },
+        ],
+        role: 'user',
+      },
+    ]);
+    expect(prompt).toEqual([{ content: [{ text: 'real content', type: 'text' }], role: 'user' }]);
+  });
+
+  it('drops a user message whose only text part is whitespace', () => {
+    const prompt = run([
+      { content: [{ text: '\n\t ', type: 'text' }], role: 'user' },
+      { content: [{ text: 'kept', type: 'text' }], role: 'assistant' },
+    ]);
+    expect(prompt).toEqual([{ content: [{ text: 'kept', type: 'text' }], role: 'assistant' }]);
+  });
+
+  it('drops a whitespace-only string-content message', () => {
+    const prompt = run([
+      { content: '   ', role: 'system' },
+      { content: 'kept', role: 'system' },
+    ]);
+    expect(prompt).toEqual([{ content: 'kept', role: 'system' }]);
+  });
+
   it('drops a message left with no content at all', () => {
     const prompt = run([
       { content: [{ text: '', type: 'text' }], role: 'assistant' },
@@ -118,6 +149,71 @@ describe('BedrockMessageHygiene', () => {
     // The pair must stay joined: a call and its result rewritten differently
     // is an unmatched tool_use, which Bedrock rejects.
     expect(tool.content[0]?.toolCallId).toBe('call_abc_123');
+  });
+
+  it('keeps sanitized tool-call ids INJECTIVE when two originals collide', () => {
+    // `call:1` and `call.1` both sanitize to `call_1`. Collapsing them would
+    // merge two distinct tool invocations into one id — Bedrock would see a
+    // duplicate tool_use and the results would bind to the wrong call.
+    const prompt = run([
+      {
+        content: [
+          { input: {}, toolCallId: 'call:1', toolName: 'read', type: 'tool-call' },
+          { input: {}, toolCallId: 'call.1', toolName: 'read', type: 'tool-call' },
+        ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          { output: {}, toolCallId: 'call.1', toolName: 'read', type: 'tool-result' },
+          { output: {}, toolCallId: 'call:1', toolName: 'read', type: 'tool-result' },
+        ],
+        role: 'tool',
+      },
+    ]);
+    const assistant = prompt?.[0] as { content: { toolCallId: string }[] };
+    const tool = prompt?.[1] as { content: { toolCallId: string }[] };
+    const first = assistant.content[0]?.toolCallId;
+    const second = assistant.content[1]?.toolCallId;
+    expect(first).toBe('call_1');
+    expect(second).not.toBe(first);
+    expect(second).toMatch(/^[a-zA-Z0-9_-]+$/);
+    // Results still bind to their own call, in whichever order they appear.
+    expect(tool.content[0]?.toolCallId).toBe(second);
+    expect(tool.content[1]?.toolCallId).toBe(first);
+  });
+
+  it('clamps a sanitized id to the Converse 64-character limit', () => {
+    const longId = `call:${'x'.repeat(200)}`;
+    const prompt = run([
+      {
+        content: [{ input: {}, toolCallId: longId, toolName: 'read', type: 'tool-call' }],
+        role: 'assistant',
+      },
+    ]);
+    const assistant = prompt?.[0] as { content: { toolCallId: string }[] };
+    const id = assistant.content[0]?.toolCallId ?? '';
+    expect(id.length).toBe(64);
+    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
+  });
+
+  it('keeps clamped ids injective when two long originals share a prefix', () => {
+    const base = 'call:'.concat('y'.repeat(200));
+    const prompt = run([
+      {
+        content: [
+          { input: {}, toolCallId: `${base}A`, toolName: 'read', type: 'tool-call' },
+          { input: {}, toolCallId: `${base}B`, toolName: 'read', type: 'tool-call' },
+        ],
+        role: 'assistant',
+      },
+    ]);
+    const assistant = prompt?.[0] as { content: { toolCallId: string }[] };
+    const first = assistant.content[0]?.toolCallId ?? '';
+    const second = assistant.content[1]?.toolCallId ?? '';
+    expect(first).not.toBe(second);
+    expect(first.length).toBeLessThanOrEqual(64);
+    expect(second.length).toBeLessThanOrEqual(64);
   });
 
   it('never mutates the messages it was given (durable history stays intact)', () => {

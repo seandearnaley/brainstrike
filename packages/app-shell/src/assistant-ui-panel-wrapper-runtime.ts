@@ -1619,6 +1619,12 @@ function buildBedrockOptions(
   if (!(modelName && effort)) {
     return;
   }
+  // Keyed on the UNPREFIXED catalog id, which is all this seam can receive:
+  // both the registry and the DB model catalog (migration 100) store Bedrock
+  // ids unprefixed, and the cross-region routing prefix is applied per request
+  // inside packages/agent. The agent-side capability lookup resolves a routed
+  // id back to its catalog row for the same reason; if a prefixed id ever
+  // reaches HERE, that invariant has already broken upstream.
   const dialect = findLlmModelDefinition('bedrock', modelName)?.bedrockReasoning;
   if (!(dialect && BEDROCK_REASONING_EFFORTS[dialect].includes(effort))) {
     return;
@@ -1637,9 +1643,14 @@ function buildBedrockOptions(
   if (dialect === 'max-reasoning-effort') {
     return { reasoningConfig: { maxReasoningEffort: effort, type: 'enabled' } };
   }
-  // `budget-tokens`: the offered ladder is exactly the keys of the budget
-  // record, checked above, so this lookup is total.
-  const budgetTokens = BEDROCK_BUDGET_TOKENS_BY_EFFORT[effort as 'high' | 'max'];
+  // `budget-tokens`: the offered ladder and the budget table are pinned equal
+  // by the dialect contract spec, so this lookup should always hit — but it is
+  // a PARTIAL record, so a miss bails explicitly rather than sending
+  // `budgetTokens: undefined`, which the API would reject.
+  const budgetTokens = BEDROCK_BUDGET_TOKENS_BY_EFFORT[effort];
+  if (budgetTokens === undefined) {
+    return;
+  }
   return { reasoningConfig: { budgetTokens, type: 'enabled' } };
 }
 
@@ -1762,17 +1773,53 @@ export function buildProviderOptionsWhenReady(
 }
 
 /**
- * Clear provider-wide overrides when the user explicitly switches to an
- * OpenRouter model that cannot honor them. The model's documented defaults
- * then remain visible as "Auto" in the settings controls. This reconciler owns
- * explicit switches only; request validation separately owns stale persisted
- * state.
+ * Bedrock counterpart of the OpenRouter reconciler (BST-1354).
+ *
+ * `bedrockEffort` is provider-wide but the ladder that gives it meaning is
+ * PER MODEL — `max` exists only on the legacy budget-token route, Nova offers
+ * low/medium/high, and several Bedrock routes reason not at all. Carrying a
+ * stale effort across a model switch left the Effort control displaying it
+ * while `buildBedrockOptions` correctly declined to send it: a control lying
+ * about the request. Clearing it restores "Auto", which is what actually runs.
+ *
+ * An UNCATALOGUED model is left alone, mirroring the OpenRouter reconciler:
+ * with no registry row there is no ladder to judge against, and that route
+ * shows no effort control to lie with.
+ */
+function reconcileBedrockSettingsForModel(
+  modelName: string,
+  settings: AssistantProviderSettings
+): AssistantProviderSettings {
+  const effort = settings.bedrockEffort;
+  if (!effort) {
+    return settings;
+  }
+  const definition = findLlmModelDefinition('bedrock', modelName);
+  if (!definition) {
+    return settings;
+  }
+  const dialect = definition.bedrockReasoning;
+  if (dialect && BEDROCK_REASONING_EFFORTS[dialect].includes(effort)) {
+    return settings;
+  }
+  const { bedrockEffort: _unsupportedBedrockEffort, ...compatibleSettings } = settings;
+  return compatibleSettings;
+}
+
+/**
+ * Clear provider-wide overrides when the user explicitly switches to a model
+ * that cannot honor them. The model's documented defaults then remain visible
+ * as "Auto" in the settings controls. This reconciler owns explicit switches
+ * only; request validation separately owns stale persisted state.
  */
 export function reconcileProviderSettingsForModel(
   providerId: SupportedProvider,
   modelName: string,
   settings: AssistantProviderSettings | undefined
 ): AssistantProviderSettings | undefined {
+  if (providerId === 'bedrock' && settings) {
+    return reconcileBedrockSettingsForModel(modelName, settings);
+  }
   if (!(providerId === 'openrouter' && settings)) {
     return settings;
   }

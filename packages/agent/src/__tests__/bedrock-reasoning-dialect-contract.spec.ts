@@ -85,16 +85,43 @@ afterEach(() => {
 });
 
 describe('bedrock reasoning dialect matches the installed provider', () => {
-  it('declares adaptive exactly where the SDK reports adaptive thinking support', () => {
+  /**
+   * `isKnownModel` is load-bearing, not decoration. The capability table
+   * DEFAULTS an unrecognized id to `supportsAdaptiveThinking: true`, so a
+   * typo'd or retired registry id would satisfy an adaptive assertion without
+   * anyone having verified anything. Asserting known-ness first turns that
+   * silent pass into a failure.
+   */
+  it('pins every Claude-family Bedrock route against the SDK capability table', () => {
     const claudeRoutes = listProviderLlmModels('bedrock').filter(
-      (model) => model.bedrockReasoning === 'adaptive' || model.bedrockReasoning === 'budget-tokens'
+      (model) => getModelCapabilities(model.id).isKnownModel
     );
     expect(claudeRoutes.length).toBeGreaterThan(0);
     for (const model of claudeRoutes) {
-      const { supportsAdaptiveThinking } = getModelCapabilities(model.id);
+      const { isKnownModel, supportsAdaptiveThinking } = getModelCapabilities(model.id);
+      expect(isKnownModel, `bedrock/${model.id} must be a recognized Anthropic route`).toBe(true);
+      // REQUIRED, not skipped-when-absent: a Claude row with no declared
+      // dialect silently loses reasoning, which is the failure this pin exists
+      // to catch.
+      expect(
+        model.bedrockReasoning,
+        `bedrock/${model.id} is a Claude route and must declare a reasoning dialect`
+      ).toBeDefined();
       expect(model.bedrockReasoning, `bedrock/${model.id}`).toBe(
         supportsAdaptiveThinking ? 'adaptive' : 'budget-tokens'
       );
+    }
+  });
+
+  it('never gives a non-Anthropic route a Claude-only dialect', () => {
+    for (const model of listProviderLlmModels('bedrock')) {
+      if (getModelCapabilities(model.id).isKnownModel) {
+        continue;
+      }
+      expect(
+        model.bedrockReasoning === 'adaptive' || model.bedrockReasoning === 'budget-tokens',
+        `bedrock/${model.id} is not an Anthropic route and must not claim a Claude dialect`
+      ).toBe(false);
     }
   });
 

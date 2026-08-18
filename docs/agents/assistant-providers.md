@@ -1257,10 +1257,18 @@ SigV4 / profile-chain auth lands with BST-1353.
   `output_config.effort`), Claude Haiku 4.5 keeps the legacy
   `{type:'enabled',budgetTokens}` form, and Amazon Nova takes
   `{type:'enabled',maxReasoningEffort}` with no token budget at all. The
-  declaration is pinned against the installed `@ai-sdk/amazon-bedrock`'s own
-  `getModelCapabilities().supportsAdaptiveThinking`, and each dialect's wire
-  shape is asserted, by
-  `packages/agent/src/__tests__/bedrock-reasoning-dialect-contract.spec.ts`.
+  declaration is pinned — and each dialect's wire shape asserted — by
+  `packages/agent/src/__tests__/bedrock-reasoning-dialect-contract.spec.ts`
+  against `getModelCapabilities()` from **`@ai-sdk/anthropic/internal`**. Note
+  the package: that table is the real source of truth and
+  `@ai-sdk/amazon-bedrock` merely imports it, so an **`@ai-sdk/anthropic`**
+  bump can move a Bedrock route between dialects with the Bedrock package
+  untouched — re-check the pin on either upgrade. The pin asserts
+  `isKnownModel` too, because the table DEFAULTS an unrecognized id to
+  `supportsAdaptiveThinking: true`; without that assertion a typo'd or retired
+  registry id would satisfy the adaptive branch having verified nothing. Every
+  Claude-family row is REQUIRED to declare a dialect (absence fails rather than
+  skips), and no non-Anthropic route may claim a Claude-only dialect.
   Nova v1 (pro/lite/micro) documents caching but NOT reasoning, so those rows
   declare `promptCaching` with no `bedrockReasoning` — the two capabilities are
   independent.

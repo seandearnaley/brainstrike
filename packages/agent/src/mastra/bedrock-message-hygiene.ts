@@ -37,6 +37,8 @@ const BEDROCK_NAMESPACE = 'bedrock';
 const BEDROCK_PROVIDER_ID = 'bedrock';
 /** AWS Converse `toolUseId` charset. */
 const UNSUPPORTED_TOOL_CALL_ID_CHARS = /[^a-zA-Z0-9_-]/g;
+/** AWS Converse `toolUseId` maximum length. */
+const MAX_TOOL_CALL_ID_LENGTH = 64;
 
 type Prompt = ProcessLLMRequestArgs['prompt'];
 type PromptMessage = Prompt[number];
@@ -78,7 +80,9 @@ function keepsReasoningPart(part: Extract<ContentPart, { type: 'reasoning' }>): 
 
 function keepsPart(part: ContentPart): boolean {
   if (part.type === 'text') {
-    return part.text !== '';
+    // Whitespace-only is as empty as '' to Converse, and this must agree with
+    // the reasoning check above — a blank block is a blank block.
+    return part.text.trim().length > 0;
   }
   if (part.type === 'reasoning') {
     return keepsReasoningPart(part);
@@ -86,17 +90,69 @@ function keepsPart(part: ContentPart): boolean {
   return true;
 }
 
-function sanitizeToolCallId(part: ContentPart): ContentPart | undefined {
+function readToolCallId(part: ContentPart): string | undefined {
+  return part.type === 'tool-call' || part.type === 'tool-result' ? part.toolCallId : undefined;
+}
+
+/**
+ * Build the per-request original -> wire id mapping.
+ *
+ * Two properties matter and neither is free:
+ *
+ *  - INJECTIVE. `call:1` and `call.1` both reduce to `call_1`, and clamping
+ *    makes collisions likelier still by discarding the tail that distinguished
+ *    two long ids. Merging them would fuse two distinct tool invocations into
+ *    one id, so a colliding id takes a `_2`, `_3`, ... suffix (itself clamped)
+ *    until it is unique within the request.
+ *  - STABLE across parts. A call and its result live in DIFFERENT messages, so
+ *    the mapping is computed once per request in prompt order and then reused,
+ *    rather than recomputed per part — recomputation would let a suffix depend
+ *    on which message was visited first and unbind the pair.
+ */
+function buildToolCallIdMap(prompt: readonly PromptMessage[]): ReadonlyMap<string, string> {
+  const assigned = new Map<string, string>();
+  const used = new Set<string>();
+  for (const message of prompt) {
+    const content: unknown = message.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+    for (const part of content as ContentPart[]) {
+      const original = readToolCallId(part);
+      if (original === undefined || assigned.has(original)) {
+        continue;
+      }
+      const base = original
+        .replace(UNSUPPORTED_TOOL_CALL_ID_CHARS, '_')
+        .slice(0, MAX_TOOL_CALL_ID_LENGTH);
+      let candidate = base;
+      let discriminator = 2;
+      while (used.has(candidate)) {
+        const suffix = `_${discriminator}`;
+        candidate = `${base.slice(0, MAX_TOOL_CALL_ID_LENGTH - suffix.length)}${suffix}`;
+        discriminator += 1;
+      }
+      assigned.set(original, candidate);
+      used.add(candidate);
+    }
+  }
+  return assigned;
+}
+
+function rewriteToolCallId(
+  part: ContentPart,
+  toolCallIds: ReadonlyMap<string, string>
+): ContentPart | undefined {
+  // Narrowed inline rather than through `readToolCallId`: the spread below
+  // needs TypeScript to know this part actually HAS a `toolCallId`.
   if (part.type !== 'tool-call' && part.type !== 'tool-result') {
     return;
   }
-  const sanitized = part.toolCallId.replace(UNSUPPORTED_TOOL_CALL_ID_CHARS, '_');
-  if (sanitized === part.toolCallId) {
+  const rewritten = toolCallIds.get(part.toolCallId);
+  if (rewritten === undefined || rewritten === part.toolCallId) {
     return;
   }
-  // Deterministic per id, so a call and its result — which live in DIFFERENT
-  // messages — always rewrite to the same value and stay paired.
-  return { ...part, toolCallId: sanitized };
+  return { ...part, toolCallId: rewritten };
 }
 
 interface CleanedMessage {
@@ -104,10 +160,15 @@ interface CleanedMessage {
   readonly message: PromptMessage | undefined;
 }
 
-function cleanMessage(message: PromptMessage): CleanedMessage {
+function cleanMessage(
+  message: PromptMessage,
+  toolCallIds: ReadonlyMap<string, string>
+): CleanedMessage {
   const content: unknown = message.content;
   if (typeof content === 'string') {
-    return content === '' ? { changed: true, message: undefined } : { changed: false, message };
+    return content.trim().length === 0
+      ? { changed: true, message: undefined }
+      : { changed: false, message };
   }
   if (!Array.isArray(content)) {
     return { changed: false, message };
@@ -120,10 +181,10 @@ function cleanMessage(message: PromptMessage): CleanedMessage {
       changed = true;
       continue;
     }
-    const sanitized = sanitizeToolCallId(part);
-    if (sanitized) {
+    const rewritten = rewriteToolCallId(part, toolCallIds);
+    if (rewritten) {
       changed = true;
-      cleaned.push(sanitized);
+      cleaned.push(rewritten);
       continue;
     }
     cleaned.push(part);
@@ -147,8 +208,11 @@ export class BedrockMessageHygiene implements Processor<'bedrock-message-hygiene
   processLLMRequest(args: ProcessLLMRequestArgs): ProcessLLMRequestResult | undefined {
     let changed = false;
     const prompt: PromptMessage[] = [];
+    // Computed ONCE for the whole request so a call and its result — which sit
+    // in different messages — resolve to the same wire id.
+    const toolCallIds = buildToolCallIdMap(args.prompt);
     for (const message of args.prompt) {
-      const cleaned = cleanMessage(message);
+      const cleaned = cleanMessage(message, toolCallIds);
       changed = changed || cleaned.changed;
       if (cleaned.message !== undefined) {
         prompt.push(cleaned.message);

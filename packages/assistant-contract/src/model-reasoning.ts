@@ -121,7 +121,9 @@ export const BEDROCK_REASONING_EFFORTS: Readonly<
  * output window; these two values match the budgets OpenCode sends on the same
  * routes. Only these efforts are offered, so the record is total.
  */
-export const BEDROCK_BUDGET_TOKENS_BY_EFFORT: Readonly<Record<'high' | 'max', number>> = {
+export const BEDROCK_BUDGET_TOKENS_BY_EFFORT: Readonly<
+  Partial<Record<BedrockReasoningEffort, number>>
+> = {
   high: 16_000,
   max: 31_999,
 };

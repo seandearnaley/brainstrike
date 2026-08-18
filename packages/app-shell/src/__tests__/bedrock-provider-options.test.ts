@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildProviderOptions } from '../assistant-ui-panel-wrapper-runtime';
+import {
+  buildProviderOptions,
+  reconcileProviderSettingsForModel,
+} from '../assistant-ui-panel-wrapper-runtime';
 
 /**
  * BST-1354: Bedrock reasoning is mapped per the model's REGISTRY dialect, and
@@ -87,6 +90,49 @@ describe('buildProviderOptions for bedrock', () => {
       buildProviderOptions('bedrock', ADAPTIVE_MODEL, { bedrockEffort: 'max' })
     ).toBeUndefined();
     expect(buildProviderOptions('bedrock', NOVA_MODEL, { bedrockEffort: 'xhigh' })).toBeUndefined();
+  });
+
+  it('clears an effort the newly selected route cannot offer', () => {
+    // `max` exists only on the budget-token ladder. Carrying it onto an
+    // adaptive route left the Effort control reading "Max" while the request
+    // silently sent no reasoning at all — the control lying about the run.
+    expect(
+      reconcileProviderSettingsForModel('bedrock', ADAPTIVE_MODEL, { bedrockEffort: 'max' })
+    ).toEqual({});
+    expect(
+      reconcileProviderSettingsForModel('bedrock', NOVA_MODEL, { bedrockEffort: 'xhigh' })
+    ).toEqual({});
+  });
+
+  it('clears the effort when the newly selected route has no reasoning at all', () => {
+    expect(
+      reconcileProviderSettingsForModel('bedrock', 'amazon.nova-pro-v1:0', {
+        bedrockEffort: 'high',
+      })
+    ).toEqual({});
+  });
+
+  it('keeps an effort the newly selected route does offer, and unrelated settings', () => {
+    expect(
+      reconcileProviderSettingsForModel('bedrock', ADAPTIVE_MODEL, {
+        bedrockEffort: 'high',
+        reasoningVisible: false,
+      })
+    ).toEqual({ bedrockEffort: 'high', reasoningVisible: false });
+  });
+
+  it('leaves an uncatalogued Bedrock model alone, mirroring the OpenRouter reconciler', () => {
+    const settings = { bedrockEffort: 'max' } as const;
+    expect(
+      reconcileProviderSettingsForModel('bedrock', 'anthropic.claude-not-in-catalog', settings)
+    ).toBe(settings);
+  });
+
+  it('reconciles nothing for providers that are not bedrock or openrouter', () => {
+    const settings = { bedrockEffort: 'max' } as const;
+    expect(reconcileProviderSettingsForModel('anthropic', 'claude-sonnet-5', settings)).toBe(
+      settings
+    );
   });
 
   it('does not read the Anthropic effort key', () => {

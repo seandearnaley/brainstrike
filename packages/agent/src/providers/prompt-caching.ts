@@ -13,23 +13,51 @@
  * declaration to a wrapper. Adding a Bedrock model therefore means declaring
  * what it supports, not editing a factory switch.
  *
- * NO SILENT FALLBACK, in both directions: an undeclared route is sent no
- * breakpoints at all (never a guessed dialect), and a declared dialect this
- * build has no wrapper for throws rather than degrading to "uncached".
+ * NOTHING here degrades quietly. A declared dialect this build has no wrapper
+ * for THROWS. An id that misses the catalog cannot throw — it was legal before
+ * this ticket and hosted Anthropic accepted any model name — so it WARNS, with
+ * the id and a typed code, and ships uncached. And a Bedrock id carrying a
+ * cross-region routing prefix RESOLVES to its catalog row instead of missing
+ * it, so region routing never costs a route its caching or reasoning.
  */
+import { createLogger } from '@brainstrike/logging';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
+import { stripCrossRegionPrefix } from './bedrock-model-id';
 import { wrapBedrockModelWithPromptCaching } from './bedrock-prompt-caching';
-import { findLlmModelDefinition, type SupportedProvider } from './types';
+import { findLlmModelDefinition, type LlmModelDefinition, type SupportedProvider } from './types';
+
+const logger = createLogger('PromptCaching');
+
+/**
+ * Resolve a model's declared capabilities from a Bedrock or first-party id.
+ *
+ * Bedrock stores ids UNPREFIXED and applies the cross-region inference-profile
+ * prefix per request — but `createProvider` also accepts an already-prefixed id
+ * and passes it through (the BST-1350 contract, pinned by
+ * provider-factory.bedrock.spec.ts). A routed id therefore genuinely reaches
+ * this lookup, and a raw registry miss would cost that route BOTH prompt
+ * caching and its reasoning dialect while looking indistinguishable from an
+ * uncatalogued model.
+ *
+ * So the prefix is RESOLVED away rather than rejected: it selects a region, it
+ * never changes what the model supports. An id that still misses after
+ * stripping is genuinely uncatalogued and is reported as such by the caller.
+ */
+export function findModelCapabilities(
+  provider: SupportedProvider,
+  modelId: string
+): LlmModelDefinition | undefined {
+  const catalogId = provider === 'bedrock' ? stripCrossRegionPrefix(modelId) : modelId;
+  return findLlmModelDefinition(provider, catalogId);
+}
 
 /**
  * Wrap `model` with the caching wrapper its registry entry declares.
  *
  * @param provider - Registry provider id the model was built from.
- * @param modelId - CATALOG model id (unprefixed). Bedrock applies cross-region
- *   inference-profile prefixes per request; the registry is keyed on the
- *   unprefixed id, so callers must pass the id they looked the model up by,
- *   not the routed one.
+ * @param modelId - CATALOG model id (unprefixed for Bedrock — see
+ *   `findModelCapabilities`).
  * @returns The wrapped model, or `model` unchanged when the route declares no
  *   prompt-caching dialect.
  */
@@ -38,16 +66,26 @@ export function wrapModelWithDeclaredPromptCaching<M extends object>(
   modelId: string,
   model: M
 ): M {
-  const promptCaching = findLlmModelDefinition(provider, modelId)?.promptCaching;
+  const definition = findModelCapabilities(provider, modelId);
+  if (!definition) {
+    // Not a throw: an uncatalogued id is reachable from persisted preferences
+    // and from any provider that accepts arbitrary model names, and it worked
+    // before this ticket. It ships uncached — but never silently, because the
+    // only symptom otherwise is a bill.
+    logger.warn(
+      { code: 'prompt_caching_model_not_catalogued', model: modelId, provider },
+      'Model is absent from the static registry; sending no prompt-cache breakpoints for it'
+    );
+    return model;
+  }
+  const promptCaching = definition.promptCaching;
   switch (promptCaching) {
     case 'anthropic':
       return wrapAnthropicModelWithPromptCaching(model);
     case 'bedrock':
       return wrapBedrockModelWithPromptCaching(model);
     case undefined:
-      // Uncatalogued ids land here too: a model this build has no capability
-      // record for is sent no breakpoints, rather than being assumed to speak
-      // its provider's dialect.
+      // A catalogued route that declares no dialect genuinely supports none.
       return model;
     default: {
       const exhausted: never = promptCaching;
