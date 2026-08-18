@@ -25,6 +25,11 @@ import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
 
+interface WorkspaceRootRegistryFileSystemSeams {
+  readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
+  readonly resolveReadPath: (requestedPath: string, canonicalRoot: string) => Promise<string>;
+}
+
 interface RegisterFileSystemIpcHandlersOptions {
   readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
   readonly evictLspServersForRoot?: (rootId: string) => Promise<void>;
@@ -36,7 +41,14 @@ interface RegisterFileSystemIpcHandlersOptions {
    * serving disconnected folders.
    */
   readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
+  /**
+   * Explicit test-harness seam for roots backed by the in-memory adapter.
+   * Production callers omit it and only registered mock paths are synthetic.
+   */
+  readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly storage: ElectronStorageAdapter;
+  /** Explicit constructor seams for unit tests of native-root composition. */
+  readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
 }
 
 interface ElectronE2eFileSystemFixture {
@@ -168,10 +180,6 @@ function isE2eTestMode(): boolean {
   );
 }
 
-function usesSyntheticFileSystem(rootPath: string): boolean {
-  return isMockFileSystemIpcPath(rootPath) || process.env['VITEST'] === 'true';
-}
-
 async function resolveE2eRealRootDirectoryHandle(
   fileSystem: ElectronFileSystemAdapter
 ): Promise<DirectoryHandle | null> {
@@ -290,10 +298,34 @@ export function registerFileSystemIpcHandlers({
   evictLspServersForRoot: evictLspServersForRootOverride,
   fileSystem,
   getRootsDatabase,
+  isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   storage,
+  workspaceRootRegistryFileSystemSeams,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const syntheticFileSystemClassifications = new Map<string, boolean>();
+  const bindSyntheticFileSystemClassification = (
+    rootPath: string,
+    classification: boolean
+  ): void => {
+    const classificationKey = path.normalize(rootPath);
+    const cached = syntheticFileSystemClassifications.get(classificationKey);
+    if (cached !== undefined && cached !== classification) {
+      throw new Error('Conflicting filesystem classification for canonical workspace root.');
+    }
+    syntheticFileSystemClassifications.set(classificationKey, classification);
+  };
+  const usesSyntheticFileSystem = (rootPath: string): boolean => {
+    const classificationKey = path.normalize(rootPath);
+    const cached = syntheticFileSystemClassifications.get(classificationKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const classification = isSyntheticFileSystemPath(rootPath);
+    bindSyntheticFileSystemClassification(classificationKey, classification);
+    return classification;
+  };
   const roots = new WorkspaceRootRegistry({
     createSecureRoot: async (rootPath): Promise<SecureWorkspaceRoot> => {
       if (usesSyntheticFileSystem(rootPath)) {
@@ -334,25 +366,40 @@ export function registerFileSystemIpcHandlers({
           },
         };
       }
-      const { SecureRoot } = await import('@brainstrike/secure-fs-native');
-      const secureRoot = new SecureRoot(rootPath);
-      return {
-        canonicalPath: secureRoot.canonicalPath,
-        close: () => secureRoot.close(),
-        listDir: (relativePath, maxEntries) => secureRoot.listDirAsync(relativePath, maxEntries),
-        readFile: (relativePath, maxBytes) => secureRoot.readFileAsync(relativePath, maxBytes),
-      };
+      const root = workspaceRootRegistryFileSystemSeams
+        ? await workspaceRootRegistryFileSystemSeams.createSecureRoot(rootPath)
+        : await (async (): Promise<SecureWorkspaceRoot> => {
+            const { SecureRoot } = await import('@brainstrike/secure-fs-native');
+            const secureRoot = new SecureRoot(rootPath);
+            return {
+              canonicalPath: secureRoot.canonicalPath,
+              close: () => secureRoot.close(),
+              listDir: (relativePath, maxEntries) =>
+                secureRoot.listDirAsync(relativePath, maxEntries),
+              readFile: (relativePath, maxBytes) =>
+                secureRoot.readFileAsync(relativePath, maxBytes),
+            };
+          })();
+      bindSyntheticFileSystemClassification(root.canonicalPath, false);
+      return root;
     },
     disposeCommandSessionsForRoot,
     evictLspServersForRoot: evictLspServerForRoot,
     getRootsDatabase,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
-    resolveCanonicalRoot: async (rootPath) =>
-      usesSyntheticFileSystem(rootPath)
-        ? path.normalize(rootPath)
-        : path.normalize(await realpath(rootPath)),
+    resolveCanonicalRoot: async (rootPath) => {
+      if (usesSyntheticFileSystem(rootPath)) {
+        return path.normalize(rootPath);
+      }
+      const canonicalRoot = path.normalize(await realpath(rootPath));
+      bindSyntheticFileSystemClassification(canonicalRoot, false);
+      return canonicalRoot;
+    },
     resolveReadPath: async (requestedPath, canonicalRoot) => {
       if (!usesSyntheticFileSystem(canonicalRoot)) {
+        if (workspaceRootRegistryFileSystemSeams) {
+          return workspaceRootRegistryFileSystemSeams.resolveReadPath(requestedPath, canonicalRoot);
+        }
         const result = await resolveValidatedPath({
           allowMissing: false,
           maxTraversal: 0,
@@ -520,5 +567,6 @@ export function registerFileSystemIpcHandlers({
   return () => {
     registry.unregisterAll();
     roots.dispose();
+    syntheticFileSystemClassifications.clear();
   };
 }

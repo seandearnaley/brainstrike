@@ -39,7 +39,12 @@ describe('file system IPC domain', () => {
   });
 
   function register(): () => void {
-    return registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+    return registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => true,
+      storage,
+    });
   }
 
   it('selects, mounts, persists, and stamps a root through the legacy picker channel', async () => {
@@ -60,6 +65,92 @@ describe('file system IPC domain', () => {
       expect.stringContaining(handle.rootId ?? '')
     );
     expect(storage.setItem).toHaveBeenCalledWith('lastFolderPath', handle.path);
+  });
+
+  it('honors only the explicit synthetic-filesystem registration seam', async () => {
+    vi.stubEnv('VITEST', 'true');
+    fileSystem = createFileSystem('/mock/denied-by-explicit-seam');
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => false,
+      storage,
+    });
+
+    await expect(handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)).rejects.toThrow();
+    expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.any(String));
+  });
+
+  it('freezes synthetic-filesystem classification for the mounted root', async () => {
+    vi.stubEnv('VITEST', 'true');
+    let classificationCalls = 0;
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => {
+        classificationCalls += 1;
+        return classificationCalls === 1;
+      },
+      storage,
+    });
+
+    const descriptor = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as {
+      handle: DirectoryHandle;
+    };
+    await expect(
+      handlers.get('fs:readFile')?.({} as IpcMainInvokeEvent, {
+        kind: 'file',
+        name: 'readme.md',
+        path: '/users/test/workspace/readme.md',
+        platform: 'electron',
+        rootId: descriptor.handle.rootId,
+      } satisfies FileHandle)
+    ).resolves.toBe('file content');
+    expect(classificationCalls).toBe(1);
+  });
+
+  it('binds native canonical paths to the presentation-path classification', async () => {
+    const nativeReadFile = vi.fn(async () => ({
+      content: Buffer.from('native content'),
+      status: 'ok' as const,
+    }));
+    const resolveNativeReadPath = vi.fn(async (_requestedPath: string, canonicalRoot: string) =>
+      path.join(canonicalRoot, 'readme.md')
+    );
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: (rootPath) => rootPath.startsWith('/mock/'),
+      storage,
+      workspaceRootRegistryFileSystemSeams: {
+        createSecureRoot: async () => ({
+          canonicalPath: '/mock/canonical-native-root',
+          close: () => undefined,
+          listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+          readFile: nativeReadFile,
+        }),
+        resolveReadPath: resolveNativeReadPath,
+      },
+    });
+
+    const descriptor = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as {
+      handle: DirectoryHandle;
+    };
+    await expect(
+      handlers.get('fs:readFile')?.({} as IpcMainInvokeEvent, {
+        kind: 'file',
+        name: 'readme.md',
+        path: '/users/test/workspace/readme.md',
+        platform: 'electron',
+        rootId: descriptor.handle.rootId,
+      } satisfies FileHandle)
+    ).resolves.toBe('native content');
+    expect(resolveNativeReadPath).toHaveBeenCalledWith(
+      '/users/test/workspace/readme.md',
+      '/mock/canonical-native-root'
+    );
+    expect(nativeReadFile).toHaveBeenCalledWith('readme.md', expect.any(Number));
+    expect(fileSystem.readFile).not.toHaveBeenCalled();
   });
 
   it('keeps fixture I/O isolated from the real adapter while still stamping authority', async () => {

@@ -340,6 +340,18 @@ blocking I/O. `close()` never blocks: it revokes the capability for new
 operations while operations already in flight drain against the pinned
 handle.
 
+Synthetic roots are selected only by the registration-time
+`isSyntheticFileSystemPath` seam, whose production default is
+`isMockFileSystemIpcPath`. Unit harnesses may opt real-looking fixture paths into
+the synthetic adapter explicitly; ambient `VITEST` state is never consulted by
+this trust-boundary choice. The decision is frozen by normalized presentation
+path and then bound to the opened root's canonical identity; a conflicting alias
+fails closed. The one classification consistently selects the synthetic
+`createSecureRoot`, canonical-root resolver, and lexical read-path resolver, so a
+root cannot mix synthetic and native authorization mechanics. Unit tests that
+exercise native composition inject the registry's secure-root/read-path seam as
+one required pair.
+
 Symlink/reparse entries remain explicit file-shaped Explorer rows so indexing
 attempts produce the existing visible inaccessible-file result; native reads
 never follow them. Listings are bounded at 10,000 inspected entries: the

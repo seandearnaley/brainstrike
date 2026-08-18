@@ -52,7 +52,9 @@ describe('ipc-handlers error branches', () => {
 
     store = {};
 
-    registerIpcHandlers(fsAdapter, storage, () => store as never);
+    registerIpcHandlers(fsAdapter, storage, () => store as never, {
+      isSyntheticFileSystemPath: () => true,
+    });
   });
 
   it('fs:restoreLastFolder propagates storage errors', async () => {

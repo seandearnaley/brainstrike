@@ -36,6 +36,8 @@ interface RegisterIpcHandlerOptions {
   readonly chunkingHostManager?: ChunkingHostManager;
   readonly embeddingHostManager?: EmbeddingHostManager;
   readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
+  /** Explicit test-harness seam for synthetic filesystem adapters. */
+  readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
 }
@@ -64,6 +66,9 @@ export function registerIpcHandlers(
     // importing ipc-handlers (e.g. the main-boot tests) never eagerly loads
     // the native addon. Resolved lazily, only when fs:removeRoot actually runs.
     getRootsDatabase: async () => (await import('./db-main')).getDatabase(),
+    ...(options?.isSyntheticFileSystemPath
+      ? { isSyntheticFileSystemPath: options.isSyntheticFileSystemPath }
+      : {}),
     storage,
   });
   const unregisterFileSystemWatchIpcHandlers = registerFileSystemWatchIpcHandlers({
