@@ -109,20 +109,31 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     convertAssistantUiMessages: vi.fn((messages) => messages),
     resolveDataStreamSession: vi.fn(() => undefined),
     sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
-    toAiSdkStyleStream: vi.fn(async (_messages: unknown, runtime?: RuntimeData) => {
-      const runtimeResult = await actual.createMastraAgentRuntime({ runtime });
-      const instructions = await runtimeResult.agent.getInstructions();
-      if (typeof instructions !== 'string') {
-        throw new Error('expected string agent instructions');
+    toAiSdkStyleStream: vi.fn(
+      async (
+        _messages: unknown,
+        runtime?: RuntimeData,
+        // BST-1352: auth rides the stream OPTIONS (the real toAiSdkStyleStream
+        // forwards it into the runtime options; this live-loop stub mirrors it).
+        options?: { authInput?: import('@brainstrike/agent').ProviderAuthInput }
+      ) => {
+        const runtimeResult = await actual.createMastraAgentRuntime({
+          ...(options?.authInput ? { authInput: options.authInput } : {}),
+          runtime,
+        });
+        const instructions = await runtimeResult.agent.getInstructions();
+        if (typeof instructions !== 'string') {
+          throw new Error('expected string agent instructions');
+        }
+        capturedInstructions = instructions;
+        await runtimeResult.dispose();
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: 'text-delta', value: 'ok' };
+          },
+        };
       }
-      capturedInstructions = instructions;
-      await runtimeResult.dispose();
-      return {
-        async *[Symbol.asyncIterator]() {
-          yield { type: 'text-delta', value: 'ok' };
-        },
-      };
-    }),
+    ),
   };
 });
 

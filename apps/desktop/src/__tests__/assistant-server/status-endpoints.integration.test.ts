@@ -150,7 +150,8 @@ describe('status endpoint', () => {
   it('reports an unreadable provider key without disabling other providers', async () => {
     const { SecretReadError } = await import('../../secrets');
     mockSecretsService.listProviders.mockResolvedValueOnce(['openrouter']);
-    mockSecretsService.getKey.mockRejectedValueOnce(
+    // BST-1352: availability inspection reads the TYPED credential.
+    mockSecretsService.getCredential.mockRejectedValueOnce(
       new SecretReadError('encryption_unavailable', 'openrouter')
     );
 
@@ -328,7 +329,8 @@ describe('status endpoint', () => {
   it('keeps other providers available when the legacy OpenAI key is unreadable', async () => {
     const { SecretReadError } = await import('../../secrets');
     mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
-    mockSecretsService.getKey.mockRejectedValueOnce(
+    // BST-1352: availability inspection reads the TYPED credential.
+    mockSecretsService.getCredential.mockRejectedValueOnce(
       new SecretReadError('decrypt_failed', 'openai')
     );
 

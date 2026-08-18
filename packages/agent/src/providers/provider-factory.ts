@@ -109,6 +109,11 @@ function sdkFactorySettings(options: ProviderFetchOptions): ProviderFetchOptions
   return options;
 }
 
+/** Error-context helper: only computed when a throw actually happens (E4). */
+function listSupportedProviderIds(): readonly SupportedProvider[] {
+  return listProviders().map((entry) => entry.id) as readonly SupportedProvider[];
+}
+
 /**
  * Create a language model instance for the specified provider
  *
@@ -119,11 +124,6 @@ function sdkFactorySettings(options: ProviderFetchOptions): ProviderFetchOptions
  * @returns A language model instance configured for the provider
  * @throws Error if the provider is not supported or the auth input is invalid
  */
-/** Error-context helper: only computed when a throw actually happens (E4). */
-function listSupportedProviderIds(): readonly SupportedProvider[] {
-  return listProviders().map((entry) => entry.id) as readonly SupportedProvider[];
-}
-
 export function createProvider(
   provider: SupportedProvider | string,
   auth?: ProviderAuthInput,
