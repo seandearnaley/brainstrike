@@ -38,6 +38,7 @@ const AWS_AUTH: ProviderAuthInput = {
 
 interface CapturedRequest {
   readonly authorization: string | null;
+  readonly body: string | undefined;
   readonly url: string;
 }
 
@@ -82,6 +83,9 @@ function stubBedrockStreamFetch(): CapturedRequest[] {
     const request = new Request(input as RequestInfo, init);
     captured.push({
       authorization: request.headers.get('authorization'),
+      // Read from `init` rather than the Request: the body stream can only be
+      // consumed once, and the SDK still needs it.
+      body: typeof init?.body === 'string' ? init.body : undefined,
       url: request.url,
     });
     const body = encodeBedrockEventStream([
@@ -447,5 +451,126 @@ describe('createProvider bedrock case (BST-1350)', () => {
     }
     expect(thrown).toBeInstanceOf(MastraAgentError);
     expect((thrown as MastraAgentError).code).toBe('mastra_agent_unsupported_provider');
+  });
+});
+
+/**
+ * BST-1353 x BST-1354 COMPOSITION (PR #2525 rebase onto #2524).
+ *
+ * Both tickets edited the SAME `bedrock` factory case independently: #2524
+ * wraps the model via `wrapModelWithDeclaredPromptCaching` (capability lookup
+ * on the UNPREFIXED catalog id, SDK model built from the ROUTED id), while
+ * BST-1353 swapped the bearer-only guard for `assertExactlyOneAwsCredential`
+ * and spreads `credentialProvider` into `createAmazonBedrock`.
+ *
+ * git auto-merged them with NO textual conflict, which is the dangerous
+ * shape: nothing about a clean merge proves the result is semantically right.
+ * Every test below FAILS if either half is dropped.
+ */
+describe('bedrock case composes prompt caching (BST-1354) with chain auth (BST-1353)', () => {
+  // A REAL catalog id that declares BOTH promptCaching 'bedrock' and
+  // bedrockReasoning 'adaptive'. Using an uncatalogued id would make these
+  // tests pass vacuously — the wrapper warns and returns the model unwrapped,
+  // which is exactly what the first draft of this block did.
+  const CLAUDE_MODEL = 'anthropic.claude-sonnet-5';
+
+  function cachePointCount(body: string | undefined): number {
+    // The Converse body carries `cachePoint` blocks inline; counting them on
+    // the SERIALIZED request proves the wrapper survived into the wire, not
+    // merely that some object was returned.
+    return body === undefined ? 0 : (body.match(/"cachePoint"/g) ?? []).length;
+  }
+
+  async function streamOnce(auth: ProviderAuthInput, modelId: string) {
+    const captured = stubBedrockStreamFetch();
+    const model = createProvider('bedrock', auth, modelId) as {
+      doStream: (options: unknown) => Promise<{ stream: ReadableStream<Record<string, unknown>> }>;
+    };
+    const { stream } = await model.doStream({
+      prompt: [
+        { content: [{ text: 'You are helpful.', type: 'text' }], role: 'system' },
+        { content: [{ text: 'hi', type: 'text' }], role: 'user' },
+      ],
+    });
+    const reader = stream.getReader();
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) {
+        break;
+      }
+    }
+    return captured;
+  }
+
+  it('BEARER auth: a Claude model still receives the prompt-caching wrapper', async () => {
+    const captured = await streamOnce(
+      { apiKey: 'test-bedrock-bearer', kind: 'aws', region: 'us-east-1' },
+      CLAUDE_MODEL
+    );
+
+    expect(captured[0]?.authorization).toBe('Bearer test-bedrock-bearer');
+    // Loses #2524 => 0 cachePoints.
+    expect(cachePointCount(captured[0]?.body)).toBeGreaterThan(0);
+  });
+
+  it('PROFILE_CHAIN auth: a Claude model receives the SAME wrapper', async () => {
+    const captured = await streamOnce(
+      {
+        credentialProvider: () =>
+          Promise.resolve({ accessKeyId: 'AKIACHAIN', secretAccessKey: 'sec' }),
+        kind: 'aws',
+        region: 'us-east-1',
+      },
+      CLAUDE_MODEL
+    );
+
+    // Loses BST-1353 => the chain never reaches the SDK and this is a Bearer
+    // (or a throw); loses #2524 => 0 cachePoints. Both halves are required.
+    expect(captured[0]?.authorization).toContain('AWS4-HMAC-SHA256');
+    expect(captured[0]?.authorization).toContain('AKIACHAIN');
+    expect(cachePointCount(captured[0]?.body)).toBeGreaterThan(0);
+  });
+
+  it('a ROUTED (pre-prefixed) id under chain auth still resolves caching', async () => {
+    // The catalog lookup strips the cross-region prefix
+    // (`findModelCapabilities`), so a routed id must not silently ship
+    // uncached. The SDK model is still built from the routed id.
+    const captured = await streamOnce(
+      {
+        credentialProvider: () =>
+          Promise.resolve({ accessKeyId: 'AKIACHAIN', secretAccessKey: 'sec' }),
+        kind: 'aws',
+        region: 'us-east-1',
+      },
+      `us.${CLAUDE_MODEL}`
+    );
+
+    expect(captured[0]?.url).toContain(encodeURIComponent(`us.${CLAUDE_MODEL}`));
+    expect(captured[0]?.url).not.toContain(encodeURIComponent(`us.us.${CLAUDE_MODEL}`));
+    expect(cachePointCount(captured[0]?.body)).toBeGreaterThan(0);
+  });
+
+  it('the XOR guard still fires for BOTH invalid shapes, wrapper or not', () => {
+    // Loses BST-1353 => neither throws (the old guard only checked apiKey, so
+    // "both" would pass and silently prefer the bearer).
+    expectTypedInitFailure(
+      () => createProvider('bedrock', { kind: 'aws', region: 'us-east-1' }, CLAUDE_MODEL),
+      MISSING_AWS_CREDENTIALS_DETAIL
+    );
+    expectTypedInitFailure(
+      () =>
+        createProvider(
+          'bedrock',
+          {
+            apiKey: 'bearer',
+            credentialProvider: () =>
+              Promise.resolve({ accessKeyId: 'AKIA', secretAccessKey: 'sec' }),
+            kind: 'aws',
+            region: 'us-east-1',
+          },
+          CLAUDE_MODEL
+        ),
+      CONFLICTING_AWS_CREDENTIALS_DETAIL
+    );
   });
 });

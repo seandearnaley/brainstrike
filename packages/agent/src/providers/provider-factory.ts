@@ -225,9 +225,17 @@ export function createProvider(
       // failure, never a silent default).
       const awsAuth = requireAwsAuthInput(auth, validatedProvider);
       // EXACTLY ONE credential form, bearer (BST-1350) or credential chain
-      // (BST-1353). Re-asserted here rather than trusted from the pre-dispatch
-      // validator so a DIRECT createProvider caller cannot slip past it: with
-      // neither form the AI SDK would sign with ambient env credentials.
+      // (BST-1353) — with neither, the AI SDK signs with AMBIENT env
+      // credentials, i.e. an identity the user never chose.
+      //
+      // REDUNDANT BY DESIGN, and measured to be so: `createProvider` always
+      // runs `assertValidProviderAuthInput` first, so removing EITHER call
+      // alone breaks no test (verified by mutation during the #2524 rebase);
+      // only removing BOTH does. Kept as a local invariant at the single
+      // point of use, because this is the line where a missing credential
+      // becomes a silently mis-signed AWS request. Do not delete it as "dead
+      // code" — the pre-dispatch validator is generic over the whole union,
+      // this one is the Bedrock case's own contract.
       assertExactlyOneAwsCredential(awsAuth);
       // SDK settings ride the SAME providerFetchOptions seam as every other
       // AI SDK factory case (PR #2522 review, finding 9) — a future
