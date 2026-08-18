@@ -15,6 +15,7 @@ export type AssistantRoute =
   | 'cancel'
   | 'openrouter-model'
   | 'resume'
+  | 'run-status'
   | 'steer'
   | 'suspended-runs'
   | 'not-found';

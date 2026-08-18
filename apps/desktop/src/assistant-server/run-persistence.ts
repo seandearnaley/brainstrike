@@ -457,6 +457,34 @@ export async function* persistDesktopTokenEstimateCalibration(
   }
 }
 
+/**
+ * Durable run status read for the reattachment reclaim probe
+ * (GET /assistant/run-status). Returns undefined when no row exists — for a
+ * runId taken from a stored reattachment record that proves the record is
+ * stale, because runs gain their durable row before any stream response can
+ * mint a record. Read errors THROW (the endpoint 500s); a fabricated status
+ * here could silently reclaim a live run.
+ */
+export async function readDesktopAssistantThreadRunStatus(
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): Promise<string | undefined> {
+  const database = await getDatabase();
+  const result = await database.query(
+    `SELECT status FROM ${ASSISTANT_THREAD_RUNS_TABLE} WHERE id = $1`,
+    [runId]
+  );
+  const row = result.rows[0];
+  if (row === undefined) {
+    return;
+  }
+  const status = (row as { status?: unknown }).status;
+  if (typeof status !== 'string') {
+    throw new Error(`Assistant thread run ${runId} has a non-string status column.`);
+  }
+  return status;
+}
+
 export async function recordDesktopAssistantThreadRunStatus(
   runId: string,
   status: 'cancelled' | 'completed' | 'failed',

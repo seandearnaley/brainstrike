@@ -37,6 +37,12 @@ export async function handleAssistantResumeRequest(
   if (await resumeStreamIfAvailable(res, lastEventId)) {
     return;
   }
+  // Visible by contract (assistant-persistence.md): the expired-session
+  // response is one of the events that releases the renderer's ephemeral
+  // reattachment record, so the 404 must be observable in diagnostics — the
+  // 2026-08-18 wedge investigation could not tell "expired" from "never
+  // attempted" because this path logged nothing.
+  logger.warn('Assistant stream resume unavailable; session expired or unknown', { lastEventId });
   respondJson(res, 404, {
     error: 'assistant_stream_unavailable',
     message: 'The assistant stream is no longer available for replay.',

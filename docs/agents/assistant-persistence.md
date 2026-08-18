@@ -259,8 +259,22 @@ contracts keep reloaded threads identical to live ones:
    first, then replays that exact session through `GET /assistant/resume` into
    the same assistant message and persisted parent; it does not create a
    duplicate branch, another run row, or resend model input. Completion,
-   failure, Stop, and a visible expired-session response remove the ephemeral
-   record. The public assistant-ui runtime temporarily creates a generated
+   failure, Stop, a visible expired-session response, replay retry
+   exhaustion, and the stale-record reclaim below remove the ephemeral
+   record. The record is a HINT, never a second authority: before the
+   "awaiting stream reattachment" guard rejects a new run, `prepareRequest`
+   reconciles the record against the durable run row through
+   `GET /assistant/run-status` (the same authority as the BST-1244
+   Threads-panel projection) — a terminal or missing durable run reclaims
+   the record with a logged warning and the new run proceeds; only a
+   genuinely `running` durable row keeps the guard, and a failed probe keeps
+   the guard (fail-safe, never a silent reclaim). Replay failures that
+   exhaust the retry budget release the record the same way instead of
+   wedging the thread until app restart (2026-08-18 field failure: a
+   dev-mode renderer reload mid-stream orphaned a record whose run finished
+   seconds later, and every send until app close was rejected). The
+   expired-resume 404 is logged server-side so "expired" and "never
+   attempted" are distinguishable in diagnostics. The public assistant-ui runtime temporarily creates a generated
    streaming leaf; the client removes the hydrated durable leaf before replay,
    remaps the history append to the durable ID, and after `runEnd` remaps the
    generated local ID through thread `export`/`import`. Waiting for `runEnd`
