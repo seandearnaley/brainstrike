@@ -69,6 +69,7 @@ import {
   recordDesktopAssistantHookRunOutcome,
   recordDesktopAssistantThreadRunStatus,
 } from './assistant-server/run-persistence';
+import { handleRunStatusRequest } from './assistant-server/run-status-endpoint';
 import { recordDesktopContinuationRunTreatment } from './assistant-server/run-treatment-persistence';
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
 import type { AssistantServerOptions } from './assistant-server/server-options';
@@ -342,6 +343,11 @@ export async function handleAssistantRequest(
 
   if (route === 'suspended-runs') {
     await handleSuspendedRunsRequest(req, res, options);
+    return;
+  }
+
+  if (route === 'run-status') {
+    await handleRunStatusRequest(req, res, getDatabase);
     return;
   }
 
