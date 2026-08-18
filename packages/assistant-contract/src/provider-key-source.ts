@@ -24,16 +24,25 @@ export type ProviderKeySource<Id extends string> =
       readonly source: 'stored';
     };
 
-/** Builds the save-time fingerprint. Throws for an empty secret — an empty
- * secret is never a configured credential, so fingerprinting one is a bug. */
+/**
+ * Builds the save-time fingerprint. Throws for an empty secret — an empty
+ * secret is never a configured credential, so fingerprinting one is a bug.
+ * Secrets shorter than eight characters yield NO fingerprint: the `…last4`
+ * of a very short secret would reveal half or more of the key material, so
+ * the row shows a plain Stored badge with no hint instead (BST-1362).
+ */
 export function createStoredKeyFingerprint(
   secret: string,
   savedAt: Date = new Date()
-): StoredKeyFingerprint {
-  if (secret.trim().length === 0) {
+): StoredKeyFingerprint | undefined {
+  const trimmedLength = secret.trim().length;
+  if (trimmedLength === 0) {
     throw new Error('Cannot fingerprint an empty credential secret.');
   }
-  return { last4: secret.slice(-4), savedAt: savedAt.toISOString() };
+  if (trimmedLength < 8) {
+    return;
+  }
+  return { last4: secret.trim().slice(-4), savedAt: savedAt.toISOString() };
 }
 
 /**

@@ -37,6 +37,7 @@ vi.mock('@brainstrike/ui', () => ({
     children,
     disabled,
     onClick,
+    ref,
     'data-testid': testId,
     variant: _variant,
     size: _size,
@@ -44,11 +45,12 @@ vi.mock('@brainstrike/ui', () => ({
     children: React.ReactNode;
     disabled?: boolean;
     onClick?: () => void;
+    ref?: React.Ref<HTMLButtonElement>;
     'data-testid'?: string;
     variant?: string;
     size?: string;
   }) => (
-    <button data-testid={testId} disabled={disabled} onClick={onClick} type="button">
+    <button data-testid={testId} disabled={disabled} onClick={onClick} ref={ref} type="button">
       {children}
     </button>
   ),
@@ -292,6 +294,28 @@ describe('CredentialInventory', () => {
     });
   });
 
+  it('renders normally when the listing mentions a stored keyless provider (no row, no blanking)', async () => {
+    // The bridge lists ANY stored provider id it knows (e.g. a keyless local
+    // runtime like ollama). The table shows no row for it — but the entry must
+    // parse, never blank the whole table (BST-1362 review blocker).
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      list: vi.fn().mockResolvedValue([
+        { provider: 'ollama', source: 'stored' },
+        { provider: 'openai', source: 'stored' },
+      ] as ListedSource[]),
+    });
+
+    render(<CredentialInventory />);
+    await waitForReady();
+
+    expect(screen.queryByTestId('provider-key-load-error')).toBeNull();
+    expect(screen.queryByTestId('credential-row-ollama')).toBeNull();
+    expect(screen.getByTestId('credential-status-openai').textContent).toBe('Stored');
+    expect(screen.getByTestId('credential-status-google').textContent).toBe('Not set');
+  });
+
   it('shows a Stored badge with the …last4 fingerprint and saved date', async () => {
     const base = createSecretsApi();
     setSecretsApi({
@@ -412,6 +436,31 @@ describe('CredentialInventory', () => {
     });
   });
 
+  it('saves a short secret (< 8 chars) without any fingerprint metadata', async () => {
+    // …last4 of a very short secret would reveal half or more of the key
+    // material, so short saves carry no metadata: the row will show a plain
+    // Stored badge with no hint.
+    render(<CredentialInventory />);
+    await waitForReady();
+
+    fireEvent.click(screen.getByTestId('credential-set-google'));
+    fireEvent.change(screen.getByTestId('credential-key-input-google'), {
+      target: { value: 'shortky' },
+    });
+    fireEvent.click(screen.getByTestId('credential-save-google'));
+
+    await waitFor(() => {
+      expect(getSecretsApi()?.saveCredential).toHaveBeenCalledTimes(1);
+    });
+    const saveCredentialMock = getSecretsApi()?.saveCredential as ReturnType<typeof vi.fn>;
+    const [, credential] = saveCredentialMock.mock.calls[0] as [string, ProviderCredential];
+    if (credential.type !== 'api_key') {
+      throw new Error('expected api_key credential');
+    }
+    expect(credential.key).toBe('shortky');
+    expect('metadata' in credential).toBe(false);
+  });
+
   it('saves on Enter and cancels on Escape without saving', async () => {
     render(<CredentialInventory />);
     await waitForReady();
@@ -436,6 +485,60 @@ describe('CredentialInventory', () => {
 
     expect(screen.queryByTestId('credential-editor-google')).toBeNull();
     expect(getSecretsApi()?.saveCredential).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores focus to the row Set/Replace trigger when the editor closes', async () => {
+    render(<CredentialInventory />);
+    await waitForReady();
+
+    // Escape path.
+    fireEvent.click(screen.getByTestId('credential-set-google'));
+    fireEvent.keyDown(screen.getByTestId('credential-key-input-google'), { key: 'Escape' });
+    expect(screen.queryByTestId('credential-editor-google')).toBeNull();
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByTestId('credential-set-google'));
+    });
+
+    // Cancel-button path.
+    fireEvent.click(screen.getByTestId('credential-set-google'));
+    fireEvent.click(screen.getByTestId('credential-cancel-google'));
+    expect(screen.queryByTestId('credential-editor-google')).toBeNull();
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByTestId('credential-set-google'));
+    });
+  });
+
+  it('scopes Escape handling to the editor — outside presses are neither swallowed nor cancel it', async () => {
+    render(<CredentialInventory />);
+    await waitForReady();
+
+    // Simulated Radix DismissableLayer: a document-level CAPTURE listener
+    // that dismisses the dialog unless the event was already claimed. The
+    // editor's handler must run first for presses INSIDE the editor (so the
+    // settings dialog stays open) and must not touch any other press.
+    const dismissals: KeyboardEvent[] = [];
+    const dismissLikeRadix = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        dismissals.push(event);
+      }
+    };
+    document.addEventListener('keydown', dismissLikeRadix, { capture: true });
+    try {
+      fireEvent.click(screen.getByTestId('credential-set-google'));
+      fireEvent.keyDown(screen.getByTestId('credential-key-input-google'), { key: 'Escape' });
+      // Inside press: editor cancelled, dialog-dismissal never saw the event.
+      expect(screen.queryByTestId('credential-editor-google')).toBeNull();
+      expect(dismissals).toHaveLength(0);
+
+      // Outside press while an editor is open: the editor stays, and the
+      // event reaches dialog-dismissal untouched (no global swallowing).
+      fireEvent.click(screen.getByTestId('credential-set-google'));
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(screen.getByTestId('credential-editor-google')).toBeDefined();
+      expect(dismissals).toHaveLength(1);
+    } finally {
+      document.removeEventListener('keydown', dismissLikeRadix, { capture: true });
+    }
   });
 
   it('renders registry hints and the copyable docs url inside the expanded editor', async () => {
@@ -548,6 +651,63 @@ describe('CredentialInventory', () => {
     });
   });
 
+  it('keeps rows consistent across concurrent remove(openai) + save(google) mutations', async () => {
+    // Busy state is keyed by slot id: one row's finishing mutation must clear
+    // only its OWN busy flag, never another row's in-flight state or draft.
+    let resolveDelete: ((value: boolean) => void) | undefined;
+    let resolveSave: ((value: true) => void) | undefined;
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      deleteKey: vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveDelete = resolve;
+          })
+      ),
+      list: vi.fn().mockResolvedValue([{ provider: 'openai', source: 'stored' }]),
+      saveCredential: vi.fn(
+        () =>
+          new Promise<true>((resolve) => {
+            resolveSave = resolve;
+          })
+      ),
+    });
+
+    render(<CredentialInventory />);
+    await waitForReady();
+
+    // Start the remove on openai, then a save on google while it is in flight.
+    fireEvent.click(screen.getByTestId('credential-remove-openai'));
+    fireEvent.click(screen.getByTestId('credential-set-google'));
+    fireEvent.change(screen.getByTestId('credential-key-input-google'), {
+      target: { value: 'sk-goog-concurrent' },
+    });
+    fireEvent.click(screen.getByTestId('credential-save-google'));
+
+    expect((screen.getByTestId('credential-save-google') as HTMLButtonElement).disabled).toBe(true);
+
+    // openai's remove finishes first; google's mutation must stay busy and
+    // its editor draft must survive.
+    resolveDelete?.(true);
+    await waitFor(() => {
+      expect(getSecretsApi()?.deleteKey).toHaveBeenCalledWith('openai');
+    });
+    await waitForReady();
+    expect((screen.getByTestId('credential-save-google') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('credential-cancel-google') as HTMLButtonElement).disabled).toBe(
+      true
+    );
+    expect((screen.getByTestId('credential-key-input-google') as HTMLInputElement).value).toBe(
+      'sk-goog-concurrent'
+    );
+
+    resolveSave?.(true);
+    await waitFor(() => {
+      expect(screen.queryByTestId('credential-editor-google')).toBeNull();
+    });
+  });
+
   it('removes a stored key through the row Remove action', async () => {
     const base = createSecretsApi();
     setSecretsApi({
@@ -609,6 +769,64 @@ describe('CredentialInventory', () => {
 
     expect(screen.getByTestId('credential-status-openai').textContent).toBe('Env (OPENAI_API_KEY)');
     expect(screen.getByTestId('credential-env-lock-openai')).toBeDefined();
+  });
+
+  it('no-ops Save and closes the editor when the slot source is env (authoritative)', async () => {
+    // Symmetric with handleRemove's stored-guard: an env slot is read-only,
+    // so a Save racing an env source appearing must not write to the keychain.
+    const { rerender } = render(<CredentialInventory />);
+    await waitForReady();
+
+    fireEvent.click(screen.getByTestId('credential-set-openai'));
+    fireEvent.change(screen.getByTestId('credential-key-input-openai'), {
+      target: { value: 'sk-open-racy' },
+    });
+
+    // The status probe now reports the slot as env-configured.
+    rerender(
+      <CredentialInventory
+        statusProviderKeySources={[
+          { envVar: 'OPENAI_API_KEY', provider: 'openai' as SupportedProvider, source: 'env' },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('credential-save-openai'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('credential-editor-openai')).toBeNull();
+    });
+    expect(getSecretsApi()?.saveCredential).not.toHaveBeenCalled();
+  });
+
+  it('clears an open editor whose slot became env when the listing reloads', async () => {
+    const base = createSecretsApi();
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([{ provider: 'openai', source: 'stored' }] as ListedSource[])
+      .mockResolvedValue([
+        { envVar: 'GOOGLE_GENERATIVE_AI_API_KEY', provider: 'google', source: 'env' },
+      ] as ListedSource[]);
+    setSecretsApi({ ...base, list });
+
+    render(<CredentialInventory />);
+    await waitForReady();
+
+    // Open google's editor while it is Not set, then remove openai — the
+    // refresh reports google as env-configured, which must close the editor.
+    fireEvent.click(screen.getByTestId('credential-set-google'));
+    fireEvent.change(screen.getByTestId('credential-key-input-google'), {
+      target: { value: 'sk-goog-stale' },
+    });
+    fireEvent.click(screen.getByTestId('credential-remove-openai'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('credential-editor-google')).toBeNull();
+    });
+    expect(screen.getByTestId('credential-status-google').textContent).toBe(
+      'Env (GOOGLE_GENERATIVE_AI_API_KEY)'
+    );
+    expect(getSecretsApi()?.saveCredential).not.toHaveBeenCalled();
   });
 
   it('joins the status probe error into the visible banner', async () => {

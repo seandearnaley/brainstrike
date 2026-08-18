@@ -24,11 +24,25 @@ describe('createStoredKeyFingerprint', () => {
     expect(fingerprint).toEqual({ last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' });
   });
 
-  it('never captures more than four characters for short secrets', () => {
-    const fingerprint = createStoredKeyFingerprint('abcdef', new Date('2026-08-18T10:00:00.000Z'));
+  it('never captures more than four characters', () => {
+    const fingerprint = createStoredKeyFingerprint(
+      'abcdefgh',
+      new Date('2026-08-18T10:00:00.000Z')
+    );
 
-    expect(fingerprint.last4).toBe('cdef');
-    expect(fingerprint.last4).toHaveLength(4);
+    expect(fingerprint?.last4).toBe('efgh');
+    expect(fingerprint?.last4).toHaveLength(4);
+  });
+
+  it('yields NO fingerprint for secrets shorter than eight characters', () => {
+    // …last4 of a 7-character secret would reveal over half the key material,
+    // so short secrets get no fingerprint at all (Stored badge, no hint).
+    expect(createStoredKeyFingerprint('abcdefg', new Date())).toBeUndefined();
+    expect(createStoredKeyFingerprint('a', new Date())).toBeUndefined();
+    // Whitespace padding does not count toward the floor.
+    expect(createStoredKeyFingerprint('  abcdefg  ', new Date())).toBeUndefined();
+    // Exactly eight characters is the smallest fingerprintable secret.
+    expect(createStoredKeyFingerprint('abcdefgh', new Date())).toBeDefined();
   });
 
   it('rejects an empty or whitespace-only secret instead of fabricating a fingerprint', () => {
@@ -41,7 +55,7 @@ describe('createStoredKeyFingerprint', () => {
     const fingerprint = createStoredKeyFingerprint('sk-live-abcd');
     const after = Date.now();
 
-    const parsed = Date.parse(fingerprint.savedAt);
+    const parsed = Date.parse(fingerprint?.savedAt ?? '');
     expect(parsed).toBeGreaterThanOrEqual(before);
     expect(parsed).toBeLessThanOrEqual(after);
   });

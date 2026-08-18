@@ -12,7 +12,8 @@ import {
   TooltipIconButton,
 } from '@brainstrike/ui';
 import { Lock } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, RefObject } from 'react';
+import { useEffect, useRef } from 'react';
 import { KeySourceBadge } from '../key-source-badge';
 import type { CredentialSourceState } from '../provider-key-types';
 import { CredentialRowEditor } from './credential-row-editor';
@@ -63,6 +64,7 @@ function ProviderNameCell({ slot }: { readonly slot: CredentialSlot }) {
 
 function RowActions({
   busy,
+  editorTriggerRef,
   onOpenEditor,
   onRemove,
   slot,
@@ -71,7 +73,9 @@ function RowActions({
 }: Pick<
   CredentialRowProps,
   'busy' | 'onOpenEditor' | 'onRemove' | 'slot' | 'source' | 'sourceState'
->) {
+> & {
+  readonly editorTriggerRef: RefObject<HTMLButtonElement | null>;
+}) {
   if (sourceState === 'loading') {
     return null;
   }
@@ -93,6 +97,7 @@ function RowActions({
           data-testid={`credential-replace-${slot.id}`}
           disabled={actionsDisabled}
           onClick={onOpenEditor}
+          ref={editorTriggerRef}
           size="sm"
           variant="secondary"
         >
@@ -115,6 +120,7 @@ function RowActions({
       data-testid={`credential-set-${slot.id}`}
       disabled={actionsDisabled}
       onClick={onOpenEditor}
+      ref={editorTriggerRef}
       size="sm"
     >
       Set
@@ -145,6 +151,20 @@ export function CredentialRow({
   sourceState,
 }: CredentialRowProps) {
   const fingerprint = fingerprintOf(source);
+
+  // Keyboard flow (BST-1362 review): when the inline editor closes — Escape,
+  // Cancel, or a completed save — focus returns to the row's Set/Replace
+  // trigger instead of falling to <body>. Only the true→false transition
+  // focuses, so mounting a row never steals focus.
+  const editorTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const wasEditingRef = useRef(editing);
+  // biome-ignore lint/plugin: Focus restoration must follow EVERY close path — including non-local ones (save success, the slot becoming env on reload) that have no row-level event to hook — so reacting to the editing prop transition is the correct tool, not an event handler stand-in.
+  useEffect(() => {
+    if (wasEditingRef.current && !editing) {
+      editorTriggerRef.current?.focus();
+    }
+    wasEditingRef.current = editing;
+  }, [editing]);
 
   return (
     <>
@@ -198,6 +218,7 @@ export function CredentialRow({
         <TableCell className="py-2 text-right">
           <RowActions
             busy={busy}
+            editorTriggerRef={editorTriggerRef}
             onOpenEditor={onOpenEditor}
             onRemove={onRemove}
             slot={slot}

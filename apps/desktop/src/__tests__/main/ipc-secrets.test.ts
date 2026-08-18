@@ -265,6 +265,42 @@ describe('registerSecretsIpcHandlers', () => {
     expect(result).toEqual([{ provider: 'anthropic', source: 'stored' }]);
   });
 
+  it('drops an out-of-shape fingerprint but keeps the entry listed (renderer-parser parity)', async () => {
+    process.env['NODE_ENV'] = 'production';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getCredential: vi.fn().mockImplementation((provider: string) => {
+        if (provider === 'anthropic') {
+          // A five-character last4 would fail the renderer's shared parser
+          // (and would leak key material) — main must not forward it.
+          return Promise.resolve({
+            key: 'sk-ant-tampered',
+            metadata: { last4: 'pered', savedAt: '2026-08-18T10:00:00.000Z' },
+            type: 'api_key',
+          });
+        }
+        // An unparseable savedAt is equally out-of-shape.
+        return Promise.resolve({
+          key: 'sk-open-tampered',
+          metadata: { last4: 'ered', savedAt: 'not-a-date' },
+          type: 'api_key',
+        });
+      }),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const result = await getHandler('secrets:list')!(createInvokeEvent());
+
+    expect(result).toEqual([
+      { provider: 'anthropic', source: 'stored' },
+      { provider: 'openai', source: 'stored' },
+    ]);
+  });
+
   it('reports Tavily env credentials and keeps env authoritative over storage', async () => {
     process.env['NODE_ENV'] = 'production';
     process.env['BRAINSTRIKE_TAVILY_API_KEY'] = 'tvly-environment';

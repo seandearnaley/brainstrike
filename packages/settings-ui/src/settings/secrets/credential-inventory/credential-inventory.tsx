@@ -7,6 +7,7 @@ import {
   parseProviderKeySources,
 } from '@brainstrike/assistant-contract';
 import {
+  listProviders,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -20,6 +21,13 @@ import { CredentialRow } from './credential-row';
 import { type CredentialSlot, listCredentialSlots } from './credential-slots';
 
 const TAVILY_ENV_KEYS = new Set(['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY']);
+
+// Frozen module constants back the prop defaults so a caller omitting them
+// gets the SAME reference every render — otherwise each render would allocate
+// fresh arrays and defeat every memo keyed on these props.
+const EMPTY_DEPRECATED_ENV_VARS: readonly DeprecatedEnvVarReport[] = Object.freeze([]);
+const EMPTY_STATUS_PROVIDER_KEY_SOURCES: readonly ProviderKeySource<SupportedProvider>[] =
+  Object.freeze([]);
 
 function invalidCredentialStatus(): Error {
   return new Error('The desktop returned invalid credential status metadata.');
@@ -46,7 +54,9 @@ interface EditorDraft {
 }
 
 interface InventoryState {
-  readonly busySlotId: string | null;
+  /** Slot-keyed busy flags: concurrent mutations on different rows never
+   * clear each other (a finish event removes only its OWN slot id). */
+  readonly busySlotIds: ReadonlySet<string>;
   readonly editor: EditorDraft | null;
   readonly loadError: string | null;
   readonly sourceState: CredentialSourceState;
@@ -62,15 +72,40 @@ type InventoryAction =
   | { type: 'SET_DRAFT_KEY'; key: string }
   | { type: 'SET_DRAFT_REGION'; region: string }
   | { type: 'MUTATION_STARTED'; slotId: string }
-  | { type: 'MUTATION_FINISHED' }
-  | { type: 'SAVE_SUCCESS' };
+  | { type: 'MUTATION_FINISHED'; slotId: string }
+  | { type: 'SAVE_SUCCESS'; slotId: string };
+
+function withoutSlot(slotIds: ReadonlySet<string>, slotId: string): ReadonlySet<string> {
+  const next = new Set(slotIds);
+  next.delete(slotId);
+  return next;
+}
+
+/** Whether the freshly loaded listing reports the open editor's slot as
+ * env-sourced. The editor must then close: env is authoritative and the row
+ * locks read-only, so a lingering editor could only produce a dead save. */
+function editorSlotBecameEnv(
+  editor: EditorDraft | null,
+  sources: readonly ProviderKeySource<string>[]
+): boolean {
+  if (!editor) {
+    return false;
+  }
+  return sources.some((source) => source.provider === editor.slotId && source.source === 'env');
+}
 
 function inventoryReducer(state: InventoryState, action: InventoryAction): InventoryState {
   switch (action.type) {
     case 'SOURCE_LOAD_STARTED':
       return { ...state, loadError: null, sourceState: 'loading' };
     case 'SOURCE_LOAD_SUCCEEDED':
-      return { ...state, loadError: null, sourceState: 'ready', sources: action.sources };
+      return {
+        ...state,
+        editor: editorSlotBecameEnv(state.editor, action.sources) ? null : state.editor,
+        loadError: null,
+        sourceState: 'ready',
+        sources: action.sources,
+      };
     case 'SOURCE_LOAD_FAILED':
       return { ...state, loadError: action.message, sourceState: 'error' };
     case 'OPEN_EDITOR':
@@ -84,11 +119,17 @@ function inventoryReducer(state: InventoryState, action: InventoryAction): Inven
         ? { ...state, editor: { ...state.editor, region: action.region } }
         : state;
     case 'MUTATION_STARTED':
-      return { ...state, busySlotId: action.slotId };
+      return { ...state, busySlotIds: new Set(state.busySlotIds).add(action.slotId) };
     case 'MUTATION_FINISHED':
-      return { ...state, busySlotId: null };
+      return { ...state, busySlotIds: withoutSlot(state.busySlotIds, action.slotId) };
     case 'SAVE_SUCCESS':
-      return { ...state, busySlotId: null, editor: null };
+      return {
+        ...state,
+        busySlotIds: withoutSlot(state.busySlotIds, action.slotId),
+        // Only the SAVED slot's editor closes — a different row's open draft
+        // (opened while this save was in flight) survives untouched.
+        editor: state.editor?.slotId === action.slotId ? null : state.editor,
+      };
     default:
       return state;
   }
@@ -97,12 +138,21 @@ function inventoryReducer(state: InventoryState, action: InventoryAction): Inven
 function buildCredential(slot: CredentialSlot, key: string, region: string): ProviderCredential {
   // The non-secret {last4, savedAt} fingerprint is computed HERE, at save
   // time, from the value being saved — never derived from stored material
-  // later (BST-1362).
-  const metadata = { ...createStoredKeyFingerprint(key) };
+  // later (BST-1362). Secrets shorter than eight characters yield no
+  // fingerprint at all (the creator's floor): the credential then carries no
+  // metadata and the row shows a plain Stored badge without a hint.
+  const fingerprint = createStoredKeyFingerprint(key);
+  const metadata = fingerprint ? { ...fingerprint } : undefined;
   if (slot.authType === 'aws') {
-    return { bearerKey: key, metadata, mode: 'bearer', region, type: 'aws' };
+    return {
+      bearerKey: key,
+      mode: 'bearer',
+      region,
+      type: 'aws',
+      ...(metadata ? { metadata } : {}),
+    };
   }
-  return { key, metadata, type: 'api_key' };
+  return { key, type: 'api_key', ...(metadata ? { metadata } : {}) };
 }
 
 export interface CredentialInventoryProps {
@@ -123,10 +173,10 @@ export interface CredentialInventoryProps {
  * @platform desktop
  */
 export function CredentialInventory({
-  deprecatedEnvVars = [],
+  deprecatedEnvVars = EMPTY_DEPRECATED_ENV_VARS,
   providers,
   statusError,
-  statusProviderKeySources = [],
+  statusProviderKeySources = EMPTY_STATUS_PROVIDER_KEY_SOURCES,
 }: CredentialInventoryProps = {}) {
   const { toast } = useToast();
   const notifySecretsChanged = useSecretsStore((state) => state.notifySecretsChanged);
@@ -138,22 +188,44 @@ export function CredentialInventory({
     () => (providers ? allSlots.filter((slot) => providers.includes(slot.id)) : allSlots),
     [allSlots, providers]
   );
-  // The listing may legitimately mention providers the table does not show
-  // (e.g. local-runtime bearer tokens), so the allowed set is every registry
-  // provider — the visibility filter never narrows validation.
+  // The listing may legitimately mention providers the table does not show —
+  // a stored entry for a keyless local runtime (e.g. ollama) simply has no
+  // row. The allowed set is therefore EVERY provider the bridge can emit:
+  // the UNFILTERED registry plus Tavily, independent of slot filtering —
+  // matching assistant-preferences-store's CONFIGURED_KEY_PROVIDER_IDS so the
+  // two strict consumers of the shared parser cannot drift.
   const allowedProviderKeyIds = useMemo(
-    () => new Set([...allSlots.map((slot) => slot.id), TAVILY_SECRET_PROVIDER]),
-    [allSlots]
+    () =>
+      new Set<string>([
+        ...listProviders().map((definition) => definition.id),
+        TAVILY_SECRET_PROVIDER,
+      ]),
+    []
   );
 
   const [state, dispatch] = useReducer(inventoryReducer, {
-    busySlotId: null,
+    busySlotIds: new Set<string>(),
     editor: null,
     loadError: null,
     sourceState: 'loading',
     sources: [],
   });
-  const { busySlotId, editor, loadError, sources, sourceState } = state;
+  const { busySlotIds, editor, loadError, sources, sourceState } = state;
+
+  // Grouped ONCE per payload change — the per-row alternative (filtering the
+  // full report list inside every row render) is quadratic in slot count.
+  const deprecationsBySlotId = useMemo(() => {
+    const grouped = new Map<string, DeprecatedEnvVarReport[]>();
+    for (const report of deprecatedEnvVars) {
+      const existing = grouped.get(report.provider);
+      if (existing) {
+        existing.push(report);
+      } else {
+        grouped.set(report.provider, [report]);
+      }
+    }
+    return grouped;
+  }, [deprecatedEnvVars]);
 
   const mergedSources = useMemo(() => {
     const merged = new Map<string, ProviderKeySource<string>>();
@@ -226,6 +298,14 @@ export function CredentialInventory({
       if (!editor || editor.slotId !== slot.id) {
         return;
       }
+      // Symmetric with handleRemove's stored-guard: an env source is
+      // authoritative and its row is read-only, so a Save racing an env
+      // source appearing must never write to the keychain — the stale
+      // editor just closes (BST-1362 review).
+      if (mergedSources.get(slot.id)?.source === 'env') {
+        dispatch({ type: 'CLOSE_EDITOR' });
+        return;
+      }
       const key = editor.key.trim();
       const region = editor.region.trim();
       if (!key || (slot.authType === 'aws' && !region)) {
@@ -233,9 +313,9 @@ export function CredentialInventory({
       }
       dispatch({ slotId: slot.id, type: 'MUTATION_STARTED' });
       const saved = await saveCredential(slot.id, buildCredential(slot, key, region));
-      dispatch({ type: saved ? 'SAVE_SUCCESS' : 'MUTATION_FINISHED' });
+      dispatch({ slotId: slot.id, type: saved ? 'SAVE_SUCCESS' : 'MUTATION_FINISHED' });
     },
-    [editor, saveCredential]
+    [editor, mergedSources, saveCredential]
   );
 
   const handleRemove = useCallback(
@@ -247,7 +327,7 @@ export function CredentialInventory({
       }
       dispatch({ slotId: slot.id, type: 'MUTATION_STARTED' });
       await deleteSecret(slot.id);
-      dispatch({ type: 'MUTATION_FINISHED' });
+      dispatch({ slotId: slot.id, type: 'MUTATION_FINISHED' });
     },
     [deleteSecret, mergedSources]
   );
@@ -270,8 +350,8 @@ export function CredentialInventory({
         <TableBody>
           {orderedSlots.map((slot) => (
             <CredentialRow
-              busy={busySlotId === slot.id}
-              deprecatedReports={deprecatedEnvVars.filter((report) => report.provider === slot.id)}
+              busy={busySlotIds.has(slot.id)}
+              deprecatedReports={deprecationsBySlotId.get(slot.id) ?? EMPTY_DEPRECATED_ENV_VARS}
               draftKey={editor?.slotId === slot.id ? editor.key : ''}
               draftRegion={editor?.slotId === slot.id ? editor.region : ''}
               editing={editor?.slotId === slot.id}

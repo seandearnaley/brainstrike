@@ -111,12 +111,20 @@ async function toStoredKeySource(
 async function appendTestModeProviders(
   target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>
 ): Promise<void> {
+  const eligible: DesktopProviderKeyId[] = [];
   for (const [provider, value] of testModeSecrets.entries()) {
     const trimmedValue = typeof value === 'string' ? value.trim() : '';
     if (trimmedValue.length === 0 || !isDesktopProviderKeyId(provider)) {
       continue;
     }
-    target.set(provider, await toStoredKeySource(provider, () => readTestModeCredential(provider)));
+    eligible.push(provider);
+  }
+  // Parallel for parity with the production listing path below.
+  const sources = await Promise.all(
+    eligible.map((provider) => toStoredKeySource(provider, () => readTestModeCredential(provider)))
+  );
+  for (const source of sources) {
+    target.set(source.provider, source);
   }
 }
 
@@ -133,15 +141,33 @@ async function appendStoredProviders(
   secrets: SecretsService
 ) {
   const storedProviders = await secrets.listProviders();
+  const eligible: DesktopProviderKeyId[] = [];
   for (const provider of storedProviders) {
     if (typeof provider !== 'string') {
       continue;
     }
     const trimmed = provider.trim();
-    if (trimmed.length === 0 || !isDesktopProviderKeyId(trimmed) || target.has(trimmed)) {
+    if (
+      trimmed.length === 0 ||
+      !isDesktopProviderKeyId(trimmed) ||
+      target.has(trimmed) ||
+      eligible.includes(trimmed)
+    ) {
       continue;
     }
-    target.set(trimmed, await toStoredKeySource(trimmed, () => secrets.getCredential(trimmed)));
+    eligible.push(trimmed);
+  }
+  // The per-provider decrypt+parse reads are independent, so they run in
+  // parallel (bounded by the slot count); entries land in listing order.
+  // Follow-up: fingerprints could be projected WITHOUT a full decrypt if the
+  // store persisted the non-secret {last4, savedAt} pair alongside (not
+  // inside) the encrypted credential — the listing would then never need
+  // key material at all.
+  const sources = await Promise.all(
+    eligible.map((provider) => toStoredKeySource(provider, () => secrets.getCredential(provider)))
+  );
+  for (const source of sources) {
+    target.set(source.provider, source);
   }
 }
 

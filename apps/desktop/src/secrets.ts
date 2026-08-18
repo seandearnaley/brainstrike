@@ -1,6 +1,7 @@
 import {
   describeSecretReadError,
   isProviderCredential,
+  isStoredKeyFingerprint,
   MalformedCredentialError,
   type ProviderCredential,
   parseStoredCredential,
@@ -100,6 +101,13 @@ export function credentialToApiKey(provider: string, credential: ProviderCredent
  * exists only when BOTH keys are present (the single save path always writes
  * them together); a partial pair is hand-tampered provenance and is withheld
  * rather than forwarded or guessed at. `oauth` has no metadata field.
+ *
+ * Shape validation is the SHARED `isStoredKeyFingerprint` guard — the exact
+ * rules the renderer's `parseProviderKeySources` enforces (`last4` a 1-4
+ * character string, `savedAt` parseable) — so main can never forward a shape
+ * the renderer would hard-fail the whole listing on. An out-of-shape pair is
+ * hand-tampered provenance: the fingerprint is dropped (nothing but the
+ * non-secret hint is lost) while the entry itself stays listed as stored.
  */
 export function credentialStoredKeyFingerprint(
   credential: ProviderCredential
@@ -111,12 +119,8 @@ export function credentialStoredKeyFingerprint(
   if (!metadata) {
     return;
   }
-  const last4 = metadata['last4'];
-  const savedAt = metadata['savedAt'];
-  if (typeof last4 !== 'string' || typeof savedAt !== 'string') {
-    return;
-  }
-  return { last4, savedAt };
+  const candidate = { last4: metadata['last4'], savedAt: metadata['savedAt'] };
+  return isStoredKeyFingerprint(candidate) ? candidate : undefined;
 }
 
 interface SecretsSchema {

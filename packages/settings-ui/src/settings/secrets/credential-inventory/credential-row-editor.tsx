@@ -1,5 +1,5 @@
 import { Button, CopyTextButton, Input } from '@brainstrike/ui';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { CredentialSlot } from './credential-slots';
 
 interface CredentialRowEditorProps {
@@ -49,15 +49,25 @@ export function CredentialRowEditor({
   const canSave = !busy && draftKey.trim().length > 0 && (!isAws || draftRegion.trim().length > 0);
   const keyHint = composeKeyHint(slot);
 
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   // Escape cancels the editor WITHOUT closing the surrounding settings
   // dialog. Radix's DismissableLayer listens for Escape in the CAPTURE phase
-  // on document, so a bubble-phase handler on the input is too late — this
-  // window-capture listener runs first (window precedes document in the
-  // capture path) and its preventDefault makes the dialog layer skip
-  // dismissal.
+  // on `document` and dismisses synchronously inside that handler, so the
+  // ONLY handler that can preempt it is a window-capture listener (window
+  // precedes document on the capture path) — a bubble-phase onKeyDown on this
+  // container would run after the dialog had already dismissed. The listener
+  // is SCOPED, never global (BST-1362 review): it acts only on Escape presses
+  // originating INSIDE this editor (target containment), so an Escape pressed
+  // anywhere else — another popover, the dialog itself — is left untouched
+  // for its own surface to handle.
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || busy) {
+        return;
+      }
+      const container = containerRef.current;
+      if (!(container && event.target instanceof Node && container.contains(event.target))) {
         return;
       }
       event.preventDefault();
@@ -78,7 +88,7 @@ export function CredentialRowEditor({
   };
 
   return (
-    <div className="space-y-2 py-1" data-testid={`credential-editor-${slot.id}`}>
+    <div className="space-y-2 py-1" data-testid={`credential-editor-${slot.id}`} ref={containerRef}>
       <div className="flex flex-wrap items-center gap-2">
         <Input
           aria-label={isAws ? `${slot.displayName} bearer key` : `${slot.displayName} API key`}
