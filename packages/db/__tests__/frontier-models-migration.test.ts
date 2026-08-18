@@ -78,6 +78,7 @@ describe('frontier models migrations', () => {
       'thinkingmachines/inkling',
       'kwaipilot/kat-coder-air-v2.5',
       'kwaipilot/kat-coder-pro-v2.5',
+      'x-ai/grok-4.6',
       'x-ai/grok-4.5',
       'moonshotai/kimi-k2.6',
       'moonshotai/kimi-k2.7-code',
@@ -912,6 +913,109 @@ describe('frontier models migrations', () => {
       {
         capabilities: { streaming: true, type: 'llm', vision: true },
         id: 'qwen/qwen3.8-max',
+        is_enabled: false,
+        sort_order: 1,
+      },
+    ]);
+  });
+
+  it('adds Grok 4.6 disabled, preserves its toggle, and rolls back migration 100', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version <= 99));
+
+    const migration100 = migrations.find((migration) => migration.version === 100);
+    if (!migration100) {
+      throw new Error('Migration 100 is missing');
+    }
+
+    const readRows = async (): Promise<
+      Array<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        id: string;
+        is_enabled: boolean;
+        sort_order: number;
+      }>
+    > => {
+      const result = await db.query<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        id: string;
+        is_enabled: boolean;
+        sort_order: number;
+      }>(`
+        SELECT id, capabilities, is_enabled, sort_order
+        FROM models
+        WHERE provider_id = 'openrouter'
+          AND id IN ('x-ai/grok-4.6', 'nvidia/nemotron-3.5-lightning')
+        ORDER BY sort_order
+      `);
+      return result.rows;
+    };
+
+    await runner.runMigration(migration100);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'x-ai/grok-4.6',
+        is_enabled: false,
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'nvidia/nemotron-3.5-lightning',
+        is_enabled: false,
+        sort_order: 2,
+      },
+    ]);
+
+    await runner.down(migrations, 99);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'nvidia/nemotron-3.5-lightning',
+        is_enabled: false,
+        sort_order: 1,
+      },
+    ]);
+
+    await db.query(`
+      INSERT INTO models
+        (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled)
+      VALUES
+        (
+          'x-ai/grok-4.6',
+          'openrouter',
+          'stale name',
+          'stale tagline',
+          '[]',
+          '{"type":"llm","streaming":false,"vision":false}',
+          99,
+          true
+        )
+    `);
+    await runner.up(migrations.filter((migration) => migration.version <= 100));
+
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'x-ai/grok-4.6',
+        is_enabled: true,
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'nvidia/nemotron-3.5-lightning',
+        is_enabled: false,
+        sort_order: 2,
+      },
+    ]);
+
+    await runner.down(migrations, 99);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'nvidia/nemotron-3.5-lightning',
         is_enabled: false,
         sort_order: 1,
       },
