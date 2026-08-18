@@ -12,6 +12,7 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { resolveProviderEnvCredential } from './provider-api-key';
 import {
+  credentialStoredKeyFingerprint,
   credentialToApiKey,
   parseCredentialOrThrow,
   SecretReadError,
@@ -83,15 +84,47 @@ function isDesktopProviderKeyId(value: string): value is DesktopProviderKeyId {
   );
 }
 
-function appendTestModeProviders(
+/**
+ * Builds one stored-source entry, attaching the save-time fingerprint when
+ * the credential carries one. An unreadable credential still lists as stored
+ * — that fact stands regardless — but yields no fingerprint; its read failure
+ * already surfaces through the status probe and every actual read path.
+ */
+async function toStoredKeySource(
+  provider: DesktopProviderKeyId,
+  readCredential: () => Promise<ProviderCredential | null> | ProviderCredential | null
+): Promise<ProviderKeySource<DesktopProviderKeyId>> {
+  let fingerprint: ReturnType<typeof credentialStoredKeyFingerprint>;
+  try {
+    const credential = await readCredential();
+    fingerprint = credential ? credentialStoredKeyFingerprint(credential) : undefined;
+  } catch (err) {
+    if (!(err instanceof SecretReadError)) {
+      throw err;
+    }
+  }
+  return fingerprint
+    ? { metadata: fingerprint, provider, source: 'stored' }
+    : { provider, source: 'stored' };
+}
+
+async function appendTestModeProviders(
   target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>
-) {
+): Promise<void> {
+  const eligible: DesktopProviderKeyId[] = [];
   for (const [provider, value] of testModeSecrets.entries()) {
     const trimmedValue = typeof value === 'string' ? value.trim() : '';
     if (trimmedValue.length === 0 || !isDesktopProviderKeyId(provider)) {
       continue;
     }
-    target.set(provider, { provider, source: 'stored' });
+    eligible.push(provider);
+  }
+  // Parallel for parity with the production listing path below.
+  const sources = await Promise.all(
+    eligible.map((provider) => toStoredKeySource(provider, () => readTestModeCredential(provider)))
+  );
+  for (const source of sources) {
+    target.set(source.provider, source);
   }
 }
 
@@ -108,15 +141,33 @@ async function appendStoredProviders(
   secrets: SecretsService
 ) {
   const storedProviders = await secrets.listProviders();
+  const eligible: DesktopProviderKeyId[] = [];
   for (const provider of storedProviders) {
     if (typeof provider !== 'string') {
       continue;
     }
     const trimmed = provider.trim();
-    if (trimmed.length === 0 || !isDesktopProviderKeyId(trimmed) || target.has(trimmed)) {
+    if (
+      trimmed.length === 0 ||
+      !isDesktopProviderKeyId(trimmed) ||
+      target.has(trimmed) ||
+      eligible.includes(trimmed)
+    ) {
       continue;
     }
-    target.set(trimmed, { provider: trimmed, source: 'stored' });
+    eligible.push(trimmed);
+  }
+  // The per-provider decrypt+parse reads are independent, so they run in
+  // parallel (bounded by the slot count); entries land in listing order.
+  // Follow-up: fingerprints could be projected WITHOUT a full decrypt if the
+  // store persisted the non-secret {last4, savedAt} pair alongside (not
+  // inside) the encrypted credential — the listing would then never need
+  // key material at all.
+  const sources = await Promise.all(
+    eligible.map((provider) => toStoredKeySource(provider, () => secrets.getCredential(provider)))
+  );
+  for (const source of sources) {
+    target.set(source.provider, source);
   }
 }
 
@@ -300,7 +351,7 @@ export function registerSecretsIpcHandlers(
       // In test mode, only use in-memory storage (ignore env vars)
       if (isTestMode()) {
         const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
-        appendTestModeProviders(providers);
+        await appendTestModeProviders(providers);
         return Array.from(providers.values());
       }
 

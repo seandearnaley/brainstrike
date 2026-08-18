@@ -1,10 +1,12 @@
 import {
   describeSecretReadError,
   isProviderCredential,
+  isStoredKeyFingerprint,
   MalformedCredentialError,
   type ProviderCredential,
   parseStoredCredential,
   type SecretReadErrorCode,
+  type StoredKeyFingerprint,
 } from '@brainstrike/assistant-contract';
 import { safeStorage } from 'electron';
 import ElectronStore from 'electron-store';
@@ -90,6 +92,35 @@ export function credentialToApiKey(provider: string, credential: ProviderCredent
     throw new SecretReadError('credential_type_unsupported', provider);
   }
   return credential.key;
+}
+
+/**
+ * Project the save-time `{last4, savedAt}` fingerprint (BST-1362) out of a
+ * stored credential's metadata for the `secrets:list` payload. Only these two
+ * keys ever cross the wire — other metadata stays main-side. A fingerprint
+ * exists only when BOTH keys are present (the single save path always writes
+ * them together); a partial pair is hand-tampered provenance and is withheld
+ * rather than forwarded or guessed at. `oauth` has no metadata field.
+ *
+ * Shape validation is the SHARED `isStoredKeyFingerprint` guard — the exact
+ * rules the renderer's `parseProviderKeySources` enforces (`last4` a 1-4
+ * character string, `savedAt` parseable) — so main can never forward a shape
+ * the renderer would hard-fail the whole listing on. An out-of-shape pair is
+ * hand-tampered provenance: the fingerprint is dropped (nothing but the
+ * non-secret hint is lost) while the entry itself stays listed as stored.
+ */
+export function credentialStoredKeyFingerprint(
+  credential: ProviderCredential
+): StoredKeyFingerprint | undefined {
+  if (credential.type === 'oauth') {
+    return;
+  }
+  const metadata = credential.metadata;
+  if (!metadata) {
+    return;
+  }
+  const candidate = { last4: metadata['last4'], savedAt: metadata['savedAt'] };
+  return isStoredKeyFingerprint(candidate) ? candidate : undefined;
 }
 
 interface SecretsSchema {

@@ -81,7 +81,31 @@
     factory. Do not make local-provider behavior depend on an undocumented
     narrow-entrypoint import order.
   - API keys:
-  - Managed via Settings.
+  - Managed via Settings: the Credential Inventory table (BST-1362,
+    `packages/settings-ui/src/settings/secrets/credential-inventory/`) — one
+    always-visible row per credential slot, no provider dropdown. Slots are a
+    SUPERSET of registry providers: every registry entry with `authType`
+    `api_key` or `aws` gets a row (keyless local runtimes keep their own
+    category; `oauth_subscription` providers get their own surface), plus the
+    Tavily web-search key, which deliberately lives outside the LLM registry.
+    Each row shows the canonical VENDOR env name (`providerVendorEnvKey`;
+    Tavily: `TAVILY_API_KEY`), a `Stored` / `Env (VAR)` / muted `Not set`
+    status, and for stored keys the non-secret `…last4` + saved-date
+    fingerprint. Editing is an inline expanded row (Enter saves, Escape
+    cancels via a window-capture listener so the settings dialog stays open;
+    registry `keyNotes`/`keyFormatHint`/`docsUrl` render inside the editor).
+    Env rows are read-only with a lock — the env var is authoritative, so
+    mutation buttons never render inert. The `aws` authType renders a
+    key+region editor saving `{type:'aws', mode:'bearer'}`. Saves go through
+    the TYPED `saveCredential` bridge exclusively (no `saveKey` fallback — a
+    preload without the typed method fails visibly). Deprecated-env renames
+    from the status probe (BST-1361 `deprecatedEnvVars`) render as an inline
+    amber per-row warning. Rows sort configured-first (Stored, Env, then Not
+    set), registry order within groups. `<CredentialInventory
+    providers={['openai']}/>` is the reusable filtered seam BST-1358
+    consumes. Paired tests:
+    `packages/settings-ui/src/settings/secrets/__tests__/credential-inventory.test.tsx`,
+    desktop e2e `apps/desktop/e2e/secrets-settings.test.ts`.
   - Desktop: encrypted keychain.
     Stored keychain values are typed provider credentials (BST-1348): the
     stored value is `JSON.stringify(credential)` of the `ProviderCredential`
@@ -112,8 +136,24 @@
     so the availability verdict and the typed-consumer verdict cannot diverge
     when wave-3 consumers land; only malformed/unreadable entries surface as
     per-provider `readFailures` repair entries (the other providers stay
-    listed). `secrets:list` / `secrets:listStored` id enumeration is
-    value-blind and unchanged. `credential_type_unsupported`
+    listed). `secrets:listStored` id enumeration stays value-blind.
+    `secrets:list` (BST-1362) additionally projects the save-time
+    `{last4, savedAt}` fingerprint onto stored entries: the Credential
+    Inventory writes it into the credential's non-secret `metadata` at save
+    (both `api_key` and `aws` carry an optional string-record `metadata`;
+    `oauth` has none), and only those two keys ever cross the wire — never
+    key material, never other metadata. A fingerprint exists only when BOTH
+    keys are present (the single save path always writes them together); a
+    partial pair is withheld, and an unreadable stored credential still lists
+    as `source: 'stored'` without metadata (its read failure surfaces through
+    the status probe and every actual read path). Wire-shape validation is
+    the ONE shared parser `parseProviderKeySources`
+    (`packages/assistant-contract/src/provider-key-source.ts`, paired test
+    `provider-key-source.test.ts`) used by BOTH strict renderer consumers —
+    the settings Credential Inventory and the assistant-preferences
+    configured-provider probe — so the accepted payload shape cannot drift;
+    malformed fingerprint metadata is a visible parse failure, never guessed
+    at. `credential_type_unsupported`
     and `malformed_credential` join `decrypt_failed` /
     `encryption_unavailable` in the shared `SecretReadErrorCode` union; all
     stay distinct from the `null` "not set" result.
@@ -198,7 +238,8 @@
     (`detectDeprecatedProviderEnvVars`), logs a warning, and `/assistant/status`
     (and the Hosted Web status route) carry
     `deprecatedEnvVars: [{provider, envVar, replacement}]` — names only, never
-    values (rename-warning UI lands with BST-1362). Consumers that cannot
+    values (the Credential Inventory renders them as per-row rename
+    warnings, BST-1362). Consumers that cannot
     import the registry (`packages/indexing-contract`) are pinned by
     `scripts/__tests__/provider-env-keys-mirror-contract.test.mjs`;
     `apps/desktop/.env.example` is pinned by
