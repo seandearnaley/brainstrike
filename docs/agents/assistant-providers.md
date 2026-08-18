@@ -83,6 +83,31 @@
   - API keys:
   - Managed via Settings.
   - Desktop: encrypted keychain.
+    Stored keychain values are typed provider credentials (BST-1348): the
+    stored value is `JSON.stringify(credential)` of the `ProviderCredential`
+    union (`api_key` | `oauth` | `aws`) declared in
+    `packages/assistant-contract/src/provider-credential.ts`, encrypted exactly
+    like the legacy bare-string keys. Reads apply the settled legacy mapping: a
+    decrypted value that never claims a `type` tag (not JSON, non-object JSON,
+    or a JSON object without a `type` property) IS
+    `{ type: 'api_key', key: <raw string> }` — a defined mapping covering every
+    pre-existing stored key, not a fallback. A value that carries a `type` tag
+    but is unrecognized or fails field validation throws a `SecretReadError`
+    with the `malformed_credential` code — it is never coerced into an api_key.
+    `malformed_credential` joins `decrypt_failed` / `encryption_unavailable` in
+    the shared `SecretReadErrorCode` union; all three stay distinct from the
+    `null` "not set" result. `SecretsService.getKey` returns `.key` only for
+    `api_key` credentials and THROWS on any other stored type (programming
+    error — a structured credential is never stringified); typed consumers use
+    `getCredential` / `setCredential` and the renderer bridge's
+    `saveCredential` / `getCredential` (channels `secrets:saveCredential` /
+    `secrets:getCredential`, same visible-UI-only policy as every secrets
+    channel). `saveKey` still stores the bare string so older builds reading
+    the store keep working. `secrets:list` / `providerKeySources` provenance is
+    unchanged. Test-mode Secrets IPC stores the same serialized forms and reads
+    through the same mapping. The full decision table and its paired tests:
+    `packages/assistant-contract/src/__tests__/provider-credential.test.ts` and
+    `apps/desktop/src/__tests__/secrets.test.ts`.
     The secrets bridge is a visible-UI capability. Every secrets IPC operation
     declares and enforces the `visible-ui` sender role in the main-process IPC
     registry before arguments are parsed or keychain code runs. Chunking,

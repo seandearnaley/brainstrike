@@ -1,12 +1,18 @@
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import {
+  isProviderCredential,
+  MalformedCredentialError,
+  type ProviderCredential,
+  type ProviderKeySource,
+  parseStoredCredential,
+} from '@brainstrike/assistant-contract';
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
 import type { DesktopEnvLoadFailure } from './desktop-env';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { resolveProviderEnvCredential } from './provider-api-key';
-import type { SecretsService } from './secrets';
+import { SecretReadError, type SecretsService } from './secrets';
 import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
@@ -19,8 +25,31 @@ function isTestMode(): boolean {
   return process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
 }
 
-// In-memory storage for test mode
+// In-memory storage for test mode. Values are stored exactly as the encrypted
+// store would hold them decrypted: bare strings for legacy saves,
+// JSON.stringify(credential) for typed saves — so the typed read path exercises
+// the SAME parseStoredCredential mapping as production (BST-1348).
 const testModeSecrets = new Map<string, string>();
+
+/**
+ * Reads a test-mode value through the production credential mapping. Mirrors
+ * SecretsService.getCredential semantics: null strictly for "not set", a
+ * typed SecretReadError for a tagged-but-invalid value.
+ */
+function readTestModeCredential(provider: string): ProviderCredential | null {
+  const raw = testModeSecrets.get(provider);
+  if (raw === undefined) {
+    return null;
+  }
+  try {
+    return parseStoredCredential(raw);
+  } catch (error) {
+    if (error instanceof MalformedCredentialError) {
+      throw new SecretReadError('malformed_credential', provider, error);
+    }
+    throw error;
+  }
+}
 
 /**
  * Clears test mode secrets. Should be called in test cleanup to prevent
@@ -167,13 +196,69 @@ export function registerSecretsIpcHandlers(
     DESKTOP_IPC_CHANNELS.secrets.get,
     { roles: ['visible-ui'] },
     async (_event, provider: string) => {
-      // In test mode, check in-memory storage
+      // In test mode, check in-memory storage. Read through the credential
+      // mapping so a typed variant surfaces the same programming error as
+      // production instead of leaking a stringified credential (BST-1348).
       if (isTestMode()) {
-        return testModeSecrets.get(provider) ?? null;
+        const credential = readTestModeCredential(provider);
+        if (credential === null) {
+          return null;
+        }
+        if (credential.type !== 'api_key') {
+          throw new Error(
+            `getKey("${provider}") read a stored "${credential.type}" credential; use getCredential instead.`
+          );
+        }
+        return credential.key;
       }
 
       const v = await secrets.getKey(provider);
       return v;
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.saveCredential,
+    { roles: ['visible-ui'] },
+    async (_event, provider: string, credential: unknown) => {
+      if (!isProviderCredential(credential)) {
+        // Malformed IPC payloads fail visibly before anything is stored —
+        // never coerced into an api_key (NO SILENT FALLBACKS).
+        throw new MalformedCredentialError(
+          'saveCredential received an invalid or unrecognized credential object'
+        );
+      }
+
+      if (isTestMode()) {
+        testModeSecrets.set(provider, JSON.stringify(credential));
+        return true;
+      }
+
+      try {
+        return await secrets.setCredential(provider, credential);
+      } catch (err) {
+        if (err instanceof MalformedCredentialError) {
+          throw err;
+        }
+        if (err instanceof Error && err.message === 'encryption_unavailable') {
+          return { error: 'encryption_unavailable', ok: false } as const;
+        }
+        return { error: 'unknown_error', ok: false } as const;
+      }
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.getCredential,
+    { roles: ['visible-ui'] },
+    async (_event, provider: string) => {
+      if (isTestMode()) {
+        return readTestModeCredential(provider);
+      }
+
+      return await secrets.getCredential(provider);
     }
   );
 

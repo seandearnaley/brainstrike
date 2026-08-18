@@ -565,6 +565,23 @@ declare global {
         value: string
       ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
       getKey: (provider: string) => Promise<string | null>;
+      /**
+       * Typed credential write (BST-1348). Rejects a malformed credential
+       * object outright; a legacy bare-string key remains readable through
+       * both APIs.
+       */
+      saveCredential: (
+        provider: string,
+        credential: import('@brainstrike/assistant-contract').ProviderCredential
+      ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
+      /**
+       * Typed credential read (BST-1348). Legacy bare strings map to
+       * `{ type: 'api_key', key }`; a tagged-but-invalid stored value rejects
+       * with the `malformed_credential` SecretReadError.
+       */
+      getCredential: (
+        provider: string
+      ) => Promise<import('@brainstrike/assistant-contract').ProviderCredential | null>;
       deleteKey: (provider: string) => Promise<boolean>;
       list: () => Promise<
         import('@brainstrike/assistant-contract').ProviderKeySource<

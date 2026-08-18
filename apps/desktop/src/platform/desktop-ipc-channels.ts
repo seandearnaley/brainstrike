@@ -185,9 +185,13 @@ export const DESKTOP_IPC_CHANNELS = {
     clearAll: 'secrets:clearAll',
     delete: 'secrets:delete',
     get: 'secrets:get',
+    // Typed credential channels (BST-1348): separate channels rather than
+    // versioned payloads on save/get.
+    getCredential: 'secrets:getCredential',
     list: 'secrets:list',
     listStored: 'secrets:listStored',
     save: 'secrets:save',
+    saveCredential: 'secrets:saveCredential',
   },
   shell: {
     openExternal: 'shell:open-external',

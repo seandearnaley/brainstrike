@@ -27,9 +27,11 @@ vi.mock('../../window-role', () => ({
 interface SecretsServiceMock {
   clearAll?: ReturnType<typeof vi.fn>;
   deleteKey: ReturnType<typeof vi.fn>;
+  getCredential?: ReturnType<typeof vi.fn>;
   getKey: ReturnType<typeof vi.fn>;
   listProviders: ReturnType<typeof vi.fn>;
   saveKey: ReturnType<typeof vi.fn>;
+  setCredential?: ReturnType<typeof vi.fn>;
 }
 
 const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
@@ -311,14 +313,18 @@ describe('registerSecretsIpcHandlers', () => {
       const secretsService: SecretsServiceMock = {
         clearAll: vi.fn().mockResolvedValue(true),
         deleteKey: vi.fn().mockResolvedValue(true),
+        getCredential: vi.fn().mockResolvedValue({ key: 'secret', type: 'api_key' }),
         getKey: vi.fn().mockResolvedValue('secret'),
         listProviders: vi.fn().mockResolvedValue(['openai']),
         saveKey: vi.fn().mockResolvedValue(true),
+        setCredential: vi.fn().mockResolvedValue(true),
       };
       const { getHandler } = await bootstrap(secretsService);
       const calls: ReadonlyArray<readonly [string, ...unknown[]]> = [
         ['secrets:save', 'openai', 'secret'],
         ['secrets:get', 'openai'],
+        ['secrets:saveCredential', 'openai', { key: 'secret', type: 'api_key' }],
+        ['secrets:getCredential', 'openai'],
         ['secrets:delete', 'openai'],
         ['secrets:list'],
         ['secrets:listStored'],
@@ -333,9 +339,177 @@ describe('registerSecretsIpcHandlers', () => {
 
       expect(secretsService.saveKey).not.toHaveBeenCalled();
       expect(secretsService.getKey).not.toHaveBeenCalled();
+      expect(secretsService.setCredential).not.toHaveBeenCalled();
+      expect(secretsService.getCredential).not.toHaveBeenCalled();
       expect(secretsService.deleteKey).not.toHaveBeenCalled();
       expect(secretsService.listProviders).not.toHaveBeenCalled();
       expect(secretsService.clearAll).not.toHaveBeenCalled();
     }
   );
+
+  describe('typed credential channels (BST-1348)', () => {
+    const oauthCredential = {
+      access: 'at-1',
+      accountId: 'acct-9',
+      expires: 1_755_500_000_000,
+      refresh: 'rt-1',
+      type: 'oauth',
+    } as const;
+    const typedCredentials = [
+      ['api_key', { key: 'sk-typed', metadata: { org: 'org-1' }, type: 'api_key' }],
+      ['oauth', oauthCredential],
+      ['aws', { bearerKey: 'bedrock-bearer', mode: 'bearer', region: 'us-east-1', type: 'aws' }],
+    ] as const;
+
+    it.each(typedCredentials)(
+      'round-trips a %s credential through saveCredential → getCredential in test mode',
+      async (_type, credential) => {
+        process.env['NODE_ENV'] = 'test';
+        const secretsService: SecretsServiceMock = {
+          deleteKey: vi.fn(),
+          getKey: vi.fn(),
+          listProviders: vi.fn(),
+          saveKey: vi.fn(),
+        };
+
+        const { getHandler } = await bootstrap(secretsService);
+        const saveCredentialHandler = getHandler('secrets:saveCredential');
+        const getCredentialHandler = getHandler('secrets:getCredential');
+        expect(saveCredentialHandler).toBeDefined();
+        expect(getCredentialHandler).toBeDefined();
+
+        await expect(
+          saveCredentialHandler!(createInvokeEvent(), 'anthropic', credential)
+        ).resolves.toBe(true);
+        await expect(getCredentialHandler!(createInvokeEvent(), 'anthropic')).resolves.toEqual(
+          credential
+        );
+      }
+    );
+
+    it('maps a legacy string saved via secrets:save to an api_key credential in test mode', async () => {
+      process.env['NODE_ENV'] = 'test';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+      await getHandler('secrets:save')!(createInvokeEvent(), 'openai', 'sk-raw');
+
+      await expect(
+        getHandler('secrets:getCredential')!(createInvokeEvent(), 'openai')
+      ).resolves.toEqual({ key: 'sk-raw', type: 'api_key' });
+      await expect(getHandler('secrets:get')!(createInvokeEvent(), 'openai')).resolves.toBe(
+        'sk-raw'
+      );
+    });
+
+    it('secrets:get on a stored oauth credential throws in test mode (never a stringified credential)', async () => {
+      process.env['NODE_ENV'] = 'test';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+      await getHandler('secrets:saveCredential')!(
+        createInvokeEvent(),
+        'anthropic',
+        oauthCredential
+      );
+
+      await expect(getHandler('secrets:get')!(createInvokeEvent(), 'anthropic')).rejects.toThrow(
+        /oauth/
+      );
+    });
+
+    it('saveCredential rejects an unrecognized credential type visibly in test mode, storing nothing', async () => {
+      process.env['NODE_ENV'] = 'test';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+      await expect(
+        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', {
+          key: 'x',
+          type: 'gcp',
+        })
+      ).rejects.toThrow(/malformed|unrecognized|invalid/i);
+
+      await expect(
+        getHandler('secrets:getCredential')!(createInvokeEvent(), 'openai')
+      ).resolves.toBeNull();
+    });
+
+    it('delegates saveCredential and getCredential to the secrets service in production', async () => {
+      process.env['NODE_ENV'] = 'production';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getCredential: vi.fn().mockResolvedValue(oauthCredential),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+        setCredential: vi.fn().mockResolvedValue(true),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+
+      await expect(
+        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'anthropic', oauthCredential)
+      ).resolves.toBe(true);
+      expect(secretsService.setCredential).toHaveBeenCalledWith('anthropic', oauthCredential);
+
+      await expect(
+        getHandler('secrets:getCredential')!(createInvokeEvent(), 'anthropic')
+      ).resolves.toEqual(oauthCredential);
+      expect(secretsService.getCredential).toHaveBeenCalledWith('anthropic');
+    });
+
+    it('rejects a malformed saveCredential payload in production WITHOUT touching the service', async () => {
+      process.env['NODE_ENV'] = 'production';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+        setCredential: vi.fn(),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+
+      await expect(
+        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', { type: 'oauth' })
+      ).rejects.toThrow(/malformed|unrecognized|invalid/i);
+      expect(secretsService.setCredential).not.toHaveBeenCalled();
+    });
+
+    it('maps encryption_unavailable from setCredential to the structured save error result', async () => {
+      process.env['NODE_ENV'] = 'production';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+        setCredential: vi.fn().mockRejectedValue(new Error('encryption_unavailable')),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+
+      await expect(
+        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', {
+          key: 'sk',
+          type: 'api_key',
+        })
+      ).resolves.toEqual({ error: 'encryption_unavailable', ok: false });
+    });
+  });
 });
