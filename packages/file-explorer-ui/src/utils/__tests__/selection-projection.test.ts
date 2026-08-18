@@ -98,7 +98,7 @@ describe('selection-projection', () => {
       materializedStructuralEntries: 0,
       materializedStructuralHits: 0,
     });
-    expect(cacheStats.materializedDirectoryCountBuilds).toBeGreaterThan(0);
+    expect(cacheStats.materializedDirectoryCountBuilds).toBe(2);
   });
 
   it('reuses materialized directory counts across structurally equal hydrated sets', () => {

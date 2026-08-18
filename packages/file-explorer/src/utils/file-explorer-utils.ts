@@ -7,6 +7,7 @@ import {
   type FolderState,
   MAX_FOLDER_STATES,
 } from '@brainstrike/types';
+import { resolveQuerySelection } from './query-selection-manifest.js';
 
 /**
  * Selection budget consumed by every ACTIVE root OTHER than the focused one
@@ -30,22 +31,48 @@ export const getForeignSelectionCount = (
   return total;
 };
 
+type FocusedSelectionState = Pick<
+  FileExplorerData,
+  'querySelectionManifest' | 'selectedFilePaths' | 'selectionModel'
+>;
+
+function getEffectiveFocusedQueryPaths(state: FocusedSelectionState): string[] {
+  const descriptor = state.selectionModel.queryDescriptor;
+  const manifest = state.querySelectionManifest;
+  if (!descriptor) {
+    return manifest?.filePaths ?? [];
+  }
+
+  if (
+    manifest?.status === 'ready' &&
+    manifest.fingerprint === descriptor.manifestFingerprint &&
+    manifest.snapshotId === descriptor.manifestSnapshotId
+  ) {
+    return resolveQuerySelection(descriptor, manifest).filePaths;
+  }
+
+  const fallbackPaths = new Set(state.selectionModel.materializedPaths ?? []);
+  for (const path of descriptor.excludedPaths) {
+    fallbackPaths.delete(path);
+  }
+  for (const path of descriptor.includedPaths) {
+    fallbackPaths.add(path);
+  }
+  return Array.from(fallbackPaths);
+}
+
 /**
  * The focused root's effective selection count: the query manifest in query
  * mode (the explicit top-level set is empty then), the top-level set size
  * otherwise.
  */
-export const getFocusedSelectionCount = (
-  state: Pick<FileExplorerData, 'selectedFilePaths' | 'selectionModel'> & {
-    querySelectionManifest?: { filePaths: string[] } | null;
-  }
-): number => {
+export const getFocusedSelectionCount = (state: FocusedSelectionState): number => {
   if (state.selectionModel.mode === 'query') {
-    return (
-      state.querySelectionManifest?.filePaths.length ??
-      state.selectionModel.queryDescriptor?.totalSelectedCount ??
-      0
-    );
+    if (!state.selectionModel.queryDescriptor) {
+      return getEffectiveFocusedQueryPaths(state).length;
+    }
+    return resolveQuerySelection(state.selectionModel.queryDescriptor, state.querySelectionManifest)
+      .selectedCount;
   }
   return state.selectedFilePaths.size;
 };
@@ -54,8 +81,13 @@ export const getFocusedSelectionCount = (
 export const getUnionSelectionCount = (
   state: Pick<
     FileExplorerData,
-    'activeRootIds' | 'currentFolderId' | 'folderStates' | 'selectedFilePaths' | 'selectionModel'
-  > & { querySelectionManifest?: { filePaths: string[] } | null }
+    | 'activeRootIds'
+    | 'currentFolderId'
+    | 'folderStates'
+    | 'querySelectionManifest'
+    | 'selectedFilePaths'
+    | 'selectionModel'
+  >
 ): number => getFocusedSelectionCount(state) + getForeignSelectionCount(state);
 
 /**
@@ -81,11 +113,7 @@ function materializeSnapshotSelection(
   }
   const mode = state.selectionModel?.mode;
   if (mode === 'query') {
-    const sourcePaths =
-      state.querySelectionManifest?.filePaths ??
-      (state.selectionModel.materializedPaths
-        ? Array.from(state.selectionModel.materializedPaths)
-        : []);
+    const sourcePaths = getEffectiveFocusedQueryPaths(state);
     for (const path of sourcePaths) {
       ownKeys.add(path.includes('|@|') ? path : `${folderId}|@|${path}`);
     }

@@ -73,6 +73,27 @@ Windowing and performance:
   descendants when the workspace itself is a POSIX, drive, or UNC filesystem
   root, but a Windows drive-relative sentinel such as `C:` is not the `C:\`
   filesystem root and must never be sent to restoration or consume the cap.
+- Query-selection snapshot resolution shares one in-flight read per database
+  handle and snapshot id. From initial resolver start — including while the
+  database provider is initializing — a read promotes the store manifest to
+  `loading` only after 100ms; a quicker ready/error result cancels that timer,
+  while longer reads still surface honest loading state. Snapshot reads fail
+  after 30 seconds so a wedged database handle cannot pin the dedupe entry.
+  Descriptor changes and unmounts cancel timers and result publication only —
+  `DbHandle.query` has no abort contract, so the underlying database query may
+  continue after logical cancellation or timeout. Every loading, ready, and
+  error publication revalidates the canonical manifest fingerprint plus
+  snapshot id; unresolved selections use the persisted materialized-path
+  fallback, while ready manifests retain only the materialized base and apply
+  included/excluded descriptor overrides during resolution. Consumers that
+  need effective counts or paths—including forest budgeting and folder-state
+  snapshots—must resolve the descriptor plus manifest rather than reading raw
+  `manifest.filePaths`. A terminal read error remains visible until the
+  descriptor or database lifecycle changes; the resolver does not silently
+  retry or coerce the failed snapshot. The read timeout starts only after a
+  database handle exists; if database initialization itself never completes,
+  the loading state remains visible rather than being misreported as a snapshot
+  read timeout.
 - Forest-mode scale contracts (PR #1734 audit; pinned by
   `forest-tree-actions-context.test.tsx`, `forest-section-filtering.test.tsx`,
   and the `filteredPathSet`-skip tests in

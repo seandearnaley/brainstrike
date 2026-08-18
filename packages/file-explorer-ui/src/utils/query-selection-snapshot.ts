@@ -5,6 +5,7 @@ import { defaultCollator } from './file-node-collator';
 
 const QUERY_SELECTION_SNAPSHOT_TTL_HOURS = 24;
 const SNAPSHOT_WRITE_TIMEOUT_MS = 30_000;
+export const SNAPSHOT_READ_TIMEOUT_MS = 30_000;
 const logger = createLogger('QuerySelectionSnapshot');
 const snapshotWriteLocks = new WeakMap<object, { tail: Promise<void> }>();
 
@@ -146,14 +147,18 @@ export async function loadQuerySelectionSnapshot(
     return [];
   }
 
-  const result = (await db.query(
-    `SELECT ssf.file_path
+  const result = (await withTimeout(
+    db.query(
+      `SELECT ssf.file_path
      FROM selection_snapshot_files ssf
      JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id
      WHERE ssf.snapshot_id = $1
        AND (ss.expires_at IS NULL OR ss.expires_at > NOW())
      ORDER BY file_path ASC`,
-    [snapshotId]
+      [snapshotId]
+    ),
+    SNAPSHOT_READ_TIMEOUT_MS,
+    'Selection snapshot read timed out'
   )) as { rows: QueryResultRow[] };
 
   return normalizeSnapshotRows(result.rows);
