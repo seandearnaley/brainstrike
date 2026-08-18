@@ -134,6 +134,11 @@
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
+    "./secrets-bridge": {
+      "types": "./dist/secrets-bridge.d.ts",
+      "import": "./dist/secrets-bridge.js",
+      "require": "./dist/secrets-bridge.js"
+    },
     "./skills-bridge": {
       "types": "./dist/skills-bridge.d.ts",
       "import": "./dist/skills-bridge.js",

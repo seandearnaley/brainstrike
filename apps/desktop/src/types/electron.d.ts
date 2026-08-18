@@ -559,21 +559,13 @@ declare global {
     quickOpen?: {
       onOpen: (callback: () => void) => () => void;
     };
-    secrets: {
-      saveKey: (
-        provider: string,
-        value: string
-      ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
-      getKey: (provider: string) => Promise<string | null>;
-      deleteKey: (provider: string) => Promise<boolean>;
-      list: () => Promise<
-        import('@brainstrike/assistant-contract').ProviderKeySource<
-          import('@brainstrike/assistant-contract/provider-metadata').SupportedProvider | 'tavily'
-        >[]
-      >;
-      listStored: () => Promise<string[]>;
-      clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
-    };
+    /**
+     * Secure secrets bridge (BST-1348). The shape is defined ONCE in
+     * `@brainstrike/assistant-contract/secrets-bridge` — the preload
+     * implements it and the preload-runtime contract test pins the exposed
+     * key set to `SECRETS_BRIDGE_REQUIRED_METHODS`.
+     */
+    secrets: import('@brainstrike/assistant-contract/secrets-bridge').SecretsBridge;
     /**
      * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
      * consumers MUST capability-check `window.skills`. The Settings → Skills

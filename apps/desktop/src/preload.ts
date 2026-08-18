@@ -59,9 +59,11 @@ const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL = 'runtime:verifyEmbeddingDime
 const SECRETS_CLEAR_ALL_CHANNEL = 'secrets:clearAll' as const;
 const SECRETS_DELETE_CHANNEL = 'secrets:delete' as const;
 const SECRETS_GET_CHANNEL = 'secrets:get' as const;
+const SECRETS_GET_CREDENTIAL_CHANNEL = 'secrets:getCredential' as const;
 const SECRETS_LIST_CHANNEL = 'secrets:list' as const;
 const SECRETS_LIST_STORED_CHANNEL = 'secrets:listStored' as const;
 const SECRETS_SAVE_CHANNEL = 'secrets:save' as const;
+const SECRETS_SAVE_CREDENTIAL_CHANNEL = 'secrets:saveCredential' as const;
 const SETTINGS_CLEAR_ALL_CHANNEL = 'settings:clearAll' as const;
 const STORAGE_CLEAR_CHANNEL = 'storage:clear' as const;
 const STORAGE_GET_ALL_KEYS_CHANNEL = 'storage:getAllKeys' as const;
@@ -719,9 +721,12 @@ if (shouldExposeBridge('electronAPI')) {
 contextBridge.exposeInMainWorld('secrets', {
   clearAll: () => ipcRenderer.invoke(SECRETS_CLEAR_ALL_CHANNEL, SECRETS_CLEAR_CONFIRMATION_TOKEN),
   deleteKey: (provider: string) => ipcRenderer.invoke(SECRETS_DELETE_CHANNEL, provider),
+  getCredential: (provider: string) => ipcRenderer.invoke(SECRETS_GET_CREDENTIAL_CHANNEL, provider),
   getKey: (provider: string) => ipcRenderer.invoke(SECRETS_GET_CHANNEL, provider),
   list: () => ipcRenderer.invoke(SECRETS_LIST_CHANNEL),
   listStored: () => ipcRenderer.invoke(SECRETS_LIST_STORED_CHANNEL),
+  saveCredential: (provider: string, credential: unknown) =>
+    ipcRenderer.invoke(SECRETS_SAVE_CREDENTIAL_CHANNEL, provider, credential),
   saveKey: (provider: string, value: string) =>
     ipcRenderer.invoke(SECRETS_SAVE_CHANNEL, provider, value),
 });

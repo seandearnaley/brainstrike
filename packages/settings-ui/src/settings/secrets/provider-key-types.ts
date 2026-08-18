@@ -1,17 +1,13 @@
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import type { SecretsCapability } from '@brainstrike/assistant-contract/secrets-bridge';
 
-export interface SecretsCapability {
-  clearAll: (confirmationToken?: string) => Promise<{ message?: string; success: boolean }>;
-  deleteKey: (provider: string) => Promise<boolean>;
-  getKey: (provider: string) => Promise<null | string>;
-  list: () => Promise<ProviderKeySource<SettingsProviderKeyId>[]>;
-  listStored: () => Promise<string[]>;
-  saveKey: (
-    provider: string,
-    value: string
-  ) => Promise<true | { error: 'encryption_unavailable' | 'unknown_error'; ok: false }>;
-}
+/**
+ * The bridge shape is defined ONCE in
+ * `@brainstrike/assistant-contract/secrets-bridge`; this re-export keeps the
+ * settings-ui import surface stable. The typed-credential methods are
+ * optional in the capability view (older desktop preloads).
+ */
+export type { SecretsCapability } from '@brainstrike/assistant-contract/secrets-bridge';
 
 /** Reads the optional desktop bridge by capability, without platform detection. */
 export function getSecretsCapability(): SecretsCapability | undefined {
