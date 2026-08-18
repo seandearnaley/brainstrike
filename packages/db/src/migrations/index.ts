@@ -100,6 +100,7 @@ import { migration098OpenRouterQwen38Max } from './098-openrouter-qwen-3-8-max.j
 import { migration099OpenRouterNemotron35Lightning } from './099-openrouter-nemotron-3-5-lightning.js';
 import { migration100AmazonBedrock } from './100-amazon-bedrock.js';
 import { migration101AmazonNova2Lite } from './101-amazon-nova-2-lite.js';
+import { migration102OpenAiCodex } from './102-openai-codex.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -206,6 +207,7 @@ export const migrations: Migration[] = [
   migration099OpenRouterNemotron35Lightning,
   migration100AmazonBedrock,
   migration101AmazonNova2Lite,
+  migration102OpenAiCodex,
 ];
 
 // Export base migrations (without chunks table) for test environments

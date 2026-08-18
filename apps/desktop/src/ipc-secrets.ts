@@ -291,6 +291,14 @@ export function registerSecretsIpcHandlers(
      * so the payload always describes the live process environment.
      */
     readonly readEnvBootstrapReport: () => EnvBootstrapReport;
+    /**
+     * Extra in-memory state to purge on factory reset (BST-1356). Clearing
+     * the secrets FILE is not sufficient for the provider-auth engine: a
+     * rotated access/refresh pair whose store write failed lives in the
+     * refresher's memory overlay and stays the ACTIVE credential for the
+     * process lifetime. A failure here must not abort the reset.
+     */
+    readonly onClearAll?: () => Promise<void>;
   }
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
@@ -477,11 +485,13 @@ export function registerSecretsIpcHandlers(
 
       if (isTestMode()) {
         testModeSecrets.clear();
+        await options.onClearAll?.();
         return { success: true };
       }
 
       try {
         const result = await secrets.clearAll();
+        await options.onClearAll?.();
         return { success: result };
       } catch (error) {
         return {

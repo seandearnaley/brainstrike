@@ -152,7 +152,10 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { registerPrivilegedSchemes } from './privileged-schemes';
-import { createProviderAuthEngine } from './provider-auth/provider-auth-engine';
+import {
+  initializeProviderAuthRuntime,
+  purgeProviderAuthRuntimeState,
+} from './provider-auth/provider-auth-runtime';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -1689,6 +1692,10 @@ if (singleInstanceLockAcquired) {
       const secretsService = createSecretsService();
       registerSecretsIpcHandlers(secretsService, {
         envFileFailures: desktopEnvLoadResult.failures,
+        // Factory reset must also drop the provider-auth engine's IN-MEMORY
+        // rotated-token overlay (BST-1356); wiping the secrets file alone
+        // would leave it the active credential for the process lifetime.
+        onClearAll: purgeProviderAuthRuntimeState,
         // Projected per invoke from the RECORDED bootstrap result — loading is
         // never re-run (initializeDesktopEnvironment throws on double-init).
         readEnvBootstrapReport: () =>
@@ -1700,14 +1707,19 @@ if (singleInstanceLockAcquired) {
             userDataPath: app.getPath('userData'),
           }),
       });
-      // Provider OAuth engine (BST-1355). Descriptor registry ships EMPTY —
-      // BST-1356 registers the first real provider. The browser opener is the
-      // SAME validated shell.openExternal path the shell IPC domain uses
-      // (allow-listed protocols; never an embedded webview), and a failed
-      // open surfaces as a typed visible error.
+      // Provider OAuth engine (BST-1355) + the OpenAI Codex descriptor
+      // (BST-1356). The browser opener is the SAME validated
+      // shell.openExternal path the shell IPC domain uses (allow-listed
+      // protocols; never an embedded webview), and a failed open surfaces as
+      // a typed visible error.
+      //
+      // ONE engine instance is shared with the assistant server's credential
+      // resolution (see provider-auth-runtime): a second engine would carry
+      // its own single-flight map and replay a rotating refresh token.
       const shellOpenHandlers = createShellIpcHandlers({ shell });
       registerProviderAuthIpcHandlers({
-        engine: createProviderAuthEngine({
+        engine: initializeProviderAuthRuntime({
+          appVersion: app.getVersion(),
           openExternal: async (url) => {
             const result = await shellOpenHandlers.openExternal(url);
             if (!result.ok) {

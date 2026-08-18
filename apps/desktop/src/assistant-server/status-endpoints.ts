@@ -13,6 +13,7 @@ import {
   type SuspendedRunsResponse,
 } from '@brainstrike/agent';
 import { respondJson } from '@brainstrike/assistant-service/http';
+import { getProviderAuthEngine } from '../provider-auth/provider-auth-runtime';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {
@@ -30,7 +31,21 @@ import { respondToSecretReadError } from './secret-error-responses';
 import type { AssistantServerOptions } from './server-options';
 
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
-const defaultProviderVerificationService = createProviderVerificationService();
+const defaultProviderVerificationService = createProviderVerificationService({
+  /**
+   * BST-1356: subscription freshness is answered by the SHARED provider-auth
+   * engine's single-flight refresher. Resolved lazily so this module-scope
+   * construction never forces the runtime to exist (it does not in tests or
+   * on web); an uninitialized runtime surfaces as a typed unsupported-probe
+   * failure rather than a crash.
+   */
+  verifySubscriptionSession: async (providerId) => {
+    const result = await getProviderAuthEngine().getFreshAccessToken(providerId);
+    // The access token itself NEVER leaves the engine (gate constraint 3) —
+    // only the verdict crosses into the verification result.
+    return result.ok ? { ok: true } : { ok: false, status: result.status };
+  },
+});
 
 /**
  * Newest-N bound on rediscovered suspend() pauses per thread open (BST-1084,

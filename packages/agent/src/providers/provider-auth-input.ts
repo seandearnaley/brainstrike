@@ -260,6 +260,47 @@ export function requireAwsAuthInput(
 }
 
 /**
+ * Narrow an auth input to the `custom_fetch` kind for provider cases whose
+ * authentication lives ENTIRELY in the fetch closure (BST-1356, the
+ * ChatGPT-subscription provider). Everything else fails typed:
+ *
+ * - `api_key` would send a platform API key to the subscription backend — a
+ *   credential confusion, and one that could bill the user's metered account
+ *   for traffic they asked to draw on their subscription.
+ * - `aws` has no meaning here.
+ * - absent auth means the provider is not connected; there is no ambient
+ *   fallback for OAuth, and inventing one would defeat the interactive-only
+ *   gate (legal gate BST-1351, constraint 4).
+ */
+export function requireCustomFetchAuthInput(
+  auth: ProviderAuthInput | undefined,
+  provider: string
+): Extract<ProviderAuthInput, { kind: 'custom_fetch' }> {
+  if (auth === undefined) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      context: { provider },
+      detail: `Provider "${provider}" requires a connected subscription credential and none was resolved. Connect the account in Settings.`,
+    });
+  }
+  switch (auth.kind) {
+    case 'custom_fetch':
+      return auth;
+    case 'api_key':
+      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+        context: { authKind: 'api_key', provider },
+        detail: `Provider "${provider}" authenticates with a subscription OAuth session, not an API key.`,
+      });
+    case 'aws':
+      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+        context: { authKind: 'aws', provider },
+        detail: `Provider "${provider}" does not consume aws auth input.`,
+      });
+    default:
+      return assertNeverAuthInput(auth);
+  }
+}
+
+/**
  * Wrap a legacy resolved key string as an `api_key` auth input. The ONE
  * string→union adapter for callers that still resolve bearer keys (persistent
  * memory, persona pin key maps); `undefined` stays `undefined`.

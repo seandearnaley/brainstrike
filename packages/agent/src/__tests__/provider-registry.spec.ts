@@ -12,7 +12,8 @@ import {
 describe('provider registry metadata', () => {
   it('lists all supported providers with display names', () => {
     const providers = listProviders();
-    expect(providers).toHaveLength(10);
+    // 11 since BST-1356 added `openai-codex` (ChatGPT subscription).
+    expect(providers).toHaveLength(11);
 
     for (const provider of providers) {
       expect(typeof provider.displayName).toBe('string');

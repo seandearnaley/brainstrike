@@ -241,8 +241,8 @@ export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinit
 /**
  * How a provider authenticates. `'none'` marks the keyless local runtimes
  * (their optional bearer token is a transport concern, not an authType).
- * `'oauth_subscription'` and `'aws'` are introduced ahead of use (BST-1349) —
- * no registry provider carries them yet; downstream tickets consume them.
+ * `'oauth_subscription'` is carried by `openai-codex` (BST-1356, ChatGPT
+ * subscription sign-in) and `'aws'` by `bedrock` (BST-1350).
  * Keyless-ness DERIVES from `authType === 'none'` — never hand-listed.
  */
 export type ProviderAuthType = 'api_key' | 'oauth_subscription' | 'aws' | 'none';
@@ -299,6 +299,7 @@ export type ProviderId =
   | 'cohere'
   | 'voyage'
   | 'bedrock'
+  | 'openai-codex'
   | 'local'
   | 'ollama'
   | 'lmstudio';
@@ -1574,6 +1575,99 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
         type: 'llm',
         vision: 'unsupported',
+      },
+    ],
+    runtime: 'hosted',
+  },
+  {
+    /**
+     * OpenAI via a ChatGPT subscription (BST-1356), governed by
+     * `docs/OAUTH_LEGAL_REVIEW_GATE.md` — APPROVED WITH CONSTRAINTS. This is
+     * the FIRST carrier of `oauth_subscription`.
+     *
+     * The model set mirrors opencode's `ALLOWED_MODELS`, re-verified against
+     * `anomalyco/opencode` `dev` HEAD 0033bb3559 on 2026-08-18 (gate
+     * constraint 8). "Pro" reasoning routes and gpt-5.6 are excluded upstream
+     * and excluded here.
+     *
+     * PRICING IS DELIBERATELY OMITTED on every row: usage draws on the user's
+     * subscription rather than metered per-token billing, so the UI renders
+     * "cost unavailable". A zero price would assert a cost we do not know.
+     *
+     * `nativeToolSearch` is likewise omitted: the Codex backend is a distinct
+     * endpoint from the platform Responses API and its support for OpenAI's
+     * native search tool is unverified. Claiming it unverified would be a
+     * capability we cannot honor.
+     *
+     * MODEL IDS ARE `codex/`-PREFIXED. The `models` table's `id` is a GLOBAL
+     * primary key (migration 015), so a bare `gpt-5.5` row here would collide
+     * with — and on upsert HIJACK — the platform `openai` row of the same id.
+     * Every multi-route provider namespaces for this reason (openrouter uses
+     * `openai/…`, bedrock uses `anthropic.…`). The prefix is stripped to the
+     * bare wire id at request time by `resolveCodexModelId`
+     * (packages/agent/src/providers/codex-model-id.ts).
+     */
+    authType: 'oauth_subscription',
+    capabilities: {
+      embeddings: false,
+      llm: true,
+      streaming: true,
+    },
+    displayName: 'OpenAI (ChatGPT)',
+    docsUrl: 'https://developers.openai.com/codex/auth',
+    // Subscription auth is interactive-desktop-only (gate constraint 4): no
+    // environment variable can authenticate this provider, by construction.
+    envKeys: [],
+    id: 'openai-codex',
+    keyNotes:
+      'Sign in with your own ChatGPT Plus or Pro account. Usage draws on your personal subscription quota; commercial or multi-user serving requires platform API keys instead.',
+    models: [
+      {
+        contextWindow: 400_000,
+        default: true,
+        id: 'codex/gpt-5.5',
+        label: 'GPT-5.5',
+        maxOutputTokens: 128_000,
+        supportsStreaming: true,
+        tagline: 'Included with your ChatGPT subscription',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 400_000,
+        id: 'codex/gpt-5.4',
+        label: 'GPT-5.4',
+        maxOutputTokens: 128_000,
+        supportsStreaming: true,
+        tagline: 'Included with your ChatGPT subscription',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 400_000,
+        id: 'codex/gpt-5.4-mini',
+        label: 'GPT-5.4 Mini',
+        maxOutputTokens: 128_000,
+        supportsStreaming: true,
+        tagline: 'Faster, included with your ChatGPT subscription',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        // Codex-only route with no direct base-registry row; its family
+        // anchor is the base `gpt-5.3-codex` entry (same limits, vision).
+        contextWindow: 400_000,
+        id: 'codex/gpt-5.3-codex-spark',
+        label: 'GPT-5.3 Codex Spark',
+        maxOutputTokens: 128_000,
+        supportsStreaming: true,
+        tagline: 'Lightweight coding, included with your ChatGPT subscription',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
+        type: 'llm',
+        vision: 'supported',
       },
     ],
     runtime: 'hosted',

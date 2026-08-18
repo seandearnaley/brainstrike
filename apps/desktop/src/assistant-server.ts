@@ -116,6 +116,7 @@ import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-re
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
+import { getSubscriptionFetchFactory } from './provider-auth/provider-auth-runtime';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
@@ -444,7 +445,17 @@ async function deriveAssistantTurnAuthInput(
 
   // The closure is desktop-main-only: it never crosses IPC and is never
   // serialized (RequestContext.toJSON drops functions).
-  return providerAuthInputFromCredential(provider, credential, { awsCredentialChain });
+  //
+  // BST-1356: the subscription-fetch capability is the interactive-only gate
+  // for `oauth_subscription` providers (legal gate BST-1351, constraint 4).
+  // It is `undefined` in any process that never initialized the provider-auth
+  // runtime, and the projection's oauth arm REJECTS the credential when it is
+  // absent — so headless/web fail closed rather than degrade.
+  const oauthSubscriptionFetch = getSubscriptionFetchFactory();
+  return providerAuthInputFromCredential(provider, credential, {
+    awsCredentialChain,
+    ...(oauthSubscriptionFetch === undefined ? {} : { oauthSubscriptionFetch }),
+  });
 }
 
 /**

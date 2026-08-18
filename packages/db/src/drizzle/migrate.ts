@@ -91,6 +91,7 @@ import { migration098OpenRouterQwen38Max } from '../migrations/098-openrouter-qw
 import { migration099OpenRouterNemotron35Lightning } from '../migrations/099-openrouter-nemotron-3-5-lightning.js';
 import { migration100AmazonBedrock } from '../migrations/100-amazon-bedrock.js';
 import { migration101AmazonNova2Lite } from '../migrations/101-amazon-nova-2-lite.js';
+import { migration102OpenAiCodex } from '../migrations/102-openai-codex.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -326,6 +327,7 @@ const customMigrations: Migration[] = [
   ),
   customMigration('custom-100-amazon-bedrock', migration100AmazonBedrock),
   customMigration('custom-101-amazon-nova-2-lite', migration101AmazonNova2Lite),
+  customMigration('custom-102-openai-codex', migration102OpenAiCodex),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
