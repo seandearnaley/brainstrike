@@ -26,7 +26,7 @@ vi.mock('@brainstrike/assistant-contract/provider-metadata', () => ({
     provider === 'openai'
       ? ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY']
       : provider === 'google'
-        ? ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY']
+        ? ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY']
         : [],
 }));
 

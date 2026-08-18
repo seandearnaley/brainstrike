@@ -1,5 +1,6 @@
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
+  type DeprecatedEnvVarReport,
   isSecretReadErrorCode,
   type ProviderKeySource,
   type SecretReadErrorCode,
@@ -8,6 +9,7 @@ import {
   isSupportedProvider,
   isValidModelForProvider,
   PROVIDER_DEFAULT_MODELS,
+  providerDeprecatedEnvKeys,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -34,15 +36,21 @@ export type AssistantAvailabilityStatus =
   | { state: 'loading' }
   | {
       state: 'enabled';
+      deprecatedEnvVars?: readonly DeprecatedEnvVarReport[];
       model?: string;
       provider?: SupportedProvider;
       providerErrors?: readonly AssistantProviderReadError[];
       providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
       providers?: readonly SupportedProvider[];
     }
-  | { state: 'disabled'; reason?: string }
+  | {
+      state: 'disabled';
+      deprecatedEnvVars?: readonly DeprecatedEnvVarReport[];
+      reason?: string;
+    }
   | {
       state: 'error';
+      deprecatedEnvVars?: readonly DeprecatedEnvVarReport[];
       envFileFailures?: readonly AssistantEnvironmentFileFailure[];
       message: string;
     };
@@ -320,7 +328,16 @@ function parseAssistantStatusPayload(
 
   assertOnlyKnownKeys(
     payload,
-    ['enabled', 'model', 'provider', 'providerErrors', 'providerKeySources', 'providers', 'reason'],
+    [
+      'deprecatedEnvVars',
+      'enabled',
+      'model',
+      'provider',
+      'providerErrors',
+      'providerKeySources',
+      'providers',
+      'reason',
+    ],
     'Invalid assistant status payload'
   );
   if (typeof payload['enabled'] !== 'boolean') {
@@ -340,7 +357,14 @@ function parseEnabledAssistantStatus(
   const providerErrors = parseAssistantProviderReadErrors(payload['providerErrors']);
   const providers = parseAssistantProviders(payload['providers']);
   const providerKeySources = parseAssistantProviderKeySources(payload['providerKeySources']);
+  const deprecatedEnvVars = parseAssistantDeprecatedEnvVars(payload['deprecatedEnvVars']);
   validateProviderStatusConsistency({ providerErrors, providerKeySources, providers });
+  const metadata = {
+    ...(deprecatedEnvVars ? { deprecatedEnvVars } : {}),
+    ...(providerErrors ? { providerErrors } : {}),
+    ...(providerKeySources ? { providerKeySources } : {}),
+    ...(providers ? { providers } : {}),
+  };
 
   const provider = payload['provider'];
   const model = payload['model'];
@@ -350,12 +374,7 @@ function parseEnabledAssistantStatus(
     throw new Error('Assistant status must advertise provider and model together');
   }
   if (!(hasProvider && hasModel)) {
-    return {
-      ...(providerErrors ? { providerErrors } : {}),
-      ...(providerKeySources ? { providerKeySources } : {}),
-      ...(providers ? { providers } : {}),
-      state: 'enabled',
-    };
+    return { ...metadata, state: 'enabled' };
   }
   if (typeof provider !== 'string' || !isSupportedProvider(provider)) {
     throw new Error(`Unsupported assistant provider: ${String(provider)}`);
@@ -366,14 +385,7 @@ function parseEnabledAssistantStatus(
   if (providers && !providers.includes(provider)) {
     throw new Error('Assistant status fixed provider is missing from providers');
   }
-  return {
-    model,
-    ...(providerErrors ? { providerErrors } : {}),
-    ...(providerKeySources ? { providerKeySources } : {}),
-    ...(providers ? { providers } : {}),
-    provider,
-    state: 'enabled',
-  };
+  return { ...metadata, model, provider, state: 'enabled' };
 }
 
 function parseDisabledAssistantStatus(
@@ -391,15 +403,60 @@ function parseDisabledAssistantStatus(
   if (providers && providers.length > 0) {
     throw new Error('Disabled assistant status contains available providers');
   }
+  // A fully unconfigured host can still have a deprecated name set — that is
+  // the primary rename-warning case (BST-1361), so a disabled status carries
+  // the reports too.
+  const deprecatedEnvVars = parseAssistantDeprecatedEnvVars(payload['deprecatedEnvVars']);
   const reason = payload['reason'];
   if (reason !== undefined) {
     if (typeof reason !== 'string' || reason.trim().length === 0) {
       throw new Error('Invalid assistant disabled reason');
     }
-    return { reason, state: 'disabled' };
+    return { ...(deprecatedEnvVars ? { deprecatedEnvVars } : {}), reason, state: 'disabled' };
   }
 
-  return { state: 'disabled' };
+  return { ...(deprecatedEnvVars ? { deprecatedEnvVars } : {}), state: 'disabled' };
+}
+
+/**
+ * Strictly validated deprecated env-var rename reports (BST-1361). Each entry
+ * carries exactly `{envVar, provider, replacement}` with a registry provider —
+ * a malformed report fails the probe visibly rather than being dropped.
+ */
+function parseAssistantDeprecatedEnvVars(
+  value: unknown
+): readonly DeprecatedEnvVarReport[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant deprecated env var report list');
+  }
+  return value.map((entry: unknown) => {
+    if (!(entry && typeof entry === 'object' && !Array.isArray(entry))) {
+      throw new Error('Invalid assistant deprecated env var report');
+    }
+    const candidate = entry as Record<string, unknown>;
+    const envVar = candidate['envVar'];
+    const provider = candidate['provider'];
+    const replacement = candidate['replacement'];
+    if (
+      !hasExactOwnKeys(candidate, ['envVar', 'provider', 'replacement']) ||
+      typeof envVar !== 'string' ||
+      envVar.trim().length === 0 ||
+      typeof provider !== 'string' ||
+      !isSupportedProvider(provider) ||
+      // Registry cross-check (review 10a): the reported name must actually be
+      // a deprecated name for that provider — same discipline the key-source
+      // parser applies to providerEnvKeys.
+      !providerDeprecatedEnvKeys(provider).includes(envVar) ||
+      typeof replacement !== 'string' ||
+      replacement.trim().length === 0
+    ) {
+      throw new Error('Invalid assistant deprecated env var report');
+    }
+    return { envVar, provider, replacement };
+  });
 }
 
 function assertOnlyKnownKeys(
@@ -528,8 +585,14 @@ function validateProviderStatusConsistency({
 function parseAssistantConfigurationError(
   payload: Record<string, unknown>
 ): AssistantAvailabilityStatus {
+  // `deprecatedEnvVars` is the one optional key (BST-1361): a rejected env
+  // file and a deprecated alias frequently co-occur, and the rename guidance
+  // must survive the failure payload.
+  const expectedKeys = Object.hasOwn(payload, 'deprecatedEnvVars')
+    ? ['deprecatedEnvVars', 'enabled', 'envFileFailures', 'error', 'message', 'providers']
+    : ['enabled', 'envFileFailures', 'error', 'message', 'providers'];
   if (
-    !hasExactOwnKeys(payload, ['enabled', 'envFileFailures', 'error', 'message', 'providers']) ||
+    !hasExactOwnKeys(payload, expectedKeys) ||
     payload['enabled'] !== false ||
     payload['error'] !== 'assistant_configuration_invalid' ||
     typeof payload['message'] !== 'string' ||
@@ -543,7 +606,9 @@ function parseAssistantConfigurationError(
   if (envFileFailures.length === 0) {
     throw new Error('Invalid assistant configuration error');
   }
+  const deprecatedEnvVars = parseAssistantDeprecatedEnvVars(payload['deprecatedEnvVars']);
   return {
+    ...(deprecatedEnvVars ? { deprecatedEnvVars } : {}),
     envFileFailures,
     message: payload['message'],
     state: 'error',

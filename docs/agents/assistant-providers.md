@@ -162,6 +162,45 @@
     `ELECTRON_IS_E2E_TEST=true`, and `--test-mode` disable environment-file
     loading entirely; directly injected launch variables retain their existing
     runtime semantics.
+    Canonical env names (BST-1361): every keyed provider resolves EXACTLY two
+    environment names, in order `BRAINSTRIKE_<PROVIDER>_API_KEY` (app-scoped
+    override, wins) then the vendor-standard name — the full precedence chain
+    is `BRAINSTRIKE_*` > vendor name > stored keychain secret.
+
+    | Provider   | Override                          | Vendor-standard                | Deprecated (never authenticate)                                                    |
+    | ---------- | --------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+    | openai     | `BRAINSTRIKE_OPENAI_API_KEY`      | `OPENAI_API_KEY`               | `BS_OPENAI_API_KEY`, `AI_OPENAI_API_KEY`, `OPENAI_API_KEY_V1`, `OPENAI_API_KEY_V2` |
+    | anthropic  | `BRAINSTRIKE_ANTHROPIC_API_KEY`   | `ANTHROPIC_API_KEY`            | `AI_ANTHROPIC_API_KEY`                                                              |
+    | google     | `BRAINSTRIKE_GOOGLE_API_KEY`      | `GOOGLE_GENERATIVE_AI_API_KEY` | `GOOGLE_API_KEY`, `AI_GOOGLE_API_KEY`                                               |
+    | openrouter | `BRAINSTRIKE_OPENROUTER_API_KEY`  | `OPENROUTER_API_KEY`           | `AI_OPENROUTER_API_KEY`                                                             |
+    | cohere     | `BRAINSTRIKE_COHERE_API_KEY`      | `COHERE_API_KEY`               | `AI_COHERE_API_KEY`                                                                 |
+    | voyage     | `BRAINSTRIKE_VOYAGE_API_KEY`      | `VOYAGE_API_KEY`               | `AI_VOYAGE_API_KEY`                                                                 |
+    | tavily     | `BRAINSTRIKE_TAVILY_API_KEY`      | `TAVILY_API_KEY`               | —                                                                                   |
+
+    The registry (`provider-registry.ts` `envKeys` + `deprecatedEnvKeys`) is
+    the single source of truth. Deprecated names obey three invariants, all
+    tested: they stay in the desktop `.env` allow-list forever (an
+    unrecognized name rejects the WHOLE file, so removal would brick existing
+    user files); they stay in the child-env credential scrubber forever (a
+    credential-shaped var must never leak to children); and they are ABSENT
+    from every resolution list, so a deprecated var never authenticates.
+    Scope: the scheme and its deprecation claims cover exactly the six keyed
+    providers above. The local runtimes' optional embeddings bearer tokens
+    (`OLLAMA_API_KEY`/`AI_OLLAMA_API_KEY`, `LMSTUDIO_API_KEY`/
+    `AI_LMSTUDIO_API_KEY`) are separate LIVE transport names outside the
+    registry scheme — not deprecated, not `.env`-file-loadable (they are not
+    allow-listed), resolved only from the launch environment by the
+    embeddings resolver. Consolidating them is flagged for the BST-1362/1358
+    settings work.
+    When set, they surface visibly: desktop main detects them once at startup
+    (`detectDeprecatedProviderEnvVars`), logs a warning, and `/assistant/status`
+    (and the Hosted Web status route) carry
+    `deprecatedEnvVars: [{provider, envVar, replacement}]` — names only, never
+    values (rename-warning UI lands with BST-1362). Consumers that cannot
+    import the registry (`packages/indexing-contract`) are pinned by
+    `scripts/__tests__/provider-env-keys-mirror-contract.test.mjs`;
+    `apps/desktop/.env.example` is pinned by
+    `apps/desktop/src/__tests__/main/env-example-contract.test.ts`.
     Chat and model-metadata environment credentials remain authoritative when
     present. A stored-key `SecretReadError` must otherwise propagate as the typed
     `api_key_unreadable` chat/model-metadata failure (or the original typed

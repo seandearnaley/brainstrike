@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  listProviders,
+  providerDeprecatedEnvKeys,
+  providerEnvKeys,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 export type DesktopEnvFile = 'dev' | 'dev-local' | 'user-data';
@@ -13,6 +17,17 @@ export interface DesktopEnvLoadFailure {
 
 export interface DesktopEnvLoadResult {
   readonly appliedVariableCount: number;
+  /**
+   * Deprecated provider env NAMES present in the loaded files (BST-1361) —
+   * names only, never values. Presence in a file is what matters: a name the
+   * inherited process env shadows is still listed, because the user's file
+   * still spells the retired name and deserves the rename warning.
+   * CONSUMER: BST-1363 (env bootstrap visibility) — file-scoped provenance
+   * ("your .env spells a retired name") is a better repair signal for that
+   * UI than the process-wide detector, which cannot say where a value came
+   * from.
+   */
+  readonly deprecatedVariableNames: readonly string[];
   readonly failures: readonly DesktopEnvLoadFailure[];
   readonly loadedFiles: readonly DesktopEnvFile[];
   readonly skipped: boolean;
@@ -49,27 +64,40 @@ class DesktopEnvParseError extends Error {
 const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
 /**
- * The ONLY variables a desktop `.env` file may set.
+ * ONE registry-derived name set with two enforcement roles (BST-1361):
  *
- * This is a PRIVILEGE BOUNDARY, not hygiene: the main process environment can
- * reach child processes. Non-interactive command, skill, and hook children
- * strip the credentials below, while interactive PTYs and runtime-support
- * children intentionally retain the parent environment. An unrestricted file
- * would therefore escalate a write to `<userData>/.env` into code execution
- * and traffic interception via NODE_OPTIONS, PATH, DYLD_INSERT_LIBRARIES,
- * NODE_EXTRA_CA_CERTS, or HTTPS_PROXY — and could set NODE_ENV /
- * ELECTRON_IS_E2E_TEST to flip this process's own test-mode semantics.
+ * 1. `.env` file ALLOW-LIST — the ONLY variables a desktop env file may set.
+ *    This is a PRIVILEGE BOUNDARY, not hygiene: an unrestricted file would
+ *    escalate a write to `<userData>/.env` into code execution and traffic
+ *    interception via NODE_OPTIONS, PATH, DYLD_INSERT_LIBRARIES,
+ *    NODE_EXTRA_CA_CERTS, or HTTPS_PROXY — and could set NODE_ENV /
+ *    ELECTRON_IS_E2E_TEST to flip this process's own test-mode semantics.
+ *    Deprecated registry names stay listed forever: an unrecognized name
+ *    rejects the WHOLE file, so dropping them would brick existing user
+ *    files. Recognized-but-deprecated parses fine and is reported by name in
+ *    {@link DesktopEnvLoadResult.deprecatedVariableNames}.
+ * 2. CHILD-ENV CREDENTIAL SCRUB — names repository-controlled children must
+ *    never inherit (the main-process env reaches children; non-interactive
+ *    command, skill, and hook children strip these, while interactive PTYs
+ *    and runtime-support children intentionally retain the parent env).
+ *    Deprecated names stay here forever too: a credential-shaped variable
+ *    must never leak regardless of whether resolution still reads it.
  *
- * Derived from the shared provider registry plus the Tavily names rather than
- * hand-copied: a hand-written list silently drifts from the registry, and a
- * name the registry documents but this list omits rejects the WHOLE file.
+ * Derived from the shared provider registry plus the Tavily names rather
+ * than hand-copied — a hand-written list silently drifts. Exported so
+ * `.env.example` is contract-tested against it (env-example-contract.test.ts)
+ * and the example can never drift from the registry either.
  */
-/** Provider/search credential names that repository-controlled children must never inherit. */
-const CREDENTIAL_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
-  ...listProviders().flatMap((definition) => [...providerEnvKeys(definition.id)]),
+export const SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
+  ...listProviders().flatMap((definition) => [
+    ...providerEnvKeys(definition.id),
+    ...providerDeprecatedEnvKeys(definition.id),
+  ]),
   ...TAVILY_ENV_KEYS,
 ]);
-const SUPPORTED_VARIABLE_NAMES: ReadonlySet<string> = CREDENTIAL_VARIABLE_NAMES;
+const DEPRECATED_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>(
+  listProviders().flatMap((definition) => [...providerDeprecatedEnvKeys(definition.id)])
+);
 let bootstrapResult: DesktopEnvLoadResult | undefined;
 
 /**
@@ -86,7 +114,7 @@ export function createCredentialIsolatedChildEnvironment(
     // Windows environment names are case-insensitive. Apply the same rule on
     // every platform so a mixed-case source object cannot bypass this boundary
     // in tests, IPC adapters, or a future cross-platform caller.
-    if (!CREDENTIAL_VARIABLE_NAMES.has(name.toUpperCase())) {
+    if (!SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name.toUpperCase())) {
       environment[name] = value;
     }
   }
@@ -142,6 +170,7 @@ export function loadDesktopEnvironment({
   if (failures.length > 0) {
     return {
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures,
       loadedFiles: [],
       skipped: false,
@@ -155,6 +184,7 @@ export function loadDesktopEnvironment({
 
   return {
     appliedVariableCount: assignments.size,
+    deprecatedVariableNames: collectDeprecatedVariableNames(parsedCandidates),
     failures: [],
     loadedFiles: parsedCandidates.map(({ file }) => file),
     skipped: false,
@@ -184,10 +214,26 @@ export function getDesktopEnvironmentBootstrapResult(): DesktopEnvLoadResult {
 function emptyResult(skipped: boolean): DesktopEnvLoadResult {
   return {
     appliedVariableCount: 0,
+    deprecatedVariableNames: [],
     failures: [],
     loadedFiles: [],
     skipped,
   };
+}
+
+/** Deprecated NAMES spelled in the loaded files — deduplicated, values never included. */
+function collectDeprecatedVariableNames(
+  candidates: readonly ParsedDesktopEnvCandidate[]
+): readonly string[] {
+  const names = new Set<string>();
+  for (const candidate of candidates) {
+    for (const name of candidate.entries.keys()) {
+      if (DEPRECATED_VARIABLE_NAMES.has(name)) {
+        names.add(name);
+      }
+    }
+  }
+  return [...names];
 }
 
 function buildCandidates(
@@ -284,7 +330,7 @@ function parseDesktopEnvLine(line: string, lineNumber: number, entries: Map<stri
   if (!VARIABLE_NAME_PATTERN.test(name)) {
     throw new DesktopEnvParseError(lineNumber, 'invalid variable name.');
   }
-  if (!SUPPORTED_VARIABLE_NAMES.has(name)) {
+  if (!SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name)) {
     throw new DesktopEnvParseError(lineNumber, 'unsupported variable name.');
   }
 

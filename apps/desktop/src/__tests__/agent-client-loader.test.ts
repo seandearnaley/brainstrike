@@ -71,19 +71,19 @@ describe('agent-client-loader', () => {
     const module = await import('../agent-client-loader');
 
     const anthropicKeys = module.getAgentProviderEnvKeys('anthropic');
-    expect(anthropicKeys).toEqual(['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY']);
+    expect(anthropicKeys).toEqual(['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY']);
 
     const googleKeys = module.getAgentProviderEnvKeys('google');
-    expect(googleKeys).toContain('GOOGLE_GENERATIVE_AI_API_KEY');
+    expect(googleKeys).toEqual(['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY']);
 
     const openrouterKeys = module.getAgentProviderEnvKeys('openrouter');
-    expect(openrouterKeys).toContain('OPENROUTER_API_KEY');
+    expect(openrouterKeys).toEqual(['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY']);
 
     const cohereKeys = module.getAgentProviderEnvKeys('cohere');
-    expect(cohereKeys).toContain('COHERE_API_KEY');
+    expect(cohereKeys).toEqual(['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY']);
 
     const voyageKeys = module.getAgentProviderEnvKeys('voyage');
-    expect(voyageKeys).toContain('VOYAGE_API_KEY');
+    expect(voyageKeys).toEqual(['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY']);
 
     // Local runtime providers have no env keys
     const ollamaKeys = module.getAgentProviderEnvKeys('ollama');
@@ -123,18 +123,11 @@ describe('agent-client-loader', () => {
     expect(providers).toContain('openai');
   });
 
-  it('getAgentProviderEnvKeys returns all openai key variants', async () => {
+  it('getAgentProviderEnvKeys returns exactly the two canonical openai names (BST-1361)', async () => {
     const module = await import('../agent-client-loader');
     const openaiKeys = module.getAgentProviderEnvKeys('openai');
 
-    expect(openaiKeys).toEqual([
-      'BRAINSTRIKE_OPENAI_API_KEY',
-      'BS_OPENAI_API_KEY',
-      'OPENAI_API_KEY',
-      'AI_OPENAI_API_KEY',
-      'OPENAI_API_KEY_V1',
-      'OPENAI_API_KEY_V2',
-    ]);
+    expect(openaiKeys).toEqual(['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY']);
   });
 
   describe('shouldForceFallback paths', () => {

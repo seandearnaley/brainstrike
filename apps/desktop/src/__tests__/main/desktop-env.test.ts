@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  listProviders,
+  providerDeprecatedEnvKeys,
+  providerEnvKeys,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createCredentialIsolatedChildEnvironment,
@@ -44,7 +48,10 @@ afterEach(() => {
 describe('createCredentialIsolatedChildEnvironment', () => {
   it('removes every registered credential name case-insensitively and preserves ordinary values', () => {
     const credentialNames = [
-      ...listProviders().flatMap((definition) => [...providerEnvKeys(definition.id)]),
+      ...listProviders().flatMap((definition) => [
+        ...providerEnvKeys(definition.id),
+        ...providerDeprecatedEnvKeys(definition.id),
+      ]),
       ...TAVILY_ENV_KEYS,
     ];
     const source: NodeJS.ProcessEnv = Object.fromEntries(
@@ -87,6 +94,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 3,
+      deprecatedVariableNames: ['GOOGLE_API_KEY'],
       failures: [],
       loadedFiles: ['dev-local', 'dev'],
       skipped: false,
@@ -111,6 +119,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 1,
+      deprecatedVariableNames: [],
       failures: [],
       loadedFiles: ['user-data'],
       skipped: false,
@@ -172,6 +181,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures: [],
       loadedFiles: [],
       skipped: false,
@@ -187,6 +197,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures: [],
       loadedFiles: [],
       skipped: false,
@@ -219,12 +230,14 @@ describe('loadDesktopEnvironment', () => {
     expect(JSON.stringify(result)).not.toContain('secret');
   });
 
-  it('accepts every environment name the provider registry declares', () => {
+  it('accepts every environment name the provider registry declares, deprecated included', () => {
     const layout = createEnvironmentLayout();
     const registryNames = listProviders().flatMap((definition) => [
       ...providerEnvKeys(definition.id),
+      ...providerDeprecatedEnvKeys(definition.id),
     ]);
     expect(registryNames).toContain('BS_OPENAI_API_KEY');
+    expect(registryNames).toContain('BRAINSTRIKE_ANTHROPIC_API_KEY');
     fs.writeFileSync(
       path.join(layout.appRoot, '.env'),
       registryNames.map((name) => `${name}=value`).join('\n')
@@ -235,6 +248,38 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result.failures).toEqual([]);
     expect(Object.keys(env).sort()).toEqual([...new Set(registryNames)].sort());
+  });
+
+  it('loads a file containing a deprecated name and reports the name (BST-1361)', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      ['OPENAI_API_KEY_V2=legacy-secret', 'ANTHROPIC_API_KEY=current'].join('\n')
+    );
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    // The file is NOT rejected: a deprecated name parses fine.
+    expect(result.failures).toEqual([]);
+    expect(result.loadedFiles).toEqual(['dev']);
+    expect(result.appliedVariableCount).toBe(2);
+    expect(result.deprecatedVariableNames).toEqual(['OPENAI_API_KEY_V2']);
+    // Names only — the value must never ride the load result.
+    expect(JSON.stringify(result)).not.toContain('legacy-secret');
+    expect(env['OPENAI_API_KEY_V2']).toBe('legacy-secret');
+  });
+
+  it('reports deprecated names present in files even when the process env already wins', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(path.join(layout.appRoot, '.env'), 'GOOGLE_API_KEY=file-value');
+    const env: NodeJS.ProcessEnv = { GOOGLE_API_KEY: 'inherited' };
+
+    const result = load(layout, { env });
+
+    expect(result.appliedVariableCount).toBe(0);
+    expect(result.deprecatedVariableNames).toEqual(['GOOGLE_API_KEY']);
+    expect(env['GOOGLE_API_KEY']).toBe('inherited');
   });
 
   it('rejects unsupported variables atomically instead of mutating the process environment', () => {
@@ -249,6 +294,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures: [
         {
           code: 'env_file_invalid',
@@ -368,6 +414,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures: [],
       loadedFiles: [],
       skipped: true,

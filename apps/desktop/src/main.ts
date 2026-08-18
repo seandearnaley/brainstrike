@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   addLogListener,
@@ -1661,6 +1662,22 @@ if (singleInstanceLockAcquired) {
         logger.error('Desktop environment file rejected', failure);
       }
 
+      // BST-1361: deprecated env names are detected ONCE per launch from this
+      // process's own environment (files were applied by main-bootstrap) and
+      // surfaced through /assistant/status; they never authenticate. Invoked
+      // INSIDE app-ready (review 10i) so a hypothetical registry-authoring
+      // throw surfaces through the normal startup error path instead of a
+      // pre-ready module-evaluation crash.
+      const deprecatedEnvVarReports = detectDeprecatedProviderEnvVars(process.env);
+      if (deprecatedEnvVarReports.length > 0) {
+        // Names only — never values. Logged once per launch (BST-1361).
+        logger.warn('Deprecated provider environment variables are set and will not authenticate', {
+          deprecatedEnvVars: deprecatedEnvVarReports.map(
+            ({ envVar, replacement }) => `${envVar} -> ${replacement}`
+          ),
+        });
+      }
+
       logger.debug('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService(), {
         envFileFailures: desktopEnvLoadResult.failures,
@@ -1862,6 +1879,7 @@ if (singleInstanceLockAcquired) {
       let assistantStartupError: string | undefined;
       try {
         const { url, stop, authToken } = await startAssistantServer(undefined, {
+          deprecatedEnvVars: deprecatedEnvVarReports,
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,

@@ -6,10 +6,12 @@ describe('key-resolver', () => {
   const originalEnv = process.env;
   const providerEnvKeys = [
     'AI_ANTHROPIC_API_KEY',
-    'AI_GOOGLE_GENERATIVE_AI_API_KEY',
     'AI_OPENAI_API_KEY',
-    'AI_OPENROUTER_API_KEY',
     'ANTHROPIC_API_KEY',
+    'BRAINSTRIKE_ANTHROPIC_API_KEY',
+    'BRAINSTRIKE_GOOGLE_API_KEY',
+    'BRAINSTRIKE_OPENAI_API_KEY',
+    'BRAINSTRIKE_OPENROUTER_API_KEY',
     'GOOGLE_GENERATIVE_AI_API_KEY',
     'OPENAI_API_KEY',
     'OPENROUTER_API_KEY',
@@ -47,9 +49,16 @@ describe('key-resolver', () => {
       expect(resolveProviderApiKey('openai')).toBe('env-openai-key');
     });
 
-    it('resolves OpenAI key from AI_OPENAI_API_KEY env var', () => {
-      process.env['AI_OPENAI_API_KEY'] = 'env-openai-key-2';
+    it('resolves OpenAI key from the BRAINSTRIKE_OPENAI_API_KEY override', () => {
+      process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'env-openai-key-2';
       expect(resolveProviderApiKey('openai')).toBe('env-openai-key-2');
+    });
+
+    it('never resolves a deprecated env name (BST-1361)', () => {
+      process.env['AI_OPENAI_API_KEY'] = 'deprecated-openai';
+      process.env['AI_ANTHROPIC_API_KEY'] = 'deprecated-anthropic';
+      expect(resolveProviderApiKey('openai')).toBeUndefined();
+      expect(resolveProviderApiKey('anthropic')).toBeUndefined();
     });
 
     it('resolves Anthropic key from ANTHROPIC_API_KEY env var', () => {
@@ -85,12 +94,12 @@ describe('key-resolver', () => {
     });
 
     it('tries multiple env var variants in order', () => {
-      // Set only the second variant
-      process.env['AI_OPENAI_API_KEY'] = 'second-variant';
+      // Set only the second variant (vendor-standard name)
+      process.env['OPENAI_API_KEY'] = 'second-variant';
       expect(resolveProviderApiKey('openai')).toBe('second-variant');
 
-      // First variant takes precedence
-      process.env['OPENAI_API_KEY'] = 'first-variant';
+      // The BRAINSTRIKE_* override takes precedence
+      process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'first-variant';
       expect(resolveProviderApiKey('openai')).toBe('first-variant');
     });
   });

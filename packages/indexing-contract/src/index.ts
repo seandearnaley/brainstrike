@@ -651,6 +651,12 @@ export interface ParsedEmbeddingProviderModel {
 const PROVIDER_SEPARATOR = '::';
 const LEGACY_PROVIDER_SEPARATOR = ':';
 
+/**
+ * Keyless hosted runtimes. MIRROR-CONTRACT-TESTED (BST-1361): this package
+ * cannot depend on `@brainstrike/assistant-contract`, so
+ * `scripts/__tests__/provider-env-keys-mirror-contract.test.mjs` pins this
+ * set to the registry's `authType: 'none'` hosted providers.
+ */
 const NO_API_KEY_HOSTED_PROVIDERS: ReadonlySet<HostedProviderType> = new Set([
   'ollama',
   'lmstudio',
@@ -671,14 +677,12 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
   },
   {
     displayName: 'OpenAI',
-    envKeys: [
-      'BRAINSTRIKE_OPENAI_API_KEY',
-      'BS_OPENAI_API_KEY',
-      'OPENAI_API_KEY',
-      'AI_OPENAI_API_KEY',
-      'OPENAI_API_KEY_V1',
-      'OPENAI_API_KEY_V2',
-    ],
+    // MIRROR-CONTRACT-TESTED (BST-1361): every envKeys list below must equal
+    // the assistant-contract provider registry's canonical two names
+    // (BRAINSTRIKE_* override first, vendor-standard second) — pinned by
+    // scripts/__tests__/provider-env-keys-mirror-contract.test.mjs because
+    // this package's dependency floor forbids importing the registry.
+    envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
     models: [
       {
@@ -703,7 +707,7 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
   },
   {
     displayName: 'Google AI Studio',
-    envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
+    envKeys: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     id: 'google',
     models: [
       {
@@ -720,7 +724,7 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
   },
   {
     displayName: 'Cohere',
-    envKeys: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
+    envKeys: ['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY'],
     id: 'cohere',
     models: [
       {
@@ -743,7 +747,7 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
   },
   {
     displayName: 'Voyage AI',
-    envKeys: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+    envKeys: ['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY'],
     id: 'voyage',
     models: [
       {

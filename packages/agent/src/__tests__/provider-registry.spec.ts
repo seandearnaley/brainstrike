@@ -45,10 +45,15 @@ describe('provider registry metadata', () => {
   });
 
   it('surface provider environment key precedence', () => {
-    const envKeys = providerEnvKeys('openai');
-    expect(envKeys[0]).toBe('BRAINSTRIKE_OPENAI_API_KEY');
-    expect(envKeys[1]).toBe('BS_OPENAI_API_KEY');
-    expect(envKeys).toContain('OPENAI_API_KEY');
-    expect(envKeys).toContain('AI_OPENAI_API_KEY');
+    // BST-1361: exactly two names — app-scoped override first, vendor second.
+    expect(providerEnvKeys('openai')).toEqual(['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY']);
+    expect(providerEnvKeys('anthropic')).toEqual([
+      'BRAINSTRIKE_ANTHROPIC_API_KEY',
+      'ANTHROPIC_API_KEY',
+    ]);
+    expect(providerEnvKeys('google')).toEqual([
+      'BRAINSTRIKE_GOOGLE_API_KEY',
+      'GOOGLE_GENERATIVE_AI_API_KEY',
+    ]);
   });
 });

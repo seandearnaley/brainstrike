@@ -12,9 +12,14 @@ export {
   type RuntimeAssistantMemorySettings,
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/assistant-contract/memory-settings';
+// BST-1361: the deprecated-name detector reads only the env map it is
+// handed — server-side callers pass their own process env, never wire data.
 export {
+  type DeprecatedEnvVarReport,
+  detectDeprecatedProviderEnvVars,
   isSupportedProvider,
   PROVIDER_DEFAULT_MODELS,
+  providerDeprecatedEnvKeys,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';

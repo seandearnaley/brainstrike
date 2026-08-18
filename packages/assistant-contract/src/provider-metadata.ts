@@ -1,7 +1,10 @@
 import {
   type EmbeddingModelDefinition,
   getProviderDefinition,
+  getProviderDeprecatedEnvKeys,
   getProviderEnvKeys,
+  getProviderOverrideEnvKey,
+  getProviderVendorEnvKey,
   listProviderEmbeddingModels,
   listProviderLlmModels,
   listProviderModels,
@@ -113,6 +116,39 @@ export function listEmbeddingModels(
 export function providerEnvKeys(provider: SupportedProvider): readonly string[] {
   return getProviderEnvKeys(provider);
 }
+
+/**
+ * Historical env names the provider once resolved (BST-1361): allow-listed
+ * and scrubbed, never authenticated. See `ProviderDefinition.deprecatedEnvKeys`.
+ */
+export function providerDeprecatedEnvKeys(provider: SupportedProvider): readonly string[] {
+  return getProviderDeprecatedEnvKeys(provider);
+}
+
+/**
+ * The app-scoped `BRAINSTRIKE_<PROVIDER>_API_KEY` override name (BST-1361).
+ * Role-based, not positional — see {@link getProviderOverrideEnvKey}.
+ */
+export function providerOverrideEnvKey(provider: SupportedProvider): string | undefined {
+  return getProviderOverrideEnvKey(provider);
+}
+
+/**
+ * The vendor-standard env name (e.g. `OPENAI_API_KEY`) — the non-override
+ * member of the canonical pair (BST-1361). `undefined` for keyless providers.
+ */
+export function providerVendorEnvKey(provider: SupportedProvider): string | undefined {
+  return getProviderVendorEnvKey(provider);
+}
+
+// Deprecated-name DETECTION rides this subpath too (review 10f): one import
+// surface for provider metadata, no dedicated package export path. The
+// module itself stays separate; it imports only provider-registry, so this
+// re-export is cycle-free.
+export {
+  type DeprecatedEnvVarReport,
+  detectDeprecatedProviderEnvVars,
+} from './provider-env-deprecation.js';
 
 /**
  * Registry-derived auth mode. Keyless-ness is `authType === 'none'` —
