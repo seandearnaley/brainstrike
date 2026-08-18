@@ -132,6 +132,22 @@ function prefixGroupForRegion(region: string): PrefixGroup | undefined {
   return;
 }
 
+/**
+ * Strip a cross-region inference-profile prefix, returning the CATALOG id.
+ *
+ * Exported for the CAPABILITY lookups (prompt caching, reasoning dialect),
+ * which are keyed on the unprefixed catalog id. `createProvider` accepts an
+ * already-prefixed id and passes it through (BST-1350 contract, pinned by
+ * provider-factory.bedrock.spec.ts), so a routed id genuinely does reach those
+ * lookups — and a raw miss would silently cost that route BOTH prompt caching
+ * and its reasoning dialect. Resolving the prefix away is the fix; the prefix
+ * selects a region, it never changes what the model supports.
+ */
+export function stripCrossRegionPrefix(modelId: string): string {
+  const prefix = CROSS_REGION_PREFIXES.find((candidate) => modelId.startsWith(candidate));
+  return prefix ? modelId.slice(prefix.length) : modelId;
+}
+
 export function resolveBedrockModelId(modelId: string, region: string): string {
   if (CROSS_REGION_PREFIXES.some((prefix) => modelId.startsWith(prefix))) {
     return modelId;

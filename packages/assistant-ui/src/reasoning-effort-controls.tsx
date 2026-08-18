@@ -12,6 +12,7 @@ import type {
   AnthropicEffort,
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
+  BedrockReasoningEffort,
   GoogleThinkingLevel,
   OpenAiReasoningEffort,
 } from '@brainstrike/types';
@@ -33,6 +34,19 @@ export const OPENAI_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
 };
 
 export const ANTHROPIC_EFFORT_LABELS: Record<AnthropicEffort, string> = {
+  high: 'High',
+  low: 'Low',
+  max: 'Max',
+  medium: 'Medium',
+  xhigh: 'Extra',
+};
+
+/**
+ * Same words as the Anthropic ladder, kept as its own record because the two
+ * mirror independent upstream enums — an addition to either must not silently
+ * relabel the other's menu.
+ */
+export const BEDROCK_EFFORT_LABELS: Record<BedrockReasoningEffort, string> = {
   high: 'High',
   low: 'Low',
   max: 'Max',
@@ -62,6 +76,49 @@ export interface EffortControlModel {
   /** The radio value currently in effect ('auto' when unset). */
   currentValue: string;
   options: EffortOption[];
+}
+
+/**
+ * Bedrock's Effort submenu (BST-1354).
+ *
+ * Extracted rather than inlined in the family switch because Bedrock's ladder
+ * is PER MODEL, so it carries a case the other families do not: a persisted
+ * effort that this route does not offer. `buildBedrockOptions` declines to send
+ * such a value, so presenting it as the current selection would claim a
+ * reasoning depth the run does not have. The trigger therefore reads "Auto" —
+ * what actually runs — while the stale value stays visible as an explicitly
+ * unsupported option, because silently dropping a setting the user chose is its
+ * own small lie.
+ */
+function buildBedrockEffortControlModel(
+  efforts: readonly BedrockReasoningEffort[],
+  settings: AssistantProviderSettings
+): EffortControlModel {
+  const current = settings.bedrockEffort;
+  const isOffered = current !== undefined && efforts.includes(current);
+  const options: EffortOption[] = efforts.map((effort) => ({
+    isModelDefault: false,
+    label: BEDROCK_EFFORT_LABELS[effort],
+    value: effort,
+  }));
+  if (current !== undefined && !isOffered) {
+    options.push({
+      isModelDefault: false,
+      label: `${BEDROCK_EFFORT_LABELS[current]} (unsupported)`,
+      value: current,
+    });
+  }
+  return {
+    // Its own settings key, not `anthropicEffort` — Bedrock has no
+    // thinking-budget control, so the Anthropic pair would leave a toggle
+    // writing state the Bedrock request builder drops.
+    buildUpdate: (value) => ({
+      bedrockEffort: value === 'auto' ? undefined : (value as BedrockReasoningEffort),
+    }),
+    currentLabel: isOffered && current ? BEDROCK_EFFORT_LABELS[current] : 'Auto',
+    currentValue: isOffered && current ? current : 'auto',
+    options,
+  };
 }
 
 /**
@@ -126,6 +183,8 @@ export function buildEffortControlModel(
         })),
       };
     }
+    case 'bedrock':
+      return buildBedrockEffortControlModel(availability.efforts, settings);
     case 'google': {
       const current = settings.googleThinkingLevel;
       return {

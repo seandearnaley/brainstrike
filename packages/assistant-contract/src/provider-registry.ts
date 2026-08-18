@@ -79,6 +79,29 @@ interface BaseModelDefinition {
 
 export interface LlmModelDefinition extends BaseModelDefinition {
   /**
+   * Bedrock-only: which `providerOptions.bedrock.reasoningConfig` dialect this
+   * route accepts. Absence is authoritative — the route exposes no reasoning
+   * controls. Declared per model rather than derived, because the dialects do
+   * not follow vendor lines and sending the wrong one is a hard 400:
+   *
+   * - `adaptive` — `{type:'adaptive', maxReasoningEffort, display}`. Required
+   *   by the newer Claude routes, which REJECT `thinking.type:'enabled'`.
+   * - `budget-tokens` — legacy `{type:'enabled', budgetTokens}` extended
+   *   thinking, for Claude routes without adaptive support.
+   * - `max-reasoning-effort` — `{type:'enabled', maxReasoningEffort}`, the
+   *   Amazon Nova extended-thinking shape (no token budget exists there).
+   *
+   * Pinned by `bedrock-reasoning-dialect-contract.spec.ts` against
+   * `getModelCapabilities()` from **`@ai-sdk/anthropic/internal`** — that is
+   * the real source of truth; `@ai-sdk/amazon-bedrock` imports the same table
+   * rather than owning one. So an **`@ai-sdk/anthropic`** bump can move a
+   * route between dialects even when the Bedrock package is untouched; the pin
+   * fails a test instead of failing in production. The pin also asserts
+   * `isKnownModel`, because that table DEFAULTS an unrecognized id to
+   * adaptive — without the assertion a typo'd id would pass silently.
+   */
+  bedrockReasoning?: 'adaptive' | 'budget-tokens' | 'max-reasoning-effort';
+  /**
    * Total context window in tokens (input + output). REQUIRED: adding a model
    * without it is a compile error — this drives the thread context meter and
    * the auto-derived agent input token budget. Use the provider's documented
@@ -102,13 +125,37 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * or $0 (local/keyless) pricing — unknown pricing must render "cost unavailable", never $0.
    */
   pricing?: {
-    /** USD per 1M prompt-cache READ tokens. Anthropic only: 0.1× the input rate. */
+    /**
+     * USD per 1M prompt-cache READ tokens. Declared only on routes that bill
+     * cache reads at their own published rate — the first-party Anthropic
+     * models (0.1× input) and the Bedrock routes that accept explicit cache
+     * points (Anthropic-on-Bedrock 0.1× input; Amazon Nova 0.25× input).
+     */
     cacheReadPerMTok?: number;
-    /** USD per 1M prompt-cache WRITE tokens. Anthropic only: 1.25× the input rate. */
+    /**
+     * USD per 1M prompt-cache WRITE tokens. Declared only where the vendor
+     * bills cache writes at a PREMIUM over the input rate (Anthropic
+     * first-party and Anthropic-on-Bedrock: 1.25× input). Deliberately absent
+     * for Amazon Nova, which bills cache writes at the ordinary input rate —
+     * absence means "no premium", never "unknown".
+     */
     cacheWritePerMTok?: number;
     inputPerMTok: number;
     outputPerMTok: number;
   };
+  /**
+   * Prompt-cache breakpoint DIALECT this exact route accepts, and the sole
+   * input to prompt-caching wrapper selection in the provider factory
+   * (`packages/agent/src/providers/prompt-caching.ts`). Absence is
+   * authoritative: a route that does not declare a dialect is sent no cache
+   * breakpoints at all. NEVER infer the dialect from a provider name or a
+   * model-id substring — the Bedrock catalog is heterogeneous (Claude and
+   * Nova accept `bedrock` cache points; Llama and DeepSeek accept none).
+   *
+   * - `anthropic` — first-party Messages API `cache_control: {type:'ephemeral'}`.
+   * - `bedrock` — Converse API `cachePoint: {type:'default'}`.
+   */
+  promptCaching?: 'anthropic' | 'bedrock';
   /**
    * Authoritative per-model reasoning controls when the provider publishes
    * them. The UI and request boundary both enforce these values so a
@@ -481,6 +528,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 10,
           outputPerMTok: 50,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
@@ -497,6 +545,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 5,
           outputPerMTok: 25,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
         type: 'llm',
@@ -516,6 +565,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 2,
           outputPerMTok: 10,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         tagline: 'Best mix of smarts and speed',
         type: 'llm',
@@ -533,6 +583,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 3,
           outputPerMTok: 15,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
@@ -549,6 +600,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 1,
           outputPerMTok: 5,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         tagline: 'Fastest for lightweight tasks',
         type: 'llm',
@@ -1333,44 +1385,69 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // (amazon-bedrock provider), retrieved 2026-08-18. Ids are stored
     // UNPREFIXED; cross-region inference-profile prefixes (us./eu./…) are
     // applied per request by resolveBedrockModelId in packages/agent.
-    // Cache pricing is deliberately absent: the registry pricing schema keeps
-    // cache rates Anthropic-first-party-only (provider-registry-pricing pin).
+    // Prompt caching (BST-1354): Bedrock bills explicit `cachePoint` reads and
+    // writes at published per-model rates, so the Claude and Nova rows carry
+    // cache pricing. AWS documents a maximum of FOUR cache checkpoints per
+    // request for every caching-capable route, which is what bounds the
+    // wrapper's first-2-system + last-2-non-system placement policy.
     models: [
       {
+        bedrockReasoning: 'adaptive',
         contextWindow: 1_000_000,
         id: 'anthropic.claude-fable-5',
         label: 'Claude Fable 5 (Bedrock)',
         maxOutputTokens: 128_000,
-        pricing: { inputPerMTok: 10, outputPerMTok: 50 },
+        pricing: {
+          cacheReadPerMTok: 1,
+          cacheWritePerMTok: 12.5,
+          inputPerMTok: 10,
+          outputPerMTok: 50,
+        },
+        promptCaching: 'bedrock',
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
       },
       {
+        bedrockReasoning: 'adaptive',
         contextWindow: 1_000_000,
         id: 'anthropic.claude-opus-4-8',
         label: 'Claude Opus 4.8 (Bedrock)',
         maxOutputTokens: 128_000,
-        pricing: { inputPerMTok: 5, outputPerMTok: 25 },
+        pricing: {
+          cacheReadPerMTok: 0.5,
+          cacheWritePerMTok: 6.25,
+          inputPerMTok: 5,
+          outputPerMTok: 25,
+        },
+        promptCaching: 'bedrock',
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
         type: 'llm',
         vision: 'supported',
       },
       {
+        bedrockReasoning: 'adaptive',
         contextWindow: 1_000_000,
         default: true,
         id: 'anthropic.claude-sonnet-5',
         label: 'Claude Sonnet 5 (Bedrock)',
         maxOutputTokens: 128_000,
         // Bedrock mirrors Anthropic's introductory rate (models.dev 2026-08-18).
-        pricing: { inputPerMTok: 2, outputPerMTok: 10 },
+        pricing: {
+          cacheReadPerMTok: 0.2,
+          cacheWritePerMTok: 2.5,
+          inputPerMTok: 2,
+          outputPerMTok: 10,
+        },
+        promptCaching: 'bedrock',
         supportsStreaming: true,
         tagline: 'Best mix of smarts and speed',
         type: 'llm',
         vision: 'supported',
       },
       {
+        bedrockReasoning: 'adaptive',
         // models.dev lists a 1M context for this Bedrock route; the registry
         // pins the vendor's standard tier (200K), consistent with the direct
         // Anthropic and OpenRouter rows for the same model.
@@ -1378,28 +1455,48 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'anthropic.claude-sonnet-4-6',
         label: 'Claude Sonnet 4.6 (Bedrock)',
         maxOutputTokens: 64_000,
-        pricing: { inputPerMTok: 3, outputPerMTok: 15 },
+        pricing: {
+          cacheReadPerMTok: 0.3,
+          cacheWritePerMTok: 3.75,
+          inputPerMTok: 3,
+          outputPerMTok: 15,
+        },
+        promptCaching: 'bedrock',
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
       },
       {
+        // The one catalogued Claude-on-Bedrock route without adaptive thinking
+        // (installed SDK `getModelCapabilities`), so it keeps the legacy
+        // explicit-budget form.
+        bedrockReasoning: 'budget-tokens',
         contextWindow: 200_000,
         id: 'anthropic.claude-haiku-4-5-20251001-v1:0',
         label: 'Claude Haiku 4.5 (Bedrock)',
         maxOutputTokens: 64_000,
-        pricing: { inputPerMTok: 1, outputPerMTok: 5 },
+        pricing: {
+          cacheReadPerMTok: 0.1,
+          cacheWritePerMTok: 1.25,
+          inputPerMTok: 1,
+          outputPerMTok: 5,
+        },
+        promptCaching: 'bedrock',
         supportsStreaming: true,
         tagline: 'Fastest for lightweight tasks',
         type: 'llm',
         vision: 'supported',
       },
       {
+        // Nova v1 model cards document explicit cache points (system +
+        // messages, 4 checkpoints) but NO reasoning capability, so these rows
+        // declare caching without `bedrockReasoning`.
         contextWindow: 300_000,
         id: 'amazon.nova-pro-v1:0',
         label: 'Amazon Nova Pro',
         maxOutputTokens: 8192,
-        pricing: { inputPerMTok: 0.8, outputPerMTok: 3.2 },
+        pricing: { cacheReadPerMTok: 0.2, inputPerMTok: 0.8, outputPerMTok: 3.2 },
+        promptCaching: 'bedrock',
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
@@ -1409,7 +1506,8 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'amazon.nova-lite-v1:0',
         label: 'Amazon Nova Lite',
         maxOutputTokens: 8192,
-        pricing: { inputPerMTok: 0.06, outputPerMTok: 0.24 },
+        pricing: { cacheReadPerMTok: 0.015, inputPerMTok: 0.06, outputPerMTok: 0.24 },
+        promptCaching: 'bedrock',
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
@@ -1419,10 +1517,31 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'amazon.nova-micro-v1:0',
         label: 'Amazon Nova Micro',
         maxOutputTokens: 8192,
-        pricing: { inputPerMTok: 0.035, outputPerMTok: 0.14 },
+        pricing: { cacheReadPerMTok: 0.008_75, inputPerMTok: 0.035, outputPerMTok: 0.14 },
+        promptCaching: 'bedrock',
         supportsStreaming: true,
         type: 'llm',
         vision: 'unsupported',
+      },
+      {
+        // The ONLY Nova route AWS documents extended thinking for
+        // (nova2-userguide/extended-thinking.html: `reasoningConfig` with
+        // `maxReasoningEffort`, no token budget). models.dev publishes no
+        // cache-read rate for it and no Nova 2 model card documents cache
+        // points, so it declares reasoning WITHOUT `promptCaching` — absence
+        // is the honest record, not an oversight.
+        bedrockReasoning: 'max-reasoning-effort',
+        contextWindow: 128_000,
+        id: 'amazon.nova-2-lite-v1:0',
+        label: 'Amazon Nova 2 Lite',
+        maxOutputTokens: 4096,
+        pricing: { inputPerMTok: 0.33, outputPerMTok: 2.75 },
+        supportsStreaming: true,
+        type: 'llm',
+        // models.dev reports `modalities.input: [text, image, video]`. Do NOT
+        // read vision off the sibling `attachment` flag — that field is about
+        // file attachments and is false here despite image input working.
+        vision: 'supported',
       },
       // amazon.nova-premier is not listed by models.dev for Bedrock
       // (2026-08-18), so it is deliberately absent.

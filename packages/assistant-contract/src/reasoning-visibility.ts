@@ -37,3 +37,24 @@ export interface ReasoningVisibilitySettings {
 export function resolveReasoningVisible(settings?: ReasoningVisibilitySettings): boolean {
   return settings?.reasoningVisible ?? DEFAULT_REASONING_VISIBLE;
 }
+
+/**
+ * Bedrock's projection of the shared switch (BST-1354).
+ *
+ * Bedrock expresses visibility as `reasoningConfig.display`, the same
+ * `omitted`/`summarized` vocabulary first-party Anthropic uses — and with the
+ * same provider-side default of `omitted`, so a Bedrock run that is not asked
+ * for its thinking returns none and the disclosure sits empty.
+ *
+ * Honored by the SDK ONLY for the `adaptive` config type. The other two Bedrock
+ * dialects have no visibility knob at all: legacy `enabled` + `budgetTokens`
+ * always returns thinking blocks, and Amazon Nova returns redacted reasoning
+ * regardless. Callers therefore attach this to the adaptive dialect only —
+ * mirroring the existing first-party rule that the legacy budget form carries
+ * no `display`. That is an absent knob, not an ignored setting.
+ */
+export function resolveBedrockReasoningDisplay(
+  settings?: ReasoningVisibilitySettings
+): 'omitted' | 'summarized' {
+  return resolveReasoningVisible(settings) ? 'summarized' : 'omitted';
+}

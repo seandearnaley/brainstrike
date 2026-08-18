@@ -55,6 +55,7 @@ import {
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
 } from './agent-runtime';
+import { buildBedrockMessageHygieneInputProcessor } from './bedrock-message-hygiene';
 import { buildCompactionOverlayInputProcessor } from './compaction-overlay-processor';
 import { buildProviderHistoryCompatInputProcessor } from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
@@ -953,6 +954,12 @@ function buildToolLoopOptions(
   const openAIToolSearchHistoryCompat = buildOpenAIToolSearchHistoryCompatInputProcessor(
     runtimeData?.provider ?? ''
   );
+  // BST-1354: Converse-API shape rules (no empty text/reasoning blocks,
+  // constrained tool-call ids) applied to the REPLAYED prompt only. Runs after
+  // the history-compat rewrites so it also cleans whatever they produced.
+  const bedrockMessageHygiene = buildBedrockMessageHygieneInputProcessor(
+    runtimeData?.provider ?? ''
+  );
   // Mastra's sealed-boundary re-key can leave the same assistant response
   // persisted under two message ids; OpenAI rejects any request that carries
   // an item id twice (BST-1095). Runs LAST among the compat processors so it
@@ -997,6 +1004,7 @@ function buildToolLoopOptions(
     historyCompat,
     openAIToolSearchHistoryCompat,
     openAIDuplicateItemCompat,
+    bedrockMessageHygiene,
     tokenLimiter,
   ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
 

@@ -168,4 +168,15 @@ export function getProviderModelDefinitions(
   return listProviderModels(provider);
 }
 
-export { getProviderDefinition, listProviders } from './provider-registry.js';
+/**
+ * Rides this narrow subpath so the provider FACTORY can read a model's
+ * declared capabilities (prompt-caching dialect, Bedrock reasoning dialect)
+ * without pulling the full contract barrel into narrow server entrypoints.
+ * Non-throwing on purpose: an uncatalogued model id declares no capabilities.
+ */
+export {
+  findLlmModelDefinition,
+  getProviderDefinition,
+  type LlmModelDefinition,
+  listProviders,
+} from './provider-registry.js';

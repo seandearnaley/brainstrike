@@ -12,6 +12,7 @@ import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contra
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -280,6 +281,7 @@ export interface RuntimeMemoryContext {
  * would drop a selected value on the floor with nothing to catch it.
  */
 export {
+  type BedrockReasoningEffort,
   type GoogleThinkingLevel,
   OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
@@ -323,6 +325,28 @@ export interface AnthropicProviderOptions extends JSONObject {
   thinking?: AnthropicThinkingOptions;
 }
 
+/**
+ * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.57).
+ * Kept in step with the identical declaration in
+ * `@brainstrike/assistant-contract` — this package is what actually hands
+ * `providerOptions` to the SDK, so a narrower type here would silently fail to
+ * represent what the app sends. Not a discriminated union on purpose:
+ * `type: 'enabled'` takes `budgetTokens` on Claude routes and
+ * `maxReasoningEffort` on Amazon Nova, and which one applies is a registry
+ * fact (`LlmModelDefinition.bedrockReasoning`), not a property of this shape.
+ */
+// biome-ignore lint/style/useConsistentTypeDefinitions: must stay a type ALIAS. `BedrockProviderOptions` extends `JSONObject`, whose string index signature an interface member does not satisfy (TS2411); a type alias gets the implicit index signature. Same reason `AnthropicThinkingOptions` is an alias.
+export type BedrockReasoningConfig = {
+  budgetTokens?: number;
+  display?: 'omitted' | 'summarized';
+  maxReasoningEffort?: BedrockReasoningEffort;
+  type: 'adaptive' | 'disabled' | 'enabled';
+};
+
+export interface BedrockProviderOptions extends JSONObject {
+  reasoningConfig?: BedrockReasoningConfig;
+}
+
 export interface GoogleProviderOptions extends JSONObject {
   thinkingConfig?: {
     thinkingLevel?: GoogleThinkingLevel;
@@ -354,6 +378,7 @@ export interface LocalRuntimeProviderOptions extends JSONObject {
 export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3ProviderOptions) & {
   openai?: OpenAiProviderOptions & JSONObject;
   anthropic?: AnthropicProviderOptions & JSONObject;
+  bedrock?: BedrockProviderOptions & JSONObject;
   google?: GoogleProviderOptions & JSONObject;
   local?: LocalProviderOptions & JSONObject;
   ollama?: LocalRuntimeProviderOptions & JSONObject;

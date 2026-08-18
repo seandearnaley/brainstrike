@@ -62,6 +62,16 @@ export type OpenAiReasoningSummary = 'auto' | 'detailed';
  * declaration — and the version named above — against the installed package.
  */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * Mirrors the `reasoningConfig.maxReasoningEffort` enum of the installed
+ * `@ai-sdk/amazon-bedrock` (5.0.57). Structurally identical to
+ * `AnthropicEffort` today and deliberately declared separately: they mirror
+ * two independent upstream packages, so aliasing one to the other would make
+ * an upgrade to either silently redefine the other's picker.
+ * `bedrock-reasoning-dialect-contract.spec.ts` compares this declaration
+ * against the installed provider.
+ */
+export type BedrockReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 /** Thinking levels offered by the Gemini Flash line. */
@@ -113,6 +123,17 @@ export interface AssistantProviderSettings {
   agentMaxSteps?: number;
   anthropicEffort?: AnthropicEffort;
   anthropicThinkingBudgetTokens?: number;
+  /**
+   * Bedrock reasoning DEPTH. Deliberately its own key rather than a reuse of
+   * `anthropicEffort`: Bedrock's effort ladder is per-model (the adaptive
+   * Claude routes, the legacy budget-token route and Amazon Nova each accept a
+   * different set), and Bedrock exposes no free-form thinking BUDGET control,
+   * so `anthropicThinkingBudgetTokens` has no meaning there. Sharing the
+   * Anthropic key would let the Anthropic Thinking toggle write a budget that
+   * the Bedrock request builder silently ignores — a switch that reads on while
+   * nothing is requested.
+   */
+  bedrockEffort?: BedrockReasoningEffort;
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
   /**
@@ -156,6 +177,7 @@ export const assistantProviderSettingKeys = [
   'agentMaxSteps',
   'anthropicEffort',
   'anthropicThinkingBudgetTokens',
+  'bedrockEffort',
   'googleIncludeThoughts',
   'googleThinkingLevel',
   'localRuntimeBaseUrl',

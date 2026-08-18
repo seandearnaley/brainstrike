@@ -16,11 +16,11 @@ import {
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
-import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
 import { resolveBedrockModelId } from './bedrock-model-id';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
+import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
 import {
   apiKeyAuthInput,
   assertValidProviderAuthInput,
@@ -177,7 +177,13 @@ export function createProvider(
       // so multi-step agent runs cache-read the shared prefix. The wrapper
       // composes with EVERY auth kind, custom_fetch included — the Proxy
       // intercepts doStream/doGenerate regardless of how the model was built.
-      return wrapAnthropicModelWithPromptCaching(anthropicProvider(modelName));
+      // BST-1354 made the SELECTION registry-driven; every Anthropic model row
+      // declares `promptCaching: 'anthropic'`, so behavior here is unchanged.
+      return wrapModelWithDeclaredPromptCaching(
+        validatedProvider,
+        modelName,
+        anthropicProvider(modelName)
+      );
     }
 
     case 'google': {
@@ -237,7 +243,15 @@ export function createProvider(
       // The catalog stores UNPREFIXED Bedrock model ids; the cross-region
       // inference-profile prefix is a per-request routing concern derived
       // from the request's region (see bedrock-model-id.ts).
-      return bedrockProvider(resolveBedrockModelId(modelName, awsAuth.region));
+      //
+      // BST-1354: capability lookup uses the UNPREFIXED catalog id, while the
+      // SDK model is built from the ROUTED id — the prefix selects a
+      // cross-region profile, it does not change what the model supports.
+      return wrapModelWithDeclaredPromptCaching(
+        validatedProvider,
+        modelName,
+        bedrockProvider(resolveBedrockModelId(modelName, awsAuth.region))
+      );
     }
 
     case 'ollama': {
