@@ -25,6 +25,11 @@ import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
 
+interface WorkspaceRootRegistryFileSystemSeams {
+  readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
+  readonly resolveReadPath: (requestedPath: string, canonicalRoot: string) => Promise<string>;
+}
+
 interface RegisterFileSystemIpcHandlersOptions {
   readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
   readonly evictLspServersForRoot?: (rootId: string) => Promise<void>;
@@ -36,7 +41,14 @@ interface RegisterFileSystemIpcHandlersOptions {
    * serving disconnected folders.
    */
   readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
+  /**
+   * Explicit test-harness seam for roots backed by the in-memory adapter.
+   * Production callers omit it and only registered mock paths are synthetic.
+   */
+  readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly storage: ElectronStorageAdapter;
+  /** Explicit constructor seams for unit tests of native-root composition. */
+  readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
 }
 
 interface ElectronE2eFileSystemFixture {
@@ -63,6 +75,7 @@ interface ElectronE2eFileSystemFixture {
 }
 
 const MOCK_PATH_PREFIX = '/mock/' as const;
+const MOCK_ROOT_PATH = '/mock/test/directory' as const;
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
@@ -166,10 +179,6 @@ function isE2eTestMode(): boolean {
     process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
     process.env['NODE_ENV'] === 'test'
   );
-}
-
-function usesSyntheticFileSystem(rootPath: string): boolean {
-  return isMockFileSystemIpcPath(rootPath) || process.env['VITEST'] === 'true';
 }
 
 async function resolveE2eRealRootDirectoryHandle(
@@ -290,10 +299,34 @@ export function registerFileSystemIpcHandlers({
   evictLspServersForRoot: evictLspServersForRootOverride,
   fileSystem,
   getRootsDatabase,
+  isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   storage,
+  workspaceRootRegistryFileSystemSeams,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const syntheticFileSystemClassifications = new Map<string, boolean>();
+  const bindSyntheticFileSystemClassification = (
+    rootPath: string,
+    classification: boolean
+  ): void => {
+    const classificationKey = path.normalize(rootPath);
+    const cached = syntheticFileSystemClassifications.get(classificationKey);
+    if (cached !== undefined && cached !== classification) {
+      throw new Error('Conflicting filesystem classification for canonical workspace root.');
+    }
+    syntheticFileSystemClassifications.set(classificationKey, classification);
+  };
+  const usesSyntheticFileSystem = (rootPath: string): boolean => {
+    const classificationKey = path.normalize(rootPath);
+    const cached = syntheticFileSystemClassifications.get(classificationKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const classification = isSyntheticFileSystemPath(rootPath);
+    bindSyntheticFileSystemClassification(classificationKey, classification);
+    return classification;
+  };
   const roots = new WorkspaceRootRegistry({
     createSecureRoot: async (rootPath): Promise<SecureWorkspaceRoot> => {
       if (usesSyntheticFileSystem(rootPath)) {
@@ -334,25 +367,45 @@ export function registerFileSystemIpcHandlers({
           },
         };
       }
-      const { SecureRoot } = await import('@brainstrike/secure-fs-native');
-      const secureRoot = new SecureRoot(rootPath);
-      return {
-        canonicalPath: secureRoot.canonicalPath,
-        close: () => secureRoot.close(),
-        listDir: (relativePath, maxEntries) => secureRoot.listDirAsync(relativePath, maxEntries),
-        readFile: (relativePath, maxBytes) => secureRoot.readFileAsync(relativePath, maxBytes),
-      };
+      const root = workspaceRootRegistryFileSystemSeams
+        ? await workspaceRootRegistryFileSystemSeams.createSecureRoot(rootPath)
+        : await (async (): Promise<SecureWorkspaceRoot> => {
+            const { SecureRoot } = await import('@brainstrike/secure-fs-native');
+            const secureRoot = new SecureRoot(rootPath);
+            return {
+              canonicalPath: secureRoot.canonicalPath,
+              close: () => secureRoot.close(),
+              listDir: (relativePath, maxEntries) =>
+                secureRoot.listDirAsync(relativePath, maxEntries),
+              readFile: (relativePath, maxBytes) =>
+                secureRoot.readFileAsync(relativePath, maxBytes),
+            };
+          })();
+      try {
+        bindSyntheticFileSystemClassification(root.canonicalPath, false);
+      } catch (error) {
+        root.close();
+        throw error;
+      }
+      return root;
     },
     disposeCommandSessionsForRoot,
     evictLspServersForRoot: evictLspServerForRoot,
     getRootsDatabase,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
-    resolveCanonicalRoot: async (rootPath) =>
-      usesSyntheticFileSystem(rootPath)
-        ? path.normalize(rootPath)
-        : path.normalize(await realpath(rootPath)),
+    resolveCanonicalRoot: async (rootPath) => {
+      if (usesSyntheticFileSystem(rootPath)) {
+        return path.normalize(rootPath);
+      }
+      const canonicalRoot = path.normalize(await realpath(rootPath));
+      bindSyntheticFileSystemClassification(canonicalRoot, false);
+      return canonicalRoot;
+    },
     resolveReadPath: async (requestedPath, canonicalRoot) => {
       if (!usesSyntheticFileSystem(canonicalRoot)) {
+        if (workspaceRootRegistryFileSystemSeams) {
+          return workspaceRootRegistryFileSystemSeams.resolveReadPath(requestedPath, canonicalRoot);
+        }
         const result = await resolveValidatedPath({
           allowMissing: false,
           maxTraversal: 0,
@@ -398,7 +451,7 @@ export function registerFileSystemIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.readDirectory,
     async (_event, handle: DirectoryHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readDirectoryCalls.push(handle.path);
         await waitForFixtureDirectoryReadDelay(resolveFixtureDirectoryReadDelayMs(fixture));
         const entries = fixture.directoriesByPath[handle.path];
@@ -412,9 +465,8 @@ export function registerFileSystemIpcHandlers({
         return entries;
       }
 
-      if (isMockFileSystemIpcPath(handle.path)) {
-        const rootPath = '/mock/test/directory';
-        return getTestDirectoryStructure(rootPath);
+      if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
+        return getTestDirectoryStructure(MOCK_ROOT_PATH);
       }
       return roots.readDirectory(await resolveDirectoryHandle(handle));
     }
@@ -425,7 +477,7 @@ export function registerFileSystemIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.readFile,
     async (_event, handle: FileHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readFileCalls.push(handle.path);
         const content = fixture.fileContentsByPath[handle.path];
         if (content === undefined) {
@@ -438,7 +490,7 @@ export function registerFileSystemIpcHandlers({
         return content;
       }
 
-      if (isMockFileSystemIpcPath(handle.path)) {
+      if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
       try {
@@ -459,7 +511,7 @@ export function registerFileSystemIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.readFileByPath,
     async (_event, absolutePath: string) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readFileByPathCalls.push(absolutePath);
         const content = fixture.fileContentsByPath[absolutePath];
         if (content === undefined) {
@@ -472,7 +524,7 @@ export function registerFileSystemIpcHandlers({
         return content;
       }
 
-      if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
+      if (absolutePath.startsWith(MOCK_PATH_PREFIX) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
 
@@ -520,5 +572,6 @@ export function registerFileSystemIpcHandlers({
   return () => {
     registry.unregisterAll();
     roots.dispose();
+    syntheticFileSystemClassifications.clear();
   };
 }
