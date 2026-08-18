@@ -1058,6 +1058,48 @@ the BST-1352 blocks in `runtime-configuration.spec.ts`,
 and `apps/desktop/src/__tests__/main/provider-credentials.test.ts` +
 `provider-api-key.test.ts`.
 
+### Credential-verification probes (BST-1357)
+
+`apps/desktop/src/assistant-server/provider-verification.ts` (modeled on
+`openrouter-model-metadata.ts`: bounded 60s TTL cache with
+`live`/`fresh-cache` provenance, single-flight per (provider, credential
+digest), 10s timeout, NO retries) runs the cheapest authenticated call that
+proves a stored credential. Exposed as
+`GET /assistant/verify-provider?provider=<id>` beside the OpenRouter metadata
+endpoint (same origin/auth gates); the renderer sends ONLY the provider id —
+credentials resolve main-side via the typed reader. Renderer seam:
+`fetchProviderVerification` + the button-driven `useProviderVerification`
+(`packages/app-shell`); the Test-connection UI lands with BST-1362/BST-1358.
+Wire contract: `ProviderVerificationSnapshot` in
+`packages/assistant-contract/src/provider-verification.ts`.
+
+| Provider | Probe |
+| --- | --- |
+| openai | `GET https://api.openai.com/v1/models` (Bearer) |
+| anthropic | `GET https://api.anthropic.com/v1/models` (`x-api-key` + `anthropic-version: 2023-06-01`, the version the repo's `@ai-sdk/anthropic` sends) |
+| google | `GET https://generativelanguage.googleapis.com/v1beta/models` — `x-goog-api-key` HEADER, never the documented `?key=` param (keys must not enter URLs/logs) |
+| openrouter | `GET https://openrouter.ai/api/v1/key` (Bearer); success `detail` uses NUMERIC usage figures only — the payload's `label` is key material |
+| cohere | `GET https://api.cohere.com/v1/models` (Bearer) |
+| voyage | `POST https://api.voyageai.com/v1/embeddings` with a one-token body — Voyage publishes NO model-list GET (verified 2026-08-18), so the documented minimal call is the probe |
+| tavily | `GET https://api.tavily.com/usage` (Bearer). Not a chat provider (no registry entry); synthetic api_key target + its own keychain reader |
+| authType `aws` (bearer) | `GET https://bedrock.<region>.amazonaws.com/foundation-models` (Bearer). Keyed by authType + credential shape, so it activates when BST-1350's bedrock provider lands |
+| authType `none` | typed `not_applicable`, ZERO network calls and ZERO credential reads — local-runtime liveness is the ipc-runtime probe family's job |
+
+Status semantics (do not blur them): `verified` = 2xx; `verified_limited` =
+authenticated-but-scoped (aws 403, e.g. an InvokeModel-only key — DISTINCT
+from 401 `invalid`); `invalid` = the endpoint rejected the credential
+(401/403 on api_key probes, google's documented `API_KEY_INVALID` 400);
+`unreachable` = no auth verdict obtainable (network error, timeout, non-auth
+HTTP status such as 5xx) — wrong-key vs wifi-down MUST stay distinct;
+`not_applicable` = nothing to probe (authType `none`, aws profile_chain).
+Failure `detail` derives from the HTTP status ONLY (bodies can echo request
+headers); an api_key provider WITHOUT a declared probe throws — never a
+guessed endpoint. Pinned by
+`apps/desktop/src/__tests__/assistant-server/provider-verification.test.ts`,
+the verify-provider block in `status-endpoints.integration.test.ts`,
+`packages/assistant-contract/src/__tests__/provider-verification.test.ts`,
+and the app-shell client/hook tests.
+
 ---
 
 ## MCP TRANSPORT SELECTION (CRITICAL)

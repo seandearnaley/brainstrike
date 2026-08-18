@@ -20,9 +20,17 @@ import {
   requireOpenRouterModelId,
 } from './openrouter-model-metadata';
 import { collectAvailableProviders, resolveProviderApiKeyOrRespond } from './provider-credentials';
+import {
+  createProviderVerificationService,
+  MissingProviderCredentialError,
+  UnknownVerificationProviderError,
+  UnsupportedVerificationCredentialError,
+} from './provider-verification';
+import { respondToSecretReadError } from './secret-error-responses';
 import type { AssistantServerOptions } from './server-options';
 
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
+const defaultProviderVerificationService = createProviderVerificationService();
 
 /**
  * Newest-N bound on rediscovered suspend() pauses per thread open (BST-1084,
@@ -171,6 +179,65 @@ export async function handleOpenRouterModelMetadata(
       error: 'openrouter_model_metadata_failed',
       message,
     });
+  }
+}
+
+/**
+ * GET /assistant/verify-provider?provider=<id> (BST-1357): runs the
+ * cheapest-authenticated-call credential probe for one provider and returns
+ * the typed {@link ProviderVerificationSnapshot}. The renderer sends ONLY the
+ * provider id — credentials resolve main-side inside the service via the
+ * typed reader, and the response never carries key material. Probe outcomes
+ * (invalid/unreachable/…) are 200-with-result; 4xx/5xx here mean the REQUEST
+ * itself failed (unknown provider, no credential, unreadable secret store).
+ */
+export async function handleVerifyProviderRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  options: AssistantServerOptions
+): Promise<void> {
+  const providerId = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams
+    .get('provider')
+    ?.trim();
+  if (!providerId) {
+    respondJson(res, 400, {
+      error: 'missing_provider',
+      message: 'Provider verification requires a provider query parameter.',
+    });
+    return;
+  }
+
+  try {
+    const service = options.providerVerificationService ?? defaultProviderVerificationService;
+    const snapshot = await service.verify(providerId);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.statusCode = 200;
+    res.end(JSON.stringify(snapshot));
+  } catch (error) {
+    if (error instanceof UnknownVerificationProviderError) {
+      respondJson(res, 400, { error: 'unknown_provider', message: error.message });
+      return;
+    }
+    if (error instanceof MissingProviderCredentialError) {
+      respondJson(res, 400, { error: 'missing_api_key', message: error.message });
+      return;
+    }
+    if (error instanceof UnsupportedVerificationCredentialError) {
+      respondJson(res, 400, { error: 'verification_unsupported', message: error.message });
+      return;
+    }
+    if (respondToSecretReadError(res, error)) {
+      return;
+    }
+    // Error classes above carry static or provider-id-only messages; anything
+    // else is bounded before it becomes visible.
+    const message =
+      error instanceof Error
+        ? error.message.slice(0, OPENROUTER_METADATA_ERROR_MAX_CHARS)
+        : 'Provider verification failed.';
+    logger.warn('Provider verification request failed', { error, providerId });
+    respondJson(res, 500, { error: 'verify_provider_failed', message });
   }
 }
 

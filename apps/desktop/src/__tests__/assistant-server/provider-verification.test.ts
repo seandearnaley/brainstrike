@@ -1,0 +1,380 @@
+import type { ProviderCredential } from '@brainstrike/assistant-contract';
+import { describe, expect, it, type MockedFunction, vi } from 'vitest';
+import {
+  createProviderVerificationService,
+  MissingProviderCredentialError,
+  UnknownVerificationProviderError,
+} from '../../assistant-server/provider-verification';
+
+const FAKE_KEY = 'sk-super-secret-test-key-000';
+
+function apiKeyCredential(key = FAKE_KEY): ProviderCredential {
+  return { key, type: 'api_key' };
+}
+
+function okResponse(body: unknown = { data: [] }): Response {
+  return new Response(JSON.stringify(body), { status: 200 });
+}
+
+interface ServiceOverrides {
+  readonly fetchImpl?: MockedFunction<typeof fetch>;
+  readonly findProvider?: (id: string) => { authType: 'api_key' | 'aws' | 'none' } | undefined;
+  readonly now?: () => number;
+  readonly readCredential?: (id: string) => Promise<ProviderCredential | undefined>;
+  readonly requestTimeoutMs?: number;
+  readonly successTtlMs?: number;
+}
+
+function createService(overrides: ServiceOverrides = {}) {
+  const fetchImpl = overrides.fetchImpl ?? vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+  const service = createProviderVerificationService({
+    fetchImpl,
+    now: overrides.now ?? (() => 1_000_000),
+    readCredential:
+      overrides.readCredential ?? ((_id: string) => Promise.resolve(apiKeyCredential())),
+    ...(overrides.findProvider ? { findProvider: overrides.findProvider } : {}),
+    ...(overrides.requestTimeoutMs === undefined
+      ? {}
+      : { requestTimeoutMs: overrides.requestTimeoutMs }),
+    ...(overrides.successTtlMs === undefined ? {} : { successTtlMs: overrides.successTtlMs }),
+  });
+  return { fetchImpl, service };
+}
+
+describe('ProviderVerificationService probes', () => {
+  it('verifies openai with a bearer GET against the models endpoint', async () => {
+    const { fetchImpl, service } = createService();
+
+    await expect(service.verify('openai')).resolves.toEqual({
+      freshness: 'live',
+      result: { checkedAt: new Date(1_000_000).toISOString(), status: 'verified' },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/models',
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: `Bearer ${FAKE_KEY}` }),
+        method: 'GET',
+      })
+    );
+  });
+
+  it('maps 401 to invalid — wrong key, not unreachable', async () => {
+    const { service } = createService({
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 401 })),
+    });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      result: { detail: 'HTTP 401', status: 'invalid' },
+    });
+  });
+
+  it('sends anthropic the x-api-key and anthropic-version headers', async () => {
+    const { fetchImpl, service } = createService();
+
+    await expect(service.verify('anthropic')).resolves.toMatchObject({
+      result: { status: 'verified' },
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.anthropic.com/v1/models',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'anthropic-version': '2023-06-01',
+          'x-api-key': FAKE_KEY,
+        }),
+      })
+    );
+  });
+
+  it('probes google via header auth and classifies API_KEY_INVALID 400 as invalid', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { details: [{ reason: 'API_KEY_INVALID' }], status: 'INVALID_ARGUMENT' },
+        }),
+        { status: 400 }
+      )
+    );
+    const { service } = createService({ fetchImpl });
+
+    await expect(service.verify('google')).resolves.toMatchObject({
+      result: { status: 'invalid' },
+    });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models');
+    expect(url).not.toContain(FAKE_KEY);
+    expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe(FAKE_KEY);
+  });
+
+  it('verifies openrouter via the key endpoint and reports bounded usage detail', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        okResponse({ data: { is_free_tier: false, label: 'sk-or-v1-abc', limit: 10, usage: 1.25 } })
+      );
+    const { service } = createService({ fetchImpl });
+
+    const snapshot = await service.verify('openrouter');
+    expect(snapshot.result.status).toBe('verified');
+    expect(snapshot.result.detail).toBe('usage 1.25 of limit 10');
+    // The key label is key material — it must never surface in the payload.
+    expect(JSON.stringify(snapshot)).not.toContain('sk-or-v1-abc');
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://openrouter.ai/api/v1/key',
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: `Bearer ${FAKE_KEY}` }),
+      })
+    );
+  });
+
+  it('verifies cohere against its models listing', async () => {
+    const { fetchImpl, service } = createService();
+
+    await expect(service.verify('cohere')).resolves.toMatchObject({
+      result: { status: 'verified' },
+    });
+    expect(fetchImpl).toHaveBeenCalledWith('https://api.cohere.com/v1/models', expect.anything());
+  });
+
+  it('verifies voyage with a minimal embeddings POST (no model-list endpoint exists)', async () => {
+    const { fetchImpl, service } = createService();
+
+    await expect(service.verify('voyage')).resolves.toMatchObject({
+      result: { status: 'verified' },
+    });
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.voyageai.com/v1/embeddings');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ input: ['ping'], model: 'voyage-3' });
+  });
+
+  it('verifies tavily against its usage endpoint', async () => {
+    const { fetchImpl, service } = createService();
+
+    await expect(service.verify('tavily')).resolves.toMatchObject({
+      result: { status: 'verified' },
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.tavily.com/usage',
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: `Bearer ${FAKE_KEY}` }),
+      })
+    );
+  });
+});
+
+describe('ProviderVerificationService aws probes', () => {
+  const awsOverrides = (fetchImpl: MockedFunction<typeof fetch>): ServiceOverrides => ({
+    fetchImpl,
+    findProvider: (id) => (id === 'bedrock' ? { authType: 'aws' } : undefined),
+    readCredential: () =>
+      Promise.resolve({
+        bearerKey: FAKE_KEY,
+        mode: 'bearer',
+        region: 'us-east-1',
+        type: 'aws',
+      }),
+  });
+
+  it('verifies a bedrock bearer credential against foundation-models', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+    const { service } = createService(awsOverrides(fetchImpl));
+
+    await expect(service.verify('bedrock')).resolves.toMatchObject({
+      result: { status: 'verified' },
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://bedrock.us-east-1.amazonaws.com/foundation-models',
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: `Bearer ${FAKE_KEY}` }),
+      })
+    );
+  });
+
+  it('maps a bedrock 403 to verified_limited — authenticated but list-restricted', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 403 }));
+    const { service } = createService(awsOverrides(fetchImpl));
+
+    const snapshot = await service.verify('bedrock');
+    expect(snapshot.result.status).toBe('verified_limited');
+    expect(snapshot.result.detail).toContain('403');
+  });
+
+  it('maps a bedrock 401 to invalid', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 401 }));
+    const { service } = createService(awsOverrides(fetchImpl));
+
+    await expect(service.verify('bedrock')).resolves.toMatchObject({
+      result: { status: 'invalid' },
+    });
+  });
+
+  it('reports an aws profile-chain credential as not_applicable without a network call', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const { service } = createService({
+      fetchImpl,
+      findProvider: () => ({ authType: 'aws' }),
+      readCredential: () =>
+        Promise.resolve({ mode: 'profile_chain', region: 'us-east-1', type: 'aws' }),
+    });
+
+    await expect(service.verify('bedrock')).resolves.toMatchObject({
+      result: { status: 'not_applicable' },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProviderVerificationService failure classification', () => {
+  it('maps a network error to unreachable — wifi-down, not wrong-key', async () => {
+    const { service } = createService({
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(new TypeError('fetch failed')),
+    });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      result: { detail: 'fetch failed', status: 'unreachable' },
+    });
+  });
+
+  it('maps a timeout to unreachable', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('This operation was aborted', 'AbortError'));
+          });
+        })
+    );
+    const { service } = createService({ fetchImpl, requestTimeoutMs: 5 });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      result: { detail: 'Request timed out after 5ms', status: 'unreachable' },
+    });
+  });
+
+  it('maps a non-auth HTTP failure to unreachable, never invalid', async () => {
+    const { service } = createService({
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 503 })),
+    });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      result: { detail: 'HTTP 503', status: 'unreachable' },
+    });
+  });
+});
+
+describe('ProviderVerificationService routing and caching', () => {
+  it('routes authType none to not_applicable with zero credential reads and zero fetches', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const readCredential = vi.fn<(id: string) => Promise<ProviderCredential | undefined>>();
+    const { service } = createService({ fetchImpl, readCredential });
+
+    await expect(service.verify('ollama')).resolves.toMatchObject({
+      result: { status: 'not_applicable' },
+    });
+    await expect(service.verify('lmstudio')).resolves.toMatchObject({
+      result: { status: 'not_applicable' },
+    });
+    await expect(service.verify('local')).resolves.toMatchObject({
+      result: { status: 'not_applicable' },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(readCredential).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown provider id before any credential read or fetch', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const readCredential = vi.fn<(id: string) => Promise<ProviderCredential | undefined>>();
+    const { service } = createService({ fetchImpl, readCredential });
+
+    await expect(service.verify('not-a-provider')).rejects.toBeInstanceOf(
+      UnknownVerificationProviderError
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(readCredential).not.toHaveBeenCalled();
+  });
+
+  it('rejects a provider without a configured credential', async () => {
+    const { service } = createService({
+      readCredential: () => Promise.resolve(undefined),
+    });
+
+    await expect(service.verify('openai')).rejects.toBeInstanceOf(MissingProviderCredentialError);
+  });
+
+  it('single-flights concurrent probes for the same provider', async () => {
+    let resolveResponse: ((response: Response) => void) | undefined;
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        })
+    );
+    const { service } = createService({ fetchImpl });
+
+    const first = service.verify('openai');
+    const second = service.verify('openai');
+    // Allow both credential reads to settle into the shared in-flight probe.
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalled());
+    resolveResponse?.(okResponse());
+
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.result.status).toBe('verified');
+    expect(b.result.status).toBe('verified');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves a fresh-cache result inside the TTL and re-probes after it', async () => {
+    let now = 1_000_000;
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+    const { service } = createService({ fetchImpl, now: () => now, successTtlMs: 60_000 });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({ freshness: 'live' });
+    now += 30_000;
+    await expect(service.verify('openai')).resolves.toMatchObject({ freshness: 'fresh-cache' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    now += 31_000;
+    await expect(service.verify('openai')).resolves.toMatchObject({ freshness: 'live' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-probes immediately when the stored credential changes', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(okResponse());
+    let key = 'sk-old-and-wrong';
+    const { service } = createService({
+      fetchImpl,
+      readCredential: () => Promise.resolve(apiKeyCredential(key)),
+    });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      result: { status: 'invalid' },
+    });
+    key = 'sk-new-and-right';
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      freshness: 'live',
+      result: { status: 'verified' },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('never leaks credential material into any snapshot payload', async () => {
+    const responses = [
+      okResponse({ data: { label: FAKE_KEY, limit: null, usage: 0 } }),
+      new Response(JSON.stringify({ error: FAKE_KEY }), { status: 401 }),
+      new Response(FAKE_KEY, { status: 503 }),
+    ];
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() => Promise.resolve(responses.shift() ?? okResponse()));
+    const { service } = createService({ fetchImpl, successTtlMs: 1 });
+
+    for (const provider of ['openrouter', 'openai', 'anthropic']) {
+      const snapshot = await service.verify(provider);
+      expect(JSON.stringify(snapshot)).not.toContain(FAKE_KEY);
+    }
+  });
+});
