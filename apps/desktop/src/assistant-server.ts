@@ -90,6 +90,7 @@ import {
   handleAssistantStatus,
   handleOpenRouterModelMetadata,
   handleSuspendedRunsRequest,
+  handleVerifyProviderRequest,
 } from './assistant-server/status-endpoints';
 import {
   handleAssistantResumeRequest,
@@ -343,6 +344,11 @@ export async function handleAssistantRequest(
 
   if (route === 'openrouter-model') {
     await handleOpenRouterModelMetadata(req, res, options);
+    return;
+  }
+
+  if (route === 'verify-provider') {
+    await handleVerifyProviderRequest(req, res, options);
     return;
   }
 

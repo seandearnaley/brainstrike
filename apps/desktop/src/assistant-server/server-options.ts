@@ -12,6 +12,7 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { AssistantServerAuth } from './auth';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import type { OpenRouterModelMetadataService } from './openrouter-model-metadata';
+import type { ProviderVerificationService } from './provider-verification';
 import type { SnapshotRepository } from './snapshot-repository';
 import type { SnapshotService } from './snapshot-service';
 
@@ -49,6 +50,8 @@ export interface AssistantServerOptions {
   listen?: boolean;
   llmHostManager?: AssistantLlmHostManager | null | undefined;
   openRouterModelMetadataService?: OpenRouterModelMetadataService;
+  /** BST-1357 credential-verification probes; module-level default when unset. */
+  providerVerificationService?: ProviderVerificationService;
   /** See {@link DesktopWorkspaceSnapshotDependencies} — T1 injection point. */
   snapshots?: DesktopWorkspaceSnapshotDependencies | null | undefined;
 }

@@ -28,6 +28,7 @@ export * from './provider-key-resolution.js';
 export * from './provider-key-source.js';
 export * from './provider-metadata.js';
 export * from './provider-registry.js';
+export * from './provider-verification.js';
 export * from './reasoning-visibility.js';
 export * from './run-events.js';
 export * from './run-usage.js';

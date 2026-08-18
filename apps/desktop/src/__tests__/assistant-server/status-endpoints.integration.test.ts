@@ -489,6 +489,164 @@ describe('OpenRouter model metadata endpoint', () => {
   });
 });
 
+describe('verify-provider endpoint', () => {
+  it('returns the verification snapshot from the injected service', async () => {
+    const verify = vi.fn().mockResolvedValue({
+      freshness: 'live',
+      result: { checkedAt: '2026-08-18T12:00:00.000Z', status: 'verified' },
+    });
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=openai',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(JSON.parse(response.body)).toEqual({
+      freshness: 'live',
+      result: { checkedAt: '2026-08-18T12:00:00.000Z', status: 'verified' },
+    });
+    expect(verify).toHaveBeenCalledWith('openai');
+  });
+
+  it('rejects a request without a provider query parameter', async () => {
+    const verify = vi.fn();
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'missing_provider',
+      message: 'Provider verification requires a provider query parameter.',
+    });
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown provider id with 400', async () => {
+    const { UnknownVerificationProviderError } = await import(
+      '../../assistant-server/provider-verification'
+    );
+    const verify = vi.fn().mockRejectedValue(new UnknownVerificationProviderError());
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=not-a-provider',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'unknown_provider',
+      message: 'Provider id is not a verifiable provider.',
+    });
+  });
+
+  it('rejects a provider without a configured credential with 400', async () => {
+    const { MissingProviderCredentialError } = await import(
+      '../../assistant-server/provider-verification'
+    );
+    const verify = vi.fn().mockRejectedValue(new MissingProviderCredentialError('anthropic'));
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=anthropic',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'missing_api_key',
+      message: 'No credential configured for provider "anthropic".',
+    });
+  });
+
+  it('surfaces an unreadable stored credential as the classified secret error', async () => {
+    const { SecretReadError } = await import('../../secrets');
+    const verify = vi.fn().mockRejectedValue(new SecretReadError('decrypt_failed', 'openai'));
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=openai',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toMatchObject({
+      code: 'decrypt_failed',
+      error: 'api_key_unreadable',
+      provider: 'openai',
+    });
+  });
+
+  it('never leaks the stored key into the response payload (real service, mocked fetch)', async () => {
+    const { createProviderVerificationService } = await import(
+      '../../assistant-server/provider-verification'
+    );
+    const fakeKey = 'sk-super-secret-endpoint-key';
+    const service = createProviderVerificationService({
+      fetchImpl: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 })),
+      readCredential: () => Promise.resolve({ key: fakeKey, type: 'api_key' }),
+    });
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=openai',
+      },
+      { providerVerificationService: service }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      freshness: 'live',
+      result: { status: 'verified' },
+    });
+    expect(response.body).not.toContain(fakeKey);
+  });
+
+  it('reports unexpected verification failures as a bounded 500', async () => {
+    const verify = vi.fn().mockRejectedValue(new Error('probe wiring exploded'));
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=openai',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'verify_provider_failed',
+      message: 'probe wiring exploded',
+    });
+  });
+});
+
 describe('suspended-runs endpoint', () => {
   it('GET /assistant/suspended-runs returns rediscovered approvals with recomputed risk + staleness', async () => {
     const { listSuspendedMastraRuns } = await import('@brainstrike/agent');
