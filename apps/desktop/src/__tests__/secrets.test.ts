@@ -13,7 +13,11 @@ vi.mock('electron', () => ({
 
 vi.mock('electron-store', () => ({ default: class {} }));
 
-import { matchSecretReadError, SECRET_READ_ERROR_CODES } from '@brainstrike/assistant-contract';
+import {
+  matchSecretReadError,
+  type ProviderCredential,
+  SECRET_READ_ERROR_CODES,
+} from '@brainstrike/assistant-contract';
 import { createSecretsService, SecretReadError } from '../secrets';
 
 interface FakeStore {
@@ -84,6 +88,190 @@ describe('secrets getKey failure surfacing (BST-574)', () => {
     safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
 
     await expect(service(fakeStore()).getKey('openai')).resolves.toBeNull();
+  });
+});
+
+/**
+ * Wires the safeStorage mock as a reversible fake so values round-trip:
+ * encryptString prefixes plaintext, decryptString strips the prefix.
+ */
+function useRoundTripSafeStorage(): void {
+  safeStorageMock.encryptString.mockImplementation((value: string) => Buffer.from(`enc:${value}`));
+  safeStorageMock.decryptString.mockImplementation((buf: Buffer) => {
+    const text = buf.toString('utf8');
+    if (!text.startsWith('enc:')) {
+      throw new Error('not ciphertext');
+    }
+    return text.slice('enc:'.length);
+  });
+}
+
+describe('typed provider credentials (BST-1348)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
+    safeStorageMock.getSelectedStorageBackend.mockReturnValue('keychain');
+    useRoundTripSafeStorage();
+  });
+
+  describe('legacy bare-string compatibility', () => {
+    it('reads a pre-change raw stored value identically through getKey AND getCredential', async () => {
+      // Fixture: exactly what the pre-BST-1348 saveKey wrote — the encrypted
+      // bare string, base64-encoded. No JSON anywhere.
+      const preChangeStored = Buffer.from('enc:sk-legacy-raw').toString('base64');
+      const svc = service(fakeStore({ openai: preChangeStored }));
+
+      await expect(svc.getKey('openai')).resolves.toBe('sk-legacy-raw');
+      await expect(svc.getCredential('openai')).resolves.toEqual({
+        key: 'sk-legacy-raw',
+        type: 'api_key',
+      });
+    });
+
+    it('getKey on a value saved through the still-string saveKey keeps returning the raw string', async () => {
+      const store = fakeStore();
+      const svc = service(store);
+      await svc.saveKey('anthropic', 'sk-ant-raw');
+
+      await expect(svc.getKey('anthropic')).resolves.toBe('sk-ant-raw');
+      await expect(svc.getCredential('anthropic')).resolves.toEqual({
+        key: 'sk-ant-raw',
+        type: 'api_key',
+      });
+    });
+  });
+
+  describe('setCredential / getCredential round-trips', () => {
+    const credentials: readonly ProviderCredential[] = [
+      { key: 'sk-typed', metadata: { org: 'org-1' }, type: 'api_key' },
+      {
+        access: 'at-1',
+        accountId: 'acct-9',
+        expires: 1_755_500_000_000,
+        refresh: 'rt-1',
+        type: 'oauth',
+      },
+      { bearerKey: 'bedrock-bearer', mode: 'bearer', region: 'us-east-1', type: 'aws' },
+      { mode: 'profile_chain', profile: 'work', region: 'eu-west-1', type: 'aws' },
+    ];
+
+    it.each(credentials.map((credential) => [credential.type, credential] as const))(
+      'round-trips a %s credential through the store',
+      async (_type, credential) => {
+        const store = fakeStore();
+        const svc = service(store);
+
+        await expect(svc.setCredential('anthropic', credential)).resolves.toBe(true);
+        await expect(svc.getCredential('anthropic')).resolves.toEqual(credential);
+      }
+    );
+
+    it('resolves null (not a throw) when no credential is stored', async () => {
+      await expect(service(fakeStore()).getCredential('openai')).resolves.toBeNull();
+    });
+
+    it('setCredential rejects a malformed credential object instead of storing it', async () => {
+      const store = fakeStore();
+      const svc = service(store);
+      const invalid = { type: 'oauth' } as unknown as ProviderCredential;
+
+      await expect(svc.setCredential('anthropic', invalid)).rejects.toThrow(/malformed|invalid/i);
+      await expect(svc.getCredential('anthropic')).resolves.toBeNull();
+    });
+
+    it('setCredential surfaces encryption_unavailable instead of storing plaintext', async () => {
+      safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
+      const svc = service(fakeStore());
+
+      await expect(svc.setCredential('anthropic', { key: 'sk', type: 'api_key' })).rejects.toThrow(
+        'encryption_unavailable'
+      );
+    });
+  });
+
+  describe('read-path failures stay typed (never coerced)', () => {
+    it('getCredential throws SecretReadError(malformed_credential) for a stored unrecognized type', async () => {
+      const stored = Buffer.from('enc:{"type":"gcp","key":"x"}').toString('base64');
+      const attempt = service(fakeStore({ openai: stored })).getCredential('openai');
+
+      await expect(attempt).rejects.toBeInstanceOf(SecretReadError);
+      await expect(
+        service(fakeStore({ openai: stored })).getCredential('openai')
+      ).rejects.toMatchObject({ code: 'malformed_credential', provider: 'openai' });
+    });
+
+    it('getCredential throws SecretReadError(malformed_credential) for a recognized type with missing fields', async () => {
+      const stored = Buffer.from('enc:{"type":"oauth"}').toString('base64');
+
+      await expect(
+        service(fakeStore({ openai: stored })).getCredential('openai')
+      ).rejects.toMatchObject({ code: 'malformed_credential', provider: 'openai' });
+    });
+
+    it('getKey ALSO surfaces malformed_credential for a tagged-but-invalid stored value', async () => {
+      const stored = Buffer.from('enc:{"type":"gcp","key":"x"}').toString('base64');
+
+      await expect(service(fakeStore({ openai: stored })).getKey('openai')).rejects.toMatchObject({
+        code: 'malformed_credential',
+        provider: 'openai',
+      });
+    });
+
+    it('getCredential preserves the decrypt_failed / encryption_unavailable distinction', async () => {
+      const undecryptable = Buffer.from('garbage-not-prefixed').toString('base64');
+      await expect(
+        service(fakeStore({ openai: undecryptable })).getCredential('openai')
+      ).rejects.toMatchObject({ code: 'decrypt_failed', provider: 'openai' });
+
+      safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
+      const stored = Buffer.from('enc:whatever').toString('base64');
+      await expect(
+        service(fakeStore({ anthropic: stored })).getCredential('anthropic')
+      ).rejects.toMatchObject({ code: 'encryption_unavailable', provider: 'anthropic' });
+    });
+  });
+
+  describe('getKey on a non-api_key credential is a programming error', () => {
+    it('throws (NOT a SecretReadError, never a stringified credential) for a stored oauth credential', async () => {
+      const store = fakeStore();
+      const svc = service(store);
+      await svc.setCredential('anthropic', {
+        access: 'at-1',
+        expires: 1,
+        refresh: 'rt-1',
+        type: 'oauth',
+      });
+
+      const attempt = svc.getKey('anthropic');
+      await expect(attempt).rejects.toThrow(/oauth/);
+      await expect(svc.getKey('anthropic')).rejects.not.toBeInstanceOf(SecretReadError);
+    });
+
+    it('returns the bare key for a stored typed api_key credential', async () => {
+      const svc = service(fakeStore());
+      await svc.setCredential('openai', { key: 'sk-typed', type: 'api_key' });
+
+      await expect(svc.getKey('openai')).resolves.toBe('sk-typed');
+    });
+  });
+
+  describe('factory reset coverage', () => {
+    it('clearAll wipes a stored oauth credential (guards factory-reset divergence)', async () => {
+      const store = fakeStore();
+      const svc = service(store);
+      await svc.setCredential('anthropic', {
+        access: 'at-1',
+        expires: 1,
+        refresh: 'rt-1',
+        type: 'oauth',
+      });
+      await expect(svc.getCredential('anthropic')).resolves.toMatchObject({ type: 'oauth' });
+
+      await expect(svc.clearAll()).resolves.toBe(true);
+
+      await expect(svc.getCredential('anthropic')).resolves.toBeNull();
+      await expect(svc.listProviders()).resolves.toEqual([]);
+    });
   });
 });
 

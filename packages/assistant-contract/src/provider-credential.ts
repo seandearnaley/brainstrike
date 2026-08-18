@@ -1,0 +1,174 @@
+/**
+ * Typed provider credentials for the desktop secrets store (BST-1348).
+ *
+ * The stored value is `JSON.stringify(credential)` encrypted exactly like the
+ * pre-existing bare-string keys. Reading applies the settled decision table:
+ *
+ * | stored raw value                                   | outcome                  |
+ * | -------------------------------------------------- | ------------------------ |
+ * | not JSON at all (`sk-abc123`)                      | legacy api_key of raw    |
+ * | JSON but not an object (number/array/string/bool)  | legacy api_key of raw    |
+ * | JSON object WITHOUT a `type` property              | legacy api_key of raw    |
+ * | JSON object with `type` not in the union           | MalformedCredentialError |
+ * | JSON object with non-string `type`                 | MalformedCredentialError |
+ * | recognized `type`, missing/invalid required fields | MalformedCredentialError |
+ * | recognized `type`, invalid optional field types    | MalformedCredentialError |
+ * | recognized `type`, all fields valid                | that credential          |
+ *
+ * The `type` property is the tag marker. A stored value that never claims to
+ * be a tagged credential IS a legacy bare api_key — that is a defined mapping
+ * (every pre-BST-1348 key is exactly such a string), not a fallback. A value
+ * that claims a tag but cannot be recognized or validated is a hard failure
+ * (NO SILENT FALLBACKS); the desktop read path surfaces it as
+ * `SecretReadError('malformed_credential', …)`.
+ */
+
+export type ProviderCredential =
+  | { type: 'api_key'; key: string; metadata?: Record<string, string> }
+  | { type: 'oauth'; access: string; refresh: string; expires: number; accountId?: string }
+  | {
+      type: 'aws';
+      mode: 'bearer' | 'profile_chain';
+      bearerKey?: string;
+      profile?: string;
+      region: string;
+    };
+
+export type ProviderCredentialType = ProviderCredential['type'];
+
+export const PROVIDER_CREDENTIAL_TYPES = [
+  'api_key',
+  'oauth',
+  'aws',
+] as const satisfies readonly ProviderCredentialType[];
+
+/**
+ * A stored value claimed to be a tagged credential (it carried a `type`
+ * property) but could not be recognized or validated. Deliberately does NOT
+ * echo field values — credentials must never leak through error messages.
+ */
+export class MalformedCredentialError extends Error {
+  constructor(detail: string) {
+    super(`Stored provider credential is malformed: ${detail}.`);
+    this.name = 'MalformedCredentialError';
+  }
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every((entry) => typeof entry === 'string');
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+
+export function isApiKeyCredential(
+  value: unknown
+): value is Extract<ProviderCredential, { type: 'api_key' }> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as { key?: unknown; metadata?: unknown; type?: unknown };
+  return (
+    candidate.type === 'api_key' &&
+    typeof candidate.key === 'string' &&
+    (candidate.metadata === undefined || isStringRecord(candidate.metadata))
+  );
+}
+
+export function isOauthCredential(
+  value: unknown
+): value is Extract<ProviderCredential, { type: 'oauth' }> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as {
+    access?: unknown;
+    accountId?: unknown;
+    expires?: unknown;
+    refresh?: unknown;
+    type?: unknown;
+  };
+  return (
+    candidate.type === 'oauth' &&
+    typeof candidate.access === 'string' &&
+    typeof candidate.refresh === 'string' &&
+    typeof candidate.expires === 'number' &&
+    Number.isFinite(candidate.expires) &&
+    isOptionalString(candidate.accountId)
+  );
+}
+
+export function isAwsCredential(
+  value: unknown
+): value is Extract<ProviderCredential, { type: 'aws' }> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as {
+    bearerKey?: unknown;
+    mode?: unknown;
+    profile?: unknown;
+    region?: unknown;
+    type?: unknown;
+  };
+  return (
+    candidate.type === 'aws' &&
+    (candidate.mode === 'bearer' || candidate.mode === 'profile_chain') &&
+    typeof candidate.region === 'string' &&
+    isOptionalString(candidate.bearerKey) &&
+    isOptionalString(candidate.profile)
+  );
+}
+
+export function isProviderCredential(value: unknown): value is ProviderCredential {
+  return isApiKeyCredential(value) || isOauthCredential(value) || isAwsCredential(value);
+}
+
+function isTaggedObject(value: unknown): value is { type: unknown } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.hasOwn(value, 'type')
+  );
+}
+
+/**
+ * Interpret a decrypted secrets-store value per the decision table above.
+ * Returns the typed credential; throws {@link MalformedCredentialError} for a
+ * tagged-but-invalid value. Never coerces.
+ */
+export function parseStoredCredential(raw: string): ProviderCredential {
+  const legacy: ProviderCredential = { key: raw, type: 'api_key' };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Not JSON — every pre-BST-1348 stored key lands here. Defined mapping.
+    return legacy;
+  }
+
+  if (!isTaggedObject(parsed)) {
+    // JSON, but never claims to be a tagged credential (number, array, quoted
+    // string, boolean, null, or object without `type`) — legacy by definition.
+    return legacy;
+  }
+
+  if (typeof parsed.type !== 'string') {
+    throw new MalformedCredentialError('the `type` tag is not a string');
+  }
+  if (!PROVIDER_CREDENTIAL_TYPES.some((type) => type === parsed.type)) {
+    throw new MalformedCredentialError(`unrecognized credential type "${parsed.type}"`);
+  }
+  if (!isProviderCredential(parsed)) {
+    throw new MalformedCredentialError(
+      `credential of type "${parsed.type}" has missing or invalid fields`
+    );
+  }
+  return parsed;
+}
