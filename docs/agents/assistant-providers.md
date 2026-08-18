@@ -1178,9 +1178,12 @@ SigV4 / profile-chain auth lands with BST-1353.
   documented bearer variable) > the stored keychain credential
   `{ type: 'aws', mode: 'bearer', bearerKey, region }`. An env bearer key
   pairs with the region from `AWS_REGION`; a stored credential carries its
-  OWN region (the Settings card requires a region input for authType 'aws'
-  and writes through the typed `saveCredential` bridge — never a bare
-  `saveKey` string, which would drop the region silently).
+  OWN region. The Credential Inventory's aws row-editor variant (BST-1362
+  `credential-row-editor.tsx`) requires the region, gates Save on the shared
+  `isValidAwsRegion` with an inline invalid-region hint, and writes through
+  the typed `saveCredential` bridge — never a bare `saveKey` string, which
+  would drop the region silently; a store-side `malformed_credential`
+  rejection toasts with the same region-format guidance.
 - **Region rule (do not relitigate): a missing region is a typed init
   failure, never a default.** The ONE enforcement point is the factory
   validator (`assertValidProviderAuthInput` / `requireAwsAuthInput`, message
@@ -1258,7 +1261,8 @@ region-format cases in
 `packages/assistant-service/src/__tests__/provider-credential-projection.test.ts`
 + the BST-1350 blocks in `request.test.ts`,
 `packages/app-shell/src/hooks/use-bedrock-model-defaults.test.tsx`, the aws
-block in `packages/settings-ui/.../__tests__/api-keys-settings.test.tsx`, and
+editor cases (save semantics + region-format gate) in
+`packages/settings-ui/.../__tests__/credential-inventory.test.tsx`, and
 the BST-1350 pins in `apps/desktop/src/__tests__/main/desktop-env.test.ts`.
 
 ---

@@ -594,6 +594,78 @@ describe('CredentialInventory', () => {
     expect(credential.metadata?.['last4']).toBe('arer');
   });
 
+  it('SECURITY: disables Save and shows an inline hint for a malformed AWS region (BST-1350)', async () => {
+    // The region is interpolated into the Bedrock request hostname, so a
+    // value like `evil.example.com/` must never even reach the keychain —
+    // the editor gates on the SHARED isValidAwsRegion and explains why.
+    listProvidersMock.mockReturnValue([
+      { authType: 'aws', displayName: 'Amazon Bedrock', id: 'bedrock' },
+    ]);
+    providerVendorEnvKeyMock.mockReturnValue('AWS_BEARER_TOKEN_BEDROCK');
+
+    render(<CredentialInventory />);
+    await waitForReady();
+
+    fireEvent.click(screen.getByTestId('credential-set-bedrock'));
+    const editor = screen.getByTestId('credential-editor-bedrock');
+    const save = within(editor).getByTestId('credential-save-bedrock') as HTMLButtonElement;
+    fireEvent.change(within(editor).getByTestId('credential-key-input-bedrock'), {
+      target: { value: 'bedrock-bearer' },
+    });
+
+    for (const hostile of ['evil.example.com/', 'us-east-1/', 'US-EAST-1']) {
+      fireEvent.change(within(editor).getByTestId('credential-region-input-bedrock'), {
+        target: { value: hostile },
+      });
+      expect(save.disabled).toBe(true);
+      expect(within(editor).getByTestId('credential-region-invalid-bedrock')).toBeTruthy();
+    }
+
+    fireEvent.change(within(editor).getByTestId('credential-region-input-bedrock'), {
+      target: { value: 'us-east-1' },
+    });
+    expect(within(editor).queryByTestId('credential-region-invalid-bedrock')).toBeNull();
+    expect(save.disabled).toBe(false);
+    expect(getSecretsApi()?.saveCredential).not.toHaveBeenCalled();
+  });
+
+  it('maps a malformed_credential save rejection to actionable region guidance', async () => {
+    // Store-side backstop for the same guard (isAwsCredential region format):
+    // if the keychain write rejects a credential as malformed, the toast says
+    // what a valid region looks like instead of "Unknown error".
+    listProvidersMock.mockReturnValue([
+      { authType: 'aws', displayName: 'Amazon Bedrock', id: 'bedrock' },
+    ]);
+    providerVendorEnvKeyMock.mockReturnValue('AWS_BEARER_TOKEN_BEDROCK');
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      saveCredential: vi.fn().mockResolvedValue({ error: 'malformed_credential', ok: false }),
+    });
+
+    render(<CredentialInventory />);
+    await waitForReady();
+
+    fireEvent.click(screen.getByTestId('credential-set-bedrock'));
+    fireEvent.change(screen.getByTestId('credential-key-input-bedrock'), {
+      target: { value: 'bedrock-bearer' },
+    });
+    fireEvent.change(screen.getByTestId('credential-region-input-bedrock'), {
+      target: { value: 'us-east-1' },
+    });
+    fireEvent.click(screen.getByTestId('credential-save-bedrock'));
+
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: expect.stringContaining('us-east-1'),
+          title: 'Failed to save key',
+          variant: 'destructive',
+        })
+      );
+    });
+  });
+
   it('renders the deprecated-env rename warning from status data', async () => {
     render(
       <CredentialInventory

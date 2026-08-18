@@ -29,7 +29,10 @@ function describeSaveFailure(saveResult: unknown): string {
     return 'OS keychain encryption is unavailable on this system.';
   }
   if (code === 'malformed_credential') {
-    return 'The credential store rejected the credential as malformed.';
+    // BST-1350 review, finding 1: the likeliest malformed field is the AWS
+    // region, whose format is SECURITY-checked store-side (it becomes part
+    // of the Bedrock request hostname).
+    return 'The credential store rejected the credential as malformed. For Amazon Bedrock, the AWS region must be a plain region identifier like us-east-1.';
   }
   return 'Unknown error occurred while saving the key.';
 }
