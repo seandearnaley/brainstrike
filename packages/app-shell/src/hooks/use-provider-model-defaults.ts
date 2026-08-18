@@ -1,6 +1,7 @@
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useBedrockDefaults } from './use-bedrock-model-defaults';
+import { useOpenAiCodexDefaults } from './use-openai-codex-model-defaults';
 import { useOpenRouterDefaults } from './use-openrouter-model-defaults';
 
 /**
@@ -26,6 +27,17 @@ export function useProviderModelDefaults(
     providerReadErrors
   );
   useBedrockDefaults(
+    configuredProviders,
+    db,
+    secretsVersion,
+    providerDiscoveryEnabled,
+    providerReadErrors
+  );
+  // BST-1356. Omitting this call leaves every `openai-codex` catalog row
+  // `is_enabled = 0` forever: connect succeeds, the provider reports
+  // configured, and the model picker shows nothing — a provider that is dead
+  // end to end. Pinned by use-openai-codex-model-defaults.test.tsx.
+  useOpenAiCodexDefaults(
     configuredProviders,
     db,
     secretsVersion,
