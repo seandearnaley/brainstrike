@@ -13,20 +13,22 @@
  */
 
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import type { RuntimeData } from '../types';
 
 /**
- * Providers whose pins never need a bearer token. `local` is handled
- * separately (it needs the llm-host CLIENT, not a key); `ollama`/`lmstudio`
- * are local servers reached via `runtime.providerOptions` base URLs.
+ * Providers whose pins never need a bearer token — derived from the registry
+ * (`authType: 'none'`, BST-1349), never hand-listed. `local` is handled
+ * separately (it needs the llm-host CLIENT, not a key); the local servers
+ * are reached via `runtime.providerOptions` base URLs.
  * Exported so the desktop server's key-resolution loop shares one source.
  */
-export const PERSONA_PIN_KEYLESS_PROVIDERS: ReadonlySet<string> = new Set([
-  'local',
-  'ollama',
-  'lmstudio',
-]);
+export const PERSONA_PIN_KEYLESS_PROVIDERS: ReadonlySet<string> = new Set(
+  listProviders()
+    .filter((provider) => provider.authType === 'none')
+    .map((provider) => provider.id)
+);
 
 export interface CreatePersonaPinnedModelResolverParams {
   /** The parent provider's resolved API key (reused for same-provider pins). */

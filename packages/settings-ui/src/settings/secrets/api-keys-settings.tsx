@@ -206,12 +206,23 @@ export function ApiKeysSettings({
     () => providerOptions.find((option) => option.id === provider)?.name ?? provider,
     [providerOptions, provider]
   );
+  const selectedProviderDefinition = useMemo(
+    () => providerDefinitions.find((definition) => definition.id === provider),
+    [providerDefinitions, provider]
+  );
+  // Registry-driven hint (BST-1349): keyNotes + keyFormatHint metadata,
+  // never a `provider === '...'` branch.
   const providerKeyHint = useMemo(() => {
-    if (provider === 'google') {
-      return 'Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.';
+    const parts: string[] = [];
+    if (selectedProviderDefinition?.keyNotes) {
+      parts.push(selectedProviderDefinition.keyNotes);
     }
-    return null;
-  }, [provider]);
+    if (selectedProviderDefinition?.keyFormatHint) {
+      parts.push(`Keys look like ${selectedProviderDefinition.keyFormatHint}`);
+    }
+    return parts.length > 0 ? parts.join(' ') : null;
+  }, [selectedProviderDefinition]);
+  const providerDocsUrl = selectedProviderDefinition?.docsUrl ?? null;
   const providerKeySource = mergedProviderKeySources.get(provider as SettingsProviderKeyId);
   const providerEnvironmentSource =
     providerKeySource?.source === 'env' ? providerKeySource : undefined;
@@ -293,6 +304,7 @@ export function ApiKeysSettings({
       <ProviderKeysCard
         apiKey={apiKey}
         busy={busy}
+        docsUrl={providerDocsUrl}
         environmentSource={providerEnvironmentSource}
         hasStoredKey={providerKeySource?.source === 'stored'}
         keyHint={providerKeyHint}

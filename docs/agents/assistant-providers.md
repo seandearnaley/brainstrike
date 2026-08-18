@@ -791,6 +791,39 @@ Implementation:
 
 When changing this flow, update this doc.
 
+### Provider registry auth metadata (BST-1349)
+
+`ProviderDefinition` in
+`packages/assistant-contract/src/provider-registry.ts` carries per-provider
+auth metadata; the registry is the ONLY source for it:
+
+- `authType: 'api_key' | 'oauth_subscription' | 'aws' | 'none'` — REQUIRED on
+  every provider. `'none'` marks the keyless providers (`local`, `ollama`,
+  `lmstudio`); the local servers' optional bearer token is a TRANSPORT concern
+  (`providerOptions.apiToken`, registry `runtime: 'local'`), not an authType.
+  `'oauth_subscription'` and `'aws'` exist ahead of use — no provider carries
+  them yet; downstream tickets consume them.
+- `docsUrl?` — the provider's "get an API key" page (required in practice for
+  `api_key` providers).
+- `keyFormatHint?` — vendor-documented stable key prefix (e.g. `sk-ant-...`).
+  Omit when the vendor documents no stable format; never guess.
+- `keyNotes?` — provider-specific key guidance rendered verbatim in Settings
+  (e.g. google's Gemini-vs-Vertex note).
+
+Keyless-ness DERIVES from `authType === 'none'` via
+`providerAuthType(id)` (`provider-metadata.ts`) — no hand-maintained keyless
+lists anywhere. Consumers: `packages/agent`'s
+`resolveRuntimeConfiguration` and `PERSONA_PIN_KEYLESS_PROVIDERS`,
+`packages/assistant-service`'s `providerAllowsMissingAuth`. Settings renders
+`keyNotes`/`keyFormatHint`/`docsUrl` generically — no `provider === '...'`
+branches. `PROVIDER_COLOR_MAP` (`packages/ui`) has an explicit entry for every
+registry provider; its hash fallback serves only dynamically discovered
+runtime ids. Pinned by
+`packages/assistant-contract/src/__tests__/provider-registry-auth.test.ts`,
+`packages/agent/src/__tests__/runtime-configuration.spec.ts`, the BST-1349
+suites in `packages/assistant-service/src/__tests__/request.test.ts`, and
+`packages/ui/src/model-picker/__tests__/provider-colors.test.ts`.
+
 ---
 
 ## MCP TRANSPORT SELECTION (CRITICAL)

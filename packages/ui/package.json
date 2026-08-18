@@ -52,6 +52,7 @@
     "yaml": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@testing-library/jest-dom": "catalog:",

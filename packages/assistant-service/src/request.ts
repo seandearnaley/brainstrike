@@ -25,6 +25,11 @@ import {
   readToolResumeRunConfigAction,
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent/hosted-web';
+import {
+  getProviderDefinition,
+  isSupportedProvider,
+  providerAuthType,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { resolveRequestedProvider } from './memory-model-targets.js';
@@ -303,12 +308,12 @@ export async function prepareAssistantPostRequest(
     });
   }
 
-  // Providers that never require a bearer token: the in-browser Gemma runtime
-  // and the two local servers (Ollama/LM Studio). Local servers accept an
-  // optional token when the user has stored one via the secrets bridge, but
-  // the absence of a token is not an error — most setups don't have auth.
-  const providerAllowsMissingAuth =
-    provider === 'local' || provider === 'ollama' || provider === 'lmstudio';
+  // Providers that never require a bearer token — the registry's
+  // `authType: 'none'` set (in-browser Gemma plus the local servers,
+  // BST-1349), never a hand list. Local servers accept an optional token when
+  // the user has stored one via the secrets bridge, but the absence of a
+  // token is not an error — most setups don't have auth.
+  const providerAllowsMissingAuth = providerAuthType(provider) === 'none';
   const resolved = await resolveApiKeyOrReject(provider, resolveProviderApiKey);
   if (resolved.rejection) {
     return reject(resolved.rejection);
@@ -528,10 +533,13 @@ export function hydrateRuntimeDataWithLocalRuntimeToken(
   provider: string,
   fetchedApiKey: string | undefined
 ): RuntimeData {
-  // Only local-runtime providers need their `apiToken` injected into
+  // Only local-runtime providers (registry `runtime: 'local'` — the
+  // Ollama/LM Studio servers) need their `apiToken` injected into
   // providerOptions so the OpenAI-compat factory can forward it as a bearer
   // header. Hosted providers receive the key through the top-level `apiKey`.
-  if (!((provider === 'ollama' || provider === 'lmstudio') && fetchedApiKey)) {
+  const isLocalRuntimeServer =
+    isSupportedProvider(provider) && getProviderDefinition(provider).runtime === 'local';
+  if (!(isLocalRuntimeServer && fetchedApiKey)) {
     return runtimeData;
   }
 

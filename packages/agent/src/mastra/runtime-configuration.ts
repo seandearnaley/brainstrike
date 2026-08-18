@@ -4,6 +4,7 @@ import {
   resolveProviderApiKey,
   type SupportedProvider,
 } from '../providers/key-resolver';
+import { providerAuthType } from '../providers/types';
 import type { RuntimeData } from '../types';
 import { createMastraAgentError } from './mastra-agent-error';
 
@@ -39,12 +40,8 @@ export function resolveRuntimeConfiguration(
     ? { ...runtimeData, provider: normalizedProvider }
     : { provider: normalizedProvider };
 
-  // Local runtimes do not require API keys.
-  if (
-    normalizedProvider === 'local' ||
-    normalizedProvider === 'ollama' ||
-    normalizedProvider === 'lmstudio'
-  ) {
+  // Keyless providers (registry `authType: 'none'`) do not require API keys.
+  if (providerAuthType(normalizedProvider) === 'none') {
     return {
       apiKey: '',
       provider: normalizedProvider,

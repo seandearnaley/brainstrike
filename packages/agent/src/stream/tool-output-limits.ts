@@ -1,6 +1,7 @@
 import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import {
   findLlmModelDefinition,
+  getProviderDefinition,
   type ProviderId,
 } from '@brainstrike/assistant-contract/provider-registry';
 import { createLogger } from '@brainstrike/logging';
@@ -133,7 +134,9 @@ export function resolveToolResultBudgetForModel(
   if (definition) {
     return resolveScaledToolResultBudget(definition.contextWindow);
   }
-  if (providerId === 'ollama' || providerId === 'lmstudio') {
+  if (getProviderDefinition(providerId).runtime === 'local') {
+    // Local-runtime servers (registry `runtime: 'local'`) discover their
+    // model catalogs dynamically, so no static definition exists.
     return resolveScaledToolResultBudget(DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW);
   }
   logger.warn('Unknown model id for tool-result budget resolution; using fallback window', {

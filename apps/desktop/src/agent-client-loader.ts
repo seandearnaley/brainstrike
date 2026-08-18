@@ -9,18 +9,6 @@ let cachedAgentClient: AgentClientModule | null | undefined;
 let fallbackNotified = false;
 const logger = createLogger('AgentClientLoader');
 
-const FALLBACK_PROVIDERS: readonly SupportedProvider[] = [
-  'openai',
-  'anthropic',
-  'google',
-  'openrouter',
-  'cohere',
-  'voyage',
-  'local',
-  'ollama',
-  'lmstudio',
-];
-
 const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
   anthropic: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
   cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
@@ -39,6 +27,13 @@ const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
   openrouter: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
   voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
 };
+
+// Derived from the exhaustive Record above so a provider added to
+// SupportedProvider without a FALLBACK_ENV_KEYS entry is a COMPILE error,
+// not a silently missing fallback (BST-1349).
+const FALLBACK_PROVIDERS: readonly SupportedProvider[] = Object.keys(
+  FALLBACK_ENV_KEYS
+) as SupportedProvider[];
 
 function tryRequireAgentClient(path: string): AgentClientModule | null {
   try {

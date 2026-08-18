@@ -13,7 +13,10 @@
  * runs after the caller has resolved the language model.
  */
 import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
-import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
+import {
+  getProviderDefinition,
+  resolveTokenMeasurementCapability,
+} from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
@@ -255,7 +258,10 @@ function assertCatalogMetaToolNamesAvailable(params: {
 }
 
 function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
-  return !['local', 'ollama', 'lmstudio'].includes(provider);
+  // Registry-derived (BST-1349): the local/browser runtimes are exactly the
+  // providers whose registry `runtime` is neither hosted nor gateway.
+  const runtime = getProviderDefinition(provider).runtime;
+  return runtime === 'hosted' || runtime === 'gateway';
 }
 
 export async function prepareHostedToolDiscovery(params: {

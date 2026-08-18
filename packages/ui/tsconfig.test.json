@@ -6,6 +6,14 @@
       "@testing-library/jest-dom",
       "node"
     ],
+    "paths": {
+      "@brainstrike/utils/*": [
+        "../utils/dist/*.d.ts"
+      ],
+      "@brainstrike/assistant-contract/*": [
+        "../assistant-contract/dist/*.d.ts"
+      ]
+    },
     "skipLibCheck": true,
     "strictNullChecks": true
   },

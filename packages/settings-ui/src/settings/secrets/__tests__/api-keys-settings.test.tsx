@@ -54,6 +54,11 @@ vi.mock('@brainstrike/ui', () => ({
   CardTitle: ({ children }: { children: React.ReactNode; className?: string }) => (
     <div>{children}</div>
   ),
+  CopyTextButton: ({ ariaLabel, text }: { ariaLabel: string; text: string | (() => string) }) => (
+    <button aria-label={ariaLabel} data-testid="copy-docs-url" type="button">
+      {typeof text === 'function' ? text() : text}
+    </button>
+  ),
   Input: ({
     id,
     onChange,
@@ -394,13 +399,86 @@ describe('ApiKeysSettings', () => {
     expect(useSecretsStore.getState().secretsVersion).toBe(beforeVersion + 1);
   });
 
-  it('renders provider-specific hint for google provider', async () => {
-    listProvidersMock.mockReturnValue([{ displayName: 'Google', id: 'google' }]);
+  it('renders the registry keyNotes as the provider hint (no provider branch)', async () => {
+    // A NON-google provider with keyNotes proves the hint derives from
+    // registry metadata rather than a `provider === 'google'` branch.
+    listProvidersMock.mockReturnValue([
+      {
+        displayName: 'Example',
+        id: 'anthropic',
+        keyNotes: 'Example provider guidance from the registry.',
+      },
+    ]);
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-hint').textContent).toContain(
+        'Example provider guidance from the registry.'
+      );
+    });
+  });
+
+  it('renders the registry keyFormatHint as part of the provider hint', async () => {
+    listProvidersMock.mockReturnValue([
+      { displayName: 'Anthropic', id: 'anthropic', keyFormatHint: 'sk-ant-...' },
+    ]);
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-hint').textContent).toContain('sk-ant-...');
+    });
+  });
+
+  it('renders google keyNotes and keeps the Gemini-vs-Vertex guidance', async () => {
+    listProvidersMock.mockReturnValue([
+      {
+        displayName: 'Google',
+        id: 'google',
+        keyNotes:
+          'Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.',
+      },
+    ]);
     render(<ApiKeysSettings />);
 
     await waitFor(() => {
       expect(screen.getByTestId('provider-key-hint').textContent).toContain('Gemini API key');
     });
+  });
+
+  it('renders no hint when the registry declares no key metadata', async () => {
+    listProvidersMock.mockReturnValue([{ displayName: 'OpenAI', id: 'openai' }]);
+    render(<ApiKeysSettings />);
+    await waitForCredentialSources();
+
+    expect(screen.queryByTestId('provider-key-hint')).toBeNull();
+  });
+
+  it('renders the registry docsUrl as visible text with a copy affordance', async () => {
+    listProvidersMock.mockReturnValue([
+      {
+        displayName: 'OpenAI',
+        docsUrl: 'https://platform.openai.com/api-keys',
+        id: 'openai',
+      },
+    ]);
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-docs-url').textContent).toContain(
+        'https://platform.openai.com/api-keys'
+      );
+    });
+    expect(screen.getByTestId('copy-docs-url').textContent).toContain(
+      'https://platform.openai.com/api-keys'
+    );
+  });
+
+  it('renders no docs url row when the registry has none', async () => {
+    listProvidersMock.mockReturnValue([{ displayName: 'Ollama (Local Runtime)', id: 'ollama' }]);
+    render(<ApiKeysSettings />);
+    await waitForCredentialSources();
+
+    expect(screen.queryByTestId('provider-docs-url')).toBeNull();
   });
 
   it('renders an environment badge and prevents an inert provider save', async () => {
