@@ -12,9 +12,17 @@ export {
   type RuntimeAssistantMemorySettings,
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/assistant-contract/memory-settings';
+// BST-1361: deprecated-name detection for the hosted status payload. The
+// detector reads only the env map it is handed — server-side callers pass
+// their own process env, never wire data.
+export {
+  type DeprecatedEnvVarReport,
+  detectDeprecatedProviderEnvVars,
+} from '@brainstrike/assistant-contract/provider-env-deprecation';
 export {
   isSupportedProvider,
   PROVIDER_DEFAULT_MODELS,
+  providerDeprecatedEnvKeys,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';

@@ -104,6 +104,11 @@
       "import": "./dist/personas.js",
       "require": "./dist/personas.js"
     },
+    "./provider-env-deprecation": {
+      "types": "./dist/provider-env-deprecation.d.ts",
+      "import": "./dist/provider-env-deprecation.js",
+      "require": "./dist/provider-env-deprecation.js"
+    },
     "./provider-key-resolution": {
       "types": "./dist/provider-key-resolution.d.ts",
       "import": "./dist/provider-key-resolution.js",

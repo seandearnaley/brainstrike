@@ -1,6 +1,7 @@
 import {
   type EmbeddingModelDefinition,
   getProviderDefinition,
+  getProviderDeprecatedEnvKeys,
   getProviderEnvKeys,
   listProviderEmbeddingModels,
   listProviderLlmModels,
@@ -112,6 +113,14 @@ export function listEmbeddingModels(
 
 export function providerEnvKeys(provider: SupportedProvider): readonly string[] {
   return getProviderEnvKeys(provider);
+}
+
+/**
+ * Historical env names the provider once resolved (BST-1361): allow-listed
+ * and scrubbed, never authenticated. See `ProviderDefinition.deprecatedEnvKeys`.
+ */
+export function providerDeprecatedEnvKeys(provider: SupportedProvider): readonly string[] {
+  return getProviderDeprecatedEnvKeys(provider);
 }
 
 /**

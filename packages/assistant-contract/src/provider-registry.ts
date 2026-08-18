@@ -203,6 +203,16 @@ export type ProviderAuthType = 'api_key' | 'oauth_subscription' | 'aws' | 'none'
 export interface ProviderDefinition {
   authType: ProviderAuthType;
   capabilities: ProviderCapabilities;
+  /**
+   * Historical env names this provider once resolved (BST-1361). NEVER
+   * consulted for authentication. They remain in the desktop `.env`
+   * allow-list (an unrecognized name rejects the WHOLE file, so removal
+   * would brick existing user files) and in the child-env credential
+   * scrubber forever (a credential-shaped var must never leak to children).
+   * When set, they surface a visible rename warning via
+   * `detectDeprecatedProviderEnvVars`.
+   */
+  deprecatedEnvKeys?: readonly string[];
   displayName: string;
   /**
    * The provider's "get an API key" page. Required in practice for
@@ -211,6 +221,9 @@ export interface ProviderDefinition {
   docsUrl?: string;
   /**
    * Environment variable keys (most preferred first) for secret discovery.
+   * Exactly two per api_key provider (BST-1361): the app-scoped
+   * `BRAINSTRIKE_<PROVIDER>_API_KEY` override first, then the
+   * vendor-standard name.
    */
   envKeys?: readonly string[];
   id: ProviderId;
@@ -255,19 +268,18 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       llm: true,
       streaming: true,
     },
+    deprecatedEnvKeys: [
+      'BS_OPENAI_API_KEY',
+      'AI_OPENAI_API_KEY',
+      'OPENAI_API_KEY_V1',
+      'OPENAI_API_KEY_V2',
+    ],
     displayName: 'OpenAI',
     docsUrl: 'https://platform.openai.com/api-keys',
     // Model IDs per OpenAI docs:
     // https://platform.openai.com/docs/guides/latest-model
     // https://platform.openai.com/docs/models
-    envKeys: [
-      'BRAINSTRIKE_OPENAI_API_KEY',
-      'BS_OPENAI_API_KEY',
-      'OPENAI_API_KEY',
-      'AI_OPENAI_API_KEY',
-      'OPENAI_API_KEY_V1',
-      'OPENAI_API_KEY_V2',
-    ],
+    envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
     keyFormatHint: 'sk-...',
     models: [
@@ -445,13 +457,14 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       llm: true,
       streaming: true,
     },
+    deprecatedEnvKeys: ['AI_ANTHROPIC_API_KEY'],
     displayName: 'Anthropic',
     docsUrl: 'https://console.anthropic.com/settings/keys',
     // Model aliases per Anthropic docs:
     // https://www.anthropic.com/claude/sonnet
     // https://www.anthropic.com/claude/haiku
     // https://www.anthropic.com/claude/opus
-    envKeys: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
+    envKeys: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
     id: 'anthropic',
     keyFormatHint: 'sk-ant-...',
     models: [
@@ -550,12 +563,13 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       llm: true,
       streaming: true,
     },
+    deprecatedEnvKeys: ['GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
     displayName: 'Google AI Studio',
     docsUrl: 'https://aistudio.google.com/app/apikey',
     // Gemini 3 model IDs + embeddings docs:
     // https://ai.google.dev/gemini-api/docs/gemini-3
     // https://ai.google.dev/gemini-api/docs/embeddings
-    envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
+    envKeys: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     id: 'google',
     // Google publishes no stable key prefix, so there is no keyFormatHint.
     keyNotes: 'Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.',
@@ -655,11 +669,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       llm: true,
       streaming: true,
     },
+    deprecatedEnvKeys: ['AI_OPENROUTER_API_KEY'],
     displayName: 'OpenRouter',
     docsUrl: 'https://openrouter.ai/settings/keys',
     // OpenRouter uses provider-prefixed model slugs (examples in docs):
     // https://openrouter.ai/docs/guides/routing/auto-model-selection
-    envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
+    envKeys: ['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
     id: 'openrouter',
     keyFormatHint: 'sk-or-v1-...',
     // Curated current subset from OpenRouter's model catalog. Provider-reported
@@ -1234,10 +1249,11 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       llm: false,
       streaming: false,
     },
+    deprecatedEnvKeys: ['AI_COHERE_API_KEY'],
     displayName: 'Cohere',
     // Cohere publishes no stable key prefix, so there is no keyFormatHint.
     docsUrl: 'https://dashboard.cohere.com/api-keys',
-    envKeys: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
+    envKeys: ['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY'],
     id: 'cohere',
     models: [
       {
@@ -1265,11 +1281,12 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       llm: false,
       streaming: false,
     },
+    deprecatedEnvKeys: ['AI_VOYAGE_API_KEY'],
     displayName: 'Voyage AI',
     // Voyage's docs link this dashboard page (docs.voyageai.com, verified
     // 2026-08-18). No stable key prefix is documented, so no keyFormatHint.
     docsUrl: 'https://dashboard.voyageai.com/organization/api-keys',
-    envKeys: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+    envKeys: ['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY'],
     id: 'voyage',
     models: [
       {
@@ -1456,6 +1473,15 @@ export function listProviderEmbeddingModels(
 
 export function getProviderEnvKeys(provider: ProviderId): readonly string[] {
   return getProviderDefinition(provider).envKeys ?? [];
+}
+
+/**
+ * Historical env names this provider once resolved (BST-1361). Allow-listed
+ * and scrubbed but NEVER consulted for authentication — see
+ * {@link ProviderDefinition.deprecatedEnvKeys}.
+ */
+export function getProviderDeprecatedEnvKeys(provider: ProviderId): readonly string[] {
+  return getProviderDefinition(provider).deprecatedEnvKeys ?? [];
 }
 
 export function providerSupportsStandardEmbeddingDimension(provider: ProviderId): boolean {
