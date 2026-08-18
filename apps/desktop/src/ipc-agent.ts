@@ -11,7 +11,8 @@ import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { readProviderSecretKey, resolveProviderEnvKey } from './provider-api-key';
+import { readProviderCredential } from './provider-api-key';
+import { SecretReadError } from './secrets';
 
 const logger = createLogger('DesktopIpcAgent');
 type AgentModule = typeof import('@brainstrike/agent');
@@ -86,19 +87,26 @@ async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
   }
   const supportedProvider = provider as SupportedProvider;
 
-  const envKey = resolveProviderEnvKey(supportedProvider);
-  if (envKey) {
-    logger.info('Using environment API key for provider', { provider });
-    return envKey;
-  }
-
-  const storedKey = await readProviderSecretKey(supportedProvider);
-  if (storedKey) {
-    logger.info('Retrieved stored API key for provider', {
-      prefix: storedKey.slice(0, 10),
-      provider,
-    });
-    return storedKey;
+  // BST-1352 review finding 10: ride the ONE shared env-authoritative core
+  // (readProviderCredential → resolveHostedProviderCredential) instead of a
+  // hand-rolled env → stored sequence. A stored non-api_key credential
+  // degrades exactly like the old string read: the classified
+  // credential_type_unsupported SecretReadError, never a stringified
+  // credential or a silent "not configured".
+  const credential = await readProviderCredential(supportedProvider);
+  if (credential) {
+    if (credential.type !== 'api_key') {
+      throw new SecretReadError('credential_type_unsupported', provider);
+    }
+    if (credential.source === 'env') {
+      logger.info('Using environment API key for provider', { provider });
+    } else {
+      logger.info('Retrieved stored API key for provider', {
+        prefix: credential.key.slice(0, 10),
+        provider,
+      });
+    }
+    return credential.key;
   }
 
   if (provider === 'openai') {

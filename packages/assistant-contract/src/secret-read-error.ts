@@ -12,6 +12,36 @@ export function isSecretReadErrorCode(value: unknown): value is SecretReadErrorC
 }
 
 /**
+ * Canonical per-code detail text (BST-1352 review): ONE declaration, consumed
+ * by the desktop `SecretReadError` and the assistant-service
+ * `UnsupportedCredentialTypeError` so the two producers can never drift on
+ * wire-visible message text. Static by contract — never interpolate stored
+ * values.
+ */
+export const SECRET_READ_ERROR_DETAILS: Record<SecretReadErrorCode, string> = {
+  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
+  credential_type_unsupported:
+    'stored credential uses a newer auth flow; re-enter an API key or reconnect the provider',
+  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
+  decrypt_failed: 'stored secret could not be decrypted (the OS keychain entry may have changed)',
+  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
+  encryption_unavailable: 'safeStorage encryption is unavailable or insecure on this system',
+  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
+  malformed_credential:
+    'stored credential payload is tagged but unrecognized or invalid (never coerced to an API key)',
+};
+
+/**
+ * The canonical secret-read failure message every SecretReadError-shaped
+ * producer uses. The exact composition is wire-visible (it reaches the
+ * `api_key_unreadable` payload and Settings repair guidance) — change it only
+ * with the paired tests.
+ */
+export function describeSecretReadError(code: SecretReadErrorCode, provider: string): string {
+  return `Secret for "${provider}" is unreadable: ${SECRET_READ_ERROR_DETAILS[code]}. Re-enter the key to repair it.`;
+}
+
+/**
  * Structural view of the desktop `SecretReadError` (declared in
  * apps/desktop/src/secrets.ts, which imports electron at module scope).
  */

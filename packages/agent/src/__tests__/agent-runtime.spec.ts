@@ -34,6 +34,44 @@ describe('agent-runtime edge cases', () => {
     });
   });
 
+  describe('resolved/authInput overlap guard (BST-1352 review finding 7)', () => {
+    it('throws typed when resolved and a DIFFERENT authInput are both supplied', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+      const { resolveRuntimeConfiguration } = await import('../mastra/runtime-configuration');
+
+      const resolved = resolveRuntimeConfiguration(
+        { provider: 'openai' },
+        { apiKey: 'resolved-key', kind: 'api_key' }
+      );
+
+      await expect(
+        createMastraAgentRuntime({
+          authInput: { apiKey: 'different-key', kind: 'api_key' },
+          resolved,
+        })
+      ).rejects.toSatisfy((error: unknown) => {
+        if (!isMastraAgentError(error)) {
+          return false;
+        }
+        expect(error.code).toBe('mastra_agent_runtime_init_failed');
+        expect(error.message).toContain('auth input');
+        return true;
+      });
+    });
+
+    it('accepts resolved carrying the SAME authInput reference (pre-resolved path)', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+      const { resolveRuntimeConfiguration } = await import('../mastra/runtime-configuration');
+
+      const authInput = { apiKey: 'resolved-key', kind: 'api_key' as const };
+      const resolved = resolveRuntimeConfiguration({ provider: 'openai' }, authInput);
+
+      const runtime = await createMastraAgentRuntime({ authInput, resolved });
+      expect(runtime.agent).toBeDefined();
+      await runtime.dispose();
+    });
+  });
+
   describe('convertMessagesToMastra', () => {
     // We need to import this - let me check if it's exported
     it('filters out empty messages with no text parts', async () => {

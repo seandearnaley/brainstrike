@@ -615,7 +615,9 @@ describe('agent-stream-init runtime composition and memory', () => {
       'anthropic',
       'test-api-key',
       'claude-haiku-4-5',
-      expect.objectContaining({ apiKey: 'test-api-key', provider: 'openai' })
+      // BST-1352 review: the runtime carries NO apiKey field — the memory
+      // model key travels through the resolved observationalMemoryModel.
+      expect.objectContaining({ provider: 'openai' })
     );
     expect(createPgliteMastraMemory).toHaveBeenCalledWith({
       database: expect.anything(),
@@ -1179,10 +1181,11 @@ describe('agent-stream-init runtime composition and memory', () => {
         toolName: 'workspace.writeFile',
       },
       expect.objectContaining({
+        // BST-1352: the resume leg receives the auth input on its OPTIONS…
+        authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
         requireToolApproval: true,
         runtime: expect.objectContaining({
-          apiKey: 'test-api-key',
           memory: expect.objectContaining({
             resourceId: 'workspace-a',
             threadId: 'thread-1',
@@ -1192,6 +1195,14 @@ describe('agent-stream-init runtime composition and memory', () => {
         storage: mockPgliteMastraStorage,
       })
     );
+    // …and the runtime object carries NO apiKey field (regression pin for the
+    // RequestContext-serialization hazard: credentials never ride RuntimeData).
+    const [, approvalOptions] = (streamMastraToolApprovalAction as Mock).mock.calls[0] as [
+      unknown,
+      { runtime: Record<string, unknown> },
+    ];
+    expect(approvalOptions.runtime).not.toHaveProperty('apiKey');
+    expect(JSON.stringify(approvalOptions.runtime)).not.toContain('test-api-key');
   });
 
   it('rejects tool approval resume when workflow storage is missing from memory', async () => {
@@ -1286,6 +1297,9 @@ describe('agent-stream-init runtime composition and memory', () => {
         toolName: 'brainstrike.submitPlan',
       },
       expect.objectContaining({
+        // BST-1352: the suspend-resume leg receives the auth input on its
+        // OPTIONS; the runtime carries no credential fields.
+        authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
         runtime: expect.objectContaining({ provider: 'openai' }),
         storage: mockPgliteMastraStorage,

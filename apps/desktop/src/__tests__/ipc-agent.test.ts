@@ -22,8 +22,8 @@ vi.mock('../openai-api-key', () => ({
 }));
 
 vi.mock('../provider-api-key', () => ({
-  readProviderSecretKey: vi.fn(),
-  resolveProviderEnvKey: vi.fn(),
+  // BST-1352: ipc-agent resolves through the shared typed core now.
+  readProviderCredential: vi.fn(),
 }));
 
 const mockSecretsService = {
@@ -33,9 +33,13 @@ const mockSecretsService = {
   saveKey: vi.fn(),
 };
 
-vi.mock('../secrets', () => ({
-  getSecretsService: vi.fn(() => mockSecretsService),
-}));
+vi.mock('../secrets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../secrets')>();
+  return {
+    ...actual,
+    getSecretsService: vi.fn(() => mockSecretsService),
+  };
+});
 
 describe('registerAgentIpcHandlers', () => {
   beforeEach(() => {
@@ -361,13 +365,16 @@ describe('registerAgentIpcHandlers', () => {
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-      const { readProviderSecretKey, resolveProviderEnvKey } = await import('../provider-api-key');
+      const { readProviderCredential } = await import('../provider-api-key');
 
       const mcpConfig = { servers: { testServer: {} } };
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: mcpConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
-      vi.mocked(resolveProviderEnvKey).mockReturnValue(undefined);
-      vi.mocked(readProviderSecretKey).mockResolvedValue('secret-key');
+      vi.mocked(readProviderCredential).mockResolvedValue({
+        key: 'secret-key',
+        source: 'stored',
+        type: 'api_key',
+      });
 
       const messages = [
         {
@@ -505,11 +512,10 @@ describe('registerAgentIpcHandlers', () => {
 
     it('throws when API key resolution fails', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
-      const { resolveProviderEnvKey, readProviderSecretKey } = await import('../provider-api-key');
+      const { readProviderCredential } = await import('../provider-api-key');
 
       vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
-      vi.mocked(resolveProviderEnvKey).mockReturnValue(undefined);
-      vi.mocked(readProviderSecretKey).mockResolvedValue(undefined);
+      vi.mocked(readProviderCredential).mockResolvedValue(undefined);
 
       const messages = [
         {

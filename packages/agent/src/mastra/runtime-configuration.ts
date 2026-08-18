@@ -6,6 +6,7 @@ import {
 } from '../providers/key-resolver';
 import {
   apiKeyAuthInput,
+  assertNeverAuthInput,
   assertValidProviderAuthInput,
   type ProviderAuthInput,
 } from '../providers/provider-auth-input';
@@ -41,19 +42,15 @@ function bearerKeyForAuthInput(auth: ProviderAuthInput): {
 } {
   switch (auth.kind) {
     case 'api_key':
-      return { apiKey: auth.apiKey, requireNonEmpty: true };
     case 'custom_fetch':
-      // The dummy key must exist (the SDK factories require one); an empty
-      // dummy is a malformed input surfaced via the same stable code.
+      // Both carry a required bearer string (custom_fetch's is the dummy the
+      // SDK factories demand); an empty one is a malformed input surfaced via
+      // the same stable missing-key code.
       return { apiKey: auth.apiKey, requireNonEmpty: true };
     case 'aws':
       return { apiKey: auth.apiKey ?? '', requireNonEmpty: false };
-    default: {
-      const unreachable: never = auth;
-      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-        detail: `Unhandled provider auth input kind: ${String((unreachable as { kind?: unknown }).kind)}.`,
-      });
-    }
+    default:
+      return assertNeverAuthInput(auth);
   }
 }
 

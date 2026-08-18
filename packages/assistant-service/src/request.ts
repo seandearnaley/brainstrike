@@ -33,11 +33,8 @@ import {
 import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { resolveRequestedProvider } from './memory-model-targets.js';
-import {
-  type ProviderCredentialReader,
-  type ResolvedProviderCredential,
-  UnsupportedCredentialTypeError,
-} from './ports.js';
+import type { ProviderCredentialReader, ResolvedProviderCredential } from './ports.js';
+import { UnsupportedCredentialTypeError } from './provider-credential-projection.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
 import type { AssistantRequestPayload, AssistantUiMessage } from './types.js';
 
@@ -99,13 +96,6 @@ interface PreparedAssistantPostRequest {
  * consumes the typed {@link ProviderCredentialReader}.
  */
 export type { ProviderApiKeyReader as PreparationProviderApiKeyReader } from './ports.js';
-export {
-  createProviderApiKeyReader,
-  type ProviderCredentialReader,
-  providerAuthInputFromCredential,
-  type ResolvedProviderCredential,
-  UnsupportedCredentialTypeError,
-} from './ports.js';
 
 export interface PrepareAssistantPostRequestParams {
   /**

@@ -93,72 +93,9 @@ export type ProviderCredentialReader = (
   provider: string
 ) => Promise<ResolvedProviderCredential | undefined>;
 
-/**
- * A typed credential reached a consumer that can only use bearer-key strings.
- * Deliberately SHAPED like the desktop `SecretReadError`
- * (name/code/provider/message — the matchSecretReadError structural contract,
- * message text included) so every existing secret-error responder classifies
- * it as the same `api_key_unreadable` wire failure the desktop `getKey` path
- * produced for stored non-api_key credentials. The credential itself is NEVER
- * stringified or echoed.
- */
-export class UnsupportedCredentialTypeError extends Error {
-  readonly code = 'credential_type_unsupported';
-  readonly provider: string;
-
-  constructor(provider: string) {
-    super(
-      `Secret for "${provider}" is unreadable: stored credential uses a newer auth flow; ` +
-        're-enter an API key or reconnect the provider. Re-enter the key to repair it.'
-    );
-    // matchSecretReadError matches structurally on this name (BST-972 A3).
-    this.name = 'SecretReadError';
-    this.provider = provider;
-  }
-}
-
-/**
- * The ONE typed→string compatibility adapter (BST-1352 migration shim):
- * presents a {@link ProviderCredentialReader} as the legacy string
- * {@link ProviderApiKeyReader}. `api_key` credentials project to `.key`; ANY
- * other credential type throws {@link UnsupportedCredentialTypeError} — a
- * structured credential is never stringified.
- */
-export function createProviderApiKeyReader(
-  readCredential: ProviderCredentialReader
-): ProviderApiKeyReader {
-  return async (provider: string): Promise<string | undefined> => {
-    const credential = await readCredential(provider);
-    if (credential === undefined) {
-      return;
-    }
-    if (credential.type !== 'api_key') {
-      throw new UnsupportedCredentialTypeError(provider);
-    }
-    return credential.key;
-  };
-}
-
-/**
- * Project a resolved credential onto a factory auth input (BST-1352). Only
- * `api_key` credentials have a projection today — `custom_fetch` is minted by
- * its consumer (BST-1356) and `aws` credential mapping lands with
- * BST-1350/BST-1353. A non-api_key credential never reaches this helper in
- * the current pipeline (resolveCredentialOrReject rejects it first); if one
- * does, that is a wiring bug and it fails loudly.
- */
-export function providerAuthInputFromCredential(
-  provider: string,
-  credential: ResolvedProviderCredential | undefined
-): ProviderAuthInput | undefined {
-  if (credential === undefined) {
-    return;
-  }
-  if (credential.type !== 'api_key') {
-    throw new UnsupportedCredentialTypeError(provider);
-  }
-  return { apiKey: credential.key, kind: 'api_key' };
-}
+// The concrete projections over these reader types (the string migration shim
+// and the factory auth-input projection) live in
+// ./provider-credential-projection — ports.ts stays a structural surface.
 
 /**
  * Stream-initializer capability (BST-972 B3): produce the turn's

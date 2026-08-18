@@ -101,7 +101,7 @@ describe('provider-api-key', () => {
     process.env['OPENAI_KEY'] = 'env-openai';
 
     const secrets = {
-      getKey: vi.fn().mockResolvedValue(' secret '),
+      getCredential: vi.fn().mockResolvedValue({ key: ' secret ', type: 'api_key' }),
       listProviders: vi.fn().mockResolvedValue(['anthropic', 'unknown']),
     };
     mockGetSecretsService.mockReturnValue(secrets);
@@ -126,7 +126,7 @@ describe('provider-api-key', () => {
     process.env['OPENAI_KEY'] = 'env-openai';
 
     const secrets = {
-      getKey: vi.fn().mockRejectedValue(new Error('stale stored key')),
+      getCredential: vi.fn().mockRejectedValue(new Error('stale stored key')),
       listProviders: vi.fn().mockResolvedValue(['openai']),
     };
     mockGetSecretsService.mockReturnValue(secrets);
@@ -136,24 +136,47 @@ describe('provider-api-key', () => {
       configuredProviders: [{ envVar: 'OPENAI_KEY', provider: 'openai', source: 'env' }],
       readFailures: [],
     });
-    expect(secrets.getKey).not.toHaveBeenCalled();
+    expect(secrets.getCredential).not.toHaveBeenCalled();
   });
 
-  it('degrades a stored typed (non-api_key) credential to a per-provider read failure', async () => {
-    // Consequence (a) of getKey throwing SecretReadError(credential_type_unsupported)
-    // instead of a plain Error: inspectProviderKeys must keep listing the
-    // provider whose stored api_key IS readable and report the typed-credential
-    // provider as a readFailure — never abort the whole inspection.
+  it('counts a stored typed (non-api_key) credential as CONFIGURED (BST-1352 review)', async () => {
+    // The status verdict and the wave-3 typed-consumer verdict are unified:
+    // a VALID stored credential of ANY type marks the provider configured
+    // (source 'stored'); only malformed/unreadable entries stay readFailures.
+    mockListAgentProviders.mockReturnValue(['anthropic', 'openai']);
+    mockGetAgentProviderEnvKeys.mockReturnValue([]);
+    mockIsSupportedProvider.mockReturnValue(true);
+
+    const secrets = {
+      getCredential: vi.fn((provider: string) =>
+        provider === 'anthropic'
+          ? Promise.resolve({ access: 'a', expires: 1, refresh: 'r', type: 'oauth' })
+          : Promise.resolve({ key: 'sk-openai', type: 'api_key' })
+      ),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
+    };
+    mockGetSecretsService.mockReturnValue(secrets);
+
+    await expect(inspectProviderKeys()).resolves.toEqual({
+      configuredProviders: [
+        { provider: 'anthropic', source: 'stored' },
+        { provider: 'openai', source: 'stored' },
+      ],
+      readFailures: [],
+    });
+  });
+
+  it('keeps a MALFORMED stored credential as a per-provider read failure', async () => {
     mockListAgentProviders.mockReturnValue(['anthropic', 'openai']);
     mockGetAgentProviderEnvKeys.mockReturnValue([]);
     mockIsSupportedProvider.mockReturnValue(true);
 
     const { SecretReadError } = await import('../../secrets');
     const secrets = {
-      getKey: vi.fn((provider: string) =>
+      getCredential: vi.fn((provider: string) =>
         provider === 'anthropic'
-          ? Promise.reject(new SecretReadError('credential_type_unsupported', 'anthropic'))
-          : Promise.resolve('sk-openai')
+          ? Promise.reject(new SecretReadError('malformed_credential', 'anthropic'))
+          : Promise.resolve({ key: 'sk-openai', type: 'api_key' })
       ),
       listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
     };
@@ -161,7 +184,7 @@ describe('provider-api-key', () => {
 
     await expect(inspectProviderKeys()).resolves.toMatchObject({
       configuredProviders: [{ provider: 'openai', source: 'stored' }],
-      readFailures: [{ code: 'credential_type_unsupported', provider: 'anthropic' }],
+      readFailures: [{ code: 'malformed_credential', provider: 'anthropic' }],
     });
   });
 
@@ -232,7 +255,7 @@ describe('provider-api-key', () => {
 
     const { SecretReadError } = await import('../../secrets');
     const secrets = {
-      getKey: vi.fn().mockRejectedValue(new SecretReadError('decrypt_failed', 'openrouter')),
+      getCredential: vi.fn().mockRejectedValue(new SecretReadError('decrypt_failed', 'openrouter')),
       listProviders: vi.fn().mockResolvedValue(['openrouter', 'openrouter']),
     };
     mockGetSecretsService.mockReturnValue(secrets);
@@ -241,6 +264,23 @@ describe('provider-api-key', () => {
       configuredProviders: [],
       readFailures: [{ code: 'decrypt_failed', provider: 'openrouter' }],
     });
-    expect(secrets.getKey).toHaveBeenCalledTimes(1);
+    expect(secrets.getCredential).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves an env credential even when the secrets service cannot be constructed (lazy store, BST-1352 review)', async () => {
+    // The store must be acquired only INSIDE the stored-read callback: an env
+    // hit never touches (or constructs) the keychain-backed service.
+    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
+    process.env['OPENAI_KEY'] = 'env-key';
+    mockGetSecretsService.mockImplementation(() => {
+      throw new Error('secrets service must not be constructed for an env hit');
+    });
+
+    await expect(readProviderCredential('openai')).resolves.toEqual({
+      key: 'env-key',
+      source: 'env',
+      type: 'api_key',
+    });
+    expect(mockGetSecretsService).not.toHaveBeenCalled();
   });
 });

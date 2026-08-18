@@ -41,6 +41,11 @@
       "import": "./dist/ports.mjs",
       "require": "./dist/ports.js"
     },
+    "./provider-credential-projection": {
+      "types": "./dist/provider-credential-projection.d.ts",
+      "import": "./dist/provider-credential-projection.mjs",
+      "require": "./dist/provider-credential-projection.js"
+    },
     "./request": {
       "types": "./dist/request.d.ts",
       "import": "./dist/request.mjs",

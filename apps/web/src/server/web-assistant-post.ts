@@ -142,7 +142,7 @@ export async function runWebAssistantPost(params: {
   try {
     const stream = await buildWebAssistantStreamFromPrepared({
       agentMessages: prepared.request.messages,
-      apiKey: prepared.request.apiKey,
+      credential: prepared.request.credential,
       runtimeData: prepared.request.runtimeData,
       ...(params.signal ? { signal: params.signal } : {}),
     });

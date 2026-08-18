@@ -136,8 +136,12 @@ export function apiKeyAuthInput(apiKey: string | undefined): ProviderAuthInput |
   return apiKey === undefined ? undefined : { apiKey, kind: 'api_key' };
 }
 
-/** Compile-time exhaustiveness for every ProviderAuthInput switch. */
-function assertNeverAuthInput(auth: never): never {
+/**
+ * Compile-time exhaustiveness for every ProviderAuthInput switch — exported
+ * so the union's other switch sites (runtime-configuration) share ONE
+ * unreachable-arm handler instead of hand-rolling their own.
+ */
+export function assertNeverAuthInput(auth: never): never {
   throw createMastraAgentError('mastra_agent_runtime_init_failed', {
     detail: `Unhandled provider auth input kind: ${String((auth as { kind?: unknown }).kind)}.`,
   });

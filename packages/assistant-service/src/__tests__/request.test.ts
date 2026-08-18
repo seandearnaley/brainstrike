@@ -37,11 +37,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 import { AssistantInvalidJsonError } from '@brainstrike/agent/hosted-web';
 import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import type { ScopedLogger } from '@brainstrike/logging';
+import type { ProviderCredentialReader } from '../ports';
 import {
   createProviderApiKeyReader,
-  type ProviderCredentialReader,
   UnsupportedCredentialTypeError,
-} from '../ports';
+} from '../provider-credential-projection';
 import {
   AssistantFilterPayloadError,
   hydrateRuntimeDataWithLocalRuntimeToken,

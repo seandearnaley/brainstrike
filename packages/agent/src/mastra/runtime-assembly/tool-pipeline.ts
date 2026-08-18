@@ -28,6 +28,7 @@ import {
 import type { McpConfig } from '../../mcp/config';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { applyProviderNativeWebSearch } from '../../providers/native-web-search';
+import type { ProviderAuthInput } from '../../providers/provider-auth-input';
 import { createAssistantSkillTools } from '../../skills/skill-tools';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
@@ -381,7 +382,12 @@ export function createToolHistoryFilter(
 }
 
 export interface RuntimeToolMapParams {
-  apiKey: string | undefined;
+  /**
+   * The run's resolved ProviderAuthInput (BST-1352): consumed by the
+   * provider-native web-search swap so its second SDK client is built through
+   * the same auth seam as the chat model (never from a bare key).
+   */
+  auth: ProviderAuthInput | undefined;
   getDelegationToolNames: (() => readonly string[]) | undefined;
   hasStorage: boolean;
   hookRunner: AgentHookRunner | undefined;
@@ -496,8 +502,8 @@ export async function composeRuntimeToolMap(
   // and cannot be approval-gated). Guarded to supported providers, so every other
   // caller/path is unchanged (see native-web-search.ts).
   const finalTools = applyProviderNativeWebSearch({
-    apiKey: params.apiKey,
     askTools,
+    auth: params.auth,
     logger,
     preserveExecuteBackedWebSearch: params.preserveExecuteBackedWebSearch,
     provider: params.provider,

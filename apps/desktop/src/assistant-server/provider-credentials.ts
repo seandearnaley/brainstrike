@@ -2,10 +2,8 @@ import type http from 'node:http';
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
-import {
-  createProviderApiKeyReader,
-  type ResolvedProviderCredential,
-} from '@brainstrike/assistant-service/ports';
+import type { ResolvedProviderCredential } from '@brainstrike/assistant-service/ports';
+import { createProviderApiKeyReader } from '@brainstrike/assistant-service/provider-credential-projection';
 import { inspectProviderKeys, readProviderCredential } from '../provider-api-key';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { respondToSecretReadError } from './secret-error-responses';
@@ -45,6 +43,14 @@ export async function resolveProviderCredential(
  */
 const providerApiKeyReader = createProviderApiKeyReader(resolveProviderCredential);
 
+/**
+ * @deprecated BST-1352 migration surface only. New consumers take the typed
+ * {@link resolveProviderCredential} directly — this string shim exists for the
+ * remaining bearer-key-only call sites (persona pin keys, persistent-memory
+ * model targets, the OpenRouter metadata endpoint) and throws the classified
+ * `credential_type_unsupported` SecretReadError shape on any stored
+ * non-api_key credential.
+ */
 export async function resolveProviderApiKey(provider: string): Promise<string | undefined> {
   return await providerApiKeyReader(provider);
 }

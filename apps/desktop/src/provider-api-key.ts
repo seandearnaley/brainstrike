@@ -95,12 +95,14 @@ function normalizeStoredCredential(credential: ProviderCredential): ProviderCred
 export async function readProviderCredential(
   provider: SupportedProvider
 ): Promise<ResolvedDesktopProviderCredential | undefined> {
-  const secretsService = getSecretsService();
   const resolution = await resolveHostedProviderCredential({
     envKeyNames: getAgentProviderEnvKeys(provider),
     envSources: [process.env],
     readCredential: async () => {
-      const stored = await secretsService.getCredential(provider);
+      // LAZY store acquisition (BST-1352 review finding 4): an env hit must
+      // never construct the keychain-backed service — the core only invokes
+      // this callback after the env sources came up empty.
+      const stored = await getSecretsService().getCredential(provider);
       return stored === null ? null : normalizeStoredCredential(stored);
     },
   });
@@ -157,15 +159,20 @@ export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
     }
     inspectedStoredProviders.add(supported);
     try {
-      const key = await secretsService.getKey(supported);
-      if (normalizeSecretValue(key)) {
+      // Typed read (BST-1352 review finding 3): a VALID stored credential of
+      // ANY type marks the provider configured — the availability verdict and
+      // the typed-consumer verdict must agree before wave 3 lands consumers.
+      // Blank legacy api_key strings stay "not configured" via the same
+      // normalization the request path uses.
+      const credential = await secretsService.getCredential(supported);
+      if (credential !== null && normalizeStoredCredential(credential)) {
         configured.set(supported, { provider: supported, source: 'stored' });
       }
     } catch (error) {
       if (!(error instanceof SecretReadError)) {
         throw error;
       }
-      logger.error('Stored provider key is unreadable; reporting provider failure', {
+      logger.error('Stored provider credential is unreadable; reporting provider failure', {
         error,
         provider: supported,
       });

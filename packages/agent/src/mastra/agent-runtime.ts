@@ -366,6 +366,18 @@ export async function createMastraAgentRuntime(
     hydrateToolDiscoveryFromMemory,
   } = options;
 
+  // BST-1352 review finding 7: `resolved` wins over live resolution, so a
+  // DIFFERENT authInput passed alongside it would be silently dropped — the
+  // exact vanishing-closure hazard the direct-parameter rule exists to
+  // prevent. Same-reference is the legitimate pre-resolved case
+  // (initializeMastraRuntime spreads options + resolved together).
+  if (resolved && authInput && resolved.authInput !== authInput) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail:
+        'Both resolved and authInput were supplied with different auth inputs; ' +
+        'pass exactly one authority (a silently preferred one would drop the other auth closure).',
+    });
+  }
   let runtimeResolution: ResolvedRuntimeConfiguration;
   try {
     runtimeResolution = resolved ?? resolveRuntimeConfiguration(runtime, authInput);
@@ -376,7 +388,7 @@ export async function createMastraAgentRuntime(
     });
     throw err;
   }
-  const { runtime: sanitizedRuntime, provider: normalizedProvider, apiKey } = runtimeResolution;
+  const { runtime: sanitizedRuntime, provider: normalizedProvider } = runtimeResolution;
 
   const resolvedMcpConfig = mcpConfig ?? sanitizedRuntime.mcpConfig;
 
@@ -419,7 +431,7 @@ export async function createMastraAgentRuntime(
     sanitizedLocalToolIds,
     toolNameMap,
   } = await composeRuntimeToolMap({
-    apiKey,
+    auth: runtimeResolution.authInput,
     getDelegationToolNames: () => registeredDelegationToolNames,
     hasStorage: Boolean(storage),
     hookRunner,

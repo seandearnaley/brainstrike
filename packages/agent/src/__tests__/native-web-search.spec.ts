@@ -41,8 +41,8 @@ function baseParams(overrides: Partial<Parameters<typeof applyProviderNativeWebS
     [SANITIZED_ID]: makeTavilyToolStub() as unknown as ToolsInput[string],
   };
   return {
-    apiKey: 'sk-test',
     askTools: new Map<string, unknown>(),
+    auth: { apiKey: 'sk-test', kind: 'api_key' as const },
     logger: { info: vi.fn() },
     provider: 'anthropic',
     toolNameMap: new Map<string, string>([[SANITIZED_ID, WEB_SEARCH_TOOL_ID]]),
@@ -84,7 +84,10 @@ describe('providerSupportsNativeWebSearch', () => {
 
 describe('createProviderNativeWebSearchTool', () => {
   it('builds a provider-EXECUTED anthropic web-search tool (no execute, correct id)', () => {
-    const tool = createProviderNativeWebSearchTool('anthropic', 'sk-test');
+    const tool = createProviderNativeWebSearchTool('anthropic', {
+      apiKey: 'sk-test',
+      kind: 'api_key',
+    });
     expect(tool).toBeDefined();
     expect(toolType(tool)).toBe('provider');
     expect(toolId(tool)).toBe('anthropic.web_search_20250305');
@@ -94,7 +97,10 @@ describe('createProviderNativeWebSearchTool', () => {
   });
 
   it('builds a provider-EXECUTED openai web-search tool (no execute, correct id)', () => {
-    const tool = createProviderNativeWebSearchTool('openai', 'sk-test');
+    const tool = createProviderNativeWebSearchTool('openai', {
+      apiKey: 'sk-test',
+      kind: 'api_key',
+    });
     expect(tool).toBeDefined();
     expect(toolType(tool)).toBe('provider');
     expect(toolId(tool)).toBe('openai.web_search');
@@ -256,8 +262,8 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
     expect(gateResult.askToolIds.has(SANITIZED_ID)).toBe(true);
 
     const result = applyProviderNativeWebSearch({
-      apiKey: undefined,
       askTools: gateResult.askTools,
+      auth: undefined,
       provider: 'openrouter',
       toolNameMap,
       tools: gateResult.tools,
@@ -288,8 +294,8 @@ describe('applyProviderNativeWebSearch — driven by the real permission gate', 
     expect(gateResult.askToolIds.has(SANITIZED_ID)).toBe(false);
 
     const result = applyProviderNativeWebSearch({
-      apiKey: 'sk-test',
       askTools: gateResult.askTools,
+      auth: { apiKey: 'sk-test', kind: 'api_key' as const },
       provider: 'anthropic',
       toolNameMap,
       tools: gateResult.tools,

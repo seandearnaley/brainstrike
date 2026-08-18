@@ -119,6 +119,11 @@ function sdkFactorySettings(options: ProviderFetchOptions): ProviderFetchOptions
  * @returns A language model instance configured for the provider
  * @throws Error if the provider is not supported or the auth input is invalid
  */
+/** Error-context helper: only computed when a throw actually happens (E4). */
+function listSupportedProviderIds(): readonly SupportedProvider[] {
+  return listProviders().map((entry) => entry.id) as readonly SupportedProvider[];
+}
+
 export function createProvider(
   provider: SupportedProvider | string,
   auth?: ProviderAuthInput,
@@ -128,12 +133,9 @@ export function createProvider(
   // Shape validation (aws region) happens BEFORE provider dispatch so a
   // malformed input fails identically on every provider case.
   assertValidProviderAuthInput(auth);
-  const supportedProviders = listProviders().map(
-    (entry) => entry.id
-  ) as readonly SupportedProvider[];
   if (!isSupportedProvider(provider)) {
     throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      context: { provider, supportedProviders },
+      context: { provider, supportedProviders: listSupportedProviderIds() },
       detail: `Unsupported provider: ${provider}`,
     });
   }
@@ -278,7 +280,7 @@ export function createProvider(
 
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders },
+        context: { provider, supportedProviders: listSupportedProviderIds() },
         detail: `Unsupported provider: ${provider}`,
       });
   }
@@ -391,12 +393,9 @@ export function createEmbeddingProvider(
   apiKey: string | undefined,
   model: string
 ): MastraEmbeddingModel<string> {
-  const supportedProviders = listProviders().map(
-    (entry) => entry.id
-  ) as readonly SupportedProvider[];
   if (!isSupportedProvider(provider)) {
     throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      context: { provider, supportedProviders },
+      context: { provider, supportedProviders: listSupportedProviderIds() },
       detail: `Unsupported embedding provider: ${provider}`,
     });
   }
@@ -420,13 +419,13 @@ export function createEmbeddingProvider(
     case 'lmstudio':
     case 'local':
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders },
+        context: { provider, supportedProviders: listSupportedProviderIds() },
         detail: `Mastra semantic recall embedder is not supported for provider: ${provider}`,
       });
 
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders },
+        context: { provider, supportedProviders: listSupportedProviderIds() },
         detail: `Unsupported embedding provider: ${provider}`,
       });
   }

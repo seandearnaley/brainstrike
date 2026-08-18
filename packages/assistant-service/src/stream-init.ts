@@ -739,6 +739,11 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
  * site would surface only at runtime.
  */
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
+  /**
+   * Legacy resolved-key string, retained on the port for transport parity;
+   * NOT consumed here since the BST-1352 review — auth reaches the stream
+   * exclusively through `authInput` and the runtime carries no apiKey field.
+   */
   readonly apiKey: string | undefined;
   /**
    * Provider auth input (BST-1352), threaded as a DIRECT parameter into the
@@ -780,7 +785,6 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     logger,
     messages,
     runtimeData: incomingRuntimeData,
-    apiKey,
     authInput,
     mcpConfig,
     signal,
@@ -942,7 +946,9 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       // builder returns null), so no branch is needed here.
       taskList,
       ...(mcpConfig ? { mcpConfig } : {}),
-      ...(apiKey ? { apiKey } : {}),
+      // BST-1352 review: NO bearer key on the runtime — RuntimeData reaches
+      // Mastra RequestContext serialization; credentials travel ONLY as the
+      // direct authInput parameter.
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
       ...(permissionPolicy ? { permissionPolicy } : {}),
       ...(hookRunner ? { hookRunner } : {}),
