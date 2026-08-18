@@ -1,7 +1,8 @@
-import type { ProviderCredential } from '@brainstrike/assistant-contract';
+import { listProviders, type ProviderCredential } from '@brainstrike/assistant-contract';
 import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import {
   createProviderVerificationService,
+  listApiKeyProbeProviderIds,
   MissingProviderCredentialError,
   UnknownVerificationProviderError,
 } from '../../assistant-server/provider-verification';
@@ -67,6 +68,45 @@ describe('ProviderVerificationService probes', () => {
     await expect(service.verify('openai')).resolves.toMatchObject({
       result: { detail: 'HTTP 401', status: 'invalid' },
     });
+  });
+
+  it('maps an api_key 403 to verified_limited — authenticated but permission-scoped', async () => {
+    const { service } = createService({
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 403 })),
+    });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      result: {
+        detail: 'HTTP 403 — credential authenticated but lacks permission',
+        status: 'verified_limited',
+      },
+    });
+  });
+
+  it('maps 429 to verified_limited — a valid key can be rate limited or out of quota', async () => {
+    const { service } = createService({
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 429 })),
+    });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      result: {
+        detail: 'HTTP 429 — credential authenticated but rate limited',
+        status: 'verified_limited',
+      },
+    });
+  });
+
+  it('declares a probe for every registry api_key provider plus tavily', () => {
+    const probeIds = listApiKeyProbeProviderIds();
+    const apiKeyProviders = listProviders().filter(
+      (definition) => definition.authType === 'api_key'
+    );
+
+    expect(apiKeyProviders.length).toBeGreaterThan(0);
+    for (const definition of apiKeyProviders) {
+      expect(probeIds).toContain(definition.id);
+    }
+    expect(probeIds).toContain('tavily');
   });
 
   it('sends anthropic the x-api-key and anthropic-version headers', async () => {
@@ -335,6 +375,61 @@ describe('ProviderVerificationService routing and caching', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
     now += 31_000;
+    await expect(service.verify('openai')).resolves.toMatchObject({ freshness: 'live' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches failures only briefly: unreachable re-probes after the short failure TTL', async () => {
+    let now = 1_000_000;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(okResponse());
+    const { service } = createService({ fetchImpl, now: () => now });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      freshness: 'live',
+      result: { status: 'unreachable' },
+    });
+    // Inside the 3s failure TTL: click-storm dedup only.
+    now += 1000;
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      freshness: 'fresh-cache',
+      result: { status: 'unreachable' },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    // Past it: the wifi coming back must be observable on the next click,
+    // never pinned behind the 60s success TTL.
+    now += 2100;
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      freshness: 'live',
+      result: { status: 'verified' },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('samples the cache timestamp AFTER the probe resolves so a slow failure keeps its full TTL', async () => {
+    let now = 1_000_000;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(() => {
+        // The probe itself consumed 10s (e.g. the timeout path) before failing.
+        now += 10_000;
+        return Promise.reject(new TypeError('fetch failed'));
+      })
+      .mockResolvedValueOnce(okResponse());
+    const { service } = createService({ fetchImpl, now: () => now });
+
+    await expect(service.verify('openai')).resolves.toMatchObject({
+      result: { status: 'unreachable' },
+    });
+    // 2s after the failure RESOLVED — still inside the 3s failure TTL. If the
+    // timestamp were sampled at probe START, the 10s probe would have burned
+    // the whole window and this would re-probe.
+    now += 2000;
+    await expect(service.verify('openai')).resolves.toMatchObject({ freshness: 'fresh-cache' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    now += 1100;
     await expect(service.verify('openai')).resolves.toMatchObject({ freshness: 'live' });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });

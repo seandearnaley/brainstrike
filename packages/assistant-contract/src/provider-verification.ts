@@ -6,15 +6,18 @@
  * of a run. The wire contract is deliberately narrow:
  *
  * - `verified` — the probe authenticated (HTTP 2xx).
- * - `verified_limited` — the credential authenticated but is scoped below the
- *   probe's permission (today: an AWS bearer key limited to InvokeModel
- *   answering 403 on the foundation-models listing).
- * - `invalid` — the endpoint answered and rejected the credential (401/403 on
- *   api_key providers, or a vendor-documented invalid-key rejection such as
- *   Google's API_KEY_INVALID 400). Wrong key.
+ * - `verified_limited` — the credential authenticated but the probe could not
+ *   fully succeed on it: 403 (permission-scoped, e.g. an InvokeModel-only AWS
+ *   bearer key answering the foundation-models listing) or 429 (a VALID key
+ *   that is rate limited or out of quota — OpenAI answers 429
+ *   insufficient_quota on real keys).
+ * - `invalid` — the endpoint answered and rejected the credential: 401, or a
+ *   vendor-documented invalid-key rejection such as Google's API_KEY_INVALID
+ *   400. Wrong key.
  * - `unreachable` — no auth verdict was obtainable: network error, timeout, or
- *   a non-auth HTTP status (5xx and friends). Wifi-down, not wrong-key —
- *   `invalid` and `unreachable` are DISTINCT by contract.
+ *   any HTTP status outside the classified set above (404, 5xx, …).
+ *   Wifi-down, not wrong-key — `invalid` and `unreachable` are DISTINCT by
+ *   contract.
  * - `not_applicable` — nothing to verify over HTTP: keyless local runtimes
  *   (authType 'none' routes here without a network call; their liveness is the
  *   ipc-runtime probe family's job) and AWS profile-chain credentials (no

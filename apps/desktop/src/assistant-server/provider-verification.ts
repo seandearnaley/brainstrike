@@ -15,20 +15,29 @@
  *   WITHOUT a table entry throws (NO SILENT FALLBACKS — a new provider must
  *   declare its probe, never inherit a guess).
  * - authType 'aws' + bearer credential → the Bedrock foundation-models
- *   listing; 403 with valid auth (an InvokeModel-only key) is
- *   `verified_limited`, DISTINCT from 401 `invalid`. Activates whenever a
- *   registry provider declares authType 'aws' (BST-1350). Profile-chain
- *   credentials have no bearer to send → typed `not_applicable`.
+ *   listing. Activates whenever a registry provider declares authType 'aws'
+ *   (BST-1350). Profile-chain credentials have no bearer to send → typed
+ *   `not_applicable`.
  * - 'tavily' is not a chat provider (no registry entry) but owns a settings
  *   slot; it gets a synthetic api_key target and its own credential reader.
  *
- * HTTP verdict mapping: 2xx → verified; 401/403 → invalid (aws 403 →
- * verified_limited); Google's documented API_KEY_INVALID 400 → invalid;
- * anything else → unreachable ("no auth verdict obtainable"), keeping
- * `invalid` strictly wrong-key and `unreachable` strictly wifi-down/upstream.
- * Failure `detail` is composed from the HTTP status ONLY — response bodies are
- * never echoed — and the openrouter success detail uses numeric usage figures
- * only (the /key `label` field carries key material).
+ * HTTP verdict mapping (ONE classifier module-wide; #2519 review): 2xx →
+ * verified; 401 → invalid; 403 → verified_limited (authenticated but
+ * permission-scoped — e.g. an InvokeModel-only Bedrock key — DISTINCT from
+ * 401's wrong-key); 429 → verified_limited (a VALID key can be rate limited
+ * or out of quota — OpenAI answers 429 insufficient_quota on real keys);
+ * Google's documented API_KEY_INVALID 400 → invalid; anything else →
+ * unreachable ("no auth verdict obtainable"), keeping `invalid` strictly
+ * wrong-key and `unreachable` strictly wifi-down/upstream. Failure `detail`
+ * is composed from the HTTP status ONLY — response bodies are never echoed —
+ * and the openrouter success detail uses numeric usage figures only (the
+ * /key `label` field carries key material).
+ *
+ * Caching (#2519 review): only `verified`/`verified_limited` earn the 60s
+ * success TTL. Failures cache for a separate short `failureTtlMs` (3s) purely
+ * to dedup click-storms — the wifi coming back or a corrected upstream must be
+ * observable on the next deliberate click. The cache timestamp is sampled
+ * AFTER the probe resolves, so a 10s timeout does not pre-burn its own TTL.
  */
 
 import { createHash } from 'node:crypto';
@@ -44,6 +53,7 @@ import { resolveProviderCredential } from './provider-credentials';
 import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './web-search-tool';
 
 const DEFAULT_SUCCESS_TTL_MS = 60 * 1000;
+const DEFAULT_FAILURE_TTL_MS = 3 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CACHE_ENTRIES = 32;
 const MAX_VISIBLE_ERROR_CHARS = 200;
@@ -89,6 +99,8 @@ export interface ProviderVerificationService {
 }
 
 interface ProviderVerificationServiceOptions {
+  /** Short failure-result TTL — click-storm dedup only, never persistence. */
+  readonly failureTtlMs?: number;
   readonly fetchImpl?: typeof fetch;
   /** Registry lookup seam; tests inject mock definitions (e.g. bedrock). */
   readonly findProvider?: (providerId: string) => ProviderVerificationTarget | undefined;
@@ -109,12 +121,21 @@ interface ProbeRequest {
   readonly url: string;
 }
 
-function classifyApiKeyHttp(response: Response): ProviderVerificationStatus {
+/**
+ * The ONE HTTP classifier (#2519 review): 401 is the only wrong-key status;
+ * 403 and 429 both prove the credential authenticated (permission-scoped and
+ * rate-limited/out-of-quota respectively — e.g. an InvokeModel-only Bedrock
+ * key's 403, or OpenAI's 429 insufficient_quota on a valid key).
+ */
+function classifySharedHttp(response: Response): ProviderVerificationStatus {
   if (response.ok) {
     return 'verified';
   }
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     return 'invalid';
+  }
+  if (response.status === 403 || response.status === 429) {
+    return 'verified_limited';
   }
   return 'unreachable';
 }
@@ -125,22 +146,7 @@ function classifyGoogleHttp(response: Response, bodyText: string): ProviderVerif
   if (response.status === 400 && bodyText.includes('API_KEY_INVALID')) {
     return 'invalid';
   }
-  return classifyApiKeyHttp(response);
-}
-
-function classifyAwsBearerHttp(response: Response): ProviderVerificationStatus {
-  if (response.ok) {
-    return 'verified';
-  }
-  if (response.status === 403) {
-    // Authenticated but scoped below ListFoundationModels (e.g. an
-    // InvokeModel-only key): the credential itself is proven usable.
-    return 'verified_limited';
-  }
-  if (response.status === 401) {
-    return 'invalid';
-  }
-  return 'unreachable';
+  return classifySharedHttp(response);
 }
 
 function describeOpenRouterKeyUsage(bodyText: string): string | undefined {
@@ -180,11 +186,31 @@ function bearerProbe(url: string, key: string): ProbeRequest {
 }
 
 /**
+ * Every provider id with a declared api_key probe. A CLOSED literal union is
+ * the narrowest key form the current type system allows: `authType` lives on
+ * registry VALUES, not per-id types, so "every api_key ProviderId" is not
+ * expressible as a compile-time key set. The runtime contract test
+ * ("declares a probe for every registry api_key provider plus tavily",
+ * provider-verification.test.ts) closes that gap — a new api_key provider
+ * without a probe entry is a red build, matching the header's no-silent-
+ * fallbacks claim.
+ */
+type ApiKeyProbeProviderId =
+  | 'anthropic'
+  | 'cohere'
+  | 'google'
+  | 'openai'
+  | 'openrouter'
+  | typeof TAVILY_SECRET_PROVIDER
+  | 'voyage';
+
+/**
  * Cheapest authenticated call per api_key provider. Endpoints verified against
  * vendor docs 2026-08-18; voyage publishes NO model-list GET, so its probe is
- * a minimal one-token embeddings POST (the documented minimal call).
+ * a minimal one-token embeddings POST (the documented minimal call — note it
+ * is METERED, unlike the GET probes).
  */
-const API_KEY_PROBES: Record<string, (key: string) => ProbeRequest> = {
+const API_KEY_PROBES: Record<ApiKeyProbeProviderId, (key: string) => ProbeRequest> = {
   anthropic: (key) => ({
     headers: {
       accept: 'application/json',
@@ -227,13 +253,21 @@ function buildAwsBearerProbe(
   if (!AWS_REGION_PATTERN.test(credential.region)) {
     throw new UnsupportedVerificationCredentialError('the AWS region is not a valid region name');
   }
-  return {
-    ...bearerProbe(
-      `https://bedrock.${credential.region}.amazonaws.com/foundation-models`,
-      credential.bearerKey
-    ),
-    classifyHttp: classifyAwsBearerHttp,
-  };
+  return bearerProbe(
+    `https://bedrock.${credential.region}.amazonaws.com/foundation-models`,
+    credential.bearerKey
+  );
+}
+
+/** Pinned by the probe-coverage contract test — see {@link ApiKeyProbeProviderId}. */
+export function listApiKeyProbeProviderIds(): readonly string[] {
+  return Object.keys(API_KEY_PROBES);
+}
+
+function findApiKeyProbe(providerId: string): ((key: string) => ProbeRequest) | undefined {
+  return (API_KEY_PROBES as Record<string, ((key: string) => ProbeRequest) | undefined>)[
+    providerId
+  ];
 }
 
 function resolveProbe(
@@ -261,7 +295,7 @@ function resolveProbe(
       'only api_key credentials are verifiable for this provider'
     );
   }
-  const buildProbe = API_KEY_PROBES[providerId];
+  const buildProbe = findApiKeyProbe(providerId);
   if (!buildProbe) {
     // NO SILENT FALLBACKS: a provider without a declared probe is a loud gap.
     throw new UnsupportedVerificationCredentialError(
@@ -311,6 +345,10 @@ export function createProviderVerificationService(
     options.successTtlMs ?? DEFAULT_SUCCESS_TTL_MS,
     'successTtlMs'
   );
+  const failureTtlMs = requirePositiveInteger(
+    options.failureTtlMs ?? DEFAULT_FAILURE_TTL_MS,
+    'failureTtlMs'
+  );
   const requestTimeoutMs = requirePositiveInteger(
     options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
     'requestTimeoutMs'
@@ -351,16 +389,18 @@ export function createProviderVerificationService(
         signal: controller.signal,
       });
       const bodyText = await response.text();
-      const status = (probe.classifyHttp ?? classifyApiKeyHttp)(response, bodyText);
+      const status = (probe.classifyHttp ?? classifySharedHttp)(response, bodyText);
       if (status === 'verified') {
         const detail = probe.describeSuccess?.(bodyText)?.slice(0, MAX_VISIBLE_ERROR_CHARS);
         return { checkedAt, ...(detail === undefined ? {} : { detail }), status };
       }
-      // Failure detail comes from the STATUS CODE only — never the body, which
+      // Non-2xx detail comes from the STATUS CODE only — never the body, which
       // can echo request headers (and therefore key material) on some vendors.
       const detail =
         status === 'verified_limited'
-          ? `HTTP ${response.status} — credential authenticated but lacks list permission`
+          ? response.status === 429
+            ? 'HTTP 429 — credential authenticated but rate limited'
+            : `HTTP ${response.status} — credential authenticated but lacks permission`
           : `HTTP ${response.status}`;
       return { checkedAt, detail, status };
     } catch (error) {
@@ -415,8 +455,17 @@ export function createProviderVerificationService(
         .update(JSON.stringify(credential))
         .digest('hex')}`;
       const cached = cache.get(cacheKey);
-      if (cached && now() - cached.checkedAtMs < successTtlMs) {
-        return { freshness: 'fresh-cache', result: cached.result };
+      if (cached) {
+        // Only proven-good credentials earn the long TTL; failures dedup
+        // click-storms briefly and then re-probe, so recovery (wifi back,
+        // upstream fixed) is observable on the next deliberate click.
+        const ttlMs =
+          cached.result.status === 'verified' || cached.result.status === 'verified_limited'
+            ? successTtlMs
+            : failureTtlMs;
+        if (now() - cached.checkedAtMs < ttlMs) {
+          return { freshness: 'fresh-cache', result: cached.result };
+        }
       }
 
       const existing = pending.get(cacheKey);
@@ -424,9 +473,10 @@ export function createProviderVerificationService(
         return await existing;
       }
       const request = (async (): Promise<ProviderVerificationSnapshot> => {
-        const checkedAtMs = now();
         const result = await runProbe(probe);
-        retain(cacheKey, checkedAtMs, result);
+        // Timestamp AFTER the probe resolves: a probe that spent its 10s
+        // timeout failing must not pre-burn the failure TTL it just earned.
+        retain(cacheKey, now(), result);
         return { freshness: 'live', result };
       })().finally(() => {
         pending.delete(cacheKey);
