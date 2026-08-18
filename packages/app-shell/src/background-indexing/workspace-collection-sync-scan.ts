@@ -27,6 +27,7 @@ interface RootDirectoryHandle {
   name: string;
   path: string;
   platform: 'electron' | 'web';
+  rootId?: string;
 }
 
 type WorkspaceCollectionSyncScanScope =
@@ -283,6 +284,7 @@ function toDirectoryHandle(node: IFileNode, rootHandle: RootDirectoryHandle): Ro
     path: node.path,
     platform: nodeHandle.platform ?? rootHandle.platform,
     ...(nodeHandle._internal === undefined ? {} : { _internal: nodeHandle._internal }),
+    ...(nodeHandle.rootId === undefined ? {} : { rootId: nodeHandle.rootId }),
   };
 }
 

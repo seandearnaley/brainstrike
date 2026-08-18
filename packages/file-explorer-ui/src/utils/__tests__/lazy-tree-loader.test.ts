@@ -273,6 +273,29 @@ describe('lazy-tree-loader', () => {
       expect(result[0]!.rootFolderId).toBe('my-root');
     });
 
+    it('preserves the durable rootId when rebuilding a directory handle', async () => {
+      const adapter = createMockAdapter();
+      const durableHandle = {
+        kind: 'directory',
+        name: 'parent',
+        path: '/root/parent',
+        platform: 'electron',
+        rootId: 'outer-root-id',
+      } satisfies DirectoryHandle;
+      const parentNode = createDirectoryNode({
+        handle: durableHandle as unknown as FileSystemDirectoryHandle,
+        name: 'parent',
+        path: '/root/parent',
+      });
+
+      await loadDirectoryChildren(adapter, parentNode);
+
+      expect(adapter.readDirectory).toHaveBeenCalledWith(
+        expect.objectContaining({ rootId: 'outer-root-id' }),
+        expect.any(Object)
+      );
+    });
+
     it('throws for non-directory parent', async () => {
       const adapter = createMockAdapter([]);
       const fileNode = createFileNode();
