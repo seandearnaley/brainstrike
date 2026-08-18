@@ -270,25 +270,38 @@ export function useAssistantServerRunSession({
         return;
       }
       if (replayRetryCountRef.current >= MAX_ASSISTANT_REPLAY_RETRIES) {
-        // Exhausted replays must release the reattachment record: keeping it
-        // wedged every future run behind the "awaiting stream reattachment"
-        // guard until app restart (2026-08-18 field failure). The failed
-        // replay itself is already surfaced on the message; the durable
-        // history is intact.
-        assistantEndpointLogger.error(
-          'Assistant stream replay exhausted its retry budget; releasing the reattachment record',
-          {
-            error,
-            retryCount: replayRetryCountRef.current,
-          }
-        );
-        clearActiveRunSession();
+        assistantEndpointLogger.error('Assistant stream replay exhausted its retry budget', {
+          error,
+          retryCount: replayRetryCountRef.current,
+        });
+        // Release the record ONLY when the durable run is provably over.
+        // Clearing unconditionally would let the next send start a second
+        // turn concurrently with a still-running detached stream (Codex
+        // review on #2510); keeping it can no longer wedge the thread,
+        // because prepareRequest reconciles against the durable run row on
+        // the next send.
+        const storedRunSession = activeRunSessionRef.current;
+        if (storedRunSession && desktopAssistantBaseUrl) {
+          void isStoredRunSessionStale({
+            authHeaders,
+            baseUrl: desktopAssistantBaseUrl,
+            runId: storedRunSession.runId,
+          }).then((stale) => {
+            if (stale) {
+              assistantEndpointLogger.warn(
+                'Released the reattachment record after exhausted replays; the durable run is no longer running',
+                { runId: storedRunSession.runId }
+              );
+              clearActiveRunSession();
+            }
+          });
+        }
         return;
       }
       replayRetryCountRef.current += 1;
       setReplayRetryToken((current) => current + 1);
     },
-    [clearActiveRunSession]
+    [authHeaders, clearActiveRunSession, desktopAssistantBaseUrl]
   );
 
   const onResponse = useCallback(

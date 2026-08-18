@@ -138,8 +138,8 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
     expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
   });
 
-  it('clears the record once replay retries are exhausted instead of wedging', async () => {
-    stubRunStatusFetch({ body: { runId: RECORD.runId, status: 'running' }, status: 200 });
+  it('releases the record after exhausted replays when the durable run is over', async () => {
+    stubRunStatusFetch({ body: { runId: RECORD.runId, status: 'completed' }, status: 200 });
     const { result } = renderHook(() =>
       useAssistantServerRunSession({
         api: API,
@@ -152,12 +152,44 @@ describe('useAssistantServerRunSession stale-record reclaim', () => {
       result.current.onReplayError(new Error('replay interrupted 1'));
       result.current.onReplayError(new Error('replay interrupted 2'));
       // Third failure exceeds MAX_ASSISTANT_REPLAY_RETRIES (2): the record
-      // must be cleared so the thread can start new runs again.
+      // must be reconciled against the durable run row and released here,
+      // so the thread can start new runs again.
       result.current.onReplayError(new Error('replay interrupted 3'));
     });
 
     await waitFor(() => {
       expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
     });
+  });
+
+  it('keeps the record after exhausted replays while the durable run still runs', async () => {
+    // Codex review on #2510: the main-process stream continues after renderer
+    // detachment. Clearing unconditionally on exhaustion would let the next
+    // send start a SECOND turn concurrently with the still-running orphan —
+    // the exact hazard the guard exists to prevent. The prepareRequest
+    // reconcile heals the thread once the run actually ends, so keeping the
+    // record here no longer wedges anything.
+    const fetchMock = stubRunStatusFetch({
+      body: { runId: RECORD.runId, status: 'running' },
+      status: 200,
+    });
+    const { result } = renderHook(() =>
+      useAssistantServerRunSession({
+        api: API,
+        prepareRequestData: () => Promise.resolve({}),
+        threadKey: THREAD_KEY,
+      })
+    );
+
+    act(() => {
+      result.current.onReplayError(new Error('replay interrupted 1'));
+      result.current.onReplayError(new Error('replay interrupted 2'));
+      result.current.onReplayError(new Error('replay interrupted 3'));
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
   });
 });

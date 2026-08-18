@@ -269,10 +269,16 @@ contracts keep reloaded threads identical to live ones:
    the record with a logged warning and the new run proceeds; only a
    genuinely `running` durable row keeps the guard, and a failed probe keeps
    the guard (fail-safe, never a silent reclaim). Replay failures that
-   exhaust the retry budget release the record the same way instead of
-   wedging the thread until app restart (2026-08-18 field failure: a
-   dev-mode renderer reload mid-stream orphaned a record whose run finished
-   seconds later, and every send until app close was rejected). The
+   exhaust the retry budget run the SAME durable-status reconciliation:
+   the record is released only when the run is provably over, and KEPT
+   while the durable row still says `running` — the main-process stream
+   continues after renderer detachment, so an unconditional clear would
+   let the next send start a second concurrent turn against the orphan
+   (Codex review, #2510). Keeping it cannot wedge the thread anymore: the
+   next send's reconcile heals once the run ends (2026-08-18 field
+   failure: a dev-mode renderer reload mid-stream orphaned a record whose
+   run finished seconds later, and every send until app close was
+   rejected). The
    expired-resume 404 is logged server-side so "expired" and "never
    attempted" are distinguishable in diagnostics. The public assistant-ui runtime temporarily creates a generated
    streaming leaf; the client removes the hydrated durable leaf before replay,
