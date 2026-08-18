@@ -158,24 +158,32 @@ describe('parseStoredCredential — hard failures (tagged but unrecognizable, ne
   });
 
   it('throws for aws missing region or with an unrecognized mode', () => {
-    expectMalformed('{"type":"aws","mode":"bearer"}');
+    expectMalformed('{"type":"aws","mode":"bearer","bearerKey":"k"}');
     expectMalformed('{"type":"aws","mode":"iam","region":"us-east-1"}');
     expectMalformed('{"type":"aws","region":"us-east-1"}');
   });
 
-  it('throws for aws with invalid optional field types', () => {
+  it('throws for aws bearer mode WITHOUT a bearerKey (bearerKey is required for bearer)', () => {
+    expectMalformed('{"type":"aws","mode":"bearer","region":"us-east-1"}');
+  });
+
+  it('throws for aws with invalid field types per mode', () => {
     expectMalformed('{"type":"aws","mode":"bearer","region":"us-east-1","bearerKey":1}');
     expectMalformed('{"type":"aws","mode":"profile_chain","region":"us-east-1","profile":[]}');
   });
 
-  it('carries the offending type tag in the error message without leaking field values', () => {
+  it('throws for api_key with an EMPTY key (an empty key is never a configured credential)', () => {
+    expectMalformed('{"type":"api_key","key":""}');
+  });
+
+  it('never echoes the offending type tag or field values into the error message', () => {
     try {
       parseStoredCredential('{"type":"gcp","key":"super-secret-value"}');
       expect.unreachable('parseStoredCredential must throw');
     } catch (error) {
       expect(error).toBeInstanceOf(MalformedCredentialError);
       const message = (error as MalformedCredentialError).message;
-      expect(message).toContain('gcp');
+      expect(message).not.toContain('gcp');
       expect(message).not.toContain('super-secret-value');
     }
   });
@@ -187,7 +195,17 @@ describe('isProviderCredential', () => {
     expect(isProviderCredential({ access: 'a', expires: 1, refresh: 'r', type: 'oauth' })).toBe(
       true
     );
-    expect(isProviderCredential({ mode: 'bearer', region: 'us-east-1', type: 'aws' })).toBe(true);
+    expect(
+      isProviderCredential({ bearerKey: 'k', mode: 'bearer', region: 'us-east-1', type: 'aws' })
+    ).toBe(true);
+    expect(isProviderCredential({ mode: 'profile_chain', region: 'us-east-1', type: 'aws' })).toBe(
+      true
+    );
+  });
+
+  it('rejects an aws bearer credential without bearerKey and an api_key with an empty key', () => {
+    expect(isProviderCredential({ mode: 'bearer', region: 'us-east-1', type: 'aws' })).toBe(false);
+    expect(isProviderCredential({ key: '', type: 'api_key' })).toBe(false);
   });
 
   it('rejects non-objects, unrecognized tags, and invalid fields', () => {

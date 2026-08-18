@@ -18,6 +18,7 @@ import {
   type ProviderCredential,
   SECRET_READ_ERROR_CODES,
 } from '@brainstrike/assistant-contract';
+import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
 import { createSecretsService, SecretReadError } from '../secrets';
 
 interface FakeStore {
@@ -128,7 +129,7 @@ describe('typed provider credentials (BST-1348)', () => {
       });
     });
 
-    it('getKey on a value saved through the still-string saveKey keeps returning the raw string', async () => {
+    it('getKey on a value saved through the string saveKey keeps returning the raw string', async () => {
       const store = fakeStore();
       const svc = service(store);
       await svc.saveKey('anthropic', 'sk-ant-raw');
@@ -138,6 +139,28 @@ describe('typed provider credentials (BST-1348)', () => {
         key: 'sk-ant-raw',
         type: 'api_key',
       });
+    });
+
+    it('saveKey round-trips a string that IS a JSON object with an unrecognized type (GCP service-account JSON)', async () => {
+      // saveKey stores the api_key JSON ENVELOPE (single write path via
+      // setCredential), so a pasted GCP service-account JSON — which carries
+      // "type":"service_account" — must come back verbatim instead of
+      // hard-failing the tagged-credential validation on read.
+      const gcpServiceAccountJson = '{"type":"service_account","project_id":"p","private_key":"k"}';
+      const svc = service(fakeStore());
+
+      await expect(svc.saveKey('vertex', gcpServiceAccountJson)).resolves.toBe(true);
+      await expect(svc.getKey('vertex')).resolves.toBe(gcpServiceAccountJson);
+      await expect(svc.getCredential('vertex')).resolves.toEqual({
+        key: gcpServiceAccountJson,
+        type: 'api_key',
+      });
+    });
+
+    it('saveKey rejects an empty key through the same validator as setCredential', async () => {
+      await expect(service(fakeStore()).saveKey('openai', '')).rejects.toThrow(
+        /malformed|invalid/i
+      );
     });
   });
 
@@ -231,8 +254,8 @@ describe('typed provider credentials (BST-1348)', () => {
     });
   });
 
-  describe('getKey on a non-api_key credential is a programming error', () => {
-    it('throws (NOT a SecretReadError, never a stringified credential) for a stored oauth credential', async () => {
+  describe('getKey on a non-api_key credential stays inside the SecretReadError contract', () => {
+    it('throws SecretReadError(credential_type_unsupported), never a stringified credential', async () => {
       const store = fakeStore();
       const svc = service(store);
       await svc.setCredential('anthropic', {
@@ -242,9 +265,26 @@ describe('typed provider credentials (BST-1348)', () => {
         type: 'oauth',
       });
 
-      const attempt = svc.getKey('anthropic');
-      await expect(attempt).rejects.toThrow(/oauth/);
-      await expect(svc.getKey('anthropic')).rejects.not.toBeInstanceOf(SecretReadError);
+      await expect(svc.getKey('anthropic')).rejects.toBeInstanceOf(SecretReadError);
+      await expect(svc.getKey('anthropic')).rejects.toMatchObject({
+        code: 'credential_type_unsupported',
+        provider: 'anthropic',
+      });
+    });
+
+    it('credential_type_unsupported flows through the HTTP payload shaping as api_key_unreadable', () => {
+      // Consequence (b) of the SecretReadError contract: the assistant server's
+      // secret-error responder classifies structurally via matchSecretReadError,
+      // so a typed-credential read through getKey must produce the structured
+      // api_key_unreadable 400 instead of an unclassified 500.
+      const payload = getSecretReadErrorPayload(
+        new SecretReadError('credential_type_unsupported', 'anthropic')
+      );
+      expect(payload).toMatchObject({
+        code: 'credential_type_unsupported',
+        error: 'api_key_unreadable',
+        provider: 'anthropic',
+      });
     });
 
     it('returns the bare key for a stored typed api_key credential', async () => {

@@ -381,9 +381,10 @@ describe('registerSecretsIpcHandlers', () => {
         await expect(
           saveCredentialHandler!(createInvokeEvent(), 'anthropic', credential)
         ).resolves.toBe(true);
-        await expect(getCredentialHandler!(createInvokeEvent(), 'anthropic')).resolves.toEqual(
-          credential
-        );
+        await expect(getCredentialHandler!(createInvokeEvent(), 'anthropic')).resolves.toEqual({
+          credential,
+          ok: true,
+        });
       }
     );
 
@@ -401,10 +402,34 @@ describe('registerSecretsIpcHandlers', () => {
 
       await expect(
         getHandler('secrets:getCredential')!(createInvokeEvent(), 'openai')
-      ).resolves.toEqual({ key: 'sk-raw', type: 'api_key' });
+      ).resolves.toEqual({ credential: { key: 'sk-raw', type: 'api_key' }, ok: true });
       await expect(getHandler('secrets:get')!(createInvokeEvent(), 'openai')).resolves.toBe(
         'sk-raw'
       );
+    });
+
+    it('round-trips a GCP service-account JSON saved via secrets:save in test mode (envelope parity)', async () => {
+      process.env['NODE_ENV'] = 'test';
+      const gcpServiceAccountJson = '{"type":"service_account","project_id":"p"}';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+      await getHandler('secrets:save')!(createInvokeEvent(), 'vertex', gcpServiceAccountJson);
+
+      await expect(getHandler('secrets:get')!(createInvokeEvent(), 'vertex')).resolves.toBe(
+        gcpServiceAccountJson
+      );
+      await expect(
+        getHandler('secrets:getCredential')!(createInvokeEvent(), 'vertex')
+      ).resolves.toEqual({
+        credential: { key: gcpServiceAccountJson, type: 'api_key' },
+        ok: true,
+      });
     });
 
     it('secrets:get on a stored oauth credential throws in test mode (never a stringified credential)', async () => {
@@ -423,12 +448,16 @@ describe('registerSecretsIpcHandlers', () => {
         oauthCredential
       );
 
-      await expect(getHandler('secrets:get')!(createInvokeEvent(), 'anthropic')).rejects.toThrow(
-        /oauth/
-      );
+      await expect(
+        getHandler('secrets:get')!(createInvokeEvent(), 'anthropic')
+      ).rejects.toMatchObject({
+        code: 'credential_type_unsupported',
+        name: 'SecretReadError',
+        provider: 'anthropic',
+      });
     });
 
-    it('saveCredential rejects an unrecognized credential type visibly in test mode, storing nothing', async () => {
+    it('saveCredential returns a malformed_credential result for an unrecognized type in test mode, storing nothing', async () => {
       process.env['NODE_ENV'] = 'test';
       const secretsService: SecretsServiceMock = {
         deleteKey: vi.fn(),
@@ -443,11 +472,11 @@ describe('registerSecretsIpcHandlers', () => {
           key: 'x',
           type: 'gcp',
         })
-      ).rejects.toThrow(/malformed|unrecognized|invalid/i);
+      ).resolves.toEqual({ error: 'malformed_credential', ok: false });
 
       await expect(
         getHandler('secrets:getCredential')!(createInvokeEvent(), 'openai')
-      ).resolves.toBeNull();
+      ).resolves.toEqual({ credential: null, ok: true });
     });
 
     it('delegates saveCredential and getCredential to the secrets service in production', async () => {
@@ -470,14 +499,42 @@ describe('registerSecretsIpcHandlers', () => {
 
       await expect(
         getHandler('secrets:getCredential')!(createInvokeEvent(), 'anthropic')
-      ).resolves.toEqual(oauthCredential);
+      ).resolves.toEqual({ credential: oauthCredential, ok: true });
       expect(secretsService.getCredential).toHaveBeenCalledWith('anthropic');
     });
 
-    it('rejects a malformed saveCredential payload in production WITHOUT touching the service', async () => {
+    it('maps a malformed saveCredential payload to a structured result via the SINGLE validator (setCredential)', async () => {
       process.env['NODE_ENV'] = 'production';
+      // Dynamic import: vi.resetModules() runs per test, so the class must
+      // share module identity with the handler's own import for instanceof.
+      const { MalformedCredentialError } = await import('@brainstrike/assistant-contract');
       const secretsService: SecretsServiceMock = {
         deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+        setCredential: vi
+          .fn()
+          .mockRejectedValue(new MalformedCredentialError('credential has missing fields')),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+
+      await expect(
+        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', { type: 'oauth' })
+      ).resolves.toEqual({ error: 'malformed_credential', ok: false });
+      expect(secretsService.setCredential).toHaveBeenCalledWith('openai', { type: 'oauth' });
+    });
+
+    it('serializes a SecretReadError from getCredential as data (invoke drops custom props)', async () => {
+      process.env['NODE_ENV'] = 'production';
+      // Dynamic import: shares module identity with the handler's own import.
+      const { SecretReadError } = await import('../../secrets');
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getCredential: vi
+          .fn()
+          .mockRejectedValue(new SecretReadError('malformed_credential', 'openai')),
         getKey: vi.fn(),
         listProviders: vi.fn(),
         saveKey: vi.fn(),
@@ -487,9 +544,28 @@ describe('registerSecretsIpcHandlers', () => {
       const { getHandler } = await bootstrap(secretsService);
 
       await expect(
-        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', { type: 'oauth' })
-      ).rejects.toThrow(/malformed|unrecognized|invalid/i);
-      expect(secretsService.setCredential).not.toHaveBeenCalled();
+        getHandler('secrets:getCredential')!(createInvokeEvent(), 'openai')
+      ).resolves.toEqual({ error: 'malformed_credential', ok: false, provider: 'openai' });
+    });
+
+    it('secrets:save maps a MalformedCredentialError (e.g. empty key) to a structured result', async () => {
+      process.env['NODE_ENV'] = 'production';
+      // Dynamic import: shares module identity with the handler's own import.
+      const { MalformedCredentialError } = await import('@brainstrike/assistant-contract');
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi
+          .fn()
+          .mockRejectedValue(new MalformedCredentialError('credential has missing fields')),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+
+      await expect(getHandler('secrets:save')!(createInvokeEvent(), 'openai', '')).resolves.toEqual(
+        { error: 'malformed_credential', ok: false }
+      );
     });
 
     it('maps encryption_unavailable from setCredential to the structured save error result', async () => {

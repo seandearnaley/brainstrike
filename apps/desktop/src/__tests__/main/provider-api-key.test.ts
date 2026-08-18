@@ -138,6 +138,32 @@ describe('provider-api-key', () => {
     expect(secrets.getKey).not.toHaveBeenCalled();
   });
 
+  it('degrades a stored typed (non-api_key) credential to a per-provider read failure', async () => {
+    // Consequence (a) of getKey throwing SecretReadError(credential_type_unsupported)
+    // instead of a plain Error: inspectProviderKeys must keep listing the
+    // provider whose stored api_key IS readable and report the typed-credential
+    // provider as a readFailure — never abort the whole inspection.
+    mockListAgentProviders.mockReturnValue(['anthropic', 'openai']);
+    mockGetAgentProviderEnvKeys.mockReturnValue([]);
+    mockIsSupportedProvider.mockReturnValue(true);
+
+    const { SecretReadError } = await import('../../secrets');
+    const secrets = {
+      getKey: vi.fn((provider: string) =>
+        provider === 'anthropic'
+          ? Promise.reject(new SecretReadError('credential_type_unsupported', 'anthropic'))
+          : Promise.resolve('sk-openai')
+      ),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
+    };
+    mockGetSecretsService.mockReturnValue(secrets);
+
+    await expect(inspectProviderKeys()).resolves.toMatchObject({
+      configuredProviders: [{ provider: 'openai', source: 'stored' }],
+      readFailures: [{ code: 'credential_type_unsupported', provider: 'anthropic' }],
+    });
+  });
+
   it('reports one unreadable-key failure for duplicate stored provider ids', async () => {
     mockListAgentProviders.mockReturnValue(['openrouter']);
     mockGetAgentProviderEnvKeys.mockReturnValue(['OPENROUTER_API_KEY']);

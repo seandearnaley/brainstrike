@@ -1,4 +1,5 @@
 export const SECRET_READ_ERROR_CODES = [
+  'credential_type_unsupported',
   'decrypt_failed',
   'encryption_unavailable',
   'malformed_credential',

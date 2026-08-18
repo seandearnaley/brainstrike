@@ -21,18 +21,18 @@
  * that claims a tag but cannot be recognized or validated is a hard failure
  * (NO SILENT FALLBACKS); the desktop read path surfaces it as
  * `SecretReadError('malformed_credential', …)`.
+ *
+ * Field rules: an `api_key` key must be NON-EMPTY (an empty key is never a
+ * configured credential); `aws` splits by mode — `bearer` REQUIRES
+ * `bearerKey`, `profile_chain` keeps `profile` optional (the default AWS
+ * profile chain is legitimate).
  */
 
 export type ProviderCredential =
   | { type: 'api_key'; key: string; metadata?: Record<string, string> }
   | { type: 'oauth'; access: string; refresh: string; expires: number; accountId?: string }
-  | {
-      type: 'aws';
-      mode: 'bearer' | 'profile_chain';
-      bearerKey?: string;
-      profile?: string;
-      region: string;
-    };
+  | { type: 'aws'; mode: 'bearer'; bearerKey: string; region: string }
+  | { type: 'aws'; mode: 'profile_chain'; profile?: string; region: string };
 
 export type ProviderCredentialType = ProviderCredential['type'];
 
@@ -44,8 +44,9 @@ export const PROVIDER_CREDENTIAL_TYPES = [
 
 /**
  * A stored value claimed to be a tagged credential (it carried a `type`
- * property) but could not be recognized or validated. Deliberately does NOT
- * echo field values — credentials must never leak through error messages.
+ * property) but could not be recognized or validated. Messages are STATIC by
+ * contract — neither field values nor the offending type tag are ever echoed,
+ * so a credential can never leak through an error message.
  */
 export class MalformedCredentialError extends Error {
   constructor(detail: string) {
@@ -75,6 +76,7 @@ export function isApiKeyCredential(
   return (
     candidate.type === 'api_key' &&
     typeof candidate.key === 'string' &&
+    candidate.key.length > 0 &&
     (candidate.metadata === undefined || isStringRecord(candidate.metadata))
   );
 }
@@ -115,13 +117,17 @@ export function isAwsCredential(
     region?: unknown;
     type?: unknown;
   };
-  return (
-    candidate.type === 'aws' &&
-    (candidate.mode === 'bearer' || candidate.mode === 'profile_chain') &&
-    typeof candidate.region === 'string' &&
-    isOptionalString(candidate.bearerKey) &&
-    isOptionalString(candidate.profile)
-  );
+  if (candidate.type !== 'aws' || typeof candidate.region !== 'string') {
+    return false;
+  }
+  switch (candidate.mode) {
+    case 'bearer':
+      return typeof candidate.bearerKey === 'string' && candidate.bearerKey.length > 0;
+    case 'profile_chain':
+      return isOptionalString(candidate.profile);
+    default:
+      return false;
+  }
 }
 
 export function isProviderCredential(value: unknown): value is ProviderCredential {
@@ -145,6 +151,12 @@ function isTaggedObject(value: unknown): value is { type: unknown } {
 export function parseStoredCredential(raw: string): ProviderCredential {
   const legacy: ProviderCredential = { key: raw, type: 'api_key' };
 
+  // Fast path: only a JSON object can be a tagged credential, so anything not
+  // starting with `{` is the legacy mapping without paying for JSON.parse.
+  if (!raw.trimStart().startsWith('{')) {
+    return legacy;
+  }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -154,21 +166,19 @@ export function parseStoredCredential(raw: string): ProviderCredential {
   }
 
   if (!isTaggedObject(parsed)) {
-    // JSON, but never claims to be a tagged credential (number, array, quoted
-    // string, boolean, null, or object without `type`) — legacy by definition.
+    // JSON, but never claims to be a tagged credential (an object without
+    // `type`) — legacy by definition.
     return legacy;
   }
 
-  if (typeof parsed.type !== 'string') {
-    throw new MalformedCredentialError('the `type` tag is not a string');
-  }
-  if (!PROVIDER_CREDENTIAL_TYPES.some((type) => type === parsed.type)) {
-    throw new MalformedCredentialError(`unrecognized credential type "${parsed.type}"`);
+  if (
+    typeof parsed.type !== 'string' ||
+    !PROVIDER_CREDENTIAL_TYPES.some((type) => type === parsed.type)
+  ) {
+    throw new MalformedCredentialError('unrecognized credential type tag');
   }
   if (!isProviderCredential(parsed)) {
-    throw new MalformedCredentialError(
-      `credential of type "${parsed.type}" has missing or invalid fields`
-    );
+    throw new MalformedCredentialError('credential has missing or invalid fields for its type');
   }
   return parsed;
 }

@@ -8,10 +8,12 @@ import {
 describe('secret read error contract', () => {
   it('keeps the runtime guard and exported code list aligned', () => {
     expect(SECRET_READ_ERROR_CODES).toEqual([
+      'credential_type_unsupported',
       'decrypt_failed',
       'encryption_unavailable',
       'malformed_credential',
     ]);
+    expect(isSecretReadErrorCode('credential_type_unsupported')).toBe(true);
     expect(isSecretReadErrorCode('decrypt_failed')).toBe(true);
     expect(isSecretReadErrorCode('encryption_unavailable')).toBe(true);
     expect(isSecretReadErrorCode('malformed_credential')).toBe(true);

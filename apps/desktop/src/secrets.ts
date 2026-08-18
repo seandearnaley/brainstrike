@@ -12,6 +12,9 @@ export type { ProviderCredential, SecretReadErrorCode } from '@brainstrike/assis
 
 const SECRET_READ_ERROR_DETAIL: Record<SecretReadErrorCode, string> = {
   // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
+  credential_type_unsupported:
+    'stored credential uses a newer auth flow; re-enter an API key or reconnect the provider',
+  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
   decrypt_failed: 'stored secret could not be decrypted (the OS keychain entry may have changed)',
   // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
   encryption_unavailable: 'safeStorage encryption is unavailable or insecure on this system',
@@ -54,14 +57,52 @@ export interface SecretsService {
   getCredential: (provider: string) => Promise<ProviderCredential | null>;
   /**
    * String read for api_key credentials only. A stored `oauth`/`aws`
-   * credential THROWS a plain Error (programming error: the caller must use
-   * getCredential) — the credential is never stringified.
+   * credential THROWS `SecretReadError('credential_type_unsupported', …)` so
+   * string-only consumers (inspectProviderKeys, the assistant HTTP path)
+   * degrade to their existing per-provider read-failure handling — the
+   * credential is never stringified.
    */
   getKey: (provider: string) => Promise<string | null>;
   listProviders: () => Promise<string[]>;
+  /**
+   * Delegates to `setCredential({ type: 'api_key', key: value })` — a single
+   * write path that always stores the JSON envelope. Legacy bare-string reads
+   * remain supported forever via parseStoredCredential.
+   */
   saveKey: (provider: string, value: string) => Promise<boolean>;
   /** Typed write (BST-1348): stores `JSON.stringify(credential)` encrypted. */
   setCredential: (provider: string, credential: ProviderCredential) => Promise<boolean>;
+}
+
+/**
+ * Interpret a decrypted stored value as a typed credential, surfacing a
+ * tagged-but-invalid value as `SecretReadError('malformed_credential', …)`.
+ * The ONE credential-interpretation site — the production service and the
+ * test-mode Secrets IPC path both go through here (no duplicated mapping).
+ */
+export function parseCredentialOrThrow(provider: string, raw: string): ProviderCredential {
+  try {
+    return parseStoredCredential(raw);
+  } catch (error) {
+    if (error instanceof MalformedCredentialError) {
+      throw new SecretReadError('malformed_credential', provider, error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Project a typed credential onto the string-key API. Only `api_key`
+ * credentials have a string projection; anything else throws
+ * `SecretReadError('credential_type_unsupported', …)` — a structured
+ * credential is never stringified. Shared by the production `getKey` and the
+ * test-mode Secrets IPC `secrets:get` path.
+ */
+export function credentialToApiKey(provider: string, credential: ProviderCredential): string {
+  if (credential.type !== 'api_key') {
+    throw new SecretReadError('credential_type_unsupported', provider);
+  }
+  return credential.key;
 }
 
 interface SecretsSchema {
@@ -104,14 +145,7 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
     } catch (error) {
       throw new SecretReadError('decrypt_failed', provider, error);
     }
-    try {
-      return parseStoredCredential(raw);
-    } catch (error) {
-      if (error instanceof MalformedCredentialError) {
-        throw new SecretReadError('malformed_credential', provider, error);
-      }
-      throw error;
-    }
+    return parseCredentialOrThrow(provider, raw);
   }
 
   function writeEncrypted(provider: string, plaintext: string): boolean {
@@ -123,6 +157,18 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
     secrets[provider] = b64;
     secretsStore.set('secrets', secrets);
     return true;
+  }
+
+  function writeCredential(provider: string, credential: ProviderCredential): boolean {
+    if (!isProviderCredential(credential)) {
+      // IPC payloads reach here as unknown at runtime — reject malformed
+      // input (including an empty api_key) before it is ever persisted
+      // (NO SILENT FALLBACKS).
+      throw new MalformedCredentialError(
+        'setCredential received an invalid or unrecognized credential object'
+      );
+    }
+    return writeEncrypted(provider, JSON.stringify(credential));
   }
 
   return {
@@ -153,34 +199,19 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
       if (credential === null) {
         return null;
       }
-      if (credential.type !== 'api_key') {
-        // Programming error: the caller must use getCredential for typed
-        // variants. Never stringify a structured credential into a "key".
-        throw new Error(
-          `getKey("${provider}") read a stored "${credential.type}" credential; use getCredential instead.`
-        );
-      }
-      return credential.key;
+      return credentialToApiKey(provider, credential);
     },
     async listProviders(): Promise<string[]> {
       const secrets = (secretsStore.get('secrets') as SecretsSchema['secrets']) ?? {};
       return Object.keys(secrets);
     },
     async saveKey(provider: string, value: string): Promise<boolean> {
-      // Deliberately still stores the bare string (not a typed api_key JSON):
-      // the legacy read mapping covers it, and older builds reading the store
-      // keep working during the transition.
-      return writeEncrypted(provider, value);
+      // Single write path: every save stores the typed JSON envelope. Legacy
+      // bare-string READS remain supported forever via parseStoredCredential.
+      return writeCredential(provider, { key: value, type: 'api_key' });
     },
     async setCredential(provider: string, credential: ProviderCredential): Promise<boolean> {
-      if (!isProviderCredential(credential)) {
-        // IPC payloads reach here as unknown at runtime — reject malformed
-        // input before it is ever persisted (NO SILENT FALLBACKS).
-        throw new MalformedCredentialError(
-          'setCredential received an invalid or unrecognized credential object'
-        );
-      }
-      return writeEncrypted(provider, JSON.stringify(credential));
+      return writeCredential(provider, credential);
     },
   } satisfies SecretsService;
 }

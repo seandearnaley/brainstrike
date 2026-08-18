@@ -9,6 +9,7 @@ import {
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
 import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
+import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
 import { SKILLS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/skills-bridge';
 import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
 import ts from 'typescript';
@@ -356,6 +357,7 @@ describe('preload runtime contract', () => {
       git: GIT_BRIDGE_REQUIRED_METHODS,
       notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
+      secrets: SECRETS_BRIDGE_REQUIRED_METHODS,
       skills: SKILLS_BRIDGE_REQUIRED_METHODS,
       terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
       userCommands: USER_COMMANDS_BRIDGE_REQUIRED_METHODS,

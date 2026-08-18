@@ -87,27 +87,54 @@
     stored value is `JSON.stringify(credential)` of the `ProviderCredential`
     union (`api_key` | `oauth` | `aws`) declared in
     `packages/assistant-contract/src/provider-credential.ts`, encrypted exactly
-    like the legacy bare-string keys. Reads apply the settled legacy mapping: a
-    decrypted value that never claims a `type` tag (not JSON, non-object JSON,
-    or a JSON object without a `type` property) IS
+    like the legacy bare-string keys. EVERY write goes through one path:
+    `saveKey` delegates to `setCredential({ type: 'api_key', key })`, so even
+    string saves store the JSON envelope (a pasted GCP service-account JSON —
+    which carries `"type":"service_account"` — therefore round-trips verbatim
+    instead of tripping tag validation on read). Reads apply the settled
+    legacy mapping forever: a decrypted value that never claims a `type` tag
+    (not JSON, non-object JSON, or a JSON object without a `type` property) IS
     `{ type: 'api_key', key: <raw string> }` — a defined mapping covering every
     pre-existing stored key, not a fallback. A value that carries a `type` tag
     but is unrecognized or fails field validation throws a `SecretReadError`
-    with the `malformed_credential` code — it is never coerced into an api_key.
-    `malformed_credential` joins `decrypt_failed` / `encryption_unavailable` in
-    the shared `SecretReadErrorCode` union; all three stay distinct from the
-    `null` "not set" result. `SecretsService.getKey` returns `.key` only for
-    `api_key` credentials and THROWS on any other stored type (programming
-    error — a structured credential is never stringified); typed consumers use
-    `getCredential` / `setCredential` and the renderer bridge's
-    `saveCredential` / `getCredential` (channels `secrets:saveCredential` /
-    `secrets:getCredential`, same visible-UI-only policy as every secrets
-    channel). `saveKey` still stores the bare string so older builds reading
-    the store keep working. `secrets:list` / `providerKeySources` provenance is
-    unchanged. Test-mode Secrets IPC stores the same serialized forms and reads
-    through the same mapping. The full decision table and its paired tests:
-    `packages/assistant-contract/src/__tests__/provider-credential.test.ts` and
-    `apps/desktop/src/__tests__/secrets.test.ts`.
+    with the `malformed_credential` code — it is never coerced into an api_key,
+    and `MalformedCredentialError` messages are static (no tag or field
+    values). Field rules: an `api_key` key must be non-empty; `aws` splits by
+    mode — `bearer` requires `bearerKey`, `profile_chain` keeps `profile`
+    optional (default chain is legitimate).
+    `SecretsService.getKey` returns `.key` only for `api_key` credentials; any
+    other stored type throws `SecretReadError('credential_type_unsupported')`,
+    so string-only consumers stay inside the existing read-failure contract:
+    `inspectProviderKeys` degrades to a per-provider `readFailures` entry (the
+    other providers stay listed) and the assistant HTTP path returns the
+    structured `api_key_unreadable` 400. Consequently `providerKeySources` does
+    NOT report a stored non-api_key credential as a configured `stored`
+    provider — it surfaces as a validated `providerErrors` repair entry until
+    a typed consumer exists. `secrets:list` / `secrets:listStored` id
+    enumeration is value-blind and unchanged. `credential_type_unsupported`
+    and `malformed_credential` join `decrypt_failed` /
+    `encryption_unavailable` in the shared `SecretReadErrorCode` union; all
+    stay distinct from the `null` "not set" result.
+    Typed consumers use `getCredential` / `setCredential` and the renderer
+    bridge's `saveCredential` / `getCredential` (channels
+    `secrets:saveCredential` / `secrets:getCredential`, same visible-UI-only
+    policy as every secrets channel). Secrets IPC channels never throw domain
+    errors across invoke (Electron drops custom error props): writes resolve
+    `true | { ok: false, error: 'malformed_credential' |
+    'encryption_unavailable' | 'unknown_error' }` and `secrets:getCredential`
+    resolves `{ ok: true, credential | null }` or the serialized failure
+    `{ ok: false, error: SecretReadErrorCode, provider }`. `setCredential`'s
+    guard is the single write validator; handlers only map its errors. The
+    `window.secrets` shape is defined once as `SecretsBridge` in
+    `packages/assistant-contract/src/secrets-bridge.ts` (required-method pin
+    enforced by the preload-runtime contract test; settings-ui consumes the
+    derived `SecretsCapability` view with the typed methods optional).
+    Test-mode Secrets IPC stores the same serialized envelope forms and reads
+    through the same `parseCredentialOrThrow` / `credentialToApiKey` helpers
+    as the production service. The full decision table and its paired tests:
+    `packages/assistant-contract/src/__tests__/provider-credential.test.ts`,
+    `apps/desktop/src/__tests__/secrets.test.ts`, and
+    `apps/desktop/src/__tests__/main/ipc-secrets.test.ts`.
     The secrets bridge is a visible-UI capability. Every secrets IPC operation
     declares and enforces the `visible-ui` sender role in the main-process IPC
     registry before arguments are parsed or keychain code runs. Chunking,
