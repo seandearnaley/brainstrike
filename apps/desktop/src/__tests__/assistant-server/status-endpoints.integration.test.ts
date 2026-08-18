@@ -207,6 +207,51 @@ describe('status endpoint', () => {
     expect(mockSecretsService.listProviders).not.toHaveBeenCalled();
   });
 
+  it('reports deprecated env-var renames computed by desktop main (BST-1361)', async () => {
+    mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+    mockSecretsService.getKey.mockResolvedValueOnce('test-key');
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      },
+      {
+        deprecatedEnvVars: [
+          { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+        ],
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      deprecatedEnvVars: [
+        { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+      ],
+      enabled: true,
+      providerKeySources: [{ provider: 'openai', source: 'stored' }],
+      providers: ['openai', 'local'],
+    });
+  });
+
+  it('omits the deprecated env-var field entirely when nothing deprecated is set', async () => {
+    mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+    mockSecretsService.getKey.mockResolvedValueOnce('test-key');
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      },
+      { deprecatedEnvVars: [] }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).not.toHaveProperty('deprecatedEnvVars');
+  });
+
   it('should handle status route with query parameters', async () => {
     const response = await runRequest({
       headers: { origin: desktopRendererOrigin },

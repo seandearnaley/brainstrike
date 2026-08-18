@@ -68,14 +68,24 @@ export async function handleAssistantStatus(
 
     const { providerErrors, providerKeySources, providers } = await collectAvailableProviders();
     const enabled = providers.length > 0;
+    // BST-1361: rename warnings for deprecated env names. Desktop MAIN
+    // computed these from its own process env at startup (see
+    // AssistantServerOptions.deprecatedEnvVars); absence and empty both omit
+    // the field so unaffected payloads are unchanged.
+    const deprecatedEnvVars =
+      options.deprecatedEnvVars && options.deprecatedEnvVars.length > 0
+        ? { deprecatedEnvVars: options.deprecatedEnvVars }
+        : {};
     const payload = enabled
       ? {
+          ...deprecatedEnvVars,
           enabled,
           ...(providerErrors.length > 0 ? { providerErrors } : {}),
           providerKeySources,
           providers,
         }
       : {
+          ...deprecatedEnvVars,
           enabled,
           providers: [] as string[],
           reason: 'no_providers_configured',

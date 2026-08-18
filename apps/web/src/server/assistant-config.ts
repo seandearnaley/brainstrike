@@ -1,4 +1,6 @@
 import {
+  type DeprecatedEnvVarReport,
+  detectDeprecatedProviderEnvVars,
   PROVIDER_DEFAULT_MODELS,
   providerEnvKeys,
   type SupportedProvider,
@@ -46,6 +48,12 @@ export interface ConfiguredAssistantProviderConfig extends AssistantProviderConf
 }
 
 export interface HostedWebAssistantStatusPayload {
+  /**
+   * Deprecated env names set in THIS server's environment (BST-1361), with
+   * the canonical rename. Names only — values never cross the wire. Limited
+   * to Hosted Web providers; omitted when nothing deprecated is set.
+   */
+  deprecatedEnvVars?: readonly DeprecatedEnvVarReport[];
   enabled: boolean;
   model?: string;
   provider?: HostedWebAssistantProvider;
@@ -100,13 +108,22 @@ export function resolveHostedWebAssistantStatus(
     provider: HostedWebAssistantProvider
   ) => AssistantProviderConfig = resolveAssistantProviderConfig
 ): HostedWebAssistantStatusPayload {
+  // BST-1361: rename warnings for deprecated env names, computed from this
+  // server's own environment and restricted to the Hosted Web provider set.
+  const deprecatedReports = detectDeprecatedProviderEnvVars(process.env).filter((report) =>
+    isHostedWebAssistantProvider(report.provider)
+  );
+  const deprecatedEnvVars =
+    deprecatedReports.length > 0 ? { deprecatedEnvVars: deprecatedReports } : {};
+
   const configuredProviders = resolveAssistantProviderConfigs(resolveConfig);
   const primary = configuredProviders[0];
   if (!primary) {
-    return { enabled: false, reason: 'missing_api_key' };
+    return { ...deprecatedEnvVars, enabled: false, reason: 'missing_api_key' };
   }
 
   return {
+    ...deprecatedEnvVars,
     enabled: true,
     model: resolveHostedWebAssistantModel(primary.provider),
     provider: primary.provider,

@@ -300,6 +300,105 @@ describe('fetchAssistantStatusState', () => {
     });
   });
 
+  it('preserves validated deprecated env-var rename reports on an enabled status (BST-1361)', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        deprecatedEnvVars: [
+          { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+        ],
+        enabled: true,
+        providerKeySources: [],
+        providers: ['local'],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      deprecatedEnvVars: [
+        { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+      ],
+      providerKeySources: [],
+      providers: ['local'],
+      state: 'enabled',
+    });
+  });
+
+  it('preserves deprecated env-var rename reports on a disabled status (BST-1361)', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        deprecatedEnvVars: [
+          {
+            envVar: 'GOOGLE_API_KEY',
+            provider: 'google',
+            replacement: 'GOOGLE_GENERATIVE_AI_API_KEY',
+          },
+        ],
+        enabled: false,
+        reason: 'missing_api_key',
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      deprecatedEnvVars: [
+        {
+          envVar: 'GOOGLE_API_KEY',
+          provider: 'google',
+          replacement: 'GOOGLE_GENERATIVE_AI_API_KEY',
+        },
+      ],
+      reason: 'missing_api_key',
+      state: 'disabled',
+    });
+  });
+
+  it.each([
+    ['a non-array report list', { deprecatedEnvVars: {} }],
+    [
+      'a report missing its replacement',
+      { deprecatedEnvVars: [{ envVar: 'X', provider: 'openai' }] },
+    ],
+    [
+      'a report for an unknown provider',
+      { deprecatedEnvVars: [{ envVar: 'X', provider: 'mystery', replacement: 'Y' }] },
+    ],
+    [
+      'a report with an extra field',
+      {
+        deprecatedEnvVars: [
+          { envVar: 'X', extra: true, provider: 'openai', replacement: 'OPENAI_API_KEY' },
+        ],
+      },
+    ],
+  ])('rejects %s (BST-1361)', async (_label, extraPayload) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        enabled: true,
+        providerKeySources: [],
+        providers: ['local'],
+        ...extraPayload,
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({
+        fetchImpl,
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrowError(/Invalid assistant deprecated env var report/);
+  });
+
   it.each([
     ['a non-array source list', { providerKeySources: {} }],
     [

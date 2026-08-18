@@ -5,6 +5,7 @@
 // these edges, and no silent
 // invariant ("everyone remembers import type") is required (#2111 review).
 
+import type { DeprecatedEnvVarReport } from '@brainstrike/assistant-contract/provider-env-deprecation';
 import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
 import type { DesktopEnvLoadFailure } from '../desktop-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
@@ -35,6 +36,13 @@ export interface AssistantServerOptions {
    * `'disabled'` is the explicit opt-out for routing/CORS-focused tests.
    */
   auth?: AssistantServerAuth;
+  /**
+   * Deprecated provider env vars detected by desktop MAIN from its own
+   * process environment at startup (BST-1361) — never computed from the
+   * wire. Surfaced verbatim on the `/assistant/status` payload so the
+   * renderer can render rename guidance (UI arrives with BST-1362).
+   */
+  deprecatedEnvVars?: readonly DeprecatedEnvVarReport[];
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   envFileFailures?: readonly DesktopEnvLoadFailure[];
   host?: string;
