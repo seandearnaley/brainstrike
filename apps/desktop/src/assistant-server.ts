@@ -6,6 +6,7 @@ import {
   respondJson,
   respondNotFound,
 } from '@brainstrike/assistant-service/http';
+import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/ports';
 import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
 import { runAssistantTurn } from '@brainstrike/assistant-service/run-turn';
 import {
@@ -55,7 +56,10 @@ import {
   getDesktopMastraMemory,
 } from './assistant-server/mastra-memory';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
-import { resolveProviderApiKey } from './assistant-server/provider-credentials';
+import {
+  resolveProviderApiKey,
+  resolveProviderCredential,
+} from './assistant-server/provider-credentials';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { resolveRequestPersonas } from './assistant-server/request-personas';
@@ -393,6 +397,20 @@ async function resolveSnapshotWorkspaceRoots(
   return getWorkspaceRoots(enriched).map((root) => ({ path: root.path, rootId: root.rootId }));
 }
 
+/**
+ * BST-1352: the factory auth input derives from the TYPED credential the
+ * request resolved and travels as a direct parameter (runAssistantTurn →
+ * initializeAgentStream → stream options) — never on runtimeData /
+ * RequestContext (toJSON drops functions).
+ */
+function deriveAssistantTurnAuthInput(
+  runtimeData: RuntimeData,
+  credential: Parameters<typeof providerAuthInputFromCredential>[1]
+): ReturnType<typeof providerAuthInputFromCredential> {
+  const provider = typeof runtimeData.provider === 'string' ? runtimeData.provider : '';
+  return providerAuthInputFromCredential(provider, credential);
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -401,7 +419,7 @@ async function handleAssistantPost(
   const prepared = await prepareAssistantPostRequest({
     logger,
     readBody: () => readRequestBody(req, { maxBodyBytes: assistantRequestBodyLimitBytes }),
-    resolveProviderApiKey,
+    resolveProviderCredential,
   });
   if (!prepared.ok) {
     respondAssistantRejection(res, prepared.rejection);
@@ -409,12 +427,14 @@ async function handleAssistantPost(
   }
   const {
     assistantMessageId,
+    credential,
     messages,
     runtimeData,
     apiKey,
     toolApprovalAction,
     toolResumeAction,
   } = prepared.request;
+  const authInput = deriveAssistantTurnAuthInput(runtimeData, credential);
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -501,10 +521,12 @@ async function handleAssistantPost(
     const turn = await runAssistantTurn({
       apiKey,
       assistantMessageId,
+      authInput,
       executionSignal: executionAbortController.signal,
       initializeStream: async (core) => {
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
+          authInput: core.authInput,
           capabilities: desktopAgentStreamCapabilities,
           compactionOverlayLookup,
           getDatabase,

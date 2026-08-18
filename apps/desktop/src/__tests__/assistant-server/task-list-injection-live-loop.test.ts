@@ -47,6 +47,8 @@ vi.mock('../../mcp-loader', () => ({
 
 const mockSecretsService = {
   deleteKey: vi.fn(),
+  // BST-1352: the assistant POST path reads the TYPED credential.
+  getCredential: vi.fn(() => Promise.resolve({ key: 'test-api-key', type: 'api_key' as const })),
   getKey: vi.fn(() => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
   saveKey: vi.fn(),
@@ -282,6 +284,10 @@ describe('task-list read→inject seam', () => {
     mockDesktopDatabase.query.mockClear();
     taskListRows.clear();
     capturedInstructions = undefined;
+    mockSecretsService.getCredential.mockResolvedValue({
+      key: 'test-api-key',
+      type: 'api_key' as const,
+    });
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
     Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });

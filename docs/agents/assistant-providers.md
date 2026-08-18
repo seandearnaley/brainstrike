@@ -912,7 +912,8 @@ out-of-registry id must reach a documented fallback, never a TypeError):
   the dynamic local-model tool budget, and `createLanguageModelProvider`'s
   key requirement.
 - `packages/assistant-service`: `providerAllowsMissingAuth`,
-  `resolveApiKeyOrReject` (a keyless provider's OPTIONAL token read failure
+  `resolveCredentialOrReject` (BST-1352 name of the former
+  `resolveApiKeyOrReject`; a keyless provider's OPTIONAL token read failure
   proceeds keyless with a warn, never a 400), local-runtime token hydration.
 - `packages/assistant-contract`: `model-reasoning.ts`'s discovered-model
   answers key off registry `runtime: 'local'`.
@@ -944,6 +945,80 @@ fallback), `packages/agent/src/__tests__/tool-pipeline-provider-runtime.spec.ts`
 the BST-1349 suites in
 `packages/assistant-service/src/__tests__/request.test.ts`, and the
 `satisfies` in `packages/ui/src/model-picker/utils/provider-colors.ts`.
+
+### Provider credential seam (BST-1352)
+
+The credential path is TYPED end to end; the bearer-key string is now a
+projection of it, not the contract. Three layers, each with one owner:
+
+**Reader types** (`packages/assistant-service/src/ports.ts`, re-exported from
+`/request`):
+
+- `ResolvedProviderCredential = ProviderCredential & { source: 'env' | 'stored' }`
+  — the BST-1348 union plus provenance. `source: 'env'` entries are ALWAYS
+  `api_key` (environment variables can only express bearer keys); typed
+  `oauth`/`aws` credentials only arrive `source: 'stored'`.
+- `ProviderCredentialReader` — the typed reader `prepareAssistantPostRequest`
+  consumes (`undefined` = not configured; a secret-read failure THROWS).
+  Desktop passes `resolveProviderCredential`
+  (`apps/desktop/src/assistant-server/provider-credentials.ts`), built on
+  `readProviderCredential` (`apps/desktop/src/provider-api-key.ts`) →
+  `resolveHostedProviderCredential`, the typed generalization of the BST-979
+  env-authoritative core in
+  `packages/assistant-contract/src/provider-key-resolution.ts` (same contract:
+  env order, never throws, `secretReadError` pass-through only when nothing
+  found; `SECRETS_CHANGED_EVENT_NAME` untouched). Hosted Web adapts its
+  env-only config lookup into `api_key` credentials — no typed-credential
+  resolution on web.
+- `ProviderApiKeyReader` (string) is the MIGRATION SHIM, derived only via
+  `createProviderApiKeyReader(typedReader)`: `api_key` → `.key`; any other
+  type throws the SecretReadError-shaped `credential_type_unsupported`
+  failure (a structured credential is NEVER stringified). Consumers still on
+  the string surface: persona pin key resolution and the desktop status/
+  retrieval paths. The request pipeline itself maps a resolved non-api_key
+  credential onto the SAME `api_key_unreadable` 400 (or the keyless
+  optional-token warn) the old `getKey` throw produced — never
+  `missing_api_key`.
+
+**Factory auth input** (`packages/agent/src/providers/provider-auth-input.ts`):
+`createProvider(provider, auth?: ProviderAuthInput, model?, runtime?)` takes a
+discriminated union instead of a bare key string:
+
+- `{ kind: 'api_key', apiKey }` — the existing flow; behavior-identical to the
+  old string parameter. Every current caller uses this kind.
+- `{ kind: 'custom_fetch', apiKey /* dummy */, fetch }` — threads the injected
+  fetch into the AI SDK `create*` factories (`providerFetchOptions` helper).
+  Consumed by BST-1356. Provider cases whose model config is a Mastra
+  DESCRIPTOR (openrouter/ollama/lmstudio) or the local host client have no
+  fetch seam and throw typed (`bearerApiKeyOnly`) — the fetch is never
+  silently dropped. `wrapAnthropicModelWithPromptCaching` composes with every
+  kind (pinned by `provider-factory.auth-input.spec.ts`).
+- `{ kind: 'aws', region, apiKey?, credentialProvider? }` — validated (region
+  REQUIRED, typed error when absent) but consumed by NO provider case yet;
+  BST-1350/BST-1353 add the Bedrock consumer. Every switch over the union is
+  exhaustive (compile error on an unhandled kind).
+
+**Threading rule (do not relitigate):** the auth input travels as a DIRECT
+parameter the whole way down — `runAssistantTurn` → `initializeAgentStream` →
+stream options (`toAiSdkStyleStream` / the approval + suspend resume actions)
+→ `MastraAgentRuntimeOptions.authInput` → `resolveRuntimeConfiguration` →
+`instantiateLanguageModel` → `createProvider`. Credentials/auth inputs NEVER
+enter RuntimeData or a Mastra RequestContext: `RequestContext.toJSON` drops
+functions, so a `custom_fetch` closure riding runtime data would vanish
+silently. (`runtimeData.apiKey` remains the legacy string surface for the
+no-auth-input path.) `resolveRuntimeConfiguration` treats a threaded auth
+input as AUTHORITATIVE (no fallback into runtime/env key resolution);
+`mastra_agent_missing_api_key` code + message are unchanged, and `aws` inputs
+skip the bearer-key requirement.
+
+Pinned by `packages/agent/src/__tests__/provider-factory.auth-input.spec.ts`,
+the BST-1352 blocks in `runtime-configuration.spec.ts`,
+`persona-pinned-model.spec.ts`,
+`packages/assistant-service/src/__tests__/request.test.ts` +
+`run-turn.test.ts`,
+`packages/assistant-contract/src/__tests__/provider-key-resolution.test.ts`,
+and `apps/desktop/src/__tests__/main/provider-credentials.test.ts` +
+`provider-api-key.test.ts`.
 
 ---
 

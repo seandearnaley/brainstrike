@@ -53,6 +53,9 @@ beforeEach(() => {
   // other queries override this.
   mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
   resetDesktopMastraMemoryCacheForTests();
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });

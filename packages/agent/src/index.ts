@@ -360,6 +360,10 @@ export {
   WEB_SEARCH_TOOL_ID,
 } from './providers/native-web-search';
 export {
+  apiKeyAuthInput,
+  type ProviderAuthInput,
+} from './providers/provider-auth-input';
+export {
   type ConcreteLanguageModel,
   createEmbeddingProvider,
   createLanguageModelProvider,

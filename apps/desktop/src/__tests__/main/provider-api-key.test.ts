@@ -37,6 +37,7 @@ import {
   inspectProviderKeys,
   listConfiguredProviders,
   readProviderApiKey,
+  readProviderCredential,
   readProviderSecretKey,
   resolveProviderEnvCredential,
   resolveProviderEnvKey,
@@ -161,6 +162,66 @@ describe('provider-api-key', () => {
     await expect(inspectProviderKeys()).resolves.toMatchObject({
       configuredProviders: [{ provider: 'openai', source: 'stored' }],
       readFailures: [{ code: 'credential_type_unsupported', provider: 'anthropic' }],
+    });
+  });
+
+  describe('readProviderCredential (BST-1352 typed reader)', () => {
+    it('tags an env hit as an api_key credential with source env and never reads the store', async () => {
+      mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);
+      process.env['OPENAI_KEY'] = '  env-key  ';
+      const secrets = { getCredential: vi.fn() };
+      mockGetSecretsService.mockReturnValue(secrets);
+
+      await expect(readProviderCredential('openai')).resolves.toEqual({
+        key: 'env-key',
+        source: 'env',
+        type: 'api_key',
+      });
+      expect(secrets.getCredential).not.toHaveBeenCalled();
+    });
+
+    it('tags a stored typed credential with source stored', async () => {
+      mockGetAgentProviderEnvKeys.mockReturnValue(['ANTHROPIC_KEY']);
+      const oauth = { access: 'a', expires: 1, refresh: 'r', type: 'oauth' as const };
+      const secrets = { getCredential: vi.fn().mockResolvedValue(oauth) };
+      mockGetSecretsService.mockReturnValue(secrets);
+
+      await expect(readProviderCredential('anthropic')).resolves.toEqual({
+        ...oauth,
+        source: 'stored',
+      });
+    });
+
+    it('normalizes a stored api_key credential like the legacy string read (trim; blank = unset)', async () => {
+      mockGetAgentProviderEnvKeys.mockReturnValue([]);
+      const secrets = {
+        getCredential: vi.fn().mockResolvedValue({ key: '  padded  ', type: 'api_key' }),
+      };
+      mockGetSecretsService.mockReturnValue(secrets);
+      await expect(readProviderCredential('openai')).resolves.toEqual({
+        key: 'padded',
+        source: 'stored',
+        type: 'api_key',
+      });
+
+      secrets.getCredential.mockResolvedValueOnce({ key: '   ', type: 'api_key' });
+      await expect(readProviderCredential('openai')).resolves.toBeUndefined();
+    });
+
+    it('returns undefined when nothing is configured', async () => {
+      mockGetAgentProviderEnvKeys.mockReturnValue([]);
+      const secrets = { getCredential: vi.fn().mockResolvedValue(null) };
+      mockGetSecretsService.mockReturnValue(secrets);
+      await expect(readProviderCredential('openai')).resolves.toBeUndefined();
+    });
+
+    it('rethrows a credential-store read failure (logged, never swallowed)', async () => {
+      mockGetAgentProviderEnvKeys.mockReturnValue([]);
+      const readError = new Error('decrypt boom');
+      const secrets = { getCredential: vi.fn().mockRejectedValue(readError) };
+      mockGetSecretsService.mockReturnValue(secrets);
+      await expect(readProviderCredential('openai')).rejects.toBe(readError);
+      expect(logger.error).toHaveBeenCalled();
     });
   });
 

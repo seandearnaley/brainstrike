@@ -54,6 +54,9 @@ export {
   convertAssistantUiMessagesWithFinalInput,
   toAiSdkStyleStream,
 } from './message-utils';
+// The provider auth seam (BST-1352): Hosted Web adapts its env-resolved key
+// via `kind: 'api_key'` only (no typed-credential resolution on web).
+export type { ProviderAuthInput } from './providers/provider-auth-input';
 // Slim by construction: tool-categories has zero imports. Lets the shared
 // assistant-service preparation validate native-tool ids without dragging the
 // agent ROOT entry (and its Mastra/Node graph) into traced Vercel functions.

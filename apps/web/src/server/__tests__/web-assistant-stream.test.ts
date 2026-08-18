@@ -39,7 +39,10 @@ describe('buildWebAssistantStreamFromPrepared', () => {
         apiKey: 'server-key',
         provider: 'openai',
         signal,
-      }
+      },
+      // BST-1352: web adapts via kind:'api_key' only — the auth input rides
+      // the stream OPTIONS (a direct parameter), never RuntimeData.
+      { authInput: { apiKey: 'server-key', kind: 'api_key' } }
     );
   });
 
@@ -53,9 +56,13 @@ describe('buildWebAssistantStreamFromPrepared', () => {
       runtimeData: { provider: 'openai' },
     });
 
-    expect(toAiSdkStyleStream).toHaveBeenCalledWith([], {
-      apiKey: 'server-key',
-      provider: 'openai',
-    });
+    expect(toAiSdkStyleStream).toHaveBeenCalledWith(
+      [],
+      {
+        apiKey: 'server-key',
+        provider: 'openai',
+      },
+      { authInput: { apiKey: 'server-key', kind: 'api_key' } }
+    );
   });
 });

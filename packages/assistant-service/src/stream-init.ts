@@ -7,6 +7,7 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
   McpConfig,
+  ProviderAuthInput,
   RuntimeAssistantMemorySettings,
   RuntimeData,
   ScaledToolResultBudget,
@@ -73,6 +74,13 @@ async function readThreadTaskListForTurn<K extends AgentStreamCapabilityKinds>(
 }
 
 interface InitialStreamMemoryOptions {
+  /**
+   * Provider auth input (BST-1352): rides the STREAM OPTIONS (a direct
+   * parameter into toAiSdkStyleStream / the resume actions), never
+   * RuntimeData — RequestContext.toJSON drops functions, so a custom_fetch
+   * closure on the runtime would vanish silently.
+   */
+  authInput?: ProviderAuthInput;
   memory?: AgentStreamMemoryResult['memory'];
   storage?: AgentStreamMemoryResult['storage'];
   toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
@@ -172,9 +180,11 @@ export function resolveToolBuildBudget(
 function buildInitialStreamMemoryOptions(
   memoryResult: AgentStreamMemoryResult | undefined,
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
-  webExtractInlineMaxSerializedChars: number
+  webExtractInlineMaxSerializedChars: number,
+  authInput: ProviderAuthInput | undefined
 ): InitialStreamMemoryOptions {
   return {
+    ...(authInput ? { authInput } : {}),
     ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
     ...(toolOutputArtifactStore
       ? {
@@ -730,6 +740,12 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
  */
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
   readonly apiKey: string | undefined;
+  /**
+   * Provider auth input (BST-1352), threaded as a DIRECT parameter into the
+   * stream options. Never copied onto RuntimeData (RequestContext.toJSON
+   * drops functions — a custom_fetch closure would vanish silently).
+   */
+  readonly authInput?: ProviderAuthInput | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
   /** Trusted host-injected compaction overlay lookup; never client supplied. */
   readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
@@ -765,6 +781,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     messages,
     runtimeData: incomingRuntimeData,
     apiKey,
+    authInput,
     mcpConfig,
     signal,
     runId,
@@ -988,7 +1005,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       Math.min(
         capabilities.webExtractInlineMaxSerializedChars,
         resolvedToolResultBudget.domainModelResultCharBudget
-      )
+      ),
+      authInput
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/

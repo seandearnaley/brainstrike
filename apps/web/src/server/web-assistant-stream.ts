@@ -30,9 +30,17 @@ export async function buildWebAssistantStreamFromPrepared(params: {
   readonly runtimeData: RuntimeData;
   readonly signal?: AbortSignal;
 }): Promise<AsyncIterable<StreamChunk>> {
-  return await toAiSdkStyleStream(params.agentMessages, {
-    ...params.runtimeData,
-    apiKey: params.apiKey,
-    ...(params.signal ? { signal: params.signal } : {}),
-  });
+  return await toAiSdkStyleStream(
+    params.agentMessages,
+    {
+      ...params.runtimeData,
+      apiKey: params.apiKey,
+      ...(params.signal ? { signal: params.signal } : {}),
+    },
+    // BST-1352 factory auth seam: web adapts via `kind: 'api_key'` only. The
+    // auth input rides the STREAM OPTIONS (a direct parameter), never
+    // RuntimeData; the runtimeData.apiKey attach above stays for the legacy
+    // resolution surface.
+    params.apiKey ? { authInput: { apiKey: params.apiKey, kind: 'api_key' } } : {}
+  );
 }

@@ -38,16 +38,23 @@ import { AssistantInvalidJsonError } from '@brainstrike/agent/hosted-web';
 import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import type { ScopedLogger } from '@brainstrike/logging';
 import {
+  createProviderApiKeyReader,
+  type ProviderCredentialReader,
+  UnsupportedCredentialTypeError,
+} from '../ports';
+import {
   AssistantFilterPayloadError,
   hydrateRuntimeDataWithLocalRuntimeToken,
   type PrepareAssistantPostRequestResult,
   prepareAssistantPostRequest,
 } from '../request';
 
-const resolveProviderApiKey = vi.fn<(provider: string) => Promise<string | undefined>>();
+const resolveProviderCredential = vi.fn<ProviderCredentialReader>();
 
 beforeEach(() => {
-  resolveProviderApiKey.mockReset().mockResolvedValue('test-api-key');
+  resolveProviderCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', source: 'env', type: 'api_key' });
   logger.debug.mockReset();
   logger.fatal.mockReset();
   logger.trace.mockReset();
@@ -69,7 +76,7 @@ async function prepare(body: string): Promise<PrepareAssistantPostRequestResult>
   return await prepareAssistantPostRequest({
     logger,
     readBody: async () => body,
-    resolveProviderApiKey,
+    resolveProviderCredential,
   });
 }
 
@@ -87,7 +94,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
           data: { provider: 'openai' },
           messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         }),
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ data: { provider: 'openai' } });
@@ -105,7 +112,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
       filterPayload,
       logger,
       readBody: async () => '{"messages":[',
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     expect(result.ok).toBe(false);
     expect(filterPayload).not.toHaveBeenCalled();
@@ -125,7 +132,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
           data: { provider: 'openai' },
           messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         }),
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -146,7 +153,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
           messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
           runConfig: { custom: { 'not-a-valid-shape': { bogus: true } } },
         }),
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -171,7 +178,7 @@ describe('prepareAssistantPostRequest filterPayload hook (BST-1030)', () => {
           data: { provider: 'openai' },
           messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         }),
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
     await expect(promise).rejects.toBeInstanceOf(AssistantFilterPayloadError);
     await promise.catch((error: unknown) => {
@@ -333,7 +340,7 @@ describe('prepareAssistantPostRequest rejections', () => {
   });
 
   it('rejects a request when the provider API key is missing', async () => {
-    resolveProviderApiKey.mockResolvedValueOnce(undefined);
+    resolveProviderCredential.mockResolvedValueOnce(undefined);
 
     const result = await prepare(
       JSON.stringify({
@@ -363,7 +370,7 @@ describe('prepareAssistantPostRequest rejections', () => {
       { code: 'encryption_unavailable', provider: 'openrouter' }
     );
     secretReadError.name = 'SecretReadError';
-    resolveProviderApiKey.mockRejectedValueOnce(secretReadError);
+    resolveProviderCredential.mockRejectedValueOnce(secretReadError);
 
     const result = await prepare(
       JSON.stringify({
@@ -458,7 +465,7 @@ describe('prepareAssistantPostRequest rejections', () => {
       readBody: async () => {
         throw new AssistantRequestBodyTooLargeError();
       },
-      resolveProviderApiKey,
+      resolveProviderCredential,
     });
 
     expect(result.ok).toBe(false);
@@ -517,7 +524,7 @@ describe('registry-derived keyless auth (BST-1349)', () => {
       if (provider.authType !== 'none') {
         continue;
       }
-      resolveProviderApiKey.mockResolvedValueOnce(undefined);
+      resolveProviderCredential.mockResolvedValueOnce(undefined);
       const result = await prepare(
         JSON.stringify({
           data: { provider: provider.id },
@@ -533,7 +540,7 @@ describe('registry-derived keyless auth (BST-1349)', () => {
       if (provider.authType !== 'api_key') {
         continue;
       }
-      resolveProviderApiKey.mockResolvedValueOnce(undefined);
+      resolveProviderCredential.mockResolvedValueOnce(undefined);
       const result = await prepare(
         JSON.stringify({
           data: { provider: provider.id },
@@ -558,7 +565,7 @@ describe('registry-derived keyless auth (BST-1349)', () => {
         provider,
       });
       secretReadError.name = 'SecretReadError';
-      resolveProviderApiKey.mockRejectedValueOnce(secretReadError);
+      resolveProviderCredential.mockRejectedValueOnce(secretReadError);
 
       const result = await prepare(
         JSON.stringify({
@@ -581,7 +588,11 @@ describe('registry-derived keyless auth (BST-1349)', () => {
   );
 
   it('still fetches and injects a READABLE optional token for local-runtime servers', async () => {
-    resolveProviderApiKey.mockResolvedValueOnce('stored-ollama-token');
+    resolveProviderCredential.mockResolvedValueOnce({
+      key: 'stored-ollama-token',
+      source: 'stored',
+      type: 'api_key',
+    });
     const result = await prepare(
       JSON.stringify({
         data: { provider: 'ollama' },
@@ -605,7 +616,7 @@ describe('registry-derived keyless auth (BST-1349)', () => {
       })
     );
     expect(result.ok).toBe(true);
-    expect(resolveProviderApiKey).not.toHaveBeenCalled();
+    expect(resolveProviderCredential).not.toHaveBeenCalled();
   });
 
   it('injects the optional bearer token only for local-runtime servers', () => {
@@ -623,5 +634,127 @@ describe('registry-derived keyless auth (BST-1349)', () => {
         expect(hydrated.providerOptions, provider.id).toBeUndefined();
       }
     }
+  });
+});
+
+describe('typed credential seam (BST-1352)', () => {
+  it('resolves an api_key credential to the same prepared apiKey and exposes the credential', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      key: 'typed-key',
+      source: 'stored',
+      type: 'api_key',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'openai' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    expect(result.request.apiKey).toBe('typed-key');
+    expect(result.request.credential).toEqual({
+      key: 'typed-key',
+      source: 'stored',
+      type: 'api_key',
+    });
+  });
+
+  it('rejects a stored non-api_key credential as api_key_unreadable — NEVER missing_api_key', async () => {
+    // Regression pin: pre-BST-1352 the desktop getKey threw
+    // SecretReadError('credential_type_unsupported') for a stored oauth
+    // credential; the typed reader now RETURNS it and preparation must map it
+    // onto the exact same wire failure.
+    resolveProviderCredential.mockResolvedValueOnce({
+      access: 'a',
+      expires: 1,
+      refresh: 'r',
+      source: 'stored',
+      type: 'oauth',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'anthropic' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected rejection');
+    }
+    expect(result.rejection.status).toBe(400);
+    expect(result.rejection.payload).toMatchObject({
+      code: 'credential_type_unsupported',
+      error: 'api_key_unreadable',
+      provider: 'anthropic',
+    });
+    expect(result.rejection.payload.error).not.toBe('missing_api_key');
+  });
+
+  it('proceeds keyless (with a warn) when a keyless provider stores a non-api_key credential', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      access: 'a',
+      expires: 1,
+      refresh: 'r',
+      source: 'stored',
+      type: 'oauth',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'ollama' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    expect(result.request.apiKey).toBe('');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('token'),
+      expect.objectContaining({ provider: 'ollama' })
+    );
+  });
+});
+
+describe('createProviderApiKeyReader adapter (BST-1352 migration shim)', () => {
+  it('projects api_key credentials to their key string', async () => {
+    const reader = createProviderApiKeyReader(async () => ({
+      key: 'adapted-key',
+      source: 'env',
+      type: 'api_key',
+    }));
+    await expect(reader('openai')).resolves.toBe('adapted-key');
+  });
+
+  it('passes through not-configured as undefined', async () => {
+    const reader = createProviderApiKeyReader(async () => undefined);
+    await expect(reader('openai')).resolves.toBeUndefined();
+  });
+
+  it('throws a SecretReadError-shaped typed error on an oauth credential (never stringifies)', async () => {
+    const reader = createProviderApiKeyReader(async () => ({
+      access: 'secret-access-token',
+      expires: 1,
+      refresh: 'secret-refresh-token',
+      source: 'stored',
+      type: 'oauth',
+    }));
+    let thrown: unknown;
+    try {
+      await reader('anthropic');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(UnsupportedCredentialTypeError);
+    const shaped = thrown as UnsupportedCredentialTypeError;
+    expect(shaped.name).toBe('SecretReadError');
+    expect(shaped.code).toBe('credential_type_unsupported');
+    expect(shaped.provider).toBe('anthropic');
+    // The credential value must never leak through the error message.
+    expect(shaped.message).not.toContain('secret-access-token');
+    expect(shaped.message).not.toContain('secret-refresh-token');
   });
 });

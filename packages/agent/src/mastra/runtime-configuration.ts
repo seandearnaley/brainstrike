@@ -4,6 +4,11 @@ import {
   resolveProviderApiKey,
   type SupportedProvider,
 } from '../providers/key-resolver';
+import {
+  apiKeyAuthInput,
+  assertValidProviderAuthInput,
+  type ProviderAuthInput,
+} from '../providers/provider-auth-input';
 import { providerAuthType } from '../providers/types';
 import type { RuntimeData } from '../types';
 import { createMastraAgentError } from './mastra-agent-error';
@@ -12,12 +17,49 @@ const logger = createLogger('MastraAgentRuntimeConfig');
 
 export interface ResolvedRuntimeConfiguration {
   apiKey: string;
+  /**
+   * The auth input `instantiateLanguageModel` hands to `createProvider`
+   * (BST-1352). Populated from the caller's direct-parameter auth input when
+   * one was threaded, otherwise wrapped from the legacy runtime/env-resolved
+   * key. NEVER copied onto `runtime` — RuntimeData must not carry auth inputs.
+   */
+  authInput?: ProviderAuthInput;
   provider: SupportedProvider;
   runtime: RuntimeData & { provider: SupportedProvider };
 }
 
+/**
+ * Project a threaded auth input onto the resolved bearer-key string the rest
+ * of the runtime assembly consumes (`composeRuntimeToolMap`, persona pin
+ * reuse). Only `aws` has no bearer projection — it resolves to `''` WITHOUT
+ * tripping the missing-key rejection (SigV4 auth needs no bearer key; the
+ * factory owns aws consumption/validation).
+ */
+function bearerKeyForAuthInput(auth: ProviderAuthInput): {
+  apiKey: string;
+  requireNonEmpty: boolean;
+} {
+  switch (auth.kind) {
+    case 'api_key':
+      return { apiKey: auth.apiKey, requireNonEmpty: true };
+    case 'custom_fetch':
+      // The dummy key must exist (the SDK factories require one); an empty
+      // dummy is a malformed input surfaced via the same stable code.
+      return { apiKey: auth.apiKey, requireNonEmpty: true };
+    case 'aws':
+      return { apiKey: auth.apiKey ?? '', requireNonEmpty: false };
+    default: {
+      const unreachable: never = auth;
+      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+        detail: `Unhandled provider auth input kind: ${String((unreachable as { kind?: unknown }).kind)}.`,
+      });
+    }
+  }
+}
+
 export function resolveRuntimeConfiguration(
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  authInput?: ProviderAuthInput
 ): ResolvedRuntimeConfiguration {
   const rawProvider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
   if (!rawProvider) {
@@ -40,10 +82,36 @@ export function resolveRuntimeConfiguration(
     ? { ...runtimeData, provider: normalizedProvider }
     : { provider: normalizedProvider };
 
+  // Malformed auth inputs (aws without a region) fail HERE, before any keyless
+  // or missing-key decision — a shape error must never read as a key error.
+  assertValidProviderAuthInput(authInput);
+
   // Keyless providers (registry `authType: 'none'`) do not require API keys.
   if (providerAuthType(normalizedProvider) === 'none') {
     return {
       apiKey: '',
+      ...(authInput ? { authInput } : {}),
+      provider: normalizedProvider,
+      runtime: sanitizedRuntime,
+    };
+  }
+
+  if (authInput) {
+    // A threaded auth input is AUTHORITATIVE: no fallback into runtime/env
+    // key resolution behind the caller's back.
+    const bearer = bearerKeyForAuthInput(authInput);
+    if (bearer.requireNonEmpty && !bearer.apiKey) {
+      logger.warn('mastra agent missing api key', {
+        code: 'mastra_agent_missing_api_key',
+        provider: normalizedProvider,
+      });
+      throw createMastraAgentError('mastra_agent_missing_api_key', {
+        context: { provider: normalizedProvider },
+      });
+    }
+    return {
+      apiKey: bearer.apiKey,
+      authInput,
       provider: normalizedProvider,
       runtime: sanitizedRuntime,
     };
@@ -60,8 +128,12 @@ export function resolveRuntimeConfiguration(
     });
   }
 
+  // Legacy resolution wraps into the union so instantiateLanguageModel has
+  // ONE input shape (the ONE string→union adapter).
+  const legacyAuthInput = apiKeyAuthInput(apiKey);
   return {
     apiKey,
+    ...(legacyAuthInput ? { authInput: legacyAuthInput } : {}),
     provider: normalizedProvider,
     runtime: sanitizedRuntime,
   };

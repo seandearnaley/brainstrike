@@ -33,6 +33,10 @@ const desktopRendererOrigin = new URL(DESKTOP_DEV_RENDERER_URL).origin;
 
 const mockSecretsService = vi.hoisted(() => ({
   deleteKey: vi.fn(),
+  // BST-1352: assistant POST + OpenRouter metadata read the TYPED credential.
+  getCredential: vi.fn((_provider: string) =>
+    Promise.resolve({ key: 'test-api-key', type: 'api_key' as const })
+  ),
   getKey: vi.fn((_provider: string) => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
   saveKey: vi.fn(),
@@ -97,6 +101,9 @@ vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
 const runRequest = createRunRequest(handleAssistantRequest);
 
 beforeEach(() => {
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   mockDesktopDatabase.query.mockReset().mockResolvedValue({ rows: [] });
@@ -358,7 +365,10 @@ describe('status endpoint', () => {
 
 describe('OpenRouter model metadata endpoint', () => {
   it('returns selected OpenRouter model metadata from the bounded service', async () => {
-    mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
+    mockSecretsService.getCredential.mockResolvedValueOnce({
+      key: 'openrouter-key',
+      type: 'api_key',
+    });
     const get = vi.fn().mockResolvedValue({
       freshness: 'live',
       metadata: {
@@ -391,7 +401,7 @@ describe('OpenRouter model metadata endpoint', () => {
 
   it('surfaces an unreadable OpenRouter key without calling the metadata service', async () => {
     const { SecretReadError } = await import('../../secrets');
-    mockSecretsService.getKey.mockRejectedValueOnce(
+    mockSecretsService.getCredential.mockRejectedValueOnce(
       new SecretReadError('decrypt_failed', 'openrouter')
     );
     const get = vi.fn();
@@ -455,7 +465,10 @@ describe('OpenRouter model metadata endpoint', () => {
   });
 
   it('surfaces OpenRouter metadata failures without a static silent fallback', async () => {
-    mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
+    mockSecretsService.getCredential.mockResolvedValueOnce({
+      key: 'openrouter-key',
+      type: 'api_key',
+    });
     const get = vi.fn().mockRejectedValue(new Error('OpenRouter Models API returned status 503'));
     const response = await runRequest(
       {

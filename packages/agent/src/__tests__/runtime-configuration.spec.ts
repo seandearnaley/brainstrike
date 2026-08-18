@@ -46,3 +46,67 @@ describe('runtime configuration keyless providers (BST-1349)', () => {
     expect([...PERSONA_PIN_KEYLESS_PROVIDERS].sort()).toEqual([...KEYLESS_PROVIDERS].sort());
   });
 });
+
+describe('runtime configuration auth input (BST-1352)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('an api_key auth input is authoritative and lands on both apiKey and authInput', () => {
+    const resolved = resolveRuntimeConfiguration(
+      { provider: 'anthropic' },
+      { apiKey: 'direct-key', kind: 'api_key' }
+    );
+    expect(resolved.apiKey).toBe('direct-key');
+    expect(resolved.authInput).toEqual({ apiKey: 'direct-key', kind: 'api_key' });
+  });
+
+  it('an empty api_key auth input still fails as mastra_agent_missing_api_key (stable code)', () => {
+    for (const envKey of providerEnvKeys('anthropic')) {
+      vi.stubEnv(envKey, '');
+    }
+    expect(() =>
+      resolveRuntimeConfiguration({ provider: 'anthropic' }, { apiKey: '', kind: 'api_key' })
+    ).toThrowError(/missing_api_key/);
+  });
+
+  it('a custom_fetch auth input passes key resolution on its dummy key', () => {
+    const fakeFetch: typeof globalThis.fetch = () => Promise.reject(new Error('unused'));
+    const resolved = resolveRuntimeConfiguration(
+      { provider: 'anthropic' },
+      { apiKey: 'dummy', fetch: fakeFetch, kind: 'custom_fetch' }
+    );
+    expect(resolved.apiKey).toBe('dummy');
+    expect(resolved.authInput?.kind).toBe('custom_fetch');
+  });
+
+  it('an aws auth input without a region fails typed, never missing_api_key', () => {
+    expect(() =>
+      resolveRuntimeConfiguration({ provider: 'anthropic' }, { kind: 'aws', region: ' ' })
+    ).toThrowError(/region/);
+  });
+
+  it('an aws auth input with a region skips the bearer-key requirement', () => {
+    for (const envKey of providerEnvKeys('anthropic')) {
+      vi.stubEnv(envKey, '');
+    }
+    const resolved = resolveRuntimeConfiguration(
+      { provider: 'anthropic' },
+      { kind: 'aws', region: 'us-east-1' }
+    );
+    expect(resolved.apiKey).toBe('');
+    expect(resolved.authInput).toEqual({ kind: 'aws', region: 'us-east-1' });
+  });
+
+  it('without an auth input the legacy runtime/env resolution wraps into api_key kind', () => {
+    const resolved = resolveRuntimeConfiguration({ apiKey: 'runtime-key', provider: 'anthropic' });
+    expect(resolved.apiKey).toBe('runtime-key');
+    expect(resolved.authInput).toEqual({ apiKey: 'runtime-key', kind: 'api_key' });
+  });
+
+  it('keyless providers resolve with no auth input by default', () => {
+    const resolved = resolveRuntimeConfiguration({ provider: 'ollama' });
+    expect(resolved.apiKey).toBe('');
+    expect(resolved.authInput).toBeUndefined();
+  });
+});
