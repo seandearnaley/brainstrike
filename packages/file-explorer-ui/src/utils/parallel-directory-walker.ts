@@ -380,6 +380,7 @@ export async function walkDirectoryParallel(
       name: entry.name,
       path: childPath,
       platform: entryHandle?.platform ?? parentHandle.platform,
+      ...(entryHandle?.rootId === undefined ? {} : { rootId: entryHandle.rootId }),
     };
   }
 
