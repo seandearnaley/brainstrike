@@ -4,6 +4,13 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import {
+  findVariableInitializer,
+  parseTypeScriptSource,
+  readProviderTable,
+  readStringArray,
+  unwrapExpression,
+} from '../provider-registry-ast-helpers.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -25,106 +32,42 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const REGISTRY_PATH = path.join(repoRoot, 'packages/assistant-contract/src/provider-registry.ts');
 const INDEXING_PATH = path.join(repoRoot, 'packages/indexing-contract/src/index.ts');
 
-function parseSource(filePath) {
-  return ts.createSourceFile(
-    path.basename(filePath),
-    readFileSync(filePath, 'utf8'),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
+function parseFile(filePath) {
+  return parseTypeScriptSource(readFileSync(filePath, 'utf8'), path.basename(filePath));
 }
 
-function findVariableInitializer(sourceFile, variableName) {
-  let initializer;
-  const visit = (node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === variableName &&
-      node.initializer
-    ) {
-      initializer = node.initializer;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  assert.ok(initializer, `${sourceFile.fileName} must declare ${variableName}`);
-  return initializer;
-}
-
-function unwrapExpression(node) {
-  let current = node;
-  while (ts.isAsExpression(current) || ts.isParenthesizedExpression(current)) {
-    current = current.expression;
-  }
-  return current;
-}
-
-function readStringArray(node, context) {
-  const arrayNode = unwrapExpression(node);
-  assert.ok(ts.isArrayLiteralExpression(arrayNode), `${context} must be a static array literal`);
-  return arrayNode.elements.map((element) => {
-    assert.ok(ts.isStringLiteralLike(element), `${context} entries must be string literals`);
-    return element.text;
-  });
-}
-
-function readProviderTable(sourceFile, variableName, fields) {
-  const initializer = unwrapExpression(findVariableInitializer(sourceFile, variableName));
-  assert.ok(
-    ts.isArrayLiteralExpression(initializer),
-    `${variableName} must be a static array literal`
-  );
-  const providers = new Map();
-  for (const element of initializer.elements) {
-    assert.ok(ts.isObjectLiteralExpression(element), `${variableName} entries must be objects`);
-    const entry = {};
-    for (const property of element.properties) {
-      if (!(ts.isPropertyAssignment(property) && ts.isIdentifier(property.name))) {
-        continue;
-      }
-      const name = property.name.text;
-      if (name === 'id' || name === 'authType' || name === 'runtime') {
-        assert.ok(
-          ts.isStringLiteralLike(property.initializer),
-          `${variableName} ${name} must be a string literal`
-        );
-        entry[name] = property.initializer.text;
-      } else if (fields.includes(name)) {
-        entry[name] = readStringArray(property.initializer, `${variableName} ${name}`);
-      }
-    }
-    assert.ok(entry.id, `${variableName} entry is missing a literal id`);
-    providers.set(entry.id, entry);
-  }
-  return providers;
+function failOnProblem(message) {
+  assert.fail(message);
 }
 
 function readRegistryProviders() {
-  return readProviderTable(parseSource(REGISTRY_PATH), 'PROVIDER_DEFINITIONS', [
-    'envKeys',
-    'deprecatedEnvKeys',
-  ]);
+  return readProviderTable(
+    parseFile(REGISTRY_PATH),
+    'PROVIDER_DEFINITIONS',
+    ['envKeys', 'deprecatedEnvKeys'],
+    failOnProblem
+  );
 }
 
 function readIndexingProviders() {
-  return readProviderTable(parseSource(INDEXING_PATH), 'EMBEDDING_PROVIDER_DEFINITIONS', [
-    'envKeys',
-  ]);
+  return readProviderTable(
+    parseFile(INDEXING_PATH),
+    'EMBEDDING_PROVIDER_DEFINITIONS',
+    ['envKeys'],
+    failOnProblem
+  );
 }
 
 function readNoApiKeySet() {
-  const sourceFile = parseSource(INDEXING_PATH);
-  const initializer = unwrapExpression(
-    findVariableInitializer(sourceFile, 'NO_API_KEY_HOSTED_PROVIDERS')
-  );
+  const sourceFile = parseFile(INDEXING_PATH);
+  const declaration = findVariableInitializer(sourceFile, 'NO_API_KEY_HOSTED_PROVIDERS');
+  assert.ok(declaration, 'indexing-contract must declare NO_API_KEY_HOSTED_PROVIDERS');
+  const initializer = unwrapExpression(declaration);
   assert.ok(
     ts.isNewExpression(initializer) && initializer.arguments?.length === 1,
     'NO_API_KEY_HOSTED_PROVIDERS must be constructed from a static array'
   );
-  return readStringArray(initializer.arguments[0], 'NO_API_KEY_HOSTED_PROVIDERS');
+  return readStringArray(initializer.arguments[0], 'NO_API_KEY_HOSTED_PROVIDERS', failOnProblem);
 }
 
 test('indexing-contract envKeys mirror the registry canonical scheme exactly', () => {

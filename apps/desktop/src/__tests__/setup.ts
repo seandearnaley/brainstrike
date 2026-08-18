@@ -150,7 +150,8 @@ const mockProviderDefinitions = [
   {
     capabilities: { embeddings: true, llm: true, streaming: true },
     displayName: 'OpenAI',
-    envKeys: ['BRAINSTRIKE_OPENAI_API_KEY'],
+    // Mirrors the registry's canonical two-name scheme (BST-1361 review 10c).
+    envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
     models: [
       { default: true, id: 'gpt-5.2', supportsStreaming: true, type: 'llm' as const },
@@ -167,7 +168,7 @@ const mockProviderDefinitions = [
   {
     capabilities: { embeddings: false, llm: true, streaming: true },
     displayName: 'Anthropic',
-    envKeys: ['ANTHROPIC_API_KEY'],
+    envKeys: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
     id: 'anthropic',
     models: [{ default: true, id: 'claude-sonnet-4-6', type: 'llm' as const }],
     runtime: 'hosted',
@@ -175,7 +176,7 @@ const mockProviderDefinitions = [
   {
     capabilities: { embeddings: true, llm: true, streaming: true },
     displayName: 'Google AI Studio',
-    envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
+    envKeys: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     id: 'google',
     models: [
       { default: true, id: 'gemini-3.5-flash', type: 'llm' as const },

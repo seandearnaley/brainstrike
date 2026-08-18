@@ -77,13 +77,13 @@ describe('agent-client-loader', () => {
     expect(googleKeys).toEqual(['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY']);
 
     const openrouterKeys = module.getAgentProviderEnvKeys('openrouter');
-    expect(openrouterKeys).toContain('OPENROUTER_API_KEY');
+    expect(openrouterKeys).toEqual(['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY']);
 
     const cohereKeys = module.getAgentProviderEnvKeys('cohere');
-    expect(cohereKeys).toContain('COHERE_API_KEY');
+    expect(cohereKeys).toEqual(['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY']);
 
     const voyageKeys = module.getAgentProviderEnvKeys('voyage');
-    expect(voyageKeys).toContain('VOYAGE_API_KEY');
+    expect(voyageKeys).toEqual(['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY']);
 
     // Local runtime providers have no env keys
     const ollamaKeys = module.getAgentProviderEnvKeys('ollama');

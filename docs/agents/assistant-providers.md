@@ -184,6 +184,14 @@
     user files); they stay in the child-env credential scrubber forever (a
     credential-shaped var must never leak to children); and they are ABSENT
     from every resolution list, so a deprecated var never authenticates.
+    Scope: the scheme and its deprecation claims cover exactly the six keyed
+    providers above. The local runtimes' optional embeddings bearer tokens
+    (`OLLAMA_API_KEY`/`AI_OLLAMA_API_KEY`, `LMSTUDIO_API_KEY`/
+    `AI_LMSTUDIO_API_KEY`) are separate LIVE transport names outside the
+    registry scheme — not deprecated, not `.env`-file-loadable (they are not
+    allow-listed), resolved only from the launch environment by the
+    embeddings resolver. Consolidating them is flagged for the BST-1362/1358
+    settings work.
     When set, they surface visibly: desktop main detects them once at startup
     (`detectDeprecatedProviderEnvVars`), logs a warning, and `/assistant/status`
     (and the Hosted Web status route) carry
