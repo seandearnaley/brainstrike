@@ -5,7 +5,7 @@
 // these edges, and no silent
 // invariant ("everyone remembers import type") is required (#2111 review).
 
-import type { DeprecatedEnvVarReport } from '@brainstrike/assistant-contract/provider-env-deprecation';
+import type { DeprecatedEnvVarReport } from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
 import type { DesktopEnvLoadFailure } from '../desktop-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';

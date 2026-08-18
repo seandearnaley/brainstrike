@@ -103,27 +103,45 @@ export function resolveAssistantProviderConfigs(
   }).filter(isConfiguredAssistantProvider);
 }
 
+// BST-1361: rename warnings for deprecated env names, computed from this
+// server's own environment, restricted to the Hosted Web provider set, and
+// memoized for the process lifetime (review 10b) — the server environment is
+// immutable after boot, so per-request re-scans buy nothing.
+let cachedDeprecatedEnvVarReports: readonly DeprecatedEnvVarReport[] | undefined;
+
+function hostedWebDeprecatedEnvVars(): readonly DeprecatedEnvVarReport[] {
+  if (!cachedDeprecatedEnvVarReports) {
+    cachedDeprecatedEnvVarReports = detectDeprecatedProviderEnvVars(process.env).filter((report) =>
+      isHostedWebAssistantProvider(report.provider)
+    );
+  }
+  return cachedDeprecatedEnvVarReports;
+}
+
+/** Tests mutate process.env per case; production never calls this. */
+export function resetHostedWebDeprecatedEnvVarsForTests(): void {
+  cachedDeprecatedEnvVarReports = undefined;
+}
+
 export function resolveHostedWebAssistantStatus(
   resolveConfig: (
     provider: HostedWebAssistantProvider
   ) => AssistantProviderConfig = resolveAssistantProviderConfig
 ): HostedWebAssistantStatusPayload {
-  // BST-1361: rename warnings for deprecated env names, computed from this
-  // server's own environment and restricted to the Hosted Web provider set.
-  const deprecatedReports = detectDeprecatedProviderEnvVars(process.env).filter((report) =>
-    isHostedWebAssistantProvider(report.provider)
-  );
-  const deprecatedEnvVars =
-    deprecatedReports.length > 0 ? { deprecatedEnvVars: deprecatedReports } : {};
-
   const configuredProviders = resolveAssistantProviderConfigs(resolveConfig);
   const primary = configuredProviders[0];
   if (!primary) {
-    return { ...deprecatedEnvVars, enabled: false, reason: 'missing_api_key' };
+    // Disclosure gate (BST-1361 review 4): production/anonymous deployments
+    // serve this route disabled — a disabled payload must not reveal which
+    // env names exist on the server. Rename guidance rides only the
+    // credentialed (local Vite / protected Preview) enabled state.
+    return { enabled: false, reason: 'missing_api_key' };
   }
 
+  const deprecatedReports = hostedWebDeprecatedEnvVars();
+
   return {
-    ...deprecatedEnvVars,
+    ...(deprecatedReports.length > 0 ? { deprecatedEnvVars: deprecatedReports } : {}),
     enabled: true,
     model: resolveHostedWebAssistantModel(primary.provider),
     provider: primary.provider,

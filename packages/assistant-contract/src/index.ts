@@ -24,7 +24,6 @@ export * from './openrouter-coding-defaults.js';
 export * from './openrouter-model-metadata.js';
 export * from './personas.js';
 export * from './provider-credential.js';
-export * from './provider-env-deprecation.js';
 export * from './provider-key-resolution.js';
 export * from './provider-key-source.js';
 export * from './provider-metadata.js';

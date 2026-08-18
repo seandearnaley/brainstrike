@@ -2,7 +2,11 @@ import {
   resolveHostedProviderKey,
   SECRETS_CHANGED_EVENT_NAME,
 } from '@brainstrike/assistant-contract/provider-key-resolution';
-import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  providerDeprecatedEnvKeys,
+  providerEnvKeys,
+  providerVendorEnvKey,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import type { HostedProviderType } from '../../provider-types.js';
 
 type HostedProvider = HostedProviderType;
@@ -18,7 +22,7 @@ type HostedProvider = HostedProviderType;
  * store is the fallback. Each name is also checked with a `VITE_` prefix for
  * SSR/renderer builds.
  */
-const ENV_KEYS: Record<HostedProvider, readonly string[]> = {
+export const HOSTED_PROVIDER_ENV_KEYS: Record<HostedProvider, readonly string[]> = {
   cohere: providerEnvKeys('cohere'),
   google: providerEnvKeys('google'),
   lmstudio: ['LMSTUDIO_API_KEY', 'AI_LMSTUDIO_API_KEY'],
@@ -29,8 +33,48 @@ const ENV_KEYS: Record<HostedProvider, readonly string[]> = {
 };
 
 function envKeyNamesWithViteVariants(provider: HostedProvider): readonly string[] {
-  const names = ENV_KEYS[provider] ?? [];
+  const names = HOSTED_PROVIDER_ENV_KEYS[provider] ?? [];
   return [...names, ...names.map((name) => `VITE_${name}`)];
+}
+
+export interface DeprecatedHostedEnvNameHit {
+  readonly envVar: string;
+  readonly replacement: string;
+}
+
+/**
+ * Deprecated env names (BST-1361) currently SET in this runtime's env
+ * sources for a hosted provider, plain and `VITE_`-prefixed — the same
+ * prefix rule the resolver applies to canonical names, so a renderer/SSR
+ * build that once authenticated via `VITE_GOOGLE_API_KEY` gets rename
+ * guidance instead of a silent death. Detection only: these names NEVER
+ * resolve a key. Names only — values never leave this function.
+ */
+export function detectDeprecatedHostedProviderEnvNames(
+  provider: HostedProvider
+): readonly DeprecatedHostedEnvNameHit[] {
+  const vendorName = providerVendorEnvKey(provider);
+  if (!vendorName) {
+    return [];
+  }
+  const candidates = providerDeprecatedEnvKeys(provider).flatMap((name) => [
+    { envVar: name, replacement: vendorName },
+    { envVar: `VITE_${name}`, replacement: `VITE_${vendorName}` },
+  ]);
+  if (candidates.length === 0) {
+    return [];
+  }
+  const candidateNames = candidates.map(({ envVar }) => envVar);
+  const sources = [
+    snapshotEnvSource(readProcessEnv(), candidateNames),
+    snapshotEnvSource(readImportMetaEnv(), candidateNames),
+  ];
+  return candidates.filter(({ envVar }) =>
+    sources.some((source) => {
+      const value = source?.[envVar];
+      return typeof value === 'string' && value.trim().length > 0;
+    })
+  );
 }
 
 /**

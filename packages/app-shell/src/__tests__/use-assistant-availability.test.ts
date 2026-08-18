@@ -362,8 +362,66 @@ describe('fetchAssistantStatusState', () => {
     });
   });
 
+  it('carries deprecated env-var reports alongside a configuration failure (BST-1361 review 5)', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        deprecatedEnvVars: [
+          { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+        ],
+        enabled: false,
+        envFileFailures: [
+          {
+            code: 'env_file_invalid',
+            file: 'dev-local',
+            message: 'Desktop environment file "dev-local" is invalid at line 2.',
+          },
+        ],
+        error: 'assistant_configuration_invalid',
+        message: 'Desktop environment configuration is invalid.',
+        providers: [],
+      }),
+      ok: true,
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      fetchImpl,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      deprecatedEnvVars: [
+        { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+      ],
+      envFileFailures: [
+        {
+          code: 'env_file_invalid',
+          file: 'dev-local',
+          message: 'Desktop environment file "dev-local" is invalid at line 2.',
+        },
+      ],
+      message: 'Desktop environment configuration is invalid.',
+      state: 'error',
+    });
+  });
+
   it.each([
     ['a non-array report list', { deprecatedEnvVars: {} }],
+    [
+      'a report whose envVar is not a registry-deprecated name for its provider',
+      {
+        deprecatedEnvVars: [
+          { envVar: 'OPENAI_API_KEY', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+        ],
+      },
+    ],
+    [
+      'a report whose envVar belongs to a different provider',
+      {
+        deprecatedEnvVars: [
+          { envVar: 'GOOGLE_API_KEY', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+        ],
+      },
+    ],
     [
       'a report missing its replacement',
       { deprecatedEnvVars: [{ envVar: 'X', provider: 'openai' }] },

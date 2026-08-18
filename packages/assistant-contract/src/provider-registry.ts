@@ -1484,6 +1484,26 @@ export function getProviderDeprecatedEnvKeys(provider: ProviderId): readonly str
   return getProviderDefinition(provider).deprecatedEnvKeys ?? [];
 }
 
+const BRAINSTRIKE_ENV_KEY_PREFIX = 'BRAINSTRIKE_';
+
+/**
+ * The app-scoped `BRAINSTRIKE_<PROVIDER>_API_KEY` override name (BST-1361).
+ * Role-based, not positional: the override IS the `BRAINSTRIKE_`-prefixed
+ * member of the canonical pair (pinned by provider-env-deprecation.test.ts).
+ * `undefined` for keyless providers.
+ */
+export function getProviderOverrideEnvKey(provider: ProviderId): string | undefined {
+  return getProviderEnvKeys(provider).find((name) => name.startsWith(BRAINSTRIKE_ENV_KEY_PREFIX));
+}
+
+/**
+ * The vendor-standard env name (e.g. `OPENAI_API_KEY`) — the non-override
+ * member of the canonical pair (BST-1361). `undefined` for keyless providers.
+ */
+export function getProviderVendorEnvKey(provider: ProviderId): string | undefined {
+  return getProviderEnvKeys(provider).find((name) => !name.startsWith(BRAINSTRIKE_ENV_KEY_PREFIX));
+}
+
 export function providerSupportsStandardEmbeddingDimension(provider: ProviderId): boolean {
   if (!getProviderDefinition(provider).capabilities.embeddings) {
     return false;

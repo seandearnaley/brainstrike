@@ -9,6 +9,7 @@ import {
   isSupportedProvider,
   isValidModelForProvider,
   PROVIDER_DEFAULT_MODELS,
+  providerDeprecatedEnvKeys,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -49,6 +50,7 @@ export type AssistantAvailabilityStatus =
     }
   | {
       state: 'error';
+      deprecatedEnvVars?: readonly DeprecatedEnvVarReport[];
       envFileFailures?: readonly AssistantEnvironmentFileFailure[];
       message: string;
     };
@@ -444,6 +446,10 @@ function parseAssistantDeprecatedEnvVars(
       envVar.trim().length === 0 ||
       typeof provider !== 'string' ||
       !isSupportedProvider(provider) ||
+      // Registry cross-check (review 10a): the reported name must actually be
+      // a deprecated name for that provider — same discipline the key-source
+      // parser applies to providerEnvKeys.
+      !providerDeprecatedEnvKeys(provider).includes(envVar) ||
       typeof replacement !== 'string' ||
       replacement.trim().length === 0
     ) {
@@ -579,8 +585,14 @@ function validateProviderStatusConsistency({
 function parseAssistantConfigurationError(
   payload: Record<string, unknown>
 ): AssistantAvailabilityStatus {
+  // `deprecatedEnvVars` is the one optional key (BST-1361): a rejected env
+  // file and a deprecated alias frequently co-occur, and the rename guidance
+  // must survive the failure payload.
+  const expectedKeys = Object.hasOwn(payload, 'deprecatedEnvVars')
+    ? ['deprecatedEnvVars', 'enabled', 'envFileFailures', 'error', 'message', 'providers']
+    : ['enabled', 'envFileFailures', 'error', 'message', 'providers'];
   if (
-    !hasExactOwnKeys(payload, ['enabled', 'envFileFailures', 'error', 'message', 'providers']) ||
+    !hasExactOwnKeys(payload, expectedKeys) ||
     payload['enabled'] !== false ||
     payload['error'] !== 'assistant_configuration_invalid' ||
     typeof payload['message'] !== 'string' ||
@@ -594,7 +606,9 @@ function parseAssistantConfigurationError(
   if (envFileFailures.length === 0) {
     throw new Error('Invalid assistant configuration error');
   }
+  const deprecatedEnvVars = parseAssistantDeprecatedEnvVars(payload['deprecatedEnvVars']);
   return {
+    ...(deprecatedEnvVars ? { deprecatedEnvVars } : {}),
     envFileFailures,
     message: payload['message'],
     state: 'error',

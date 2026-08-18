@@ -50,12 +50,25 @@ export async function handleAssistantStatus(
   options: AssistantServerOptions
 ): Promise<void> {
   try {
+    // BST-1361: rename warnings for deprecated env names. Desktop MAIN
+    // computed these from its own process env at startup (see
+    // AssistantServerOptions.deprecatedEnvVars); absence and empty both omit
+    // the field so unaffected payloads are unchanged. A rejected env FILE
+    // does not suppress them: the inherited process env can still carry a
+    // deprecated name, and the repair guidance is most useful exactly when
+    // the user is already editing their environment.
+    const deprecatedEnvVars =
+      options.deprecatedEnvVars && options.deprecatedEnvVars.length > 0
+        ? { deprecatedEnvVars: options.deprecatedEnvVars }
+        : {};
+
     if (options.envFileFailures && options.envFileFailures.length > 0) {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store');
       res.statusCode = 200;
       res.end(
         JSON.stringify({
+          ...deprecatedEnvVars,
           enabled: false,
           envFileFailures: options.envFileFailures,
           error: 'assistant_configuration_invalid',
@@ -68,14 +81,6 @@ export async function handleAssistantStatus(
 
     const { providerErrors, providerKeySources, providers } = await collectAvailableProviders();
     const enabled = providers.length > 0;
-    // BST-1361: rename warnings for deprecated env names. Desktop MAIN
-    // computed these from its own process env at startup (see
-    // AssistantServerOptions.deprecatedEnvVars); absence and empty both omit
-    // the field so unaffected payloads are unchanged.
-    const deprecatedEnvVars =
-      options.deprecatedEnvVars && options.deprecatedEnvVars.length > 0
-        ? { deprecatedEnvVars: options.deprecatedEnvVars }
-        : {};
     const payload = enabled
       ? {
           ...deprecatedEnvVars,

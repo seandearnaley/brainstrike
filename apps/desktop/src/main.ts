@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-env-deprecation';
+import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   addLogListener,
@@ -157,10 +157,6 @@ import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const desktopEnvLoadResult = getDesktopEnvironmentBootstrapResult();
-// BST-1361: deprecated env names are detected ONCE at startup from this
-// process's own environment (files are already applied by main-bootstrap) and
-// surfaced through /assistant/status; they never authenticate.
-const deprecatedEnvVarReports = detectDeprecatedProviderEnvVars(process.env);
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
@@ -1666,6 +1662,13 @@ if (singleInstanceLockAcquired) {
         logger.error('Desktop environment file rejected', failure);
       }
 
+      // BST-1361: deprecated env names are detected ONCE per launch from this
+      // process's own environment (files were applied by main-bootstrap) and
+      // surfaced through /assistant/status; they never authenticate. Invoked
+      // INSIDE app-ready (review 10i) so a hypothetical registry-authoring
+      // throw surfaces through the normal startup error path instead of a
+      // pre-ready module-evaluation crash.
+      const deprecatedEnvVarReports = detectDeprecatedProviderEnvVars(process.env);
       if (deprecatedEnvVarReports.length > 0) {
         // Names only — never values. Logged once per launch (BST-1361).
         logger.warn('Deprecated provider environment variables are set and will not authenticate', {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getAssistantApiKey,
   HOSTED_WEB_ASSISTANT_PROVIDERS,
+  resetHostedWebDeprecatedEnvVarsForTests,
   resolveAssistantProviderConfig,
   resolveAssistantProviderConfigs,
   resolveHostedWebAssistantStatus,
@@ -47,10 +48,14 @@ describe('assistant-config', () => {
   beforeEach(() => {
     snapshotApiKeys();
     clearApiKeys();
+    // The deprecated-name scan memoizes per process (server env is
+    // boot-immutable); tests mutate process.env per case.
+    resetHostedWebDeprecatedEnvVarsForTests();
   });
 
   afterEach(() => {
     restoreApiKeys();
+    resetHostedWebDeprecatedEnvVarsForTests();
   });
 
   it('uses the canonical registry precedence within a provider', () => {
@@ -80,7 +85,7 @@ describe('assistant-config', () => {
     });
   });
 
-  it('never authenticates a deprecated name and reports the rename in status (BST-1361)', () => {
+  it('never authenticates a deprecated name, and a DISABLED status leaks no env-name presence (BST-1361 review 4)', () => {
     process.env['OPENAI_API_KEY_V2'] = 'legacy-secret';
 
     const config = resolveAssistantProviderConfig('openai');
@@ -90,14 +95,11 @@ describe('assistant-config', () => {
       provider: 'openai',
     });
 
+    // Production/anonymous deployments answer this route too: a disabled
+    // payload must not disclose which env names exist on the server.
     const status = resolveHostedWebAssistantStatus();
-    expect(status).toEqual({
-      deprecatedEnvVars: [
-        { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
-      ],
-      enabled: false,
-      reason: 'missing_api_key',
-    });
+    expect(status).toEqual({ enabled: false, reason: 'missing_api_key' });
+    expect(JSON.stringify(status)).not.toContain('OPENAI_API_KEY_V2');
     expect(JSON.stringify(status)).not.toContain('legacy-secret');
   });
 

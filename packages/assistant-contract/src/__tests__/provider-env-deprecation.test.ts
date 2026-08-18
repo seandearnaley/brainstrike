@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   detectDeprecatedProviderEnvVars,
   providerDeprecatedEnvKeys,
-} from '../provider-env-deprecation.js';
-import { providerEnvKeys } from '../provider-metadata.js';
+  providerEnvKeys,
+  providerOverrideEnvKey,
+  providerVendorEnvKey,
+} from '../provider-metadata.js';
 import { getProviderDeprecatedEnvKeys, listProviders } from '../provider-registry.js';
 
 /**
@@ -31,11 +33,20 @@ const EXPECTED_DEPRECATED_KEYS = {
   voyage: ['AI_VOYAGE_API_KEY'],
 } as const;
 
-const API_KEY_PROVIDER_IDS = Object.keys(VENDOR_STANDARD_NAMES) as ReadonlyArray<
-  keyof typeof VENDOR_STANDARD_NAMES
->;
+// Registry-derived iteration (never a hand list); the maps above stay as
+// explicit expectation pins and must cover exactly this set.
+const API_KEY_PROVIDER_IDS = listProviders()
+  .filter((provider) => provider.authType === 'api_key')
+  .map((provider) => provider.id) as ReadonlyArray<keyof typeof VENDOR_STANDARD_NAMES>;
 
 describe('canonical two-name env scheme', () => {
+  it('the expectation pins cover exactly the registry api_key providers', () => {
+    expect([...API_KEY_PROVIDER_IDS].sort()).toEqual(Object.keys(VENDOR_STANDARD_NAMES).sort());
+    expect(Object.keys(EXPECTED_DEPRECATED_KEYS).sort()).toEqual(
+      Object.keys(VENDOR_STANDARD_NAMES).sort()
+    );
+  });
+
   it('every api_key provider declares exactly BRAINSTRIKE_* then the vendor name', () => {
     for (const provider of listProviders()) {
       if (provider.authType !== 'api_key') {
@@ -46,6 +57,27 @@ describe('canonical two-name env scheme', () => {
         `BRAINSTRIKE_${provider.id.toUpperCase()}_API_KEY`,
         VENDOR_STANDARD_NAMES[id],
       ]);
+    }
+  });
+
+  it('named role accessors resolve the override and vendor names (BST-1361 review 6)', () => {
+    for (const id of API_KEY_PROVIDER_IDS) {
+      const envKeys = providerEnvKeys(id);
+      expect(envKeys, `${id} must declare exactly two names`).toHaveLength(2);
+      expect(providerOverrideEnvKey(id)).toBe(envKeys[0]);
+      expect(providerOverrideEnvKey(id)).toBe(`BRAINSTRIKE_${id.toUpperCase()}_API_KEY`);
+      expect(providerVendorEnvKey(id)).toBe(envKeys[1]);
+      expect(providerVendorEnvKey(id)?.startsWith('BRAINSTRIKE_')).toBe(false);
+    }
+  });
+
+  it('named role accessors return undefined for keyless providers', () => {
+    for (const provider of listProviders()) {
+      if (provider.authType !== 'none') {
+        continue;
+      }
+      expect(providerOverrideEnvKey(provider.id)).toBeUndefined();
+      expect(providerVendorEnvKey(provider.id)).toBeUndefined();
     }
   });
 
@@ -137,6 +169,14 @@ describe('detectDeprecatedProviderEnvVars', () => {
         provider: 'openrouter',
         replacement: 'OPENROUTER_API_KEY',
       },
+    ]);
+  });
+
+  it('matches deprecated names case-insensitively, reporting the canonical spelling', () => {
+    // Windows environment names are case-insensitive; apply the same rule on
+    // every platform, mirroring createCredentialIsolatedChildEnvironment.
+    expect(detectDeprecatedProviderEnvVars({ ai_openai_api_key: 'x' })).toEqual([
+      { envVar: 'AI_OPENAI_API_KEY', provider: 'openai', replacement: 'OPENAI_API_KEY' },
     ]);
   });
 
