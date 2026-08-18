@@ -351,6 +351,10 @@ fails closed. The one classification consistently selects the synthetic
 root cannot mix synthetic and native authorization mechanics. Unit tests that
 exercise native composition inject the registry's secure-root/read-path seam as
 one required pair.
+Legacy mock/fixture read shortcuts consult that same frozen root classification;
+an explicitly native mock-prefixed root therefore stays on its mounted secure
+capability. If canonical binding rejects a newly opened native capability, the
+registration path closes it before propagating the conflict.
 
 Symlink/reparse entries remain explicit file-shaped Explorer rows so indexing
 attempts produce the existing visible inaccessible-file result; native reads

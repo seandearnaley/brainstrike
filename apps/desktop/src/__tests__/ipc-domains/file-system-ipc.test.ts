@@ -153,6 +153,103 @@ describe('file system IPC domain', () => {
     expect(fileSystem.readFile).not.toHaveBeenCalled();
   });
 
+  it('keeps explicit native classification authoritative for mock-prefixed reads', async () => {
+    fileSystem = createFileSystem('/mock/native-root');
+    const nativeListDir = vi.fn(async () => ({
+      entries: [
+        {
+          isDirectory: false,
+          isFile: true,
+          isSymbolicLink: false,
+          name: 'native.txt',
+        },
+      ],
+      inspected: 1,
+      truncated: false,
+    }));
+    const nativeReadFile = vi.fn(async () => ({
+      content: Buffer.from('native content'),
+      status: 'ok' as const,
+    }));
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => false,
+      storage,
+      workspaceRootRegistryFileSystemSeams: {
+        createSecureRoot: async () => ({
+          canonicalPath: '/mock/native-root',
+          close: () => undefined,
+          listDir: nativeListDir,
+          readFile: nativeReadFile,
+        }),
+        resolveReadPath: async (requestedPath) => requestedPath,
+      },
+    });
+
+    const descriptor = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as {
+      handle: DirectoryHandle;
+    };
+    const fileHandle = {
+      kind: 'file',
+      name: 'native.txt',
+      path: '/mock/native-root/native.txt',
+      platform: 'electron',
+      rootId: descriptor.handle.rootId,
+    } satisfies FileHandle;
+
+    await expect(
+      handlers.get('fs:readDirectory')?.({} as IpcMainInvokeEvent, descriptor.handle)
+    ).resolves.toMatchObject([{ name: 'native.txt' }]);
+    await expect(handlers.get('fs:readFile')?.({} as IpcMainInvokeEvent, fileHandle)).resolves.toBe(
+      'native content'
+    );
+    await expect(
+      handlers.get('fs:readFileByPath')?.({} as IpcMainInvokeEvent, fileHandle.path)
+    ).resolves.toBe('native content');
+    expect(nativeListDir).toHaveBeenCalledOnce();
+    expect(nativeReadFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('closes a native capability when canonical classification conflicts', async () => {
+    fileSystem = createFileSystem('/mock/test/directory');
+    const closeNativeRoot = vi.fn();
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: (rootPath) => rootPath === '/mock/test/directory',
+      storage,
+      workspaceRootRegistryFileSystemSeams: {
+        createSecureRoot: async () => ({
+          canonicalPath: '/mock/test/directory',
+          close: closeNativeRoot,
+          listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+          readFile: async () => ({ content: Buffer.alloc(0), status: 'ok' }),
+        }),
+        resolveReadPath: async (requestedPath) => requestedPath,
+      },
+    });
+
+    const syntheticDescriptor = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as {
+      handle: DirectoryHandle;
+    };
+    await handlers.get('fs:removeRoot')?.(
+      {} as IpcMainInvokeEvent,
+      syntheticDescriptor.handle.rootId
+    );
+    vi.mocked(fileSystem.requestDirectoryAccess).mockResolvedValueOnce({
+      kind: 'directory',
+      name: 'workspace',
+      path: '/users/test/workspace',
+      platform: 'electron',
+    });
+
+    await expect(handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)).rejects.toThrow(
+      'Conflicting filesystem classification'
+    );
+    expect(closeNativeRoot).toHaveBeenCalledOnce();
+  });
+
   it('keeps fixture I/O isolated from the real adapter while still stamping authority', async () => {
     vi.stubEnv('NODE_ENV', 'test');
     const fixtureRoot = {

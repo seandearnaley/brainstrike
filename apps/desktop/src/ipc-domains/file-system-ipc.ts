@@ -75,6 +75,7 @@ interface ElectronE2eFileSystemFixture {
 }
 
 const MOCK_PATH_PREFIX = '/mock/' as const;
+const MOCK_ROOT_PATH = '/mock/test/directory' as const;
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
@@ -380,7 +381,12 @@ export function registerFileSystemIpcHandlers({
                 secureRoot.readFileAsync(relativePath, maxBytes),
             };
           })();
-      bindSyntheticFileSystemClassification(root.canonicalPath, false);
+      try {
+        bindSyntheticFileSystemClassification(root.canonicalPath, false);
+      } catch (error) {
+        root.close();
+        throw error;
+      }
       return root;
     },
     disposeCommandSessionsForRoot,
@@ -445,7 +451,7 @@ export function registerFileSystemIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.readDirectory,
     async (_event, handle: DirectoryHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readDirectoryCalls.push(handle.path);
         await waitForFixtureDirectoryReadDelay(resolveFixtureDirectoryReadDelayMs(fixture));
         const entries = fixture.directoriesByPath[handle.path];
@@ -459,9 +465,8 @@ export function registerFileSystemIpcHandlers({
         return entries;
       }
 
-      if (isMockFileSystemIpcPath(handle.path)) {
-        const rootPath = '/mock/test/directory';
-        return getTestDirectoryStructure(rootPath);
+      if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
+        return getTestDirectoryStructure(MOCK_ROOT_PATH);
       }
       return roots.readDirectory(await resolveDirectoryHandle(handle));
     }
@@ -472,7 +477,7 @@ export function registerFileSystemIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.readFile,
     async (_event, handle: FileHandle) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readFileCalls.push(handle.path);
         const content = fixture.fileContentsByPath[handle.path];
         if (content === undefined) {
@@ -485,7 +490,7 @@ export function registerFileSystemIpcHandlers({
         return content;
       }
 
-      if (isMockFileSystemIpcPath(handle.path)) {
+      if (isMockFileSystemIpcPath(handle.path) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
       try {
@@ -506,7 +511,7 @@ export function registerFileSystemIpcHandlers({
     DESKTOP_IPC_CHANNELS.files.readFileByPath,
     async (_event, absolutePath: string) => {
       const fixture = getElectronE2eFileSystemFixture();
-      if (fixture) {
+      if (fixture && usesSyntheticFileSystem(fixture.rootHandle.path)) {
         fixture.readFileByPathCalls.push(absolutePath);
         const content = fixture.fileContentsByPath[absolutePath];
         if (content === undefined) {
@@ -519,7 +524,7 @@ export function registerFileSystemIpcHandlers({
         return content;
       }
 
-      if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
+      if (absolutePath.startsWith(MOCK_PATH_PREFIX) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
 
