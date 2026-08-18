@@ -312,6 +312,31 @@ describe('typed provider credentials (BST-1348)', () => {
       await expect(svc.getCredential('anthropic')).resolves.toBeNull();
       await expect(svc.listProviders()).resolves.toEqual([]);
     });
+
+    it('clearAll wipes an ENGINE-written oauth credential (BST-1355: factory reset covers the OAuth engine)', async () => {
+      // Persist through the engine's own credential projection so this guard
+      // tracks the exact shape the OAuth engine writes (including accountId),
+      // not a hand-rolled approximation.
+      const { toStoredOAuthCredential } = await import('../provider-auth/oauth-flow');
+      const store = fakeStore();
+      const svc = service(store);
+      const credential = toStoredOAuthCredential(
+        {
+          accessToken: 'engine-access-token',
+          expiresInSeconds: 3600,
+          raw: { account_id: 'acct-9' },
+          refreshToken: 'engine-refresh-token',
+        },
+        { accountId: 'acct-9', now: 1_700_000_000_000 }
+      );
+      await svc.setCredential('fake-oauth-provider', credential);
+      await expect(svc.getCredential('fake-oauth-provider')).resolves.toEqual(credential);
+
+      await expect(svc.clearAll()).resolves.toBe(true);
+
+      await expect(svc.getCredential('fake-oauth-provider')).resolves.toBeNull();
+      await expect(svc.listProviders()).resolves.toEqual([]);
+    });
   });
 });
 

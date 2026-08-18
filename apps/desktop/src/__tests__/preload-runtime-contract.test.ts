@@ -9,6 +9,7 @@ import {
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
 import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
+import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
 import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
 import { SKILLS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/skills-bridge';
 import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
@@ -309,6 +310,10 @@ describe('preload runtime contract', () => {
       MCP_TOOLS_RESET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsReset,
       MCP_TOOLS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated,
       PARSER_HOST_PARSE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.parserHostParse,
+      PROVIDER_AUTH_CANCEL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.cancel,
+      PROVIDER_AUTH_DISCONNECT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.disconnect,
+      PROVIDER_AUTH_START_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.start,
+      PROVIDER_AUTH_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.status,
       RUNTIME_LIST_MODELS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.listModels,
       RUNTIME_PROBE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.probe,
       RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL:
@@ -357,6 +362,7 @@ describe('preload runtime contract', () => {
       git: GIT_BRIDGE_REQUIRED_METHODS,
       notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
+      providerAuth: PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS,
       secrets: SECRETS_BRIDGE_REQUIRED_METHODS,
       skills: SKILLS_BRIDGE_REQUIRED_METHODS,
       terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,

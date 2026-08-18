@@ -108,6 +108,7 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
+import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
@@ -132,6 +133,7 @@ import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { createShellIpcHandlers } from './ipc-shell-handlers';
 import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -149,6 +151,7 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { registerPrivilegedSchemes } from './privileged-schemes';
+import { createProviderAuthEngine } from './provider-auth/provider-auth-engine';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -1679,8 +1682,29 @@ if (singleInstanceLockAcquired) {
       }
 
       logger.debug('Setting up IPC handlers that require app readiness...');
-      registerSecretsIpcHandlers(createSecretsService(), {
+      // ONE SecretsService instance is shared by the secrets IPC domain and
+      // the provider-auth engine — two ElectronStore instances over the same
+      // file would serve stale reads to each other.
+      const secretsService = createSecretsService();
+      registerSecretsIpcHandlers(secretsService, {
         envFileFailures: desktopEnvLoadResult.failures,
+      });
+      // Provider OAuth engine (BST-1355). Descriptor registry ships EMPTY —
+      // BST-1356 registers the first real provider. The browser opener is the
+      // SAME validated shell.openExternal path the shell IPC domain uses
+      // (allow-listed protocols; never an embedded webview), and a failed
+      // open surfaces as a typed visible error.
+      const shellOpenHandlers = createShellIpcHandlers({ shell });
+      registerProviderAuthIpcHandlers({
+        engine: createProviderAuthEngine({
+          openExternal: async (url) => {
+            const result = await shellOpenHandlers.openExternal(url);
+            if (!result.ok) {
+              throw new Error(result.error ?? 'shell.openExternal failed');
+            }
+          },
+          secrets: secretsService,
+        }),
       });
       registerAgentIpcHandlers();
       unregisterMcpIpcHandlers = registerMcpIpcHandlers();
