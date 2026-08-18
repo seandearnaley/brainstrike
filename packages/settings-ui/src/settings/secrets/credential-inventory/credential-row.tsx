@@ -27,6 +27,8 @@ interface CredentialRowProps {
   readonly draftKey: string;
   readonly draftRegion: string;
   readonly editing: boolean;
+  /** Cross-link target (BST-1363): scrolls into view and rings once. */
+  readonly highlighted: boolean;
   readonly onCancelEdit: () => void;
   readonly onDraftKeyChange: (value: string) => void;
   readonly onDraftRegionChange: (value: string) => void;
@@ -140,6 +142,7 @@ export function CredentialRow({
   draftKey,
   draftRegion,
   editing,
+  highlighted,
   onCancelEdit,
   onDraftKeyChange,
   onDraftRegionChange,
@@ -158,6 +161,20 @@ export function CredentialRow({
   // focuses, so mounting a row never steals focus.
   const editorTriggerRef = useRef<HTMLButtonElement | null>(null);
   const wasEditingRef = useRef(editing);
+
+  // Cross-link landing (BST-1363): an Environment chip names a variable, and
+  // the row it configures may be far down the table — so becoming the
+  // highlighted row scrolls itself into view. Only the false→true transition
+  // scrolls, so an unrelated re-render never yanks the viewport.
+  const rowRef = useRef<HTMLTableRowElement | null>(null);
+  const wasHighlightedRef = useRef(highlighted);
+  // biome-ignore lint/plugin: The scroll must follow the highlighted PROP changing — the trigger lives in a sibling section with no event this row can subscribe to — so reacting to the transition is the correct tool, not an event handler.
+  useEffect(() => {
+    if (highlighted && !wasHighlightedRef.current) {
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    wasHighlightedRef.current = highlighted;
+  }, [highlighted]);
   // biome-ignore lint/plugin: Focus restoration must follow EVERY close path — including non-local ones (save success, the slot becoming env on reload) that have no row-level event to hook — so reacting to the editing prop transition is the correct tool, not an event handler stand-in.
   useEffect(() => {
     if (wasEditingRef.current && !editing) {
@@ -168,7 +185,12 @@ export function CredentialRow({
 
   return (
     <>
-      <TableRow data-testid={`credential-row-${slot.id}`}>
+      <TableRow
+        className={highlighted ? 'bg-primary/10 ring-1 ring-primary/50' : undefined}
+        data-highlighted={highlighted ? 'true' : undefined}
+        data-testid={`credential-row-${slot.id}`}
+        ref={rowRef}
+      >
         <TableCell className="py-2">
           <ProviderNameCell slot={slot} />
         </TableCell>

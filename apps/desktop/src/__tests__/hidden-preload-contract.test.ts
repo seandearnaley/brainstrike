@@ -27,6 +27,13 @@ describe('hidden renderer preload contract', () => {
     expect(source).not.toContain('assistant:get-url');
   });
 
+  it('cannot expose the env bootstrap bridge (BST-1363: visible-ui settings surface only)', () => {
+    const source = readHiddenPreloadSource();
+
+    expect(source).not.toMatch(/exposeInMainWorld\(['"]envBootstrap['"]/);
+    expect(source).not.toContain('secrets:envBootstrap');
+  });
+
   it('cannot expose the provider OAuth bridge (BST-1355: interactive visible-ui only)', () => {
     const source = readHiddenPreloadSource();
 

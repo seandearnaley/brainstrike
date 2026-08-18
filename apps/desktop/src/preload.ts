@@ -58,6 +58,7 @@ const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL = 'runtime:resolveOllamaCapabi
 const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL = 'runtime:verifyEmbeddingDimensions' as const;
 const SECRETS_CLEAR_ALL_CHANNEL = 'secrets:clearAll' as const;
 const SECRETS_DELETE_CHANNEL = 'secrets:delete' as const;
+const SECRETS_ENV_BOOTSTRAP_CHANNEL = 'secrets:envBootstrap' as const;
 const SECRETS_GET_CHANNEL = 'secrets:get' as const;
 const SECRETS_GET_CREDENTIAL_CHANNEL = 'secrets:getCredential' as const;
 const SECRETS_LIST_CHANNEL = 'secrets:list' as const;
@@ -733,6 +734,15 @@ contextBridge.exposeInMainWorld('secrets', {
     ipcRenderer.invoke(SECRETS_SAVE_CREDENTIAL_CHANNEL, provider, credential),
   saveKey: (provider: string, value: string) =>
     ipcRenderer.invoke(SECRETS_SAVE_CHANNEL, provider, value),
+});
+
+// Env bootstrap visibility bridge (BST-1363). Read-only and NAMES-ONLY: the
+// main-process projection reports which .env files loaded, their paths, the
+// line-precise parse failures, and the NAMES of allow-listed variables that
+// are set — never a variable's value. Shape defined ONCE in
+// @brainstrike/assistant-contract env-bootstrap-bridge.ts (EnvBootstrapBridge).
+contextBridge.exposeInMainWorld('envBootstrap', {
+  read: () => ipcRenderer.invoke(SECRETS_ENV_BOOTSTRAP_CHANNEL),
 });
 
 // Provider OAuth bridge (BST-1355). Status-only by contract: every method

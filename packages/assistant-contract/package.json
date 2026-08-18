@@ -74,6 +74,11 @@
       "import": "./dist/context-budget.js",
       "require": "./dist/context-budget.js"
     },
+    "./env-bootstrap-bridge": {
+      "types": "./dist/env-bootstrap-bridge.d.ts",
+      "import": "./dist/env-bootstrap-bridge.js",
+      "require": "./dist/env-bootstrap-bridge.js"
+    },
     "./context-packer": {
       "types": "./dist/context-packer.d.ts",
       "import": "./dist/context-packer.js",

@@ -193,6 +193,10 @@ export const DESKTOP_IPC_CHANNELS = {
   secrets: {
     clearAll: 'secrets:clearAll',
     delete: 'secrets:delete',
+    // Read-only env bootstrap projection (BST-1363). Reports which .env files
+    // loaded, how many variables applied, line-precise parse failures, and the
+    // NAMES of allow-listed variables currently set — never a value.
+    envBootstrap: 'secrets:envBootstrap',
     get: 'secrets:get',
     // Typed credential channels (BST-1348): separate channels rather than
     // versioned payloads on save/get.

@@ -41,7 +41,7 @@ export interface LoadDesktopEnvironmentOptions {
   readonly userDataPath: string;
 }
 
-interface DesktopEnvCandidate {
+export interface DesktopEnvCandidate {
   readonly file: DesktopEnvFile;
   readonly path: string;
 }
@@ -176,7 +176,7 @@ export function loadDesktopEnvironment({
     return emptyResult(true);
   }
 
-  const candidates = buildCandidates(appRoot, userDataPath, isPackaged);
+  const candidates = buildDesktopEnvCandidates(appRoot, userDataPath, isPackaged);
   const parsedCandidates: ParsedDesktopEnvCandidate[] = [];
   const failures: DesktopEnvLoadFailure[] = [];
 
@@ -261,7 +261,13 @@ function collectDeprecatedVariableNames(
   return [...names];
 }
 
-function buildCandidates(
+/**
+ * The candidate files for a launch mode, in load order. Exported as the SINGLE
+ * source of env-file paths: the BST-1363 settings projection maps recorded
+ * file ids back to paths through this same function, so a path shown in
+ * Settings can never drift from a path the loader actually read.
+ */
+export function buildDesktopEnvCandidates(
   appRoot: string,
   userDataPath: string,
   isPackaged: boolean

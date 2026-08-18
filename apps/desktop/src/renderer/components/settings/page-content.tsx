@@ -7,6 +7,7 @@ import {
 import { useAssistantAvailability } from '@brainstrike/app-shell';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
+import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
@@ -119,6 +120,18 @@ export default function SettingsPageContent() {
     }
     return tokenCache.isOperational && tokenCache.countingMode === 'accurate';
   }, [tokenCache]);
+  // Shell reveal is injected, not reached for: settings-ui stays platform
+  // agnostic and simply renders no Open-folder affordance when the desktop
+  // bridge is absent or malformed (resolvePlatformBridge returns null).
+  const revealEnvFile = useMemo(() => {
+    const bridge = resolvePlatformBridge();
+    if (!bridge) {
+      return;
+    }
+    return (absolutePath: string) => {
+      void bridge.showItemInFolder(absolutePath);
+    };
+  }, []);
   const apiKeyStatus = useMemo(() => {
     // Every non-loading availability state may carry deprecated-env rename
     // reports (BST-1361); the Credential Inventory renders them per row.
@@ -336,7 +349,10 @@ export default function SettingsPageContent() {
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
-      createApiKeysSettingsCategory(apiKeyStatus),
+      createApiKeysSettingsCategory({
+        ...apiKeyStatus,
+        ...(revealEnvFile ? { onRevealPath: revealEnvFile } : {}),
+      }),
       {
         content: (
           <ModelSelectionPage
@@ -388,6 +404,7 @@ export default function SettingsPageContent() {
     assistantProviderKeySources,
     devInlineFixtureEnabled,
     hookReviewRoots,
+    revealEnvFile,
     setDevInlineFixtureEnabled,
     toolOperations,
   ]);

@@ -158,6 +158,8 @@ function buildCredential(slot: CredentialSlot, key: string, region: string): Pro
 export interface CredentialInventoryProps {
   /** Deprecated env names found set, from the assistant status probe (BST-1361). */
   readonly deprecatedEnvVars?: readonly DeprecatedEnvVarReport[] | undefined;
+  /** Slot the Environment section cross-linked to (BST-1363): scrolled to and ringed. */
+  readonly highlightedSlotId?: string | undefined;
   /** Optional slot-id filter — `['openai']` renders exactly one row (BST-1358 seam). */
   readonly providers?: readonly string[] | undefined;
   readonly statusError?: string | undefined;
@@ -174,6 +176,7 @@ export interface CredentialInventoryProps {
  */
 export function CredentialInventory({
   deprecatedEnvVars = EMPTY_DEPRECATED_ENV_VARS,
+  highlightedSlotId,
   providers,
   statusError,
   statusProviderKeySources = EMPTY_STATUS_PROVIDER_KEY_SOURCES,
@@ -355,6 +358,7 @@ export function CredentialInventory({
               draftKey={editor?.slotId === slot.id ? editor.key : ''}
               draftRegion={editor?.slotId === slot.id ? editor.region : ''}
               editing={editor?.slotId === slot.id}
+              highlighted={highlightedSlotId === slot.id}
               key={slot.id}
               onCancelEdit={() => dispatch({ type: 'CLOSE_EDITOR' })}
               onDraftKeyChange={(key) => dispatch({ key, type: 'SET_DRAFT_KEY' })}

@@ -196,7 +196,9 @@
     even when an existing value is empty. Every candidate file is read and
     validated before any value is applied, so an unreadable or malformed file
     applies nothing and surfaces through both the assistant status probe and
-    Settings. Files may set only the credential names documented in
+    Settings (the Settings surface and its names-only payload rule are
+    specified under "Env bootstrap visibility (BST-1363)" below).
+    Files may set only the credential names documented in
     `apps/desktop/.env.example`; arbitrary process variables are rejected so a
     packaged user-data file cannot alter child-process execution. Assignment
     boundary whitespace is rejected rather than silently trimming a credential
@@ -1331,6 +1333,62 @@ Threat model + loopback hygiene live in `apps/desktop/SECURITY.md`
 ("Provider OAuth subscription auth" section). When changing the engine,
 update BOTH docs and the paired tests under
 `apps/desktop/src/__tests__/provider-auth/`.
+
+### Env bootstrap visibility (BST-1363)
+
+Why it exists: env-file bootstrap was invisible. One malformed line makes the
+loader reject the WHOLE file (see the env-file rules above — validation is
+all-or-nothing by design), so every credential in it silently stops applying
+and the app behaves exactly as if the keys were never set. Settings now states
+the outcome instead of leaving the user to guess.
+
+**Payload rule — NAMES ONLY, NEVER VALUES (do not relitigate).** The
+projection carries variable NAMES, file PATHS, counts, and the loader's own
+failure messages. It never carries a variable's value, nor a prefix, hash, or
+length of one. The producer
+(`apps/desktop/src/desktop-env-report.ts`) builds the name lists by
+intersecting the allow-listed NAME sets
+(`CREDENTIAL_ENV_FILE_VARIABLE_NAMES` /
+`NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES`) with mere PRESENCE in the
+process environment — a value is read only to ask "is this non-blank?", so it
+has no path into the payload by construction rather than by a post-hoc scrub.
+`apps/desktop/src/__tests__/desktop-env-report.test.ts` seeds a distinctive
+fake key value and asserts the serialized payload does not contain it. This
+matches the `deprecatedEnvVars` precedent: names only, never values.
+
+Shape and transport: `EnvBootstrapReport` is defined ONCE in
+`packages/assistant-contract/src/env-bootstrap-bridge.ts` (with the
+`ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS` pin the preload-runtime contract test
+enforces). Channel `secrets:envBootstrap` is registered in
+`apps/desktop/src/ipc-secrets.ts` with the same `visible-ui` role policy as
+every other secrets channel; `hidden-preload.ts` does not expose it
+(negatively asserted in `hidden-preload-contract.test.ts`).
+
+Two rulings worth keeping:
+
+- The handler reads the RECORDED bootstrap result and re-projects it per
+  invoke. It NEVER re-runs loading — `initializeDesktopEnvironment` throws on
+  double-init, and re-reading files would report a state the running process
+  is not actually in. This is also why the UI states "Changes to environment
+  files apply after restart."
+- Unlike `secrets:list`, this channel deliberately does NOT throw on env-file
+  failures. `secrets:list` throwing is correct (its answer would be wrong);
+  this channel exists precisely to explain that failure, so it must still
+  answer.
+
+Surface: `packages/settings-ui/src/settings/secrets/environment/`, rendered
+beneath the Credential Inventory. Read-only — no editor, because the values
+are secrets this surface must never handle. The failure banner reproduces the
+parser's line-precise message verbatim (`… is invalid at line 4: unsupported
+variable name.`) — that text is the feature, so do not re-word it. Effective
+variables render as monospace chips, credential chips visually distinct from
+non-credential config chips and cross-linked to their inventory row; retired
+names render amber with rename guidance instead of as ordinary chips. The
+section refreshes on `SECRETS_CHANGED_EVENT_NAME` and window focus. The
+"Open folder" affordance is INJECTED by the desktop host from
+`resolvePlatformBridge()` — settings-ui never touches `window.platform`, and
+web omits the section entirely by capability (the bridge is absent), never by
+an `isElectron()` check.
 
 ---
 

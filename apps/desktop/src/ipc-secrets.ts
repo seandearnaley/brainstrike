@@ -5,6 +5,7 @@ import {
   type ProviderCredential,
   type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
+import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
 import type { DesktopEnvLoadFailure } from './desktop-env';
@@ -231,7 +232,16 @@ function throwEnvFileFailures(failures: readonly DesktopEnvLoadFailure[]): void 
  */
 export function registerSecretsIpcHandlers(
   secrets: SecretsService,
-  options: { readonly envFileFailures?: readonly DesktopEnvLoadFailure[] } = {}
+  options: {
+    readonly envFileFailures?: readonly DesktopEnvLoadFailure[];
+    /**
+     * Projects the RECORDED env bootstrap (BST-1363). Required — a missing
+     * source would silently disable the settings surface whose entire job is
+     * to make a silent failure visible. Called per invoke rather than cached
+     * so the payload always describes the live process environment.
+     */
+    readonly readEnvBootstrapReport: () => EnvBootstrapReport;
+  }
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const envFileFailures = options.envFileFailures ?? [];
@@ -389,6 +399,16 @@ export function registerSecretsIpcHandlers(
       }
       return Array.from(storedProviders);
     }
+  );
+
+  // Read-only env bootstrap projection (BST-1363). Deliberately does NOT call
+  // throwEnvFileFailures: `secrets:list` throws on a failed env file, but this
+  // channel exists precisely to explain that failure, so it must still answer.
+  registry.registerAuthorizedInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.envBootstrap,
+    { roles: ['visible-ui'] },
+    () => options.readEnvBootstrapReport()
   );
 
   registry.registerAuthorizedInvoke(
