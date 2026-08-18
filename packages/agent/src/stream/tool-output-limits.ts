@@ -1,7 +1,7 @@
 import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import {
   findLlmModelDefinition,
-  getProviderDefinition,
+  findProviderDefinition,
   type ProviderId,
 } from '@brainstrike/assistant-contract/provider-registry';
 import { createLogger } from '@brainstrike/logging';
@@ -134,7 +134,10 @@ export function resolveToolResultBudgetForModel(
   if (definition) {
     return resolveScaledToolResultBudget(definition.contextWindow);
   }
-  if (getProviderDefinition(providerId).runtime === 'local') {
+  // Guarded lookup: providerId can be an unvalidated persona-pin cast, so an
+  // out-of-registry id must reach the documented warn+anchor fallback below —
+  // never a TypeError (PR #2513 review, finding 1).
+  if (findProviderDefinition(providerId)?.runtime === 'local') {
     // Local-runtime servers (registry `runtime: 'local'`) discover their
     // model catalogs dynamically, so no static definition exists.
     return resolveScaledToolResultBudget(DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW);

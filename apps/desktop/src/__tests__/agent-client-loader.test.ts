@@ -47,23 +47,23 @@ describe('agent-client-loader', () => {
     expect(localKeys).toEqual([]);
   });
 
-  it('returns every known fallback provider, derived from the env-key record', async () => {
+  it('returns all known fallback providers in registry declaration order', async () => {
     const module = await import('../agent-client-loader');
     const providers = module.listAgentProviders();
 
-    // Order follows FALLBACK_ENV_KEYS key order (alphabetical, enforced by
-    // Biome useSortedKeys). No consumer is order-sensitive: the loader feeds
-    // membership checks and per-provider Map building only (BST-1349).
+    // MUST stay in registry declaration order: main/agent-client-loader.test.ts
+    // pins the loader against the agent SOURCE order, and CI runs this fallback
+    // path with agent's dist absent (PR #2513 review, finding 2).
     expect(providers).toEqual([
+      'openai',
       'anthropic',
-      'cohere',
       'google',
-      'lmstudio',
+      'openrouter',
+      'cohere',
+      'voyage',
       'local',
       'ollama',
-      'openai',
-      'openrouter',
-      'voyage',
+      'lmstudio',
     ]);
   });
 

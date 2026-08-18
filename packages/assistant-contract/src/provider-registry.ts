@@ -551,7 +551,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       streaming: true,
     },
     displayName: 'Google AI Studio',
-    docsUrl: 'https://aistudio.google.com/apikey',
+    docsUrl: 'https://aistudio.google.com/app/apikey',
     // Gemini 3 model IDs + embeddings docs:
     // https://ai.google.dev/gemini-api/docs/gemini-3
     // https://ai.google.dev/gemini-api/docs/embeddings
@@ -661,7 +661,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // https://openrouter.ai/docs/guides/routing/auto-model-selection
     envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
     id: 'openrouter',
-    keyFormatHint: 'sk-or-...',
+    keyFormatHint: 'sk-or-v1-...',
     // Curated current subset from OpenRouter's model catalog. Provider-reported
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
@@ -1421,6 +1421,19 @@ export function resolveTokenMeasurementCapability(
 
 export function getProviderDefinition(provider: ProviderId): ProviderDefinition {
   return PROVIDER_BY_ID[provider];
+}
+
+/**
+ * Non-throwing counterpart to {@link getProviderDefinition} for callers whose
+ * provider id is NOT statically guaranteed to be a registry member (e.g. a
+ * persona pin's config-supplied provider, PR #2513 review finding 1).
+ * `getProviderDefinition`'s signature promises a definition but returns
+ * `undefined` at runtime for out-of-union ids — deref that and a TypeError
+ * escapes into caller error handling. Use this when "unknown provider" has a
+ * defined fallback.
+ */
+export function findProviderDefinition(providerId: string): ProviderDefinition | undefined {
+  return (PROVIDER_BY_ID as Record<string, ProviderDefinition | undefined>)[providerId];
 }
 
 export function listProviderModels(provider: ProviderId, type?: ProviderModelType) {

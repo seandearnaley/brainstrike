@@ -14,6 +14,13 @@ const { listProvidersMock, toastMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@brainstrike/assistant-contract/provider-metadata', () => ({
+  getProviderDefinition: (provider: string) =>
+    listProvidersMock().find((definition: { id: string }) => definition.id === provider),
+  getProviderDisplayName: (provider: string) =>
+    listProvidersMock().find((definition: { id: string }) => definition.id === provider)
+      ?.displayName ?? provider,
+  isSupportedProvider: (provider: string) =>
+    listProvidersMock().some((definition: { id: string }) => definition.id === provider),
   listProviders: listProvidersMock,
   providerEnvKeys: (provider: string) =>
     provider === 'openai'
@@ -426,6 +433,24 @@ describe('ApiKeysSettings', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('provider-key-hint').textContent).toContain('sk-ant-...');
+    });
+  });
+
+  it('composes keyNotes and keyFormatHint without running on when both are present', async () => {
+    listProvidersMock.mockReturnValue([
+      {
+        displayName: 'Anthropic',
+        id: 'anthropic',
+        keyFormatHint: 'sk-ant-...',
+        keyNotes: 'Notes end with a period.',
+      },
+    ]);
+    render(<ApiKeysSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-hint').textContent).toBe(
+        'Notes end with a period. Keys look like sk-ant-...'
+      );
     });
   });
 

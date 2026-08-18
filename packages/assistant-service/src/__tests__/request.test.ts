@@ -548,6 +548,66 @@ describe('registry-derived keyless auth (BST-1349)', () => {
     }
   });
 
+  it.each(['ollama', 'lmstudio'] as const)(
+    'proceeds keyless when the OPTIONAL %s token read fails with a SecretReadError',
+    async (provider) => {
+      // PR #2513 review, finding 3: a keyless provider's stored token is
+      // optional — an unreadable keychain entry must not 400 the run.
+      const secretReadError = Object.assign(new Error(`Secret for "${provider}" is unreadable.`), {
+        code: 'encryption_unavailable',
+        provider,
+      });
+      secretReadError.name = 'SecretReadError';
+      resolveProviderApiKey.mockRejectedValueOnce(secretReadError);
+
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        })
+      );
+
+      expect(result.ok, `${provider} must proceed keyless`).toBe(true);
+      if (!result.ok) {
+        throw new Error('expected success');
+      }
+      expect(result.request.apiKey).toBe('');
+      // Never silent: the failed optional read is warn-logged.
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('token'),
+        expect.objectContaining({ provider })
+      );
+    }
+  );
+
+  it('still fetches and injects a READABLE optional token for local-runtime servers', async () => {
+    resolveProviderApiKey.mockResolvedValueOnce('stored-ollama-token');
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'ollama' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    expect(result.request.runtimeData.providerOptions?.['ollama']).toEqual({
+      apiToken: 'stored-ollama-token',
+    });
+  });
+
+  it('never calls the key reader for the in-browser local provider', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'local' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    expect(resolveProviderApiKey).not.toHaveBeenCalled();
+  });
+
   it('injects the optional bearer token only for local-runtime servers', () => {
     for (const provider of providers) {
       const hydrated = hydrateRuntimeDataWithLocalRuntimeToken(

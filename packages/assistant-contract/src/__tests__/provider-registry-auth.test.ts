@@ -62,7 +62,7 @@ describe('provider auth metadata', () => {
     // Only vendors with a stable documented prefix declare one — never guessed.
     expect(getProviderDefinition('openai').keyFormatHint).toBe('sk-...');
     expect(getProviderDefinition('anthropic').keyFormatHint).toBe('sk-ant-...');
-    expect(getProviderDefinition('openrouter').keyFormatHint).toBe('sk-or-...');
+    expect(getProviderDefinition('openrouter').keyFormatHint).toBe('sk-or-v1-...');
     for (const id of ['google', 'cohere', 'voyage'] as const) {
       expect(getProviderDefinition(id).keyFormatHint, `${id} keyFormatHint`).toBeUndefined();
     }

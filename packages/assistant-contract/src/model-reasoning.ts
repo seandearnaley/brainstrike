@@ -20,6 +20,7 @@ import { getGoogleThinkingLevels } from '@brainstrike/types';
 import { getLocalLlmModelSpec } from './local-llm-model-specs.js';
 import type { OpenRouterModelMetadata } from './openrouter-model-metadata.js';
 import {
+  getProviderDefinition,
   type LlmModelDefinition,
   listProviderLlmModels,
   listProviders,
@@ -116,9 +117,10 @@ export function resolveModelReasoningSupport(
       : { state: 'unsupported' };
   }
 
-  if (provider === 'ollama' || provider === 'lmstudio') {
-    // Discovered runtime models carry no reasoning signal from their
-    // endpoints — surface "unverified" instead of guessing.
+  if (getProviderDefinition(provider).runtime === 'local') {
+    // Local-runtime servers (registry `runtime: 'local'`, PR #2513 review
+    // finding 5): discovered runtime models carry no reasoning signal from
+    // their endpoints — surface "unverified" instead of guessing.
     return { reason: 'discovered-model', state: 'unknown' };
   }
 
@@ -197,6 +199,12 @@ export function resolveReasoningControlsAvailability(
     return { available: false, reason: 'no-reasoning-controls' };
   }
 
+  if (getProviderDefinition(provider).runtime === 'local') {
+    // Registry-derived (PR #2513 review, finding 5): local-runtime servers'
+    // discovered models expose no reasoning controls.
+    return { available: false, reason: 'no-reasoning-controls' };
+  }
+
   switch (provider) {
     case 'openai':
       return resolveOpenAiFamilyControls(
@@ -218,6 +226,10 @@ export function resolveReasoningControlsAvailability(
     }
     case 'ollama':
     case 'lmstudio':
+      // Unreachable at runtime — the registry `runtime: 'local'` early return
+      // above owns this answer. Retained solely so the switch keeps its
+      // compile-time exhaustiveness pin over ProviderId.
+      return { available: false, reason: 'no-reasoning-controls' };
     case 'cohere':
     case 'voyage':
       return { available: false, reason: 'no-reasoning-controls' };

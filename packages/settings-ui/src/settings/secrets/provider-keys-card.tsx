@@ -102,8 +102,11 @@ export function ProviderKeysCard({
               </p>
             ) : null}
             {docsUrl ? (
-              // The desktop renderer has no external-link affordance in
-              // settings, so the URL renders as selectable text with a copy
+              // An openExternal affordance DOES exist (app-shell's
+              // platform-bridge), but settings-ui has no capability injection
+              // for it yet — the real link arrives with the Provider Hub
+              // capability injection (BST-1362/BST-1358, PR #2513 review).
+              // Until then the URL renders as selectable text with a copy
               // button rather than a dead anchor.
               <div className="flex items-center gap-1">
                 <p

@@ -14,7 +14,7 @@
  */
 import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
 import {
-  getProviderDefinition,
+  findProviderDefinition,
   resolveTokenMeasurementCapability,
 } from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
@@ -258,10 +258,12 @@ function assertCatalogMetaToolNamesAvailable(params: {
 }
 
 function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
-  // Registry-derived (BST-1349): the local/browser runtimes are exactly the
-  // providers whose registry `runtime` is neither hosted nor gateway.
-  const runtime = getProviderDefinition(provider).runtime;
-  return runtime === 'hosted' || runtime === 'gateway';
+  // Registry-derived (BST-1349) with FAIL-OPEN polarity (PR #2513 review,
+  // finding 4): only the known local runtimes opt out of the hosted path, so
+  // an unknown id or a future runtime value keeps the pre-BST-1349 hosted
+  // default. Guarded lookup: an out-of-registry id must not TypeError.
+  const runtime = findProviderDefinition(provider)?.runtime;
+  return runtime !== 'local' && runtime !== 'browser';
 }
 
 export async function prepareHostedToolDiscovery(params: {

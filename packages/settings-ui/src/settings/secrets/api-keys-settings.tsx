@@ -1,6 +1,9 @@
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import {
+  getProviderDefinition,
+  getProviderDisplayName,
+  isSupportedProvider,
   listProviders,
   type ProviderDefinition,
   providerEnvKeys,
@@ -140,6 +143,25 @@ function toErrorMessage(error: unknown): string {
   return 'Credential status could not be loaded.';
 }
 
+/**
+ * Registry-driven hint (BST-1349): keyNotes + keyFormatHint metadata, never a
+ * `provider === '...'` branch. keyNotes is a complete sentence (registry
+ * convention: ends with a period), so a single-space join cannot run on.
+ */
+function composeProviderKeyHint(definition: ProviderDefinition | undefined): string | null {
+  if (!definition) {
+    return null;
+  }
+  const parts: string[] = [];
+  if (definition.keyNotes) {
+    parts.push(definition.keyNotes);
+  }
+  if (definition.keyFormatHint) {
+    parts.push(`Keys look like ${definition.keyFormatHint}`);
+  }
+  return parts.length > 0 ? parts.join(' ') : null;
+}
+
 export interface ApiKeysSettingsProps {
   readonly statusError?: string | undefined;
   readonly statusProviderKeySources?: readonly ProviderKeySource<SupportedProvider>[] | undefined;
@@ -157,7 +179,9 @@ export function ApiKeysSettings({
 }: ApiKeysSettingsProps = {}) {
   const { toast } = useToast();
   const notifySecretsChanged = useSecretsStore((state) => state.notifySecretsChanged);
-  const providerDefinitions = useMemo(() => listProviders(), []);
+  // listProviders() returns the frozen module constant (stable identity), so
+  // no memo is needed around it — only around the derived allocation.
+  const providerDefinitions = listProviders();
   const providerOptions = useMemo(
     (): ProviderOption[] =>
       providerDefinitions.map((definition: ProviderDefinition) => ({
@@ -202,26 +226,12 @@ export function ApiKeysSettings({
     return isValid ? rawProvider : (providerOptions[0]?.id ?? 'openai');
   }, [providerOptions, rawProvider]);
 
-  const selectedProviderName = useMemo(
-    () => providerOptions.find((option) => option.id === provider)?.name ?? provider,
-    [providerOptions, provider]
-  );
-  const selectedProviderDefinition = useMemo(
-    () => providerDefinitions.find((definition) => definition.id === provider),
-    [providerDefinitions, provider]
-  );
-  // Registry-driven hint (BST-1349): keyNotes + keyFormatHint metadata,
-  // never a `provider === '...'` branch.
-  const providerKeyHint = useMemo(() => {
-    const parts: string[] = [];
-    if (selectedProviderDefinition?.keyNotes) {
-      parts.push(selectedProviderDefinition.keyNotes);
-    }
-    if (selectedProviderDefinition?.keyFormatHint) {
-      parts.push(`Keys look like ${selectedProviderDefinition.keyFormatHint}`);
-    }
-    return parts.length > 0 ? parts.join(' ') : null;
-  }, [selectedProviderDefinition]);
+  // O(1) registry lookups (PR #2513 review, finding 8) — no `.find()` scans.
+  const selectedProviderName = getProviderDisplayName(provider);
+  const selectedProviderDefinition = isSupportedProvider(provider)
+    ? getProviderDefinition(provider)
+    : undefined;
+  const providerKeyHint = composeProviderKeyHint(selectedProviderDefinition);
   const providerDocsUrl = selectedProviderDefinition?.docsUrl ?? null;
   const providerKeySource = mergedProviderKeySources.get(provider as SettingsProviderKeyId);
   const providerEnvironmentSource =

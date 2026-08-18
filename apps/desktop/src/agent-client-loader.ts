@@ -28,12 +28,36 @@ const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
   voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
 };
 
-// Derived from the exhaustive Record above so a provider added to
-// SupportedProvider without a FALLBACK_ENV_KEYS entry is a COMPILE error,
-// not a silently missing fallback (BST-1349).
-const FALLBACK_PROVIDERS: readonly SupportedProvider[] = Object.keys(
-  FALLBACK_ENV_KEYS
-) as SupportedProvider[];
+/**
+ * Registry DECLARATION order — must match `@brainstrike/agent/client`
+ * `listProviders()`: `__tests__/main/agent-client-loader.test.ts` pins the
+ * loader's output against the agent SOURCE, and CI runs with agent's dist
+ * ABSENT, so this fallback list is what that order-sensitive assertion sees
+ * (PR #2513 review, finding 2 — Object.keys of the Biome-sorted Record broke
+ * it). The `satisfies` rejects entries that are not FALLBACK_ENV_KEYS keys.
+ */
+const FALLBACK_PROVIDER_ORDER = [
+  'openai',
+  'anthropic',
+  'google',
+  'openrouter',
+  'cohere',
+  'voyage',
+  'local',
+  'ollama',
+  'lmstudio',
+] as const satisfies readonly (keyof typeof FALLBACK_ENV_KEYS)[];
+
+// Compile-time pin for the OTHER direction: this annotation collapses to
+// `never` whenever a FALLBACK_ENV_KEYS key (i.e. any SupportedProvider —
+// the Record is exhaustive) is missing from the ordered tuple, so a newly
+// added provider cannot silently skip the fallback list.
+const FALLBACK_PROVIDERS: Exclude<
+  keyof typeof FALLBACK_ENV_KEYS,
+  (typeof FALLBACK_PROVIDER_ORDER)[number]
+> extends never
+  ? readonly SupportedProvider[]
+  : never = FALLBACK_PROVIDER_ORDER;
 
 function tryRequireAgentClient(path: string): AgentClientModule | null {
   try {

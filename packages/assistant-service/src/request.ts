@@ -137,16 +137,23 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
 /**
  * Absorbs the previous resolveProviderApiKeyOrRespond: a classified
  * secret-read failure becomes the same 400 payload; anything else still
- * propagates loudly. The in-browser 'local' runtime never needs a key.
+ * propagates loudly. Keyless-ness is registry-derived (`authType: 'none'`,
+ * PR #2513 review finding 3): the in-browser runtime (registry
+ * `runtime: 'browser'`) has no credential surface at all and skips the read;
+ * the local servers still read their OPTIONAL bearer token, but a classified
+ * read failure proceeds keyless with a visible warn instead of a 400 — the
+ * token is optional, so an unreadable keychain entry must not block the run.
  */
 async function resolveApiKeyOrReject(
   provider: SupportedProvider,
-  resolveProviderApiKey: ProviderApiKeyReader
+  resolveProviderApiKey: ProviderApiKeyReader,
+  logger: ScopedLogger
 ): Promise<
   | { readonly apiKey: string | undefined; readonly rejection?: undefined }
   | { readonly apiKey?: undefined; readonly rejection: AssistantPostRejection }
 > {
-  if (provider === 'local') {
+  const keyless = providerAuthType(provider) === 'none';
+  if (keyless && getProviderDefinition(provider).runtime === 'browser') {
     return { apiKey: '' };
   }
   try {
@@ -155,6 +162,13 @@ async function resolveApiKeyOrReject(
     const payload = getSecretReadErrorPayload(error);
     if (!payload) {
       throw error;
+    }
+    if (keyless) {
+      logger.warn('Optional local-runtime token is unreadable; proceeding keyless', {
+        code: payload.code,
+        provider,
+      });
+      return { apiKey: '' };
     }
     return { rejection: { payload, status: 400 } };
   }
@@ -314,7 +328,7 @@ export async function prepareAssistantPostRequest(
   // the user has stored one via the secrets bridge, but the absence of a
   // token is not an error — most setups don't have auth.
   const providerAllowsMissingAuth = providerAuthType(provider) === 'none';
-  const resolved = await resolveApiKeyOrReject(provider, resolveProviderApiKey);
+  const resolved = await resolveApiKeyOrReject(provider, resolveProviderApiKey, logger);
   if (resolved.rejection) {
     return reject(resolved.rejection);
   }

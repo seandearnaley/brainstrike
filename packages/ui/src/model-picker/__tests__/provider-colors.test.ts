@@ -1,14 +1,17 @@
-import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import { describe, expect, it } from 'vitest';
 import { getProviderColor, PROVIDER_COLOR_MAP } from '../utils/provider-colors';
 
+/**
+ * Registry exhaustiveness is a COMPILE-TIME pin now (`satisfies
+ * Record<SupportedProvider, ...>` in provider-colors.ts, PR #2513 review
+ * finding 6). This runtime test covers only what `satisfies` cannot: the
+ * lookup/fallback behavior of getProviderColor itself.
+ */
 describe('provider colors', () => {
-  it('has an explicit entry for every registry provider (no hash fallback)', () => {
-    for (const provider of listProviders()) {
-      const entry = PROVIDER_COLOR_MAP[provider.id];
-      expect(entry, `${provider.id} must not fall through to the hash fallback`).toBeDefined();
-      expect(getProviderColor(provider.id, 'light')).toBe(entry?.light);
-      expect(getProviderColor(provider.id, 'dark')).toBe(entry?.dark);
+  it('returns the explicit map entry for mapped providers', () => {
+    for (const [providerId, entry] of Object.entries(PROVIDER_COLOR_MAP)) {
+      expect(getProviderColor(providerId, 'light')).toBe(entry.light);
+      expect(getProviderColor(providerId, 'dark')).toBe(entry.dark);
     }
   });
 
