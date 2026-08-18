@@ -128,6 +128,7 @@ describe('frontier model refresh (2026-07)', () => {
           'poolside/laguna-xs-2.1',
           'qwen/qwen3.8-2.4t-a95b',
           'qwen/qwen3.8-max',
+          'nvidia/nemotron-3.5-lightning',
           'google/gemini-3.7-flash',
           'google/gemini-3.6-flash',
           'google/gemini-3.5-flash-lite',
@@ -328,6 +329,22 @@ describe('frontier model refresh (2026-07)', () => {
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
+      });
+    });
+
+    it('declares Nemotron 3.5 Lightning from vendor capabilities and gateway metadata', () => {
+      const nemotron = getLlmModelDefinition('openrouter', 'nvidia/nemotron-3.5-lightning');
+
+      expect(nemotron).toEqual({
+        contextWindow: 262_144,
+        id: 'nvidia/nemotron-3.5-lightning',
+        label: 'Nemotron 3.5 Lightning (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.08, outputPerMTok: 0.2 },
+        reasoning: { mandatory: false, supportedEfforts: ['none'] },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
       });
     });
   });

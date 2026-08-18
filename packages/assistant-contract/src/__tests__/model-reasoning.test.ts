@@ -77,6 +77,16 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
+  it('offers only Off for Nemotron on/off reasoning without live metadata', () => {
+    expect(
+      resolveReasoningControlsAvailability('openrouter', 'nvidia/nemotron-3.5-lightning')
+    ).toEqual({
+      available: true,
+      efforts: ['none'],
+      family: 'openrouter',
+    });
+  });
+
   it('prefers matching live OpenRouter reasoning capabilities over the static registry', () => {
     expect(
       resolveReasoningControlsAvailability('openrouter', 'moonshotai/kimi-k3', {

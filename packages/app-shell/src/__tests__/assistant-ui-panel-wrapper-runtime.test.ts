@@ -1283,6 +1283,11 @@ describe('assistant runtime helpers', () => {
       })
     ).toEqual({ maxOutputTokens: 2048 });
     expect(
+      reconcileProviderSettingsForModel('openrouter', 'nvidia/nemotron-3.5-lightning', {
+        reasoningEffort: 'none',
+      })
+    ).toEqual({ reasoningEffort: 'none' });
+    expect(
       reconcileProviderSettingsForModel('openrouter', 'google/gemini-2.5-flash', {
         maxOutputTokens: 128_000,
       })
