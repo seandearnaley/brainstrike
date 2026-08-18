@@ -3,6 +3,7 @@
  * Prevents errors from propagating to users when they haven't configured required API keys.
  */
 
+import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import { type HostedProviderType, hostedProviderRequiresApiKey } from './provider-types.js';
 import { isHostedProvider, parseProviderModelKey } from './provider-utils.js';
 import { resolveHostedProviderApiKey } from './providers/hosted/api-key-resolver.js';
@@ -22,15 +23,20 @@ export type ApiKeyValidationResult =
     };
 
 /**
- * Environment variable names for each hosted provider
+ * Environment variable names for each hosted provider, shown to users in
+ * missing-key guidance. Registry-keyed providers derive from the shared
+ * provider registry (BST-1361), REVERSED so the vendor-standard name leads
+ * the hint (the registry orders resolution BRAINSTRIKE_* first). Only the
+ * local OpenAI-compatible runtimes keep literals — their optional bearer
+ * token is a transport concern absent from the registry.
  */
-const PROVIDER_ENV_HINTS: Record<HostedProviderType, string[]> = {
-  cohere: ['COHERE_API_KEY'],
-  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY'],
+const PROVIDER_ENV_HINTS: Record<HostedProviderType, readonly string[]> = {
+  cohere: [...providerEnvKeys('cohere')].reverse(),
+  google: [...providerEnvKeys('google')].reverse(),
   lmstudio: ['LMSTUDIO_API_KEY'],
   ollama: ['OLLAMA_API_KEY'],
-  openai: ['OPENAI_API_KEY', 'BRAINSTRIKE_OPENAI_API_KEY'],
-  voyage: ['VOYAGE_API_KEY'],
+  openai: [...providerEnvKeys('openai')].reverse(),
+  voyage: [...providerEnvKeys('voyage')].reverse(),
 };
 
 /**

@@ -2,33 +2,30 @@ import {
   resolveHostedProviderKey,
   SECRETS_CHANGED_EVENT_NAME,
 } from '@brainstrike/assistant-contract/provider-key-resolution';
+import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import type { HostedProviderType } from '../../provider-types.js';
 
 type HostedProvider = HostedProviderType;
 
 /**
- * Embedding-provider env-var names. This is a deliberately separate table
- * from the contract's LLM `providerEnvKeys` — the provider unions differ
- * (cohere/voyage are embedding-only) — but the RESOLUTION ORDER and error
- * semantics come from the shared core (BST-979): environment sources are
- * authoritative, the secret store is the fallback. Each name is also checked
- * with a `VITE_` prefix for SSR/renderer builds.
+ * Embedding-provider env-var names. Registry-keyed providers derive their
+ * names from the shared provider registry (BST-1361) — no hand-maintained
+ * copy, so `deprecatedEnvKeys` can never authenticate here. Only the local
+ * OpenAI-compatible runtimes (absent from the registry's envKeys because
+ * their optional bearer token is a transport concern, not an authType) keep
+ * local literals. The RESOLUTION ORDER and error semantics come from the
+ * shared core (BST-979): environment sources are authoritative, the secret
+ * store is the fallback. Each name is also checked with a `VITE_` prefix for
+ * SSR/renderer builds.
  */
 const ENV_KEYS: Record<HostedProvider, readonly string[]> = {
-  cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
-  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
+  cohere: providerEnvKeys('cohere'),
+  google: providerEnvKeys('google'),
   lmstudio: ['LMSTUDIO_API_KEY', 'AI_LMSTUDIO_API_KEY'],
   // Optional auth for local OpenAI-compatible runtimes.
   ollama: ['OLLAMA_API_KEY', 'AI_OLLAMA_API_KEY'],
-  openai: [
-    'BRAINSTRIKE_OPENAI_API_KEY',
-    'BS_OPENAI_API_KEY',
-    'OPENAI_API_KEY',
-    'AI_OPENAI_API_KEY',
-    'OPENAI_API_KEY_V1',
-    'OPENAI_API_KEY_V2',
-  ],
-  voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+  openai: providerEnvKeys('openai'),
+  voyage: providerEnvKeys('voyage'),
 };
 
 function envKeyNamesWithViteVariants(provider: HostedProvider): readonly string[] {
