@@ -1361,10 +1361,15 @@ indexing-contract, storage); apps/desktop now spreads this same
 agent-root→src alias mirroring web (the registry deliberately excludes agent).
 NOTE: this guard only checks `packages/*` — the app configs are outside its
 scope, so app alias gaps surface as loud clean-state resolution failures, not
-guard findings. Desktop's agent-client-loader test keeps a mirror of the
-loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
-bypasses vitest aliases and needs dist, absent by default post-B4). See the
-Series B turbo-monorepo architecture review.
+guard findings. Desktop's agent-client-loader tests pin the loader's
+FALLBACK_PROVIDERS against the agent SOURCE via `vi.importActual` (raw require
+in the loader bypasses vitest aliases and needs dist, absent by default
+post-B4 — so CI exercises the FALLBACK path). FALLBACK_PROVIDERS is therefore
+an explicit tuple in registry DECLARATION order with compile-time
+exhaustiveness pins against the FALLBACK_ENV_KEYS Record (PR #2513 review);
+do not derive it from `Object.keys` of the Biome-sorted Record — that changes
+the order only in the dist-absent state CI runs in. See the Series B
+turbo-monorepo architecture review.
 
 Desktop main-process unit tests share observable Electron controls in
 `apps/desktop/src/__tests__/helpers/electron-main-test-harness.ts`. The harness

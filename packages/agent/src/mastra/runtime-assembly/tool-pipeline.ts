@@ -13,7 +13,10 @@
  * runs after the caller has resolved the language model.
  */
 import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
-import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
+import {
+  findProviderDefinition,
+  resolveTokenMeasurementCapability,
+} from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
@@ -255,7 +258,12 @@ function assertCatalogMetaToolNamesAvailable(params: {
 }
 
 function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
-  return !['local', 'ollama', 'lmstudio'].includes(provider);
+  // Registry-derived (BST-1349) with FAIL-OPEN polarity (PR #2513 review,
+  // finding 4): only the known local runtimes opt out of the hosted path, so
+  // an unknown id or a future runtime value keeps the pre-BST-1349 hosted
+  // default. Guarded lookup: an out-of-registry id must not TypeError.
+  const runtime = findProviderDefinition(provider)?.runtime;
+  return runtime !== 'local' && runtime !== 'browser';
 }
 
 export async function prepareHostedToolDiscovery(params: {

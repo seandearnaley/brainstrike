@@ -7,6 +7,7 @@ import {
   listProviderModels,
   listProviders,
   type ModelVisionSupport,
+  type ProviderAuthType,
   type ProviderCapabilities,
   type ProviderDefinition,
   type ProviderId,
@@ -21,6 +22,7 @@ import {
 export type SupportedProvider = ProviderId;
 export type {
   ModelVisionSupport,
+  ProviderAuthType,
   ProviderCapabilities,
   ProviderDefinition,
   ProviderModelDefinition,
@@ -110,6 +112,14 @@ export function listEmbeddingModels(
 
 export function providerEnvKeys(provider: SupportedProvider): readonly string[] {
   return getProviderEnvKeys(provider);
+}
+
+/**
+ * Registry-derived auth mode. Keyless-ness is `authType === 'none'` —
+ * callers must never hand-list the keyless providers (BST-1349).
+ */
+export function providerAuthType(provider: SupportedProvider): ProviderAuthType {
+  return getProviderDefinition(provider).authType;
 }
 
 export function supportsStandardEmbeddingDimension(provider: SupportedProvider): boolean {

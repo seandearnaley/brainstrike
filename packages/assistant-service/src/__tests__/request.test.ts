@@ -35,9 +35,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 });
 
 import { AssistantInvalidJsonError } from '@brainstrike/agent/hosted-web';
+import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import type { ScopedLogger } from '@brainstrike/logging';
 import {
   AssistantFilterPayloadError,
+  hydrateRuntimeDataWithLocalRuntimeToken,
   type PrepareAssistantPostRequestResult,
   prepareAssistantPostRequest,
 } from '../request';
@@ -496,5 +498,130 @@ describe('prepareAssistantPostRequest rejections', () => {
         toolIdentifiers: ['unknown.tool', expect.stringMatching(/^sha256:[0-9a-f]{12}$/)],
       })
     );
+  });
+});
+
+describe('registry-derived keyless auth (BST-1349)', () => {
+  const providers = listProviders();
+
+  it('the registry derives exactly local, ollama, and lmstudio as keyless', () => {
+    const keyless = providers
+      .filter((provider) => provider.authType === 'none')
+      .map((provider) => provider.id)
+      .sort();
+    expect(keyless).toEqual(['lmstudio', 'local', 'ollama']);
+  });
+
+  it('accepts a keyless-provider request without any api key', async () => {
+    for (const provider of providers) {
+      if (provider.authType !== 'none') {
+        continue;
+      }
+      resolveProviderApiKey.mockResolvedValueOnce(undefined);
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider: provider.id },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        })
+      );
+      expect(result.ok, `${provider.id} must not require a key`).toBe(true);
+    }
+  });
+
+  it('rejects every api_key-provider request without a key', async () => {
+    for (const provider of providers) {
+      if (provider.authType !== 'api_key') {
+        continue;
+      }
+      resolveProviderApiKey.mockResolvedValueOnce(undefined);
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider: provider.id },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        })
+      );
+      expect(result.ok, `${provider.id} must require a key`).toBe(false);
+      if (result.ok) {
+        throw new Error('expected rejection');
+      }
+      expect(result.rejection.payload.error).toBe('missing_api_key');
+    }
+  });
+
+  it.each(['ollama', 'lmstudio'] as const)(
+    'proceeds keyless when the OPTIONAL %s token read fails with a SecretReadError',
+    async (provider) => {
+      // PR #2513 review, finding 3: a keyless provider's stored token is
+      // optional — an unreadable keychain entry must not 400 the run.
+      const secretReadError = Object.assign(new Error(`Secret for "${provider}" is unreadable.`), {
+        code: 'encryption_unavailable',
+        provider,
+      });
+      secretReadError.name = 'SecretReadError';
+      resolveProviderApiKey.mockRejectedValueOnce(secretReadError);
+
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        })
+      );
+
+      expect(result.ok, `${provider} must proceed keyless`).toBe(true);
+      if (!result.ok) {
+        throw new Error('expected success');
+      }
+      expect(result.request.apiKey).toBe('');
+      // Never silent: the failed optional read is warn-logged.
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('token'),
+        expect.objectContaining({ provider })
+      );
+    }
+  );
+
+  it('still fetches and injects a READABLE optional token for local-runtime servers', async () => {
+    resolveProviderApiKey.mockResolvedValueOnce('stored-ollama-token');
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'ollama' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    expect(result.request.runtimeData.providerOptions?.['ollama']).toEqual({
+      apiToken: 'stored-ollama-token',
+    });
+  });
+
+  it('never calls the key reader for the in-browser local provider', async () => {
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'local' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    expect(resolveProviderApiKey).not.toHaveBeenCalled();
+  });
+
+  it('injects the optional bearer token only for local-runtime servers', () => {
+    for (const provider of providers) {
+      const hydrated = hydrateRuntimeDataWithLocalRuntimeToken(
+        { provider: provider.id },
+        provider.id,
+        'runtime-token'
+      );
+      if (provider.runtime === 'local') {
+        expect(hydrated.providerOptions?.[provider.id], provider.id).toEqual({
+          apiToken: 'runtime-token',
+        });
+      } else {
+        expect(hydrated.providerOptions, provider.id).toBeUndefined();
+      }
+    }
   });
 });

@@ -5,6 +5,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  CopyTextButton,
   Input,
   Label,
   Select,
@@ -24,6 +25,8 @@ import type {
 interface ProviderKeysCardProps {
   readonly apiKey: string;
   readonly busy: boolean;
+  /** Registry docsUrl ("get an API key" page) for the selected provider. */
+  readonly docsUrl: string | null;
   /** Present when an environment variable is authoritative for this provider. */
   readonly environmentSource: ProviderKeySource<SettingsProviderKeyId> | undefined;
   /** True only when a keychain entry exists to remove. */
@@ -43,6 +46,7 @@ interface ProviderKeysCardProps {
 export function ProviderKeysCard({
   apiKey,
   busy,
+  docsUrl,
   environmentSource,
   hasStoredKey,
   keyHint,
@@ -96,6 +100,26 @@ export function ProviderKeysCard({
               <p className="text-muted-foreground text-xs" data-testid="provider-key-hint">
                 {keyHint}
               </p>
+            ) : null}
+            {docsUrl ? (
+              // An openExternal affordance DOES exist (app-shell's
+              // platform-bridge), but settings-ui has no capability injection
+              // for it yet — the real link arrives with the Provider Hub
+              // capability injection (BST-1362/BST-1358, PR #2513 review).
+              // Until then the URL renders as selectable text with a copy
+              // button rather than a dead anchor.
+              <div className="flex items-center gap-1">
+                <p
+                  className="select-all break-all text-muted-foreground text-xs"
+                  data-testid="provider-docs-url"
+                >
+                  Get an API key: {docsUrl}
+                </p>
+                <CopyTextButton
+                  ariaLabel={`Copy the ${selectedProviderName} API key page URL`}
+                  text={docsUrl}
+                />
+              </div>
             ) : null}
             {environmentSource ? (
               <p className="text-amber-700 text-xs" data-testid="provider-env-key-warning">

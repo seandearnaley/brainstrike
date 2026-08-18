@@ -25,6 +25,11 @@ import {
   readToolResumeRunConfigAction,
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent/hosted-web';
+import {
+  getProviderDefinition,
+  isSupportedProvider,
+  providerAuthType,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { resolveRequestedProvider } from './memory-model-targets.js';
@@ -132,16 +137,23 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
 /**
  * Absorbs the previous resolveProviderApiKeyOrRespond: a classified
  * secret-read failure becomes the same 400 payload; anything else still
- * propagates loudly. The in-browser 'local' runtime never needs a key.
+ * propagates loudly. Keyless-ness is registry-derived (`authType: 'none'`,
+ * PR #2513 review finding 3): the in-browser runtime (registry
+ * `runtime: 'browser'`) has no credential surface at all and skips the read;
+ * the local servers still read their OPTIONAL bearer token, but a classified
+ * read failure proceeds keyless with a visible warn instead of a 400 — the
+ * token is optional, so an unreadable keychain entry must not block the run.
  */
 async function resolveApiKeyOrReject(
   provider: SupportedProvider,
-  resolveProviderApiKey: ProviderApiKeyReader
+  resolveProviderApiKey: ProviderApiKeyReader,
+  logger: ScopedLogger
 ): Promise<
   | { readonly apiKey: string | undefined; readonly rejection?: undefined }
   | { readonly apiKey?: undefined; readonly rejection: AssistantPostRejection }
 > {
-  if (provider === 'local') {
+  const keyless = providerAuthType(provider) === 'none';
+  if (keyless && getProviderDefinition(provider).runtime === 'browser') {
     return { apiKey: '' };
   }
   try {
@@ -150,6 +162,13 @@ async function resolveApiKeyOrReject(
     const payload = getSecretReadErrorPayload(error);
     if (!payload) {
       throw error;
+    }
+    if (keyless) {
+      logger.warn('Optional local-runtime token is unreadable; proceeding keyless', {
+        code: payload.code,
+        provider,
+      });
+      return { apiKey: '' };
     }
     return { rejection: { payload, status: 400 } };
   }
@@ -303,13 +322,13 @@ export async function prepareAssistantPostRequest(
     });
   }
 
-  // Providers that never require a bearer token: the in-browser Gemma runtime
-  // and the two local servers (Ollama/LM Studio). Local servers accept an
-  // optional token when the user has stored one via the secrets bridge, but
-  // the absence of a token is not an error — most setups don't have auth.
-  const providerAllowsMissingAuth =
-    provider === 'local' || provider === 'ollama' || provider === 'lmstudio';
-  const resolved = await resolveApiKeyOrReject(provider, resolveProviderApiKey);
+  // Providers that never require a bearer token — the registry's
+  // `authType: 'none'` set (in-browser Gemma plus the local servers,
+  // BST-1349), never a hand list. Local servers accept an optional token when
+  // the user has stored one via the secrets bridge, but the absence of a
+  // token is not an error — most setups don't have auth.
+  const providerAllowsMissingAuth = providerAuthType(provider) === 'none';
+  const resolved = await resolveApiKeyOrReject(provider, resolveProviderApiKey, logger);
   if (resolved.rejection) {
     return reject(resolved.rejection);
   }
@@ -528,10 +547,13 @@ export function hydrateRuntimeDataWithLocalRuntimeToken(
   provider: string,
   fetchedApiKey: string | undefined
 ): RuntimeData {
-  // Only local-runtime providers need their `apiToken` injected into
+  // Only local-runtime providers (registry `runtime: 'local'` — the
+  // Ollama/LM Studio servers) need their `apiToken` injected into
   // providerOptions so the OpenAI-compat factory can forward it as a bearer
   // header. Hosted providers receive the key through the top-level `apiKey`.
-  if (!((provider === 'ollama' || provider === 'lmstudio') && fetchedApiKey)) {
+  const isLocalRuntimeServer =
+    isSupportedProvider(provider) && getProviderDefinition(provider).runtime === 'local';
+  if (!(isLocalRuntimeServer && fetchedApiKey)) {
     return runtimeData;
   }
 

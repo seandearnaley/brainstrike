@@ -191,14 +191,39 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
 
 export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinition;
 
+/**
+ * How a provider authenticates. `'none'` marks the keyless local runtimes
+ * (their optional bearer token is a transport concern, not an authType).
+ * `'oauth_subscription'` and `'aws'` are introduced ahead of use (BST-1349) —
+ * no registry provider carries them yet; downstream tickets consume them.
+ * Keyless-ness DERIVES from `authType === 'none'` — never hand-listed.
+ */
+export type ProviderAuthType = 'api_key' | 'oauth_subscription' | 'aws' | 'none';
+
 export interface ProviderDefinition {
+  authType: ProviderAuthType;
   capabilities: ProviderCapabilities;
   displayName: string;
+  /**
+   * The provider's "get an API key" page. Required in practice for
+   * `api_key` providers (pinned by provider-registry-auth.test.ts).
+   */
+  docsUrl?: string;
   /**
    * Environment variable keys (most preferred first) for secret discovery.
    */
   envKeys?: readonly string[];
   id: ProviderId;
+  /**
+   * Vendor-documented stable key prefix (e.g. "sk-ant-..."). Omit when the
+   * vendor documents no stable format — never guessed.
+   */
+  keyFormatHint?: string;
+  /**
+   * Provider-specific key guidance rendered verbatim in Settings (e.g.
+   * google's Gemini-vs-Vertex note). Registry metadata, not a UI branch.
+   */
+  keyNotes?: string;
   /**
    * Ordered list of models covering both chat and embeddings.
    */
@@ -224,12 +249,14 @@ const OPENAI_O200K_REFERENCE: TokenizerBackedMeasurementCapability = {
 
 const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: true,
       llm: true,
       streaming: true,
     },
     displayName: 'OpenAI',
+    docsUrl: 'https://platform.openai.com/api-keys',
     // Model IDs per OpenAI docs:
     // https://platform.openai.com/docs/guides/latest-model
     // https://platform.openai.com/docs/models
@@ -242,6 +269,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       'OPENAI_API_KEY_V2',
     ],
     id: 'openai',
+    keyFormatHint: 'sk-...',
     models: [
       {
         contextWindow: 1_050_000,
@@ -411,18 +439,21 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: false,
       llm: true,
       streaming: true,
     },
     displayName: 'Anthropic',
+    docsUrl: 'https://console.anthropic.com/settings/keys',
     // Model aliases per Anthropic docs:
     // https://www.anthropic.com/claude/sonnet
     // https://www.anthropic.com/claude/haiku
     // https://www.anthropic.com/claude/opus
     envKeys: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
     id: 'anthropic',
+    keyFormatHint: 'sk-ant-...',
     models: [
       {
         contextWindow: 1_000_000,
@@ -513,17 +544,21 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: true,
       llm: true,
       streaming: true,
     },
     displayName: 'Google AI Studio',
+    docsUrl: 'https://aistudio.google.com/app/apikey',
     // Gemini 3 model IDs + embeddings docs:
     // https://ai.google.dev/gemini-api/docs/gemini-3
     // https://ai.google.dev/gemini-api/docs/embeddings
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
     id: 'google',
+    // Google publishes no stable key prefix, so there is no keyFormatHint.
+    keyNotes: 'Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.',
     models: [
       {
         contextWindow: 1_048_576,
@@ -614,16 +649,19 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: false,
       llm: true,
       streaming: true,
     },
     displayName: 'OpenRouter',
+    docsUrl: 'https://openrouter.ai/settings/keys',
     // OpenRouter uses provider-prefixed model slugs (examples in docs):
     // https://openrouter.ai/docs/guides/routing/auto-model-selection
     envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
     id: 'openrouter',
+    keyFormatHint: 'sk-or-v1-...',
     // Curated current subset from OpenRouter's model catalog. Provider-reported
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
@@ -1190,12 +1228,15 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'gateway',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: true,
       llm: false,
       streaming: false,
     },
     displayName: 'Cohere',
+    // Cohere publishes no stable key prefix, so there is no keyFormatHint.
+    docsUrl: 'https://dashboard.cohere.com/api-keys',
     envKeys: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
     id: 'cohere',
     models: [
@@ -1218,12 +1259,16 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: true,
       llm: false,
       streaming: false,
     },
     displayName: 'Voyage AI',
+    // Voyage's docs link this dashboard page (docs.voyageai.com, verified
+    // 2026-08-18). No stable key prefix is documented, so no keyFormatHint.
+    docsUrl: 'https://dashboard.voyageai.com/organization/api-keys',
     envKeys: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
     id: 'voyage',
     models: [
@@ -1246,6 +1291,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'none',
     capabilities: {
       embeddings: false,
       llm: true,
@@ -1290,6 +1336,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'browser',
   },
   {
+    // The optional local-server bearer token is a transport concern
+    // (providerOptions.apiToken), not an authType.
+    authType: 'none',
     capabilities: {
       embeddings: true,
       llm: true,
@@ -1302,6 +1351,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'local',
   },
   {
+    // The optional local-server bearer token is a transport concern
+    // (providerOptions.apiToken), not an authType.
+    authType: 'none',
     capabilities: {
       embeddings: true,
       llm: true,
@@ -1369,6 +1421,19 @@ export function resolveTokenMeasurementCapability(
 
 export function getProviderDefinition(provider: ProviderId): ProviderDefinition {
   return PROVIDER_BY_ID[provider];
+}
+
+/**
+ * Non-throwing counterpart to {@link getProviderDefinition} for callers whose
+ * provider id is NOT statically guaranteed to be a registry member (e.g. a
+ * persona pin's config-supplied provider, PR #2513 review finding 1).
+ * `getProviderDefinition`'s signature promises a definition but returns
+ * `undefined` at runtime for out-of-union ids — deref that and a TypeError
+ * escapes into caller error handling. Use this when "unknown provider" has a
+ * defined fallback.
+ */
+export function findProviderDefinition(providerId: string): ProviderDefinition | undefined {
+  return (PROVIDER_BY_ID as Record<string, ProviderDefinition | undefined>)[providerId];
 }
 
 export function listProviderModels(provider: ProviderId, type?: ProviderModelType) {

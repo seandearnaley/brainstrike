@@ -23,6 +23,7 @@ import {
   isSupportedProvider,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
+  providerAuthType,
   type SupportedProvider,
 } from './types';
 
@@ -266,7 +267,11 @@ export function createLanguageModelProvider(
       detail: `Persistent memory does not support provider: ${provider}`,
     });
   }
-  if (provider !== 'local' && !apiKey?.trim()) {
+  // Registry-derived (PR #2513 review, finding 7): within the persistent-
+  // memory allowlist above, `local` is the only `authType: 'none'` member
+  // (ollama/lmstudio are excluded from persistent memory entirely), so this
+  // is behavior-identical to the previous `provider !== 'local'` check.
+  if (providerAuthType(provider) !== 'none' && !apiKey?.trim()) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
       context: { provider },
       detail: `Persistent memory provider "${provider}" requires an explicit API key.`,

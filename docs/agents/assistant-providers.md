@@ -843,6 +843,69 @@ Implementation:
 
 When changing this flow, update this doc.
 
+### Provider registry auth metadata (BST-1349)
+
+`ProviderDefinition` in
+`packages/assistant-contract/src/provider-registry.ts` carries per-provider
+auth metadata; the registry is the ONLY source for it:
+
+- `authType: 'api_key' | 'oauth_subscription' | 'aws' | 'none'` — REQUIRED on
+  every provider. `'none'` marks the keyless providers (`local`, `ollama`,
+  `lmstudio`); the local servers' optional bearer token is a TRANSPORT concern
+  (`providerOptions.apiToken`, registry `runtime: 'local'`), not an authType.
+  `'oauth_subscription'` and `'aws'` exist ahead of use — no provider carries
+  them yet; downstream tickets consume them.
+- `docsUrl?` — the provider's "get an API key" page (required in practice for
+  `api_key` providers).
+- `keyFormatHint?` — vendor-documented stable key prefix (e.g. `sk-ant-...`).
+  Omit when the vendor documents no stable format; never guess.
+- `keyNotes?` — provider-specific key guidance rendered verbatim in Settings
+  (e.g. google's Gemini-vs-Vertex note).
+
+What DERIVES from the registry (via `providerAuthType(id)` /
+`getProviderDefinition(id).runtime`; lookups on ids not statically typed
+`ProviderId` use the non-throwing `findProviderDefinition` — an
+out-of-registry id must reach a documented fallback, never a TypeError):
+
+- `packages/agent`: `resolveRuntimeConfiguration` (keyless = `authType
+  'none'`), `PERSONA_PIN_KEYLESS_PROVIDERS`, `isHostedProviderRuntime`
+  (fail-open: only `runtime 'local'|'browser'` opt out of the hosted path),
+  the dynamic local-model tool budget, and `createLanguageModelProvider`'s
+  key requirement.
+- `packages/assistant-service`: `providerAllowsMissingAuth`,
+  `resolveApiKeyOrReject` (a keyless provider's OPTIONAL token read failure
+  proceeds keyless with a warn, never a 400), local-runtime token hydration.
+- `packages/assistant-contract`: `model-reasoning.ts`'s discovered-model
+  answers key off registry `runtime: 'local'`.
+- Settings renders `keyNotes`/`keyFormatHint`/`docsUrl` generically — no
+  `provider === '...'` branches. `PROVIDER_COLOR_MAP` (`packages/ui`) is
+  compile-time exhaustive over `SupportedProvider` (`satisfies`); its hash
+  fallback serves only dynamically discovered runtime ids.
+
+KNOWN remaining hand-sites (deliberate or ticketed — do not silently grow
+this list):
+
+- `packages/app-shell` `LOCAL_RUNTIME_PROVIDER_IDS` and the settings-ui
+  embedding section's local-runtime entries — follow-up in BST-1362/BST-1358
+  (Provider Hub) scope.
+- `packages/embeddings` / `packages/indexing-contract` embedding-provider
+  key tables — BST-1361.
+- `apps/desktop/src/assistant-server/provider-credentials.ts` (~line 48)
+  availability semantics: only `local` is unconditionally available;
+  local-server availability is probed. Deliberate, documented here.
+- Transport/display concerns are NOT authType sites and stay per-provider:
+  the `providerOptions.ollama`/`.lmstudio` namespace stripping, local-runtime
+  factory type unions, and human display labels.
+
+Pinned by
+`packages/assistant-contract/src/__tests__/provider-registry-auth.test.ts`,
+`packages/agent/src/__tests__/runtime-configuration.spec.ts`,
+`packages/agent/src/__tests__/tool-output-limits.spec.ts` (unknown-provider
+fallback), `packages/agent/src/__tests__/tool-pipeline-provider-runtime.spec.ts`,
+the BST-1349 suites in
+`packages/assistant-service/src/__tests__/request.test.ts`, and the
+`satisfies` in `packages/ui/src/model-picker/utils/provider-colors.ts`.
+
 ---
 
 ## MCP TRANSPORT SELECTION (CRITICAL)

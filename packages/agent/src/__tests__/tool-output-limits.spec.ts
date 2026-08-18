@@ -115,6 +115,31 @@ describe('resolveScaledToolResultBudget', () => {
     });
   });
 
+  it('resolves an UNKNOWN provider id to the ANCHOR tier, visibly logged, instead of throwing', () => {
+    // build-persona-subagents passes `persona.model.provider as ProviderId`
+    // UNVALIDATED (PR #2513 review, finding 1). An out-of-registry provider id
+    // must reach the documented warn+anchor fallback — never a TypeError that
+    // the persona resolver's try/catch turns into a silently dropped persona.
+    let result: ReturnType<typeof resolveToolResultBudgetForModel> | undefined;
+    const fallbackLogs = collectFallbackWarnLog(() => {
+      result = resolveToolResultBudgetForModel(
+        'not-a-registered-provider' as Parameters<typeof resolveToolResultBudgetForModel>[0],
+        'persona-pinned-model'
+      );
+    });
+    expect(result).toEqual(resolveScaledToolResultBudget(131_072));
+    expect(fallbackLogs).toHaveLength(1);
+    const context = fallbackLogs[0]?.args.find(
+      (arg): arg is Record<string, unknown> => typeof arg === 'object' && arg !== null
+    );
+    expect(context).toMatchObject({
+      code: 'tool_result_budget_unknown_model_fallback',
+      fallbackContextWindow: 131_072,
+      modelId: 'persona-pinned-model',
+      providerId: 'not-a-registered-provider',
+    });
+  });
+
   it('resolves a KNOWN catalog model to its declared window, unaffected by the fallback path', () => {
     const fallbackLogs = collectFallbackWarnLog(() => {
       const result = resolveToolResultBudgetForModel('anthropic', 'claude-haiku-4-5');

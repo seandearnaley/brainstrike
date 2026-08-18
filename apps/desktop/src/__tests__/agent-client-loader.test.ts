@@ -47,10 +47,13 @@ describe('agent-client-loader', () => {
     expect(localKeys).toEqual([]);
   });
 
-  it('returns all known fallback providers in the expected order', async () => {
+  it('returns all known fallback providers in registry declaration order', async () => {
     const module = await import('../agent-client-loader');
     const providers = module.listAgentProviders();
 
+    // MUST stay in registry declaration order: main/agent-client-loader.test.ts
+    // pins the loader against the agent SOURCE order, and CI runs this fallback
+    // path with agent's dist absent (PR #2513 review, finding 2).
     expect(providers).toEqual([
       'openai',
       'anthropic',
