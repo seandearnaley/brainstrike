@@ -90,12 +90,30 @@ describe('runtime configuration auth input (BST-1352)', () => {
     for (const envKey of providerEnvKeys('anthropic')) {
       vi.stubEnv(envKey, '');
     }
-    const resolved = resolveRuntimeConfiguration(
-      { provider: 'anthropic' },
-      { kind: 'aws', region: 'us-east-1' }
-    );
+    const auth: ProviderAuthInput = { apiKey: 'bedrock-bearer', kind: 'aws', region: 'us-east-1' };
+    const resolved = resolveRuntimeConfiguration({ provider: 'anthropic' }, auth);
+    // The threaded auth input is AUTHORITATIVE — no fallback into env
+    // resolution, which the emptied env vars above would otherwise supply.
+    expect(resolved.apiKey).toBe('bedrock-bearer');
+    expect(resolved.authInput).toEqual(auth);
+  });
+
+  it('an aws CHAIN auth input carries no bearer and still skips the requirement (BST-1353)', () => {
+    // The profile-chain form is the whole point: it is a fully configured
+    // credential with NO api key, so `mastra_agent_missing_api_key` must not
+    // fire and the closure must survive resolution by reference.
+    for (const envKey of providerEnvKeys('anthropic')) {
+      vi.stubEnv(envKey, '');
+    }
+    const credentialProvider = async () => ({ accessKeyId: 'AKIA', secretAccessKey: 'sec' });
+    const auth: ProviderAuthInput = { credentialProvider, kind: 'aws', region: 'us-east-1' };
+    const resolved = resolveRuntimeConfiguration({ provider: 'anthropic' }, auth);
     expect(resolved.apiKey).toBe('');
-    expect(resolved.authInput).toEqual({ kind: 'aws', region: 'us-east-1' });
+    expect(resolved.authInput).toEqual(auth);
+    // Identity, not a structural copy — a serialized round trip would drop it.
+    expect(
+      (resolved.authInput as Extract<ProviderAuthInput, { kind: 'aws' }>).credentialProvider
+    ).toBe(credentialProvider);
   });
 
   it('without an auth input the legacy runtime/env resolution wraps into api_key kind', () => {

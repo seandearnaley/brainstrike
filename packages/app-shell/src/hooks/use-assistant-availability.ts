@@ -1,7 +1,10 @@
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
   type DeprecatedEnvVarReport,
+  isAllowedProviderKeySourceEnvVar,
+  isProviderAuthMode,
   isSecretReadErrorCode,
+  type ProviderAuthMode,
   type ProviderKeySource,
   type SecretReadErrorCode,
 } from '@brainstrike/assistant-contract';
@@ -9,6 +12,7 @@ import {
   isSupportedProvider,
   isValidModelForProvider,
   PROVIDER_DEFAULT_MODELS,
+  providerAuthType,
   providerDeprecatedEnvKeys,
   providerEnvKeys,
   type SupportedProvider,
@@ -481,6 +485,48 @@ function hasExactOwnKeys(
   );
 }
 
+/**
+ * Required keys all present, plus any subset of `optionalKeys`, and nothing
+ * else. Same strictness as {@link hasExactOwnKeys} — an unrecognized key
+ * still rejects the payload — but it admits genuinely optional fields.
+ */
+function hasAllowedOwnKeys(
+  candidate: Record<string, unknown>,
+  requiredKeys: readonly string[],
+  optionalKeys: readonly string[]
+): boolean {
+  if (!requiredKeys.every((key) => Object.hasOwn(candidate, key))) {
+    return false;
+  }
+  return Object.keys(candidate).every(
+    (key) => requiredKeys.includes(key) || optionalKeys.includes(key)
+  );
+}
+
+/** Shared rule (BST-1353) so this parser cannot drift from the contract's. */
+function isAllowedKeySourceEnvVar(provider: SupportedProvider, envVar: string): boolean {
+  return isAllowedProviderKeySourceEnvVar(
+    envVar,
+    providerEnvKeys(provider),
+    providerAuthType(provider) === 'aws'
+  );
+}
+
+/**
+ * The optional AWS auth mode (BST-1353). Absent on every non-aws provider;
+ * present-but-unknown is malformed, never dropped.
+ */
+function parseKeySourceAuthMode(candidate: Record<string, unknown>): ProviderAuthMode | undefined {
+  if (!Object.hasOwn(candidate, 'authMode')) {
+    return;
+  }
+  const authMode = candidate['authMode'];
+  if (!isProviderAuthMode(authMode)) {
+    throw new Error('Invalid assistant provider key source');
+  }
+  return authMode;
+}
+
 function parseAssistantProviders(value: unknown): readonly SupportedProvider[] | undefined {
   if (value === undefined) {
     return;
@@ -496,6 +542,36 @@ function parseAssistantProviders(value: unknown): readonly SupportedProvider[] |
     providers.add(provider);
   }
   return [...providers];
+}
+
+function parseStoredKeySource(
+  candidate: Record<string, unknown>,
+  provider: SupportedProvider
+): ProviderKeySource<SupportedProvider> {
+  if (!hasAllowedOwnKeys(candidate, ['provider', 'source'], ['authMode'])) {
+    throw new Error('Invalid assistant provider key source');
+  }
+  const authMode = parseKeySourceAuthMode(candidate);
+  return { ...(authMode ? { authMode } : {}), provider, source: 'stored' };
+}
+
+function parseEnvKeySource(
+  candidate: Record<string, unknown>,
+  provider: SupportedProvider
+): ProviderKeySource<SupportedProvider> {
+  const envVar = candidate['envVar'];
+  if (
+    !hasAllowedOwnKeys(candidate, ['envVar', 'provider', 'source'], ['authMode']) ||
+    typeof envVar !== 'string' ||
+    // BST-1353: the AWS chain is activated by AWS_PROFILE/AWS_ACCESS_KEY_ID,
+    // which are NOT provider key names, so aws-authType providers accept the
+    // chain activation names in addition to their own bearer vars.
+    !isAllowedKeySourceEnvVar(provider, envVar)
+  ) {
+    throw new Error('Invalid assistant provider key source');
+  }
+  const authMode = parseKeySourceAuthMode(candidate);
+  return { ...(authMode ? { authMode } : {}), envVar, provider, source: 'env' };
 }
 
 function parseAssistantProviderKeySources(
@@ -522,21 +598,10 @@ function parseAssistantProviderKeySources(
 
     providers.add(provider);
     if (source === 'stored') {
-      if (!hasExactOwnKeys(candidate, ['provider', 'source'])) {
-        throw new Error('Invalid assistant provider key source');
-      }
-      return { provider, source };
+      return parseStoredKeySource(candidate, provider);
     }
     if (source === 'env') {
-      const envVar = candidate['envVar'];
-      if (
-        !hasExactOwnKeys(candidate, ['envVar', 'provider', 'source']) ||
-        typeof envVar !== 'string' ||
-        !providerEnvKeys(provider).includes(envVar)
-      ) {
-        throw new Error('Invalid assistant provider key source');
-      }
-      return { envVar, provider, source };
+      return parseEnvKeySource(candidate, provider);
     }
     throw new Error('Invalid assistant provider key source');
   });

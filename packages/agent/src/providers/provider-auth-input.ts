@@ -11,10 +11,11 @@
  *   owns real authentication. Provider cases whose model config has NO fetch
  *   seam (Mastra descriptor configs: openrouter/ollama/lmstudio, and the local
  *   host client) throw a typed error rather than silently dropping the fetch.
- * - `aws` — Bedrock-shaped input (bearer key + region, BST-1350; SigV4
- *   credential providers land with BST-1353). Validated here (region is
- *   required) and consumed ONLY by the `bedrock` provider case via
- *   `requireAwsAuthInput`; every other case throws a typed error.
+ * - `aws` — Bedrock-shaped input: a region plus EXACTLY ONE credential form,
+ *   a bearer key (BST-1350) or an AWS credential-chain provider (BST-1353).
+ *   Validated here (region required, bearer XOR chain) and consumed ONLY by
+ *   the `bedrock` provider case via `requireAwsAuthInput`; every other case
+ *   throws a typed error.
  *
  * THREADING RULE (do not relitigate): auth inputs travel as DIRECT function
  * parameters the whole way down (runAssistantTurn → initializeAgentStream →
@@ -25,6 +26,7 @@
 import { isValidAwsRegion } from '@brainstrike/assistant-contract';
 import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
+import type { AwsCredentialIdentityProvider } from './aws-credential-identity';
 
 /**
  * Actionable missing-region guidance (BST-1350). One string for every seam
@@ -44,13 +46,27 @@ export const INVALID_AWS_REGION_DETAIL =
   'The configured AWS region is not a valid AWS region identifier (expected a value like "us-east-1"). Fix the region for Bedrock in Settings or in AWS_REGION.';
 
 /**
- * Phase-1 bearer requirement (PR #2522 review, finding 4): without an apiKey
- * the AI SDK would fall back to ambient AWS environment credentials —
- * profile/credential-chain auth is BST-1353's EXPLICIT job, never an
- * implicit fallback here.
+ * EXACTLY-ONE credential requirement (PR #2522 finding 4, widened by
+ * BST-1353). An aws input must carry a bearer key OR a credential provider.
+ *
+ * Neither is a typed failure rather than a shrug: with both absent the AI SDK
+ * silently falls back to AMBIENT AWS environment credentials, so a
+ * misconfigured request would quietly sign with whatever identity happens to
+ * be in the process env. Credential-chain auth is opt-in and EXPLICIT — it
+ * arrives as a constructed `credentialProvider`, never as an ambient default.
  */
-export const MISSING_AWS_BEARER_KEY_DETAIL =
-  'Amazon Bedrock requires a Bedrock API key (bearer token) in phase 1. AWS profile/credential-chain auth is not supported yet (BST-1353).';
+export const MISSING_AWS_CREDENTIALS_DETAIL =
+  'Amazon Bedrock requires either a Bedrock API key (bearer token) or an AWS profile/credential-chain provider, and neither was resolved. Configure a Bedrock credential in Settings.';
+
+/**
+ * BOTH forms supplied. Ambiguous auth is never resolved by preferring one:
+ * precedence between bearer and chain is decided ONCE, at credential
+ * resolution (apps/desktop/src/provider-api-key.ts), so a doubly-populated
+ * input reaching the factory means a resolver bug — surfaced, not papered
+ * over.
+ */
+export const CONFLICTING_AWS_CREDENTIALS_DETAIL =
+  'Amazon Bedrock received BOTH a bearer key and an AWS credential-chain provider. Exactly one auth form is valid per request; credential resolution must pick the winner before the factory.';
 
 export type ProviderAuthInput =
   | { kind: 'api_key'; apiKey: string }
@@ -59,14 +75,26 @@ export type ProviderAuthInput =
       kind: 'aws';
       region: string;
       apiKey?: string;
-      /** Typed when BST-1353 adds the AWS credential-provider dependency. */
-      credentialProvider?: unknown;
+      /**
+       * The AWS default credential chain (BST-1353), built per request by
+       * `createAwsCredentialChain`. Typed through the IMPORT-FREE identity
+       * module so this browser-reachable seam keeps zero edges — type-only
+       * included — to the Node-only `@aws-sdk/credential-providers`.
+       *
+       * NEVER SERIALIZED: this is a closure, and `RequestContext.toJSON`
+       * drops functions. It rides the DIRECT-parameter threading rule with
+       * the rest of the union (see the header note), so it can never vanish
+       * silently into runtime data.
+       */
+      credentialProvider?: AwsCredentialIdentityProvider;
     };
 
 /**
  * Validate an auth input's own shape before any provider dispatch. Only `aws`
- * carries cross-field requirements today (a region is mandatory — an empty
- * region is a malformed input, not a default-region request).
+ * carries cross-field requirements: a region is mandatory (an empty region is
+ * a malformed input, not a default-region request), and EXACTLY ONE of
+ * `apiKey` / `credentialProvider` must be present (BST-1353) — neither would
+ * silently sign with ambient env credentials, both would be ambiguous.
  */
 export function assertValidProviderAuthInput(auth: ProviderAuthInput | undefined): void {
   if (auth === undefined) {
@@ -89,9 +117,34 @@ export function assertValidProviderAuthInput(auth: ProviderAuthInput | undefined
           detail: INVALID_AWS_REGION_DETAIL,
         });
       }
+      assertExactlyOneAwsCredential(auth);
       return;
     default:
       assertNeverAuthInput(auth);
+  }
+}
+
+/**
+ * The bearer-XOR-chain rule (BST-1353). Enforced HERE, before provider
+ * dispatch, so it fails identically no matter which provider case is reached
+ * — the same placement the region rules use.
+ */
+export function assertExactlyOneAwsCredential(
+  auth: Extract<ProviderAuthInput, { kind: 'aws' }>
+): void {
+  const hasBearer = Boolean(auth.apiKey);
+  const hasChain = auth.credentialProvider !== undefined;
+  if (hasBearer && hasChain) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      context: { authKind: 'aws' },
+      detail: CONFLICTING_AWS_CREDENTIALS_DETAIL,
+    });
+  }
+  if (!(hasBearer || hasChain)) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      context: { authKind: 'aws' },
+      detail: MISSING_AWS_CREDENTIALS_DETAIL,
+    });
   }
 }
 

@@ -1,6 +1,8 @@
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
+  AWS_CHAIN_ACTIVATION_ENV_NAMES,
+  findProviderDefinition,
   type ProviderCredential,
   type ProviderKeySource,
   resolveHostedProviderCredential,
@@ -68,6 +70,78 @@ export type ResolvedDesktopProviderCredential = ProviderCredential & {
 };
 
 /**
+ * The ENV-CHAIN ACTIVATION RULE (BST-1353), stated once, here:
+ *
+ *   `AWS_REGION` is set AND no bearer key was resolved
+ *   AND (`AWS_PROFILE` or `AWS_ACCESS_KEY_ID` is present).
+ *
+ * Why each clause:
+ *
+ * - **`AWS_REGION` required.** A chain credential still needs a region and
+ *   there is no default (the settled BST-1350 rule). Env auth has nowhere
+ *   else to carry one.
+ * - **No bearer.** Bearer beats chain, always — see the precedence table in
+ *   {@link readProviderCredential}. This clause is what makes that true for
+ *   the env half.
+ * - **An activation variable.** This is the ONE place the chain is gated, and
+ *   it is deliberately narrow: a machine with `~/.aws/config` but no AWS
+ *   environment at all has NOT asked Brainstrike to sign with ambient
+ *   credentials, and silently doing so would pick an identity the user never
+ *   chose. Once activation passes, the FULL chain runs (SSO, process creds,
+ *   instance roles — see aws-credential-chain.ts); the gate selects the mode,
+ *   it does not narrow what the chain may consult.
+ *
+ * The region is NOT format-checked here on purpose: a malformed `AWS_REGION`
+ * must reach the factory's `INVALID_AWS_REGION_DETAIL` rejection rather than
+ * silently read as "Bedrock is not configured" (same reasoning as the
+ * projection's deliberate `region: ''`).
+ */
+export function resolveAwsEnvChainCredential(
+  env: Readonly<NodeJS.ProcessEnv>,
+  hasBearerCredential: boolean
+): { readonly credential: ProviderCredential; readonly envVar: string } | undefined {
+  if (hasBearerCredential) {
+    return;
+  }
+  const region = normalizeSecretValue(env['AWS_REGION']);
+  if (!region) {
+    return;
+  }
+  const activationName = AWS_CHAIN_ACTIVATION_ENV_NAMES.find((name) =>
+    normalizeSecretValue(env[name])
+  );
+  if (!activationName) {
+    return;
+  }
+  const profile = normalizeSecretValue(env['AWS_PROFILE']);
+  return {
+    credential: {
+      mode: 'profile_chain',
+      region,
+      type: 'aws',
+      // Absent profile is legitimate: the chain then uses its own default
+      // resolution (which still honors AWS_PROFILE internally).
+      ...(profile ? { profile } : {}),
+    },
+    envVar: activationName,
+  };
+}
+
+/** Whether a resolved credential carries a BEARER token (any source). */
+function isBearerCredential(credential: ProviderCredential | undefined): boolean {
+  if (!credential) {
+    return false;
+  }
+  return (
+    credential.type === 'api_key' || (credential.type === 'aws' && credential.mode === 'bearer')
+  );
+}
+
+function isAwsAuthProvider(provider: SupportedProvider): boolean {
+  return findProviderDefinition(provider)?.authType === 'aws';
+}
+
+/**
  * Normalize a stored api_key credential exactly like the legacy string read
  * (`normalizeSecretValue`): trim the key; a blank key is "not configured".
  * Typed credentials (`oauth`/`aws`) have validated fields and pass through.
@@ -106,6 +180,31 @@ export async function readProviderCredential(
       return stored === null ? null : normalizeStoredCredential(stored);
     },
   });
+
+  // AWS auth precedence (BST-1353). Two ORTHOGONAL axes, applied in this
+  // order — bearer-vs-chain is the PRIMARY one:
+  //
+  //   1. env bearer      (BRAINSTRIKE_BEDROCK_API_KEY, AWS_BEARER_TOKEN_BEDROCK)
+  //   2. stored bearer   ({ type:'aws', mode:'bearer' } in the keychain)
+  //   3. env chain       (the activation rule above)
+  //   4. stored chain    ({ type:'aws', mode:'profile_chain' } in the keychain)
+  //
+  // Note that step 2 outranks step 3: a bearer key is an EXPLICIT, Bedrock-
+  // specific credential the user typed into Settings, while an AWS
+  // environment is ambient and often set for unrelated tooling. Within each
+  // mode env still wins over stored, which is why the env chain outranks the
+  // stored chain. `resolveHostedProviderCredential` already decided 1-vs-2,
+  // so the only work left here is inserting 3 ahead of a stored chain.
+  if (isAwsAuthProvider(provider)) {
+    const envChain = resolveAwsEnvChainCredential(
+      process.env,
+      isBearerCredential(resolution.credential ?? undefined)
+    );
+    if (envChain) {
+      return { ...envChain.credential, source: 'env' };
+    }
+  }
+
   if (resolution.credential && resolution.source) {
     return { ...resolution.credential, source: resolution.source };
   }
@@ -130,43 +229,58 @@ export interface ProviderKeyInspection {
   readonly readFailures: ProviderKeyReadFailure[];
 }
 
-export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
-  const configured = new Map<SupportedProvider, ProviderKeySource<SupportedProvider>>();
-  const readFailures: ProviderKeyReadFailure[] = [];
-  const supportedProviders = listAgentProviders();
+type ConfiguredProviderMap = Map<SupportedProvider, ProviderKeySource<SupportedProvider>>;
 
-  for (const provider of supportedProviders) {
+/** Rung 1: env BEARER keys, for every provider that declares env names. */
+function collectEnvBearerSources(
+  providers: readonly SupportedProvider[],
+  configured: ConfiguredProviderMap
+): void {
+  for (const provider of providers) {
     const environmentCredential = resolveProviderEnvCredential(provider);
     if (environmentCredential) {
       configured.set(provider, {
+        // Every registry env key is a BEARER token, so an env hit on an
+        // aws-authType provider is bearer mode by construction (BST-1353).
+        ...(isAwsAuthProvider(provider) ? { authMode: 'bearer' as const } : {}),
         envVar: environmentCredential.envVar,
         provider,
         source: 'env',
       });
     }
   }
+}
 
+/** Rungs 2 and 4: stored credentials of any type, skipping env-configured providers. */
+async function collectStoredSources(
+  configured: ConfiguredProviderMap,
+  readFailures: ProviderKeyReadFailure[]
+): Promise<void> {
   const secretsService = getSecretsService();
   const storedProviders: string[] = await secretsService.listProviders();
-  const inspectedStoredProviders = new Set<SupportedProvider>();
+  const inspected = new Set<SupportedProvider>();
+
   for (const provider of storedProviders) {
     if (!isSupportedProvider(provider)) {
       continue;
     }
     const supported = provider as SupportedProvider;
-    if (configured.has(supported) || inspectedStoredProviders.has(supported)) {
+    if (configured.has(supported) || inspected.has(supported)) {
       continue;
     }
-    inspectedStoredProviders.add(supported);
+    inspected.add(supported);
     try {
       // Typed read (BST-1352 review finding 3): a VALID stored credential of
       // ANY type marks the provider configured — the availability verdict and
-      // the typed-consumer verdict must agree before wave 3 lands consumers.
-      // Blank legacy api_key strings stay "not configured" via the same
-      // normalization the request path uses.
+      // the typed-consumer verdict must agree. Blank legacy api_key strings
+      // stay "not configured" via the same normalization the request path uses.
       const credential = await secretsService.getCredential(supported);
       if (credential !== null && normalizeStoredCredential(credential)) {
-        configured.set(supported, { provider: supported, source: 'stored' });
+        configured.set(supported, {
+          ...(credential.type === 'aws' ? { authMode: credential.mode } : {}),
+          provider: supported,
+          source: 'stored',
+        });
       }
     } catch (error) {
       if (!(error instanceof SecretReadError)) {
@@ -176,13 +290,45 @@ export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
         error,
         provider: supported,
       });
-      readFailures.push({
-        code: error.code,
-        message: error.message,
-        provider: supported,
+      readFailures.push({ code: error.code, message: error.message, provider: supported });
+    }
+  }
+}
+
+/**
+ * Rung 3: the env chain. Runs LAST because it overrides a stored CHAIN but
+ * never a bearer of either source. Keeping this listing's verdict identical
+ * to what `readProviderCredential` resolves on the next request is the whole
+ * point — if they disagreed, the badge would name a mode the run does not use.
+ */
+function applyEnvChainSources(
+  providers: readonly SupportedProvider[],
+  configured: ConfiguredProviderMap
+): void {
+  for (const provider of providers) {
+    if (!isAwsAuthProvider(provider) || configured.get(provider)?.authMode === 'bearer') {
+      continue;
+    }
+    const envChain = resolveAwsEnvChainCredential(process.env, false);
+    if (envChain) {
+      configured.set(provider, {
+        authMode: 'profile_chain',
+        envVar: envChain.envVar,
+        provider,
+        source: 'env',
       });
     }
   }
+}
+
+export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
+  const configured: ConfiguredProviderMap = new Map();
+  const readFailures: ProviderKeyReadFailure[] = [];
+  const supportedProviders = listAgentProviders();
+
+  collectEnvBearerSources(supportedProviders, configured);
+  await collectStoredSources(configured, readFailures);
+  applyEnvChainSources(supportedProviders, configured);
 
   return {
     configuredProviders: [...configured.values()],

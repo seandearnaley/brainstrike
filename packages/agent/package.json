@@ -8,6 +8,7 @@
     "@ai-sdk/openai": "^4.0.42",
     "@ai-sdk/provider": "4.0.7",
     "@anthropic-ai/sandbox-runtime": "catalog:",
+    "@aws-sdk/credential-providers": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/db": "workspace:*",

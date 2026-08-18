@@ -1,5 +1,9 @@
 import http from 'node:http';
-import { assistantDataStreamSessions, type RuntimeData } from '@brainstrike/agent';
+import {
+  assistantDataStreamSessions,
+  createAwsCredentialChain,
+  type RuntimeData,
+} from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import {
   respondAssistantRejection,
@@ -423,7 +427,13 @@ function deriveAssistantTurnAuthInput(
       'Prepared assistant runtime data is missing its provider; request preparation must stamp it.'
     );
   }
-  return providerAuthInputFromCredential(provider, credential);
+  // BST-1353: the SAME chain capability preparation used, so the credential
+  // that passed preparation cannot fail to project here. The closure it
+  // builds is per-request and desktop-main-only — it never crosses IPC and is
+  // never serialized (RequestContext.toJSON drops functions).
+  return providerAuthInputFromCredential(provider, credential, {
+    awsCredentialChain: createAwsCredentialChain,
+  });
 }
 
 /**
@@ -470,6 +480,9 @@ async function handleAssistantPost(
   options: AssistantServerOptions
 ): Promise<void> {
   const prepared = await prepareAssistantPostRequest({
+    // BST-1353: desktop main is the ONLY host that can resolve local AWS
+    // profiles, so it is the only one that supplies the chain builder.
+    awsCredentialChain: createAwsCredentialChain,
     logger,
     readBody: () => readRequestBody(req, { maxBodyBytes: assistantRequestBodyLimitBytes }),
     resolveProviderCredential,

@@ -13,6 +13,7 @@ import {
   type LoadDesktopEnvironmentOptions,
   loadDesktopEnvironment,
   NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES,
+  SUPPORTED_ENV_FILE_VARIABLE_NAMES,
 } from '../../desktop-env';
 import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 
@@ -87,16 +88,51 @@ describe('createCredentialIsolatedChildEnvironment', () => {
     expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('BRAINSTRIKE_BEDROCK_API_KEY')).toBe(true);
   });
 
-  it('keeps AWS_REGION for children — a region is configuration, not a secret (BST-1350)', () => {
+  it('keeps AWS_REGION and AWS_PROFILE for children — configuration, not secrets (BST-1350/1353)', () => {
     const result = createCredentialIsolatedChildEnvironment({
       AWS_BEARER_TOKEN_BEDROCK: 'bearer-secret',
+      AWS_PROFILE: 'acme-dev',
       AWS_REGION: 'us-east-1',
       PATH: '/usr/bin',
     });
-    expect(result).toEqual({ AWS_REGION: 'us-east-1', PATH: '/usr/bin' });
+    // AWS_PROFILE NAMES a profile; the credentials it points at live in the
+    // user's AWS config and never pass through this process env, so scrubbing
+    // the name would break `aws` CLI children while protecting nothing.
+    expect(result).toEqual({
+      AWS_PROFILE: 'acme-dev',
+      AWS_REGION: 'us-east-1',
+      PATH: '/usr/bin',
+    });
     expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_REGION')).toBe(false);
-    // The non-credential set stays deliberately tiny: exactly AWS_REGION today.
-    expect([...NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES]).toEqual(['AWS_REGION']);
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_PROFILE')).toBe(false);
+    // The non-credential set stays deliberately tiny — extend it only with a
+    // ruling, never casually.
+    expect([...NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES].sort()).toEqual([
+      'AWS_PROFILE',
+      'AWS_REGION',
+    ]);
+  });
+
+  it('SECURITY: every SECRET AWS name is in NEITHER env-file set (BST-1353)', () => {
+    // Membership is a security CLASSIFICATION: the non-credential set is
+    // excluded from the child-process scrub AND rendered to the user as muted
+    // "config" chips (BST-1363). A secret placed there would both leak to
+    // children and be painted as innocuous. These names can still ACTIVATE
+    // the chain from the inherited process environment — the allow-list
+    // governs what a `.env` FILE may set, not what the chain may consult.
+    for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN']) {
+      expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+      expect(NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+      expect(SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+    }
+  });
+
+  it('SECURITY: the non-credential set contains ONLY non-secret configuration', () => {
+    // A tripwire on the whole set rather than on the names BST-1353 happened
+    // to add: anything that looks like a secret must never land here.
+    for (const name of NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES) {
+      expect(name).not.toMatch(/KEY|SECRET|TOKEN|PASSWORD/);
+    }
   });
 });
 

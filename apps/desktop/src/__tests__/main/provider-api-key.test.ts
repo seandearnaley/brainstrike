@@ -139,7 +139,15 @@ describe('provider-api-key', () => {
 
     await expect(inspectProviderKeys()).resolves.toEqual({
       configuredProviders: [
-        { envVar: 'AWS_BEARER_TOKEN_BEDROCK', provider: 'bedrock', source: 'env' },
+        {
+          // BST-1353: every registry env key is a bearer token, so an env hit
+          // on an aws provider reports bearer mode — the badge names the
+          // winner of the precedence table.
+          authMode: 'bearer',
+          envVar: 'AWS_BEARER_TOKEN_BEDROCK',
+          provider: 'bedrock',
+          source: 'env',
+        },
       ],
       readFailures: [],
     });
@@ -307,5 +315,202 @@ describe('provider-api-key', () => {
       type: 'api_key',
     });
     expect(mockGetSecretsService).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * BST-1353 — the AWS auth PRECEDENCE TABLE, which is the whole point of this
+ * block. Two orthogonal axes, bearer-vs-chain first:
+ *
+ *   1. env bearer   2. stored bearer   3. env chain   4. stored chain
+ *
+ * Rung 2 outranking rung 3 is deliberate and easy to "fix" wrongly: a bearer
+ * key is an EXPLICIT Bedrock credential the user typed into Settings, while an
+ * AWS environment is ambient and frequently set for unrelated tooling.
+ */
+describe('provider-api-key AWS auth precedence (BST-1353)', () => {
+  const originalEnv = { ...process.env };
+  const BEDROCK_ENV_KEYS = ['BRAINSTRIKE_BEDROCK_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK'];
+
+  function useStoredCredential(credential: unknown): void {
+    mockGetSecretsService.mockReturnValue({
+      getCredential: vi.fn().mockResolvedValue(credential),
+      listProviders: vi.fn().mockResolvedValue(credential === null ? [] : ['bedrock']),
+    });
+  }
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith('AWS_')) {
+        delete process.env[name];
+      }
+    }
+    vi.clearAllMocks();
+    mockIsSupportedProvider.mockReturnValue(true);
+    mockListAgentProviders.mockReturnValue(['bedrock']);
+    mockGetAgentProviderEnvKeys.mockReturnValue(BEDROCK_ENV_KEYS);
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('rung 1 beats rung 2: an env bearer wins over a stored bearer', async () => {
+    process.env['AWS_BEARER_TOKEN_BEDROCK'] = 'env-bearer';
+    useStoredCredential({
+      bearerKey: 'stored-bearer',
+      mode: 'bearer',
+      region: 'us-east-1',
+      type: 'aws',
+    });
+
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({
+      key: 'env-bearer',
+      source: 'env',
+      type: 'api_key',
+    });
+  });
+
+  it('rung 2 beats rung 3: a STORED BEARER wins over an activated env chain', async () => {
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    useStoredCredential({
+      bearerKey: 'stored-bearer',
+      mode: 'bearer',
+      region: 'eu-west-1',
+      type: 'aws',
+    });
+
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({
+      bearerKey: 'stored-bearer',
+      mode: 'bearer',
+      source: 'stored',
+    });
+  });
+
+  it('rung 3 beats rung 4: an env chain wins over a stored chain (env > stored within a mode)', async () => {
+    process.env['AWS_REGION'] = 'us-west-2';
+    process.env['AWS_PROFILE'] = 'env-profile';
+    useStoredCredential({
+      mode: 'profile_chain',
+      profile: 'stored-profile',
+      region: 'eu-west-1',
+      type: 'aws',
+    });
+
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({
+      mode: 'profile_chain',
+      profile: 'env-profile',
+      region: 'us-west-2',
+      source: 'env',
+    });
+  });
+
+  it('rung 4: a stored chain resolves when no env AWS configuration exists', async () => {
+    useStoredCredential({
+      mode: 'profile_chain',
+      profile: 'stored-profile',
+      region: 'eu-west-1',
+      type: 'aws',
+    });
+
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({
+      mode: 'profile_chain',
+      profile: 'stored-profile',
+      source: 'stored',
+    });
+  });
+
+  it('ACTIVATION: AWS_REGION alone does NOT activate the chain', async () => {
+    process.env['AWS_REGION'] = 'us-east-1';
+    useStoredCredential(null);
+
+    await expect(readProviderCredential('bedrock')).resolves.toBeUndefined();
+  });
+
+  it('ACTIVATION: AWS_PROFILE without AWS_REGION does NOT activate the chain', async () => {
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    useStoredCredential(null);
+
+    await expect(readProviderCredential('bedrock')).resolves.toBeUndefined();
+  });
+
+  it('ACTIVATION: AWS_ACCESS_KEY_ID also activates it, with no profile', async () => {
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_ACCESS_KEY_ID'] = 'AKIAEXAMPLE';
+    useStoredCredential(null);
+
+    const credential = await readProviderCredential('bedrock');
+    expect(credential).toMatchObject({ mode: 'profile_chain', region: 'us-east-1', source: 'env' });
+    // No AWS_PROFILE ⇒ no profile field at all (the chain's own default).
+    expect((credential as { profile?: string } | undefined)?.profile).toBeUndefined();
+  });
+
+  it('ACTIVATION: an env bearer suppresses the chain entirely', async () => {
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    process.env['AWS_BEARER_TOKEN_BEDROCK'] = 'env-bearer';
+    useStoredCredential(null);
+
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({
+      key: 'env-bearer',
+      type: 'api_key',
+    });
+  });
+
+  it('does NOT activate the chain for a non-aws provider', async () => {
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    mockListAgentProviders.mockReturnValue(['openai']);
+    mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_API_KEY']);
+    useStoredCredential(null);
+
+    await expect(readProviderCredential('openai')).resolves.toBeUndefined();
+  });
+
+  it('a malformed AWS_REGION still activates — the FACTORY owns the format rejection', async () => {
+    // Refusing to activate here would read as "Bedrock is not configured",
+    // hiding a fixable typo behind a wrong diagnosis.
+    process.env['AWS_REGION'] = 'evil.example.com/';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    useStoredCredential(null);
+
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({
+      mode: 'profile_chain',
+      region: 'evil.example.com/',
+    });
+  });
+
+  it('inspectProviderKeys reports the WINNING mode so the badge cannot lie', async () => {
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    useStoredCredential(null);
+
+    await expect(inspectProviderKeys()).resolves.toEqual({
+      configuredProviders: [
+        { authMode: 'profile_chain', envVar: 'AWS_PROFILE', provider: 'bedrock', source: 'env' },
+      ],
+      readFailures: [],
+    });
+  });
+
+  it('inspectProviderKeys AGREES with readProviderCredential when a stored bearer outranks the env chain', async () => {
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    useStoredCredential({
+      bearerKey: 'stored-bearer',
+      mode: 'bearer',
+      region: 'eu-west-1',
+      type: 'aws',
+    });
+
+    const inspection = await inspectProviderKeys();
+    expect(inspection.configuredProviders).toEqual([
+      { authMode: 'bearer', provider: 'bedrock', source: 'stored' },
+    ]);
+    // The listing's verdict and the request path's verdict must never differ,
+    // or the badge would name a mode the next run does not use.
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({ mode: 'bearer' });
   });
 });

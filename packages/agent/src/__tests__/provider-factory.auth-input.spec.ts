@@ -178,7 +178,14 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
     });
 
     it('rejects a valid aws auth input on every non-bedrock provider case', () => {
-      const auth: ProviderAuthInput = { kind: 'aws', region: 'us-east-1' };
+      // A COMPLETE aws input (bearer present, so it clears the BST-1353
+      // bearer-XOR-chain check): this test is about provider ROUTING, so the
+      // input must fail only because the provider cannot consume it.
+      const auth: ProviderAuthInput = {
+        apiKey: 'bedrock-bearer',
+        kind: 'aws',
+        region: 'us-east-1',
+      };
       for (const provider of [
         'openai',
         'anthropic',

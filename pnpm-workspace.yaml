@@ -28,6 +28,11 @@ cleanupUnusedCatalogs: true
 catalog:
   '@ai-sdk/amazon-bedrock': 5.0.57
   '@anthropic-ai/sandbox-runtime': 0.0.73
+  # BST-1353: the AWS default credential chain (profiles, SSO, process creds,
+  # instance/container roles) behind Bedrock's `credentialProvider` seam.
+  # Node-only — imported ONLY beside the provider factory, never from the
+  # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
+  '@aws-sdk/credential-providers': 3.1111.0
   '@assistant-ui/react': '~0.15.13'
   '@assistant-ui/react-data-stream': ^0.12.26
   '@assistant-ui/react-markdown': ^0.14.10

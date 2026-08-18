@@ -10,19 +10,106 @@ export interface StoredKeyFingerprint {
   readonly savedAt: string;
 }
 
+/**
+ * Which AWS auth form actually WON resolution (BST-1353). Orthogonal to
+ * env-vs-stored: a bearer key can come from either, and so can a profile
+ * chain. Present only on `aws`-authType providers; every other provider omits
+ * it entirely.
+ *
+ * This exists because the precedence table (bearer > chain; env > stored
+ * within each) is otherwise invisible — a user with both a stored bearer key
+ * and an `AWS_PROFILE` environment has no way to tell which one the next
+ * request will sign with. The badge names the winner.
+ */
+export type ProviderAuthMode = 'bearer' | 'profile_chain';
+
 export type ProviderKeySource<Id extends string> =
   | {
+      readonly authMode?: ProviderAuthMode;
       readonly envVar: string;
       readonly metadata?: never;
       readonly provider: Id;
       readonly source: 'env';
     }
   | {
+      readonly authMode?: ProviderAuthMode;
       readonly envVar?: never;
       readonly metadata?: StoredKeyFingerprint;
       readonly provider: Id;
       readonly source: 'stored';
     };
+
+export function isProviderAuthMode(value: unknown): value is ProviderAuthMode {
+  return value === 'bearer' || value === 'profile_chain';
+}
+
+/**
+ * Env names that ACTIVATE the AWS credential chain (BST-1353), in priority
+ * order. THE single definition: the desktop resolver reads it to decide
+ * activation, and both strict key-source parsers read it to accept it as a
+ * legitimate `envVar` — a hand-copied second list would drift and turn a
+ * working chain into "Invalid provider key source".
+ */
+export const AWS_CHAIN_ACTIVATION_ENV_NAMES = ['AWS_PROFILE', 'AWS_ACCESS_KEY_ID'] as const;
+
+/**
+ * Whether `envVar` is a name the provider can legitimately report as its key
+ * source. Non-aws providers accept only their own registry env names; an
+ * aws-authType provider additionally accepts the chain ACTIVATION names,
+ * which are not credentials and therefore never appear in the registry.
+ *
+ * Takes the provider's own names as a parameter rather than importing the
+ * registry, so this module stays import-free (it is consumed from both the
+ * renderer and desktop main).
+ */
+export function isAllowedProviderKeySourceEnvVar(
+  envVar: string,
+  providerEnvVarNames: readonly string[],
+  isAwsAuthProvider: boolean
+): boolean {
+  if (providerEnvVarNames.includes(envVar)) {
+    return true;
+  }
+  return (
+    isAwsAuthProvider && (AWS_CHAIN_ACTIVATION_ENV_NAMES as readonly string[]).includes(envVar)
+  );
+}
+
+/**
+ * Strict optional-key reader shared by both arms. The parser's contract is
+ * that an UNRECOGNIZED key rejects the whole payload (it previously enforced
+ * that by counting keys); this keeps that guarantee while letting each arm
+ * declare more than one optional field.
+ */
+function assertNoUnknownKeys(
+  candidate: Record<string, unknown>,
+  allowed: readonly string[],
+  invalidPayload: () => Error
+): void {
+  for (const key of Object.keys(candidate)) {
+    if (!allowed.includes(key)) {
+      throw invalidPayload();
+    }
+  }
+}
+
+/**
+ * Reads the optional `authMode`. Absent is fine (non-aws providers); present
+ * but not a known mode is a malformed payload, never coerced or dropped.
+ */
+function parseAuthMode(
+  candidate: Record<string, unknown>,
+  invalidPayload: () => Error
+): ProviderAuthMode | undefined {
+  if (!Object.hasOwn(candidate, 'authMode')) {
+    return;
+  }
+  const authMode = candidate['authMode'];
+  if (!isProviderAuthMode(authMode)) {
+    throw invalidPayload();
+  }
+  return authMode;
+}
 
 /**
  * Builds the save-time fingerprint. Throws for an empty secret — an empty
@@ -81,23 +168,25 @@ function parseStoredEntry<Id extends string>(
   provider: Id,
   options: ParseProviderKeySourcesOptions<Id>
 ): ProviderKeySource<Id> {
-  const keyCount = Object.keys(candidate).length;
   if (Object.hasOwn(candidate, 'envVar')) {
     throw options.invalidPayload();
   }
-  if (keyCount === 2) {
-    return { provider, source: 'stored' };
+  assertNoUnknownKeys(
+    candidate,
+    ['authMode', 'metadata', 'provider', 'source'],
+    options.invalidPayload
+  );
+  const authMode = parseAuthMode(candidate, options.invalidPayload);
+  if (!Object.hasOwn(candidate, 'metadata')) {
+    return { ...(authMode ? { authMode } : {}), provider, source: 'stored' };
   }
-  // The only optional third key is the save-time fingerprint; validated hard
-  // (BST-1362) — malformed metadata is a visible failure, never guessed at.
-  if (keyCount !== 3 || !Object.hasOwn(candidate, 'metadata')) {
-    throw options.invalidPayload();
-  }
+  // The save-time fingerprint is validated hard (BST-1362) — malformed
+  // metadata is a visible failure, never guessed at.
   const metadata = candidate['metadata'];
   if (!isStoredKeyFingerprint(metadata)) {
     throw options.invalidPayload();
   }
-  return { metadata, provider, source: 'stored' };
+  return { ...(authMode ? { authMode } : {}), metadata, provider, source: 'stored' };
 }
 
 function parseEnvEntry<Id extends string>(
@@ -105,16 +194,21 @@ function parseEnvEntry<Id extends string>(
   provider: Id,
   options: ParseProviderKeySourcesOptions<Id>
 ): ProviderKeySource<Id> {
+  assertNoUnknownKeys(
+    candidate,
+    ['authMode', 'envVar', 'provider', 'source'],
+    options.invalidPayload
+  );
   const envVar = candidate['envVar'];
   if (
-    Object.keys(candidate).length !== 3 ||
     typeof envVar !== 'string' ||
     envVar.trim().length === 0 ||
     !options.isAllowedEnvVar(provider, envVar)
   ) {
     throw options.invalidPayload();
   }
-  return { envVar, provider, source: 'env' };
+  const authMode = parseAuthMode(candidate, options.invalidPayload);
+  return { ...(authMode ? { authMode } : {}), envVar, provider, source: 'env' };
 }
 
 /**

@@ -1,5 +1,6 @@
 import type {
   DeprecatedEnvVarReport,
+  ProviderAuthMode,
   ProviderKeySource,
   StoredKeyFingerprint,
 } from '@brainstrike/assistant-contract';
@@ -26,6 +27,8 @@ interface CredentialRowProps {
   readonly busy: boolean;
   readonly deprecatedReports: readonly DeprecatedEnvVarReport[];
   readonly draftKey: string;
+  readonly draftMode: ProviderAuthMode;
+  readonly draftProfile: string;
   readonly draftRegion: string;
   readonly editing: boolean;
   /** Cross-link target (BST-1363): scrolls into view and rings while set. */
@@ -38,6 +41,8 @@ interface CredentialRowProps {
   readonly highlightNonce: number;
   readonly onCancelEdit: () => void;
   readonly onDraftKeyChange: (value: string) => void;
+  readonly onDraftModeChange: (value: ProviderAuthMode) => void;
+  readonly onDraftProfileChange: (value: string) => void;
   readonly onDraftRegionChange: (value: string) => void;
   readonly onOpenEditor: () => void;
   readonly onRemove: () => void;
@@ -147,12 +152,16 @@ export function CredentialRow({
   busy,
   deprecatedReports,
   draftKey,
+  draftMode,
+  draftProfile,
   draftRegion,
   editing,
   highlightNonce,
   highlighted,
   onCancelEdit,
   onDraftKeyChange,
+  onDraftModeChange,
+  onDraftProfileChange,
   onDraftRegionChange,
   onOpenEditor,
   onRemove,
@@ -268,9 +277,13 @@ export function CredentialRow({
             <CredentialRowEditor
               busy={busy}
               draftKey={draftKey}
+              draftMode={draftMode}
+              draftProfile={draftProfile}
               draftRegion={draftRegion}
               onCancel={onCancelEdit}
               onDraftKeyChange={onDraftKeyChange}
+              onDraftModeChange={onDraftModeChange}
+              onDraftProfileChange={onDraftProfileChange}
               onDraftRegionChange={onDraftRegionChange}
               onSave={onSave}
               slot={slot}

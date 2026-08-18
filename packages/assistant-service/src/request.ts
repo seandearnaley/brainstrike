@@ -34,7 +34,10 @@ import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { resolveRequestedProvider } from './memory-model-targets.js';
 import type { ProviderCredentialReader, ResolvedProviderCredential } from './ports.js';
-import { providerAuthInputFromCredential } from './provider-credential-projection.js';
+import {
+  type ProviderAuthProjectionOptions,
+  providerAuthInputFromCredential,
+} from './provider-credential-projection.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
 import type { AssistantRequestPayload, AssistantUiMessage } from './types.js';
 
@@ -98,6 +101,18 @@ interface PreparedAssistantPostRequest {
 export type { ProviderApiKeyReader as PreparationProviderApiKeyReader } from './ports.js';
 
 export interface PrepareAssistantPostRequestParams {
+  /**
+   * AWS credential-chain capability (BST-1353), forwarded verbatim to the
+   * shared projection. Preparation must classify a stored `profile_chain`
+   * credential exactly as the host that will later CONSUME it does: desktop
+   * supplies the chain builder here so preparation accepts the credential
+   * (keyless — a chain has no bearer string), while Hosted Web omits it so
+   * the credential rejects at preparation with the same
+   * `api_key_unreadable` 400 the consumer would produce. Omitting it on
+   * desktop would reject every profile-chain request before the stream ever
+   * started.
+   */
+  readonly awsCredentialChain?: ProviderAuthProjectionOptions['awsCredentialChain'];
   /**
    * Optional trust-boundary hook (BST-1030): runs on the parsed envelope
    * AFTER parseAssistantRequestPayloadText and BEFORE tool-action extraction
@@ -174,7 +189,8 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
 async function resolveCredentialOrReject(
   provider: SupportedProvider,
   resolveProviderCredential: ProviderCredentialReader,
-  logger: ScopedLogger
+  logger: ScopedLogger,
+  projectionOptions: ProviderAuthProjectionOptions | undefined
 ): Promise<
   | {
       readonly apiKey: string | undefined;
@@ -196,7 +212,7 @@ async function resolveCredentialOrReject(
     if (credential === undefined) {
       return { apiKey: undefined };
     }
-    const authInput = providerAuthInputFromCredential(provider, credential);
+    const authInput = providerAuthInputFromCredential(provider, credential, projectionOptions);
     return { apiKey: authInput?.apiKey, credential };
   } catch (error) {
     const payload = getSecretReadErrorPayload(error);
@@ -310,7 +326,7 @@ function rejectToolContinuationInputError(
 export async function prepareAssistantPostRequest(
   params: PrepareAssistantPostRequestParams
 ): Promise<PrepareAssistantPostRequestResult> {
-  const { filterPayload, logger, readBody, resolveProviderCredential } = params;
+  const { awsCredentialChain, filterPayload, logger, readBody, resolveProviderCredential } = params;
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
@@ -367,12 +383,25 @@ export async function prepareAssistantPostRequest(
   // BST-1349), never a hand list. Local servers accept an optional token when
   // the user has stored one via the secrets bridge, but the absence of a
   // token is not an error — most setups don't have auth.
-  const providerAllowsMissingAuth = providerAuthType(provider) === 'none';
-  const resolved = await resolveCredentialOrReject(provider, resolveProviderCredential, logger);
+  const keylessProvider = providerAuthType(provider) === 'none';
+  const resolved = await resolveCredentialOrReject(
+    provider,
+    resolveProviderCredential,
+    logger,
+    awsCredentialChain === undefined ? undefined : { awsCredentialChain }
+  );
   if (resolved.rejection) {
     return reject(resolved.rejection);
   }
   const { apiKey, credential } = resolved;
+  // BST-1353: an AWS profile-chain credential is CONFIGURED but carries no
+  // bearer string — the credentials live in the user's AWS setup. It is the
+  // second legitimate way to have no `apiKey`, alongside keyless providers.
+  // Reaching this point means the projection already ACCEPTED the credential
+  // (a host without the chain capability rejected it above), so this can
+  // never wave through an unusable credential.
+  const providerAllowsMissingAuth =
+    keylessProvider || (credential?.type === 'aws' && credential.mode === 'profile_chain');
 
   const runtimeData: RuntimeData = resolveServerAutoObservationalMemory(
     hydrateRuntimeDataWithLocalRuntimeToken(

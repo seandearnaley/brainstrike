@@ -94,9 +94,32 @@ export const CREDENTIAL_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<s
  *
  * - `AWS_REGION`: the region an env-resolved Bedrock bearer key pairs with
  *   (stored credentials carry their own region).
+ * - `AWS_PROFILE` (BST-1353): NAMES a profile in the user's `~/.aws/config`;
+ *   it holds no secret, exactly like `AWS_REGION`. The credentials it points
+ *   AT are secret, but they live in the user's AWS configuration and never
+ *   pass through this process's environment — so scrubbing the name from
+ *   child environments would break `aws` CLI children while protecting
+ *   nothing. It is also a chain ACTIVATION name (see
+ *   AWS_CHAIN_ACTIVATION_ENV_NAMES).
+ *
+ * MEMBERSHIP HERE IS A SECURITY CLASSIFICATION, not a convenience list, and
+ * it is load-bearing in two places at once: this set is EXCLUDED from the
+ * child-process credential scrub, and BST-1363 renders it to the user as
+ * muted "config" chips (while {@link CREDENTIAL_ENV_FILE_VARIABLE_NAMES}
+ * renders as credential chips). So a secret placed here would BOTH leak into
+ * repository-controlled child processes AND be painted as innocuous.
+ *
+ * Hence: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`
+ * are deliberately in NEITHER set. They are real secrets, so they could never
+ * belong here; they are also not Brainstrike provider credentials (the
+ * registry does not produce them), so they are not `.env`-loadable at all.
+ * They can still ACTIVATE the chain when already present in the inherited
+ * process environment — this allow-list governs what a `.env` FILE may set,
+ * never what the chain may consult. Should a future ticket ever make them
+ * file-loadable, they go in the CREDENTIAL set, never this one.
  */
 export const NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> =
-  new Set<string>(['AWS_REGION']);
+  new Set<string>(['AWS_PROFILE', 'AWS_REGION']);
 
 /**
  * `.env` file ALLOW-LIST (BST-1361) — the ONLY variables a desktop env file

@@ -2,12 +2,15 @@ import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
   createStoredKeyFingerprint,
   type DeprecatedEnvVarReport,
+  isAllowedProviderKeySourceEnvVar,
+  type ProviderAuthMode,
   type ProviderCredential,
   type ProviderKeySource,
   parseProviderKeySources,
 } from '@brainstrike/assistant-contract';
 import {
   listProviders,
+  providerAuthType,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -39,7 +42,16 @@ function isAllowedProviderEnvVar(provider: string, envVar: string): boolean {
   if (provider === TAVILY_SECRET_PROVIDER) {
     return TAVILY_ENV_KEY_SET.has(envVar);
   }
-  return providerEnvKeys(provider as SupportedProvider).includes(envVar);
+  const supported = provider as SupportedProvider;
+  // BST-1353: an aws-authType provider may report a chain ACTIVATION name
+  // (AWS_PROFILE / AWS_ACCESS_KEY_ID) as its source. Those are configuration,
+  // not credentials, so they are absent from the registry — the shared rule
+  // admits them so this parser and the app-shell one cannot drift.
+  return isAllowedProviderKeySourceEnvVar(
+    envVar,
+    providerEnvKeys(supported),
+    providerAuthType(supported) === 'aws'
+  );
 }
 
 function toErrorMessage(error: unknown): string {
@@ -51,6 +63,9 @@ function toErrorMessage(error: unknown): string {
 
 interface EditorDraft {
   readonly key: string;
+  /** aws slots only; ignored for api_key slots (BST-1353). */
+  readonly mode: ProviderAuthMode;
+  readonly profile: string;
   readonly region: string;
   readonly slotId: string;
 }
@@ -72,6 +87,8 @@ type InventoryAction =
   | { type: 'OPEN_EDITOR'; slotId: string }
   | { type: 'CLOSE_EDITOR' }
   | { type: 'SET_DRAFT_KEY'; key: string }
+  | { type: 'SET_DRAFT_MODE'; mode: ProviderAuthMode }
+  | { type: 'SET_DRAFT_PROFILE'; profile: string }
   | { type: 'SET_DRAFT_REGION'; region: string }
   | { type: 'MUTATION_STARTED'; slotId: string }
   | { type: 'MUTATION_FINISHED'; slotId: string }
@@ -111,11 +128,22 @@ function inventoryReducer(state: InventoryState, action: InventoryAction): Inven
     case 'SOURCE_LOAD_FAILED':
       return { ...state, loadError: action.message, sourceState: 'error' };
     case 'OPEN_EDITOR':
-      return { ...state, editor: { key: '', region: '', slotId: action.slotId } };
+      return {
+        ...state,
+        // Bearer is the default aws mode: it is the form that works with no
+        // local AWS setup at all, so it stays the zero-config starting point.
+        editor: { key: '', mode: 'bearer', profile: '', region: '', slotId: action.slotId },
+      };
     case 'CLOSE_EDITOR':
       return { ...state, editor: null };
     case 'SET_DRAFT_KEY':
       return state.editor ? { ...state, editor: { ...state.editor, key: action.key } } : state;
+    case 'SET_DRAFT_MODE':
+      return state.editor ? { ...state, editor: { ...state.editor, mode: action.mode } } : state;
+    case 'SET_DRAFT_PROFILE':
+      return state.editor
+        ? { ...state, editor: { ...state.editor, profile: action.profile } }
+        : state;
     case 'SET_DRAFT_REGION':
       return state.editor
         ? { ...state, editor: { ...state.editor, region: action.region } }
@@ -137,7 +165,22 @@ function inventoryReducer(state: InventoryState, action: InventoryAction): Inven
   }
 }
 
-function buildCredential(slot: CredentialSlot, key: string, region: string): ProviderCredential {
+function buildCredential(slot: CredentialSlot, draft: EditorDraft): ProviderCredential {
+  const key = draft.key.trim();
+  const region = draft.region.trim();
+  // A profile chain holds NO secret — the credentials live in the user's AWS
+  // configuration, not ours. So it carries no `…last4` fingerprint, and
+  // fingerprinting is skipped entirely rather than run on a non-secret
+  // (createStoredKeyFingerprint throws on an empty string by design).
+  if (slot.authType === 'aws' && draft.mode === 'profile_chain') {
+    const profile = draft.profile.trim();
+    return {
+      mode: 'profile_chain',
+      region,
+      type: 'aws',
+      ...(profile ? { profile } : {}),
+    };
+  }
   // The non-secret {last4, savedAt} fingerprint is computed HERE, at save
   // time, from the value being saved — never derived from stored material
   // later (BST-1362). Secrets shorter than eight characters yield no
@@ -314,13 +357,19 @@ export function CredentialInventory({
         dispatch({ type: 'CLOSE_EDITOR' });
         return;
       }
+      // Profile-chain saves require only a region — the profile is optional
+      // (blank means the chain's default) and there is no secret to demand.
+      const isProfileChain = slot.authType === 'aws' && editor.mode === 'profile_chain';
       const key = editor.key.trim();
       const region = editor.region.trim();
-      if (!key || (slot.authType === 'aws' && !region)) {
+      if (slot.authType === 'aws' && !region) {
+        return;
+      }
+      if (!(key || isProfileChain)) {
         return;
       }
       dispatch({ slotId: slot.id, type: 'MUTATION_STARTED' });
-      const saved = await saveCredential(slot.id, buildCredential(slot, key, region));
+      const saved = await saveCredential(slot.id, buildCredential(slot, editor));
       dispatch({ slotId: slot.id, type: saved ? 'SAVE_SUCCESS' : 'MUTATION_FINISHED' });
     },
     [editor, mergedSources, saveCredential]
@@ -361,6 +410,8 @@ export function CredentialInventory({
               busy={busySlotIds.has(slot.id)}
               deprecatedReports={deprecationsBySlotId.get(slot.id) ?? EMPTY_DEPRECATED_ENV_VARS}
               draftKey={editor?.slotId === slot.id ? editor.key : ''}
+              draftMode={editor?.slotId === slot.id ? editor.mode : 'bearer'}
+              draftProfile={editor?.slotId === slot.id ? editor.profile : ''}
               draftRegion={editor?.slotId === slot.id ? editor.region : ''}
               editing={editor?.slotId === slot.id}
               highlighted={highlightedSlotId === slot.id}
@@ -368,6 +419,8 @@ export function CredentialInventory({
               key={slot.id}
               onCancelEdit={() => dispatch({ type: 'CLOSE_EDITOR' })}
               onDraftKeyChange={(key) => dispatch({ key, type: 'SET_DRAFT_KEY' })}
+              onDraftModeChange={(mode) => dispatch({ mode, type: 'SET_DRAFT_MODE' })}
+              onDraftProfileChange={(profile) => dispatch({ profile, type: 'SET_DRAFT_PROFILE' })}
               onDraftRegionChange={(region) => dispatch({ region, type: 'SET_DRAFT_REGION' })}
               onOpenEditor={() => dispatch({ slotId: slot.id, type: 'OPEN_EDITOR' })}
               onRemove={() => void handleRemove(slot)}

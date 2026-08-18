@@ -723,7 +723,10 @@ describe('typed credential seam (BST-1352)', () => {
     });
   });
 
-  it('rejects a stored aws profile_chain credential as api_key_unreadable pointing at BST-1353', async () => {
+  // BST-1353: preparation classifies a profile_chain credential the SAME way
+  // the host that will consume it does. Without a chain capability (Hosted
+  // Web) it is a hard rejection; with one (desktop) it prepares keyless.
+  it('rejects a stored aws profile_chain credential when NO chain capability is supplied', async () => {
     resolveProviderCredential.mockResolvedValueOnce({
       mode: 'profile_chain',
       region: 'us-east-1',
@@ -746,7 +749,36 @@ describe('typed credential seam (BST-1352)', () => {
       error: 'api_key_unreadable',
       provider: 'bedrock',
     });
-    expect(result.rejection.payload.message).toContain('BST-1353');
+    expect(result.rejection.payload.message).toContain('desktop');
+  });
+
+  it('PREPARES a stored aws profile_chain credential when the chain capability IS supplied', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      mode: 'profile_chain',
+      profile: 'work',
+      region: 'us-east-1',
+      source: 'stored',
+      type: 'aws',
+    });
+    const result = await prepareAssistantPostRequest({
+      awsCredentialChain: () => async () => ({ accessKeyId: 'AKIA', secretAccessKey: 'sec' }),
+      logger,
+      readBody: async () =>
+        JSON.stringify({
+          data: { provider: 'bedrock' },
+          messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+        }),
+      resolveProviderCredential,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected preparation to succeed');
+    }
+    // A chain has no bearer string: preparation proceeds KEYLESS and hands the
+    // typed credential on for the host to project into a credentialProvider.
+    expect(result.request.apiKey).toBeFalsy();
+    expect(result.request.credential).toMatchObject({ mode: 'profile_chain', type: 'aws' });
   });
 
   it('proceeds keyless (with a warn) when a keyless provider stores a non-api_key credential', async () => {

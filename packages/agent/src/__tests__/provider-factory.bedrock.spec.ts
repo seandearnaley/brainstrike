@@ -13,6 +13,8 @@ import { fromUtf8, toUtf8 } from '@smithy/util-utf8';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MastraAgentError } from '../mastra/mastra-agent-error';
 import {
+  CONFLICTING_AWS_CREDENTIALS_DETAIL,
+  MISSING_AWS_CREDENTIALS_DETAIL,
   MISSING_AWS_REGION_DETAIL,
   type ProviderAuthInput,
   providerFetchOptions,
@@ -152,6 +154,78 @@ describe('createProvider bedrock case (BST-1350)', () => {
     expect(parts.at(-1)?.['type']).toBe('finish');
   });
 
+  it('streams with a PROFILE-CHAIN credential provider, signing SigV4 (mocked fetch)', async () => {
+    // BST-1353 acceptance: the same mocked-wire path as the bearer test
+    // above, but authenticated through the credentialProvider seam. The
+    // resolver stands in for `createAwsCredentialChain` — this test owns the
+    // factory wiring, while aws-credential-chain.spec.ts owns the real SDK.
+    const captured = stubBedrockStreamFetch();
+    const credentialProvider = vi.fn(async () => ({
+      accessKeyId: 'AKIAPROFILECHAIN',
+      secretAccessKey: 'chain-secret',
+      sessionToken: 'chain-session',
+    }));
+    const model = createProvider(
+      'bedrock',
+      { credentialProvider, kind: 'aws', region: 'us-east-1' },
+      'anthropic.claude-sonnet-5'
+    ) as {
+      doStream: (options: unknown) => Promise<{ stream: ReadableStream<Record<string, unknown>> }>;
+    };
+
+    const { stream } = await model.doStream({
+      prompt: [{ content: [{ text: 'hi', type: 'text' }], role: 'user' }],
+    });
+    const parts: Record<string, unknown>[] = [];
+    const reader = stream.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      parts.push(value);
+    }
+
+    // Resolution is LAZY — the chain is consulted when the request is signed,
+    // which is exactly why chain failures surface mid-run.
+    expect(credentialProvider).toHaveBeenCalled();
+
+    const request = captured[0];
+    if (!request) {
+      throw new Error('stubbed fetch was not invoked');
+    }
+    expect(request.url).toContain('bedrock-runtime.us-east-1.amazonaws.com');
+    expect(request.url).toContain('/converse-stream');
+    // SigV4, NOT a bearer: the header must carry the resolved access key id
+    // and never the string "Bearer".
+    expect(request.authorization).toContain('AWS4-HMAC-SHA256');
+    expect(request.authorization).toContain('AKIAPROFILECHAIN');
+    expect(request.authorization).not.toContain('Bearer');
+
+    const textDeltas = parts.filter((part) => part['type'] === 'text-delta');
+    expect(textDeltas.length).toBeGreaterThan(0);
+    expect(parts.at(-1)?.['type']).toBe('finish');
+  });
+
+  it('surfaces a CHAIN failure through the stream rather than signing unauthenticated', async () => {
+    stubBedrockStreamFetch();
+    const model = createProvider(
+      'bedrock',
+      {
+        credentialProvider: async () => {
+          throw new Error('mastra_agent_runtime_init_failed: AWS SSO session expired');
+        },
+        kind: 'aws',
+        region: 'us-east-1',
+      },
+      'anthropic.claude-sonnet-5'
+    ) as { doStream: (options: unknown) => Promise<unknown> };
+
+    await expect(
+      model.doStream({ prompt: [{ content: [{ text: 'hi', type: 'text' }], role: 'user' }] })
+    ).rejects.toThrow(/AWS SSO session expired/);
+  });
+
   it('rejects a missing region with actionable typed text (never a default region)', () => {
     expectTypedInitFailure(
       () => createProvider('bedrock', { kind: 'aws', region: '' }, 'anthropic.claude-sonnet-5'),
@@ -211,10 +285,10 @@ describe('createProvider bedrock case (BST-1350)', () => {
     }
   });
 
-  it('rejects a region-only aws input typed — no ambient SDK credential fallback (BST-1353)', () => {
-    // Phase 1 is bearer-only: without an apiKey the AI SDK would fall back to
-    // ambient AWS env credentials, which is BST-1353's explicit job — never
-    // an implicit behavior here.
+  it('rejects a region-only aws input typed — no ambient SDK credential fallback', () => {
+    // Neither a bearer nor a chain: without one the AI SDK would fall back to
+    // ambient AWS env credentials, signing with an identity the user never
+    // chose. Credential-chain auth is opt-in and EXPLICIT (BST-1353).
     expectTypedInitFailure(
       () =>
         createProvider(
@@ -222,7 +296,24 @@ describe('createProvider bedrock case (BST-1350)', () => {
           { kind: 'aws', region: 'us-east-1' },
           'anthropic.claude-sonnet-5'
         ),
-      'BST-1353'
+      MISSING_AWS_CREDENTIALS_DETAIL
+    );
+  });
+
+  it('rejects BOTH a bearer and a chain provider — auth ambiguity is never resolved here', () => {
+    expectTypedInitFailure(
+      () =>
+        createProvider(
+          'bedrock',
+          {
+            apiKey: 'bearer',
+            credentialProvider: async () => ({ accessKeyId: 'AKIA', secretAccessKey: 'sec' }),
+            kind: 'aws',
+            region: 'us-east-1',
+          },
+          'anthropic.claude-sonnet-5'
+        ),
+      CONFLICTING_AWS_CREDENTIALS_DETAIL
     );
   });
 

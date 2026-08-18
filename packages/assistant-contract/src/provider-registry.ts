@@ -1361,9 +1361,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
-    // BST-1350 phase 1: API-key (bearer) auth only. SigV4 / profile-chain auth
-    // lands with BST-1353; `authType: 'aws'` covers both modes — the stored
-    // credential's `mode` discriminates.
+    // `authType: 'aws'` covers BOTH live auth forms — the bearer API key
+    // (BST-1350) and the AWS credential chain / SigV4 (BST-1353). The stored
+    // credential's `mode` discriminates them.
     authType: 'aws',
     capabilities: {
       embeddings: false,
