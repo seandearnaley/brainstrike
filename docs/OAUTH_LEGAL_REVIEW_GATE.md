@@ -52,10 +52,10 @@ pattern and structurally different from every ban-risk pattern:
   to a visible "reconnect unavailable" state — never a workaround.
 - **Terms drift.** The evidence is dated 2026-08-18; a material ToS change reopens this gate.
 
-**Decision: PENDING — NOT SIGNED.** The assessment above recommends *approve with constraints*.
-The gate passes only when a named human decision-maker replaces this paragraph with:
-`APPROVED WITH CONSTRAINTS — <name>, <date>` (or `REJECTED — <name>, <date>` with rationale).
-No implementation work on BST-1355/BST-1356 may start while this paragraph reads PENDING.
+**Decision: APPROVED WITH CONSTRAINTS — Sean Dearnaley, 2026-08-18.** Sign-off given directly in
+the working session ("rulings look good, I would follow your recommendations") after review of
+this assessment including the residual-risk section. The 8 constraints above are binding
+acceptance criteria on BST-1355 and BST-1356; the residual risks are accepted as written.
 
 **Binding constraints on BST-1355 / BST-1356:**
 1. Each user authenticates their own account; no shared, bundled, or Brainstrike-supplied
