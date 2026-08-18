@@ -98,6 +98,7 @@ import { migration096OpenRouterQwen3827B } from './096-openrouter-qwen-3-8-27b.j
 import { migration097OpenRouterQwen38TwoPointFourT } from './097-openrouter-qwen-3-8-2-4t-a95b.js';
 import { migration098OpenRouterQwen38Max } from './098-openrouter-qwen-3-8-max.js';
 import { migration099OpenRouterNemotron35Lightning } from './099-openrouter-nemotron-3-5-lightning.js';
+import { migration100AmazonBedrock } from './100-amazon-bedrock.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -202,6 +203,7 @@ export const migrations: Migration[] = [
   migration097OpenRouterQwen38TwoPointFourT,
   migration098OpenRouterQwen38Max,
   migration099OpenRouterNemotron35Lightning,
+  migration100AmazonBedrock,
 ];
 
 // Export base migrations (without chunks table) for test environments

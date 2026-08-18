@@ -11,9 +11,10 @@
  *   owns real authentication. Provider cases whose model config has NO fetch
  *   seam (Mastra descriptor configs: openrouter/ollama/lmstudio, and the local
  *   host client) throw a typed error rather than silently dropping the fetch.
- * - `aws` — SigV4/Bedrock-shaped input (consumed by BST-1350/BST-1353).
- *   Validated here (region is required) but consumed by NO provider case yet;
- *   every case throws a typed error until the Bedrock provider lands.
+ * - `aws` — Bedrock-shaped input (bearer key + region, BST-1350; SigV4
+ *   credential providers land with BST-1353). Validated here (region is
+ *   required) and consumed ONLY by the `bedrock` provider case via
+ *   `requireAwsAuthInput`; every other case throws a typed error.
  *
  * THREADING RULE (do not relitigate): auth inputs travel as DIRECT function
  * parameters the whole way down (runAssistantTurn → initializeAgentStream →
@@ -22,6 +23,14 @@
  * functions, so a fetch closure would vanish silently.
  */
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
+
+/**
+ * Actionable missing-region guidance (BST-1350). One string for every seam
+ * that rejects a region-less Bedrock request — a missing region is a typed
+ * init failure, never a silent default region.
+ */
+export const MISSING_AWS_REGION_DETAIL =
+  'Amazon Bedrock requires an AWS region and none was resolved. Configure an AWS region for Bedrock in Settings (stored with the key), or set AWS_REGION when using an environment bearer key.';
 
 export type ProviderAuthInput =
   | { kind: 'api_key'; apiKey: string }
@@ -51,7 +60,7 @@ export function assertValidProviderAuthInput(auth: ProviderAuthInput | undefined
       if (!auth.region.trim()) {
         throw createMastraAgentError('mastra_agent_runtime_init_failed', {
           context: { authKind: 'aws' },
-          detail: 'aws auth input requires a region.',
+          detail: MISSING_AWS_REGION_DETAIL,
         });
       }
       return;
@@ -121,6 +130,44 @@ export function bearerApiKeyOnly(
       throw createMastraAgentError('mastra_agent_runtime_init_failed', {
         context: { authKind: 'aws', provider },
         detail: `Provider "${provider}" does not consume aws auth input yet (BST-1350/BST-1353).`,
+      });
+    default:
+      return assertNeverAuthInput(auth);
+  }
+}
+
+/**
+ * Narrow an auth input to the `aws` kind for the Bedrock provider case
+ * (BST-1350). Everything else fails typed:
+ *
+ * - absent auth and `api_key` both carry NO region, so they get the
+ *   actionable missing-region guidance (a bearer key alone cannot build a
+ *   Bedrock client — region is mandatory, never defaulted);
+ * - `custom_fetch` has no consumer on the Bedrock case and must never be
+ *   silently dropped.
+ */
+export function requireAwsAuthInput(
+  auth: ProviderAuthInput | undefined,
+  provider: string
+): Extract<ProviderAuthInput, { kind: 'aws' }> {
+  if (auth === undefined) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      context: { provider },
+      detail: MISSING_AWS_REGION_DETAIL,
+    });
+  }
+  switch (auth.kind) {
+    case 'aws':
+      return auth;
+    case 'api_key':
+      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+        context: { authKind: 'api_key', provider },
+        detail: MISSING_AWS_REGION_DETAIL,
+      });
+    case 'custom_fetch':
+      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+        context: { authKind: 'custom_fetch', provider },
+        detail: `Provider "${provider}" does not consume custom_fetch auth input.`,
       });
     default:
       return assertNeverAuthInput(auth);

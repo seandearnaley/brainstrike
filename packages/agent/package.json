@@ -2,6 +2,7 @@
   "name": "@brainstrike/agent",
   "version": "0.1.0",
   "dependencies": {
+    "@ai-sdk/amazon-bedrock": "catalog:",
     "@ai-sdk/anthropic": "^4.0.39",
     "@ai-sdk/google": "^4.0.44",
     "@ai-sdk/openai": "^4.0.42",
@@ -30,6 +31,8 @@
     "@brainstrike/test-utils": "workspace:*",
     "@electric-sql/pglite": "catalog:",
     "@electric-sql/pglite-pgvector": "catalog:",
+    "@smithy/eventstream-codec": "catalog:",
+    "@smithy/util-utf8": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "assistant-stream": "0.3.37",

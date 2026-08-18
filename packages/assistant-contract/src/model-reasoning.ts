@@ -233,6 +233,12 @@ export function resolveReasoningControlsAvailability(
     case 'cohere':
     case 'voyage':
       return { available: false, reason: 'no-reasoning-controls' };
+    case 'bedrock':
+      // BST-1350 phase 1 exposes no reasoning controls: the registry's
+      // bedrock entries declare no effort ladder, and the Anthropic-style
+      // thinking controls are first-party-API answers, not Bedrock-route
+      // answers. Revisit when a Bedrock ticket declares them per model.
+      return { available: false, reason: 'no-reasoning-controls' };
     default: {
       const exhausted: never = provider;
       throw new Error(`Unhandled provider in reasoning controls resolver: ${String(exhausted)}`);

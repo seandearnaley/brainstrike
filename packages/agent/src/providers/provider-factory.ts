@@ -1,3 +1,4 @@
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -16,6 +17,7 @@ import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
+import { resolveBedrockModelId } from './bedrock-model-id';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
@@ -26,6 +28,7 @@ import {
   type ProviderAuthInput,
   type ProviderFetchOptions,
   providerFetchOptions,
+  requireAwsAuthInput,
 } from './provider-auth-input';
 import {
   isSupportedProvider,
@@ -207,6 +210,23 @@ export function createProvider(
         },
         [new OpenRouterStrictContentGateway(apiKey)]
       );
+    }
+
+    case 'bedrock': {
+      // BST-1350 phase 1: bearer-key ("Bedrock API key") auth only. The aws
+      // auth input is REQUIRED — a bearer key alone (api_key kind) or absent
+      // auth carries no region, and region is mandatory (typed failure, never
+      // a silent default). SigV4/profile-chain credentialProvider support
+      // lands with BST-1353.
+      const awsAuth = requireAwsAuthInput(auth, validatedProvider);
+      const bedrockProvider = createAmazonBedrock({
+        ...(awsAuth.apiKey ? { apiKey: awsAuth.apiKey } : {}),
+        region: awsAuth.region,
+      });
+      // The catalog stores UNPREFIXED Bedrock model ids; the cross-region
+      // inference-profile prefix is a per-request routing concern derived
+      // from the request's region (see bedrock-model-id.ts).
+      return bedrockProvider(resolveBedrockModelId(modelName, awsAuth.region));
     }
 
     case 'ollama': {
@@ -415,6 +435,10 @@ export function createEmbeddingProvider(
     case 'openrouter':
     case 'cohere':
     case 'voyage':
+    // Bedrock exposes embedding models upstream, but Brainstrike's Bedrock
+    // phase 1 is LLM-only (registry capabilities.embeddings: false) — an
+    // explicit throw, never a silent degrade (BST-1350).
+    case 'bedrock':
     case 'ollama':
     case 'lmstudio':
     case 'local':
