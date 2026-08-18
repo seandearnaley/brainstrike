@@ -202,7 +202,6 @@ function getMaterializedDirectoryCounts(
   }
 
   if (materializedStructuralCacheConsumers === 0) {
-    materializedDirectoryCountBuilds += 1;
     const unownedCounts = buildMaterializedDirectoryCounts(materializedPaths);
     materializedDirectoryCountCache.set(materializedPaths, unownedCounts);
     return unownedCounts;

@@ -27,9 +27,27 @@ export interface SelectionResolverState {
 const EMPTY_RELATIVE_PATHS: string[] = [];
 export const QUERY_SELECTION_LOADING_PROMOTION_MS = 100;
 let inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
+let failedSnapshotKeyByDatabase = new WeakMap<DbHandle, string>();
 
 export function __resetSelectionResolverCachesForTests(): void {
   inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
+  failedSnapshotKeyByDatabase = new WeakMap<DbHandle, string>();
+}
+
+function getSnapshotAttemptKey(fingerprint: string | null, snapshotId: string): string {
+  return JSON.stringify([fingerprint, snapshotId]);
+}
+
+function hasTerminalSnapshotFailure(args: {
+  db: DbHandle | null;
+  snapshotAttemptKey: string | null;
+}): boolean {
+  const { db, snapshotAttemptKey } = args;
+  return (
+    db !== null &&
+    snapshotAttemptKey !== null &&
+    failedSnapshotKeyByDatabase.get(db) === snapshotAttemptKey
+  );
 }
 
 function loadQuerySelectionSnapshotDeduped(db: DbHandle, snapshotId: string): Promise<string[]> {
@@ -217,6 +235,25 @@ function matchesDescriptorManifest(args: {
   return status ? manifest.status === status : true;
 }
 
+function canReuseSnapshotManifest(args: {
+  db: DbHandle | null;
+  descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
+  manifest: SelectionResolverStoreState['querySelectionManifest'];
+  snapshotAttemptKey: string | null;
+}): boolean {
+  const { db, descriptor, manifest, snapshotAttemptKey } = args;
+  if (!matchesDescriptorManifest({ descriptor, manifest })) {
+    return false;
+  }
+  if (manifest?.status === 'ready') {
+    return true;
+  }
+  if (manifest?.status === 'error') {
+    return hasTerminalSnapshotFailure({ db, snapshotAttemptKey });
+  }
+  return manifest?.status === 'loading' && db === null;
+}
+
 function isCurrentQueryDescriptor(
   state: SelectionResolverStoreState,
   descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>
@@ -288,6 +325,9 @@ export function useSelectionResolver(): SelectionResolverState {
     }
 
     const snapshotId = descriptor.manifestSnapshotId;
+    const snapshotAttemptKey = snapshotId
+      ? getSnapshotAttemptKey(descriptor.manifestFingerprint, snapshotId)
+      : null;
 
     const latestManifest = latestState.querySelectionManifest;
     if (
@@ -304,13 +344,7 @@ export function useSelectionResolver(): SelectionResolverState {
 
     const latestManifestStatus = latestManifest?.status;
     if (
-      matchesDescriptorManifest({
-        descriptor,
-        manifest: latestManifest,
-      }) &&
-      (latestManifestStatus === 'ready' ||
-        latestManifestStatus === 'error' ||
-        (latestManifestStatus === 'loading' && !db))
+      canReuseSnapshotManifest({ db, descriptor, manifest: latestManifest, snapshotAttemptKey })
     ) {
       if (latestManifestStatus === 'ready' || latestManifestStatus === 'error') {
         loadingPromotionStartRef.current = null;
@@ -374,14 +408,17 @@ export function useSelectionResolver(): SelectionResolverState {
     void loadQuerySelectionSnapshotDeduped(db, snapshotId)
       .then((filePaths) => {
         clearTimeout(loadingPromotionTimer);
+        if (token !== loadTokenRef.current) {
+          return;
+        }
+        if (failedSnapshotKeyByDatabase.get(db) === snapshotAttemptKey) {
+          failedSnapshotKeyByDatabase.delete(db);
+        }
         clearLoadingPromotionStart({
           fingerprint: descriptor.manifestFingerprint,
           snapshotId,
           startRef: loadingPromotionStartRef,
         });
-        if (token !== loadTokenRef.current) {
-          return;
-        }
         const currentState = store.getState();
         if (
           !isCurrentQueryDescriptor(currentState, descriptor) ||
@@ -403,14 +440,18 @@ export function useSelectionResolver(): SelectionResolverState {
       })
       .catch((error: unknown) => {
         clearTimeout(loadingPromotionTimer);
+        if (token !== loadTokenRef.current) {
+          return;
+        }
         clearLoadingPromotionStart({
           fingerprint: descriptor.manifestFingerprint,
           snapshotId,
           startRef: loadingPromotionStartRef,
         });
-        if (token !== loadTokenRef.current) {
-          return;
-        }
+        failedSnapshotKeyByDatabase.set(
+          db,
+          getSnapshotAttemptKey(descriptor.manifestFingerprint, snapshotId)
+        );
         const currentState = store.getState();
         const errorMessage = error instanceof Error ? error.message : String(error);
         const currentManifest = currentState.querySelectionManifest;

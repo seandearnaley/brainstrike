@@ -200,7 +200,7 @@ describe('useSelectionResolver', () => {
     expect(result.current.effectiveRelativePaths).toEqual(['src/index.ts']);
   });
 
-  it('does not retry a matching snapshot after a fast error publication', async () => {
+  it('keeps an error terminal until the database handle changes', async () => {
     const state = {
       currentFolderId: 'folder-1',
       querySelectionManifest: null as null | {
@@ -238,11 +238,12 @@ describe('useSelectionResolver', () => {
       }),
     };
 
-    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    const firstDatabase = { query: vi.fn() };
+    useOptionalPGliteDatabaseMock.mockReturnValue(firstDatabase);
     useFileExplorerStoreContextMock.mockReturnValue({ getState: () => state });
     loadQuerySelectionSnapshotMock.mockRejectedValue(new Error('database failure'));
 
-    const { rerender } = renderHook(() => useSelectionResolver());
+    const firstResolver = renderHook(() => useSelectionResolver());
     await act(async () => {
       await Promise.resolve();
     });
@@ -252,12 +253,135 @@ describe('useSelectionResolver', () => {
       expect.objectContaining({ errorMessage: 'database failure', status: 'error' })
     );
 
-    rerender();
+    firstResolver.rerender();
     await act(async () => {
       await Promise.resolve();
     });
 
     expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledTimes(1);
+
+    firstResolver.unmount();
+    const remountedResolver = renderHook(() => useSelectionResolver());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledTimes(1);
+
+    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    remountedResolver.rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let a stale database completion clear a replacement database error', async () => {
+    vi.useFakeTimers();
+    const firstLoad = Promise.withResolvers<string[]>();
+    const replacementLoad = Promise.withResolvers<string[]>();
+    const firstDatabase = { query: vi.fn() };
+    const replacementDatabase = { query: vi.fn() };
+    const state = {
+      currentFolderId: 'folder-1',
+      querySelectionManifest: null as null | {
+        directoryCounts: Map<string, number>;
+        errorMessage: string | null;
+        filePaths: string[];
+        fingerprint: string;
+        pathSet: Set<string>;
+        snapshotId: string;
+        status: 'error' | 'loading' | 'ready';
+      },
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: new Set<string>(),
+        mode: 'query' as const,
+        queryDescriptor: {
+          coveredDirectoryPaths: ['/src'],
+          excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
+          totalSelectedCount: 1,
+          useRegex: false,
+        },
+      },
+      setQuerySelectionManifest: vi.fn((manifest) => {
+        state.querySelectionManifest = manifest;
+      }),
+    };
+
+    useOptionalPGliteDatabaseMock.mockReturnValue(firstDatabase);
+    useFileExplorerStoreContextMock.mockReturnValue({ getState: () => state });
+    loadQuerySelectionSnapshotMock.mockImplementation((database) =>
+      database === firstDatabase ? firstLoad.promise : replacementLoad.promise
+    );
+
+    const { rerender } = renderHook(() => useSelectionResolver());
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+      await Promise.resolve();
+    });
+    useOptionalPGliteDatabaseMock.mockReturnValue(replacementDatabase);
+    rerender();
+
+    await act(async () => {
+      vi.advanceTimersByTime(10);
+      await Promise.resolve();
+    });
+
+    firstLoad.resolve(['/src/stale.ts']);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    state.querySelectionManifest = {
+      directoryCounts: new Map(),
+      errorMessage: 'unrelated error',
+      filePaths: [],
+      fingerprint: 'other-fingerprint',
+      pathSet: new Set(),
+      snapshotId: 'other-snapshot',
+      status: 'error',
+    };
+    state.setQuerySelectionManifest.mockClear();
+    rerender();
+    await act(async () => {
+      vi.advanceTimersByTime(39);
+      await Promise.resolve();
+    });
+    expect(state.setQuerySelectionManifest).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    expect(state.setQuerySelectionManifest).toHaveBeenCalledWith(
+      expect.objectContaining({ fingerprint: 'fp-1', snapshotId: 'snapshot-1', status: 'loading' })
+    );
+
+    replacementLoad.reject(new Error('replacement database failed'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(state.querySelectionManifest).toEqual(
+      expect.objectContaining({ errorMessage: 'replacement database failed', status: 'error' })
+    );
+
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not let a late snapshot rejection downgrade a matching ready manifest', async () => {
