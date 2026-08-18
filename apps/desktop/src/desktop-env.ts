@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  listProviders,
+  providerDeprecatedEnvKeys,
+  providerEnvKeys,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 export type DesktopEnvFile = 'dev' | 'dev-local' | 'user-data';
@@ -13,6 +17,13 @@ export interface DesktopEnvLoadFailure {
 
 export interface DesktopEnvLoadResult {
   readonly appliedVariableCount: number;
+  /**
+   * Deprecated provider env NAMES present in the loaded files (BST-1361) —
+   * names only, never values. Presence in a file is what matters: a name the
+   * inherited process env shadows is still listed, because the user's file
+   * still spells the retired name and deserves the rename warning.
+   */
+  readonly deprecatedVariableNames: readonly string[];
   readonly failures: readonly DesktopEnvLoadFailure[];
   readonly loadedFiles: readonly DesktopEnvFile[];
   readonly skipped: boolean;
@@ -64,12 +75,36 @@ const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
  * hand-copied: a hand-written list silently drifts from the registry, and a
  * name the registry documents but this list omits rejects the WHOLE file.
  */
-/** Provider/search credential names that repository-controlled children must never inherit. */
+/**
+ * Provider/search credential names that repository-controlled children must
+ * never inherit. Deprecated registry names stay here FOREVER (BST-1361): a
+ * credential-shaped variable must never leak to children regardless of
+ * whether resolution still reads it.
+ */
 const CREDENTIAL_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
-  ...listProviders().flatMap((definition) => [...providerEnvKeys(definition.id)]),
+  ...listProviders().flatMap((definition) => [
+    ...providerEnvKeys(definition.id),
+    ...providerDeprecatedEnvKeys(definition.id),
+  ]),
   ...TAVILY_ENV_KEYS,
 ]);
+/**
+ * Deprecated names stay allow-listed too: an unrecognized name rejects the
+ * WHOLE file, so dropping them outright would brick existing user `.env`
+ * files. Recognized-but-deprecated parses fine and is reported by name in
+ * {@link DesktopEnvLoadResult.deprecatedVariableNames}.
+ */
 const SUPPORTED_VARIABLE_NAMES: ReadonlySet<string> = CREDENTIAL_VARIABLE_NAMES;
+const DEPRECATED_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>(
+  listProviders().flatMap((definition) => [...providerDeprecatedEnvKeys(definition.id)])
+);
+
+/**
+ * The exact allow-list a desktop `.env` file may set, exported so
+ * `.env.example` can be contract-tested against it (BST-1361) — the example
+ * must never drift from the registry again.
+ */
+export const SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = SUPPORTED_VARIABLE_NAMES;
 let bootstrapResult: DesktopEnvLoadResult | undefined;
 
 /**
@@ -142,6 +177,7 @@ export function loadDesktopEnvironment({
   if (failures.length > 0) {
     return {
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures,
       loadedFiles: [],
       skipped: false,
@@ -155,6 +191,7 @@ export function loadDesktopEnvironment({
 
   return {
     appliedVariableCount: assignments.size,
+    deprecatedVariableNames: collectDeprecatedVariableNames(parsedCandidates),
     failures: [],
     loadedFiles: parsedCandidates.map(({ file }) => file),
     skipped: false,
@@ -184,10 +221,26 @@ export function getDesktopEnvironmentBootstrapResult(): DesktopEnvLoadResult {
 function emptyResult(skipped: boolean): DesktopEnvLoadResult {
   return {
     appliedVariableCount: 0,
+    deprecatedVariableNames: [],
     failures: [],
     loadedFiles: [],
     skipped,
   };
+}
+
+/** Deprecated NAMES spelled in the loaded files — deduplicated, values never included. */
+function collectDeprecatedVariableNames(
+  candidates: readonly ParsedDesktopEnvCandidate[]
+): readonly string[] {
+  const names = new Set<string>();
+  for (const candidate of candidates) {
+    for (const name of candidate.entries.keys()) {
+      if (DEPRECATED_VARIABLE_NAMES.has(name)) {
+        names.add(name);
+      }
+    }
+  }
+  return [...names];
 }
 
 function buildCandidates(

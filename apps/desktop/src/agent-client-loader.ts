@@ -9,23 +9,20 @@ let cachedAgentClient: AgentClientModule | null | undefined;
 let fallbackNotified = false;
 const logger = createLogger('AgentClientLoader');
 
+// BST-1361 two-name scheme: BRAINSTRIKE_* override first, vendor name second.
+// Deprecated aliases are deliberately ABSENT — they must never authenticate,
+// in the fallback path included. Pinned against the agent SOURCE by
+// __tests__/main/agent-client-loader.test.ts.
 const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
-  anthropic: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
-  cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
-  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
+  anthropic: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
+  cohere: ['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY'],
+  google: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
   lmstudio: [], // Local runtime provider, auto-discovered on localhost
   local: [], // Local provider runs in-browser, no API key needed
   ollama: [], // Local runtime provider, auto-discovered on localhost
-  openai: [
-    'BRAINSTRIKE_OPENAI_API_KEY',
-    'BS_OPENAI_API_KEY',
-    'OPENAI_API_KEY',
-    'AI_OPENAI_API_KEY',
-    'OPENAI_API_KEY_V1',
-    'OPENAI_API_KEY_V2',
-  ],
-  openrouter: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
-  voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+  openai: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
+  openrouter: ['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
+  voyage: ['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY'],
 };
 
 /**
