@@ -491,13 +491,19 @@ export function registerSecretsIpcHandlers(
 
       try {
         const result = await secrets.clearAll();
-        await options.onClearAll?.();
         return { success: result };
       } catch (error) {
         return {
           message: error instanceof Error ? error.message : String(error),
           success: false,
         };
+      } finally {
+        // MUST run even when the store wipe throws (PR #2527 review, finding
+        // 3). Otherwise a failed `clearAll()` leaves the provider-auth
+        // refresher's in-memory rotated pair alive with its epoch UNBUMPED —
+        // a live, still-refreshable subscription session after the user asked
+        // for a factory reset. Purging is idempotent and never throws.
+        await options.onClearAll?.();
       }
     }
   );

@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import type { SecretsService } from '../secrets';
-import { getTrackedWindowsByRole } from '../window-role';
+import { resolveAssistantAuthOriginRole } from './assistant-auth-origin';
 import {
   clearOAuthProviderDescriptorsForTest,
   listOAuthProviderDescriptorIds,
@@ -58,8 +58,10 @@ export function initializeProviderAuthRuntime(deps: ProviderAuthRuntimeDeps): Pr
   subscriptionFetchFactory = createInteractiveSubscriptionFetchFactory({
     appVersion: deps.appVersion,
     getFreshAccessToken: (providerId) => created.getFreshAccessToken(providerId),
-    // Re-evaluated per credential resolution — never captured.
-    hasInteractiveWindow: () => getTrackedWindowsByRole('visible-ui').length > 0,
+    // Per-ORIGIN, re-evaluated per credential resolution and never captured:
+    // the role of whoever actually holds the assistant bearer token, not a
+    // process-wide window probe (PR #2527 review, finding 5).
+    resolveOriginRole: resolveAssistantAuthOriginRole,
   });
   return created;
 }

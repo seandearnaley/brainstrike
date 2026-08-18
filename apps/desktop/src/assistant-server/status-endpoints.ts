@@ -40,7 +40,19 @@ const defaultProviderVerificationService = createProviderVerificationService({
    * failure rather than a crash.
    */
   verifySubscriptionSession: async (providerId) => {
-    const result = await getProviderAuthEngine().getFreshAccessToken(providerId);
+    let engine: ReturnType<typeof getProviderAuthEngine>;
+    try {
+      engine = getProviderAuthEngine();
+    } catch {
+      // Uninitialized runtime (web, tests, any non-desktop host): surface the
+      // TYPED unsupported-probe failure the verification service turns into a
+      // `verification_unsupported` 400, rather than letting a bare Error
+      // escape as a 500 (PR #2527 review, finding 8).
+      throw new UnsupportedVerificationCredentialError(
+        'subscription sign-in can only be verified in the desktop app'
+      );
+    }
+    const result = await engine.getFreshAccessToken(providerId);
     // The access token itself NEVER leaves the engine (gate constraint 3) —
     // only the verdict crosses into the verification result.
     return result.ok ? { ok: true } : { ok: false, status: result.status };

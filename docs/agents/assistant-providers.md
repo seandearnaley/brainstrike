@@ -1663,6 +1663,29 @@ carry its own single-flight map and REPLAY a rotating refresh token.
 **When changing any of this**, update this section, `apps/desktop/SECURITY.md`,
 and the paired tests under `apps/desktop/src/__tests__/provider-auth/`.
 
+#### Contract for any provider-listing UI (read before rendering a credential card)
+
+`oauth_subscription` providers are **connect/disconnect**, never paste-a-key.
+Do NOT treat "everything except `authType === 'none'`" as key-bearing — that
+predicate is wrong for this auth type and will render a ChatGPT account as an
+API-key text field.
+
+A surface that lists providers MUST branch on `authType`:
+
+| `authType` | Treatment |
+| --- | --- |
+| `'none'` | No credential affordance (local runtimes). |
+| `'api_key'` | Key input / Set / Replace / Remove. |
+| `'aws'` | Key input OR profile-chain selection (BST-1353). |
+| `'oauth_subscription'` | **Connect / Disconnect only.** No key input, no Set/Replace/Remove. Must render the connected account, a device-code alternative, and the personal-use notice (legal gate constraint 4). |
+
+The reference implementation is the Credential Inventory's oauth arm
+(`packages/settings-ui/src/settings/secrets/credential-inventory/credential-oauth-actions.tsx`
+plus `credential-oauth-notice.tsx`); reuse it rather than re-deriving the
+states. Connect affordances are capability-gated on the `window.providerAuth`
+bridge — absent on web, where the row must render read-only rather than
+offering a sign-in that cannot work.
+
 ### Provider OAuth engine (BST-1355)
 
 Desktop-main-only, provider-agnostic OAuth engine at

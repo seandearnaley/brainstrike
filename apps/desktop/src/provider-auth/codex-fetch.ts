@@ -38,6 +38,15 @@ export interface CodexFetchDeps {
   readonly userAgent: string;
 }
 
+/**
+ * Only `string` and `URL` inputs are supported.
+ *
+ * A `Request` carries its own method, headers and body, and this layer
+ * rebuilds the outgoing request from `init` alone — so accepting one would
+ * silently drop the payload and send a bodiless GET to the Codex backend.
+ * The AI SDK never passes a `Request` here; if that ever changes, this must
+ * fail loudly rather than mangle the turn (NO SILENT FALLBACKS).
+ */
 function resolveUrl(input: RequestInfo | URL): URL {
   if (input instanceof URL) {
     return input;
@@ -45,7 +54,9 @@ function resolveUrl(input: RequestInfo | URL): URL {
   if (typeof input === 'string') {
     return new URL(input);
   }
-  return new URL(input.url);
+  throw new TypeError(
+    'Codex fetch received a Request object; only string and URL inputs are supported, because a Request carries method/headers/body this layer would silently drop.'
+  );
 }
 
 /** Codex serves both the Responses API and chat-completions traffic from one

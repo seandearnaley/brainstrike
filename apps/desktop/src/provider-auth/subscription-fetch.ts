@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { DesktopWindowRole } from '../window-role';
 import { createCodexFetch } from './codex-fetch';
 import { buildCodexUserAgent, OPENAI_CODEX_PROVIDER_ID } from './descriptors/openai-codex';
 import { assertInteractiveProviderAuthSender } from './provider-auth-engine';
@@ -15,12 +16,13 @@ import type { FreshAccessTokenResult } from './refresh';
  * 1. STRUCTURAL — only the interactive desktop assistant-server constructs
  *    this factory at all. Web and any headless host inject nothing, so the
  *    projection rejects the credential outright.
- * 2. LIVE — every resolution re-checks that an interactive `visible-ui`
- *    window actually exists, so a desktop process running without visible UI
- *    (a future scheduled or background mode) fails closed even though it
- *    shares this code path. It is re-checked PER RESOLUTION rather than
- *    captured once, so a window closing mid-session cannot leave a stale
- *    "yes" behind.
+ * 2. PER-ORIGIN — every resolution re-checks the role of the origin that
+ *    actually obtained the assistant bearer token (see
+ *    `assistant-auth-origin.ts`), not a process-wide "is any window open?"
+ *    probe. A future hidden host or background mode that reaches this code
+ *    path records a non-`visible-ui` role (or none) and fails closed EVEN
+ *    WHILE a normal window is open. Re-resolved per resolution, so a holder
+ *    torn down mid-session cannot leave a stale "yes" behind.
  *
  * The assistant server's own bearer token is already `visible-ui`-only
  * (`assistant:get-auth` is a role-gated IPC channel), so gate 2 is a second
@@ -38,10 +40,14 @@ export interface InteractiveSubscriptionFetchDeps {
   readonly appVersion: string;
   /** Wired to the shared engine's single-flight, refresh-aware accessor. */
   readonly getFreshAccessToken: (providerId: string) => Promise<FreshAccessTokenResult>;
-  /** True when at least one interactive `visible-ui` window is tracked. */
-  readonly hasInteractiveWindow: () => boolean;
   /** Test seam for the per-session correlation id Codex expects. */
   readonly newSessionId?: () => string;
+  /**
+   * The role of the origin this credential resolution is being performed FOR
+   * — not a process-wide probe. Wired to the recorded assistant-auth token
+   * holder (see assistant-auth-origin.ts). `undefined` fails closed.
+   */
+  readonly resolveOriginRole: () => DesktopWindowRole | string | undefined;
 }
 
 export function createInteractiveSubscriptionFetchFactory(
@@ -53,8 +59,11 @@ export function createInteractiveSubscriptionFetchFactory(
     provider: string,
     credential: SubscriptionOAuthCredential
   ): typeof globalThis.fetch {
-    // Gate 2 (live). Throws with the engine's canonical constraint-4 message.
-    assertInteractiveProviderAuthSender(deps.hasInteractiveWindow() ? 'visible-ui' : undefined);
+    // Gate 2 (live, per resolution). Throws with the engine's canonical
+    // constraint-4 message. Re-resolved every time — never captured — so a
+    // window that closes, or a non-visible-ui origin, stops authorizing
+    // subscription auth immediately.
+    assertInteractiveProviderAuthSender(deps.resolveOriginRole());
 
     if (provider !== OPENAI_CODEX_PROVIDER_ID) {
       throw new Error(

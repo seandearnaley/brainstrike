@@ -3,6 +3,10 @@ import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import type { DesktopPowerSnapshot } from './platform/desktop-power-snapshot';
+import {
+  forgetAssistantAuthIssuance,
+  recordAssistantAuthIssuance,
+} from './provider-auth/assistant-auth-origin';
 
 interface ReloadIntent {
   readonly reason: string;
@@ -55,7 +59,28 @@ export function registerMainPlatformIpcHandlers({
     'agent',
     DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetAuth,
     { roles: ['visible-ui'] },
-    () => getAssistantAuth()
+    (event) => {
+      const result = getAssistantAuth();
+      // BST-1356: remember WHO holds the assistant bearer token. The channel's
+      // role policy already guarantees `visible-ui` here; recording the sender
+      // lets the credential-resolution layer enforce constraint 4 per origin
+      // instead of falling back to a process-wide window probe. Only record on
+      // an actual token issuance — an error/null probe grants nothing.
+      if (result && 'token' in result) {
+        recordAssistantAuthIssuance(event.sender.id);
+        // Bookkeeping only — NOT the security boundary. Authorization comes
+        // from `resolveAssistantAuthOriginRole` re-reading the role registry
+        // on every credential resolution, so a destroyed sender (whose role
+        // entry is cleared) already stops authorizing without this listener.
+        // Guarded because some senders (and test doubles) expose no `once`.
+        if (typeof event.sender.once === 'function') {
+          event.sender.once('destroyed', () => {
+            forgetAssistantAuthIssuance(event.sender.id);
+          });
+        }
+      }
+      return result;
+    }
   );
 
   registry.registerInvoke('runtime', DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot, () =>

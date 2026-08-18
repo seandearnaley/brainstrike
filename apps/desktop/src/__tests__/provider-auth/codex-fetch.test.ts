@@ -124,13 +124,25 @@ describe('codexFetch endpoint rewriting', () => {
     expect(captured[0]?.url).toBe(RESPONSES_ENDPOINT);
   });
 
-  it('accepts a URL instance and a Request-like input', async () => {
+  it('accepts a URL instance', async () => {
     const { captured, codexFetch } = setup();
     await codexFetch(new URL('https://api.openai.com/v1/responses'), {
       body: BODY,
       method: 'POST',
     });
     expect(captured[0]?.url).toBe(RESPONSES_ENDPOINT);
+  });
+
+  it('REJECTS a Request input rather than silently sending a bodiless GET', async () => {
+    // A Request carries its own method/headers/body, which this layer rebuilds
+    // from `init` alone — accepting one would drop the payload silently.
+    const { captured, codexFetch } = setup();
+    const request = new Request('https://api.openai.com/v1/responses', {
+      body: BODY,
+      method: 'POST',
+    });
+    await expect(codexFetch(request)).rejects.toThrow(/Request object/i);
+    expect(captured).toHaveLength(0);
   });
 
   it('leaves unrelated paths untouched', async () => {

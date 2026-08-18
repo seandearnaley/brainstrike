@@ -25,7 +25,7 @@ const CREDENTIAL = {
 
 function makeFactory(
   overrides: {
-    hasInteractiveWindow?: () => boolean;
+    resolveOriginRole?: () => string | undefined;
     getFreshAccessToken?: (
       providerId: string
     ) => Promise<
@@ -39,18 +39,28 @@ function makeFactory(
     getFreshAccessToken:
       overrides.getFreshAccessToken ??
       (async () => ({ accessToken: 'FRESH-TOKEN', ok: true as const })),
-    hasInteractiveWindow: overrides.hasInteractiveWindow ?? (() => true),
+    resolveOriginRole: overrides.resolveOriginRole ?? (() => 'visible-ui'),
   });
 }
 
 describe('subscription fetch interactive gate', () => {
-  it('FAILS CLOSED when no interactive desktop window exists (headless/scheduled)', () => {
-    const build = makeFactory({ hasInteractiveWindow: () => false });
+  it('FAILS CLOSED when no origin holds the assistant token (headless/scheduled)', () => {
+    const build = makeFactory({ resolveOriginRole: () => undefined });
     expect(() => build('openai-codex', CREDENTIAL)).toThrow(/interactive desktop/i);
   });
 
+  it('REJECTS a non-visible-ui origin even while a window is open', () => {
+    // Constraint 4's explicit "now or added later" case: a hidden host or a
+    // future background mode reaching this path is refused on its OWN role,
+    // not excused by some other window being open.
+    for (const role of ['llm-host', 'embedding-host', 'chunking-host', 'hidden-host']) {
+      const build = makeFactory({ resolveOriginRole: () => role });
+      expect(() => build('openai-codex', CREDENTIAL), role).toThrow(/interactive desktop/i);
+    }
+  });
+
   it('names the constraint in the failure so the reason is not mysterious', () => {
-    const build = makeFactory({ hasInteractiveWindow: () => false });
+    const build = makeFactory({ resolveOriginRole: () => undefined });
     expect(() => build('openai-codex', CREDENTIAL)).toThrow(
       /structurally unavailable to non-interactive contexts/i
     );
@@ -66,13 +76,13 @@ describe('subscription fetch interactive gate', () => {
     expect(() => build('openai', CREDENTIAL)).toThrow(/openai-codex/);
   });
 
-  it('re-checks interactivity per credential resolution, not once at startup', () => {
-    let interactive = true;
-    const build = makeFactory({ hasInteractiveWindow: () => interactive });
+  it('re-resolves the origin per credential resolution, not once at startup', () => {
+    let role: string | undefined = 'visible-ui';
+    const build = makeFactory({ resolveOriginRole: () => role });
     expect(typeof build('openai-codex', CREDENTIAL)).toBe('function');
-    // The window closed; the very next resolution must fail closed rather
+    // The holder went away; the very next resolution must fail closed rather
     // than ride a stale startup-time decision.
-    interactive = false;
+    role = undefined;
     expect(() => build('openai-codex', CREDENTIAL)).toThrow(/interactive desktop/i);
   });
 });
