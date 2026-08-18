@@ -268,7 +268,7 @@ describe('loadDesktopEnvironment', () => {
       {
         code: 'env_file_invalid',
         file: 'dev',
-        message: 'Desktop environment file "dev" is invalid at line 2: expected "=".',
+        message: 'Desktop environment file ".env" is invalid at line 2: expected "=".',
       },
     ]);
     expect(env).toEqual({});
@@ -345,7 +345,7 @@ describe('loadDesktopEnvironment', () => {
           code: 'env_file_invalid',
           file: 'dev',
           message:
-            'Desktop environment file "dev" is invalid at line 2: unsupported variable name.',
+            'Desktop environment file ".env" is invalid at line 2: unsupported variable name.',
         },
       ],
       loadedFiles: [],
@@ -373,7 +373,7 @@ describe('loadDesktopEnvironment', () => {
           code: 'env_file_invalid',
           file: 'dev',
           message:
-            'Desktop environment file "dev" is invalid at line 2: unsupported variable name.',
+            'Desktop environment file ".env" is invalid at line 2: unsupported variable name.',
         },
       ]);
       expect(env).toEqual({});
@@ -397,7 +397,7 @@ describe('loadDesktopEnvironment', () => {
       {
         code: 'env_file_invalid',
         file: 'dev',
-        message: 'Desktop environment file "dev" is invalid at line 1: boundary whitespace.',
+        message: 'Desktop environment file ".env" is invalid at line 1: boundary whitespace.',
       },
     ]);
     expect(env).toEqual({});
@@ -414,7 +414,7 @@ describe('loadDesktopEnvironment', () => {
       {
         code: 'env_file_invalid',
         file: 'dev-local',
-        message: 'Desktop environment file "dev-local" is invalid at line 1: unterminated quote.',
+        message: 'Desktop environment file ".env.local" is invalid at line 1: unterminated quote.',
       },
     ]);
     expect(JSON.stringify(result)).not.toContain('super-secret-value');
@@ -431,7 +431,7 @@ describe('loadDesktopEnvironment', () => {
       {
         code: 'env_file_unreadable',
         file: 'dev-local',
-        message: 'Desktop environment file "dev-local" could not be read.',
+        message: 'Desktop environment file ".env.local" could not be read.',
       },
     ]);
     expect(JSON.stringify(result)).not.toContain(unreadablePath);

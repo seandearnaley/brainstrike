@@ -13,6 +13,13 @@ declare global {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
+    // Shape defined ONCE in
+    // @brainstrike/assistant-contract/env-bootstrap-bridge. Declared so an
+    // e2e spec can stub the env bootstrap projection and drive the Settings
+    // Environment section (BST-1363) without real .env files on disk.
+    envBootstrap?: Partial<
+      import('@brainstrike/assistant-contract/env-bootstrap-bridge').EnvBootstrapBridge
+    >;
     mcp?: {
       getConfig?: () => Promise<unknown>;
       watch?: () => Promise<{ watching: boolean }>;

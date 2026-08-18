@@ -28,6 +28,21 @@
 /** Which env file a report entry refers to. Mirrors the desktop loader's file ids. */
 export type DesktopEnvFileId = 'dev' | 'dev-local' | 'user-data';
 
+/**
+ * Human-facing name for each env file id. These ids are internal loader
+ * vocabulary: `dev-local` means nothing to a user staring at a settings
+ * panel, and worse, it is not the name of a file they can go open. The loader
+ * itself renders failure messages through this map, so the SAME wording
+ * reaches the settings surface, the assistant status probe, and the
+ * `secrets:list` error — an exhaustive Record, so adding a file id without
+ * naming it fails the build rather than leaking a raw id into the UI.
+ */
+export const DESKTOP_ENV_FILE_LABELS: Record<DesktopEnvFileId, string> = {
+  dev: '.env',
+  'dev-local': '.env.local',
+  'user-data': 'user-data .env',
+};
+
 /** A file the loader actually read and applied, with its absolute path. */
 export interface EnvBootstrapLoadedFile {
   readonly file: DesktopEnvFileId;

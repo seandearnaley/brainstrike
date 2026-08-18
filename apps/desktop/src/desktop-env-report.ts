@@ -42,22 +42,34 @@ export interface BuildDesktopEnvBootstrapReportOptions {
 }
 
 /**
- * A variable counts as present only when it holds a non-blank value. An empty
- * or whitespace-only assignment authenticates nothing, so showing it as a
- * configured chip would be a lie — matching how the provider env resolvers
- * treat blank values.
+ * The set of environment names holding a non-blank value, upper-cased.
+ *
+ * Windows environment names are case-insensitive. Apply the same rule on
+ * every platform — mirroring `createCredentialIsolatedChildEnvironment` and
+ * `detectDeprecatedProviderEnvVars` — so a mixed-case source object cannot
+ * dodge this report while still resolving as a real credential. Reports
+ * always carry the canonical (uppercase) allow-list spelling.
+ *
+ * A variable counts as present only when its value is non-blank: an empty or
+ * whitespace-only assignment authenticates nothing, so showing it as a
+ * configured chip would be a lie.
  */
-function isPresent(env: Readonly<NodeJS.ProcessEnv>, name: string): boolean {
-  const value = env[name];
-  return typeof value === 'string' && value.trim().length > 0;
+function upperCasedPresentNames(env: Readonly<NodeJS.ProcessEnv>): ReadonlySet<string> {
+  const present = new Set<string>();
+  for (const [name, value] of Object.entries(env)) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      present.add(name.toUpperCase());
+    }
+  }
+  return present;
 }
 
 /** Allow-listed names currently set, in stable sorted order. Names only. */
 function presentNames(
   allowedNames: ReadonlySet<string>,
-  env: Readonly<NodeJS.ProcessEnv>
+  presentEnvNames: ReadonlySet<string>
 ): string[] {
-  return [...allowedNames].filter((name) => isPresent(env, name)).sort();
+  return [...allowedNames].filter((name) => presentEnvNames.has(name)).sort();
 }
 
 export function buildDesktopEnvBootstrapReport({
@@ -100,15 +112,17 @@ export function buildDesktopEnvBootstrapReport({
     path: pathFor(file),
   }));
 
+  const presentEnvNames = upperCasedPresentNames(env);
+
   return {
     appliedVariableCount: result.appliedVariableCount,
-    credentialVariablesPresent: presentNames(CREDENTIAL_ENV_FILE_VARIABLE_NAMES, env),
+    credentialVariablesPresent: presentNames(CREDENTIAL_ENV_FILE_VARIABLE_NAMES, presentEnvNames),
     deprecatedVariablesInFiles: [...result.deprecatedVariableNames],
     failures,
     loadedFiles,
     nonCredentialVariablesPresent: presentNames(
       NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES,
-      env
+      presentEnvNames
     ),
     skipped: result.skipped,
   };

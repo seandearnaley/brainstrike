@@ -1364,7 +1364,7 @@ enforces). Channel `secrets:envBootstrap` is registered in
 every other secrets channel; `hidden-preload.ts` does not expose it
 (negatively asserted in `hidden-preload-contract.test.ts`).
 
-Two rulings worth keeping:
+Rulings worth keeping:
 
 - The handler reads the RECORDED bootstrap result and re-projects it per
   invoke. It NEVER re-runs loading — `initializeDesktopEnvironment` throws on
@@ -1375,20 +1375,49 @@ Two rulings worth keeping:
   failures. `secrets:list` throwing is correct (its answer would be wrong);
   this channel exists precisely to explain that failure, so it must still
   answer.
+- The section reads ONCE on mount. It deliberately does NOT subscribe to
+  `SECRETS_CHANGED_EVENT_NAME` or window focus: the payload derives from the
+  recorded bootstrap plus the process environment, and neither can change
+  without a restart, so a refresh could only ever re-fetch an identical
+  payload while implying the panel is live. Do not add one back.
+- Deprecation guidance has ONE source. The rename target is
+  `DeprecatedEnvVarReport.replacement` — the VENDOR-standard name, never the
+  `BRAINSTRIKE_*` override — and both the inventory row and the Environment
+  section render it through the single
+  `settings/secrets/deprecated-env-var-message.ts` helper. A second derivation
+  previously advised the override while the row advised the vendor name, with
+  both on screen simultaneously. Do not re-derive it.
+- A name counts as retired based on the REGISTRY
+  (`providerDeprecatedEnvKeys`), not on whether the loader saw it in a file.
+  A retired name exported from the user's shell is just as dead as one spelled
+  in `.env`, so neither may render as a live chip; file provenance only adds a
+  clause to the warning.
+
+File ids (`dev` / `dev-local` / `user-data`) are internal loader vocabulary and
+must never reach the UI. `DESKTOP_ENV_FILE_LABELS` in the contract is the ONE
+map to their real filenames, and the loader itself formats failure messages
+through it — so the same wording reaches Settings, the status probe, and the
+`secrets:list` error.
 
 Surface: `packages/settings-ui/src/settings/secrets/environment/`, rendered
 beneath the Credential Inventory. Read-only — no editor, because the values
 are secrets this surface must never handle. The failure banner reproduces the
 parser's line-precise message verbatim (`… is invalid at line 4: unsupported
-variable name.`) — that text is the feature, so do not re-word it. Effective
-variables render as monospace chips, credential chips visually distinct from
-non-credential config chips and cross-linked to their inventory row; retired
-names render amber with rename guidance instead of as ordinary chips. The
-section refreshes on `SECRETS_CHANGED_EVENT_NAME` and window focus. The
-"Open folder" affordance is INJECTED by the desktop host from
-`resolvePlatformBridge()` — settings-ui never touches `window.platform`, and
-web omits the section entirely by capability (the bridge is absent), never by
-an `isElectron()` check.
+variable name.`) — that text is the feature, so do not re-word it — and states
+the all-or-nothing consequence, since one bad file discards them all.
+Effective variables render as monospace chips, credential chips visually
+distinct from non-credential config chips and cross-linked to their inventory
+row; the chip→row index is built from `listCredentialSlots()` so a chip can
+never target a row that does not exist. The "Open folder" affordance is
+INJECTED by the desktop host from `resolvePlatformBridge()`, and its
+`{ ok, error }` result is surfaced — settings-ui never touches
+`window.platform`, and web omits the section entirely by capability (the
+bridge is absent), never by an `isElectron()` check.
+
+Tavily's env names are NOT in the provider registry (it is a search service,
+not a model provider). The canonical list lives in
+`@brainstrike/assistant-contract/tavily-env-keys` because both desktop and
+settings-ui need it; every local copy that existed instead had drifted.
 
 ---
 

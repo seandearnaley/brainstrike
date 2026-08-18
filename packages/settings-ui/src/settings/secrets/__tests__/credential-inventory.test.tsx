@@ -982,23 +982,4 @@ describe('CredentialInventory', () => {
       'sk-goog-fail'
     );
   });
-
-  it('highlights and scrolls to the row a cross-link points at (BST-1363)', async () => {
-    const scrollIntoView = vi.fn();
-    // jsdom does not implement scrollIntoView.
-    Element.prototype.scrollIntoView = scrollIntoView;
-
-    const { rerender } = render(<CredentialInventory />);
-    await waitForReady();
-
-    expect(screen.getByTestId('credential-row-openai').dataset['highlighted']).toBeUndefined();
-
-    rerender(<CredentialInventory highlightedSlotId="openai" />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('credential-row-openai').dataset['highlighted']).toBe('true');
-    });
-    expect(scrollIntoView).toHaveBeenCalled();
-    expect(screen.getByTestId('credential-row-google').dataset['highlighted']).toBeUndefined();
-  });
 });

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DESKTOP_ENV_FILE_LABELS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import {
   listProviders,
   providerDeprecatedEnvKeys,
@@ -41,7 +42,7 @@ export interface LoadDesktopEnvironmentOptions {
   readonly userDataPath: string;
 }
 
-export interface DesktopEnvCandidate {
+interface DesktopEnvCandidate {
   readonly file: DesktopEnvFile;
   readonly path: string;
 }
@@ -294,7 +295,10 @@ function readAndParseCandidate(
     return {
       code: 'env_file_unreadable',
       file: candidate.file,
-      message: `Desktop environment file "${candidate.file}" could not be read.`,
+      // Failure text names the FILE the user must open, not the loader's
+      // internal id — this message reaches Settings, the assistant status
+      // probe, and the secrets:list error verbatim.
+      message: `Desktop environment file "${DESKTOP_ENV_FILE_LABELS[candidate.file]}" could not be read.`,
     };
   }
 
@@ -312,7 +316,7 @@ function readAndParseCandidate(
     return {
       code: 'env_file_invalid',
       file: candidate.file,
-      message: `Desktop environment file "${candidate.file}" is invalid at line ${parseError.line}: ${parseError.message}`,
+      message: `Desktop environment file "${DESKTOP_ENV_FILE_LABELS[candidate.file]}" is invalid at line ${parseError.line}: ${parseError.message}`,
     };
   }
 }

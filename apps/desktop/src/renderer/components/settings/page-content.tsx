@@ -123,13 +123,17 @@ export default function SettingsPageContent() {
   // Shell reveal is injected, not reached for: settings-ui stays platform
   // agnostic and simply renders no Open-folder affordance when the desktop
   // bridge is absent or malformed (resolvePlatformBridge returns null).
+  // The `{ ok, error }` result is normalized exactly as
+  // context-action-registry does, so a failed reveal can be shown rather than
+  // vanishing.
   const revealEnvFile = useMemo(() => {
     const bridge = resolvePlatformBridge();
     if (!bridge) {
       return;
     }
-    return (absolutePath: string) => {
-      void bridge.showItemInFolder(absolutePath);
+    return async (absolutePath: string) => {
+      const result = await bridge.showItemInFolder(absolutePath);
+      return result.ok ? { ok: true } : { error: result.error ?? 'Reveal failed', ok: false };
     };
   }, []);
   const apiKeyStatus = useMemo(() => {

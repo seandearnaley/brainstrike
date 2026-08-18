@@ -1,12 +1,14 @@
 import path from 'node:path';
-import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
+import { providerOverrideEnvKey } from '@brainstrike/assistant-contract/provider-metadata';
 import { describe, expect, it } from 'vitest';
 import type { DesktopEnvLoadResult } from '../desktop-env';
 import { buildDesktopEnvBootstrapReport } from '../desktop-env-report';
 
 const APP_ROOT = '/app/root';
 const USER_DATA_PATH = '/user/data';
-const OPENAI_ENV_KEY = providerEnvKeys('openai')[0] as string;
+// Named accessor, never a positional index into providerEnvKeys — which of
+// the two names is the override is the registry's business.
+const OPENAI_ENV_KEY = providerOverrideEnvKey('openai') as string;
 
 function loadResult(overrides: Partial<DesktopEnvLoadResult> = {}): DesktopEnvLoadResult {
   return {
@@ -81,7 +83,7 @@ describe('buildDesktopEnvBootstrapReport', () => {
             code: 'env_file_invalid',
             file: 'dev-local',
             message:
-              'Desktop environment file "dev-local" is invalid at line 4: unsupported variable name.',
+              'Desktop environment file ".env.local" is invalid at line 4: unsupported variable name.',
           },
         ],
       })
@@ -92,7 +94,7 @@ describe('buildDesktopEnvBootstrapReport', () => {
         code: 'env_file_invalid',
         file: 'dev-local',
         message:
-          'Desktop environment file "dev-local" is invalid at line 4: unsupported variable name.',
+          'Desktop environment file ".env.local" is invalid at line 4: unsupported variable name.',
         path: path.join(APP_ROOT, '.env.local'),
       },
     ]);
@@ -113,6 +115,21 @@ describe('buildDesktopEnvBootstrapReport', () => {
       ...report.credentialVariablesPresent,
       ...report.nonCredentialVariablesPresent,
     ]).not.toContain('UNRELATED_VARIABLE');
+  });
+
+  it('matches names case-insensitively and reports the canonical spelling', () => {
+    // Windows environment names are case-insensitive; apply the same rule
+    // everywhere so a mixed-case source object cannot dodge the report while
+    // still resolving as a credential — mirroring
+    // createCredentialIsolatedChildEnvironment and
+    // detectDeprecatedProviderEnvVars.
+    const report = build(loadResult(), {
+      aws_region: 'us-east-1',
+      [OPENAI_ENV_KEY.toLowerCase()]: 'set-through-a-lowercase-name',
+    });
+
+    expect(report.credentialVariablesPresent).toContain(OPENAI_ENV_KEY);
+    expect(report.nonCredentialVariablesPresent).toEqual(['AWS_REGION']);
   });
 
   it('treats an empty or whitespace-only variable as absent', () => {

@@ -164,6 +164,11 @@
       "import": "./dist/approval-action-message.js",
       "require": "./dist/approval-action-message.js"
     },
+    "./tavily-env-keys": {
+      "types": "./dist/tavily-env-keys.d.ts",
+      "import": "./dist/tavily-env-keys.js",
+      "require": "./dist/tavily-env-keys.js"
+    },
     "./tool-approval": {
       "types": "./dist/tool-approval.d.ts",
       "import": "./dist/tool-approval.js",

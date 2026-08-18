@@ -11,6 +11,7 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { Table, TableBody, TableHead, TableHeader, TableRow, useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { CredentialLoadError } from '../credential-load-error';
@@ -20,7 +21,8 @@ import { useCredentialMutations } from '../use-credential-mutations';
 import { CredentialRow } from './credential-row';
 import { type CredentialSlot, listCredentialSlots } from './credential-slots';
 
-const TAVILY_ENV_KEYS = new Set(['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY']);
+/** Canonical list — never re-spelled here (BST-1363 review). */
+const TAVILY_ENV_KEY_SET = new Set<string>(TAVILY_ENV_KEYS);
 
 // Frozen module constants back the prop defaults so a caller omitting them
 // gets the SAME reference every render — otherwise each render would allocate
@@ -35,7 +37,7 @@ function invalidCredentialStatus(): Error {
 
 function isAllowedProviderEnvVar(provider: string, envVar: string): boolean {
   if (provider === TAVILY_SECRET_PROVIDER) {
-    return TAVILY_ENV_KEYS.has(envVar);
+    return TAVILY_ENV_KEY_SET.has(envVar);
   }
   return providerEnvKeys(provider as SupportedProvider).includes(envVar);
 }
@@ -160,6 +162,8 @@ export interface CredentialInventoryProps {
   readonly deprecatedEnvVars?: readonly DeprecatedEnvVarReport[] | undefined;
   /** Slot the Environment section cross-linked to (BST-1363): scrolled to and ringed. */
   readonly highlightedSlotId?: string | undefined;
+  /** Bumped per cross-link activation so re-targeting the same slot re-scrolls (BST-1363). */
+  readonly highlightNonce?: number | undefined;
   /** Optional slot-id filter — `['openai']` renders exactly one row (BST-1358 seam). */
   readonly providers?: readonly string[] | undefined;
   readonly statusError?: string | undefined;
@@ -176,6 +180,7 @@ export interface CredentialInventoryProps {
  */
 export function CredentialInventory({
   deprecatedEnvVars = EMPTY_DEPRECATED_ENV_VARS,
+  highlightNonce = 0,
   highlightedSlotId,
   providers,
   statusError,
@@ -359,6 +364,7 @@ export function CredentialInventory({
               draftRegion={editor?.slotId === slot.id ? editor.region : ''}
               editing={editor?.slotId === slot.id}
               highlighted={highlightedSlotId === slot.id}
+              highlightNonce={highlightNonce}
               key={slot.id}
               onCancelEdit={() => dispatch({ type: 'CLOSE_EDITOR' })}
               onDraftKeyChange={(key) => dispatch({ key, type: 'SET_DRAFT_KEY' })}

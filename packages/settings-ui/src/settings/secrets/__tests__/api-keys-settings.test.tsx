@@ -1,6 +1,6 @@
 import type { DeprecatedEnvVarReport, ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiKeysSettings } from '../api-keys-settings';
 import type { CredentialInventoryProps } from '../credential-inventory/credential-inventory';
@@ -79,9 +79,31 @@ describe('ApiKeysSettings', () => {
     expect(inventoryPropsSpy).toHaveBeenCalledWith({
       deprecatedEnvVars: statusDeprecatedEnvVars,
       highlightedSlotId: undefined,
+      highlightNonce: 0,
       statusError: 'The user-data environment file is malformed.',
       statusProviderKeySources,
     });
+  });
+
+  it('forwards the SAME deprecation reports to the Environment section as to the rows', () => {
+    const statusDeprecatedEnvVars: readonly DeprecatedEnvVarReport[] = [
+      {
+        envVar: 'AI_OPENAI_API_KEY',
+        provider: 'openai' as SupportedProvider,
+        replacement: 'OPENAI_API_KEY',
+      },
+    ];
+
+    render(<ApiKeysSettings statusDeprecatedEnvVars={statusDeprecatedEnvVars} />);
+
+    // One derivation feeding both surfaces — the rename target can never
+    // disagree between the row and the Environment section.
+    expect(inventoryPropsSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ deprecatedEnvVars: statusDeprecatedEnvVars })
+    );
+    expect(environmentPropsSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ deprecatedEnvVars: statusDeprecatedEnvVars })
+    );
   });
 
   it('renders the Environment section beneath the Credential Inventory', () => {
@@ -114,5 +136,51 @@ describe('ApiKeysSettings', () => {
         expect.objectContaining({ highlightedSlotId: 'openai' })
       );
     });
+  });
+
+  it('re-triggers the highlight when the SAME chip is clicked again', async () => {
+    render(<ApiKeysSettings />);
+
+    fireEvent.click(screen.getByTestId('environment-select-openai'));
+    await waitFor(() => {
+      expect(inventoryPropsSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ highlightedSlotId: 'openai', highlightNonce: 1 })
+      );
+    });
+
+    // Same slot id: without a nonce the props would be identical and the row
+    // would never re-scroll, so a second click would appear to do nothing.
+    fireEvent.click(screen.getByTestId('environment-select-openai'));
+    await waitFor(() => {
+      expect(inventoryPropsSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ highlightedSlotId: 'openai', highlightNonce: 2 })
+      );
+    });
+  });
+
+  it('clears the highlight after it has served its purpose', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<ApiKeysSettings />);
+      fireEvent.click(screen.getByTestId('environment-select-openai'));
+
+      await vi.waitFor(() => {
+        expect(inventoryPropsSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ highlightedSlotId: 'openai' })
+        );
+      });
+
+      inventoryPropsSpy.mockClear();
+      // Wrapped in act so React flushes the expiry re-render before asserting.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+
+      expect(inventoryPropsSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ highlightedSlotId: undefined })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

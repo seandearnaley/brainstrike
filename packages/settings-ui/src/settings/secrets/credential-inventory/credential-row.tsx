@@ -14,6 +14,7 @@ import {
 import { Lock } from 'lucide-react';
 import type { CSSProperties, RefObject } from 'react';
 import { useEffect, useRef } from 'react';
+import { deprecatedEnvVarMessage } from '../deprecated-env-var-message';
 import { KeySourceBadge } from '../key-source-badge';
 import type { CredentialSourceState } from '../provider-key-types';
 import { CredentialRowEditor } from './credential-row-editor';
@@ -27,8 +28,14 @@ interface CredentialRowProps {
   readonly draftKey: string;
   readonly draftRegion: string;
   readonly editing: boolean;
-  /** Cross-link target (BST-1363): scrolls into view and rings once. */
+  /** Cross-link target (BST-1363): scrolls into view and rings while set. */
   readonly highlighted: boolean;
+  /**
+   * Bumped on every cross-link activation. Clicking the SAME chip twice must
+   * re-scroll, and without a changing value the props would be identical and
+   * the second click would appear to do nothing.
+   */
+  readonly highlightNonce: number;
   readonly onCancelEdit: () => void;
   readonly onDraftKeyChange: (value: string) => void;
   readonly onDraftRegionChange: (value: string) => void;
@@ -142,6 +149,7 @@ export function CredentialRow({
   draftKey,
   draftRegion,
   editing,
+  highlightNonce,
   highlighted,
   onCancelEdit,
   onDraftKeyChange,
@@ -164,17 +172,17 @@ export function CredentialRow({
 
   // Cross-link landing (BST-1363): an Environment chip names a variable, and
   // the row it configures may be far down the table — so becoming the
-  // highlighted row scrolls itself into view. Only the false→true transition
-  // scrolls, so an unrelated re-render never yanks the viewport.
+  // highlighted row scrolls itself into view. Keyed on the nonce as well as
+  // the flag so re-clicking the SAME chip scrolls again; clearing the
+  // highlight never scrolls, and unrelated re-renders never yank the viewport
+  // because neither value changes.
   const rowRef = useRef<HTMLTableRowElement | null>(null);
-  const wasHighlightedRef = useRef(highlighted);
-  // biome-ignore lint/plugin: The scroll must follow the highlighted PROP changing — the trigger lives in a sibling section with no event this row can subscribe to — so reacting to the transition is the correct tool, not an event handler.
+  // biome-ignore lint/plugin: The scroll must follow the highlight PROPS changing — the trigger lives in a sibling section with no event this row can subscribe to — so reacting to the change is the correct tool, not an event handler.
   useEffect(() => {
-    if (highlighted && !wasHighlightedRef.current) {
+    if (highlighted) {
       rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-    wasHighlightedRef.current = highlighted;
-  }, [highlighted]);
+  }, [highlighted, highlightNonce]);
   // biome-ignore lint/plugin: Focus restoration must follow EVERY close path — including non-local ones (save success, the slot becoming env on reload) that have no row-level event to hook — so reacting to the editing prop transition is the correct tool, not an event handler stand-in.
   useEffect(() => {
     if (wasEditingRef.current && !editing) {
@@ -207,7 +215,12 @@ export function CredentialRow({
               data-testid={`credential-deprecated-env-${slot.id}`}
               key={report.envVar}
             >
-              {report.envVar} is set but no longer read — rename it to {report.replacement}.
+              {/* Same sentence the Environment section renders — one string,
+                  one rename target, so the two can never disagree. */}
+              {deprecatedEnvVarMessage({
+                envVar: report.envVar,
+                replacement: report.replacement,
+              })}
             </p>
           ))}
         </TableCell>

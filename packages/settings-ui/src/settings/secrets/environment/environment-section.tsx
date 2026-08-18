@@ -1,42 +1,31 @@
-import type {
-  DesktopEnvFileId,
-  EnvBootstrapFailure,
-  EnvBootstrapReport,
-} from '@brainstrike/assistant-contract/env-bootstrap-bridge';
-import { SECRETS_CHANGED_EVENT_NAME } from '@brainstrike/assistant-contract/provider-key-resolution';
-import { Button } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getEnvBootstrapCapability } from './env-bootstrap-capability';
+import type { DeprecatedEnvVarReport } from '@brainstrike/assistant-contract';
 import {
-  buildDeprecatedEnvVariableRenameIndex,
-  buildEnvVariableSlotIndex,
-} from './env-variable-index';
-
-/**
- * Human labels for the loader's file ids. An exhaustive Record: adding a file
- * id to the contract without labelling it here fails the build rather than
- * rendering a raw id.
- */
-const FILE_LABELS: Record<DesktopEnvFileId, string> = {
-  dev: '.env',
-  'dev-local': '.env.local',
-  'user-data': 'user-data .env',
-};
+  DESKTOP_ENV_FILE_LABELS,
+  type EnvBootstrapFailure,
+  type EnvBootstrapReport,
+} from '@brainstrike/assistant-contract/env-bootstrap-bridge';
+import { Button } from '@brainstrike/ui';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { deprecatedEnvVarMessage } from '../deprecated-env-var-message';
+import { getEnvBootstrapCapability } from './env-bootstrap-capability';
+import { buildDeprecatedEnvVariableNameSet, buildEnvVariableSlotIndex } from './env-variable-index';
 
 const CHIP_BASE_CLASS = 'rounded border px-1.5 py-0.5 font-mono text-xs';
 const CREDENTIAL_CHIP_CLASS = `${CHIP_BASE_CLASS} border-primary/40 bg-primary/10 text-foreground`;
 const CONFIG_CHIP_CLASS = `${CHIP_BASE_CLASS} border-border bg-muted text-muted-foreground`;
+
+const EMPTY_DEPRECATED_ENV_VARS: readonly DeprecatedEnvVarReport[] = Object.freeze([]);
 
 type LoadState =
   | { readonly status: 'error'; readonly message: string }
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly report: EnvBootstrapReport };
 
-function toErrorMessage(error: unknown): string {
+function toErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
   }
-  return 'The environment bootstrap report could not be read.';
+  return fallback;
 }
 
 function summaryText(report: EnvBootstrapReport): string {
@@ -46,7 +35,7 @@ function summaryText(report: EnvBootstrapReport): string {
   if (report.loadedFiles.length === 0) {
     return 'Environment: no .env file loaded';
   }
-  const labels = report.loadedFiles.map(({ file }) => FILE_LABELS[file]).join(' + ');
+  const labels = report.loadedFiles.map(({ file }) => DESKTOP_ENV_FILE_LABELS[file]).join(' + ');
   const count = report.appliedVariableCount;
   return `Environment: ${labels} loaded, ${count} ${count === 1 ? 'variable' : 'variables'} applied`;
 }
@@ -70,10 +59,13 @@ function FailureBanner({ failure }: { readonly failure: EnvBootstrapFailure }) {
       data-testid={`env-bootstrap-failure-${failure.file}`}
       role="alert"
     >
-      <p className="font-medium">{FILE_LABELS[failure.file]} was not applied</p>
+      <p className="font-medium">{DESKTOP_ENV_FILE_LABELS[failure.file]} was not applied</p>
+      {/* The loader's own line-precise text, verbatim — it already names the
+          file by its real filename, so no internal id reaches the user. */}
       <p className="mt-1">{failure.message}</p>
       <p className="mt-1 text-xs opacity-80">
-        No variable from this file is set. Fix the line above and restart.
+        No environment file was applied — one invalid file discards them all. Fix the line above and
+        restart.
       </p>
     </div>
   );
@@ -81,11 +73,22 @@ function FailureBanner({ failure }: { readonly failure: EnvBootstrapFailure }) {
 
 export interface EnvironmentSectionProps {
   /**
-   * Reveals a path in the OS file manager. INJECTED and capability-gated: the
-   * host passes it only when the desktop shell bridge resolves, so this
-   * package never reaches for `window.platform` itself.
+   * Deprecated env names found set, from the assistant status probe — the
+   * SAME reports the inventory rows render (BST-1361). This section must not
+   * derive its own rename target: the report's `replacement` is the
+   * vendor-standard name, and a second derivation drifted from it.
    */
-  readonly onRevealPath?: ((absolutePath: string) => void) | undefined;
+  readonly deprecatedEnvVars?: readonly DeprecatedEnvVarReport[] | undefined;
+  /**
+   * Reveals an env file in the OS file manager. INJECTED by the host and
+   * capability-gated on the desktop shell bridge — this package never reaches
+   * for `window.platform`, and web simply never passes it. Resolves the
+   * shell's `{ ok, error }` result so a failed reveal can be shown rather
+   * than silently doing nothing.
+   */
+  readonly onRevealPath?:
+    | ((absolutePath: string) => Promise<{ ok: boolean; error?: string }>)
+    | undefined;
   /** Scrolls to and highlights the Credential Inventory row for a slot id. */
   readonly onSelectCredentialSlot?: ((slotId: string) => void) | undefined;
 }
@@ -94,66 +97,84 @@ export interface EnvironmentSectionProps {
  * Read-only visibility into the desktop `.env` bootstrap (BST-1363).
  *
  * WHY IT EXISTS: a single malformed line makes the loader reject the WHOLE
- * file, so every key in it silently stops applying and the app behaves as if
- * the keys were never set. That failure class was previously invisible. This
- * section states which files loaded, what failed and on which line, and which
- * allow-listed variable NAMES are in effect — never their values.
+ * set of env files, so every key in them silently stops applying and the app
+ * behaves as if the keys were never set. That failure class was previously
+ * invisible. This section states which files loaded, what failed and on which
+ * line, and which allow-listed variable NAMES are in effect — never values.
  *
  * Deliberately NOT an editor: env files are edited in the user's own editor,
  * and the values are secrets this surface must never handle.
  *
+ * Read ONCE on mount. The payload is derived from the recorded bootstrap plus
+ * the process environment, and neither can change without a restart — so a
+ * refresh subscription could only ever re-fetch an identical payload while
+ * implying the panel is live. The restart note below is the honest contract.
+ *
  * @platform desktop
  */
 export function EnvironmentSection({
+  deprecatedEnvVars = EMPTY_DEPRECATED_ENV_VARS,
   onRevealPath,
   onSelectCredentialSlot,
 }: EnvironmentSectionProps = {}) {
   // The preload bridge cannot appear mid-session, so it is resolved once.
   const capability = useMemo(() => getEnvBootstrapCapability(), []);
   const [state, setState] = useState<LoadState>({ status: 'loading' });
-  // Monotonic request id: an in-flight read that resolves after a newer one
-  // must not overwrite the newer result.
-  const requestIdRef = useRef(0);
+  const [revealError, setRevealError] = useState<string | null>(null);
 
   const read = capability?.read;
-  const refresh = useCallback(async () => {
+  // biome-ignore lint/plugin: Not derived state — this is a one-shot async READ of an external system (the desktop IPC bridge) whose result cannot be computed during render. The `active` flag discards a response that arrives after unmount rather than chaining updates.
+  useEffect(() => {
     if (!read) {
       return;
     }
-    requestIdRef.current += 1;
-    const requestId = requestIdRef.current;
-    try {
-      const report = await read();
-      if (requestIdRef.current === requestId) {
-        setState({ report, status: 'ready' });
-      }
-    } catch (error) {
-      if (requestIdRef.current === requestId) {
-        setState({ message: toErrorMessage(error), status: 'error' });
-      }
-    }
+    let active = true;
+    read()
+      .then((report) => {
+        if (active) {
+          setState({ report, status: 'ready' });
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setState({
+            message: toErrorMessage(error, 'The environment report could not be read.'),
+            status: 'error',
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [read]);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  // A credential save/delete can change which names are effective, and env
-  // files change outside the app entirely — so a focus return re-reads too.
-  useEffect(() => {
-    const handle = () => {
-      void refresh();
-    };
-    window.addEventListener(SECRETS_CHANGED_EVENT_NAME, handle);
-    window.addEventListener('focus', handle);
-    return () => {
-      window.removeEventListener(SECRETS_CHANGED_EVENT_NAME, handle);
-      window.removeEventListener('focus', handle);
-    };
-  }, [refresh]);
-
   const slotIndex = useMemo(() => buildEnvVariableSlotIndex(), []);
-  const renameIndex = useMemo(() => buildDeprecatedEnvVariableRenameIndex(), []);
+  const deprecatedNames = useMemo(() => buildDeprecatedEnvVariableNameSet(), []);
+  const replacementByName = useMemo(() => {
+    const byName = new Map<string, string>();
+    for (const report of deprecatedEnvVars) {
+      byName.set(report.envVar, report.replacement);
+    }
+    return byName;
+  }, [deprecatedEnvVars]);
+
+  const handleReveal = useCallback(
+    async (absolutePath: string) => {
+      if (!onRevealPath) {
+        return;
+      }
+      setRevealError(null);
+      try {
+        const result = await onRevealPath(absolutePath);
+        if (!result.ok) {
+          setRevealError(`Could not open ${absolutePath}: ${result.error ?? 'Reveal failed'}`);
+        }
+      } catch (error) {
+        setRevealError(`Could not open ${absolutePath}: ${toErrorMessage(error, 'Reveal failed')}`);
+      }
+    },
+    [onRevealPath]
+  );
 
   if (!capability) {
     return null;
@@ -181,12 +202,21 @@ export function EnvironmentSection({
   }
 
   const { report } = state;
-  const deprecatedNames = new Set(report.deprecatedVariablesInFiles);
   // A retired name is reported ONCE, as a rename warning — never also as an
-  // ordinary chip, which would read as an endorsement of the retired spelling.
+  // ordinary chip, which would read as an endorsement of the dead spelling.
   const credentialChips = report.credentialVariablesPresent.filter(
     (name) => !deprecatedNames.has(name)
   );
+  // Retired names worth warning about: set in the environment, or spelled in
+  // a loaded file. The file case adds provenance; both are equally dead.
+  const spelledInFile = new Set(report.deprecatedVariablesInFiles);
+  const retiredNames = [
+    ...new Set(
+      [...report.credentialVariablesPresent, ...report.deprecatedVariablesInFiles].filter((name) =>
+        deprecatedNames.has(name)
+      )
+    ),
+  ].sort();
   const revealTarget = userDataEnvPath(report);
 
   return (
@@ -198,7 +228,7 @@ export function EnvironmentSection({
         {onRevealPath && revealTarget ? (
           <Button
             data-testid="env-bootstrap-open-folder"
-            onClick={() => onRevealPath(revealTarget)}
+            onClick={() => void handleReveal(revealTarget)}
             size="sm"
             variant="secondary"
           >
@@ -207,18 +237,31 @@ export function EnvironmentSection({
         ) : null}
       </div>
 
+      {revealError ? (
+        <p
+          className="text-destructive text-xs"
+          data-testid="env-bootstrap-reveal-error"
+          role="alert"
+        >
+          {revealError}
+        </p>
+      ) : null}
+
       {report.failures.map((failure) => (
         <FailureBanner failure={failure} key={failure.file} />
       ))}
 
-      {report.deprecatedVariablesInFiles.map((name) => (
+      {retiredNames.map((name) => (
         <p
           className="text-amber-700 text-xs dark:text-amber-500"
           data-testid={`env-bootstrap-deprecated-${name}`}
           key={name}
         >
-          <span className="font-mono">{name}</span> is no longer read — rename it to{' '}
-          <span className="font-mono">{renameIndex.get(name) ?? 'the current name'}</span>.
+          {deprecatedEnvVarMessage({
+            envVar: name,
+            replacement: replacementByName.get(name),
+            spelledInEnvFile: spelledInFile.has(name),
+          })}
         </p>
       ))}
 
