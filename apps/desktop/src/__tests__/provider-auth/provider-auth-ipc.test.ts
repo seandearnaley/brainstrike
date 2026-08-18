@@ -155,6 +155,122 @@ describe('provider-auth IPC domain', () => {
     ).rejects.toThrow(/method/i);
   });
 
+  it('a FULL loopback flow and a FULL device flow leak no token material through any observed status (gate constraint 3, load-bearing)', async () => {
+    // Security-review finding 9: the sentinel assertion must observe every
+    // status a real flow produces (awaiting_browser, awaiting_device_code
+    // with user code, connected with accountId) — not just idle reads.
+    vi.resetModules();
+    const { createProviderAuthEngine } = await import('../../provider-auth/provider-auth-engine');
+    const { registerProviderAuthIpcHandlers } = await import('../../ipc-domains/provider-auth');
+    const { ipcMain } = await import('electron');
+
+    const ID_TOKEN_SENTINEL = 'ID-TOKEN-SENTINEL-4e1b';
+    const tokenBody = JSON.stringify({
+      access_token: ACCESS_SENTINEL,
+      account_id: 'acct-sentinel-9',
+      expires_in: 3600,
+      id_token: ID_TOKEN_SENTINEL,
+      refresh_token: REFRESH_SENTINEL,
+      token_type: 'Bearer',
+    });
+    const deviceStartBody = JSON.stringify({
+      device_code: 'device-code-sentinel',
+      expires_in: 600,
+      interval: 1,
+      user_code: 'CODE-1234',
+      verification_uri: 'https://provider.test/activate',
+    });
+    const fetchFn = (async (url: unknown) => {
+      const target = String(url);
+      if (target.endsWith('/device/code')) {
+        return new Response(deviceStartBody, { status: 200 });
+      }
+      return new Response(tokenBody, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const secrets = makeFakeSecrets();
+    const engine = createProviderAuthEngine({
+      fetchFn,
+      getDescriptor: () => ({
+        authorizeUrl: 'https://provider.test/authorize',
+        clientId: 'client-sentinel',
+        deviceFlow: {
+          pollUrl: 'https://provider.test/device/token',
+          startUrl: 'https://provider.test/device/code',
+          verificationUri: 'https://provider.test/activate',
+        },
+        extractAccountId: (grant) => {
+          const accountId = grant.raw['account_id'];
+          return typeof accountId === 'string' ? accountId : undefined;
+        },
+        providerId: PROVIDER,
+        redirectPath: '/callback',
+        redirectPort: 43_210,
+        scopes: ['openid', 'offline_access'],
+        tokenUrl: 'https://provider.test/token',
+      }),
+      openExternal: async () => undefined,
+      secrets,
+      sleep: async () => undefined,
+      // Fake loopback that delivers the code as soon as the flow waits on it.
+      startLoopbackServerFn: async () => ({
+        cancel: () => undefined,
+        close: async () => undefined,
+        port: 43_210,
+        redirectUri: 'http://127.0.0.1:43210/callback',
+        waitForCallback: () =>
+          new Promise((resolve) => {
+            setImmediate(() => resolve({ code: 'flow-code' }));
+          }),
+      }),
+    });
+    registerProviderAuthIpcHandlers({ engine });
+    const handleMock = ipcMain.handle as unknown as Mock<
+      (channel: string, handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void
+    >;
+    const handler = (channel: string) => {
+      const entry = handleMock.mock.calls.find(([name]) => name === channel);
+      if (!entry?.[1]) {
+        throw new Error(`channel not registered: ${channel}`);
+      }
+      return entry[1];
+    };
+
+    const observed: unknown[] = [];
+    const observe = async (channel: string, ...args: unknown[]) => {
+      const status = await handler(channel)(createInvokeEvent(), PROVIDER, ...args);
+      observed.push(status);
+      return status;
+    };
+
+    // Full loopback flow.
+    expect(await observe('provider-auth:start')).toEqual({ state: 'awaiting_browser' });
+    await vi.waitFor(async () => {
+      const status = await observe('provider-auth:status');
+      expect(status).toEqual({ accountId: 'acct-sentinel-9', state: 'connected' });
+    });
+    expect(secrets.store.get(PROVIDER)).toMatchObject({ access: ACCESS_SENTINEL });
+    expect(await observe('provider-auth:disconnect')).toEqual({ state: 'disconnected' });
+
+    // Full device flow.
+    expect(await observe('provider-auth:start', 'device')).toEqual({
+      state: 'awaiting_device_code',
+      userCode: 'CODE-1234',
+      verificationUri: 'https://provider.test/activate',
+    });
+    await vi.waitFor(async () => {
+      const status = await observe('provider-auth:status');
+      expect(status).toEqual({ accountId: 'acct-sentinel-9', state: 'connected' });
+    });
+
+    const serialized = JSON.stringify(observed);
+    expect(observed.length).toBeGreaterThanOrEqual(6);
+    expect(serialized).not.toContain(ACCESS_SENTINEL);
+    expect(serialized).not.toContain(REFRESH_SENTINEL);
+    expect(serialized).not.toContain(ID_TOKEN_SENTINEL);
+    expect(serialized).not.toMatch(/access_token|refresh_token|id_token/i);
+  });
+
   it('unregisters all channels on teardown', async () => {
     const { unregister } = await bootstrap();
     const { ipcMain } = await import('electron');

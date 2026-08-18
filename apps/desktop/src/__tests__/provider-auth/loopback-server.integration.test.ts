@@ -1,12 +1,13 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, request as httpRequest, type Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { isProviderAuthFlowCancelled, ProviderAuthFlowError } from '../../provider-auth/errors';
 import { startLoopbackServer } from '../../provider-auth/loopback-server';
 
 /**
- * Real-socket lane for the loopback callback server (BST-1355). Fixtures bind
- * port 0 (ephemeral) and read the bound port from the handle — the fixed-port
- * rule applies to real provider descriptors, not test fixtures.
+ * Real-socket lane for the loopback callback server (BST-1355 + security
+ * review). Fixtures bind port 0 (ephemeral) and read the bound port from the
+ * handle — the fixed-port rule applies to real provider descriptors, not test
+ * fixtures.
  */
 
 type LoopbackHandle = Awaited<ReturnType<typeof startLoopbackServer>>;
@@ -51,8 +52,36 @@ function captureRejection(promise: Promise<unknown>): Promise<unknown> {
   );
 }
 
+/** Raw HTTP GET with an arbitrary Host header (fetch forbids overriding it). */
+function rawGet(
+  port: number,
+  path: string,
+  hostHeader: string
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        headers: { host: hostHeader },
+        host: '127.0.0.1',
+        method: 'GET',
+        path,
+        port,
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk: Buffer) => {
+          body += chunk.toString('utf8');
+        });
+        res.on('end', () => resolve({ body, status: res.statusCode ?? 0 }));
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 describe('startLoopbackServer', () => {
-  it('resolves the authorization code and serves the branded success page', async () => {
+  it('resolves the authorization code and serves the branded success page with hardened headers', async () => {
     const handle = await start();
     const pending = handle.waitForCallback();
 
@@ -66,6 +95,12 @@ describe('startLoopbackServer', () => {
     // Self-contained page: no external assets.
     expect(html).not.toMatch(/src="http/);
     expect(html).not.toMatch(/href="http/);
+    // Security-review finding 6: hardened response headers.
+    expect(response.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    );
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
   });
 
   it('tears the server down after the first result', async () => {
@@ -77,33 +112,37 @@ describe('startLoopbackServer', () => {
     await expect(fetch(`${handle.redirectUri}?code=late&state=expected-state`)).rejects.toThrow();
   });
 
-  it('rejects a state mismatch as potential CSRF without releasing the code', async () => {
+  it('discards a bogus-state code, KEEPS WAITING, and still completes on the legitimate callback', async () => {
+    // Security-review finding 2: an attacker-injected callback must not be
+    // able to terminate the flow — only a state-matching callback settles.
     const handle = await start();
-    const outcome = captureRejection(handle.waitForCallback());
+    const pending = handle.waitForCallback();
 
-    const response = await fetch(`${handle.redirectUri}?code=stolen-code&state=attacker-state`);
-    const html = await response.text();
+    const attack = await fetch(`${handle.redirectUri}?code=stolen-code&state=attacker-state`);
+    const attackHtml = await attack.text();
+    expect(attack.status).toBe(400);
+    expect(attackHtml).toContain('Authorization failed');
+    // The injected code must never surface anywhere the flow could exchange it.
+    expect(attackHtml).not.toContain('stolen-code');
 
-    const error = await outcome;
-    expect(error).toMatchObject({ code: 'state_mismatch', name: 'ProviderAuthFlowError' });
-    expect((error as Error).message).toMatch(/potential CSRF/i);
-    expect(response.status).toBe(400);
-    expect(html).toContain('Authorization failed');
-    // The stolen code must never surface anywhere the flow could exchange it.
-    expect(html).not.toContain('stolen-code');
+    const legit = await fetch(`${handle.redirectUri}?code=real-code&state=expected-state`);
+    expect(legit.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: 'real-code' });
   });
 
-  it('rejects a missing state as potential CSRF', async () => {
+  it('a missing state is 400 and non-terminal', async () => {
     const handle = await start();
-    const outcome = captureRejection(handle.waitForCallback());
+    const pending = handle.waitForCallback();
 
     const response = await fetch(`${handle.redirectUri}?code=some-code`);
-
-    await expect(outcome).resolves.toMatchObject({ code: 'state_mismatch' });
     expect(response.status).toBe(400);
+
+    const legit = await fetch(`${handle.redirectUri}?code=real-code&state=expected-state`);
+    expect(legit.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: 'real-code' });
   });
 
-  it('rejects provider-reported authorization errors', async () => {
+  it('rejects provider-reported authorization errors on a state-matching callback', async () => {
     const handle = await start();
     const outcome = captureRejection(handle.waitForCallback());
 
@@ -115,14 +154,31 @@ describe('startLoopbackServer', () => {
     expect(response.status).toBe(400);
   });
 
-  it('rejects with a cancellation error when the browser hits /cancel', async () => {
+  it('a provider error WITHOUT a valid state is non-terminal (no injected denial)', async () => {
     const handle = await start();
-    const outcome = captureRejection(handle.waitForCallback());
+    const pending = handle.waitForCallback();
+
+    const injected = await fetch(`${handle.redirectUri}?error=access_denied&state=wrong`);
+    expect(injected.status).toBe(400);
+
+    const legit = await fetch(`${handle.redirectUri}?code=real-code&state=expected-state`);
+    expect(legit.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: 'real-code' });
+  });
+
+  it('has NO HTTP /cancel route: 404 and the flow keeps waiting (cancel is IPC-only)', async () => {
+    // Security-review finding 1: an unauthenticated HTTP endpoint must not be
+    // able to cancel a flow. Cancellation goes through the role-gated IPC
+    // channel (engine.cancel -> handle.cancel) exclusively.
+    const handle = await start();
+    const pending = handle.waitForCallback();
 
     const response = await fetch(new URL('/cancel', handle.redirectUri));
+    expect(response.status).toBe(404);
 
-    expect(response.status).toBe(200);
-    await expect(outcome).resolves.toSatisfy(isProviderAuthFlowCancelled);
+    const legit = await fetch(`${handle.redirectUri}?code=real-code&state=expected-state`);
+    expect(legit.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: 'real-code' });
   });
 
   it('rejects with a cancellation error on programmatic cancel', async () => {
@@ -149,6 +205,35 @@ describe('startLoopbackServer', () => {
 
     const response = await fetch(new URL('/definitely-not-a-callback', handle.redirectUri));
     expect(response.status).toBe(404);
+  });
+
+  it('rejects a foreign Host header with 400 and leaves the flow waiting (DNS-rebinding guard)', async () => {
+    const handle = await start();
+    const pending = handle.waitForCallback();
+
+    const spoofed = await rawGet(
+      handle.port,
+      '/callback?code=rebind-code&state=expected-state',
+      'evil.example'
+    );
+    expect(spoofed.status).toBe(400);
+
+    const legit = await fetch(`${handle.redirectUri}?code=real-code&state=expected-state`);
+    expect(legit.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: 'real-code' });
+  });
+
+  it('accepts localhost:<port> as a Host alongside 127.0.0.1:<port>', async () => {
+    const handle = await start();
+    const pending = handle.waitForCallback();
+
+    const viaLocalhost = await rawGet(
+      handle.port,
+      '/callback?code=local-code&state=expected-state',
+      `localhost:${handle.port}`
+    );
+    expect(viaLocalhost.status).toBe(200);
+    await expect(pending).resolves.toEqual({ code: 'local-code' });
   });
 
   it('throws a typed port-in-use error naming the pinned port', async () => {

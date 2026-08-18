@@ -8,6 +8,7 @@ import type {
   OAuthTokenGrant,
 } from '@brainstrike/assistant-contract';
 import { ProviderAuthFlowCancelledError, ProviderAuthFlowError } from './errors';
+import { guardedFetch } from './fetch-guards';
 
 /**
  * Generic device-authorization poller (BST-1355). The engine owns the loop
@@ -170,6 +171,8 @@ export interface DeviceFlowDeps {
   /** Abort the poll loop (maps to `ProviderAuthFlowCancelledError`). */
   readonly cancelSignal?: AbortSignal;
   readonly fetchFn: typeof fetch;
+  /** Per-request timeout; defaults to DEFAULT_FETCH_TIMEOUT_MS. */
+  readonly fetchTimeoutMs?: number;
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
 }
@@ -227,13 +230,25 @@ function resolveAdapter(descriptor: OAuthProviderDescriptor): DeviceFlowResponse
 }
 
 async function performRequest(
-  fetchFn: typeof fetch,
+  deps: DeviceFlowDeps,
+  providerId: string,
   request: DeviceFlowHttpRequest
 ): Promise<DeviceFlowHttpResponse> {
-  const response = await fetchFn(request.url, {
-    body: request.body,
-    headers: { ...request.headers },
-    method: 'POST',
+  const response = await guardedFetch({
+    ...(deps.cancelSignal ? { cancelSignal: deps.cancelSignal } : {}),
+    fetchFn: deps.fetchFn,
+    init: {
+      body: request.body,
+      headers: { ...request.headers },
+      method: 'POST',
+    },
+    onTimeout: () =>
+      new ProviderAuthFlowError(
+        'device_flow_failed',
+        `Device flow request for ${providerId} timed out.`
+      ),
+    ...(deps.fetchTimeoutMs === undefined ? {} : { timeoutMs: deps.fetchTimeoutMs }),
+    url: request.url,
   });
   const text = await response.text();
   let body: unknown;
@@ -252,7 +267,11 @@ export async function startDeviceFlow(
 ): Promise<DeviceFlowStart> {
   const adapter = resolveAdapter(descriptor);
   assertNotCancelled(deps.cancelSignal);
-  const response = await performRequest(deps.fetchFn, adapter.buildStartRequest(descriptor));
+  const response = await performRequest(
+    deps,
+    descriptor.providerId,
+    adapter.buildStartRequest(descriptor)
+  );
   try {
     return adapter.parseStartResponse(response);
   } catch (error) {
@@ -288,7 +307,8 @@ export async function pollDeviceFlow(
   while (now() < deadline) {
     assertNotCancelled(deps.cancelSignal);
     const response = await performRequest(
-      deps.fetchFn,
+      deps,
+      descriptor.providerId,
       adapter.buildPollRequest(descriptor, start)
     );
     const outcome = adapter.classifyPollResponse(response);

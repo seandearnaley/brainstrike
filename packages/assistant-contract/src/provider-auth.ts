@@ -26,7 +26,7 @@ export type ProviderAuthErrorCode =
   | 'flow_already_active'
   | 'flow_failed'
   | 'port_in_use'
-  | 'state_mismatch'
+  | 'refresh_token_missing'
   | 'token_exchange_failed'
   | 'unknown_provider';
 

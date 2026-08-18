@@ -50,6 +50,8 @@ export function assertInteractiveProviderAuthSender(
 
 export interface ProviderAuthEngineDeps {
   readonly fetchFn?: typeof fetch;
+  /** Per-request network timeout for the engine's fetches. */
+  readonly fetchTimeoutMs?: number;
   /** Descriptor lookup; defaults to the engine registry (empty in BST-1355). */
   readonly getDescriptor?: (providerId: string) => OAuthProviderDescriptor;
   readonly loopbackTimeoutMs?: number;
@@ -90,11 +92,29 @@ export function createProviderAuthEngine(deps: ProviderAuthEngineDeps): Provider
    * or a successful flow. */
   const stickyErrors = new Map<string, ProviderAuthStatus & { state: 'error' }>();
   const reconnectRequired = new Set<string>();
+  /** Per-provider generation; disconnect bumps it so an in-flight refresh
+   * completing afterwards discards its result (security-review finding 5). */
+  const epochs = new Map<string, number>();
 
   const refresher = createTokenRefresher({
     fetchFn,
+    ...(deps.fetchTimeoutMs === undefined ? {} : { fetchTimeoutMs: deps.fetchTimeoutMs }),
     getDescriptor,
+    getEpoch: (providerId) => epochs.get(providerId) ?? 0,
     ...(deps.now ? { now: deps.now } : {}),
+    onPersistFailure: (providerId) => {
+      // The rotated pair lives in the refresher's memory overlay; the session
+      // keeps working, but the user must learn persistence failed.
+      stickyErrors.set(providerId, { code: 'credential_persist_failed', state: 'error' });
+      logger.error('Provider OAuth refresh rotated but could not be persisted', { providerId });
+    },
+    onPersistRecovered: (providerId) => {
+      const sticky = stickyErrors.get(providerId);
+      if (sticky?.code === 'credential_persist_failed') {
+        stickyErrors.delete(providerId);
+      }
+      logger.info('Provider OAuth credential persistence recovered', { providerId });
+    },
     onReconnectRequired: (providerId) => {
       reconnectRequired.add(providerId);
       logger.warn('Provider OAuth refresh token rejected; reconnect required', { providerId });
@@ -183,6 +203,7 @@ export function createProviderAuthEngine(deps: ProviderAuthEngineDeps): Provider
     const flowDeps = {
       cancelSignal: controller.signal,
       fetchFn,
+      ...(deps.fetchTimeoutMs === undefined ? {} : { fetchTimeoutMs: deps.fetchTimeoutMs }),
       ...(deps.loopbackTimeoutMs === undefined
         ? {}
         : { loopbackTimeoutMs: deps.loopbackTimeoutMs }),
@@ -253,6 +274,11 @@ export function createProviderAuthEngine(deps: ProviderAuthEngineDeps): Provider
       active.controller.abort();
       await active.completion;
     }
+    // Invalidate BEFORE deleting: an in-flight refresh that completes after
+    // this point sees a stale epoch and discards its result, so it can never
+    // resurrect the deleted credential (security-review finding 5).
+    epochs.set(providerId, (epochs.get(providerId) ?? 0) + 1);
+    refresher.invalidate(providerId);
     await deps.secrets.deleteKey(providerId);
     stickyErrors.delete(providerId);
     reconnectRequired.delete(providerId);

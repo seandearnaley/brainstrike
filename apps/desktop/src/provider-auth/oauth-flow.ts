@@ -6,6 +6,7 @@ import type {
 import type { SecretsService } from '../secrets';
 import { pollDeviceFlow, startDeviceFlow } from './device-flow';
 import { ProviderAuthFlowError } from './errors';
+import { guardedFetch } from './fetch-guards';
 import { type LoopbackServerHandle, startLoopbackServer } from './loopback-server';
 import { computeS256Challenge, createPkceVerifier, createState } from './pkce';
 
@@ -67,9 +68,12 @@ function parseGrantOrThrow(providerId: string, status: number, body: unknown): O
     );
   }
   if (typeof refreshToken !== 'string' || refreshToken.length === 0) {
+    // Distinct code (security-review finding 7): the exchange SUCCEEDED but
+    // no refresh token came back — almost always a missing offline-access
+    // style scope in the descriptor, not a transient exchange failure.
     throw new ProviderAuthFlowError(
-      'token_exchange_failed',
-      `Token endpoint for ${providerId} returned no refresh_token; a subscription session cannot be sustained without one.`
+      'refresh_token_missing',
+      `Token endpoint for ${providerId} returned no refresh_token. The requested scopes likely lack the provider's offline-access scope; a subscription session cannot be sustained without one.`
     );
   }
   const expiresIn = Number(body['expires_in']);
@@ -82,10 +86,13 @@ function parseGrantOrThrow(providerId: string, status: number, body: unknown): O
 }
 
 export interface ExchangeAuthorizationCodeOptions {
+  /** Flow cancellation; a stalled exchange rejects promptly on abort. */
+  readonly cancelSignal?: AbortSignal;
   readonly code: string;
   readonly codeVerifier: string;
   readonly descriptor: OAuthProviderDescriptor;
   readonly fetchFn: typeof fetch;
+  readonly fetchTimeoutMs?: number;
   readonly redirectUri: string;
 }
 
@@ -94,21 +101,32 @@ export async function exchangeAuthorizationCode(
   options: ExchangeAuthorizationCodeOptions
 ): Promise<OAuthTokenGrant> {
   const { code, codeVerifier, descriptor, fetchFn, redirectUri } = options;
-  const response = await fetchFn(descriptor.tokenUrl, {
-    // biome-ignore-start lint/style/useNamingConvention: RFC 6749/7636 wire fields + standard HTTP header names.
-    body: new URLSearchParams({
-      client_id: descriptor.clientId,
-      code,
-      code_verifier: codeVerifier,
-      grant_type: 'authorization_code',
-      redirect_uri: redirectUri,
-    }).toString(),
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
+  const response = await guardedFetch({
+    ...(options.cancelSignal ? { cancelSignal: options.cancelSignal } : {}),
+    fetchFn,
+    init: {
+      // biome-ignore-start lint/style/useNamingConvention: RFC 6749/7636 wire fields + standard HTTP header names.
+      body: new URLSearchParams({
+        client_id: descriptor.clientId,
+        code,
+        code_verifier: codeVerifier,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      }).toString(),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      // biome-ignore-end lint/style/useNamingConvention: RFC 6749/7636 wire fields + standard HTTP header names.
+      method: 'POST',
     },
-    // biome-ignore-end lint/style/useNamingConvention: RFC 6749/7636 wire fields + standard HTTP header names.
-    method: 'POST',
+    onTimeout: () =>
+      new ProviderAuthFlowError(
+        'token_exchange_failed',
+        `Token exchange for ${descriptor.providerId} timed out.`
+      ),
+    ...(options.fetchTimeoutMs === undefined ? {} : { timeoutMs: options.fetchTimeoutMs }),
+    url: descriptor.tokenUrl,
   });
   const text = await response.text();
   let body: unknown;
@@ -144,6 +162,7 @@ export function toStoredOAuthCredential(
 export interface OAuthFlowDeps {
   readonly cancelSignal?: AbortSignal;
   readonly fetchFn: typeof fetch;
+  readonly fetchTimeoutMs?: number;
   readonly loopbackTimeoutMs?: number;
   readonly now?: () => number;
   /** Called as the flow transitions; the engine forwards these to status. */
@@ -228,7 +247,6 @@ export async function runLoopbackOAuthFlow(
       redirectUri: handle.redirectUri,
       state,
     });
-    deps.onAwaitingBrowser?.();
     try {
       await deps.openExternal(authorizeUrl);
     } catch (error) {
@@ -238,13 +256,18 @@ export async function runLoopbackOAuthFlow(
         error
       );
     }
+    // Truthful status (security-review finding 8): only claim the browser is
+    // open AFTER openExternal actually resolved.
+    deps.onAwaitingBrowser?.();
 
     const { code } = await callbackPromise;
     const grant = await exchangeAuthorizationCode({
+      ...(deps.cancelSignal ? { cancelSignal: deps.cancelSignal } : {}),
       code,
       codeVerifier,
       descriptor,
       fetchFn: deps.fetchFn,
+      ...(deps.fetchTimeoutMs === undefined ? {} : { fetchTimeoutMs: deps.fetchTimeoutMs }),
       redirectUri: handle.redirectUri,
     });
     return await persistGrant(descriptor, grant, deps);
@@ -266,6 +289,7 @@ export async function runDeviceOAuthFlow(
   const flowDeps = {
     fetchFn: deps.fetchFn,
     ...(deps.cancelSignal ? { cancelSignal: deps.cancelSignal } : {}),
+    ...(deps.fetchTimeoutMs === undefined ? {} : { fetchTimeoutMs: deps.fetchTimeoutMs }),
     ...(deps.now ? { now: deps.now } : {}),
     ...(deps.sleep ? { sleep: deps.sleep } : {}),
   };
@@ -279,10 +303,12 @@ export async function runDeviceOAuthFlow(
     outcome.kind === 'tokens'
       ? outcome.tokens
       : await exchangeAuthorizationCode({
+          ...(deps.cancelSignal ? { cancelSignal: deps.cancelSignal } : {}),
           code: outcome.code,
           codeVerifier: outcome.codeVerifier,
           descriptor,
           fetchFn: deps.fetchFn,
+          ...(deps.fetchTimeoutMs === undefined ? {} : { fetchTimeoutMs: deps.fetchTimeoutMs }),
           redirectUri: outcome.redirectUri,
         });
   return await persistGrant(descriptor, grant, deps);

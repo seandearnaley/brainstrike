@@ -1,5 +1,6 @@
 import type { OAuthProviderDescriptor, ProviderCredential } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_TOKEN_EXPIRES_IN_SECONDS } from '../../provider-auth/oauth-flow';
 import { createTokenRefresher, OAUTH_REFRESH_SKEW_MS } from '../../provider-auth/refresh';
 import type { SecretsService } from '../../secrets';
 
@@ -240,6 +241,137 @@ describe('createTokenRefresher', () => {
       code: 'token_exchange_failed',
     });
     expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies the shared default token lifetime when the refresh response omits expires_in', async () => {
+    // Security-review finding 10: one shared constant, not a magic 3600.
+    const secrets = makeSecrets({ 'fake-provider': oauthCredential(NOW) });
+    const fetchFn = makeFetch([refreshedResponse({ expires_in: undefined })]);
+    const refresher = createTokenRefresher({
+      fetchFn: fetchFn as unknown as typeof fetch,
+      getDescriptor: makeDescriptor,
+      now: () => NOW,
+      secrets,
+    });
+
+    await refresher.getFreshAccessToken('fake-provider');
+    expect(secrets.store.get('fake-provider')).toMatchObject({
+      expires: NOW + DEFAULT_TOKEN_EXPIRES_IN_SECONDS * 1000,
+    });
+  });
+
+  it('passes an abort signal to the refresh fetch (timeout guard)', async () => {
+    // Security-review finding 4: no fetch may hang forever.
+    const secrets = makeSecrets({ 'fake-provider': oauthCredential(NOW) });
+    let observedSignal: AbortSignal | null | undefined;
+    const fetchFn = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      observedSignal = init?.signal;
+      return refreshedResponse();
+    });
+    const refresher = createTokenRefresher({
+      fetchFn: fetchFn as unknown as typeof fetch,
+      getDescriptor: makeDescriptor,
+      now: () => NOW,
+      secrets,
+    });
+
+    await refresher.getFreshAccessToken('fake-provider');
+    expect(observedSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('holds a rotated pair IN MEMORY when persistence fails: session keeps working, next refresh uses the rotated token', async () => {
+    // Security-review finding 3: the provider consumed the old refresh token
+    // the moment rotation succeeded — losing the rotated pair to a store
+    // write failure would strand the session. Hold it in memory for the
+    // process lifetime and tell the engine persistence failed.
+    const secrets = makeSecrets({ 'fake-provider': oauthCredential(NOW) });
+    const original = secrets.setCredential;
+    let failPersist = true;
+    secrets.setCredential = async (provider, credential) => {
+      if (failPersist) {
+        throw new Error('keychain unavailable');
+      }
+      return original(provider, credential);
+    };
+    const fetchFn = makeFetch([
+      refreshedResponse({ expires_in: 1 }), // rotated pair; persist fails
+      refreshedResponse({
+        access_token: 'newer-access',
+        expires_in: 3600,
+        refresh_token: 'newer-refresh',
+      }),
+    ]);
+    const onPersistFailure = vi.fn();
+    const onPersistRecovered = vi.fn();
+    const refresher = createTokenRefresher({
+      fetchFn: fetchFn as unknown as typeof fetch,
+      getDescriptor: makeDescriptor,
+      now: () => NOW,
+      onPersistFailure,
+      onPersistRecovered,
+      secrets,
+    });
+
+    // First refresh: network rotation succeeds, persist fails -> still ok.
+    await expect(refresher.getFreshAccessToken('fake-provider')).resolves.toEqual({
+      accessToken: 'new-access',
+      ok: true,
+    });
+    expect(onPersistFailure).toHaveBeenCalledWith('fake-provider');
+    // The store still holds the OLD credential (nothing deleted or corrupted).
+    expect(secrets.store.get('fake-provider')).toEqual(oauthCredential(NOW));
+
+    // Second refresh (in-memory pair already expired): must present the
+    // ROTATED refresh token, not the stale stored one.
+    failPersist = false;
+    await expect(refresher.getFreshAccessToken('fake-provider')).resolves.toEqual({
+      accessToken: 'newer-access',
+      ok: true,
+    });
+    const secondBody = new URLSearchParams(
+      String((fetchFn.mock.calls[1] as [string, RequestInit])[1].body)
+    );
+    expect(secondBody.get('refresh_token')).toBe('new-refresh');
+    // Store recovered: the newest pair is persisted and the overlay cleared.
+    expect(onPersistRecovered).toHaveBeenCalledWith('fake-provider');
+    expect(secrets.store.get('fake-provider')).toMatchObject({
+      access: 'newer-access',
+      refresh: 'newer-refresh',
+    });
+  });
+
+  it('discards a refresh that completes under a stale epoch: no persist, no overlay (disconnect race)', async () => {
+    // Security-review finding 5.
+    const secrets = makeSecrets({ 'fake-provider': oauthCredential(NOW) });
+    let epoch = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchFn = vi.fn(async () => {
+      await gate;
+      return refreshedResponse();
+    });
+    const setCredentialSpy = vi.spyOn(secrets, 'setCredential');
+    const refresher = createTokenRefresher({
+      fetchFn: fetchFn as unknown as typeof fetch,
+      getDescriptor: makeDescriptor,
+      getEpoch: () => epoch,
+      now: () => NOW,
+      secrets,
+    });
+
+    const refreshing = refresher.getFreshAccessToken('fake-provider');
+    // Bump the epoch only once the refresh network call is actually in
+    // flight — that is the disconnect-mid-refresh interleaving under test.
+    await vi.waitFor(() => {
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+    epoch = 1; // disconnect happened mid-flight
+    release?.();
+
+    await expect(refreshing).resolves.toEqual({ ok: false, status: 'not_connected' });
+    expect(setCredentialSpy).not.toHaveBeenCalled();
   });
 
   it('reports not_connected when nothing (or a non-oauth credential) is stored', async () => {

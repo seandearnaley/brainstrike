@@ -199,6 +199,91 @@ describe('provider auth engine — start', () => {
     });
   });
 
+  it('announces awaiting_browser only AFTER openExternal resolves (truthful status)', async () => {
+    // Security-review finding 8: the status must not claim the browser is
+    // open before it actually is.
+    const loopback = makeFakeLoopback();
+    let releaseBrowser: (() => void) | undefined;
+    const browserGate = new Promise<void>((resolve) => {
+      releaseBrowser = resolve;
+    });
+    let opened = false;
+    const { engine } = makeEngine({
+      fetchResponses: [],
+      loopback,
+      openExternal: async () => {
+        await browserGate;
+        opened = true;
+      },
+    });
+
+    let startStatus: unknown;
+    const started = engine.start(PROVIDER).then((status) => {
+      startStatus = status;
+      return status;
+    });
+    // Give the flow a chance to run: start must NOT have resolved while
+    // openExternal is still pending.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(startStatus).toBeUndefined();
+
+    releaseBrowser?.();
+    await expect(started).resolves.toEqual({ state: 'awaiting_browser' });
+    expect(opened).toBe(true);
+    await engine.cancel(PROVIDER);
+  });
+
+  it('returns browser_open_failed directly from start when openExternal rejects', async () => {
+    const loopback = makeFakeLoopback();
+    const { engine } = makeEngine({
+      fetchResponses: [],
+      loopback,
+      openExternal: async () => {
+        throw new Error('no browser available');
+      },
+    });
+
+    await expect(engine.start(PROVIDER)).resolves.toEqual({
+      code: 'browser_open_failed',
+      state: 'error',
+    });
+  });
+
+  it('cancel rejects a STALLED token exchange promptly and frees the provider for a new start', async () => {
+    // Security-review finding 4: the flow AbortSignal must reach every fetch,
+    // so a hung token endpoint cannot wedge the provider forever.
+    const loopback = makeFakeLoopback();
+    const secrets = makeFakeSecrets();
+    const stalledFetch = vi.fn(
+      (_url: unknown, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('aborted', 'AbortError'));
+          });
+        })
+    ) as unknown as typeof fetch;
+    const engine = createProviderAuthEngine({
+      fetchFn: stalledFetch,
+      getDescriptor: () => makeDescriptor(),
+      openExternal: async () => undefined,
+      secrets,
+      startLoopbackServerFn: async () => loopback.handle,
+    });
+
+    await engine.start(PROVIDER);
+    loopback.deliverCode('code-into-stalled-exchange');
+    // Let the flow reach the stalled fetch before cancelling.
+    await vi.waitFor(() => {
+      expect(stalledFetch).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(engine.cancel(PROVIDER)).resolves.toEqual({ state: 'disconnected' });
+    // The provider is free again: a new start must not report
+    // flow_already_active.
+    await expect(engine.start(PROVIDER)).resolves.toEqual({ state: 'awaiting_browser' });
+    await engine.cancel(PROVIDER);
+  });
+
   it('rejects a second start while a flow is active', async () => {
     const loopback = makeFakeLoopback();
     const { engine } = makeEngine({ fetchResponses: [], loopback });
@@ -302,6 +387,69 @@ describe('provider auth engine — disconnect and refresh', () => {
 
     await expect(engine.disconnect(PROVIDER)).resolves.toEqual({ state: 'disconnected' });
     expect(secrets.store.has(PROVIDER)).toBe(false);
+  });
+
+  it('a refresh completing after disconnect is DISCARDED: nothing is persisted (epoch guard)', async () => {
+    // Security-review finding 5: disconnect must invalidate an in-flight
+    // refresh, otherwise its completion would resurrect the deleted
+    // credential in the store.
+    const secrets = makeFakeSecrets({
+      [PROVIDER]: { access: 'a', expires: 0, refresh: 'r', type: 'oauth' },
+    });
+    let releaseRefresh: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const gatedFetch = vi.fn(async () => {
+      await gate;
+      return tokenResponse(TOKENS_BODY);
+    }) as unknown as typeof fetch;
+    const setCredentialSpy = vi.spyOn(secrets, 'setCredential');
+    const engine = createProviderAuthEngine({
+      fetchFn: gatedFetch,
+      getDescriptor: () => makeDescriptor(),
+      openExternal: async () => undefined,
+      secrets,
+    });
+
+    const refreshing = engine.getFreshAccessToken(PROVIDER);
+    await vi.waitFor(() => {
+      expect(gatedFetch).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(engine.disconnect(PROVIDER)).resolves.toEqual({ state: 'disconnected' });
+    releaseRefresh?.();
+
+    await expect(refreshing).resolves.toEqual({ ok: false, status: 'not_connected' });
+    expect(setCredentialSpy).not.toHaveBeenCalled();
+    expect(secrets.store.has(PROVIDER)).toBe(false);
+    await expect(engine.getStatus(PROVIDER)).resolves.toEqual({ state: 'disconnected' });
+  });
+
+  it('a persist-failing refresh keeps the session working and surfaces credential_persist_failed', async () => {
+    // Security-review finding 3: rotation succeeded at the provider but the
+    // local store write failed — the rotated pair must stay active in memory
+    // (or the session dies with an unusable stored refresh token) while the
+    // user is told persistence failed.
+    const secrets = makeFakeSecrets({
+      [PROVIDER]: { access: 'a', expires: 0, refresh: 'r', type: 'oauth' },
+    });
+    secrets.setCredential = async () => {
+      throw new Error('keychain unavailable');
+    };
+    const engine = makeEngine({
+      fetchResponses: [tokenResponse(TOKENS_BODY)],
+      secrets,
+    }).engine;
+
+    await expect(engine.getFreshAccessToken(PROVIDER)).resolves.toEqual({
+      accessToken: 'access-1',
+      ok: true,
+    });
+    await expect(engine.getStatus(PROVIDER)).resolves.toEqual({
+      code: 'credential_persist_failed',
+      state: 'error',
+    });
   });
 
   it('a successful refresh clears a stale reconnect_required flag', async () => {

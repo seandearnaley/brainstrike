@@ -1310,12 +1310,21 @@ fake-provider integration test). The `provider-auth` IPC domain
 **Refresh** (`refresh.ts`): single-flight per provider (concurrent callers
 collapse onto one network call — rotating refresh tokens are never
 replayed), proactive refresh inside a 120s expiry skew, persisted rotation
-(server-omitted refresh_token keeps the old one per RFC 6749 §6).
+(server-omitted refresh_token keeps the old one per RFC 6749 §6), and every
+engine fetch (exchange, device start/poll, refresh) runs under the flow's
+AbortSignal + a 30s per-request timeout (`fetch-guards.ts`).
 `invalid_grant`/revoked = typed `reconnect_required` result + status; the
 stored credential is KEPT (never deleted silently; the user disconnects or
-reconnects explicitly), and nothing ever retry-loops. Engine-written
-credentials are `{ type: 'oauth', access, refresh, expires, accountId? }` in
-the BST-1348 secrets store, so factory reset already wipes them (guarded in
+reconnects explicitly), and nothing ever retry-loops.
+Rotation-then-persist-failure holds the rotated pair IN MEMORY as the active
+credential (session keeps working; status `credential_persist_failed`; a
+later successful persist clears it; restart lands in `reconnect_required`).
+Disconnect bumps a per-provider epoch so an in-flight refresh completing
+afterwards discards its result and persists nothing. A successful exchange
+that returns no refresh_token is the distinct `refresh_token_missing` code
+(scope problem, not a transient failure). Engine-written credentials are
+`{ type: 'oauth', access, refresh, expires, accountId? }` in the BST-1348
+secrets store, so factory reset already wipes them (guarded in
 `apps/desktop/src/__tests__/secrets.test.ts`).
 
 Threat model + loopback hygiene live in `apps/desktop/SECURITY.md`

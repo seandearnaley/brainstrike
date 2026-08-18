@@ -154,15 +154,3 @@ export function renderCallbackErrorPage(options: CallbackPageOptions, detail: st
     title: 'Authorization failed',
   });
 }
-
-export function renderCallbackCancelledPage(options: CallbackPageOptions): string {
-  return renderDocument({
-    autoClose: true,
-    footnote: 'You can close this window.',
-    headline: 'Sign-in cancelled',
-    iconClass: 'icon-error',
-    iconSvg: ICON_CROSS,
-    message: `The ${options.providerLabel} sign-in was cancelled.`,
-    title: 'Sign-in cancelled',
-  });
-}

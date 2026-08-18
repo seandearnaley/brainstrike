@@ -102,20 +102,23 @@ describe('exchangeAuthorizationCode', () => {
     ).rejects.toMatchObject({ code: 'token_exchange_failed' });
   });
 
-  it('surfaces a 2xx response without a refresh token as token_exchange_failed', async () => {
+  it('surfaces a 2xx response without a refresh token as the DISTINCT refresh_token_missing code', async () => {
+    // Security-review finding 7: this is almost always a scope problem
+    // (missing offline_access-style scope), not a generic exchange failure —
+    // the code and message must say so.
     const fetchFn = vi.fn(
       async () => new Response(JSON.stringify({ access_token: 'access-only' }), { status: 200 })
     ) as unknown as typeof fetch;
 
-    await expect(
-      exchangeAuthorizationCode({
-        code: 'auth-code',
-        codeVerifier: 'verifier-1',
-        descriptor: makeDescriptor(),
-        fetchFn,
-        redirectUri: 'http://127.0.0.1:43210/callback',
-      })
-    ).rejects.toMatchObject({ code: 'token_exchange_failed' });
+    const attempt = exchangeAuthorizationCode({
+      code: 'auth-code',
+      codeVerifier: 'verifier-1',
+      descriptor: makeDescriptor(),
+      fetchFn,
+      redirectUri: 'http://127.0.0.1:43210/callback',
+    });
+    await expect(attempt).rejects.toMatchObject({ code: 'refresh_token_missing' });
+    await expect(attempt).rejects.toThrow(/scope/i);
   });
 });
 
