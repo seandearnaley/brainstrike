@@ -15,9 +15,11 @@ import type {
   AgentMessage,
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
+  ProviderAuthInput,
   RuntimeData,
 } from '@brainstrike/agent';
 import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
+import type { ProviderCredential } from '@brainstrike/assistant-contract';
 import type { AgentStreamResult } from './types.js';
 
 type LocalLlmGenerateArgs = Parameters<LocalLlmHostClient['generate']>;
@@ -65,10 +67,35 @@ export function createMainLlmHostClient(manager: AssistantLlmHostManager): Local
  * undefined for not-configured and THROWING the host's secret-read failure
  * for unreadable (classified structurally via
  * @brainstrike/assistant-contract's matchSecretReadError — see
- * ./secret-errors). Desktop passes provider-credentials'
- * resolveProviderApiKey verbatim.
+ * ./secret-errors). Since BST-1352 this is the MIGRATION shim over
+ * {@link ProviderCredentialReader}; new code consumes the typed reader and
+ * hosts derive this string surface via {@link createProviderApiKeyReader}.
  */
 export type ProviderApiKeyReader = (provider: string) => Promise<string | undefined>;
+
+/**
+ * A resolved typed credential (BST-1352): the BST-1348 union plus where it
+ * came from. `source: 'env'` entries are always `api_key` (environment
+ * variables can only express bearer keys); typed `oauth`/`aws` credentials
+ * only ever arrive with `source: 'stored'`.
+ */
+export type ResolvedProviderCredential = ProviderCredential & { source: 'env' | 'stored' };
+
+/**
+ * Typed CredentialPort reader (BST-1352): same contract as
+ * {@link ProviderApiKeyReader} — `undefined` for not-configured, THROW the
+ * host's secret-read failure for unreadable — but the resolved value is the
+ * full typed credential. Desktop passes provider-credentials'
+ * `resolveProviderCredential`; Hosted Web adapts its env-only config lookup
+ * into `api_key` credentials.
+ */
+export type ProviderCredentialReader = (
+  provider: string
+) => Promise<ResolvedProviderCredential | undefined>;
+
+// The concrete projections over these reader types (the string migration shim
+// and the factory auth-input projection) live in
+// ./provider-credential-projection — ports.ts stays a structural surface.
 
 /**
  * Stream-initializer capability (BST-972 B3): produce the turn's
@@ -79,6 +106,13 @@ export type ProviderApiKeyReader = (provider: string) => Promise<string | undefi
  */
 export type StreamInitializer = (params: {
   readonly apiKey: string | undefined;
+  /**
+   * Provider auth input (BST-1352), threaded as a DIRECT parameter end to end
+   * (runAssistantTurn → initializer → stream options). NEVER placed on
+   * `runtimeData`/RequestContext — toJSON drops functions, so a custom_fetch
+   * closure would vanish silently.
+   */
+  readonly authInput?: ProviderAuthInput | undefined;
   readonly messages: AgentMessage[];
   readonly runId: string | undefined;
   readonly runtimeData: RuntimeData;

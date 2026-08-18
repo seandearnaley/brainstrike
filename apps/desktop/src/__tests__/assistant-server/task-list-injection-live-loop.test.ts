@@ -47,6 +47,8 @@ vi.mock('../../mcp-loader', () => ({
 
 const mockSecretsService = {
   deleteKey: vi.fn(),
+  // BST-1352: the assistant POST path reads the TYPED credential.
+  getCredential: vi.fn(() => Promise.resolve({ key: 'test-api-key', type: 'api_key' as const })),
   getKey: vi.fn(() => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
   saveKey: vi.fn(),
@@ -107,20 +109,31 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     convertAssistantUiMessages: vi.fn((messages) => messages),
     resolveDataStreamSession: vi.fn(() => undefined),
     sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
-    toAiSdkStyleStream: vi.fn(async (_messages: unknown, runtime?: RuntimeData) => {
-      const runtimeResult = await actual.createMastraAgentRuntime({ runtime });
-      const instructions = await runtimeResult.agent.getInstructions();
-      if (typeof instructions !== 'string') {
-        throw new Error('expected string agent instructions');
+    toAiSdkStyleStream: vi.fn(
+      async (
+        _messages: unknown,
+        runtime?: RuntimeData,
+        // BST-1352: auth rides the stream OPTIONS (the real toAiSdkStyleStream
+        // forwards it into the runtime options; this live-loop stub mirrors it).
+        options?: { authInput?: import('@brainstrike/agent').ProviderAuthInput }
+      ) => {
+        const runtimeResult = await actual.createMastraAgentRuntime({
+          ...(options?.authInput ? { authInput: options.authInput } : {}),
+          runtime,
+        });
+        const instructions = await runtimeResult.agent.getInstructions();
+        if (typeof instructions !== 'string') {
+          throw new Error('expected string agent instructions');
+        }
+        capturedInstructions = instructions;
+        await runtimeResult.dispose();
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: 'text-delta', value: 'ok' };
+          },
+        };
       }
-      capturedInstructions = instructions;
-      await runtimeResult.dispose();
-      return {
-        async *[Symbol.asyncIterator]() {
-          yield { type: 'text-delta', value: 'ok' };
-        },
-      };
-    }),
+    ),
   };
 });
 
@@ -282,6 +295,10 @@ describe('task-list read→inject seam', () => {
     mockDesktopDatabase.query.mockClear();
     taskListRows.clear();
     capturedInstructions = undefined;
+    mockSecretsService.getCredential.mockResolvedValue({
+      key: 'test-api-key',
+      type: 'api_key' as const,
+    });
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
     Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });

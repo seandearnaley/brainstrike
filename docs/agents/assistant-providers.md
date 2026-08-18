@@ -105,13 +105,15 @@
     `SecretsService.getKey` returns `.key` only for `api_key` credentials; any
     other stored type throws `SecretReadError('credential_type_unsupported')`,
     so string-only consumers stay inside the existing read-failure contract:
-    `inspectProviderKeys` degrades to a per-provider `readFailures` entry (the
-    other providers stay listed) and the assistant HTTP path returns the
-    structured `api_key_unreadable` 400. Consequently `providerKeySources` does
-    NOT report a stored non-api_key credential as a configured `stored`
-    provider — it surfaces as a validated `providerErrors` repair entry until
-    a typed consumer exists. `secrets:list` / `secrets:listStored` id
-    enumeration is value-blind and unchanged. `credential_type_unsupported`
+    the assistant HTTP path returns the structured `api_key_unreadable` 400.
+    Availability inspection (`inspectProviderKeys`) reads TYPED credentials
+    since the BST-1352 review: a VALID stored credential of ANY type marks the
+    provider configured (`providerKeySources` entry with `source: 'stored'`),
+    so the availability verdict and the typed-consumer verdict cannot diverge
+    when wave-3 consumers land; only malformed/unreadable entries surface as
+    per-provider `readFailures` repair entries (the other providers stay
+    listed). `secrets:list` / `secrets:listStored` id enumeration is
+    value-blind and unchanged. `credential_type_unsupported`
     and `malformed_credential` join `decrypt_failed` /
     `encryption_unavailable` in the shared `SecretReadErrorCode` union; all
     stay distinct from the `null` "not set" result.
@@ -215,9 +217,15 @@
     secret must re-probe assistant status so an unreadable-key error cannot
     remain latched after the credential is repaired.
     Provider-backed memory follows the same authority chain. Observational
-    memory and semantic recall distinguish `disabled`, request-key `resolved`,
-    and `needs_async_resolution` states; the latter performs the env/keychain
-    lookup before constructing Mastra memory. A completed lookup with no key
+    memory and semantic recall distinguish `disabled`, `resolved` (built-in
+    local targets only), and `needs_async_resolution` states; the latter
+    performs the env/keychain lookup before constructing Mastra memory. The
+    old request-key `resolved` fast path for hosted targets is RETIRED
+    (BST-1352 review): RuntimeData no longer carries the request's bearer key
+    (credentials travel only as the direct authInput parameter), so every
+    hosted memory target resolves through the same env/keychain chain the
+    request used — value-identical, and the memory cache absorbs the extra
+    read. A completed lookup with no key
     returns HTTP 400 `memory_credential_missing` with the bounded provider and
     `observational_memory` or `semantic_recall` feature. A `SecretReadError`
     remains `api_key_unreadable`. Renderer memory gates must prefer the matching
@@ -912,7 +920,8 @@ out-of-registry id must reach a documented fallback, never a TypeError):
   the dynamic local-model tool budget, and `createLanguageModelProvider`'s
   key requirement.
 - `packages/assistant-service`: `providerAllowsMissingAuth`,
-  `resolveApiKeyOrReject` (a keyless provider's OPTIONAL token read failure
+  `resolveCredentialOrReject` (BST-1352 name of the former
+  `resolveApiKeyOrReject`; a keyless provider's OPTIONAL token read failure
   proceeds keyless with a warn, never a 400), local-runtime token hydration.
 - `packages/assistant-contract`: `model-reasoning.ts`'s discovered-model
   answers key off registry `runtime: 'local'`.
@@ -944,6 +953,110 @@ fallback), `packages/agent/src/__tests__/tool-pipeline-provider-runtime.spec.ts`
 the BST-1349 suites in
 `packages/assistant-service/src/__tests__/request.test.ts`, and the
 `satisfies` in `packages/ui/src/model-picker/utils/provider-colors.ts`.
+
+### Provider credential seam (BST-1352)
+
+The credential path is TYPED end to end; the bearer-key string is now a
+projection of it, not the contract. Three layers, each with one owner:
+
+**Reader types** (`packages/assistant-service/src/ports.ts`, re-exported from
+`/request`):
+
+- `ResolvedProviderCredential = ProviderCredential & { source: 'env' | 'stored' }`
+  — the BST-1348 union plus provenance. `source: 'env'` entries are ALWAYS
+  `api_key` (environment variables can only express bearer keys); typed
+  `oauth`/`aws` credentials only arrive `source: 'stored'`.
+- `ProviderCredentialReader` — the typed reader `prepareAssistantPostRequest`
+  consumes (`undefined` = not configured; a secret-read failure THROWS).
+  Desktop passes `resolveProviderCredential`
+  (`apps/desktop/src/assistant-server/provider-credentials.ts`), built on
+  `readProviderCredential` (`apps/desktop/src/provider-api-key.ts`) →
+  `resolveHostedProviderCredential`, the typed generalization of the BST-979
+  env-authoritative core in
+  `packages/assistant-contract/src/provider-key-resolution.ts` (same contract:
+  env order, never throws, `secretReadError` pass-through only when nothing
+  found; `SECRETS_CHANGED_EVENT_NAME` untouched). Hosted Web adapts its
+  env-only config lookup into `api_key` credentials — no typed-credential
+  resolution on web.
+- `ProviderApiKeyReader` (string) is the MIGRATION SHIM, derived only via
+  `createProviderApiKeyReader(typedReader)` in
+  `assistant-service/src/provider-credential-projection.ts` (the projections
+  live there, NOT in ports.ts — ports stays a structural surface):
+  `api_key` → `.key`; any other type throws the SecretReadError-shaped
+  `credential_type_unsupported` failure built from the SHARED
+  `describeSecretReadError` text in assistant-contract (a structured
+  credential is NEVER stringified). The credential-type narrow lives in ONE
+  place per layer: `providerAuthInputFromCredential` here (the shim composes
+  it), and the desktop store's `credentialToApiKey` keeps its own narrow
+  deliberately (store-layer contract, real `SecretReadError` class).
+  COMPLETE string-surface consumer list (the `@deprecated` shim's remaining
+  call sites): persona pin key resolution (stream-init's
+  `resolveProviderApiKey` injection), persistent-memory model targets
+  (`apps/desktop/src/assistant-server/mastra-memory.ts` →
+  `createLanguageModelProvider(provider, apiKey, …)`), and the desktop
+  OpenRouter-metadata/status endpoints (`resolveProviderApiKeyOrRespond`).
+  `ipc-agent.ts` is MIGRATED onto the typed core (`readProviderCredential`,
+  typed degradation included). ACCEPTED LIMITATION: persistent memory and
+  embeddings remain api_key-only until a ticket needs otherwise — Bedrock is
+  excluded from persistent memory by
+  `PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`, and oauth providers will not
+  be memory providers. The request pipeline itself maps a resolved
+  non-api_key credential onto the SAME `api_key_unreadable` 400 (or the
+  keyless optional-token warn) the old `getKey` throw produced — never
+  `missing_api_key`.
+
+**Factory auth input** (`packages/agent/src/providers/provider-auth-input.ts`):
+`createProvider(provider, auth?: ProviderAuthInput, model?, runtime?)` takes a
+discriminated union instead of a bare key string:
+
+- `{ kind: 'api_key', apiKey }` — the existing flow; behavior-identical to the
+  old string parameter. Every current caller uses this kind.
+- `{ kind: 'custom_fetch', apiKey /* dummy */, fetch }` — threads the injected
+  fetch into the AI SDK `create*` factories (`providerFetchOptions` helper).
+  Consumed by BST-1356. Provider cases whose model config is a Mastra
+  DESCRIPTOR (openrouter/ollama/lmstudio) or the local host client have no
+  fetch seam and throw typed (`bearerApiKeyOnly`) — the fetch is never
+  silently dropped. `wrapAnthropicModelWithPromptCaching` composes with every
+  kind (pinned by `provider-factory.auth-input.spec.ts`). EVERY secondary SDK
+  client shares the seam: the provider-native web-search client
+  (`native-web-search.ts`) is built from the SAME ProviderAuthInput via
+  `providerFetchOptions` — never from a bare key (pinned by
+  `native-web-search.auth-input.spec.ts`; a bare-key client under
+  custom_fetch would send the dummy key to the real API).
+- `{ kind: 'aws', region, apiKey?, credentialProvider? }` — validated (region
+  REQUIRED, typed error when absent) but consumed by NO provider case yet;
+  BST-1350/BST-1353 add the Bedrock consumer. Every switch over the union is
+  exhaustive (compile error on an unhandled kind).
+
+**Threading rule (do not relitigate):** the auth input travels as a DIRECT
+parameter the whole way down — `runAssistantTurn` → `initializeAgentStream` →
+stream options (`toAiSdkStyleStream` / the approval + suspend resume actions)
+→ `MastraAgentRuntimeOptions.authInput` → `resolveRuntimeConfiguration` →
+`instantiateLanguageModel` → `createProvider`. Credentials/auth inputs NEVER
+enter RuntimeData or a Mastra RequestContext: `RequestContext.toJSON` drops
+functions, so a `custom_fetch` closure riding runtime data would vanish
+silently. Since the BST-1352 review, stream-init builds the runtime object
+WITHOUT an apiKey field and the desktop memory path's request-key reuse is
+retired — the only remaining `runtime.apiKey` READ is key-resolver's
+documented legacy surface for DIRECT `streamMastraAgent` callers that never
+pass an authInput. `resolveRuntimeConfiguration` treats a threaded auth
+input as AUTHORITATIVE (no fallback into runtime/env key resolution);
+supplying BOTH `resolved` and a different `authInput` to
+`createMastraAgentRuntime` throws typed (same-reference is the legitimate
+pre-resolved path); `mastra_agent_missing_api_key` code + message are
+unchanged, and `aws` inputs skip the bearer-key requirement. Hosted Web is a
+PROJECTION of the prepared typed credential
+(`providerAuthInputFromCredential` in `web-assistant-stream.ts`) — no string
+re-mint, api_key-only enforcement stays at the web resolution layer.
+
+Pinned by `packages/agent/src/__tests__/provider-factory.auth-input.spec.ts`,
+the BST-1352 blocks in `runtime-configuration.spec.ts`,
+`persona-pinned-model.spec.ts`,
+`packages/assistant-service/src/__tests__/request.test.ts` +
+`run-turn.test.ts`,
+`packages/assistant-contract/src/__tests__/provider-key-resolution.test.ts`,
+and `apps/desktop/src/__tests__/main/provider-credentials.test.ts` +
+`provider-api-key.test.ts`.
 
 ---
 

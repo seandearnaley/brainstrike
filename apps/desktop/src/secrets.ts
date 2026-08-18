@@ -1,4 +1,5 @@
 import {
+  describeSecretReadError,
   isProviderCredential,
   MalformedCredentialError,
   type ProviderCredential,
@@ -10,34 +11,20 @@ import ElectronStore from 'electron-store';
 
 export type { ProviderCredential, SecretReadErrorCode } from '@brainstrike/assistant-contract';
 
-const SECRET_READ_ERROR_DETAIL: Record<SecretReadErrorCode, string> = {
-  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
-  credential_type_unsupported:
-    'stored credential uses a newer auth flow; re-enter an API key or reconnect the provider',
-  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
-  decrypt_failed: 'stored secret could not be decrypted (the OS keychain entry may have changed)',
-  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
-  encryption_unavailable: 'safeStorage encryption is unavailable or insecure on this system',
-  // biome-ignore lint/style/useNamingConvention: SecretReadErrorCode wire code.
-  malformed_credential:
-    'stored credential payload is tagged but unrecognized or invalid (never coerced to an API key)',
-};
-
 /**
  * A stored secret exists but cannot be read. Distinct from the `null` "not
  * set" result on purpose (NO SILENT FALLBACKS): a corrupt entry or an unusable
  * safeStorage backend (e.g. after a keychain migration) previously read as
  * "no key", presenting to the user as if they had deleted their API keys.
+ * Message text comes from the SHARED assistant-contract builder so every
+ * SecretReadError-shaped producer stays byte-identical (BST-1352 review).
  */
 export class SecretReadError extends Error {
   readonly code: SecretReadErrorCode;
   readonly provider: string;
 
   constructor(code: SecretReadErrorCode, provider: string, cause?: unknown) {
-    const detail = SECRET_READ_ERROR_DETAIL[code];
-    super(`Secret for "${provider}" is unreadable: ${detail}. Re-enter the key to repair it.`, {
-      cause,
-    });
+    super(describeSecretReadError(code, provider), { cause });
     this.name = 'SecretReadError';
     this.code = code;
     this.provider = provider;

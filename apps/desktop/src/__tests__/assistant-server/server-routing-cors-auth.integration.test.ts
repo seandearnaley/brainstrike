@@ -18,6 +18,8 @@ const desktopRendererOrigin = new URL(DESKTOP_DEV_RENDERER_URL).origin;
 
 const mockSecretsService = vi.hoisted(() => ({
   deleteKey: vi.fn(),
+  // BST-1352: the assistant POST path reads the TYPED credential.
+  getCredential: vi.fn(),
   getKey: vi.fn(),
   listProviders: vi.fn(),
   saveKey: vi.fn(),
@@ -49,6 +51,9 @@ let server: { url: string; stop: () => Promise<void>; authToken?: string } | und
 // expected 200 became a 500. beforeEach makes every test independently
 // runnable.
 beforeEach(() => {
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });

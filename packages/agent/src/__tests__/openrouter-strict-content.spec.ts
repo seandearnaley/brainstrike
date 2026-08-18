@@ -111,7 +111,7 @@ async function drainDoStream(model: ModelRouterLanguageModel): Promise<void> {
 }
 
 async function streamThroughRouter(modelName: string): Promise<void> {
-  const config = createProvider('openrouter', 'test-key', modelName);
+  const config = createProvider('openrouter', { apiKey: 'test-key', kind: 'api_key' }, modelName);
   expect(config).toBeInstanceOf(ModelRouterLanguageModel);
   await drainDoStream(config as ModelRouterLanguageModel);
 }
@@ -301,7 +301,11 @@ describe('OpenRouterStrictContentGateway getApiKey (BST-1361)', () => {
 
 describe('createProvider openrouter wiring', () => {
   it('routes strict-content openrouter models through the compat gateway', () => {
-    const model = createProvider('openrouter', 'test-key', 'qwen/qwen3.8-max');
+    const model = createProvider(
+      'openrouter',
+      { apiKey: 'test-key', kind: 'api_key' },
+      'qwen/qwen3.8-max'
+    );
     expect(model).toBeInstanceOf(ModelRouterLanguageModel);
     const router = model as ModelRouterLanguageModel;
     expect(router.provider).toBe('openrouter');
@@ -310,7 +314,11 @@ describe('createProvider openrouter wiring', () => {
   });
 
   it('leaves non-strict openrouter models on Mastra own gateway', () => {
-    const model = createProvider('openrouter', 'test-key', 'z-ai/glm-5.2');
+    const model = createProvider(
+      'openrouter',
+      { apiKey: 'test-key', kind: 'api_key' },
+      'z-ai/glm-5.2'
+    );
     expect(model).toBeInstanceOf(ModelRouterLanguageModel);
     const router = model as ModelRouterLanguageModel;
     expect(router.gatewayId).toBe('models.dev');

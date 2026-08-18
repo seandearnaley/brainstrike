@@ -6,6 +6,7 @@ import {
   respondJson,
   respondNotFound,
 } from '@brainstrike/assistant-service/http';
+import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
 import { runAssistantTurn } from '@brainstrike/assistant-service/run-turn';
 import {
@@ -55,7 +56,10 @@ import {
   getDesktopMastraMemory,
 } from './assistant-server/mastra-memory';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
-import { resolveProviderApiKey } from './assistant-server/provider-credentials';
+import {
+  resolveProviderApiKey,
+  resolveProviderCredential,
+} from './assistant-server/provider-credentials';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { resolveRequestPersonas } from './assistant-server/request-personas';
@@ -71,6 +75,7 @@ import {
 } from './assistant-server/run-persistence';
 import { handleRunStatusRequest } from './assistant-server/run-status-endpoint';
 import { recordDesktopContinuationRunTreatment } from './assistant-server/run-treatment-persistence';
+import { respondToSecretReadError } from './assistant-server/secret-error-responses';
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
 import type { AssistantServerOptions } from './assistant-server/server-options';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
@@ -393,6 +398,66 @@ async function resolveSnapshotWorkspaceRoots(
   return getWorkspaceRoots(enriched).map((root) => ({ path: root.path, rootId: root.rootId }));
 }
 
+/**
+ * BST-1352: the factory auth input derives from the TYPED credential the
+ * request resolved and travels as a direct parameter (runAssistantTurn →
+ * initializeAgentStream → stream options) — never on runtimeData /
+ * RequestContext (toJSON drops functions). Preparation GUARANTEES the
+ * provider string on prepared runtime data (withTrustedAssistantMessageId
+ * stamps it), so its absence is a wiring bug asserted loudly — never coerced
+ * to an empty provider name.
+ */
+function deriveAssistantTurnAuthInput(
+  runtimeData: RuntimeData,
+  credential: Parameters<typeof providerAuthInputFromCredential>[1]
+): ReturnType<typeof providerAuthInputFromCredential> {
+  const provider = runtimeData.provider;
+  if (typeof provider !== 'string' || provider.length === 0) {
+    throw new Error(
+      'Prepared assistant runtime data is missing its provider; request preparation must stamp it.'
+    );
+  }
+  return providerAuthInputFromCredential(provider, credential);
+}
+
+/**
+ * Derivation runs inside the handled scope (BST-1352 review finding 8): an
+ * UnsupportedCredentialTypeError is SecretReadError-shaped, so it maps to the
+ * same classified api_key_unreadable 400 as every other secret failure
+ * instead of escaping as an unhandled throw. `ok: false` means the response
+ * was already written.
+ */
+function deriveAuthInputOrRespond(
+  res: http.ServerResponse,
+  runtimeData: RuntimeData,
+  credential: Parameters<typeof providerAuthInputFromCredential>[1]
+): { ok: true; authInput: ReturnType<typeof deriveAssistantTurnAuthInput> } | { ok: false } {
+  try {
+    return { authInput: deriveAssistantTurnAuthInput(runtimeData, credential), ok: true };
+  } catch (error) {
+    if (respondToSecretReadError(res, error)) {
+      return { ok: false };
+    }
+    throw error;
+  }
+}
+
+/** W7 T2 gate extracted for the cognitive-complexity budget: a controller
+ * exists only for a persisted run (runId + threadId) with snapshot deps. */
+function resolveTurnBoundariesForRun(
+  options: AssistantServerOptions,
+  runId: string | undefined,
+  threadId: string | undefined
+): ReturnType<typeof createTurnBoundaryController> | null {
+  if (!(options.snapshots && runId && threadId)) {
+    return null;
+  }
+  return createTurnBoundaryController({
+    resolveDatabase: resolveEditCheckpointDatabase,
+    snapshots: options.snapshots,
+  });
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -401,7 +466,7 @@ async function handleAssistantPost(
   const prepared = await prepareAssistantPostRequest({
     logger,
     readBody: () => readRequestBody(req, { maxBodyBytes: assistantRequestBodyLimitBytes }),
-    resolveProviderApiKey,
+    resolveProviderCredential,
   });
   if (!prepared.ok) {
     respondAssistantRejection(res, prepared.rejection);
@@ -409,12 +474,18 @@ async function handleAssistantPost(
   }
   const {
     assistantMessageId,
+    credential,
     messages,
     runtimeData,
     apiKey,
     toolApprovalAction,
     toolResumeAction,
   } = prepared.request;
+  const derivedAuthInput = deriveAuthInputOrRespond(res, runtimeData, credential);
+  if (!derivedAuthInput.ok) {
+    return;
+  }
+  const { authInput } = derivedAuthInput;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -428,13 +499,7 @@ async function handleAssistantPost(
   // W7 T2 (BST-1164): shadow-git turn boundaries on the run-persistence seam.
   // Only a persisted run (runId + threadId) with the snapshot deps wired
   // participates; snapshot bookkeeping NEVER blocks or fails the run.
-  const turnBoundaries =
-    options.snapshots && runId && threadId
-      ? createTurnBoundaryController({
-          resolveDatabase: resolveEditCheckpointDatabase,
-          snapshots: options.snapshots,
-        })
-      : null;
+  const turnBoundaries = resolveTurnBoundariesForRun(options, runId, threadId);
   const legPause: LegPauseState = { paused: false };
   if (turnBoundaries && runId && threadId) {
     try {
@@ -501,10 +566,12 @@ async function handleAssistantPost(
     const turn = await runAssistantTurn({
       apiKey,
       assistantMessageId,
+      authInput,
       executionSignal: executionAbortController.signal,
       initializeStream: async (core) => {
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
+          authInput: core.authInput,
           capabilities: desktopAgentStreamCapabilities,
           compactionOverlayLookup,
           getDatabase,

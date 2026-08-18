@@ -202,7 +202,7 @@ describe('assistant route', () => {
     expect(enabledResponse.status).toBe(200);
     expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
-        apiKey: 'anthropic-server-key',
+        credential: { key: 'anthropic-server-key', source: 'env', type: 'api_key' },
         runtimeData: expect.objectContaining({ provider: 'anthropic' }),
       })
     );
@@ -853,11 +853,11 @@ describe('assistant route', () => {
     expect(await res.text()).toBe('ok');
     expect(createStatelessAssistantDataStreamResponse).toHaveBeenCalledWith(stream);
     // A normal turn reaches the stream with the PREPARED messages/runtime and
-    // the separately-carried apiKey; continuation actions never reach it.
+    // the typed credential (BST-1352); continuation actions never reach it.
     expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         agentMessages: expect.any(Array),
-        apiKey: 'test-key',
+        credential: { key: 'test-key', source: 'env', type: 'api_key' },
         signal: req.signal,
       })
     );
@@ -971,7 +971,7 @@ describe('assistant route', () => {
 
     expect(res.status).toBe(200);
     expect(buildWebAssistantStreamFromPrepared).toHaveBeenCalledWith(
-      expect.objectContaining({ apiKey: 'test-key' })
+      expect.objectContaining({ credential: { key: 'test-key', source: 'env', type: 'api_key' } })
     );
     expect(receivedRuntime).toEqual({ provider: 'openai' });
   });

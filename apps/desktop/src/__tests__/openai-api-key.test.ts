@@ -168,11 +168,17 @@ describe('readOpenAIApiKey', () => {
 
     it('lists providers from both env and stored secrets', async () => {
       process.env['OPENAI_API_KEY'] = 'env-openai';
-      const mockGetKey = vi
+      // BST-1352: availability inspection reads the TYPED credential; a blank
+      // legacy api_key still reads as "not configured".
+      const mockGetCredential = vi
         .fn()
-        .mockImplementation(async (provider: string) => (provider === 'anthropic' ? 'secret' : ''));
+        .mockImplementation(async (provider: string) =>
+          provider === 'anthropic'
+            ? { key: 'secret', type: 'api_key' }
+            : { key: '', type: 'api_key' }
+        );
       const mockSecretsService = {
-        getKey: mockGetKey,
+        getCredential: mockGetCredential,
         listProviders: vi.fn().mockResolvedValue(['anthropic', 'google']),
       };
       vi.mocked(getSecretsService).mockReturnValue(mockSecretsService as never);

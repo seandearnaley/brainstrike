@@ -50,6 +50,9 @@ beforeEach(() => {
   // other queries override this.
   mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
   resetDesktopMastraMemoryCacheForTests();
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   Object.defineProperty(app, 'isPackaged', { configurable: true, value: false });
@@ -612,7 +615,9 @@ describe('agent-stream-init runtime composition and memory', () => {
       'anthropic',
       'test-api-key',
       'claude-haiku-4-5',
-      expect.objectContaining({ apiKey: 'test-api-key', provider: 'openai' })
+      // BST-1352 review: the runtime carries NO apiKey field — the memory
+      // model key travels through the resolved observationalMemoryModel.
+      expect.objectContaining({ provider: 'openai' })
     );
     expect(createPgliteMastraMemory).toHaveBeenCalledWith({
       database: expect.anything(),
@@ -644,14 +649,21 @@ describe('agent-stream-init runtime composition and memory', () => {
       expect.objectContaining({
         memory: expect.objectContaining({ resourceId: 'workspace-a', threadId: 'thread-1' }),
       }),
-      { memory: mockPgliteMastraMemory, storage: mockPgliteMastraStorage }
+      {
+        // BST-1352: the resolved auth input rides the stream OPTIONS.
+        authInput: { apiKey: 'test-api-key', kind: 'api_key' },
+        memory: mockPgliteMastraMemory,
+        storage: mockPgliteMastraStorage,
+      }
     );
   });
 
   it('surfaces an unreadable observational-memory key during stream initialization', async () => {
     const { SecretReadError } = await import('../../secrets');
-    mockSecretsService.getKey
-      .mockResolvedValueOnce('anthropic-key')
+    // BST-1352: both the chat credential and the memory model-target key
+    // resolve through the TYPED reader now.
+    mockSecretsService.getCredential
+      .mockResolvedValueOnce({ key: 'anthropic-key', type: 'api_key' })
       .mockRejectedValueOnce(new SecretReadError('decrypt_failed', 'openai'));
 
     const response = await runRequest({
@@ -698,11 +710,10 @@ describe('agent-stream-init runtime composition and memory', () => {
   });
 
   it('surfaces an actionable missing observational-memory credential', async () => {
-    const getKey = mockSecretsService.getKey as unknown as Mock<
-      (provider: string) => Promise<string | null>
-    >;
-    getKey.mockImplementation((provider: string) =>
-      Promise.resolve(provider === 'anthropic' ? 'anthropic-key' : null)
+    mockSecretsService.getCredential.mockImplementation((provider: string) =>
+      Promise.resolve(
+        provider === 'anthropic' ? { key: 'anthropic-key', type: 'api_key' as const } : null
+      )
     );
 
     const response = await runRequest({
@@ -746,16 +757,15 @@ describe('agent-stream-init runtime composition and memory', () => {
         'Observational memory requires an API key for "openai". Add the key in Settings, then retry.',
       provider: 'openai',
     });
-    expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(1, 'anthropic');
-    expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(2, 'openai');
+    expect(mockSecretsService.getCredential).toHaveBeenNthCalledWith(1, 'anthropic');
+    expect(mockSecretsService.getCredential).toHaveBeenNthCalledWith(2, 'openai');
   });
 
   it('surfaces an actionable missing semantic-recall credential', async () => {
-    const getKey = mockSecretsService.getKey as unknown as Mock<
-      (provider: string) => Promise<string | null>
-    >;
-    getKey.mockImplementation((provider: string) =>
-      Promise.resolve(provider === 'anthropic' ? 'anthropic-key' : null)
+    mockSecretsService.getCredential.mockImplementation((provider: string) =>
+      Promise.resolve(
+        provider === 'anthropic' ? { key: 'anthropic-key', type: 'api_key' as const } : null
+      )
     );
 
     const response = await runRequest({
@@ -799,8 +809,8 @@ describe('agent-stream-init runtime composition and memory', () => {
         'Semantic recall requires an API key for "google". Add the key in Settings, then retry.',
       provider: 'google',
     });
-    expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(1, 'anthropic');
-    expect(mockSecretsService.getKey).toHaveBeenNthCalledWith(2, 'google');
+    expect(mockSecretsService.getCredential).toHaveBeenNthCalledWith(1, 'anthropic');
+    expect(mockSecretsService.getCredential).toHaveBeenNthCalledWith(2, 'google');
   });
 
   it('builds observational memory on the built-in local model via the llm-host proxy', async () => {
@@ -1171,10 +1181,11 @@ describe('agent-stream-init runtime composition and memory', () => {
         toolName: 'workspace.writeFile',
       },
       expect.objectContaining({
+        // BST-1352: the resume leg receives the auth input on its OPTIONS…
+        authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
         requireToolApproval: true,
         runtime: expect.objectContaining({
-          apiKey: 'test-api-key',
           memory: expect.objectContaining({
             resourceId: 'workspace-a',
             threadId: 'thread-1',
@@ -1184,6 +1195,14 @@ describe('agent-stream-init runtime composition and memory', () => {
         storage: mockPgliteMastraStorage,
       })
     );
+    // …and the runtime object carries NO apiKey field (regression pin for the
+    // RequestContext-serialization hazard: credentials never ride RuntimeData).
+    const [, approvalOptions] = (streamMastraToolApprovalAction as Mock).mock.calls[0] as [
+      unknown,
+      { runtime: Record<string, unknown> },
+    ];
+    expect(approvalOptions.runtime).not.toHaveProperty('apiKey');
+    expect(JSON.stringify(approvalOptions.runtime)).not.toContain('test-api-key');
   });
 
   it('rejects tool approval resume when workflow storage is missing from memory', async () => {
@@ -1278,6 +1297,9 @@ describe('agent-stream-init runtime composition and memory', () => {
         toolName: 'brainstrike.submitPlan',
       },
       expect.objectContaining({
+        // BST-1352: the suspend-resume leg receives the auth input on its
+        // OPTIONS; the runtime carries no credential fields.
+        authInput: { apiKey: 'test-api-key', kind: 'api_key' },
         memory: mockPgliteMastraMemory,
         runtime: expect.objectContaining({ provider: 'openai' }),
         storage: mockPgliteMastraStorage,

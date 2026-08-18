@@ -22,6 +22,8 @@
  * decides whether to throw or degrade. This function therefore never throws.
  */
 
+import type { ProviderCredential } from './provider-credential.js';
+
 export interface HostedKeyResolution {
   readonly key?: string;
   /**
@@ -42,6 +44,32 @@ export interface ResolveHostedProviderKeyOptions {
   readonly readSecret?: () => Promise<string | null | undefined>;
 }
 
+/**
+ * Typed generalization of {@link HostedKeyResolution} (BST-1352): the winning
+ * value is a full `ProviderCredential`, not only a bearer-key string. Same
+ * contract in every other respect — env-authoritative order, never throws,
+ * `secretReadError` only when nothing was found.
+ */
+export interface HostedCredentialResolution {
+  readonly credential?: ProviderCredential;
+  /**
+   * A credential-store read failure captured while no credential was found
+   * anywhere. Never set when `credential` is present.
+   */
+  readonly secretReadError?: unknown;
+  /** Where the winning credential came from; absent when nothing was found. */
+  readonly source?: 'env' | 'stored';
+}
+
+export interface ResolveHostedProviderCredentialOptions {
+  /** Env var names for this provider, checked in order within each source. */
+  readonly envKeyNames: readonly string[];
+  /** Environment maps, checked in order (e.g. process.env, import.meta.env). */
+  readonly envSources: ReadonlyArray<Readonly<Record<string, string | undefined>> | undefined>;
+  /** Platform typed-credential store read; omit on platforms without one. */
+  readonly readCredential?: () => Promise<ProviderCredential | null | undefined>;
+}
+
 function normalizeKey(value: unknown): string | undefined {
   // Runtime env maps can carry non-strings despite the declared types
   // (import.meta.env booleans, test doubles) — a bare .trim() would throw.
@@ -52,9 +80,18 @@ function normalizeKey(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-export async function resolveHostedProviderKey(
-  options: ResolveHostedProviderKeyOptions
-): Promise<HostedKeyResolution> {
+/**
+ * The BST-1352 credential core `resolveHostedProviderKey` now rides on.
+ * Environment variables can only ever express a bearer key, so an env hit is
+ * BY DEFINITION `{ type: 'api_key', key }`; typed credentials (`oauth`, `aws`)
+ * exist only in the platform store. The documented BST-979 contract is
+ * preserved exactly: env-authoritative caller order, this function never
+ * throws, and `secretReadError` passes through only when no credential was
+ * found anywhere.
+ */
+export async function resolveHostedProviderCredential(
+  options: ResolveHostedProviderCredentialOptions
+): Promise<HostedCredentialResolution> {
   for (const source of options.envSources) {
     if (!source) {
       continue;
@@ -67,20 +104,59 @@ export async function resolveHostedProviderKey(
       // here.
       const key = normalizeKey(source[name]);
       if (key) {
-        return { key, source: 'env' };
+        return { credential: { key, type: 'api_key' }, source: 'env' };
       }
     }
   }
 
-  if (!options.readSecret) {
+  if (!options.readCredential) {
     return {};
   }
   try {
-    const key = normalizeKey(await options.readSecret());
-    return key ? { key, source: 'stored' } : {};
+    const credential = await options.readCredential();
+    return credential ? { credential, source: 'stored' } : {};
   } catch (error) {
     return { secretReadError: error };
   }
+}
+
+/**
+ * Present a legacy string `readSecret` as a typed credential read. A blank
+ * stored string was never a configured key here — the pre-BST-1352
+ * implementation normalized before deciding, so the legacy mapping happens on
+ * the normalized value only. (Named helper rather than an inline annotated
+ * async arrow: Babel's TS parser rejects the annotation in that position.)
+ */
+function legacyReadCredential(
+  readSecret: NonNullable<ResolveHostedProviderKeyOptions['readSecret']>
+): NonNullable<ResolveHostedProviderCredentialOptions['readCredential']> {
+  return async () => {
+    const key = normalizeKey(await readSecret());
+    return key ? { key, type: 'api_key' } : null;
+  };
+}
+
+export async function resolveHostedProviderKey(
+  options: ResolveHostedProviderKeyOptions
+): Promise<HostedKeyResolution> {
+  const { readSecret } = options;
+  const resolution = await resolveHostedProviderCredential({
+    envKeyNames: options.envKeyNames,
+    envSources: options.envSources,
+    ...(readSecret ? { readCredential: legacyReadCredential(readSecret) } : {}),
+  });
+  // The string resolver only ever produces api_key credentials (env values
+  // and normalized stored strings), so the narrow is total in practice; the
+  // guard exists purely so TypeScript sees the discriminant.
+  if (resolution.credential?.type === 'api_key') {
+    return {
+      key: resolution.credential.key,
+      // `source` is always set alongside `credential`; the spread only
+      // satisfies exactOptionalPropertyTypes.
+      ...(resolution.source ? { source: resolution.source } : {}),
+    };
+  }
+  return 'secretReadError' in resolution ? { secretReadError: resolution.secretReadError } : {};
 }
 
 /**

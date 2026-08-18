@@ -1,6 +1,10 @@
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import {
+  type ProviderCredential,
+  type ProviderKeySource,
+  resolveHostedProviderCredential,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { getAgentProviderEnvKeys, listAgentProviders } from './agent-client-loader';
 import { getSecretsService, SecretReadError, type SecretReadErrorCode } from './secrets';
@@ -58,6 +62,63 @@ export async function readProviderApiKey(provider: SupportedProvider): Promise<s
   return await readProviderSecretKey(provider);
 }
 
+/** A typed credential plus where it came from (BST-1352). */
+export type ResolvedDesktopProviderCredential = ProviderCredential & {
+  source: 'env' | 'stored';
+};
+
+/**
+ * Normalize a stored api_key credential exactly like the legacy string read
+ * (`normalizeSecretValue`): trim the key; a blank key is "not configured".
+ * Typed credentials (`oauth`/`aws`) have validated fields and pass through.
+ */
+function normalizeStoredCredential(credential: ProviderCredential): ProviderCredential | undefined {
+  if (credential.type !== 'api_key') {
+    return credential;
+  }
+  const key = credential.key.trim();
+  if (!key) {
+    return;
+  }
+  return key === credential.key ? credential : { ...credential, key };
+}
+
+/**
+ * Typed credential read (BST-1352), routed through the ONE shared
+ * env-authoritative resolution core (`resolveHostedProviderCredential`,
+ * BST-979 contract preserved): env hits are `api_key` credentials tagged
+ * `source: 'env'`; stored hits come from the BST-1348 `getCredential` and tag
+ * `source: 'stored'`. A store read failure with no env credential rethrows
+ * (same contract as `readProviderSecretKey`) — never coerced into "not
+ * configured".
+ */
+export async function readProviderCredential(
+  provider: SupportedProvider
+): Promise<ResolvedDesktopProviderCredential | undefined> {
+  const resolution = await resolveHostedProviderCredential({
+    envKeyNames: getAgentProviderEnvKeys(provider),
+    envSources: [process.env],
+    readCredential: async () => {
+      // LAZY store acquisition (BST-1352 review finding 4): an env hit must
+      // never construct the keychain-backed service — the core only invokes
+      // this callback after the env sources came up empty.
+      const stored = await getSecretsService().getCredential(provider);
+      return stored === null ? null : normalizeStoredCredential(stored);
+    },
+  });
+  if (resolution.credential && resolution.source) {
+    return { ...resolution.credential, source: resolution.source };
+  }
+  if (resolution.secretReadError !== undefined) {
+    logger.error('Failed to read secrets entry for provider', {
+      error: resolution.secretReadError,
+      provider,
+    });
+    throw resolution.secretReadError;
+  }
+  return;
+}
+
 export interface ProviderKeyReadFailure {
   readonly code: SecretReadErrorCode;
   readonly message: string;
@@ -98,15 +159,20 @@ export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
     }
     inspectedStoredProviders.add(supported);
     try {
-      const key = await secretsService.getKey(supported);
-      if (normalizeSecretValue(key)) {
+      // Typed read (BST-1352 review finding 3): a VALID stored credential of
+      // ANY type marks the provider configured — the availability verdict and
+      // the typed-consumer verdict must agree before wave 3 lands consumers.
+      // Blank legacy api_key strings stay "not configured" via the same
+      // normalization the request path uses.
+      const credential = await secretsService.getCredential(supported);
+      if (credential !== null && normalizeStoredCredential(credential)) {
         configured.set(supported, { provider: supported, source: 'stored' });
       }
     } catch (error) {
       if (!(error instanceof SecretReadError)) {
         throw error;
       }
-      logger.error('Stored provider key is unreadable; reporting provider failure', {
+      logger.error('Stored provider credential is unreadable; reporting provider failure', {
         error,
         provider: supported,
       });

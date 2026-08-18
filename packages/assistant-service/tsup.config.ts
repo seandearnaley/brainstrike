@@ -15,6 +15,7 @@ export default defineConfig({
     'src/local-provider-runtime.ts',
     'src/memory-model-targets.ts',
     'src/ports.ts',
+    'src/provider-credential-projection.ts',
     'src/request.ts',
     'src/run-turn.ts',
     'src/secret-errors.ts',

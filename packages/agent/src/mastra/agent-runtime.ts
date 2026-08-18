@@ -8,6 +8,7 @@ import type { MastraMemory } from '@mastra/core/memory';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
+import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import {
   resolveToolResultBudgetForModel,
@@ -50,6 +51,14 @@ import type { ToolOutputArtifactSettlementStore } from './tool-output-artifact-s
 import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './tool-search-runtime';
 
 export interface MastraAgentRuntimeOptions {
+  /**
+   * Provider auth input for the run's language model (BST-1352). A DIRECT
+   * option by contract — never read from `runtime`: RuntimeData must not carry
+   * auth inputs (RequestContext.toJSON drops functions, so a custom_fetch
+   * closure riding RuntimeData would vanish silently). Absent falls back to
+   * the legacy runtime/env key resolution.
+   */
+  authInput?: ProviderAuthInput;
   /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed OUTSIDE the
    * guard and BEFORE the permission gate. Overrides `runtime.hookRunner` when
@@ -163,12 +172,12 @@ const logger = createLogger('MastraAgent');
 
 function instantiateLanguageModel(
   provider: string,
-  apiKey: string | undefined,
+  auth: ProviderAuthInput | undefined,
   modelName: string,
   runtime: RuntimeData | undefined
 ): MastraModelConfig {
   try {
-    return createProvider(provider, apiKey, modelName, runtime);
+    return createProvider(provider, auth, modelName, runtime);
   } catch (error) {
     if (isMastraAgentError(error)) {
       throw error;
@@ -337,6 +346,7 @@ export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
   const {
+    authInput,
     runtime,
     instructions,
     model,
@@ -356,9 +366,21 @@ export async function createMastraAgentRuntime(
     hydrateToolDiscoveryFromMemory,
   } = options;
 
+  // BST-1352 review finding 7: `resolved` wins over live resolution, so a
+  // DIFFERENT authInput passed alongside it would be silently dropped — the
+  // exact vanishing-closure hazard the direct-parameter rule exists to
+  // prevent. Same-reference is the legitimate pre-resolved case
+  // (initializeMastraRuntime spreads options + resolved together).
+  if (resolved && authInput && resolved.authInput !== authInput) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail:
+        'Both resolved and authInput were supplied with different auth inputs; ' +
+        'pass exactly one authority (a silently preferred one would drop the other auth closure).',
+    });
+  }
   let runtimeResolution: ResolvedRuntimeConfiguration;
   try {
-    runtimeResolution = resolved ?? resolveRuntimeConfiguration(runtime);
+    runtimeResolution = resolved ?? resolveRuntimeConfiguration(runtime, authInput);
   } catch (err) {
     logger.error('mastra runtime configuration failed', {
       code: 'mastra_agent_runtime_configuration_failed',
@@ -366,7 +388,7 @@ export async function createMastraAgentRuntime(
     });
     throw err;
   }
-  const { runtime: sanitizedRuntime, provider: normalizedProvider, apiKey } = runtimeResolution;
+  const { runtime: sanitizedRuntime, provider: normalizedProvider } = runtimeResolution;
 
   const resolvedMcpConfig = mcpConfig ?? sanitizedRuntime.mcpConfig;
 
@@ -387,7 +409,12 @@ export async function createMastraAgentRuntime(
   const modelName = model ?? getDefaultModel(normalizedProvider);
   const languageModel =
     modelOverride ??
-    instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
+    instantiateLanguageModel(
+      normalizedProvider,
+      runtimeResolution.authInput,
+      modelName,
+      sanitizedRuntime
+    );
 
   assertModernLanguageModel(languageModel, normalizedProvider, modelName);
   // Resolve once per run. Static catalog models use their declared context
@@ -404,7 +431,7 @@ export async function createMastraAgentRuntime(
     sanitizedLocalToolIds,
     toolNameMap,
   } = await composeRuntimeToolMap({
-    apiKey,
+    auth: runtimeResolution.authInput,
     getDelegationToolNames: () => registeredDelegationToolNames,
     hasStorage: Boolean(storage),
     hookRunner,
@@ -490,7 +517,9 @@ export async function createMastraAgentRuntime(
     provider: normalizedProvider,
     resolvedToolResultBudget,
     resolvePinnedModel: createPersonaPinnedModelResolver({
-      apiKey,
+      // The parent's FULL auth input (not just its key string), so a
+      // same-provider pin reuses custom_fetch/aws auth intact (BST-1352).
+      auth: runtimeResolution.authInput,
       instantiate: instantiateLanguageModel,
       parentProvider: normalizedProvider,
       runtime: sanitizedRuntime,

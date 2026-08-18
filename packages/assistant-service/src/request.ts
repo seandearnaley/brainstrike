@@ -33,7 +33,8 @@ import {
 import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { resolveRequestedProvider } from './memory-model-targets.js';
-import type { ProviderApiKeyReader } from './ports.js';
+import type { ProviderCredentialReader, ResolvedProviderCredential } from './ports.js';
+import { UnsupportedCredentialTypeError } from './provider-credential-projection.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
 import type { AssistantRequestPayload, AssistantUiMessage } from './types.js';
 
@@ -72,6 +73,14 @@ class InvalidEnabledNativeToolIdsError extends Error {
 interface PreparedAssistantPostRequest {
   apiKey: string;
   assistantMessageId?: string;
+  /**
+   * The typed credential the request resolved (BST-1352). In the current
+   * pipeline this is always an `api_key` credential when present — a stored
+   * non-api_key credential rejects the request before preparation succeeds.
+   * Hosts derive the factory `ProviderAuthInput` from it (see ports'
+   * `providerAuthInputFromCredential`).
+   */
+  credential?: ResolvedProviderCredential;
   messages: AgentMessage[];
   runtimeData: RuntimeData;
   toolApprovalAction?: AssistantToolApprovalAction;
@@ -82,7 +91,9 @@ interface PreparedAssistantPostRequest {
  * Injected provider-credential reader, now owned by ./ports (BST-972 B2).
  * Re-exported under the historical name; desktop's structurally identical
  * AgentStreamProviderApiKeyReader unifies onto the ports type when
- * agent-stream-init moves (B4a/B4b).
+ * agent-stream-init moves (B4a/B4b). Since BST-1352 the string reader is the
+ * MIGRATION shim (ports' createProviderApiKeyReader); preparation itself
+ * consumes the typed {@link ProviderCredentialReader}.
  */
 export type { ProviderApiKeyReader as PreparationProviderApiKeyReader } from './ports.js';
 
@@ -117,7 +128,13 @@ export interface PrepareAssistantPostRequestParams {
    * the transport.
    */
   readonly readBody: () => Promise<string>;
-  readonly resolveProviderApiKey: ProviderApiKeyReader;
+  /**
+   * Typed credential reader (BST-1352). Desktop passes provider-credentials'
+   * `resolveProviderCredential`; Hosted Web wraps its env-only config lookup
+   * into `api_key` credentials (`kind: 'api_key'` only — no typed-credential
+   * resolution on web).
+   */
+  readonly resolveProviderCredential: ProviderCredentialReader;
 }
 
 /**
@@ -135,29 +152,53 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
 }
 
 /**
- * Absorbs the previous resolveProviderApiKeyOrRespond: a classified
- * secret-read failure becomes the same 400 payload; anything else still
- * propagates loudly. Keyless-ness is registry-derived (`authType: 'none'`,
- * PR #2513 review finding 3): the in-browser runtime (registry
- * `runtime: 'browser'`) has no credential surface at all and skips the read;
- * the local servers still read their OPTIONAL bearer token, but a classified
- * read failure proceeds keyless with a visible warn instead of a 400 — the
- * token is optional, so an unreadable keychain entry must not block the run.
+ * Absorbs the previous resolveApiKeyOrReject (itself the previous
+ * resolveProviderApiKeyOrRespond): a classified secret-read failure becomes
+ * the same 400 payload; anything else still propagates loudly. Keyless-ness
+ * is registry-derived (`authType: 'none'`, PR #2513 review finding 3): the
+ * in-browser runtime (registry `runtime: 'browser'`) has no credential
+ * surface at all and skips the read; the local servers still read their
+ * OPTIONAL bearer token, but a classified read failure proceeds keyless with
+ * a visible warn instead of a 400 — the token is optional, so an unreadable
+ * keychain entry must not block the run.
+ *
+ * BST-1352: consumes the TYPED reader. A resolved non-api_key credential has
+ * no consumer in this pipeline yet, so it takes the EXACT path a stored
+ * non-api_key credential took when the string reader's `getKey` threw
+ * `SecretReadError('credential_type_unsupported')` — the same
+ * `api_key_unreadable` 400 (or the same keyless warn) — by throwing the
+ * SecretReadError-shaped typed error into the classification below. The
+ * credential is never stringified.
  */
-async function resolveApiKeyOrReject(
+async function resolveCredentialOrReject(
   provider: SupportedProvider,
-  resolveProviderApiKey: ProviderApiKeyReader,
+  resolveProviderCredential: ProviderCredentialReader,
   logger: ScopedLogger
 ): Promise<
-  | { readonly apiKey: string | undefined; readonly rejection?: undefined }
-  | { readonly apiKey?: undefined; readonly rejection: AssistantPostRejection }
+  | {
+      readonly apiKey: string | undefined;
+      readonly credential?: ResolvedProviderCredential;
+      readonly rejection?: undefined;
+    }
+  | {
+      readonly apiKey?: undefined;
+      readonly credential?: undefined;
+      readonly rejection: AssistantPostRejection;
+    }
 > {
   const keyless = providerAuthType(provider) === 'none';
   if (keyless && getProviderDefinition(provider).runtime === 'browser') {
     return { apiKey: '' };
   }
   try {
-    return { apiKey: await resolveProviderApiKey(provider) };
+    const credential = await resolveProviderCredential(provider);
+    if (credential === undefined) {
+      return { apiKey: undefined };
+    }
+    if (credential.type !== 'api_key') {
+      throw new UnsupportedCredentialTypeError(provider);
+    }
+    return { apiKey: credential.key, credential };
   } catch (error) {
     const payload = getSecretReadErrorPayload(error);
     if (!payload) {
@@ -270,7 +311,7 @@ function rejectToolContinuationInputError(
 export async function prepareAssistantPostRequest(
   params: PrepareAssistantPostRequestParams
 ): Promise<PrepareAssistantPostRequestResult> {
-  const { filterPayload, logger, readBody, resolveProviderApiKey } = params;
+  const { filterPayload, logger, readBody, resolveProviderCredential } = params;
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
@@ -328,11 +369,11 @@ export async function prepareAssistantPostRequest(
   // the user has stored one via the secrets bridge, but the absence of a
   // token is not an error — most setups don't have auth.
   const providerAllowsMissingAuth = providerAuthType(provider) === 'none';
-  const resolved = await resolveApiKeyOrReject(provider, resolveProviderApiKey, logger);
+  const resolved = await resolveCredentialOrReject(provider, resolveProviderCredential, logger);
   if (resolved.rejection) {
     return reject(resolved.rejection);
   }
-  const { apiKey } = resolved;
+  const { apiKey, credential } = resolved;
 
   const runtimeData: RuntimeData = resolveServerAutoObservationalMemory(
     hydrateRuntimeDataWithLocalRuntimeToken(
@@ -368,6 +409,7 @@ export async function prepareAssistantPostRequest(
     request: {
       apiKey: apiKey ?? '',
       ...(assistantMessageId ? { assistantMessageId } : {}),
+      ...(credential ? { credential } : {}),
       messages,
       runtimeData,
       ...(toolApprovalAction ? { toolApprovalAction } : {}),

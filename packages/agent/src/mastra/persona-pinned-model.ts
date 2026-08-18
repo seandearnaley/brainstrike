@@ -15,6 +15,7 @@
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import { apiKeyAuthInput, type ProviderAuthInput } from '../providers/provider-auth-input';
 import type { RuntimeData } from '../types';
 
 /**
@@ -31,12 +32,15 @@ export const PERSONA_PIN_KEYLESS_PROVIDERS: ReadonlySet<string> = new Set(
 );
 
 export interface CreatePersonaPinnedModelResolverParams {
-  /** The parent provider's resolved API key (reused for same-provider pins). */
-  readonly apiKey: string | undefined;
+  /**
+   * The parent provider's resolved auth input (reused for same-provider pins
+   * — BST-1352: the FULL input, so custom_fetch/aws pins stay intact).
+   */
+  readonly auth: ProviderAuthInput | undefined;
   /** Model instantiation seam (production: `createProvider`). */
   readonly instantiate: (
     provider: string,
-    apiKey: string | undefined,
+    auth: ProviderAuthInput | undefined,
     modelName: string,
     runtime: RuntimeData | undefined
   ) => MastraModelConfig;
@@ -62,12 +66,19 @@ export function createPersonaPinnedModelResolver(
     }
 
     if (pin.provider === params.parentProvider) {
-      return params.instantiate(pin.provider, params.apiKey, pin.modelId, params.runtime);
+      return params.instantiate(pin.provider, params.auth, pin.modelId, params.runtime);
     }
 
     const mappedKey = params.runtime?.personaProviderApiKeys?.[pin.provider];
     if (mappedKey) {
-      return params.instantiate(pin.provider, mappedKey, pin.modelId, params.runtime);
+      // Cross-provider pin keys stay bearer strings (server-resolved from the
+      // secrets bridge); wrap through the ONE string→union adapter.
+      return params.instantiate(
+        pin.provider,
+        apiKeyAuthInput(mappedKey),
+        pin.modelId,
+        params.runtime
+      );
     }
 
     if (pin.provider === 'local') {

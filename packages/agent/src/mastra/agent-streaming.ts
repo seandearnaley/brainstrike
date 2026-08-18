@@ -1750,7 +1750,7 @@ export async function streamMastraAgent(
   assertNoUnsupportedDirectStreamOptions(options);
 
   const runtimeData = options.runtime;
-  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
 
   // Per-call approval for `'ask'` tools comes from the PER-TOOL `requireApproval`
@@ -1821,7 +1821,7 @@ export async function streamMastraToolApprovalAction(
   }
 
   const runtimeData = options.runtime;
-  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   let preserveExecuteBackedWebSearch = false;
   if (providerSupportsNativeWebSearch(runtimeResolution.provider)) {
     // The action's optional toolName is display-only and client-controlled. Use
@@ -2042,7 +2042,7 @@ export async function listSuspendedMastraRuns(
     });
   }
 
-  const runtimeResolution = resolveRuntimeConfiguration(options.runtime);
+  const runtimeResolution = resolveRuntimeConfiguration(options.runtime, options.authInput);
   // Listing performs NO inference: build the runtime with an inert model so no
   // provider/model is resolved. This is why the discovery route can pass a
   // keyless provider with no static default (e.g. ollama) without the
@@ -2306,7 +2306,7 @@ export async function streamMastraToolResumeAction(
   }
 
   const runtimeData = options.runtime;
-  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
     { ...withRuntimeDerivedStreamOptions(options), hydrateToolDiscoveryFromMemory: true },
     runtimeResolution
