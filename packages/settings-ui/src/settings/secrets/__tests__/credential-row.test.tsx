@@ -63,12 +63,19 @@ function renderRow(overrides: { highlightNonce?: number; highlighted?: boolean }
     busy: false,
     deprecatedReports: [],
     draftKey: '',
+    // BST-1353: the aws editor's mode switch. This slot is api_key, so the
+    // mode is inert here — but the props are required, and bearer is the
+    // reducer's default.
+    draftMode: 'bearer' as const,
+    draftProfile: '',
     draftRegion: '',
     editing: false,
     highlighted: overrides.highlighted ?? false,
     highlightNonce: overrides.highlightNonce ?? 0,
     onCancelEdit: () => undefined,
     onDraftKeyChange: () => undefined,
+    onDraftModeChange: () => undefined,
+    onDraftProfileChange: () => undefined,
     onDraftRegionChange: () => undefined,
     onOpenEditor: () => undefined,
     onRemove: () => undefined,

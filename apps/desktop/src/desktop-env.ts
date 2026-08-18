@@ -102,6 +102,20 @@ const AMBIENT_ONLY_CREDENTIAL_ENV_VARIABLE_NAMES: readonly string[] = [
 ];
 
 /**
+ * NOTE on the BST-1363 env-bootstrap report (`desktop-env-report.ts`): it
+ * reports `credentialVariablesPresent` from the FILE set and
+ * `nonCredentialVariablesPresent` from the non-credential set, so these
+ * ambient-only names appear in NEITHER chip list. That is consistent — that
+ * report describes the `.env` ALLOW-LIST, and these names are not
+ * file-loadable — and it is not a leak either way, since the report carries
+ * NAMES only, never values. If a later ticket wants "AWS_ACCESS_KEY_ID is
+ * activating your Bedrock chain" surfaced in that UI, the fix is to read
+ * {@link SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES} for the CREDENTIAL chip list
+ * — never to move these names into the non-credential set, which would both
+ * unscrub them and paint them as innocuous config.
+ */
+
+/**
  * CHILD-ENV SCRUB set — names repository-controlled children must never
  * inherit (the main-process env reaches children; non-interactive command,
  * skill, and hook children strip these, while interactive PTYs and
