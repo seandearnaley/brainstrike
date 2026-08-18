@@ -9,7 +9,7 @@
 
 import type { StorageAdapter } from '@brainstrike/storage';
 import { MemoryStorageAdapter } from '@brainstrike/storage'; // Import MemoryStorageAdapter
-import type { FileExplorerState } from '@brainstrike/types';
+import type { FileExplorerState, PersistenceRecoveryNotice } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import { setupHMR } from '@brainstrike/utils/hmr-utils';
 import type { StateCreator } from 'zustand';
@@ -43,6 +43,8 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     isAccessLoading: false,
     // Ensure lastActiveTab is explicitly set from DEFAULT_STATE or provide default
     lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
+    // Ephemeral recovery signal (not persisted)
+    persistenceRecoveryNotice: null,
     quickFilter: '',
     rootDescriptors: {} as FileExplorerState['rootDescriptors'],
     selectedFilePaths: new Set<string>(),
@@ -58,6 +60,22 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createActiveRootActions(set, get),
     clearQuickFilter: () => {
       set({ quickFilter: '' });
+    },
+    consumePersistenceRecoveryNotice: () => {
+      let consumed = false;
+      set((state) => {
+        if (state.persistenceRecoveryNotice === null) {
+          return state;
+        }
+        consumed = true;
+        return { persistenceRecoveryNotice: null };
+      });
+      return consumed;
+    },
+    reportPersistedStateDiscard: (
+      notice: PersistenceRecoveryNotice = 'persisted-state-discarded'
+    ) => {
+      set({ persistenceRecoveryNotice: notice });
     },
     setDevInlineFixtureEnabled: (value: boolean) => {
       set({ devInlineFixtureEnabled: value });

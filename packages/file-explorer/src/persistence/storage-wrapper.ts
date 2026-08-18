@@ -4,6 +4,8 @@ import type { WorkerStorage } from './worker-storage';
 
 const logger = createLogger('Persistence');
 
+export type PersistedStateDiscardReason = 'malformed-value' | 'unavailable-read';
+
 export type StorageOperationResult =
   | { success: true }
   | { success: false; message: string; error: unknown };
@@ -11,10 +13,17 @@ export type StorageOperationResult =
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const getErrorMetadata = (error: unknown, name: string): { errorName: string; name: string } => ({
+  errorName: error instanceof Error ? error.name : typeof error,
+  name,
+});
+
 async function getItemFromWorker(
   workerStorage: WorkerStorage,
+  storageAdapter: StorageAdapter,
   name: string,
-  shouldLog: boolean
+  shouldLog: boolean,
+  onDiscard?: (reason?: PersistedStateDiscardReason) => void
 ): Promise<unknown> {
   const value = await workerStorage.getItem(name);
   if (value === null || value === undefined) {
@@ -23,9 +32,20 @@ async function getItemFromWorker(
   if (typeof value === 'string') {
     try {
       return JSON.parse(value);
-    } catch (error) {
+    } catch {
+      onDiscard?.('malformed-value');
       if (shouldLog) {
-        logger.error('Invalid JSON from worker storage; ignoring value', { error, name });
+        logger.error('Invalid JSON from worker storage; clearing value', { name });
+      }
+      try {
+        await storageAdapter.removeItem(name);
+      } catch (removeError) {
+        if (shouldLog) {
+          logger.error('Failed to remove invalid storage entry', {
+            errorName: removeError instanceof Error ? removeError.name : typeof removeError,
+            name,
+          });
+        }
       }
       return null;
     }
@@ -36,7 +56,8 @@ async function getItemFromWorker(
 async function getItemFromStorage(
   storageAdapter: StorageAdapter,
   name: string,
-  shouldLog: boolean
+  shouldLog: boolean,
+  onDiscard?: (reason?: PersistedStateDiscardReason) => void
 ): Promise<unknown> {
   const value = await storageAdapter.getItem(name);
   if (!value) {
@@ -44,15 +65,19 @@ async function getItemFromStorage(
   }
   try {
     return JSON.parse(value);
-  } catch (error) {
+  } catch {
+    onDiscard?.('malformed-value');
     if (shouldLog) {
-      logger.error('Invalid JSON from storage adapter; clearing value', { error, name });
+      logger.error('Invalid JSON from storage adapter; clearing value', { name });
     }
     try {
       await storageAdapter.removeItem(name);
     } catch (removeError) {
       if (shouldLog) {
-        logger.error('Failed to remove invalid storage entry', { error: removeError, name });
+        logger.error('Failed to remove invalid storage entry', {
+          errorName: removeError instanceof Error ? removeError.name : typeof removeError,
+          name,
+        });
       }
     }
     return null;
@@ -63,30 +88,46 @@ async function getItemWithWorkerFallback(
   workerStorage: WorkerStorage,
   storageAdapter: StorageAdapter,
   name: string,
-  shouldLog: boolean
+  shouldLog: boolean,
+  onDiscard?: (reason?: PersistedStateDiscardReason) => void
 ): Promise<unknown> {
   try {
-    return await getItemFromWorker(workerStorage, name, shouldLog);
+    return await getItemFromWorker(workerStorage, storageAdapter, name, shouldLog, onDiscard);
   } catch (error) {
     if (shouldLog) {
-      logger.error('Worker getItem failed, falling back to main thread:', error);
+      logger.error(
+        'Worker getItem failed, falling back to main thread',
+        getErrorMetadata(error, name)
+      );
     }
-    return await getItemFromStorage(storageAdapter, name, shouldLog);
+    return await getItemWithStorageOnly(storageAdapter, name, shouldLog, onDiscard);
   }
 }
 
 async function getItemWithStorageOnly(
   storageAdapter: StorageAdapter,
   name: string,
-  shouldLog: boolean
+  shouldLog: boolean,
+  onDiscard?: (reason?: PersistedStateDiscardReason) => void
 ): Promise<unknown> {
   try {
-    return await getItemFromStorage(storageAdapter, name, shouldLog);
-  } catch (error) {
+    return await getItemFromStorage(storageAdapter, name, shouldLog, onDiscard);
+  } catch (firstError) {
     if (shouldLog) {
-      logger.error('Error getting item from storage:', error);
+      logger.debug(
+        'Retrying storage read after adapter failure',
+        getErrorMetadata(firstError, name)
+      );
     }
-    return null;
+    try {
+      return await getItemFromStorage(storageAdapter, name, shouldLog, onDiscard);
+    } catch (finalError) {
+      onDiscard?.('unavailable-read');
+      if (shouldLog) {
+        logger.error('Error getting item from storage', getErrorMetadata(finalError, name));
+      }
+      return null;
+    }
   }
 }
 
@@ -102,14 +143,17 @@ async function setItemWithWorker(
     return { success: true };
   } catch (error) {
     if (shouldLog) {
-      logger.error('Worker setItem failed, falling back to immediate approach:', error);
+      logger.error(
+        'Worker setItem failed, falling back to immediate approach:',
+        getErrorMetadata(error, name)
+      );
     }
     try {
       await storageAdapter.setItem(name, JSON.stringify(value));
       return { success: true };
     } catch (fallbackError) {
       if (shouldLog) {
-        logger.error('Error setting item in storage:', fallbackError);
+        logger.error('Error setting item in storage:', getErrorMetadata(fallbackError, name));
       }
       return { error: fallbackError, message: getErrorMessage(fallbackError), success: false };
     }
@@ -133,14 +177,21 @@ export function createStorageWrapper(
   storageAdapter: StorageAdapter,
   useWorker: boolean,
   workerStorage: WorkerStorage | null,
-  shouldLog: boolean
+  shouldLog: boolean,
+  onDiscard?: (reason?: PersistedStateDiscardReason) => void
 ) {
   return {
     getItem: async (name: string) => {
       if (useWorker && workerStorage) {
-        return await getItemWithWorkerFallback(workerStorage, storageAdapter, name, shouldLog);
+        return await getItemWithWorkerFallback(
+          workerStorage,
+          storageAdapter,
+          name,
+          shouldLog,
+          onDiscard
+        );
       }
-      return await getItemWithStorageOnly(storageAdapter, name, shouldLog);
+      return await getItemWithStorageOnly(storageAdapter, name, shouldLog, onDiscard);
     },
     removeItem: async (name: string) => {
       try {
@@ -148,7 +199,7 @@ export function createStorageWrapper(
         return { success: true };
       } catch (error) {
         if (shouldLog) {
-          logger.error('Error removing item from storage:', error);
+          logger.error('Error removing item from storage:', getErrorMetadata(error, name));
         }
         return { error, message: getErrorMessage(error), success: false };
       }
@@ -159,7 +210,7 @@ export function createStorageWrapper(
       }
       const result = await setItemWithStorage(storageAdapter, name, value);
       if (!result.success && shouldLog) {
-        logger.error('Error setting item in storage:', result.error);
+        logger.error('Error setting item in storage:', getErrorMetadata(result.error, name));
       }
       return result;
     },

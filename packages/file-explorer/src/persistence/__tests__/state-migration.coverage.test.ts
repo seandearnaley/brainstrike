@@ -85,7 +85,7 @@ describe('state-migration coverage', () => {
   it('discards object payloads that do not resemble SerializedState', async () => {
     const { migrateState } = await import('../state-migration');
 
-    const result = migrateState({ nope: true }, 1, true);
+    const result = migrateState({ nope: true }, 5, true);
 
     expectEmptySerializedState(result);
     expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -99,8 +99,10 @@ describe('state-migration coverage', () => {
       currentFolderId: 'folder-1',
       excludeFilters: [],
       expandedDirectoryPaths: [],
-      folderAccessOrder: [],
-      folderStates: {},
+      folderAccessOrder: ['folder-1'],
+      folderStates: {
+        'folder-1': { selectedFilePaths: ['file.ts'] },
+      },
       folderSummaryThreshold: 10,
       includeFilters: [],
       includeProjectTree: false,
@@ -130,8 +132,8 @@ describe('state-migration coverage', () => {
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Migrate - Returning valid SerializedState summary',
       expect.objectContaining({
-        currentFolderId: 'folder-1',
-        folderStateCount: 0,
+        folderStateCount: 1,
+        hasCurrentFolder: true,
         hasSelectionModel: true,
         selectedFileCount: 1,
       })
@@ -167,7 +169,7 @@ describe('state-migration coverage', () => {
   it('rejects partially shaped payloads that only expose currentFolderId', async () => {
     const { migrateState } = await import('../state-migration');
 
-    const result = migrateState({ currentFolderId: null }, 1, true);
+    const result = migrateState({ currentFolderId: null }, 5, true);
 
     expectEmptySerializedState(result);
     expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -185,7 +187,7 @@ describe('state-migration coverage', () => {
         selectedFilePaths: [],
         // Missing folderAccessOrder and expandedDirectoryPaths
       },
-      1,
+      5,
       true
     );
 

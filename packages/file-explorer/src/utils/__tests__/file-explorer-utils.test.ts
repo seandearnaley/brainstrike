@@ -54,6 +54,7 @@ describe('file-explorer-utils', () => {
         isFiltersExpanded: true,
         lastActiveTab: 'files',
         maxSelectionCount: 50,
+        persistenceRecoveryNotice: null,
         querySelectionManifest: null,
         quickFilter: '',
         rootDescriptors: {},
@@ -144,6 +145,7 @@ describe('file-explorer-utils', () => {
         isFiltersExpanded: true,
         lastActiveTab: 'search',
         maxSelectionCount: 75,
+        persistenceRecoveryNotice: null,
         querySelectionManifest: null,
         quickFilter: '',
         rootDescriptors: {},
@@ -201,6 +203,7 @@ describe('file-explorer-utils', () => {
         isFiltersExpanded: true,
         lastActiveTab: 'files',
         maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+        persistenceRecoveryNotice: null,
         querySelectionManifest: {
           directoryCounts: new Map<string, number>(),
           errorMessage: null,

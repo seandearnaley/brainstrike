@@ -110,9 +110,9 @@ describe('worker-storage.worker', () => {
       },
     });
     expect(postMessage).toHaveBeenLastCalledWith({
+      error: 'Persisted state contains invalid JSON',
       id: 'resp-2',
-      result: null,
-      type: 'success',
+      type: 'error',
     });
 
     await messageHandler({

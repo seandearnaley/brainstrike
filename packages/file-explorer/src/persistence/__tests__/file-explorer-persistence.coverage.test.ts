@@ -1,4 +1,4 @@
-import type { FileExplorerState } from '@brainstrike/types';
+import { DEFAULT_STATE, type FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockLogger = vi.hoisted(() => ({
@@ -81,10 +81,9 @@ describe('file-explorer-persistence coverage', () => {
       setItem: async () => {},
     });
 
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      'Could not perform legacy settings migration:',
-      expect.any(Error)
-    );
+    expect(mockLogger.warn).toHaveBeenCalledWith('Could not perform legacy settings migration', {
+      errorName: 'Error',
+    });
   });
 
   it('logs rehydrate success and failure in dev browser mode', async () => {
@@ -112,13 +111,81 @@ describe('file-explorer-persistence coverage', () => {
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'onRehydrateStorage - Storage rehydrated. Folder count:',
       2,
-      'Current folder:',
-      'folder-1'
+      'Has current folder:',
+      true
     );
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      'onRehydrateStorage - Storage rehydration failed:',
-      expect.any(Error)
+      'onRehydrateStorage - Storage rehydration failed',
+      { errorName: 'Error', stage: 'merge-or-set' }
     );
+  });
+
+  it('keeps merge-time recovery diagnostics out of the storage-read stage', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const preHydrationState = {
+      ...DEFAULT_STATE,
+      folderAccessOrder: [],
+      folderStates: {},
+      reportPersistedStateDiscard: vi.fn(),
+    } as unknown as FileExplorerState;
+
+    const mod = await import('../file-explorer-persistence');
+    const persistOptions = mod.createPersistOptions({
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: async () => {},
+    });
+    persistOptions.merge?.(
+      {
+        currentFolderId: null,
+        expandedDirectoryPaths: [],
+        folderAccessOrder: null,
+        folderStates: {},
+        selectedFilePaths: [],
+      },
+      preHydrationState
+    );
+    const callback = persistOptions.onRehydrateStorage?.(preHydrationState);
+    callback?.(preHydrationState, new Error('merge failed'));
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'onRehydrateStorage - Storage rehydration failed',
+      { errorName: 'Error', stage: 'merge-or-set' }
+    );
+  });
+
+  it('does not run the migration pipeline again when merging a migrated version mismatch', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const mod = await import('../file-explorer-persistence');
+    const persistOptions = mod.createPersistOptions({
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: async () => {},
+    });
+    const serializedState = {
+      currentFolderId: null,
+      expandedDirectoryPaths: [],
+      folderAccessOrder: [],
+      folderStates: {},
+      selectedFilePaths: [],
+    };
+
+    const migrated = await persistOptions.migrate?.(serializedState, 4);
+    persistOptions.merge?.(migrated, {
+      ...DEFAULT_STATE,
+      folderAccessOrder: [],
+      folderStates: {},
+    } as unknown as FileExplorerState);
+
+    expect(
+      mockLogger.debug.mock.calls.filter(
+        ([message]) => message === 'Migrate - Received persisted state candidate'
+      )
+    ).toHaveLength(1);
   });
 
   it('warns when the rehydrated state shape is invalid', async () => {

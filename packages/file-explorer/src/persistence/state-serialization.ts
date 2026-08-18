@@ -109,7 +109,7 @@ function coerceRootDescriptors(
     if (coerced) {
       result[key] = coerced;
     } else {
-      logger.debug('coerceRootDescriptors: dropping malformed entry', { key });
+      logger.debug('coerceRootDescriptors: dropping malformed entry');
     }
   }
   return result;
@@ -413,6 +413,9 @@ export function mergeState(
       persistedSerialized.isFiltersExpanded,
       current.isFiltersExpanded
     ),
+    // Recovery is an in-memory hydration result, never persisted input. Pin it
+    // to the live store so unknown/stale snapshot keys cannot fabricate a toast.
+    persistenceRecoveryNotice: current.persistenceRecoveryNotice,
     quickFilter: coerceString(persistedSerialized.quickFilter, current.quickFilter),
     selectedFilePaths: topLevelSelectedFilePaths,
     selectionModel: topLevelSelectionModel,
@@ -463,8 +466,8 @@ export function mergeState(
     logger.debug(
       'Merge complete - Total folders:',
       Object.keys(mergedState.folderStates).length,
-      'Current folder ID:',
-      mergedState.currentFolderId
+      'Has current folder:',
+      mergedState.currentFolderId !== null
     );
   }
   return mergedState;

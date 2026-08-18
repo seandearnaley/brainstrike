@@ -313,7 +313,10 @@ describe('WorkerStorage', () => {
 
       expect(result).toEqual(testData);
       expect(mockLocalStorage.getItem).toHaveBeenCalledWith('fallback-key');
-      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed', {
+        errorName: 'Error',
+        key: 'fallback-key',
+      });
     });
 
     it('should return null when key does not exist', async () => {
@@ -548,7 +551,10 @@ describe('WorkerStorage', () => {
       // Should fall back to localStorage after timeout
       const result = await promise;
       expect(result).toBeNull();
-      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed', {
+        errorName: 'Error',
+        key: 'test',
+      });
     });
 
     it('should handle missing error message in worker response', async () => {
@@ -567,7 +573,10 @@ describe('WorkerStorage', () => {
       const result = await storage.getItem('test');
 
       expect(result).toBeNull();
-      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed', {
+        errorName: 'Error',
+        key: 'test',
+      });
     });
   });
 
