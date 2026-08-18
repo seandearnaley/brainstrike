@@ -34,13 +34,28 @@ pattern and structurally different from every ban-risk pattern:
 - Tokens live only in the user's OS-encrypted local store (safeStorage), never in telemetry,
   never on any Brainstrike infrastructure.
 - Brainstrike does not ship credentials with the product; it ships a sign-in *flow*.
-- The one behavior needing an explicit product constraint: Brainstrike can run long agentic
-  tasks. "Unattended production automation" is the nearest prohibited category, so the connect
-  UI must frame this auth mode as personal/interactive use.
+- On automation: the prohibited category ("production systems calling the API while you're not
+  in the loop", multi-user serving) describes *services*, not a developer running long agentic
+  coding tasks they initiated — the latter is exactly what OpenAI's own Codex CLI/Cloud does
+  under subscription auth. The line Brainstrike must not cross is offering this auth mode to
+  any non-interactive context, which constraint 4 below makes an enforceable product
+  restriction, not UI copy.
 
-**Decision: APPROVED WITH CONSTRAINTS — signed Sean Dearnaley, 2026-08-18** *(pending — this line
-is finalized by the sign-off; see PR discussion. Until edited to remove this parenthetical, the
-gate is NOT passed.)*
+**Residual risks (accepted only if signed below):**
+- **Client registration identity.** The flow uses OpenAI's public Codex CLI client id, per
+  ecosystem precedent (opencode ships it natively; Zed's integration uses the official Codex CLI
+  client id). OpenAI has visibly tolerated and, in Zed's case, collaborated on this pattern —
+  but Brainstrike has no written authorization of its own, and OpenAI could revoke or restrict
+  that client id at any time. Mitigations in constraint 5: honest `originator` identification,
+  and a standing action to obtain a Brainstrike-registered client (or written confirmation)
+  if/when OpenAI offers a channel. If OpenAI blocks the shared client id, the feature degrades
+  to a visible "reconnect unavailable" state — never a workaround.
+- **Terms drift.** The evidence is dated 2026-08-18; a material ToS change reopens this gate.
+
+**Decision: PENDING — NOT SIGNED.** The assessment above recommends *approve with constraints*.
+The gate passes only when a named human decision-maker replaces this paragraph with:
+`APPROVED WITH CONSTRAINTS — <name>, <date>` (or `REJECTED — <name>, <date>` with rationale).
+No implementation work on BST-1355/BST-1356 may start while this paragraph reads PENDING.
 
 **Binding constraints on BST-1355 / BST-1356:**
 1. Each user authenticates their own account; no shared, bundled, or Brainstrike-supplied
@@ -48,11 +63,16 @@ gate is NOT passed.)*
 2. No server-side proxying of subscription traffic — requests go device → OpenAI directly.
 3. Tokens: safeStorage-encrypted local store only; never in logs, telemetry, run-error envelopes,
    RuntimeData, or RequestContext; wiped by factory reset.
-4. The connect UI states plainly that this uses the user's ChatGPT subscription for their own
-   personal use in Brainstrike, and that commercial/multi-user serving requires platform API keys.
+4. **Interactive-desktop-only (enforceable, not copy):** the `openai-codex` provider is
+   resolvable only in interactive desktop sessions — it must be structurally unavailable to any
+   scheduled, headless, server, or multi-user execution context, now or added later (enforce at
+   the credential-resolution layer with a test, so a future headless mode fails closed for this
+   provider). The connect UI additionally states this uses the user's own ChatGPT subscription
+   for personal use, and that commercial/multi-user serving requires platform API keys.
 5. Identify honestly: `originator: brainstrike` — never impersonate another tool's originator
-   string. (The client id is OpenAI's published public client for this flow, per Zed/opencode
-   precedent.)
+   string. The public Codex CLI client id is used per ecosystem precedent (see Residual risks);
+   pursue a Brainstrike-registered client or written OpenAI confirmation if a channel exists,
+   and record the outcome here. Client-id revocation by OpenAI is handled by failing visibly.
 6. Surface subscription rate-limit responses verbatim (bounded) so users understand quota, and
    never auto-retry around them.
 7. SECURITY.md gains a section describing the token store and threat model (per P8.4).
