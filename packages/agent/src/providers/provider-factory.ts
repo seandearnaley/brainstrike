@@ -34,11 +34,6 @@ export type LocalLanguageModelFactory = (
 
 let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
 
-// Stateless singleton; explicit-key routers use their per-instance model
-// cache (fresh per createProvider call), so sharing this instance is for
-// tidiness, not cache reuse.
-const openRouterStrictContentGateway = new OpenRouterStrictContentGateway();
-
 export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
 const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
   'openai',
@@ -164,12 +159,16 @@ export function createProvider(
       // gateway: replayed assistant turns that carry only tool calls
       // serialize as `content: null`, which Alibaba-hosted qwen/* models
       // reject with a 400 — see openrouter-strict-content.ts.
+      // Constructed per call so the request's already-resolved credential
+      // (BRAINSTRIKE_* override, vendor env name, or stored keychain key) is
+      // threaded into the gateway's getApiKey — never re-derived from a
+      // hardcoded env read (BST-1361).
       return new ModelRouterLanguageModel(
         {
           id: `openrouter/${modelName}`,
           ...(apiKey ? { apiKey } : {}),
         },
-        [openRouterStrictContentGateway]
+        [new OpenRouterStrictContentGateway(apiKey)]
       );
     }
 
