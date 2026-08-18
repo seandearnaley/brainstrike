@@ -22,6 +22,7 @@ export type DesktopIpcDomain =
   | 'mcp'
   | 'notesVault'
   | 'preferences'
+  | 'providerAuth'
   | 'runtime'
   | 'shell'
   | 'skills'

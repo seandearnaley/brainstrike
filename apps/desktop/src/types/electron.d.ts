@@ -556,6 +556,14 @@ declare global {
       }>;
       onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
+    /**
+     * Provider OAuth bridge (BST-1355). Shape defined ONCE in
+     * `@brainstrike/assistant-contract/provider-auth` (`ProviderAuthBridge`);
+     * the preload-runtime contract test pins the exposed key set to
+     * `PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS`. Status-only: token material
+     * never crosses IPC. Absent on web — consumers capability-check it.
+     */
+    providerAuth?: import('@brainstrike/assistant-contract/provider-auth').ProviderAuthBridge;
     quickOpen?: {
       onOpen: (callback: () => void) => () => void;
     };

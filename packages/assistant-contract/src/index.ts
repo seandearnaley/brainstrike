@@ -24,6 +24,7 @@ export * from './native-tool-catalog.js';
 export * from './openrouter-coding-defaults.js';
 export * from './openrouter-model-metadata.js';
 export * from './personas.js';
+export * from './provider-auth.js';
 export * from './provider-credential.js';
 export * from './provider-key-resolution.js';
 export * from './provider-key-source.js';

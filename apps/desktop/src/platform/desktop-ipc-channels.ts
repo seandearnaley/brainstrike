@@ -167,6 +167,15 @@ export const DESKTOP_IPC_CHANNELS = {
     layoutSave: 'layout:save',
     settingsClearAll: 'settings:clearAll',
   },
+  // Provider OAuth engine (BST-1355). Renderer-visible surface is STATUS
+  // ONLY — token material never crosses these channels (legal gate BST-1351
+  // constraint 3; pinned by provider-auth-ipc tests).
+  providerAuth: {
+    cancel: 'provider-auth:cancel',
+    disconnect: 'provider-auth:disconnect',
+    start: 'provider-auth:start',
+    status: 'provider-auth:status',
+  },
   quickOpen: {
     // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
     // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
