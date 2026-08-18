@@ -53,8 +53,24 @@ function composeKeyHint(slot: CredentialSlot): string | null {
  * Enter saves, Escape cancels (stopped so the surrounding settings dialog does
  * not close), and the secret input autofocuses on expand. The aws variant adds
  * a region field and saves a `{type:'aws', mode:'bearer'}` credential.
+ *
+ * A subscription slot NEVER reaches the secret editor (BST-1356): the guard
+ * lives in this hook-free wrapper so the check cannot become a conditional
+ * hook call. It throws rather than rendering an inert secret field — a text
+ * box that saves nowhere would invite the user to paste a credential into a
+ * dead end. Unreachable by construction: CredentialRow suppresses the editor
+ * row for these slots and their Actions cell has no Set/Replace to open it.
  */
-export function CredentialRowEditor({
+export function CredentialRowEditor(props: CredentialRowEditorProps) {
+  if (props.slot.authType === 'oauth_subscription') {
+    throw new Error(
+      `Credential slot "${props.slot.id}" authenticates by sign-in and has no key editor.`
+    );
+  }
+  return <SecretRowEditor {...props} />;
+}
+
+function SecretRowEditor({
   busy,
   draftKey,
   draftMode,

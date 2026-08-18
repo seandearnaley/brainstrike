@@ -28,6 +28,11 @@ export const PROVIDER_COLOR_MAP: Record<string, ProviderColorPair> = {
   // (PR #2513 review, finding 10).
   ollama: { dark: 'hsl(120, 45%, 55%)', light: 'hsl(120, 45%, 35%)' },
   openai: { dark: 'hsl(160, 60%, 50%)', light: 'hsl(160, 60%, 35%)' },
+  // Deliberate KINSHIP with openai's 160° — this is the same vendor reached
+  // through a ChatGPT subscription, so a related hue is the honest signal.
+  // Separation comes from saturation + lightness rather than hue, exactly the
+  // bedrock(36°/95%) vs anthropic(25°/70%) precedent above.
+  'openai-codex': { dark: 'hsl(170, 95%, 62%)', light: 'hsl(170, 95%, 28%)' },
   openrouter: { dark: 'hsl(280, 60%, 55%)', light: 'hsl(280, 60%, 45%)' },
   voyage: { dark: 'hsl(180, 60%, 50%)', light: 'hsl(180, 60%, 35%)' },
 } satisfies Record<SupportedProvider, ProviderColorPair>;

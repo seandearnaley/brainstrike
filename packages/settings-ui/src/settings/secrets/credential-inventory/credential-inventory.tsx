@@ -166,6 +166,16 @@ function inventoryReducer(state: InventoryState, action: InventoryAction): Inven
 }
 
 function buildCredential(slot: CredentialSlot, draft: EditorDraft): ProviderCredential {
+  // A subscription slot has no secret to store — its tokens live in the
+  // desktop OAuth engine and never cross into this table. Reaching here means
+  // an oauth row somehow opened the editor, and falling through to the
+  // api_key return would write an empty key to the keychain under a provider
+  // id that can never read it (BST-1356).
+  if (slot.authType === 'oauth_subscription') {
+    throw new Error(
+      `Credential slot "${slot.id}" authenticates by sign-in and stores no credential here.`
+    );
+  }
   const key = draft.key.trim();
   const region = draft.region.trim();
   // A profile chain holds NO secret — the credentials live in the user's AWS

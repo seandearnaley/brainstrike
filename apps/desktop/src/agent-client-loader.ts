@@ -22,6 +22,10 @@ const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
   local: [], // Local provider runs in-browser, no API key needed
   ollama: [], // Local runtime provider, auto-discovered on localhost
   openai: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
+  // BST-1356: ChatGPT-subscription auth is interactive OAuth only. No
+  // environment variable can authenticate it, by construction (legal gate
+  // constraint 4) — an env key here would be a headless back door.
+  'openai-codex': [],
   openrouter: ['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
   voyage: ['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY'],
 };
@@ -42,6 +46,7 @@ const FALLBACK_PROVIDER_ORDER = [
   'cohere',
   'voyage',
   'bedrock',
+  'openai-codex',
   'local',
   'ollama',
   'lmstudio',

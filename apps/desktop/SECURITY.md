@@ -206,6 +206,59 @@ and runs ONLY in the Electron main process.
   under the flow's AbortSignal plus a 30-second per-request timeout — a hung
   endpoint cannot wedge a flow, and cancel rejects a stalled call promptly.
 
+### OpenAI Codex — ChatGPT subscription provider (BST-1356)
+
+The first `oauth_subscription` provider. Descriptor:
+`src/provider-auth/descriptors/openai-codex.ts`.
+
+- **Own account only (gate constraint 1).** Brainstrike ships a sign-in FLOW,
+  never credentials. Each user authenticates their own ChatGPT account on their
+  own device.
+- **No proxying (gate constraint 2).** Requests go device -> OpenAI directly.
+  The fetch layer rewrites `/v1/responses` and `/chat/completions` onto
+  `https://chatgpt.com/backend-api/codex/responses` — OpenAI's own host. No
+  Brainstrike server exists in this path, and the product has no server that
+  could pool or resell subscription traffic.
+- **Interactive-desktop-only (gate constraint 4)** is enforced at the
+  credential-resolution layer by TWO independent gates:
+  1. *Structural* — `providerAuthInputFromCredential`'s oauth arm requires an
+     injected `oauthSubscriptionFetch` capability. Only the interactive desktop
+     assistant-server supplies one; web and any headless host inject nothing
+     and the credential is REJECTED (typed `credential_type_unsupported`).
+     A future headless mode would have to deliberately add the capability to
+     break the constraint — no accidental refactor can.
+  2. *Live* — `createInteractiveSubscriptionFetchFactory` re-checks per
+     resolution (never captured once) that a `visible-ui` window exists, via
+     `assertInteractiveProviderAuthSender`. The assistant server's own bearer
+     token is already `visible-ui`-only (`assistant:get-auth` is role-gated),
+     so this is a second lock on an already-bolted door — deliberately, because
+     the gate requires the check at the credential-resolution layer.
+  Pinned by `src/__tests__/provider-auth/subscription-fetch.test.ts` and
+  `packages/assistant-service/src/__tests__/provider-credential-projection-oauth.test.ts`.
+- **Honest identification (gate constraint 5).** `originator: brainstrike` on
+  every request and in the authorize params — never another tool's originator
+  string. The `User-Agent` is `brainstrike/<version> (<platform> <release>;
+  <arch>)`. The OAuth client id is OpenAI's public Codex CLI registration, used
+  per the ecosystem precedent recorded in the legal gate's Residual-risks
+  section; revocation by OpenAI fails VISIBLY (typed error), never silently.
+- **Token handling (gate constraint 3).** The access token lives only inside
+  the per-request fetch closure, is applied as an `authorization` header, and
+  is never logged, returned, or attached to anything outliving the call. The
+  SDK's own dummy `apiKey` is stripped from the outgoing request in all three
+  `HeadersInit` shapes before the real bearer is attached.
+- **Factory reset.** Wiping `brainstrike-secrets.json` alone was NOT
+  sufficient: a rotated pair whose store write failed lives in the refresher's
+  in-memory overlay and would remain the ACTIVE credential for the process
+  lifetime. `secrets clearAll` now also calls
+  `purgeProviderAuthRuntimeState()`, which disconnects every registered
+  descriptor (bumping its epoch and invalidating the overlay).
+- **Data residency.** When rewriting to the Codex backend, a
+  `chatgpt_compute_residency` claim on the ACCESS token is forwarded as
+  `x-openai-internal-codex-residency` so region-constrained accounts route
+  correctly. `no_constraint` sends no header.
+- **Rate limits (gate constraint 6).** Subscription quota responses are
+  surfaced from OpenAI verbatim (bounded) and are never auto-retried around.
+
 ### Threat model summary
 
 | Threat | Mitigation |

@@ -79,6 +79,55 @@ acceptance criteria on BST-1355 and BST-1356; the residual risks are accepted as
 8. Re-verify endpoints/constants and this assessment against opencode HEAD + official docs at
    implementation time; material ToS changes reopen this gate.
 
+#### Implementation record — BST-1356 (2026-08-18)
+
+Recorded here per constraints 5 and 8, which require the outcome to land in
+this document rather than in a PR thread.
+
+**Constraint 8 — re-verification at implementation time.** Every endpoint and
+constant was re-verified against opencode HEAD on 2026-08-18. Two findings:
+
+1. **The repository moved.** `sst/opencode` was renamed to
+   `anomalyco/opencode`, and its default branch is `dev`, not `main`. The
+   re-verification was performed against `anomalyco/opencode` `dev` HEAD
+   `0033bb3559`. (`raw.githubusercontent.com` does not follow GitHub's rename
+   redirect, so the old URL 404s rather than redirecting — worth knowing for
+   the next re-verification.)
+2. **Two changes since the v1.18.2 baseline**, both landed 2026-08-17:
+   - *#39082* collapsed the `gpt-5.6` context-limit override into gpt-5.5's
+     (400k/272k/128k). MOOT for Brainstrike — `gpt-5.6` is excluded from the
+     allowed set upstream and here.
+   - *#42432* added data-residency routing: a `chatgpt_compute_residency`
+     claim on the ACCESS token is forwarded as
+     `x-openai-internal-codex-residency` when the request is rewritten onto
+     the Codex backend. Brainstrike MIRRORS this, because omitting it would
+     mis-route requests for region-constrained accounts. Note the claim
+     precedence is namespaced-first, the OPPOSITE of the account-id read;
+     that asymmetry is deliberate upstream and is reproduced, not "corrected".
+
+Everything else — client id, issuer, authorize/token endpoints, loopback port
+1455 and `/auth/callback`, scopes, extra authorize params, the non-standard
+device-flow endpoints and their 403/404-means-pending semantics, the
+server-supplied `code_verifier` exchange with
+`redirect_uri https://auth.openai.com/deviceauth/callback`, the
+`ALLOWED_MODELS` set, and the account-id claim precedence — is UNCHANGED from
+the baseline recorded above.
+
+No material change to OpenAI's Terms of Use or the Codex authentication
+documentation was found on re-retrieval, so the gate does not reopen.
+
+**Constraint 5 — client registration identity.** Brainstrike sends
+`originator: brainstrike` in both the authorize parameters and every Codex
+request, and a `brainstrike/<version>` User-Agent. It never sends another
+tool's originator string (pinned by test). The OAuth client id remains
+OpenAI's public Codex CLI registration, per the ecosystem precedent in
+Residual risks above. **No Brainstrike-registered client was obtained: OpenAI
+currently offers no public channel to register a third-party Codex OAuth
+client, and no written confirmation was sought or received.** The residual
+risk therefore stands exactly as accepted above. Revocation of the shared
+client id surfaces as a visible typed error, never a workaround. Re-check for
+a registration channel at the next material product change.
+
 ### Anthropic — Claude Pro/Max OAuth
 
 **Decision: PERMANENTLY REJECTED (do not relitigate).** Anthropic explicitly prohibits third-party

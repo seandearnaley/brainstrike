@@ -6,9 +6,13 @@ import {
 import { TAVILY_VENDOR_ENV_KEY as TAVILY_VENDOR_ENV_KEY_VALUE } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { TAVILY_SECRET_PROVIDER } from '../provider-key-types';
 
-/** Auth modes the inventory can edit inline. `oauth_subscription` and `none`
- * providers keep their own dedicated surfaces. */
-export type CredentialSlotAuthType = 'api_key' | 'aws';
+/**
+ * Auth modes the inventory renders a row for. `api_key` and `aws` are edited
+ * inline; `oauth_subscription` rows carry a sign-in flow instead of a secret
+ * field (BST-1356). Only `none` providers — keyless local runtimes — keep
+ * their own dedicated surfaces and get no row.
+ */
+export type CredentialSlotAuthType = 'api_key' | 'aws' | 'oauth_subscription';
 
 /**
  * One row of the Credential Inventory. Slots are a SUPERSET of registry
@@ -20,8 +24,14 @@ export interface CredentialSlot {
   readonly authType: CredentialSlotAuthType;
   readonly displayName: string;
   readonly docsUrl: string | null;
-  /** Canonical VENDOR env var name shown in the Variable column. */
-  readonly envVar: string;
+  /**
+   * Canonical VENDOR env var name shown in the Variable column, or `null` for
+   * an `oauth_subscription` slot. Subscription auth is interactive-desktop
+   * sign-in only (OAuth legal gate, constraint 4) and such providers declare
+   * `envKeys: []` — so there is no variable name to show, and inventing one
+   * would advertise a way to authenticate that does not exist.
+   */
+  readonly envVar: string | null;
   readonly id: string;
   readonly keyFormatHint: string | null;
   readonly keyNotes: string | null;
@@ -43,20 +53,36 @@ const TAVILY_SLOT: CredentialSlot = {
     "The assistant's web search tool sends your query to Tavily, an external service. Without a key, web search reports that it is unavailable.",
 };
 
-function toProviderSlot(definition: ProviderDefinition): CredentialSlot | null {
-  if (definition.authType !== 'api_key' && definition.authType !== 'aws') {
-    // Keyless local runtimes (and future oauth_subscription providers) keep
-    // their own settings category — deliberately not inventory rows.
-    return null;
-  }
-  const envVar = providerVendorEnvKey(definition.id);
+function isSlotAuthType(
+  authType: ProviderDefinition['authType']
+): authType is CredentialSlotAuthType {
+  return authType === 'api_key' || authType === 'aws' || authType === 'oauth_subscription';
+}
+
+/**
+ * The vendor env name of a KEY-bearing slot. A keyed provider without a
+ * canonical vendor env name is a registry authoring error — surface it, never
+ * invent a variable name. Deliberately NOT applied to `oauth_subscription`
+ * slots: those authenticate by sign-in and declare no env keys at all.
+ */
+function requireVendorEnvKey(providerId: ProviderDefinition['id']): string {
+  const envVar = providerVendorEnvKey(providerId);
   if (!envVar) {
-    // A keyed provider without a canonical vendor env name is a registry
-    // authoring error — surface it, never invent a variable name.
     throw new Error(
-      `Provider "${definition.id}" requires a credential but declares no vendor env name.`
+      `Provider "${providerId}" requires a credential but declares no vendor env name.`
     );
   }
+  return envVar;
+}
+
+function toProviderSlot(definition: ProviderDefinition): CredentialSlot | null {
+  if (!isSlotAuthType(definition.authType)) {
+    // Keyless local runtimes keep their own settings category — deliberately
+    // not inventory rows.
+    return null;
+  }
+  const envVar =
+    definition.authType === 'oauth_subscription' ? null : requireVendorEnvKey(definition.id);
   return {
     authType: definition.authType,
     displayName: definition.displayName,

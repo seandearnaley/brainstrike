@@ -120,6 +120,15 @@ interface ProviderVerificationServiceOptions {
   readonly successTtlMs?: number;
   /** AWS profile-chain resolution seam (BST-1353); tests inject verdicts. */
   readonly verifyAwsCredentialChain?: typeof verifyAwsCredentialChain;
+  /**
+   * Subscription-OAuth freshness seam (BST-1356). Wired to the shared
+   * provider-auth engine's single-flight `getFreshAccessToken`. INJECTED, so
+   * a host without the engine (web, headless) cannot verify a subscription
+   * credential and says so — the same fail-closed shape as the AWS chain.
+   */
+  readonly verifySubscriptionSession?: (
+    providerId: string
+  ) => Promise<{ ok: true } | { ok: false; status: 'not_connected' | 'reconnect_required' }>;
 }
 
 interface ProbeRequest {
@@ -286,15 +295,40 @@ interface ChainProbe {
   readonly resolveChain: string | undefined;
 }
 
-function isChainProbe(probe: ProbeRequest | ChainProbe): probe is ChainProbe {
+function isChainProbe(probe: ProbeRequest | ChainProbe | SubscriptionProbe): probe is ChainProbe {
   return 'resolveChain' in probe;
+}
+
+/**
+ * A subscription-OAuth verification (BST-1356): the credential IS the token
+ * pair, so the probe is proving the session can still mint a fresh access
+ * token. Mirrors the BST-1353 chain probe, where resolving the credential is
+ * itself the most useful answer available without spending a turn.
+ */
+interface SubscriptionProbe {
+  readonly refreshSubscription: string;
+}
+
+function isSubscriptionProbe(
+  probe: ProbeRequest | ChainProbe | SubscriptionProbe
+): probe is SubscriptionProbe {
+  return 'refreshSubscription' in probe;
 }
 
 function resolveProbe(
   providerId: string,
   target: ProviderVerificationTarget,
   credential: ProviderCredential
-): ProbeRequest | ChainProbe {
+): ProbeRequest | ChainProbe | SubscriptionProbe {
+  if (target.authType === 'oauth_subscription') {
+    if (credential.type !== 'oauth') {
+      throw new UnsupportedVerificationCredentialError(
+        'the provider expects a subscription sign-in but a different credential type is stored'
+      );
+    }
+    return { refreshSubscription: providerId };
+  }
+
   if (target.authType === 'aws') {
     if (credential.type !== 'aws') {
       throw new UnsupportedVerificationCredentialError(
@@ -381,6 +415,7 @@ export function createProviderVerificationService(
   // Injected like fetchImpl so tests can drive every chain verdict without a
   // real ~/.aws (BST-1353).
   const verifyChain = options.verifyAwsCredentialChain ?? verifyAwsCredentialChain;
+  const verifySubscription = options.verifySubscriptionSession;
 
   const cache = new Map<string, { checkedAtMs: number; result: ProviderVerificationResult }>();
   const pending = new Map<string, Promise<ProviderVerificationSnapshot>>();
@@ -409,6 +444,50 @@ export function createProviderVerificationService(
    * session shows the `aws sso login --profile <name>` command right in the
    * settings row.
    */
+  /**
+   * Subscription-OAuth probe (BST-1356). Refreshing proves the stored refresh
+   * token is still honored by OpenAI — the question a user actually has
+   * ("is my ChatGPT sign-in still good?") — WITHOUT spending subscription
+   * quota on a model call.
+   *
+   * `verified_limited`, never `verified`: module-wide, `verified` means the
+   * provider's API accepted the credential, and this never touches the Codex
+   * backend. Same rung the AWS chain probe earns, for the same reason
+   * (#2525 finding 5).
+   *
+   * NOTE on caching: the cache key hashes the credential, and an oauth
+   * credential's `access`/`expires` rotate on refresh, so a successful probe
+   * is effectively never served from cache. That is deliberate here — a
+   * freshness check the user explicitly asked for should be live.
+   */
+  const runSubscriptionProbe = async (providerId: string): Promise<ProviderVerificationResult> => {
+    const checkedAt = new Date(now()).toISOString();
+    if (!verifySubscription) {
+      // Fail closed: a host without the provider-auth engine cannot answer.
+      throw new UnsupportedVerificationCredentialError(
+        'subscription sign-in can only be verified in the desktop app'
+      );
+    }
+    const outcome = await verifySubscription(providerId);
+    if (outcome.ok) {
+      return {
+        checkedAt,
+        detail: 'Refreshed the subscription sign-in; model access was not exercised.',
+        status: 'verified_limited',
+      };
+    }
+    return {
+      checkedAt,
+      detail:
+        outcome.status === 'reconnect_required'
+          ? 'The subscription sign-in expired or was revoked. Reconnect the account.'
+          : 'No subscription account is connected for this provider.',
+      // Both branches mean "this credential will not authenticate" — invalid,
+      // not unreachable (which reserves "no verdict obtainable").
+      status: 'invalid',
+    };
+  };
+
   const runChainProbe = async (
     profile: string | undefined
   ): Promise<ProviderVerificationResult> => {
@@ -530,9 +609,14 @@ export function createProviderVerificationService(
         return await existing;
       }
       const request = (async (): Promise<ProviderVerificationSnapshot> => {
-        const result = isChainProbe(probe)
-          ? await runChainProbe(probe.resolveChain)
-          : await runProbe(probe);
+        let result: ProviderVerificationResult;
+        if (isSubscriptionProbe(probe)) {
+          result = await runSubscriptionProbe(probe.refreshSubscription);
+        } else if (isChainProbe(probe)) {
+          result = await runChainProbe(probe.resolveChain);
+        } else {
+          result = await runProbe(probe);
+        }
         // Timestamp AFTER the probe resolves: a probe that spent its 10s
         // timeout failing must not pre-burn the failure TTL it just earned.
         retain(cacheKey, now(), result);
