@@ -25,6 +25,7 @@ import {
   AWS_CHAIN_NO_CREDENTIALS_HINT,
   createAwsCredentialChain,
   describeAwsChainFailure,
+  resolveAwsCredentialChain,
 } from '../providers/aws-credential-chain';
 
 const SAVED_ENV = { ...process.env };
@@ -92,11 +93,43 @@ describe('describeAwsChainFailure', () => {
     expect(detail).not.toContain('AWS SSO session expired');
   });
 
-  it('surfaces an unrecognized failure verbatim rather than guessing a cause', () => {
-    const detail = describeAwsChainFailure(new Error('socket hang up'), 'acme-dev');
+  // PR #2525 review, finding 7: the raw SDK message is upstream-controlled and
+  // can carry file paths, ARNs, account ids, assumed-role names, or proxy
+  // URLs. This string reaches the renderer and the settings row, so it maps to
+  // a BOUNDED set of shapes; the raw text stays in the main-side log (it rides
+  // the typed error's `cause`).
+  it('maps an unrecognized failure to a bounded shape WITHOUT echoing the raw message', () => {
+    const detail = describeAwsChainFailure(
+      new Error('socket hang up while calling https://proxy.internal.acme.corp:8080'),
+      'acme-dev'
+    );
 
-    expect(detail).toContain('socket hang up');
     expect(detail).toContain('acme-dev');
+    expect(detail).toContain('could not reach the network');
+    expect(detail).not.toContain('proxy.internal.acme.corp');
+    expect(detail).not.toContain('socket hang up');
+  });
+
+  it('falls back to a generic line for a wholly unrecognized message', () => {
+    const detail = describeAwsChainFailure(
+      new Error('arn:aws:sts::123456789012:assumed-role/SecretRole/session exploded'),
+      undefined
+    );
+
+    expect(detail).toContain('see the desktop logs');
+    expect(detail).not.toContain('123456789012');
+    expect(detail).not.toContain('SecretRole');
+  });
+
+  it('keeps the raw SDK text on the typed error CAUSE for main-side logging', async () => {
+    const raw = new Error('arn:aws:sts::123456789012:assumed-role/SecretRole/session exploded');
+    const thrown = await resolveAwsCredentialChain('acme-dev', () => Promise.reject(raw)).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+
+    expect((thrown as { cause?: unknown }).cause).toBe(raw);
+    expect((thrown as Error).message).not.toContain('SecretRole');
   });
 });
 

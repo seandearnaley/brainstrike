@@ -59,9 +59,13 @@
  *    is therefore unavailable and the check is STRUCTURAL, on `error.name` —
  *    the same technique `matchSecretReadError` uses across the IPC boundary.
  *
- * Anything that is NOT a recognized chain failure is surfaced VERBATIM rather
- * than folded into one of the two known causes (NO SILENT FALLBACKS): a DNS
- * failure during an SSO refresh must not read as "run aws sso login".
+ * Anything that is NOT a recognized chain failure keeps its own `unknown`
+ * kind rather than being folded into one of the two known causes (NO SILENT
+ * FALLBACKS): a DNS failure during an SSO refresh must not read as "run aws
+ * sso login". Its user-visible text is mapped to a BOUNDED set of shapes and
+ * never interpolates the raw SDK message (PR #2525 review, finding 7) — that
+ * message is upstream-controlled and can carry paths, ARNs, account ids, or
+ * proxy URLs. The raw text rides the typed error's `cause` for main-side logs.
  */
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
@@ -137,11 +141,40 @@ export function classifyAwsChainFailure(
     };
   }
 
-  // Unrecognized: surface the SDK's own text rather than mislabel the cause.
-  return {
-    detail: `AWS credential resolution failed for profile "${profileName}": ${message}`,
-    kind: 'unknown',
-  };
+  // Unrecognized. The raw SDK text is NOT interpolated (PR #2525 review,
+  // finding 7): it is upstream-controlled and can carry file paths, ARNs,
+  // account ids, assumed-role names, or proxy URLs from the user's AWS
+  // environment, and this string reaches the renderer and the settings row.
+  // Known-but-benign shapes get a specific line; anything else gets a generic
+  // one, with the raw text left for the main-side log.
+  return { detail: describeUnknownChainFailure(message, profileName), kind: 'unknown' };
+}
+
+/**
+ * Bounded map from recognized failure SHAPES to fixed strings. Matching is on
+ * the message; the message itself is never echoed.
+ */
+const UNKNOWN_CHAIN_FAILURE_SHAPES: readonly { readonly detail: string; readonly match: RegExp }[] =
+  [
+    {
+      detail: 'the AWS credential chain could not reach the network',
+      match: /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|socket hang up|network/i,
+    },
+    { detail: 'the AWS credential chain timed out', match: /ETIMEDOUT|timed? ?out|abort/i },
+    {
+      detail: 'AWS rejected the credentials or role assumption',
+      match: /AccessDenied|UnrecognizedClient|InvalidClientTokenId|not authorized|AssumeRole/i,
+    },
+    {
+      detail: 'the AWS profile or config file could not be read',
+      match: /ENOENT|EACCES|could not be parsed|malformed|profile/i,
+    },
+  ];
+
+function describeUnknownChainFailure(message: string, profileName: string): string {
+  const shape = UNKNOWN_CHAIN_FAILURE_SHAPES.find((entry) => entry.match.test(message));
+  const cause = shape ? shape.detail : 'the AWS credential chain failed; see the desktop logs';
+  return `AWS credential resolution failed for profile "${profileName}" — ${cause}.`;
 }
 
 /**
@@ -161,14 +194,50 @@ export function describeAwsChainFailure(error: unknown, profile: string | undefi
  * configured profile itself requires one (an SSO token refresh).
  */
 export async function verifyAwsCredentialChain(
-  profile: string | undefined
+  profile: string | undefined,
+  options: { readonly timeoutMs?: number } = {}
 ): Promise<{ readonly ok: true } | ({ readonly ok: false } & AwsChainFailure)> {
   try {
-    await fromNodeProviderChain(profile ? { profile } : {})();
+    // BOUNDED (PR #2525 review, finding 3). Chain resolution is NOT
+    // inherently bounded: `credential_process` can spawn a hanging child, an
+    // SSO refresh can stall on a black-holed proxy, and IMDS can sit at its
+    // own long connect timeout. Without this the probe's single-flight entry
+    // would never settle and every later click would await the same dead
+    // promise — the settings row would spin forever.
+    //
+    // The resolved identity is deliberately DISCARDED: this is a yes/no
+    // probe, and key material must not travel back toward the renderer.
+    await withChainTimeout(fromNodeProviderChain(profile ? { profile } : {})(), options.timeoutMs);
     return { ok: true };
   } catch (error) {
     return { ...classifyAwsChainFailure(error, profile), ok: false };
   }
+}
+
+/** Marker for a chain resolution that blew its deadline. */
+class AwsChainTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`AWS credential chain timed out after ${timeoutMs}ms`);
+    this.name = 'AwsChainTimeoutError';
+  }
+}
+
+function withChainTimeout<T>(work: Promise<T>, timeoutMs: number | undefined): Promise<T> {
+  if (timeoutMs === undefined) {
+    return work;
+  }
+  // `AbortSignal.timeout` gives a self-clearing timer that cannot keep the
+  // process alive; the chain SDK does not accept a signal, so the race is
+  // what actually bounds us.
+  const signal = AbortSignal.timeout(timeoutMs);
+  return Promise.race([
+    work,
+    new Promise<never>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new AwsChainTimeoutError(timeoutMs)), {
+        once: true,
+      });
+    }),
+  ]);
 }
 
 /**
@@ -193,11 +262,58 @@ export function createAwsCredentialChain(
     try {
       return await chain();
     } catch (error) {
-      throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-        cause: error,
-        context: { authKind: 'aws', awsAuthMode: 'profile_chain' },
-        detail: describeAwsChainFailure(error, profile),
-      });
+      throw toTypedChainError(error, profile);
     }
   };
+}
+
+function toTypedChainError(error: unknown, profile: string | undefined): Error {
+  return createMastraAgentError('mastra_agent_runtime_init_failed', {
+    cause: error,
+    context: { authKind: 'aws', awsAuthMode: 'profile_chain' },
+    detail: describeAwsChainFailure(error, profile),
+  });
+}
+
+/**
+ * Resolve the chain NOW and return a provider that REPLAYS the result.
+ *
+ * PR #2525 review, finding 2 — this exists because of an upstream behavior,
+ * not for style. `@ai-sdk/amazon-bedrock` wraps its `credentialProvider()`
+ * call in try/catch and re-throws a PLAIN `Error`:
+ *
+ *   catch (error) { throw new Error(`AWS credential provider failed: ${…}`) }
+ *
+ * The message survives, so a lazily-throwing provider LOOKS fine — but the
+ * class, the `mastra_agent_runtime_init_failed` code, and the `awsAuthMode`
+ * context are destroyed, and the typed run-error envelope never sees them.
+ * Resolving here, BEFORE the provider reaches `createAmazonBedrock`, means
+ * our typed error is thrown outside that catch and arrives intact.
+ *
+ * Per-request freshness is unaffected: callers build the auth input per
+ * request, so the chain is still consulted once per turn and an `aws sso
+ * login` performed mid-session is picked up on the next message. What is
+ * given up is re-resolution *between signatures within one request*, which
+ * the SigV4 signer never needed.
+ *
+ * `resolve` is injectable purely so tests can drive both outcomes without a
+ * real `~/.aws`; production passes nothing.
+ */
+export async function resolveAwsCredentialChain(
+  profile: string | undefined,
+  resolve: AwsCredentialIdentityProvider = createRawChain(profile)
+): Promise<AwsCredentialIdentityProvider> {
+  let identity: Awaited<ReturnType<AwsCredentialIdentityProvider>>;
+  try {
+    identity = await resolve();
+  } catch (error) {
+    throw toTypedChainError(error, profile);
+  }
+  return () => Promise.resolve(identity);
+}
+
+/** The untranslated chain — only `resolveAwsCredentialChain` consumes it. */
+function createRawChain(profile: string | undefined): AwsCredentialIdentityProvider {
+  const chain = fromNodeProviderChain(profile ? { profile } : {});
+  return () => chain();
 }

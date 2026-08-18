@@ -11,7 +11,12 @@
 import { EventStreamCodec } from '@smithy/eventstream-codec';
 import { fromUtf8, toUtf8 } from '@smithy/util-utf8';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MastraAgentError } from '../mastra/mastra-agent-error';
+import {
+  createMastraAgentError,
+  isMastraAgentError,
+  MastraAgentError,
+} from '../mastra/mastra-agent-error';
+import { resolveAwsCredentialChain } from '../providers/aws-credential-chain';
 import {
   CONFLICTING_AWS_CREDENTIALS_DETAIL,
   MISSING_AWS_CREDENTIALS_DETAIL,
@@ -34,6 +39,13 @@ const AWS_AUTH: ProviderAuthInput = {
 interface CapturedRequest {
   readonly authorization: string | null;
   readonly url: string;
+}
+
+/** A CredentialsProviderError look-alike; the SDK's class is not importable. */
+function credentialsProviderError(message: string): Error {
+  const error = new Error(message);
+  error.name = 'CredentialsProviderError';
+  return error;
 }
 
 /**
@@ -207,23 +219,91 @@ describe('createProvider bedrock case (BST-1350)', () => {
     expect(parts.at(-1)?.['type']).toBe('finish');
   });
 
-  it('surfaces a CHAIN failure through the stream rather than signing unauthenticated', async () => {
+  it('DOCUMENTS the SDK behavior that forces pre-resolution: a rejecting credentialProvider loses its type', async () => {
+    // PR #2525 review, finding 2. @ai-sdk/amazon-bedrock wraps the
+    // credentialProvider call in try/catch and re-throws a PLAIN Error
+    // ("AWS credential provider failed: <message>. Please ensure …"). The
+    // message survives, which is exactly why this looked fine at first — but
+    // the class, the `mastra_agent_runtime_init_failed` code, and the
+    // awsAuthMode context are all destroyed, so the run-error envelope never
+    // sees a typed error. This test pins that upstream behavior: if a future
+    // SDK stops swallowing, this failing test is the signal to simplify
+    // `resolveAwsCredentialChain` away.
     stubBedrockStreamFetch();
     const model = createProvider(
       'bedrock',
       {
-        credentialProvider: async () => {
-          throw new Error('mastra_agent_runtime_init_failed: AWS SSO session expired');
-        },
+        credentialProvider: () =>
+          Promise.reject(
+            createMastraAgentError('mastra_agent_runtime_init_failed', {
+              detail: 'AWS SSO session expired',
+            })
+          ),
         kind: 'aws',
         region: 'us-east-1',
       },
       'anthropic.claude-sonnet-5'
     ) as { doStream: (options: unknown) => Promise<unknown> };
 
-    await expect(
-      model.doStream({ prompt: [{ content: [{ text: 'hi', type: 'text' }], role: 'user' }] })
-    ).rejects.toThrow(/AWS SSO session expired/);
+    const thrown = await model
+      .doStream({ prompt: [{ content: [{ text: 'hi', type: 'text' }], role: 'user' }] })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(isMastraAgentError(thrown)).toBe(false);
+  });
+
+  it('PRE-RESOLUTION keeps the typed error intact through the REAL SDK path', async () => {
+    // The fix for finding 2: resolve the chain BEFORE the provider is handed
+    // to the SDK, so the typed error is thrown outside the SDK's catch and
+    // reaches the run-error envelope with its code and context.
+    stubBedrockStreamFetch();
+
+    const thrown = await resolveAwsCredentialChain('acme-dev', () =>
+      Promise.reject(credentialsProviderError('Could not load credentials from any providers'))
+    ).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+
+    expect(isMastraAgentError(thrown)).toBe(true);
+    const typed = thrown as MastraAgentError;
+    expect(typed.code).toBe('mastra_agent_runtime_init_failed');
+    expect(typed.context).toMatchObject({ awsAuthMode: 'profile_chain' });
+    expect(typed.message).toContain('acme-dev');
+  });
+
+  it('a PRE-RESOLVED chain still signs SigV4 and never re-resolves per signature', async () => {
+    const captured = stubBedrockStreamFetch();
+    const resolve = vi.fn(() =>
+      Promise.resolve({ accessKeyId: 'AKIAPRERESOLVED', secretAccessKey: 'sec' })
+    );
+    const credentialProvider = await resolveAwsCredentialChain('acme-dev', resolve);
+
+    const model = createProvider(
+      'bedrock',
+      { credentialProvider, kind: 'aws', region: 'us-east-1' },
+      'anthropic.claude-sonnet-5'
+    ) as {
+      doStream: (options: unknown) => Promise<{ stream: ReadableStream<Record<string, unknown>> }>;
+    };
+    const { stream } = await model.doStream({
+      prompt: [{ content: [{ text: 'hi', type: 'text' }], role: 'user' }],
+    });
+    const reader = stream.getReader();
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) {
+        break;
+      }
+    }
+
+    // Resolved exactly once, at construction — the signature replays it.
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(captured[0]?.authorization).toContain('AKIAPRERESOLVED');
   });
 
   it('rejects a missing region with actionable typed text (never a default region)', () => {

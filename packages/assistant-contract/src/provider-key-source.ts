@@ -80,8 +80,13 @@ export function isAllowedProviderKeySourceEnvVar(
  * that an UNRECOGNIZED key rejects the whole payload (it previously enforced
  * that by counting keys); this keeps that guarantee while letting each arm
  * declare more than one optional field.
+ *
+ * EXPORTED (PR #2525 review, finding 8) so the app-shell status parser reuses
+ * this exact rule instead of maintaining a look-alike — two hand-rolled
+ * strictness checks over one wire shape is precisely how the two consumers
+ * drift.
  */
-function assertNoUnknownKeys(
+export function assertNoUnknownKeys(
   candidate: Record<string, unknown>,
   allowed: readonly string[],
   invalidPayload: () => Error
@@ -96,8 +101,11 @@ function assertNoUnknownKeys(
 /**
  * Reads the optional `authMode`. Absent is fine (non-aws providers); present
  * but not a known mode is a malformed payload, never coerced or dropped.
+ *
+ * EXPORTED for the app-shell status parser (PR #2525 review, finding 8) —
+ * same reason as {@link assertNoUnknownKeys}.
  */
-function parseAuthMode(
+export function parseAuthMode(
   candidate: Record<string, unknown>,
   invalidPayload: () => Error
 ): ProviderAuthMode | undefined {

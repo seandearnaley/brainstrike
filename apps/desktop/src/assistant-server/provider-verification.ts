@@ -413,12 +413,24 @@ export function createProviderVerificationService(
     profile: string | undefined
   ): Promise<ProviderVerificationResult> => {
     const checkedAt = new Date(now()).toISOString();
-    const outcome = await verifyChain(profile);
+    // BOUNDED (#2525 finding 3): reuses the probe's own requestTimeoutMs, so
+    // a hanging `credential_process`, a stalled SSO refresh, or an IMDS
+    // connect timeout settles this entry instead of wedging the single-flight
+    // map behind a promise that never resolves.
+    const outcome = await verifyChain(profile, { timeoutMs: requestTimeoutMs });
     if (outcome.ok) {
       return {
         checkedAt,
-        detail: `Resolved AWS credentials from the ${profile ? `"${profile}"` : 'default'} profile chain.`,
-        status: 'verified',
+        // verified_LIMITED, not verified (#2525 finding 5). Module-wide,
+        // `verified` means the provider's API accepted the credential.
+        // Resolution proves only that local credentials exist — it never
+        // touches Bedrock — so reporting `verified` would silently redefine
+        // the status for one provider. This is the same rung a 403 earns:
+        // authenticated, but the probe could not fully succeed.
+        detail: `Resolved AWS credentials from the ${
+          profile ? `"${profile}"` : 'default'
+        } profile chain; Bedrock access not exercised.`,
+        status: 'verified_limited',
       };
     }
     return {

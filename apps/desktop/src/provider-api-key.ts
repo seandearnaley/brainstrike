@@ -3,6 +3,7 @@ import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
   AWS_CHAIN_ACTIVATION_ENV_NAMES,
   findProviderDefinition,
+  type ProviderAuthMode,
   type ProviderCredential,
   type ProviderKeySource,
   resolveHostedProviderCredential,
@@ -231,6 +232,30 @@ export interface ProviderKeyInspection {
 
 type ConfiguredProviderMap = Map<SupportedProvider, ProviderKeySource<SupportedProvider>>;
 
+/**
+ * The auth mode a STORED credential represents, for aws providers only.
+ *
+ * PR #2525 review, finding 6: a legacy bare-string key stored under bedrock
+ * parses as `{type:'api_key'}`, and `readProviderCredential` treats it as a
+ * BEARER via {@link isBearerCredential}. Deriving the mode from the same
+ * predicate keeps the listing and the request path in agreement — reading
+ * only `credential.mode` would leave a legacy key with no mode at all, and
+ * the env chain would then wrongly override it in the listing while the run
+ * still signed with the stored key.
+ */
+export function storedAuthMode(
+  provider: string,
+  credential: ProviderCredential
+): { authMode?: ProviderAuthMode } {
+  if (findProviderDefinition(provider)?.authType !== 'aws') {
+    return {};
+  }
+  if (credential.type === 'aws') {
+    return { authMode: credential.mode };
+  }
+  return isBearerCredential(credential) ? { authMode: 'bearer' } : {};
+}
+
 /** Rung 1: env BEARER keys, for every provider that declares env names. */
 function collectEnvBearerSources(
   providers: readonly SupportedProvider[],
@@ -277,7 +302,7 @@ async function collectStoredSources(
       const credential = await secretsService.getCredential(supported);
       if (credential !== null && normalizeStoredCredential(credential)) {
         configured.set(supported, {
-          ...(credential.type === 'aws' ? { authMode: credential.mode } : {}),
+          ...storedAuthMode(supported, credential),
           provider: supported,
           source: 'stored',
         });
@@ -305,19 +330,26 @@ function applyEnvChainSources(
   providers: readonly SupportedProvider[],
   configured: ConfiguredProviderMap
 ): void {
+  // Loop-INVARIANT (PR #2525 review, finding 9): the env chain depends only on
+  // process.env, never on the provider, so resolve it ONCE. Inside the loop it
+  // re-scanned the environment per provider and read as if it were per-provider.
+  const envChain = resolveAwsEnvChainCredential(process.env, false);
+  if (!envChain) {
+    return;
+  }
   for (const provider of providers) {
+    // A stored or env BEARER outranks the chain (rungs 1-2 beat rung 3), and
+    // a legacy bare-string key under bedrock counts as a bearer — see
+    // storedAuthMode.
     if (!isAwsAuthProvider(provider) || configured.get(provider)?.authMode === 'bearer') {
       continue;
     }
-    const envChain = resolveAwsEnvChainCredential(process.env, false);
-    if (envChain) {
-      configured.set(provider, {
-        authMode: 'profile_chain',
-        envVar: envChain.envVar,
-        provider,
-        source: 'env',
-      });
-    }
+    configured.set(provider, {
+      authMode: 'profile_chain',
+      envVar: envChain.envVar,
+      provider,
+      source: 'env',
+    });
   }
 }
 

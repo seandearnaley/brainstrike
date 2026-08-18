@@ -258,12 +258,15 @@
     credentials it points AT are secret but live in the user's AWS
     configuration and never pass through this process env, so scrubbing the
     name would break `aws` CLI children while protecting nothing.
-    `AWS_ACCESS_KEY_ID` is deliberately in NEITHER set: it is not a
-    Brainstrike provider credential (the registry never produces it) and it is
-    not `.env`-loadable configuration either — it can still ACTIVATE the
-    credential chain when it is already in the INHERITED process environment,
-    because the allow-list governs what a `.env` FILE may set, not what the
-    chain may see. Separately, the code-execution FENCE allow-list
+    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` are
+    NOT `.env`-loadable (the registry never produces them, and file-loading
+    them would create a new credential channel), but they ARE in
+    `SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES` — the scrub is a DENY-LIST, so an
+    unlisted ambient credential reaches children verbatim (PR #2525 review,
+    finding 1). They can still ACTIVATE the credential chain from the
+    INHERITED process environment, because the file allow-list governs what a
+    `.env` FILE may set, not what the chain may see.
+    Separately, the code-execution FENCE allow-list
     (`INHERITED_ENV_VARS` in `packages/agent/src/fence/fence-executor.ts`)
     contains NO `AWS_*` name and must not gain one: chain resolution is
     desktop-main-only and sandboxed user code has no business signing AWS
@@ -1243,13 +1246,25 @@ the probe table, plus tavily) turns "new provider ships unverifiable" into a
 red build.
 
 The profile-chain probe (BST-1353) maps chain outcomes onto those SAME
-semantics without inventing a status: resolved → `verified` (detail names the
-profile searched, or "default"); `sso_expired` or `no_credentials` →
-`invalid`, because both mean exactly "this credential will not authenticate";
-an unrecognized SDK failure (`kind: 'unknown'` — a DNS error during an SSO
-refresh, say) → `unreachable`, preserving "no verdict obtainable". The failure
-`detail` is the classifier's actionable guidance, so an expired session shows
-the `aws sso login --profile <name>` command right in the settings row. This
+semantics without inventing a status: resolved → **`verified_limited`**, NOT
+`verified` (PR #2525 review, finding 5 — chain resolution proves only that
+LOCAL credentials exist and never touches Bedrock, so reporting `verified`
+would silently redefine that status for one provider; the detail reads
+"…profile chain; Bedrock access not exercised", the same rung a 403 earns);
+`sso_expired` or `no_credentials` → `invalid`, because both mean exactly "this
+credential will not authenticate"; an unrecognized SDK failure (`kind:
+'unknown'` — a DNS error during an SSO refresh, say) → `unreachable`,
+preserving "no verdict obtainable". The failure `detail` is the classifier's
+actionable guidance, so an expired session shows the `aws sso login --profile
+<name>` command right in the settings row; it is drawn from a BOUNDED shape
+map and never interpolates the raw SDK message (finding 7).
+
+The chain probe is BOUNDED by the probe's own `requestTimeoutMs` (finding 3):
+resolution is not inherently bounded — `credential_process` can spawn a
+hanging child, an SSO refresh can stall on a black-holed proxy, and IMDS has
+its own long connect timeout — and an unsettled probe would wedge the
+single-flight entry so every later click awaited the same dead promise. A
+timeout settles as `unreachable` and releases the entry. This
 is the ONE probe whose `detail` is not derived from an HTTP status — there is
 no HTTP response, and the text is the agent's own, never a remote body.
 Pinned by
@@ -1544,12 +1559,34 @@ factory per request (see the auth-input EXACTLY-ONE rule above).
   list: no `awsCredentialChain` capability is injected there, so a
   profile-chain credential cannot resolve on web even if the provider list
   changed.
-- **Env allow-list split:** see the canonical-env-names section — the child
-  scrub uses the credential set only; `AWS_REGION` and `AWS_PROFILE` are the
-  supported non-credential file names, and `AWS_ACCESS_KEY_ID` is in neither
-  set (it activates the chain only from the INHERITED environment). The
-  code-execution fence's `INHERITED_ENV_VARS` carries no `AWS_*` name and
-  must not gain one.
+- **Env name classification — THREE sets, and the scrub is a DENY-LIST
+  (PR #2525 review, finding 1 — SECURITY).**
+  `createCredentialIsolatedChildEnvironment` copies every name NOT in the
+  scrub set, so "absent from every set" means "passed through VERBATIM to
+  repository-controlled children" (execute-command-tool, the hook executor),
+  not "protected". Because BST-1353 documents shell-set AWS static keys as a
+  supported way to ACTIVATE the chain, they are routinely present in a real
+  desktop process env — leaving them unlisted was a live credential-leak path.
+  The two roles are therefore separate constants in
+  `apps/desktop/src/desktop-env.ts`:
+  - `CREDENTIAL_ENV_FILE_VARIABLE_NAMES` — registry + Tavily names a `.env`
+    FILE may set.
+  - `SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES` — the scrub deny-list: the file
+    set PLUS ambient-only credentials `AWS_ACCESS_KEY_ID`,
+    `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`. INVARIANT: a strict superset
+    of the file set (pinned).
+  - `NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES` — `AWS_REGION` and
+    `AWS_PROFILE`: configuration, file-loadable, deliberately NOT scrubbed (a
+    child may need the region; `AWS_PROFILE` only NAMES a profile). BST-1363
+    renders this set as muted "config" chips, which is the second reason a
+    secret must never land here.
+
+  AWS static keys are scrubbed but remain NOT file-loadable — adding them to
+  the scrub must not hand a `<userData>/.env` write a new credential channel.
+  Tests assert the scrub OUTCOME (child env lacks all three), not set
+  membership, plus a tripwire rejecting any `KEY|SECRET|TOKEN|PASSWORD` name
+  in the non-credential set. The code-execution fence's `INHERITED_ENV_VARS`
+  carries no `AWS_*` name and must not gain one.
 
 Pinned by `packages/agent/src/__tests__/aws-credential-chain.spec.ts` (the
 classifier branches plus the EMPIRICAL real-SDK block that MEASURES the

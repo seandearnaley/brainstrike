@@ -343,6 +343,7 @@ export {
   classifyAwsChainFailure,
   createAwsCredentialChain,
   describeAwsChainFailure,
+  resolveAwsCredentialChain,
   verifyAwsCredentialChain,
 } from './providers/aws-credential-chain';
 export type {

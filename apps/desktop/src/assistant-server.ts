@@ -1,8 +1,10 @@
 import http from 'node:http';
 import {
+  type AwsCredentialIdentityProvider,
   assistantDataStreamSessions,
   createAwsCredentialChain,
   type RuntimeData,
+  resolveAwsCredentialChain,
 } from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import {
@@ -417,23 +419,44 @@ async function resolveSnapshotWorkspaceRoots(
  * stamps it), so its absence is a wiring bug asserted loudly — never coerced
  * to an empty provider name.
  */
-function deriveAssistantTurnAuthInput(
+async function deriveAssistantTurnAuthInput(
   runtimeData: RuntimeData,
   credential: Parameters<typeof providerAuthInputFromCredential>[1]
-): ReturnType<typeof providerAuthInputFromCredential> {
+): Promise<ReturnType<typeof providerAuthInputFromCredential>> {
   const provider = runtimeData.provider;
   if (typeof provider !== 'string' || provider.length === 0) {
     throw new Error(
       'Prepared assistant runtime data is missing its provider; request preparation must stamp it.'
     );
   }
-  // BST-1353: the SAME chain capability preparation used, so the credential
-  // that passed preparation cannot fail to project here. The closure it
-  // builds is per-request and desktop-main-only — it never crosses IPC and is
-  // never serialized (RequestContext.toJSON drops functions).
-  return providerAuthInputFromCredential(provider, credential, {
-    awsCredentialChain: createAwsCredentialChain,
-  });
+  // BST-1353 + PR #2525 finding 2: the chain is RESOLVED HERE, before the
+  // provider reaches the AI SDK, because the SDK replaces any rejection from
+  // `credentialProvider` with a plain Error — a lazily-throwing chain would
+  // lose its typed code and awsAuthMode context on the way to the run-error
+  // envelope. Resolving in this async scope keeps the typed error intact.
+  //
+  // Still per-request: this runs once per turn, so a mid-session
+  // `aws sso login` is picked up on the next message.
+  const awsCredentialChain =
+    credential?.type === 'aws' && credential.mode === 'profile_chain'
+      ? await preresolveAwsChain(credential.profile)
+      : createAwsCredentialChain;
+
+  // The closure is desktop-main-only: it never crosses IPC and is never
+  // serialized (RequestContext.toJSON drops functions).
+  return providerAuthInputFromCredential(provider, credential, { awsCredentialChain });
+}
+
+/**
+ * Resolve the chain once and present it as the projection's sync capability.
+ * A failure throws the TYPED chain error out of this async scope — which is
+ * the entire point (see finding 2 above).
+ */
+async function preresolveAwsChain(
+  profile: string | undefined
+): Promise<() => AwsCredentialIdentityProvider> {
+  const resolved = await resolveAwsCredentialChain(profile);
+  return () => resolved;
 }
 
 /**
@@ -443,17 +466,22 @@ function deriveAssistantTurnAuthInput(
  * instead of escaping as an unhandled throw. `ok: false` means the response
  * was already written.
  */
-function deriveAuthInputOrRespond(
+async function deriveAuthInputOrRespond(
   res: http.ServerResponse,
   runtimeData: RuntimeData,
   credential: Parameters<typeof providerAuthInputFromCredential>[1]
-): { ok: true; authInput: ReturnType<typeof deriveAssistantTurnAuthInput> } | { ok: false } {
+): Promise<
+  { ok: true; authInput: Awaited<ReturnType<typeof deriveAssistantTurnAuthInput>> } | { ok: false }
+> {
   try {
-    return { authInput: deriveAssistantTurnAuthInput(runtimeData, credential), ok: true };
+    return { authInput: await deriveAssistantTurnAuthInput(runtimeData, credential), ok: true };
   } catch (error) {
     if (respondToSecretReadError(res, error)) {
       return { ok: false };
     }
+    // A typed chain failure (mastra_agent_runtime_init_failed) is NOT
+    // secret-read-shaped, so it deliberately falls through to the caller's
+    // run-error handling with its code and actionable detail intact.
     throw error;
   }
 }
@@ -500,7 +528,7 @@ async function handleAssistantPost(
     toolApprovalAction,
     toolResumeAction,
   } = prepared.request;
-  const derivedAuthInput = deriveAuthInputOrRespond(res, runtimeData, credential);
+  const derivedAuthInput = await deriveAuthInputOrRespond(res, runtimeData, credential);
   if (!derivedAuthInput.ok) {
     return;
   }

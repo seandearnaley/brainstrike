@@ -65,17 +65,16 @@ class DesktopEnvParseError extends Error {
 const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
 /**
- * Registry-derived CREDENTIAL name set (BST-1361, split in BST-1350): every
- * name here is credential-shaped and drives the CHILD-ENV CREDENTIAL SCRUB —
- * names repository-controlled children must never inherit (the main-process
- * env reaches children; non-interactive command, skill, and hook children
- * strip these, while interactive PTYs and runtime-support children
- * intentionally retain the parent env). Deprecated names stay here forever: a
- * credential-shaped variable must never leak regardless of whether resolution
- * still reads it.
+ * Registry-derived credential names a `.env` FILE may set (BST-1361, split in
+ * BST-1350). Deprecated names stay here forever: an unrecognized name rejects
+ * the WHOLE file, so dropping them would brick existing user files.
  *
- * Derived from the shared provider registry plus the Tavily names rather
- * than hand-copied — a hand-written list silently drifts.
+ * Derived from the shared provider registry plus the Tavily names rather than
+ * hand-copied — a hand-written list silently drifts.
+ *
+ * This set is FILE-LOADABILITY ONLY. The child-process scrub is driven by
+ * {@link SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES}, which is a strict superset;
+ * see the security note there for why the two roles cannot share one constant.
  */
 export const CREDENTIAL_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
   ...listProviders().flatMap((definition) => [
@@ -83,6 +82,48 @@ export const CREDENTIAL_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<s
     ...providerDeprecatedEnvKeys(definition.id),
   ]),
   ...TAVILY_ENV_KEYS,
+]);
+
+/**
+ * Credential names ambient in the process environment that are NOT
+ * `.env`-file loadable (PR #2525 review, finding 1). Scrub-only.
+ *
+ * AWS static credentials arrive from the user's SHELL, not from our env
+ * files: BST-1353 documents `AWS_ACCESS_KEY_ID` as one of the names that
+ * ACTIVATES the credential chain, so they are routinely present in a real
+ * desktop process env. They must never become file-settable (that would hand
+ * a `<userData>/.env` write a brand-new credential channel), but they
+ * absolutely must be scrubbed from child environments.
+ */
+const AMBIENT_ONLY_CREDENTIAL_ENV_VARIABLE_NAMES: readonly string[] = [
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+];
+
+/**
+ * CHILD-ENV SCRUB set — names repository-controlled children must never
+ * inherit (the main-process env reaches children; non-interactive command,
+ * skill, and hook children strip these, while interactive PTYs and
+ * runtime-support children intentionally retain the parent env).
+ *
+ * SECURITY — WHY THIS IS SEPARATE FROM THE FILE SET (PR #2525 review,
+ * finding 1). `createCredentialIsolatedChildEnvironment` is a DENY-LIST: it
+ * copies every name that is NOT in this set. So "absent from every set" does
+ * not mean "protected" — it means "passed through VERBATIM". A credential
+ * that is ambient-but-not-file-loadable therefore needs explicit membership
+ * HERE, and the earlier reasoning that omitting AWS static keys from both
+ * sets was safe had the deny-list backwards.
+ *
+ * INVARIANT: this set is a strict superset of
+ * {@link CREDENTIAL_ENV_FILE_VARIABLE_NAMES} — anything a file may set is by
+ * definition credential-shaped enough to scrub. Pinned by desktop-env.test.ts.
+ * When adding a credential name, ask which role it plays: file-loadable ⇒ the
+ * file set (which flows in here automatically); ambient-only ⇒ the list above.
+ */
+export const SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
+  ...CREDENTIAL_ENV_FILE_VARIABLE_NAMES,
+  ...AMBIENT_ONLY_CREDENTIAL_ENV_VARIABLE_NAMES,
 ]);
 
 /**
@@ -105,18 +146,14 @@ export const CREDENTIAL_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<s
  * MEMBERSHIP HERE IS A SECURITY CLASSIFICATION, not a convenience list, and
  * it is load-bearing in two places at once: this set is EXCLUDED from the
  * child-process credential scrub, and BST-1363 renders it to the user as
- * muted "config" chips (while {@link CREDENTIAL_ENV_FILE_VARIABLE_NAMES}
- * renders as credential chips). So a secret placed here would BOTH leak into
- * repository-controlled child processes AND be painted as innocuous.
+ * muted "config" chips (while credential names render as credential chips).
+ * So a secret placed here would BOTH leak into repository-controlled child
+ * processes AND be painted as innocuous.
  *
- * Hence: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`
- * are deliberately in NEITHER set. They are real secrets, so they could never
- * belong here; they are also not Brainstrike provider credentials (the
- * registry does not produce them), so they are not `.env`-loadable at all.
- * They can still ACTIVATE the chain when already present in the inherited
- * process environment — this allow-list governs what a `.env` FILE may set,
- * never what the chain may consult. Should a future ticket ever make them
- * file-loadable, they go in the CREDENTIAL set, never this one.
+ * `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` are
+ * real secrets and therefore live in
+ * {@link SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES}, not here — they are scrubbed
+ * from children while remaining un-settable from a `.env` file.
  */
 export const NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> =
   new Set<string>(['AWS_PROFILE', 'AWS_REGION']);
@@ -152,8 +189,13 @@ let bootstrapResult: DesktopEnvLoadResult | undefined;
  *
  * Repository-controlled child processes must not inherit credentials merely
  * because Desktop resolved them through the main-process environment. The
- * scrub is the CREDENTIAL set only (BST-1350): non-credential supported names
- * (e.g. AWS_REGION) are configuration and pass through.
+ * scrub uses {@link SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES} — the file set
+ * PLUS ambient-only credentials such as AWS static keys (PR #2525 review,
+ * finding 1). Non-credential supported names (AWS_REGION, AWS_PROFILE) are
+ * configuration and pass through.
+ *
+ * This is a DENY-LIST: a credential name missing from that set is copied
+ * verbatim. Do not "simplify" it back to the file set.
  */
 export function createCredentialIsolatedChildEnvironment(
   source: Readonly<NodeJS.ProcessEnv>
@@ -163,7 +205,7 @@ export function createCredentialIsolatedChildEnvironment(
     // Windows environment names are case-insensitive. Apply the same rule on
     // every platform so a mixed-case source object cannot bypass this boundary
     // in tests, IPC adapters, or a future cross-platform caller.
-    if (!CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has(name.toUpperCase())) {
+    if (!SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES.has(name.toUpperCase())) {
       environment[name] = value;
     }
   }

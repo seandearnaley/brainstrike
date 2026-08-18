@@ -495,6 +495,27 @@ describe('provider-api-key AWS auth precedence (BST-1353)', () => {
     });
   });
 
+  it('a LEGACY bare-string api_key under bedrock is bearer-shaped and outranks the env chain', async () => {
+    // PR #2525 review, finding 6. Every pre-BST-1348 stored key is a bare
+    // string that parses as `{type:'api_key'}` — including one saved under
+    // bedrock. `readProviderCredential` already treats it as a bearer (via
+    // isBearerCredential), so inspection must agree; otherwise the badge
+    // would announce a profile chain while the run signs with the stored key.
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    useStoredCredential({ key: 'legacy-bedrock-bearer', type: 'api_key' });
+
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({
+      key: 'legacy-bedrock-bearer',
+      source: 'stored',
+      type: 'api_key',
+    });
+    await expect(inspectProviderKeys()).resolves.toEqual({
+      configuredProviders: [{ authMode: 'bearer', provider: 'bedrock', source: 'stored' }],
+      readFailures: [],
+    });
+  });
+
   it('inspectProviderKeys AGREES with readProviderCredential when a stored bearer outranks the env chain', async () => {
     process.env['AWS_REGION'] = 'us-east-1';
     process.env['AWS_PROFILE'] = 'acme-dev';
