@@ -27,7 +27,7 @@ export interface StoredRootDescriptor {
   rootId: string;
 }
 
-export type PersistenceRecoveryNotice = 'persisted-state-discarded';
+export type PersistenceRecoveryNotice = 'persisted-state-discarded' | 'persisted-state-unavailable';
 
 // Data types
 export interface FileExplorerData {
@@ -195,8 +195,8 @@ export interface FileExplorerState extends FileExplorerData {
   removeActiveRoot: (rootId: string) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeSelectedFile: (folderId: string, path: string) => void;
-  /** Record a redacted persistence discard for the UI hydration boundary. */
-  reportPersistedStateDiscard: () => void;
+  /** Record a redacted persistence recovery notice for the UI hydration boundary. */
+  reportPersistedStateDiscard: (notice?: PersistenceRecoveryNotice) => void;
   /**
    * Reset the selection model to explicit mode: clears any query selection
    * (descriptor + manifest) and materialized-path cache. Used by write-back

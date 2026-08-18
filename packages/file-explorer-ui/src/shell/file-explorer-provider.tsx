@@ -103,15 +103,20 @@ function PersistenceRecoveryNotifier() {
   const { showToast } = useToastManager();
 
   useEffect(() => {
-    if (notice !== 'persisted-state-discarded') {
+    if (notice === null) {
       return;
     }
     if (!store.getState().consumePersistenceRecoveryNotice()) {
       return;
     }
+    const isUnavailable = notice === 'persisted-state-unavailable';
     showToast({
-      description: FileExplorerStrings.recovery.persistedStateDiscarded,
-      title: FileExplorerStrings.recovery.title,
+      description: isUnavailable
+        ? FileExplorerStrings.recovery.persistedStateUnavailable
+        : FileExplorerStrings.recovery.persistedStateDiscarded,
+      title: isUnavailable
+        ? FileExplorerStrings.recovery.unavailableTitle
+        : FileExplorerStrings.recovery.title,
     });
   }, [notice, showToast, store]);
 

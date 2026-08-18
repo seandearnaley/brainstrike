@@ -116,6 +116,38 @@ describe('FileExplorerProvider persistence recovery notice', () => {
     expect(JSON.stringify(showToast.mock.calls)).not.toContain('future-client-project');
   });
 
+  it('truthfully reports an unavailable persisted-state read', async () => {
+    const backingStorage = new MemoryStorageAdapter();
+    await seedPersistedState(backingStorage, validSerializedState);
+    let remainingReadFailures = 2;
+    const unavailableStorage = {
+      clear: () => backingStorage.clear(),
+      getAllKeys: () => backingStorage.getAllKeys(),
+      getItem: async (key: string) => {
+        if (remainingReadFailures > 0) {
+          remainingReadFailures -= 1;
+          throw new Error('Storage temporarily unavailable');
+        }
+        return await backingStorage.getItem(key);
+      },
+      removeItem: (key: string) => backingStorage.removeItem(key),
+      setItem: (key: string, value: string) => backingStorage.setItem(key, value),
+    };
+
+    render(
+      <FileExplorerProvider storageAdapter={unavailableStorage}>
+        <div />
+      </FileExplorerProvider>
+    );
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledTimes(1));
+    expect(showToast).toHaveBeenCalledWith({
+      description:
+        'Saved explorer settings could not be read. Changes will be saved when storage becomes available. Your files were not changed.',
+      title: 'Explorer settings unavailable',
+    });
+  });
+
   it.each([
     ['absent first-run state', null],
     ['valid persisted state', validSerializedState],
@@ -141,6 +173,7 @@ describe('FileExplorerProvider persistence recovery notice', () => {
         (captured.store as PersistCapableExplorerStore | undefined)?.persist.hasHydrated()
       ).toBe(true)
     );
+    await Promise.resolve();
     expect(showToast).not.toHaveBeenCalled();
   });
 });

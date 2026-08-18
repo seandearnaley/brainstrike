@@ -120,6 +120,42 @@ describe('file-explorer-persistence coverage', () => {
     );
   });
 
+  it('keeps merge-time recovery diagnostics out of the storage-read stage', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const preHydrationState = {
+      ...DEFAULT_STATE,
+      folderAccessOrder: [],
+      folderStates: {},
+      reportPersistedStateDiscard: vi.fn(),
+    } as unknown as FileExplorerState;
+
+    const mod = await import('../file-explorer-persistence');
+    const persistOptions = mod.createPersistOptions({
+      clear: async () => {},
+      getAllKeys: async () => [],
+      getItem: async () => null,
+      removeItem: async () => {},
+      setItem: async () => {},
+    });
+    persistOptions.merge?.(
+      {
+        currentFolderId: null,
+        expandedDirectoryPaths: [],
+        folderAccessOrder: null,
+        folderStates: {},
+        selectedFilePaths: [],
+      },
+      preHydrationState
+    );
+    const callback = persistOptions.onRehydrateStorage?.(preHydrationState);
+    callback?.(preHydrationState, new Error('merge failed'));
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'onRehydrateStorage - Storage rehydration failed',
+      { errorName: 'Error', stage: 'merge-or-set' }
+    );
+  });
+
   it('does not run the migration pipeline again when merging a migrated version mismatch', async () => {
     vi.stubEnv('NODE_ENV', 'development');
     const mod = await import('../file-explorer-persistence');

@@ -65,20 +65,19 @@ function looksLikeSerializedFolderState(value: unknown): boolean {
   );
 }
 
-export function isSerializedStateCandidate(value: unknown): value is SerializedState {
+export function isSerializedStateCandidate(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
   }
 
   const candidate = value;
   const currentFolderId = candidate['currentFolderId'];
-  const folderStates = candidate['folderStates'];
-  return Boolean(
+  return (
     (currentFolderId === null || typeof currentFolderId === 'string') &&
-      isRecord(folderStates) &&
-      isArray(candidate['folderAccessOrder']) &&
-      isArray(candidate['selectedFilePaths']) &&
-      isArray(candidate['expandedDirectoryPaths'])
+    'folderStates' in candidate &&
+    'folderAccessOrder' in candidate &&
+    'selectedFilePaths' in candidate &&
+    'expandedDirectoryPaths' in candidate
   );
 }
 
@@ -126,47 +125,77 @@ export function validateAndRecoverSerializedState(
     );
   }
 
-  const folderStates = persistedState.folderStates ?? {};
+  const candidate = persistedState as Record<string, unknown>;
+  const rawFolderStates = candidate['folderStates'];
+  const folderStatesWasMalformed = !isRecord(rawFolderStates);
+  const folderStates: Record<string, unknown> = isRecord(rawFolderStates) ? rawFolderStates : {};
+  const hadMalformedTopLevelContainer =
+    folderStatesWasMalformed ||
+    !isArray(candidate['folderAccessOrder']) ||
+    !isArray(candidate['selectedFilePaths']) ||
+    !isArray(candidate['expandedDirectoryPaths']);
+  const recoveredState = {
+    ...candidate,
+    currentFolderId: folderStatesWasMalformed ? null : candidate['currentFolderId'],
+    expandedDirectoryPaths: isArray(candidate['expandedDirectoryPaths'])
+      ? candidate['expandedDirectoryPaths']
+      : [],
+    folderAccessOrder: isArray(candidate['folderAccessOrder'])
+      ? candidate['folderAccessOrder']
+      : [],
+    folderStates,
+    selectedFilePaths: isArray(candidate['selectedFilePaths'])
+      ? candidate['selectedFilePaths']
+      : [],
+  } as unknown as SerializedState;
+  if (hadMalformedTopLevelContainer) {
+    onDiscard?.();
+    if (shouldLog) {
+      logger.debug('Migrate - Recovered malformed top-level state containers.');
+    }
+  }
   const validFolderStates = Object.fromEntries(
     Object.entries(folderStates).filter(([, folderState]) =>
       looksLikeSerializedFolderState(folderState)
     )
-  );
+  ) as SerializedState['folderStates'];
   const droppedFolderStateCount =
     Object.keys(folderStates).length - Object.keys(validFolderStates).length;
-  if (droppedFolderStateCount > 0) {
+  const validFolderIds = new Set(Object.keys(validFolderStates));
+  const normalizedCurrentFolderId =
+    recoveredState.currentFolderId && validFolderIds.has(recoveredState.currentFolderId)
+      ? recoveredState.currentFolderId
+      : null;
+  const normalizedFolderAccessOrder = recoveredState.folderAccessOrder.filter((folderId) =>
+    validFolderIds.has(folderId)
+  );
+  const normalizedFolderReferenceCount =
+    (recoveredState.currentFolderId === normalizedCurrentFolderId ? 0 : 1) +
+    (recoveredState.folderAccessOrder.length - normalizedFolderAccessOrder.length);
+  if (droppedFolderStateCount > 0 || normalizedFolderReferenceCount > 0) {
     onDiscard?.();
     if (shouldLog) {
-      logger.debug('Migrate - Dropped malformed nested folder snapshots.', {
+      logger.debug('Migrate - Recovered malformed nested folder state.', {
         droppedFolderStateCount,
+        normalizedFolderReferenceCount,
       });
     }
-    const droppedFolderIds = Object.keys(folderStates).filter(
-      (folderId) => !(folderId in validFolderStates)
-    );
-    const droppedFolderIdSet = new Set(droppedFolderIds);
-    return {
-      ...persistedState,
-      currentFolderId:
-        persistedState.currentFolderId && droppedFolderIdSet.has(persistedState.currentFolderId)
-          ? null
-          : persistedState.currentFolderId,
-      folderAccessOrder: persistedState.folderAccessOrder.filter(
-        (folderId) => !droppedFolderIdSet.has(folderId)
-      ),
-      folderStates: validFolderStates,
-    };
   }
 
   if (shouldLog) {
     logger.debug('Migrate - Returning valid SerializedState summary', {
-      folderStateCount: Object.keys(folderStates).length,
-      hasCurrentFolder: persistedState.currentFolderId !== null,
-      hasSelectionModel: Boolean(persistedState.selectionModel),
-      selectedFileCount: persistedState.selectedFilePaths.length,
+      folderStateCount: Object.keys(validFolderStates).length,
+      hasCurrentFolder: normalizedCurrentFolderId !== null,
+      hasSelectionModel: Boolean(recoveredState.selectionModel),
+      selectedFileCount: recoveredState.selectedFilePaths.length,
     });
   }
-  return persistedState;
+  return {
+    ...recoveredState,
+    currentFolderId: normalizedCurrentFolderId,
+    folderAccessOrder: normalizedFolderAccessOrder,
+    folderStates: validFolderStates,
+  };
 }
 
 function unwrapPersistedState(

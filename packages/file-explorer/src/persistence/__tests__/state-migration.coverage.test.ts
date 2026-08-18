@@ -99,8 +99,10 @@ describe('state-migration coverage', () => {
       currentFolderId: 'folder-1',
       excludeFilters: [],
       expandedDirectoryPaths: [],
-      folderAccessOrder: [],
-      folderStates: {},
+      folderAccessOrder: ['folder-1'],
+      folderStates: {
+        'folder-1': { selectedFilePaths: ['file.ts'] },
+      },
       folderSummaryThreshold: 10,
       includeFilters: [],
       includeProjectTree: false,
@@ -130,7 +132,7 @@ describe('state-migration coverage', () => {
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Migrate - Returning valid SerializedState summary',
       expect.objectContaining({
-        folderStateCount: 0,
+        folderStateCount: 1,
         hasCurrentFolder: true,
         hasSelectionModel: true,
         selectedFileCount: 1,

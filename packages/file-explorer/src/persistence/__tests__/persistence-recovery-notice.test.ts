@@ -37,7 +37,7 @@ describe('persisted explorer recovery notice', () => {
     const backingStorage = new MemoryStorageAdapter();
     await seedPersistedState(backingStorage, validSerializedState);
     const originalSnapshot = await backingStorage.getItem(FILE_EXPLORER_STORAGE_KEY);
-    let remainingReadFailures = 2;
+    let remainingReadFailures = 6;
     const setItem = vi.fn(async (key: string, value: string) => {
       await backingStorage.setItem(key, value);
     });
@@ -57,24 +57,22 @@ describe('persisted explorer recovery notice', () => {
 
     const store = createFileExplorerStore(unavailableStorage);
     await vi.waitFor(() =>
-      expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded')
+      expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-unavailable')
     );
+    await vi.waitFor(() => expect(remainingReadFailures).toBe(2));
 
     expect(store.persist.hasHydrated()).toBe(true);
     expect(setItem).not.toHaveBeenCalled();
-    expect(await unavailableStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).toBe(originalSnapshot);
+    expect(await backingStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).toBe(originalSnapshot);
 
     expect(store.getState().consumePersistenceRecoveryNotice()).toBe(true);
+    await vi.waitFor(() => expect(remainingReadFailures).toBe(0));
     await vi.waitFor(() => expect(setItem).not.toHaveBeenCalled());
+    expect(await backingStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).toBe(originalSnapshot);
 
     store.getState().setQuickFilter('intentional-change');
-    await vi.waitFor(() => expect(setItem).not.toHaveBeenCalled());
-    expect(await unavailableStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).toBe(originalSnapshot);
-
-    await store.persist.rehydrate();
-    expect(store.getState().quickFilter).toBe('restored-filter');
-    store.getState().setQuickFilter('post-rehydrate-change');
     await vi.waitFor(() => expect(setItem).toHaveBeenCalledOnce());
+    expect(await backingStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).not.toBe(originalSnapshot);
   });
 
   it('retries one transient read and hydrates the original snapshot', async () => {
@@ -133,6 +131,63 @@ describe('persisted explorer recovery notice', () => {
 
     expect(store.getState().currentFolderId).toBeNull();
     expect(store.getState().folderStates).toEqual({});
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
+  it('salvages valid folders when one top-level container is malformed', async () => {
+    const storage = new MemoryStorageAdapter();
+    await seedPersistedState(storage, {
+      ...validSerializedState,
+      currentFolderId: 'valid',
+      folderAccessOrder: null,
+      folderStates: {
+        valid: { selectedFilePaths: ['src/valid.ts'] },
+      },
+    });
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().currentFolderId).toBe('valid');
+    expect(store.getState().folderStates['valid']?.selectedFilePaths).toEqual(
+      new Set(['src/valid.ts'])
+    );
+    expect(store.getState().folderAccessOrder).toEqual([]);
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
+  it('clears a dangling current folder when the folder-state container is malformed', async () => {
+    const storage = new MemoryStorageAdapter();
+    await seedPersistedState(storage, {
+      ...validSerializedState,
+      currentFolderId: 'dangling-folder',
+      folderStates: null,
+    });
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().currentFolderId).toBeNull();
+    expect(store.getState().folderStates).toEqual({});
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
+  it('removes folder references absent from a valid folder-state map', async () => {
+    const storage = new MemoryStorageAdapter();
+    await seedPersistedState(storage, {
+      ...validSerializedState,
+      currentFolderId: 'dangling-folder',
+      folderAccessOrder: ['dangling-folder', 'valid'],
+      folderStates: {
+        valid: { selectedFilePaths: ['src/valid.ts'] },
+      },
+    });
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().currentFolderId).toBeNull();
+    expect(store.getState().folderAccessOrder).toEqual(['valid']);
+    expect(store.getState().folderStates['valid']?.selectedFilePaths).toEqual(
+      new Set(['src/valid.ts'])
+    );
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
   });
 

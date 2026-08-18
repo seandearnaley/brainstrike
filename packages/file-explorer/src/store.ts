@@ -9,7 +9,7 @@
 
 import type { StorageAdapter } from '@brainstrike/storage';
 import { MemoryStorageAdapter } from '@brainstrike/storage'; // Import MemoryStorageAdapter
-import type { FileExplorerState } from '@brainstrike/types';
+import type { FileExplorerState, PersistenceRecoveryNotice } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import { setupHMR } from '@brainstrike/utils/hmr-utils';
 import type { StateCreator } from 'zustand';
@@ -72,8 +72,10 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
       });
       return consumed;
     },
-    reportPersistedStateDiscard: () => {
-      set({ persistenceRecoveryNotice: 'persisted-state-discarded' });
+    reportPersistedStateDiscard: (
+      notice: PersistenceRecoveryNotice = 'persisted-state-discarded'
+    ) => {
+      set({ persistenceRecoveryNotice: notice });
     },
     setDevInlineFixtureEnabled: (value: boolean) => {
       set({ devInlineFixtureEnabled: value });
