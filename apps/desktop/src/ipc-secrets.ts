@@ -1,7 +1,9 @@
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
+  findProviderDefinition,
   isProviderCredential,
   MalformedCredentialError,
+  type ProviderAuthMode,
   type ProviderCredential,
   type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
@@ -11,7 +13,11 @@ import { listAgentProviders } from './agent-client-loader';
 import type { DesktopEnvLoadFailure } from './desktop-env';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import { resolveProviderEnvCredential } from './provider-api-key';
+import {
+  resolveAwsEnvChainCredential,
+  resolveProviderEnvCredential,
+  storedAuthMode,
+} from './provider-api-key';
 import {
   credentialStoredKeyFingerprint,
   credentialToApiKey,
@@ -96,17 +102,24 @@ async function toStoredKeySource(
   readCredential: () => Promise<ProviderCredential | null> | ProviderCredential | null
 ): Promise<ProviderKeySource<DesktopProviderKeyId>> {
   let fingerprint: ReturnType<typeof credentialStoredKeyFingerprint>;
+  // BST-1353 (PR #2525 finding 4): the WINNING auth mode has to ride this
+  // listing, not just inspectProviderKeys — this is the surface the Credential
+  // Inventory renders from, so the badge can only name a mode that arrives
+  // here. Derived from the SAME helper the request path uses, so a legacy
+  // bare-string key under bedrock still reads as a bearer.
+  let authMode: { authMode?: ProviderAuthMode } = {};
   try {
     const credential = await readCredential();
     fingerprint = credential ? credentialStoredKeyFingerprint(credential) : undefined;
+    authMode = credential ? storedAuthMode(provider, credential) : {};
   } catch (err) {
     if (!(err instanceof SecretReadError)) {
       throw err;
     }
   }
   return fingerprint
-    ? { metadata: fingerprint, provider, source: 'stored' }
-    : { provider, source: 'stored' };
+    ? { ...authMode, metadata: fingerprint, provider, source: 'stored' }
+    : { ...authMode, provider, source: 'stored' };
 }
 
 async function appendTestModeProviders(
@@ -190,6 +203,8 @@ function appendEnvConfiguredProviders(
     const credential = resolveProviderEnvCredential(provider);
     if (credential) {
       target.set(provider, {
+        // Every registry env key is a BEARER token (BST-1353).
+        ...storedAuthMode(provider, { key: credential.value, type: 'api_key' }),
         envVar: credential.envVar,
         provider,
         source: 'env',
@@ -202,6 +217,41 @@ function appendEnvConfiguredProviders(
     target.set(TAVILY_SECRET_PROVIDER, {
       envVar: tavilyEnvVar,
       provider: TAVILY_SECRET_PROVIDER,
+      source: 'env',
+    });
+  }
+}
+
+/**
+ * Rung 3 of the AWS precedence table for THIS listing (BST-1353, PR #2525
+ * finding 4). Mirrors `applyEnvChainSources` in provider-api-key.ts and must
+ * run LAST for the same reason: it overrides a stored CHAIN but never a
+ * bearer of either source.
+ *
+ * Without it a bedrock row configured purely by `AWS_REGION` + `AWS_PROFILE`
+ * was missing from the listing entirely — the inventory showed "Not set"
+ * while the assistant reported bedrock configured and streamed fine.
+ */
+function appendEnvChainProviders(
+  target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>
+): void {
+  // Loop-invariant: depends only on process.env (PR #2525 finding 9).
+  const envChain = resolveAwsEnvChainCredential(process.env, false);
+  if (!envChain) {
+    return;
+  }
+  for (const provider of listAgentProviders()) {
+    if (
+      !isDesktopProviderKeyId(provider) ||
+      findProviderDefinition(provider)?.authType !== 'aws' ||
+      target.get(provider)?.authMode === 'bearer'
+    ) {
+      continue;
+    }
+    target.set(provider, {
+      authMode: 'profile_chain',
+      envVar: envChain.envVar,
+      provider,
       source: 'env',
     });
   }
@@ -371,6 +421,8 @@ export function registerSecretsIpcHandlers(
       const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
       appendEnvConfiguredProviders(providers);
       await appendStoredProviders(providers, secrets);
+      // LAST — rung 3 of the AWS precedence table (see the helper).
+      appendEnvChainProviders(providers);
       return Array.from(providers.values());
     }
   );

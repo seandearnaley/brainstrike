@@ -23,9 +23,9 @@ import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
 import {
   apiKeyAuthInput,
+  assertExactlyOneAwsCredential,
   assertValidProviderAuthInput,
   bearerApiKeyOnly,
-  MISSING_AWS_BEARER_KEY_DETAIL,
   type ProviderAuthInput,
   type ProviderFetchOptions,
   providerFetchOptions,
@@ -220,24 +220,35 @@ export function createProvider(
     }
 
     case 'bedrock': {
-      // BST-1350 phase 1: bearer-key ("Bedrock API key") auth only. The aws
-      // auth input is REQUIRED — a bearer key alone (api_key kind) or absent
-      // auth carries no region, and region is mandatory (typed failure, never
-      // a silent default). The bearer itself is mandatory too: without it the
-      // AI SDK would fall back to AMBIENT AWS environment credentials, and
-      // profile/credential-chain auth is BST-1353's explicit job.
+      // The aws auth input is REQUIRED — a bearer key alone (api_key kind) or
+      // absent auth carries no region, and region is mandatory (typed
+      // failure, never a silent default).
       const awsAuth = requireAwsAuthInput(auth, validatedProvider);
-      if (!awsAuth.apiKey) {
-        throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-          context: { authKind: 'aws', provider: validatedProvider },
-          detail: MISSING_AWS_BEARER_KEY_DETAIL,
-        });
-      }
+      // EXACTLY ONE credential form, bearer (BST-1350) or credential chain
+      // (BST-1353) — with neither, the AI SDK signs with AMBIENT env
+      // credentials, i.e. an identity the user never chose.
+      //
+      // REDUNDANT BY DESIGN, and measured to be so: `createProvider` always
+      // runs `assertValidProviderAuthInput` first, so removing EITHER call
+      // alone breaks no test (verified by mutation during the #2524 rebase);
+      // only removing BOTH does. Kept as a local invariant at the single
+      // point of use, because this is the line where a missing credential
+      // becomes a silently mis-signed AWS request. Do not delete it as "dead
+      // code" — the pre-dispatch validator is generic over the whole union,
+      // this one is the Bedrock case's own contract.
+      assertExactlyOneAwsCredential(awsAuth);
       // SDK settings ride the SAME providerFetchOptions seam as every other
       // AI SDK factory case (PR #2522 review, finding 9) — a future
-      // fetch-carrying auth kind composes without a bespoke branch here.
+      // fetch-carrying auth kind composes without a bespoke branch here. The
+      // credential provider is added beside it (it is Bedrock-only, so it
+      // stays out of the generic projection); the AI SDK prefers `apiKey`
+      // over `credentialProvider` when both are set, which is precisely why
+      // the XOR above is enforced instead of relied upon.
       const bedrockProvider = createAmazonBedrock({
         ...providerFetchOptions(awsAuth, validatedProvider),
+        ...(awsAuth.credentialProvider === undefined
+          ? {}
+          : { credentialProvider: awsAuth.credentialProvider }),
         region: awsAuth.region,
       });
       // The catalog stores UNPREFIXED Bedrock model ids; the cross-region

@@ -16,8 +16,15 @@
  *   declare its probe, never inherit a guess).
  * - authType 'aws' + bearer credential → the Bedrock foundation-models
  *   listing. Activates whenever a registry provider declares authType 'aws'
- *   (BST-1350). Profile-chain credentials have no bearer to send → typed
- *   `not_applicable`.
+ *   (BST-1350).
+ * - authType 'aws' + profile_chain credential → CHAIN RESOLUTION itself
+ *   (BST-1353), not an HTTP call. This replaced the old `not_applicable`:
+ *   the chain is the credential, so resolving it is the most direct possible
+ *   proof, and it answers the question the user actually has ("is my SSO
+ *   session still good?"). Verdicts: resolved → verified; expired SSO or an
+ *   empty chain → invalid, with the actionable `aws sso login --profile
+ *   <name>` guidance as the detail; an unrecognized SDK failure →
+ *   unreachable, preserving "no verdict obtainable".
  * - 'tavily' is not a chat provider (no registry entry) but owns a settings
  *   slot; it gets a synthetic api_key target and its own credential reader.
  *
@@ -41,6 +48,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { verifyAwsCredentialChain } from '@brainstrike/agent';
 import {
   findProviderDefinition,
   type ProviderAuthType,
@@ -110,6 +118,8 @@ interface ProviderVerificationServiceOptions {
   readonly readCredential?: (providerId: string) => Promise<ProviderCredential | undefined>;
   readonly requestTimeoutMs?: number;
   readonly successTtlMs?: number;
+  /** AWS profile-chain resolution seam (BST-1353); tests inject verdicts. */
+  readonly verifyAwsCredentialChain?: typeof verifyAwsCredentialChain;
 }
 
 interface ProbeRequest {
@@ -270,11 +280,21 @@ function findApiKeyProbe(providerId: string): ((key: string) => ProbeRequest) | 
   ];
 }
 
+/** A profile-chain verification: resolve the chain itself (BST-1353). */
+interface ChainProbe {
+  /** `undefined` = the chain's default profile resolution. */
+  readonly resolveChain: string | undefined;
+}
+
+function isChainProbe(probe: ProbeRequest | ChainProbe): probe is ChainProbe {
+  return 'resolveChain' in probe;
+}
+
 function resolveProbe(
   providerId: string,
   target: ProviderVerificationTarget,
   credential: ProviderCredential
-): ProbeRequest | { readonly notApplicable: string } {
+): ProbeRequest | ChainProbe {
   if (target.authType === 'aws') {
     if (credential.type !== 'aws') {
       throw new UnsupportedVerificationCredentialError(
@@ -282,10 +302,11 @@ function resolveProbe(
       );
     }
     if (credential.mode === 'profile_chain') {
-      return {
-        notApplicable:
-          'AWS profile-chain credentials have no bearer token to probe; verification is not applicable.',
-      };
+      // BST-1353: the chain IS the credential, so resolving it is the probe —
+      // no network call, and a far more useful verdict than the old
+      // `not_applicable`. It answers the question the user actually has
+      // ("will my SSO session work?") before they spend a turn finding out.
+      return { resolveChain: credential.profile };
     }
     return buildAwsBearerProbe(credential);
   }
@@ -357,6 +378,9 @@ export function createProviderVerificationService(
     options.maxCacheEntries ?? DEFAULT_MAX_CACHE_ENTRIES,
     'maxCacheEntries'
   );
+  // Injected like fetchImpl so tests can drive every chain verdict without a
+  // real ~/.aws (BST-1353).
+  const verifyChain = options.verifyAwsCredentialChain ?? verifyAwsCredentialChain;
 
   const cache = new Map<string, { checkedAtMs: number; result: ProviderVerificationResult }>();
   const pending = new Map<string, Promise<ProviderVerificationSnapshot>>();
@@ -371,6 +395,49 @@ export function createProviderVerificationService(
       }
       cache.delete(oldest);
     }
+  };
+
+  /**
+   * Profile-chain verification (BST-1353): resolving the chain IS the probe.
+   *
+   * Verdict mapping keeps the module-wide semantics intact — `invalid` stays
+   * strictly "this credential will not authenticate", which is exactly what
+   * an expired SSO session and an empty chain both mean; `unreachable` stays
+   * "no verdict obtainable", which is where an unrecognized SDK failure (a
+   * DNS error during an SSO refresh, say) belongs. The failure `detail` is
+   * the actionable guidance from the agent's classifier, so an expired
+   * session shows the `aws sso login --profile <name>` command right in the
+   * settings row.
+   */
+  const runChainProbe = async (
+    profile: string | undefined
+  ): Promise<ProviderVerificationResult> => {
+    const checkedAt = new Date(now()).toISOString();
+    // BOUNDED (#2525 finding 3): reuses the probe's own requestTimeoutMs, so
+    // a hanging `credential_process`, a stalled SSO refresh, or an IMDS
+    // connect timeout settles this entry instead of wedging the single-flight
+    // map behind a promise that never resolves.
+    const outcome = await verifyChain(profile, { timeoutMs: requestTimeoutMs });
+    if (outcome.ok) {
+      return {
+        checkedAt,
+        // verified_LIMITED, not verified (#2525 finding 5). Module-wide,
+        // `verified` means the provider's API accepted the credential.
+        // Resolution proves only that local credentials exist — it never
+        // touches Bedrock — so reporting `verified` would silently redefine
+        // the status for one provider. This is the same rung a 403 earns:
+        // authenticated, but the probe could not fully succeed.
+        detail: `Resolved AWS credentials from the ${
+          profile ? `"${profile}"` : 'default'
+        } profile chain; Bedrock access not exercised.`,
+        status: 'verified_limited',
+      };
+    }
+    return {
+      checkedAt,
+      detail: outcome.detail.slice(0, MAX_VISIBLE_ERROR_CHARS),
+      status: outcome.kind === 'unknown' ? 'unreachable' : 'invalid',
+    };
   };
 
   const runProbe = async (probe: ProbeRequest): Promise<ProviderVerificationResult> => {
@@ -437,16 +504,6 @@ export function createProviderVerificationService(
         throw new MissingProviderCredentialError(providerId);
       }
       const probe = resolveProbe(providerId, target, credential);
-      if ('notApplicable' in probe) {
-        return {
-          freshness: 'live',
-          result: {
-            checkedAt: new Date(now()).toISOString(),
-            detail: probe.notApplicable,
-            status: 'not_applicable',
-          },
-        };
-      }
 
       // Cache and single-flight key on (provider, credential digest): a
       // just-changed key must re-probe immediately, never serve the previous
@@ -473,7 +530,9 @@ export function createProviderVerificationService(
         return await existing;
       }
       const request = (async (): Promise<ProviderVerificationSnapshot> => {
-        const result = await runProbe(probe);
+        const result = isChainProbe(probe)
+          ? await runChainProbe(probe.resolveChain)
+          : await runProbe(probe);
         // Timestamp AFTER the probe resolves: a probe that spent its 10s
         // timeout failing must not pre-burn the failure TTL it just earned.
         retain(cacheKey, now(), result);

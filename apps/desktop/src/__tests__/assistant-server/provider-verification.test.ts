@@ -18,12 +18,19 @@ function okResponse(body: unknown = { data: [] }): Response {
 }
 
 interface ServiceOverrides {
+  readonly failureTtlMs?: number;
   readonly fetchImpl?: MockedFunction<typeof fetch>;
   readonly findProvider?: (id: string) => { authType: 'api_key' | 'aws' | 'none' } | undefined;
   readonly now?: () => number;
   readonly readCredential?: (id: string) => Promise<ProviderCredential | undefined>;
   readonly requestTimeoutMs?: number;
   readonly successTtlMs?: number;
+  readonly verifyAwsCredentialChain?: (
+    profile: string | undefined,
+    options?: { timeoutMs?: number }
+  ) => Promise<
+    { ok: true } | { detail: string; kind: 'no_credentials' | 'sso_expired' | 'unknown'; ok: false }
+  >;
 }
 
 function createService(overrides: ServiceOverrides = {}) {
@@ -38,6 +45,12 @@ function createService(overrides: ServiceOverrides = {}) {
       ? {}
       : { requestTimeoutMs: overrides.requestTimeoutMs }),
     ...(overrides.successTtlMs === undefined ? {} : { successTtlMs: overrides.successTtlMs }),
+    ...(overrides.failureTtlMs === undefined ? {} : { failureTtlMs: overrides.failureTtlMs }),
+    // BST-1353: without this the profile-chain probe would resolve the REAL
+    // AWS chain — a network-touching, machine-dependent test.
+    ...(overrides.verifyAwsCredentialChain
+      ? { verifyAwsCredentialChain: overrides.verifyAwsCredentialChain }
+      : {}),
   });
   return { fetchImpl, service };
 }
@@ -249,19 +262,157 @@ describe('ProviderVerificationService aws probes', () => {
     });
   });
 
-  it('reports an aws profile-chain credential as not_applicable without a network call', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
-    const { service } = createService({
-      fetchImpl,
-      findProvider: () => ({ authType: 'aws' }),
-      readCredential: () =>
-        Promise.resolve({ mode: 'profile_chain', region: 'us-east-1', type: 'aws' }),
+  /**
+   * BST-1353: a profile-chain credential is no longer `not_applicable` —
+   * resolving the chain IS the probe. It never issues an HTTP request of its
+   * own, so `fetchImpl` must stay untouched in every case below.
+   */
+  describe('aws profile-chain probe (BST-1353)', () => {
+    function createChainService(
+      verify: (
+        profile: string | undefined,
+        options?: { timeoutMs?: number }
+      ) => Promise<
+        | { ok: true }
+        | { detail: string; kind: 'no_credentials' | 'sso_expired' | 'unknown'; ok: false }
+      >,
+      profile?: string
+    ) {
+      const fetchImpl = vi.fn<typeof fetch>();
+      const verifyAwsCredentialChain = vi.fn(verify);
+      const { service } = createService({
+        fetchImpl,
+        findProvider: () => ({ authType: 'aws' }),
+        readCredential: () =>
+          Promise.resolve({
+            mode: 'profile_chain',
+            region: 'us-east-1',
+            type: 'aws',
+            ...(profile ? { profile } : {}),
+          }),
+        verifyAwsCredentialChain,
+      });
+      return { fetchImpl, service, verifyAwsCredentialChain };
+    }
+
+    it('a resolvable chain reports verified_LIMITED — resolution never proves Bedrock access', async () => {
+      // PR #2525 review, finding 5. `verified` means "the provider's API
+      // accepted this credential" everywhere else in this module. Chain
+      // resolution proves only that LOCAL credentials exist; it never touches
+      // Bedrock, so claiming `verified` would quietly redefine the status for
+      // one provider. verified_limited is the existing "authenticated but the
+      // probe could not fully succeed" rung.
+      const { fetchImpl, service, verifyAwsCredentialChain } = createChainService(
+        () => Promise.resolve({ ok: true as const }),
+        'acme-dev'
+      );
+
+      const snapshot = await service.verify('bedrock');
+      expect(snapshot.result.status).toBe('verified_limited');
+      expect(snapshot.result.detail).toContain('Bedrock access not exercised');
+      expect(verifyAwsCredentialChain).toHaveBeenCalledWith('acme-dev', {
+        timeoutMs: expect.any(Number),
+      });
+      expect(fetchImpl).not.toHaveBeenCalled();
     });
 
-    await expect(service.verify('bedrock')).resolves.toMatchObject({
-      result: { status: 'not_applicable' },
+    it('a NEVER-SETTLING chain settles as unreachable and frees the single-flight entry', async () => {
+      // PR #2525 review, finding 3. `credential_process` can hang, an SSO
+      // refresh can stall on a black-holed proxy, and IMDS has its own long
+      // connect timeout. Without a deadline the pending entry never settles
+      // and every later click awaits the same dead promise — a settings row
+      // that spins forever.
+      const fetchImpl = vi.fn<typeof fetch>();
+      const { service } = createService({
+        failureTtlMs: 1,
+        fetchImpl,
+        findProvider: () => ({ authType: 'aws' }),
+        readCredential: () =>
+          Promise.resolve({ mode: 'profile_chain', region: 'us-east-1', type: 'aws' }),
+        requestTimeoutMs: 25,
+        // Honors the deadline the service passes rather than hanging forever,
+        // which is exactly what the real implementation does.
+        verifyAwsCredentialChain: (_profile, options) =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  detail: 'the AWS credential chain timed out',
+                  kind: 'unknown' as const,
+                  ok: false as const,
+                }),
+              options?.timeoutMs ?? 0
+            );
+          }),
+      });
+
+      await expect(service.verify('bedrock')).resolves.toMatchObject({
+        result: { status: 'unreachable' },
+      });
+      // The single-flight entry was released: a second click re-probes rather
+      // than awaiting the first (dead) promise forever.
+      await expect(service.verify('bedrock')).resolves.toMatchObject({
+        result: { status: 'unreachable' },
+      });
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
+
+    it('an EXPIRED SSO session is invalid, and the detail carries the login command', async () => {
+      const { fetchImpl, service } = createChainService(
+        () =>
+          Promise.resolve({
+            detail: 'AWS SSO session expired — run `aws sso login --profile acme-dev` …',
+            kind: 'sso_expired' as const,
+            ok: false as const,
+          }),
+        'acme-dev'
+      );
+
+      const snapshot = await service.verify('bedrock');
+      expect(snapshot.result.status).toBe('invalid');
+      expect(snapshot.result.detail).toContain('aws sso login --profile acme-dev');
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('an empty chain is invalid and names the profile searched', async () => {
+      const { service } = createChainService(
+        () =>
+          Promise.resolve({
+            detail: 'No AWS credentials were found … for profile "acme-dev".',
+            kind: 'no_credentials' as const,
+            ok: false as const,
+          }),
+        'acme-dev'
+      );
+
+      const snapshot = await service.verify('bedrock');
+      expect(snapshot.result.status).toBe('invalid');
+      expect(snapshot.result.detail).toContain('acme-dev');
+    });
+
+    it('an UNRECOGNIZED chain failure is unreachable — no verdict obtainable, not wrong-key', async () => {
+      const { service } = createChainService(() =>
+        Promise.resolve({
+          detail: 'AWS credential resolution failed …: socket hang up',
+          kind: 'unknown' as const,
+          ok: false as const,
+        })
+      );
+
+      await expect(service.verify('bedrock')).resolves.toMatchObject({
+        result: { status: 'unreachable' },
+      });
+    });
+
+    it('passes an absent profile through as undefined (the chain default)', async () => {
+      const { service, verifyAwsCredentialChain } = createChainService(() =>
+        Promise.resolve({ ok: true as const })
+      );
+
+      await service.verify('bedrock');
+      expect(verifyAwsCredentialChain).toHaveBeenCalledWith(undefined, {
+        timeoutMs: expect.any(Number),
+      });
+    });
   });
 });
 

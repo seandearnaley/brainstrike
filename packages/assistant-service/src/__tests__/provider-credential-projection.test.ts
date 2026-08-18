@@ -5,7 +5,7 @@
  * their own region, env bearer keys borrow AWS_REGION — while every other
  * provider keeps the api_key projection exactly as before.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   providerAuthInputFromCredential,
   UnsupportedCredentialTypeError,
@@ -68,7 +68,11 @@ describe('providerAuthInputFromCredential (BST-1350 aws mapping)', () => {
     ).toEqual({ apiKey: 'env-bearer', kind: 'aws', region: '' });
   });
 
-  it('rejects a profile_chain credential typed, pointing at BST-1353', () => {
+  // BST-1353 — the chain is an INJECTED capability. These two tests are the
+  // structural proof that Hosted Web can never resolve a profile chain: the
+  // SAME credential projects on a host that supplies the capability and
+  // rejects on one that does not. Web supplies none.
+  it('rejects a profile_chain credential when the host supplies NO chain capability (web)', () => {
     let thrown: unknown;
     try {
       providerAuthInputFromCredential('bedrock', {
@@ -86,9 +90,47 @@ describe('providerAuthInputFromCredential (BST-1350 aws mapping)', () => {
     expect(shaped.name).toBe('SecretReadError');
     expect(shaped.code).toBe('credential_type_unsupported');
     expect(shaped.provider).toBe('bedrock');
-    expect(shaped.message).toContain('BST-1353');
+    expect(shaped.message).toContain('desktop');
     // The credential's fields never leak through the message.
     expect(shaped.message).not.toContain('work');
+  });
+
+  it('projects a profile_chain credential through the INJECTED chain capability (desktop)', () => {
+    const resolver = async () => ({ accessKeyId: 'AKIA', secretAccessKey: 'sec' });
+    const awsCredentialChain = vi.fn(() => resolver);
+
+    const auth = providerAuthInputFromCredential(
+      'bedrock',
+      {
+        mode: 'profile_chain',
+        profile: 'work',
+        region: 'us-east-1',
+        source: 'stored',
+        type: 'aws',
+      },
+      { awsCredentialChain }
+    );
+
+    // The stored profile is handed to the chain builder verbatim.
+    expect(awsCredentialChain).toHaveBeenCalledWith('work');
+    expect(auth).toEqual({ credentialProvider: resolver, kind: 'aws', region: 'us-east-1' });
+    // A chain carries NO bearer — the two forms are mutually exclusive.
+    expect(auth?.apiKey).toBeUndefined();
+  });
+
+  it('passes an ABSENT profile through as undefined (the chain default)', () => {
+    const awsCredentialChain = vi.fn(() => async () => ({
+      accessKeyId: 'AKIA',
+      secretAccessKey: 'sec',
+    }));
+
+    providerAuthInputFromCredential(
+      'bedrock',
+      { mode: 'profile_chain', region: 'eu-west-1', source: 'stored', type: 'aws' },
+      { awsCredentialChain }
+    );
+
+    expect(awsCredentialChain).toHaveBeenCalledWith(undefined);
   });
 
   it('rejects an aws credential stored for a non-aws provider', () => {

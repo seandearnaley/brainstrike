@@ -13,6 +13,8 @@ import {
   type LoadDesktopEnvironmentOptions,
   loadDesktopEnvironment,
   NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES,
+  SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES,
+  SUPPORTED_ENV_FILE_VARIABLE_NAMES,
 } from '../../desktop-env';
 import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 
@@ -87,16 +89,86 @@ describe('createCredentialIsolatedChildEnvironment', () => {
     expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('BRAINSTRIKE_BEDROCK_API_KEY')).toBe(true);
   });
 
-  it('keeps AWS_REGION for children — a region is configuration, not a secret (BST-1350)', () => {
+  it('keeps AWS_REGION and AWS_PROFILE for children — configuration, not secrets (BST-1350/1353)', () => {
     const result = createCredentialIsolatedChildEnvironment({
       AWS_BEARER_TOKEN_BEDROCK: 'bearer-secret',
+      AWS_PROFILE: 'acme-dev',
       AWS_REGION: 'us-east-1',
       PATH: '/usr/bin',
     });
-    expect(result).toEqual({ AWS_REGION: 'us-east-1', PATH: '/usr/bin' });
+    // AWS_PROFILE NAMES a profile; the credentials it points at live in the
+    // user's AWS config and never pass through this process env, so scrubbing
+    // the name would break `aws` CLI children while protecting nothing.
+    expect(result).toEqual({
+      AWS_PROFILE: 'acme-dev',
+      AWS_REGION: 'us-east-1',
+      PATH: '/usr/bin',
+    });
     expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_REGION')).toBe(false);
-    // The non-credential set stays deliberately tiny: exactly AWS_REGION today.
-    expect([...NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES]).toEqual(['AWS_REGION']);
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_PROFILE')).toBe(false);
+    // The non-credential set stays deliberately tiny — extend it only with a
+    // ruling, never casually.
+    expect([...NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES].sort()).toEqual([
+      'AWS_PROFILE',
+      'AWS_REGION',
+    ]);
+  });
+
+  it('SECURITY: AWS static keys never reach a child environment (PR #2525 review, finding 1)', () => {
+    // THE OUTCOME, not set membership. The scrub is a DENY-LIST: any name
+    // absent from the scrubbed set passes through VERBATIM to
+    // repository-controlled children (execute-command-tool, the hook
+    // executor). Since BST-1353 documents shell-set AWS static keys as a
+    // supported way to activate the credential chain, leaving them out of the
+    // deny-list was a live credential-leak path — "in neither set" is NOT the
+    // same as "protected".
+    const child = createCredentialIsolatedChildEnvironment({
+      AWS_ACCESS_KEY_ID: 'AKIALEAK',
+      AWS_PROFILE: 'acme-dev',
+      AWS_REGION: 'us-east-1',
+      AWS_SECRET_ACCESS_KEY: 'leaked-secret',
+      AWS_SESSION_TOKEN: 'leaked-session',
+      PATH: '/usr/bin',
+    });
+
+    expect(child['AWS_ACCESS_KEY_ID']).toBeUndefined();
+    expect(child['AWS_SECRET_ACCESS_KEY']).toBeUndefined();
+    expect(child['AWS_SESSION_TOKEN']).toBeUndefined();
+    expect(Object.values(child)).not.toContain('leaked-secret');
+    expect(Object.values(child)).not.toContain('leaked-session');
+    // The two NON-secret names still pass through: a child may legitimately
+    // need the region, and AWS_PROFILE only NAMES a profile.
+    expect(child['AWS_REGION']).toBe('us-east-1');
+    expect(child['AWS_PROFILE']).toBe('acme-dev');
+    expect(child['PATH']).toBe('/usr/bin');
+  });
+
+  it('SECURITY: AWS static keys are SCRUBBED but never `.env`-file loadable', () => {
+    // The two roles are now separate constants (SCRUBBED ⊇ ENV_FILE). Adding
+    // these names to the scrub must NOT make them settable from a `.env`
+    // file — that would hand a userData file write a new credential channel.
+    for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN']) {
+      expect(SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES.has(name)).toBe(true);
+      expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+      expect(NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+      expect(SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+    }
+  });
+
+  it('SECURITY: the scrubbed set is a SUPERSET of the env-file credential set', () => {
+    // A name that a `.env` file may set is by definition credential-shaped
+    // enough to scrub; the reverse need not hold.
+    for (const name of CREDENTIAL_ENV_FILE_VARIABLE_NAMES) {
+      expect(SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES.has(name)).toBe(true);
+    }
+  });
+
+  it('SECURITY: the non-credential set contains ONLY non-secret configuration', () => {
+    // A tripwire on the whole set rather than on the names BST-1353 happened
+    // to add: anything that looks like a secret must never land here.
+    for (const name of NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES) {
+      expect(name).not.toMatch(/KEY|SECRET|TOKEN|PASSWORD/);
+    }
   });
 });
 

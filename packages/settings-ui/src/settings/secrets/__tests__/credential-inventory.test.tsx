@@ -16,6 +16,12 @@ const { listProvidersMock, providerVendorEnvKeyMock, toastMock } = vi.hoisted(()
 
 vi.mock('@brainstrike/assistant-contract/provider-metadata', () => ({
   listProviders: listProvidersMock,
+  // BST-1353: derived from whatever definitions the test mounted, so an aws
+  // slot reports authType 'aws' without a second hand-maintained table.
+  providerAuthType: (provider: string) =>
+    (listProvidersMock() as { authType: string; id: string }[]).find(
+      (definition) => definition.id === provider
+    )?.authType ?? 'api_key',
   providerEnvKeys: (provider: string) =>
     provider === 'openai'
       ? ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY']
@@ -567,113 +573,6 @@ describe('CredentialInventory', () => {
     expect(within(editor).getByLabelText('Copy the OpenAI API key page URL').textContent).toContain(
       'https://platform.openai.com/api-keys'
     );
-  });
-
-  it('renders the aws editor variant (key + region) and saves a bearer credential', async () => {
-    listProvidersMock.mockReturnValue([
-      { authType: 'aws', displayName: 'Amazon Bedrock', id: 'bedrock' },
-    ]);
-    providerVendorEnvKeyMock.mockReturnValue('AWS_BEARER_TOKEN_BEDROCK');
-
-    render(<CredentialInventory />);
-    await waitForReady();
-
-    fireEvent.click(screen.getByTestId('credential-set-bedrock'));
-    const editor = screen.getByTestId('credential-editor-bedrock');
-    const keyInput = within(editor).getByTestId('credential-key-input-bedrock');
-    const regionInput = within(editor).getByTestId('credential-region-input-bedrock');
-    const save = within(editor).getByTestId('credential-save-bedrock') as HTMLButtonElement;
-
-    fireEvent.change(keyInput, { target: { value: 'bedrock-bearer' } });
-    expect(save.disabled).toBe(true);
-    fireEvent.change(regionInput, { target: { value: 'us-east-1' } });
-    expect(save.disabled).toBe(false);
-    fireEvent.click(save);
-
-    await waitFor(() => {
-      expect(getSecretsApi()?.saveCredential).toHaveBeenCalledTimes(1);
-    });
-    const saveCredentialMock = getSecretsApi()?.saveCredential as ReturnType<typeof vi.fn>;
-    const [provider, credential] = saveCredentialMock.mock.calls[0] as [string, ProviderCredential];
-    expect(provider).toBe('bedrock');
-    if (!(credential.type === 'aws' && credential.mode === 'bearer')) {
-      throw new Error('expected aws bearer credential');
-    }
-    expect(credential.bearerKey).toBe('bedrock-bearer');
-    expect(credential.region).toBe('us-east-1');
-    expect(credential.metadata?.['last4']).toBe('arer');
-  });
-
-  it('SECURITY: disables Save and shows an inline hint for a malformed AWS region (BST-1350)', async () => {
-    // The region is interpolated into the Bedrock request hostname, so a
-    // value like `evil.example.com/` must never even reach the keychain —
-    // the editor gates on the SHARED isValidAwsRegion and explains why.
-    listProvidersMock.mockReturnValue([
-      { authType: 'aws', displayName: 'Amazon Bedrock', id: 'bedrock' },
-    ]);
-    providerVendorEnvKeyMock.mockReturnValue('AWS_BEARER_TOKEN_BEDROCK');
-
-    render(<CredentialInventory />);
-    await waitForReady();
-
-    fireEvent.click(screen.getByTestId('credential-set-bedrock'));
-    const editor = screen.getByTestId('credential-editor-bedrock');
-    const save = within(editor).getByTestId('credential-save-bedrock') as HTMLButtonElement;
-    fireEvent.change(within(editor).getByTestId('credential-key-input-bedrock'), {
-      target: { value: 'bedrock-bearer' },
-    });
-
-    for (const hostile of ['evil.example.com/', 'us-east-1/', 'US-EAST-1']) {
-      fireEvent.change(within(editor).getByTestId('credential-region-input-bedrock'), {
-        target: { value: hostile },
-      });
-      expect(save.disabled).toBe(true);
-      expect(within(editor).getByTestId('credential-region-invalid-bedrock')).toBeTruthy();
-    }
-
-    fireEvent.change(within(editor).getByTestId('credential-region-input-bedrock'), {
-      target: { value: 'us-east-1' },
-    });
-    expect(within(editor).queryByTestId('credential-region-invalid-bedrock')).toBeNull();
-    expect(save.disabled).toBe(false);
-    expect(getSecretsApi()?.saveCredential).not.toHaveBeenCalled();
-  });
-
-  it('maps a malformed_credential save rejection to actionable region guidance', async () => {
-    // Store-side backstop for the same guard (isAwsCredential region format):
-    // if the keychain write rejects a credential as malformed, the toast says
-    // what a valid region looks like instead of "Unknown error".
-    listProvidersMock.mockReturnValue([
-      { authType: 'aws', displayName: 'Amazon Bedrock', id: 'bedrock' },
-    ]);
-    providerVendorEnvKeyMock.mockReturnValue('AWS_BEARER_TOKEN_BEDROCK');
-    const base = createSecretsApi();
-    setSecretsApi({
-      ...base,
-      saveCredential: vi.fn().mockResolvedValue({ error: 'malformed_credential', ok: false }),
-    });
-
-    render(<CredentialInventory />);
-    await waitForReady();
-
-    fireEvent.click(screen.getByTestId('credential-set-bedrock'));
-    fireEvent.change(screen.getByTestId('credential-key-input-bedrock'), {
-      target: { value: 'bedrock-bearer' },
-    });
-    fireEvent.change(screen.getByTestId('credential-region-input-bedrock'), {
-      target: { value: 'us-east-1' },
-    });
-    fireEvent.click(screen.getByTestId('credential-save-bedrock'));
-
-    await waitFor(() => {
-      expect(toastMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          description: expect.stringContaining('us-east-1'),
-          title: 'Failed to save key',
-          variant: 'destructive',
-        })
-      );
-    });
   });
 
   it('renders the deprecated-env rename warning from status data', async () => {

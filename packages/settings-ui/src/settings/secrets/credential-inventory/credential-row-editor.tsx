@@ -1,4 +1,4 @@
-import { isValidAwsRegion } from '@brainstrike/assistant-contract';
+import { isValidAwsRegion, type ProviderAuthMode } from '@brainstrike/assistant-contract';
 import { Button, CopyTextButton, Input } from '@brainstrike/ui';
 import { useEffect, useRef } from 'react';
 import type { CredentialSlot } from './credential-slots';
@@ -6,12 +6,30 @@ import type { CredentialSlot } from './credential-slots';
 interface CredentialRowEditorProps {
   readonly busy: boolean;
   readonly draftKey: string;
+  readonly draftMode: ProviderAuthMode;
+  readonly draftProfile: string;
   readonly draftRegion: string;
   readonly onCancel: () => void;
   readonly onDraftKeyChange: (value: string) => void;
+  readonly onDraftModeChange: (value: ProviderAuthMode) => void;
+  readonly onDraftProfileChange: (value: string) => void;
   readonly onDraftRegionChange: (value: string) => void;
   readonly onSave: () => void;
   readonly slot: CredentialSlot;
+}
+
+/**
+ * Whether the aws draft is complete enough to save (BST-1353). The region is
+ * mandatory and format-gated in BOTH modes; the bearer key is required only
+ * in bearer mode, and the profile is ALWAYS optional — an empty profile means
+ * the chain's own default resolution, which is a legitimate configuration
+ * (that is why `profile` is optional on the stored credential too).
+ */
+function canSaveAwsDraft(mode: ProviderAuthMode, key: string, regionValid: boolean): boolean {
+  if (!regionValid) {
+    return false;
+  }
+  return mode === 'bearer' ? key.trim().length > 0 : true;
 }
 
 /**
@@ -39,22 +57,31 @@ function composeKeyHint(slot: CredentialSlot): string | null {
 export function CredentialRowEditor({
   busy,
   draftKey,
+  draftMode,
+  draftProfile,
   draftRegion,
   onCancel,
   onDraftKeyChange,
+  onDraftModeChange,
+  onDraftProfileChange,
   onDraftRegionChange,
   onSave,
   slot,
 }: CredentialRowEditorProps) {
   const isAws = slot.authType === 'aws';
+  const isProfileChain = isAws && draftMode === 'profile_chain';
   // SECURITY (BST-1350 review, finding 1): the region is interpolated into
   // the Bedrock request hostname, so a non-region value must never reach the
   // keychain. The SHARED isValidAwsRegion (also enforced store-side in
   // isAwsCredential) gates Save and explains the expected shape inline.
+  // BST-1353: enforced in BOTH aws modes — a profile chain builds the same
+  // hostname.
   const trimmedRegion = draftRegion.trim();
   const regionInvalid = isAws && trimmedRegion.length > 0 && !isValidAwsRegion(trimmedRegion);
+  const regionValid = trimmedRegion.length > 0 && !regionInvalid;
   const canSave =
-    !busy && draftKey.trim().length > 0 && (!isAws || (trimmedRegion.length > 0 && !regionInvalid));
+    !busy &&
+    (isAws ? canSaveAwsDraft(draftMode, draftKey, regionValid) : draftKey.trim().length > 0);
   const keyHint = composeKeyHint(slot);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -97,20 +124,61 @@ export function CredentialRowEditor({
 
   return (
     <div className="space-y-2 py-1" data-testid={`credential-editor-${slot.id}`} ref={containerRef}>
+      {isAws ? (
+        <fieldset
+          aria-label={`${slot.displayName} authentication method`}
+          className="flex flex-wrap items-center gap-1"
+        >
+          <Button
+            aria-pressed={draftMode === 'bearer'}
+            data-testid={`credential-mode-bearer-${slot.id}`}
+            disabled={busy}
+            onClick={() => onDraftModeChange('bearer')}
+            size="sm"
+            variant={draftMode === 'bearer' ? 'default' : 'secondary'}
+          >
+            API key
+          </Button>
+          <Button
+            aria-pressed={draftMode === 'profile_chain'}
+            data-testid={`credential-mode-profile-${slot.id}`}
+            disabled={busy}
+            onClick={() => onDraftModeChange('profile_chain')}
+            size="sm"
+            variant={draftMode === 'profile_chain' ? 'default' : 'secondary'}
+          >
+            AWS profile
+          </Button>
+        </fieldset>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          aria-label={isAws ? `${slot.displayName} bearer key` : `${slot.displayName} API key`}
-          autoFocus={true}
-          className="max-w-md flex-1"
-          data-testid={`credential-key-input-${slot.id}`}
-          onChange={(event) => onDraftKeyChange(event.currentTarget.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={
-            isAws ? `Enter ${slot.displayName} bearer key` : `Enter ${slot.displayName} API key`
-          }
-          type="password"
-          value={draftKey}
-        />
+        {isProfileChain ? (
+          <Input
+            aria-label={`${slot.displayName} AWS profile`}
+            autoFocus={true}
+            className="max-w-xs flex-1"
+            data-testid={`credential-profile-input-${slot.id}`}
+            onChange={(event) => onDraftProfileChange(event.currentTarget.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="default"
+            type="text"
+            value={draftProfile}
+          />
+        ) : (
+          <Input
+            aria-label={isAws ? `${slot.displayName} bearer key` : `${slot.displayName} API key`}
+            autoFocus={true}
+            className="max-w-md flex-1"
+            data-testid={`credential-key-input-${slot.id}`}
+            onChange={(event) => onDraftKeyChange(event.currentTarget.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              isAws ? `Enter ${slot.displayName} bearer key` : `Enter ${slot.displayName} API key`
+            }
+            type="password"
+            value={draftKey}
+          />
+        )}
         {isAws ? (
           <Input
             aria-label={`${slot.displayName} AWS region`}
@@ -147,6 +215,18 @@ export function CredentialRowEditor({
           data-testid={`credential-region-invalid-${slot.id}`}
         >
           Not a valid AWS region — use a region identifier like us-east-1.
+        </p>
+      ) : null}
+      {isProfileChain ? (
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid={`credential-profile-hint-${slot.id}`}
+        >
+          Signs requests with your local AWS credentials — profiles, SSO,
+          <code className="mx-1 font-mono">credential_process</code>, and instance roles, the same
+          way the AWS CLI resolves them. Leave the profile blank to use your default. If the profile
+          uses SSO, run <code className="mx-1 font-mono">aws sso login</code> first. Desktop only:
+          no credential leaves this machine.
         </p>
       ) : null}
       {keyHint ? (

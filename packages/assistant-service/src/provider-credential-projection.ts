@@ -5,7 +5,7 @@
  * credentials — the string migration shim and the factory auth-input
  * projection.
  */
-import type { ProviderAuthInput } from '@brainstrike/agent';
+import type { AwsCredentialIdentityProvider, ProviderAuthInput } from '@brainstrike/agent';
 import { describeSecretReadError, findProviderDefinition } from '@brainstrike/assistant-contract';
 import type {
   ProviderApiKeyReader,
@@ -42,13 +42,31 @@ export class UnsupportedCredentialTypeError extends Error {
   }
 }
 
-/** Static profile_chain guidance (BST-1350): the mode exists in the stored
- * union ahead of its consumer — AWS profile/credential-chain auth lands with
- * BST-1353. */
+/**
+ * Static profile_chain guidance for a host that cannot resolve the chain
+ * (BST-1353). Hosted Web is exactly that host: it supplies no
+ * `awsCredentialChain` capability, so a stored profile_chain credential is
+ * REJECTED there rather than degraded — a browser/server-function runtime has
+ * no `~/.aws`, no SSO cache, and no instance role to speak of.
+ */
 const PROFILE_CHAIN_UNSUPPORTED_DETAIL =
-  'AWS profile/credential-chain auth is not supported yet (BST-1353); store a Bedrock API key (bearer) instead.';
+  'AWS profile/credential-chain auth requires the desktop app (it reads your local AWS profiles); store a Bedrock API key (bearer) instead.';
 
 export interface ProviderAuthProjectionOptions {
+  /**
+   * Builds the AWS default credential chain for a profile. INJECTED, not
+   * imported: this is the ONE structural reason Hosted Web can never resolve
+   * a profile chain (BST-1353). Desktop main passes
+   * `createAwsCredentialChain` from `@brainstrike/agent`; web passes nothing,
+   * so a stored `profile_chain` credential throws the typed
+   * `credential_type_unsupported` failure instead of silently reaching for
+   * ambient cloud credentials on the server.
+   *
+   * Keeping it an injected capability also keeps the Node-only
+   * `@aws-sdk/credential-providers` out of this shared package entirely — the
+   * type below is erased at compile time.
+   */
+  readonly awsCredentialChain?: (profile: string | undefined) => AwsCredentialIdentityProvider;
   /**
    * Env map consulted for `AWS_REGION` when an aws-auth provider resolves an
    * env bearer key (env credentials are always `api_key`-shaped — they carry
@@ -76,9 +94,17 @@ function envAwsRegion(options: ProviderAuthProjectionOptions | undefined): strin
  *   "Configure an AWS region for Bedrock in Settings" typed error.
  * - `aws`/`bearer` credentials (stored) project to `{ kind: 'aws' }` with the
  *   credential's OWN region; on a non-aws provider they throw typed.
- * - `aws`/`profile_chain` throws typed until BST-1353 adds the
- *   credential-provider consumer; `oauth` is minted by its consumer
- *   (BST-1356) and throws here.
+ * - `aws`/`profile_chain` projects to `{ kind: 'aws', region,
+ *   credentialProvider }` when — and ONLY when — the caller injected an
+ *   `awsCredentialChain` capability (BST-1353). Desktop main does; Hosted Web
+ *   does not, so the same credential throws typed there. `oauth` is minted by
+ *   its consumer (BST-1356) and throws here.
+ *
+ * The string shim below deliberately calls this with NO options, so a
+ * profile_chain credential still throws on every bearer-only consumer
+ * (persona pins, persistent memory, the OpenRouter metadata endpoint) — a
+ * chain has no bearer string to hand them, and returning `undefined` would
+ * read as "not configured".
  *
  * (The desktop store's `credentialToApiKey` keeps its own narrow deliberately
  * — that one is the STORE-layer contract, throwing the real desktop
@@ -103,7 +129,18 @@ export function providerAuthInputFromCredential(
     if (credential.mode === 'bearer') {
       return { apiKey: credential.bearerKey, kind: 'aws', region: credential.region };
     }
-    throw new UnsupportedCredentialTypeError(provider, PROFILE_CHAIN_UNSUPPORTED_DETAIL);
+    // profile_chain (BST-1353). The chain is built ONLY from the injected
+    // capability — no import, no fallback. A host that did not supply one
+    // cannot resolve local AWS profiles, and says so.
+    const buildChain = options?.awsCredentialChain;
+    if (!buildChain) {
+      throw new UnsupportedCredentialTypeError(provider, PROFILE_CHAIN_UNSUPPORTED_DETAIL);
+    }
+    return {
+      credentialProvider: buildChain(credential.profile),
+      kind: 'aws',
+      region: credential.region,
+    };
   }
   throw new UnsupportedCredentialTypeError(provider);
 }

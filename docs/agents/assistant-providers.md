@@ -95,8 +95,23 @@
     cancels via a window-capture listener so the settings dialog stays open;
     registry `keyNotes`/`keyFormatHint`/`docsUrl` render inside the editor).
     Env rows are read-only with a lock — the env var is authoritative, so
-    mutation buttons never render inert. The `aws` authType renders a
-    key+region editor saving `{type:'aws', mode:'bearer'}`. Saves go through
+    mutation buttons never render inert. The `aws` authType renders a TWO-MODE
+    editor (BST-1353): an "API key" / "AWS profile" switch
+    (`credential-mode-bearer-<slot>` / `credential-mode-profile-<slot>`)
+    chooses between saving `{type:'aws', mode:'bearer', bearerKey, region}`
+    and `{type:'aws', mode:'profile_chain', region, profile?}`. Bearer is the
+    default draft mode — it is the form that works with no local AWS setup at
+    all, so it stays the zero-config starting point. The region is MANDATORY
+    and `isValidAwsRegion`-gated in BOTH modes (a chain interpolates the same
+    request hostname); the profile input
+    (`credential-profile-input-<slot>`) is ALWAYS optional — blank means the
+    chain's own default resolution, a legitimate configuration — and a
+    profile-chain save demands no secret at all. Consequently a profile-chain
+    credential carries NO `…last4` fingerprint: there is no secret to
+    fingerprint, so `buildCredential` skips it entirely rather than calling
+    `createStoredKeyFingerprint` (which throws on an empty string, by design).
+    A profile-chain explainer (`credential-profile-hint-<slot>`) names what
+    the chain resolves and that it is desktop-only. Saves go through
     the TYPED `saveCredential` bridge exclusively (no `saveKey` fallback — a
     preload without the typed method fails visibly). Deprecated-env renames
     from the status probe (BST-1361 `deprecatedEnvVars`) render as an inline
@@ -236,9 +251,26 @@
     (`CREDENTIAL_ENV_FILE_VARIABLE_NAMES`, which alone drives the child-env
     credential scrub) plus the deliberate NON-credential set
     (`NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES`, today exactly
-    `AWS_REGION`) — a region is configuration, not a secret, so children may
-    inherit it while every bearer name is still stripped
-    (desktop-env.test.ts pins both directions). The local runtimes' optional embeddings bearer tokens
+    `AWS_REGION` and — since BST-1353 — `AWS_PROFILE`) — both are
+    configuration, not secrets, so children may inherit them while every
+    bearer name is still stripped (desktop-env.test.ts pins both directions).
+    `AWS_PROFILE` NAMES a profile in the user's `~/.aws/config`; the
+    credentials it points AT are secret but live in the user's AWS
+    configuration and never pass through this process env, so scrubbing the
+    name would break `aws` CLI children while protecting nothing.
+    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` are
+    NOT `.env`-loadable (the registry never produces them, and file-loading
+    them would create a new credential channel), but they ARE in
+    `SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES` — the scrub is a DENY-LIST, so an
+    unlisted ambient credential reaches children verbatim (PR #2525 review,
+    finding 1). They can still ACTIVATE the credential chain from the
+    INHERITED process environment, because the file allow-list governs what a
+    `.env` FILE may set, not what the chain may see.
+    Separately, the code-execution FENCE allow-list
+    (`INHERITED_ENV_VARS` in `packages/agent/src/fence/fence-executor.ts`)
+    contains NO `AWS_*` name and must not gain one: chain resolution is
+    desktop-main-only and sandboxed user code has no business signing AWS
+    requests. The local runtimes' optional embeddings bearer tokens
     (`OLLAMA_API_KEY`/`AI_OLLAMA_API_KEY`, `LMSTUDIO_API_KEY`/
     `AI_LMSTUDIO_API_KEY`) are separate LIVE transport names outside the
     registry scheme — not deprecated, not `.env`-file-loadable (they are not
@@ -962,8 +994,9 @@ auth metadata; the registry is the ONLY source for it:
   every provider. `'none'` marks the keyless providers (`local`, `ollama`,
   `lmstudio`); the local servers' optional bearer token is a TRANSPORT concern
   (`providerOptions.apiToken`, registry `runtime: 'local'`), not an authType.
-  `'aws'` is carried by `bedrock` (BST-1350; the stored credential's `mode`
-  discriminates bearer vs the future profile chain). `'oauth_subscription'`
+  `'aws'` is carried by `bedrock` (BST-1350/BST-1353; ONE authType covers both
+  auth forms — the stored credential's `mode` discriminates bearer from
+  profile chain). `'oauth_subscription'`
   exists ahead of use — no provider carries it yet.
 - `docsUrl?` — the provider's "get an API key" page (required in practice for
   `api_key` providers).
@@ -1067,10 +1100,20 @@ projection of it, not the contract. Three layers, each with one owner:
   shared projection since BST-1350 (`resolveCredentialOrReject` calls
   `providerAuthInputFromCredential`): a projectable credential yields its
   bearer surface (api_key keys, bedrock aws-bearer keys), and a
-  non-projectable one (oauth, aws profile_chain, aws stored on a non-aws
-  provider) maps onto the SAME `api_key_unreadable` 400 (or the keyless
-  optional-token warn) the old `getKey` throw produced — never
-  `missing_api_key`.
+  non-projectable one (oauth, aws stored on a non-aws provider, and aws
+  profile_chain on a host that supplies no chain capability) maps onto the
+  SAME `api_key_unreadable` 400 (or the keyless optional-token warn) the old
+  `getKey` throw produced — never `missing_api_key`. Since BST-1353
+  `prepareAssistantPostRequest` takes an optional `awsCredentialChain` and
+  forwards it verbatim to that projection, so PREPARATION classifies a
+  profile_chain credential exactly as the host that will CONSUME it does:
+  desktop supplies the builder and preparation succeeds keyless, Hosted Web
+  omits it and preparation rejects. A profile_chain credential is therefore
+  the SECOND legitimate "no apiKey" case beside keyless (`authType 'none'`)
+  providers — it is configured, it simply carries no bearer string — and it
+  must never fall into `missing_api_key`. Reaching that point means the
+  projection already ACCEPTED the credential, so the keyless path can never
+  wave through an unusable one.
 
 **Factory auth input** (`packages/agent/src/providers/provider-auth-input.ts`):
 `createProvider(provider, auth?: ProviderAuthInput, model?, runtime?)` takes a
@@ -1091,11 +1134,36 @@ discriminated union instead of a bare key string:
   `native-web-search.auth-input.spec.ts`; a bare-key client under
   custom_fetch would send the dummy key to the real API).
 - `{ kind: 'aws', region, apiKey?, credentialProvider? }` — validated (region
-  REQUIRED, typed error when absent — the actionable
-  `MISSING_AWS_REGION_DETAIL` text) and consumed ONLY by the `bedrock` case
-  via `requireAwsAuthInput` (BST-1350); every other case throws typed, and
-  BST-1353 adds the `credentialProvider` (SigV4) consumer. Every switch over
+  REQUIRED and format-checked, typed errors `MISSING_AWS_REGION_DETAIL` /
+  `INVALID_AWS_REGION_DETAIL`; plus the BST-1353 EXACTLY-ONE rule below) and
+  consumed ONLY by the `bedrock` case via `requireAwsAuthInput` (BST-1350);
+  every other case throws typed. `credentialProvider` is the SigV4 consumer
+  (BST-1353): it is TYPED, not `unknown`, through the import-free
+  `providers/aws-credential-identity.ts` so this browser-reachable seam keeps
+  ZERO edges — not even type-only — to the Node-only
+  `@aws-sdk/credential-providers`. That declaration's fidelity is
+  compile-checked, not asserted by comment: `createAwsCredentialChain`
+  declares `AwsCredentialIdentityProvider` as its return type while returning
+  the SDK's own `fromNodeProviderChain(...)` result, so drift is a red build
+  at that return statement (the indirection exists because `@smithy/types` is
+  transitive and does not resolve from `packages/agent`). Every switch over
   the union is exhaustive (compile error on an unhandled kind).
+- **EXACTLY ONE aws credential (BST-1353, widening PR #2522 finding 4).** An
+  `aws` input must carry `apiKey` XOR `credentialProvider`.
+  `assertExactlyOneAwsCredential` enforces it inside
+  `assertValidProviderAuthInput` (before provider dispatch, the same
+  placement the region rules use) AND is RE-asserted in the factory's
+  `bedrock` case, so a DIRECT `createProvider` caller cannot slip past the
+  pre-dispatch validator. Neither form present →
+  `MISSING_AWS_CREDENTIALS_DETAIL`: with both absent the AI SDK falls back to
+  AMBIENT AWS environment credentials, quietly signing with whatever identity
+  is in the process env. Both present → `CONFLICTING_AWS_CREDENTIALS_DETAIL`:
+  the AI SDK prefers `apiKey` over `credentialProvider`, which is precisely
+  why the XOR is ENFORCED rather than relied upon — bearer-vs-chain
+  precedence is decided ONCE at credential resolution
+  (`apps/desktop/src/provider-api-key.ts`), so a doubly-populated input
+  reaching the factory means a resolver bug and is surfaced, not papered
+  over. This constant REPLACES BST-1350's `MISSING_AWS_BEARER_KEY_DETAIL`.
 
 **Threading rule (do not relitigate):** the auth input travels as a DIRECT
 parameter the whole way down — `runAssistantTurn` → `initializeAgentStream` →
@@ -1156,6 +1224,7 @@ Wire contract: `ProviderVerificationSnapshot` in
 | voyage | `POST https://api.voyageai.com/v1/embeddings` with a one-token body — Voyage publishes NO model-list GET (verified 2026-08-18), so the documented minimal call is the probe. NOTE: this is a METERED one-token embeddings call, unlike the GET probes |
 | tavily | `GET https://api.tavily.com/usage` (Bearer). Not a chat provider (no registry entry); synthetic api_key target + its own keychain reader |
 | authType `aws` (bearer) | `GET https://bedrock.<region>.amazonaws.com/foundation-models` (Bearer). Keyed by authType + credential shape, so it activates when BST-1350's bedrock provider lands; uses the same shared HTTP classifier as every other probe |
+| authType `aws` (profile_chain) | CHAIN RESOLUTION itself (`verifyAwsCredentialChain`, BST-1353) — NOT an HTTP call. The chain IS the credential, so resolving it is the most direct possible proof, and it answers the question the user actually has ("is my SSO session still good?") before they spend a turn finding out. Injected like `fetchImpl` so tests drive every verdict without a real `~/.aws` |
 | authType `none` | typed `not_applicable`, ZERO network calls and ZERO credential reads — local-runtime liveness is the ipc-runtime probe family's job |
 
 Status semantics (do not blur them; ONE shared HTTP classifier module-wide,
@@ -1168,34 +1237,99 @@ endpoint rejected the credential (401, or google's documented
 `API_KEY_INVALID` 400); `unreachable` = no auth verdict obtainable (network
 error, timeout, or any HTTP status outside the classified set — 404, 5xx, …)
 — wrong-key vs wifi-down MUST stay distinct; `not_applicable` = nothing to
-probe (authType `none`, aws profile_chain). Failure `detail` derives from
+probe (authType `none` ONLY — aws profile_chain LEFT this bucket in BST-1353,
+see below). Failure `detail` derives from
 the HTTP status ONLY (bodies can echo request headers); an api_key provider
 WITHOUT a declared probe throws — never a guessed endpoint — and the
 probe-coverage contract test (iterating registry `api_key` providers against
 the probe table, plus tavily) turns "new provider ships unverifiable" into a
-red build. Pinned by
+red build.
+
+The profile-chain probe (BST-1353) maps chain outcomes onto those SAME
+semantics without inventing a status: resolved → **`verified_limited`**, NOT
+`verified` (PR #2525 review, finding 5 — chain resolution proves only that
+LOCAL credentials exist and never touches Bedrock, so reporting `verified`
+would silently redefine that status for one provider; the detail reads
+"…profile chain; Bedrock access not exercised", the same rung a 403 earns);
+`sso_expired` or `no_credentials` → `invalid`, because both mean exactly "this
+credential will not authenticate"; an unrecognized SDK failure (`kind:
+'unknown'` — a DNS error during an SSO refresh, say) → `unreachable`,
+preserving "no verdict obtainable". The failure `detail` is the classifier's
+actionable guidance, so an expired session shows the `aws sso login --profile
+<name>` command right in the settings row; it is drawn from a BOUNDED shape
+map and never interpolates the raw SDK message (finding 7).
+
+The chain probe is BOUNDED by the probe's own `requestTimeoutMs` (finding 3):
+resolution is not inherently bounded — `credential_process` can spawn a
+hanging child, an SSO refresh can stall on a black-holed proxy, and IMDS has
+its own long connect timeout — and an unsettled probe would wedge the
+single-flight entry so every later click awaited the same dead promise. A
+timeout settles as `unreachable` and releases the entry. This
+is the ONE probe whose `detail` is not derived from an HTTP status — there is
+no HTTP response, and the text is the agent's own, never a remote body.
+Pinned by
 `apps/desktop/src/__tests__/assistant-server/provider-verification.test.ts`,
 the verify-provider block in `status-endpoints.integration.test.ts`,
 `packages/assistant-contract/src/__tests__/provider-verification.test.ts`,
 and the app-shell client/hook tests.
 
-### Amazon Bedrock (BST-1350 — phase 1: bearer auth + catalog)
+### Amazon Bedrock (BST-1350 bearer + catalog, BST-1353 AWS credential chain)
 
 Registry entry `bedrock` (`authType: 'aws'`, `runtime: 'hosted'`, LLM-only).
-Phase 1 authenticates with Bedrock API keys (bearer tokens) ONLY; IAM
-SigV4 / profile-chain auth lands with BST-1353.
+TWO auth forms, both live, both under the one `aws` authType: a Bedrock API
+key (bearer token, BST-1350) and the AWS default credential chain (SigV4,
+BST-1353 — profiles, SSO, `credential_process`, web-identity/EKS, and
+instance/container roles). The stored credential's `mode`
+(`bearer` | `profile_chain`) discriminates them; exactly one reaches the
+factory per request (see the auth-input EXACTLY-ONE rule above).
 
-- **Auth precedence** follows the global env-authoritative chain exactly:
-  `BRAINSTRIKE_BEDROCK_API_KEY` > `AWS_BEARER_TOKEN_BEDROCK` (AWS's
-  documented bearer variable) > the stored keychain credential
-  `{ type: 'aws', mode: 'bearer', bearerKey, region }`. An env bearer key
-  pairs with the region from `AWS_REGION`; a stored credential carries its
-  OWN region. The Credential Inventory's aws row-editor variant (BST-1362
-  `credential-row-editor.tsx`) requires the region, gates Save on the shared
-  `isValidAwsRegion` with an inline invalid-region hint, and writes through
-  the typed `saveCredential` bridge — never a bare `saveKey` string, which
-  would drop the region silently; a store-side `malformed_credential`
-  rejection toasts with the same region-format guidance.
+- **Auth precedence — FOUR rungs, two orthogonal axes.** Bearer-vs-chain is
+  the PRIMARY axis; env-vs-stored applies WITHIN each mode. The whole table is
+  decided in ONE place, `readProviderCredential`
+  (`apps/desktop/src/provider-api-key.ts`):
+
+  | # | Credential | Source |
+  | --- | --- | --- |
+  | 1 | env bearer — `BRAINSTRIKE_BEDROCK_API_KEY` > `AWS_BEARER_TOKEN_BEDROCK` (AWS's documented bearer variable) | env |
+  | 2 | stored bearer — `{ type:'aws', mode:'bearer', bearerKey, region }` in the keychain | stored |
+  | 3 | env chain — the ENV-CHAIN ACTIVATION RULE below | env |
+  | 4 | stored chain — `{ type:'aws', mode:'profile_chain', region, profile? }` in the keychain | stored |
+
+  **Rung 2 deliberately outranks rung 3 (do not relitigate).** A bearer key is
+  an EXPLICIT, Bedrock-specific credential the user typed into Settings; an
+  AWS environment is AMBIENT and is very often set for unrelated tooling on
+  the same machine. Letting a stray `AWS_PROFILE` silently displace the key
+  the user configured for this app would sign with an identity they never
+  chose for it. `resolveHostedProviderCredential` already decides 1-vs-2, so
+  the only work left in `readProviderCredential` is inserting 3 ahead of a
+  stored chain. An env bearer key pairs with the region from `AWS_REGION`;
+  every stored credential carries its OWN region.
+- **ENV-CHAIN ACTIVATION RULE (BST-1353), stated once in
+  `resolveAwsEnvChainCredential`:** `AWS_REGION` is set AND no bearer
+  credential was resolved AND (`AWS_PROFILE` or `AWS_ACCESS_KEY_ID` is
+  present). Each clause earns its place: a chain credential still needs a
+  region and there is no default (the settled BST-1350 rule), env auth has
+  nowhere else to carry one; "no bearer" is what makes rungs 1-2 beat rung 3;
+  and the activation variable is the ONE gate on the chain — a machine with
+  `~/.aws/config` but no AWS environment at all has NOT asked Brainstrike to
+  sign with ambient credentials. Once activation passes the FULL chain runs
+  (SSO, process creds, instance roles): the gate selects the MODE, it never
+  narrows what the chain may consult — the same "installed unconditionally,
+  like the AWS CLI" philosophy `aws-credential-chain.ts` documents, because
+  gating on `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` would break every
+  credential source the chain exists to serve. The region is deliberately NOT
+  format-checked at activation: a malformed `AWS_REGION` must reach the
+  factory's `INVALID_AWS_REGION_DETAIL` rejection rather than silently read as
+  "Bedrock is not configured" — the same reasoning as the projection's
+  deliberate `region: ''`.
+- **The Credential Inventory's aws editor** (BST-1362
+  `credential-row-editor.tsx`, two-mode since BST-1353) requires the region in
+  BOTH modes, gates Save on the shared `isValidAwsRegion` with an inline
+  invalid-region hint, and writes through the typed `saveCredential` bridge —
+  never a bare `saveKey` string, which would drop the region silently; a
+  store-side `malformed_credential` rejection toasts with the same
+  region-format guidance. Full editor contract in the Credential Inventory
+  bullet above.
 - **Region rule (do not relitigate): a missing region is a typed init
   failure, never a default.** The ONE enforcement point is the factory
   validator (`assertValidProviderAuthInput` / `requireAwsAuthInput`, message
@@ -1214,14 +1348,21 @@ SigV4 / profile-chain auth lands with BST-1353.
   `isAwsCredential` (stored credentials, both modes — a bad region is
   `malformed_credential`, never coerced) and `assertValidProviderAuthInput`
   (`INVALID_AWS_REGION_DETAIL`, static text that never echoes the value).
-- **The bearer key is REQUIRED in phase 1 (finding 4).** A region-only aws
-  input throws `MISSING_AWS_BEARER_KEY_DETAIL` — without it the AI SDK would
-  fall back to ambient AWS environment credentials, and profile/
-  credential-chain auth is BST-1353's explicit, opt-in job.
-- **Persona pins cannot target Bedrock cross-provider (finding 5).**
-  `personaProviderApiKeys` carries bearer STRINGS with no region seat, so
-  `createPersonaPinnedModelResolver` throws the pin-unresolvable path naming
-  BST-1353/BST-1358 for any aws-authType pin (skip-with-warn upstream).
+- **A credential is REQUIRED — exactly one (finding 4, widened by
+  BST-1353).** A region-only aws input throws
+  `MISSING_AWS_CREDENTIALS_DETAIL`; bearer + chain together throws
+  `CONFLICTING_AWS_CREDENTIALS_DETAIL`. Both live in
+  `provider-auth-input.ts` and REPLACE BST-1350's
+  `MISSING_AWS_BEARER_KEY_DETAIL`. The rule exists because with neither form
+  the AI SDK falls back to ambient AWS environment credentials: chain auth is
+  opt-in and EXPLICIT, arriving as a constructed `credentialProvider`, never
+  as an ambient default.
+- **Persona pins STILL cannot target Bedrock cross-provider (finding 5) —
+  BST-1353 does not change this.** `personaProviderApiKeys` carries bearer
+  STRINGS with no region seat (and a chain has no string form at all), so
+  `createPersonaPinnedModelResolver` throws the pin-unresolvable path for any
+  aws-authType pin (skip-with-warn upstream); its message still names
+  BST-1353/BST-1358, and BST-1358 owns the region-carrying pin design.
   SAME-provider pins work: they reuse the parent's full aws auth input.
 - **Prompt caching is REGISTRY-driven (BST-1354, closing finding 7).** Wrapper
   selection reads `LlmModelDefinition.promptCaching` (`'anthropic' | 'bedrock'`)
@@ -1322,10 +1463,83 @@ SigV4 / profile-chain auth lands with BST-1353.
   `useProviderModelDefaults` (wrapper composition budget).
 - **Credential projection** (`providerAuthInputFromCredential`): on an
   aws-auth provider an `api_key` credential (env bearer) and an aws/bearer
-  credential both project to `{ kind: 'aws', region, apiKey }`;
-  aws/profile_chain throws the SecretReadError-shaped
-  `credential_type_unsupported` with a static BST-1353 pointer; an aws
-  credential stored for a NON-aws provider throws too.
+  credential both project to `{ kind: 'aws', region, apiKey }`; an aws
+  credential stored for a NON-aws provider throws the SecretReadError-shaped
+  `credential_type_unsupported`. Since BST-1353 aws/profile_chain projects to
+  `{ kind: 'aws', region, credentialProvider }` — but ONLY when the caller
+  INJECTED an `awsCredentialChain` capability
+  (`ProviderAuthProjectionOptions`). **That injection IS the structural proof
+  that Hosted Web never resolves a chain (do not relitigate):** desktop main
+  passes `createAwsCredentialChain` (in BOTH places — the
+  `prepareAssistantPostRequest` call and `deriveAssistantTurnAuthInput`, so a
+  credential that passed preparation cannot fail to project at turn time);
+  web passes nothing, so the SAME credential throws
+  `credential_type_unsupported` there. It is a capability, not an import,
+  which additionally keeps the Node-only `@aws-sdk/credential-providers` out
+  of the shared assistant-service package entirely — the type is erased at
+  compile time. The unsupported-detail text now names the requirement
+  ("requires the desktop app — it reads your local AWS profiles") instead of
+  pointing at BST-1353. The string SHIM deliberately calls the projection with
+  NO options, so a profile_chain credential still throws on every bearer-only
+  consumer (persona pins, persistent memory, the OpenRouter metadata
+  endpoint): a chain has no bearer string to hand them, and returning
+  `undefined` would read as "not configured".
+- **The chain module** (`packages/agent/src/providers/aws-credential-chain.ts`,
+  NODE-ONLY): `createAwsCredentialChain(profile)` builds the chain object
+  eagerly (no IO) and keeps RESOLUTION lazy inside the returned closure, so
+  each request pays a fresh resolution and picks up an `aws sso login`
+  performed mid-session without an app restart. Resolution being lazy is also
+  why a bad profile fails MID-RUN rather than at model construction —
+  `@ai-sdk/amazon-bedrock` calls the provider when it signs. Raw SDK text is
+  useless to a user, so every rejection is translated at the seam that still
+  knows which profile was searched:
+  `classifyAwsChainFailure` → `{ kind: 'no_credentials' | 'sso_expired' |
+  'unknown', detail }`, wrapped as a typed `mastra_agent_runtime_init_failed`
+  on the request path and returned as DATA by `verifyAwsCredentialChain` on
+  the probe path. `unknown` is a first-class outcome, never quietly folded
+  into the other two (NO SILENT FALLBACKS: a DNS failure during an SSO refresh
+  must not read as "run aws sso login").
+- **Two MEASURED findings drive that classifier — do not "simplify" them
+  back.** An empirical probe against `@aws-sdk/credential-providers` 3.1111.0
+  (bogus HOME + profile dirs; reproduced as the EMPIRICAL block of
+  `aws-credential-chain.spec.ts`, which runs the REAL SDK hermetically with
+  IMDS disabled) established: (1) there is NO distinct expired-SSO error
+  class — every failure, from "no credentials anywhere" to four different SSO
+  variants, is the single class `CredentialsProviderError` — so the
+  discriminator has to be the MESSAGE, and the stable marker across all four
+  SSO variants is the substring `sso login`, UNQUOTED because the
+  legacy-profile variant writes `run aws sso login` without the surrounding
+  quotes that the other three carry; (2) that class is NOT importable here —
+  it is defined in `@smithy/property-provider`, a transitive package that
+  does not resolve from `packages/agent` (verified: `ERR_MODULE_NOT_FOUND`) —
+  so `instanceof` is unavailable and the check is STRUCTURAL, on
+  `error.name`, the same technique `matchSecretReadError` uses across the IPC
+  boundary. The measured failure table lives in the module header; refresh it
+  there if the SDK is bumped.
+- **Which mode is WINNING is VISIBLE (BST-1353).** `ProviderKeySource`
+  (`packages/assistant-contract/src/provider-key-source.ts`) gained an
+  optional `authMode: 'bearer' | 'profile_chain'`, present only on
+  aws-authType providers; `inspectProviderKeys` reports the WINNER (its
+  env-chain pass runs LAST, mirroring rung 3, so the listing's verdict cannot
+  disagree with what `readProviderCredential` resolves on the next request),
+  and `KeySourceBadge` appends "· AWS profile chain". Without it a user with
+  both a stored bearer key and an `AWS_PROFILE` environment has no way to
+  tell which one the next request signs with. `AWS_CHAIN_ACTIVATION_ENV_NAMES`
+  + `isAllowedProviderKeySourceEnvVar` live in the same module as the ONE
+  definition: the chain activation names are NOT registry credential names, so
+  BOTH strict key-source parsers (the contract's `parseProviderKeySources` via
+  the settings Credential Inventory, and the app-shell availability probe)
+  must accept them on aws providers or a working chain would render as
+  "Invalid provider key source". Both parsers were relaxed from exact-key-COUNT
+  checks to allowed-key-SET checks to admit the optional `authMode` — an
+  UNRECOGNIZED key still rejects the whole payload, and a present-but-unknown
+  `authMode` is malformed, never coerced or dropped.
+- **Packaging.** `@aws-sdk/credential-providers` is catalog-pinned at
+  3.1111.0 and added to tsup's `sharedExternal`, so esbuild can never inline
+  it into a browser entry. The chain is exported from the agent ROOT
+  entrypoint ONLY — never `browser-safe`, `client`, or `provider-metadata` —
+  so a renderer import cannot reach it. `provider-auth-input.ts` stays
+  edge-free via the import-free identity module (see the auth-input section).
 - **Model ids are stored UNPREFIXED** (registry + DB catalog, migration
   100). The cross-region inference-profile prefix (`us.`/`eu.`/`jp.`/`au.`;
   `global.`/`apac.` pass through if already present) is applied per request
@@ -1341,19 +1555,53 @@ SigV4 / profile-chain auth lands with BST-1353.
   and NOT in `HOSTED_WEB_ASSISTANT_PROVIDERS` (desktop-only until a web ticket
   says otherwise). `@ai-sdk/amazon-bedrock` is Node-only: it is imported
   solely from provider-factory-adjacent modules, never from the browser-safe
-  agent subpaths.
-- **Env allow-list split:** see the canonical-env-names section — the child
-  scrub uses the credential set only; `AWS_REGION` is the one supported
-  non-credential file name.
+  agent subpaths. Web's exclusion is enforced STRUCTURALLY as well as by that
+  list: no `awsCredentialChain` capability is injected there, so a
+  profile-chain credential cannot resolve on web even if the provider list
+  changed.
+- **Env name classification — THREE sets, and the scrub is a DENY-LIST
+  (PR #2525 review, finding 1 — SECURITY).**
+  `createCredentialIsolatedChildEnvironment` copies every name NOT in the
+  scrub set, so "absent from every set" means "passed through VERBATIM to
+  repository-controlled children" (execute-command-tool, the hook executor),
+  not "protected". Because BST-1353 documents shell-set AWS static keys as a
+  supported way to ACTIVATE the chain, they are routinely present in a real
+  desktop process env — leaving them unlisted was a live credential-leak path.
+  The two roles are therefore separate constants in
+  `apps/desktop/src/desktop-env.ts`:
+  - `CREDENTIAL_ENV_FILE_VARIABLE_NAMES` — registry + Tavily names a `.env`
+    FILE may set.
+  - `SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES` — the scrub deny-list: the file
+    set PLUS ambient-only credentials `AWS_ACCESS_KEY_ID`,
+    `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`. INVARIANT: a strict superset
+    of the file set (pinned).
+  - `NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES` — `AWS_REGION` and
+    `AWS_PROFILE`: configuration, file-loadable, deliberately NOT scrubbed (a
+    child may need the region; `AWS_PROFILE` only NAMES a profile). BST-1363
+    renders this set as muted "config" chips, which is the second reason a
+    secret must never land here.
 
-Pinned by `packages/agent/src/__tests__/provider-factory.bedrock.spec.ts` +
-`bedrock-model-id.spec.ts`, the aws-pin cases in
-`packages/agent/src/mastra/__tests__/persona-pinned-model.spec.ts`, the
-region-format cases in
+  AWS static keys are scrubbed but remain NOT file-loadable — adding them to
+  the scrub must not hand a `<userData>/.env` write a new credential channel.
+  Tests assert the scrub OUTCOME (child env lacks all three), not set
+  membership, plus a tripwire rejecting any `KEY|SECRET|TOKEN|PASSWORD` name
+  in the non-credential set. The code-execution fence's `INHERITED_ENV_VARS`
+  carries no `AWS_*` name and must not gain one.
+
+Pinned by `packages/agent/src/__tests__/aws-credential-chain.spec.ts` (the
+classifier branches plus the EMPIRICAL real-SDK block that MEASURES the
+failure table),
+`packages/agent/src/__tests__/provider-factory.bedrock.spec.ts` (its BST-1353
+cases cover the profile-chain stream signing SigV4 on a mocked wire, a chain
+rejection surfacing through the stream rather than signing unauthenticated,
+and both EXACTLY-ONE violations) + `bedrock-model-id.spec.ts`, the aws-pin
+cases in `packages/agent/src/mastra/__tests__/persona-pinned-model.spec.ts`,
+the region-format cases in
 `packages/assistant-contract/src/__tests__/provider-credential.test.ts` +
 `bedrock-defaults.test.ts`,
 `packages/assistant-service/src/__tests__/provider-credential-projection.test.ts`
-+ the BST-1350 blocks in `request.test.ts`,
+(the injected-vs-absent chain capability pair IS the desktop/web proof)
++ the BST-1350/BST-1353 blocks in `request.test.ts`,
 `packages/app-shell/src/hooks/use-bedrock-model-defaults.test.tsx`, the aws
 editor cases (save semantics + region-format gate) in
 `packages/settings-ui/.../__tests__/credential-inventory.test.tsx`, and

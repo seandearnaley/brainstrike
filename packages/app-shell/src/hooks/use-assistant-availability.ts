@@ -1,14 +1,18 @@
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
+  assertNoUnknownKeys,
   type DeprecatedEnvVarReport,
+  isAllowedProviderKeySourceEnvVar,
   isSecretReadErrorCode,
   type ProviderKeySource,
+  parseAuthMode,
   type SecretReadErrorCode,
 } from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   isValidModelForProvider,
   PROVIDER_DEFAULT_MODELS,
+  providerAuthType,
   providerDeprecatedEnvKeys,
   providerEnvKeys,
   type SupportedProvider,
@@ -481,6 +485,25 @@ function hasExactOwnKeys(
   );
 }
 
+/** Shared rule (BST-1353) so this parser cannot drift from the contract's. */
+function isAllowedKeySourceEnvVar(provider: SupportedProvider, envVar: string): boolean {
+  return isAllowedProviderKeySourceEnvVar(
+    envVar,
+    providerEnvKeys(provider),
+    providerAuthType(provider) === 'aws'
+  );
+}
+
+/**
+ * The status payload's own error for a malformed key source. The SHARED
+ * contract helpers take this as their thrower (PR #2525 review, finding 8),
+ * so this parser and `parseProviderKeySources` enforce byte-identical
+ * strictness while each keeps its own error text.
+ */
+function invalidKeySource(): Error {
+  return new Error('Invalid assistant provider key source');
+}
+
 function parseAssistantProviders(value: unknown): readonly SupportedProvider[] | undefined {
   if (value === undefined) {
     return;
@@ -496,6 +519,34 @@ function parseAssistantProviders(value: unknown): readonly SupportedProvider[] |
     providers.add(provider);
   }
   return [...providers];
+}
+
+function parseStoredKeySource(
+  candidate: Record<string, unknown>,
+  provider: SupportedProvider
+): ProviderKeySource<SupportedProvider> {
+  assertNoUnknownKeys(candidate, ['authMode', 'provider', 'source'], invalidKeySource);
+  const authMode = parseAuthMode(candidate, invalidKeySource);
+  return { ...(authMode ? { authMode } : {}), provider, source: 'stored' };
+}
+
+function parseEnvKeySource(
+  candidate: Record<string, unknown>,
+  provider: SupportedProvider
+): ProviderKeySource<SupportedProvider> {
+  assertNoUnknownKeys(candidate, ['authMode', 'envVar', 'provider', 'source'], invalidKeySource);
+  const envVar = candidate['envVar'];
+  if (
+    typeof envVar !== 'string' ||
+    // BST-1353: the AWS chain is activated by AWS_PROFILE/AWS_ACCESS_KEY_ID,
+    // which are NOT provider key names, so aws-authType providers accept the
+    // chain activation names in addition to their own bearer vars.
+    !isAllowedKeySourceEnvVar(provider, envVar)
+  ) {
+    throw invalidKeySource();
+  }
+  const authMode = parseAuthMode(candidate, invalidKeySource);
+  return { ...(authMode ? { authMode } : {}), envVar, provider, source: 'env' };
 }
 
 function parseAssistantProviderKeySources(
@@ -522,21 +573,10 @@ function parseAssistantProviderKeySources(
 
     providers.add(provider);
     if (source === 'stored') {
-      if (!hasExactOwnKeys(candidate, ['provider', 'source'])) {
-        throw new Error('Invalid assistant provider key source');
-      }
-      return { provider, source };
+      return parseStoredKeySource(candidate, provider);
     }
     if (source === 'env') {
-      const envVar = candidate['envVar'];
-      if (
-        !hasExactOwnKeys(candidate, ['envVar', 'provider', 'source']) ||
-        typeof envVar !== 'string' ||
-        !providerEnvKeys(provider).includes(envVar)
-      ) {
-        throw new Error('Invalid assistant provider key source');
-      }
-      return { envVar, provider, source };
+      return parseEnvKeySource(candidate, provider);
     }
     throw new Error('Invalid assistant provider key source');
   });

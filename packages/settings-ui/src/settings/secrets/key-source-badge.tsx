@@ -35,16 +35,21 @@ export function KeySourceBadge({ source, sourceState, testId }: KeySourceBadgePr
       </Badge>
     );
   }
+  // BST-1353: for an aws-authType provider the WINNING auth mode is named
+  // here. With a stored bearer key AND an AWS_PROFILE environment both
+  // present, the precedence table picks the bearer — and the user can only
+  // see which one the next request will sign with if the badge says so.
+  const modeSuffix = source.authMode === 'profile_chain' ? ' · AWS profile chain' : '';
   if (source.source === 'env') {
     return (
       <Badge data-testid={testId} variant="secondary">
-        Env ({source.envVar})
+        Env ({source.envVar}){modeSuffix}
       </Badge>
     );
   }
   return (
     <Badge data-testid={testId} variant="secondary">
-      Stored
+      Stored{modeSuffix}
     </Badge>
   );
 }

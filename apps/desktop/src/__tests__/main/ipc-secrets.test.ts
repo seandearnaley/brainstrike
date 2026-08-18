@@ -42,6 +42,14 @@ const PROVIDER_ENV_KEYS = [
   ...new Set([
     ...listAgentProviders().flatMap((provider) => getAgentProviderEnvKeys(provider)),
     ...TAVILY_ENV_KEYS,
+    // BST-1353: not provider CREDENTIAL names (so the registry does not
+    // produce them), but they DO decide whether an aws row appears in this
+    // listing — so the harness must isolate them like any other input. A
+    // developer machine with AWS_PROFILE exported would otherwise fail
+    // unrelated listing assertions.
+    'AWS_PROFILE',
+    'AWS_REGION',
+    'AWS_ACCESS_KEY_ID',
   ]),
 ];
 const ORIGINAL_PROVIDER_ENV = new Map(
@@ -233,6 +241,88 @@ describe('registerSecretsIpcHandlers', () => {
         source: 'stored',
       },
     ]);
+  });
+
+  // PR #2525 review, finding 4. `secrets:list` is the surface the Credential
+  // Inventory actually renders from, and it has its OWN builders — separate
+  // from inspectProviderKeys. Until these landed, a bedrock row configured
+  // purely by AWS_REGION + AWS_PROFILE was ABSENT from this listing entirely:
+  // the row rendered "Not set" with a Set button while the assistant reported
+  // bedrock as configured and happily streamed.
+  it('emits authMode on a stored aws credential (BST-1353)', async () => {
+    process.env['NODE_ENV'] = 'production';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getCredential: vi.fn().mockResolvedValue({
+        mode: 'profile_chain',
+        profile: 'acme-dev',
+        region: 'us-east-1',
+        type: 'aws',
+      }),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['bedrock']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const result = await getHandler('secrets:list')!(createInvokeEvent());
+
+    // No metadata: a profile chain holds no secret to fingerprint.
+    expect(result).toEqual([{ authMode: 'profile_chain', provider: 'bedrock', source: 'stored' }]);
+  });
+
+  it('lists an ENV-CHAIN bedrock row that has no stored credential at all', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getCredential: vi.fn().mockResolvedValue(null),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const result = (await getHandler('secrets:list')!(createInvokeEvent())) as unknown[];
+
+    expect(result).toContainEqual({
+      authMode: 'profile_chain',
+      envVar: 'AWS_PROFILE',
+      provider: 'bedrock',
+      source: 'env',
+    });
+  });
+
+  it('a stored BEARER outranks the env chain in the listing, matching the request path', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getCredential: vi.fn().mockResolvedValue({
+        bearerKey: 'stored-bearer',
+        mode: 'bearer',
+        region: 'eu-west-1',
+        type: 'aws',
+      }),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['bedrock']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const result = (await getHandler('secrets:list')!(createInvokeEvent())) as {
+      authMode?: string;
+      provider: string;
+      source: string;
+    }[];
+
+    const bedrock = result.find((entry) => entry.provider === 'bedrock');
+    expect(bedrock).toMatchObject({ authMode: 'bearer', source: 'stored' });
   });
 
   it('still lists a stored entry whose credential cannot be read, without metadata', async () => {

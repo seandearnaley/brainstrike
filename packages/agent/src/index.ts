@@ -333,6 +333,23 @@ export {
   providerRunErrorToEventMetadata,
   readProviderRunError,
 } from './provider-error-metadata';
+// BST-1353: the AWS credential chain is exported from the ROOT (Node)
+// entrypoint only — never from browser-safe/client/provider-metadata — so a
+// renderer import cannot reach `@aws-sdk/credential-providers`.
+export {
+  AWS_CHAIN_NO_CREDENTIALS_HINT,
+  type AwsChainFailure,
+  type AwsChainFailureKind,
+  classifyAwsChainFailure,
+  createAwsCredentialChain,
+  describeAwsChainFailure,
+  resolveAwsCredentialChain,
+  verifyAwsCredentialChain,
+} from './providers/aws-credential-chain';
+export type {
+  AwsCredentialIdentity,
+  AwsCredentialIdentityProvider,
+} from './providers/aws-credential-identity';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,

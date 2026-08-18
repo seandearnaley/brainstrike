@@ -111,6 +111,77 @@ describe('parseProviderKeySources', () => {
     ]);
   });
 
+  // BST-1353: `authMode` names which AWS auth form won resolution. It is
+  // optional (absent on every non-aws provider) but validated hard — and the
+  // parser stayed STRICT: unrecognized keys still reject the whole payload.
+  it('parses an optional authMode on stored AND env entries', () => {
+    const sources = parseProviderKeySources(
+      [
+        { authMode: 'profile_chain', provider: 'openai', source: 'stored' },
+        { authMode: 'bearer', envVar: 'TAVILY_API_KEY', provider: 'tavily', source: 'env' },
+      ],
+      parseOptions
+    );
+
+    expect(sources).toEqual([
+      { authMode: 'profile_chain', provider: 'openai', source: 'stored' },
+      { authMode: 'bearer', envVar: 'TAVILY_API_KEY', provider: 'tavily', source: 'env' },
+    ]);
+  });
+
+  it('parses authMode ALONGSIDE fingerprint metadata', () => {
+    expect(
+      parseProviderKeySources(
+        [
+          {
+            authMode: 'bearer',
+            metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
+            provider: 'openai',
+            source: 'stored',
+          },
+        ],
+        parseOptions
+      )
+    ).toEqual([
+      {
+        authMode: 'bearer',
+        metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
+        provider: 'openai',
+        source: 'stored',
+      },
+    ]);
+  });
+
+  it('rejects an UNKNOWN authMode rather than dropping it', () => {
+    expect(() =>
+      parseProviderKeySources(
+        [{ authMode: 'sigv4', provider: 'openai', source: 'stored' }],
+        parseOptions
+      )
+    ).toThrow();
+    expect(() =>
+      parseProviderKeySources(
+        [{ authMode: 'bearer', envVar: 'TAVILY_API_KEY', provider: 'tavily', source: 'env' }],
+        parseOptions
+      )
+    ).not.toThrow();
+  });
+
+  it('still rejects an unrecognized key on either arm (strictness preserved)', () => {
+    expect(() =>
+      parseProviderKeySources(
+        [{ provider: 'openai', source: 'stored', unexpected: 'x' }],
+        parseOptions
+      )
+    ).toThrow();
+    expect(() =>
+      parseProviderKeySources(
+        [{ envVar: 'TAVILY_API_KEY', provider: 'tavily', source: 'env', unexpected: 'x' }],
+        parseOptions
+      )
+    ).toThrow();
+  });
+
   it('parses a stored entry with a valid fingerprint metadata', () => {
     const sources = parseProviderKeySources(
       [
