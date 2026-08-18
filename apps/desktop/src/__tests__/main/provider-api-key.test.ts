@@ -120,6 +120,31 @@ describe('provider-api-key', () => {
     expect(providers).toEqual(expect.arrayContaining(['openai', 'anthropic']));
   });
 
+  it('marks bedrock configured from AWS_BEARER_TOKEN_BEDROCK (BST-1350 env path)', async () => {
+    // The env-name table is registry-derived in production
+    // (agent-client-loader ⇒ provider-registry envKeys, pinned by
+    // agent-client-loader.test.ts); this pins the availability mechanics on
+    // the real bedrock names. AWS_REGION deliberately plays no role in
+    // AVAILABILITY — it pairs with the key at auth-projection time.
+    mockListAgentProviders.mockReturnValue(['bedrock']);
+    mockGetAgentProviderEnvKeys.mockReturnValue([
+      'BRAINSTRIKE_BEDROCK_API_KEY',
+      'AWS_BEARER_TOKEN_BEDROCK',
+    ]);
+    process.env['AWS_BEARER_TOKEN_BEDROCK'] = 'env-bedrock-bearer';
+    mockGetSecretsService.mockReturnValue({
+      getCredential: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue([]),
+    });
+
+    await expect(inspectProviderKeys()).resolves.toEqual({
+      configuredProviders: [
+        { envVar: 'AWS_BEARER_TOKEN_BEDROCK', provider: 'bedrock', source: 'env' },
+      ],
+      readFailures: [],
+    });
+  });
+
   it('does not inspect a stale stored key when an env key is authoritative', async () => {
     mockListAgentProviders.mockReturnValue(['openai']);
     mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);

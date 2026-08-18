@@ -16,6 +16,7 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     'claude-sonnet-4-5-20250929': 'claude-sonnet-4-6',
     'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
   },
+  bedrock: {},
   cohere: {},
   google: {
     'gemini-1.5-pro': 'gemini-2.5-pro',

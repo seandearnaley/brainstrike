@@ -15,6 +15,7 @@ const logger = createLogger('AgentClientLoader');
 // __tests__/main/agent-client-loader.test.ts.
 const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
   anthropic: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
+  bedrock: ['BRAINSTRIKE_BEDROCK_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK'],
   cohere: ['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY'],
   google: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
   lmstudio: [], // Local runtime provider, auto-discovered on localhost
@@ -40,6 +41,7 @@ const FALLBACK_PROVIDER_ORDER = [
   'openrouter',
   'cohere',
   'voyage',
+  'bedrock',
   'local',
   'ollama',
   'lmstudio',

@@ -1060,6 +1060,7 @@ describe('assistant runtime helpers', () => {
         configuredProviders: ['local'],
         enabledModelsByProvider: {
           anthropic: [],
+          bedrock: [],
           cohere: [],
           google: [],
           lmstudio: [],
