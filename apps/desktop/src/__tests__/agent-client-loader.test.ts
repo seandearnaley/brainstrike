@@ -61,6 +61,7 @@ describe('agent-client-loader', () => {
       'openrouter',
       'cohere',
       'voyage',
+      'bedrock',
       'local',
       'ollama',
       'lmstudio',

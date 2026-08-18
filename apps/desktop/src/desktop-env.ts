@@ -64,36 +64,59 @@ class DesktopEnvParseError extends Error {
 const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
 /**
- * ONE registry-derived name set with two enforcement roles (BST-1361):
- *
- * 1. `.env` file ALLOW-LIST — the ONLY variables a desktop env file may set.
- *    This is a PRIVILEGE BOUNDARY, not hygiene: an unrestricted file would
- *    escalate a write to `<userData>/.env` into code execution and traffic
- *    interception via NODE_OPTIONS, PATH, DYLD_INSERT_LIBRARIES,
- *    NODE_EXTRA_CA_CERTS, or HTTPS_PROXY — and could set NODE_ENV /
- *    ELECTRON_IS_E2E_TEST to flip this process's own test-mode semantics.
- *    Deprecated registry names stay listed forever: an unrecognized name
- *    rejects the WHOLE file, so dropping them would brick existing user
- *    files. Recognized-but-deprecated parses fine and is reported by name in
- *    {@link DesktopEnvLoadResult.deprecatedVariableNames}.
- * 2. CHILD-ENV CREDENTIAL SCRUB — names repository-controlled children must
- *    never inherit (the main-process env reaches children; non-interactive
- *    command, skill, and hook children strip these, while interactive PTYs
- *    and runtime-support children intentionally retain the parent env).
- *    Deprecated names stay here forever too: a credential-shaped variable
- *    must never leak regardless of whether resolution still reads it.
+ * Registry-derived CREDENTIAL name set (BST-1361, split in BST-1350): every
+ * name here is credential-shaped and drives the CHILD-ENV CREDENTIAL SCRUB —
+ * names repository-controlled children must never inherit (the main-process
+ * env reaches children; non-interactive command, skill, and hook children
+ * strip these, while interactive PTYs and runtime-support children
+ * intentionally retain the parent env). Deprecated names stay here forever: a
+ * credential-shaped variable must never leak regardless of whether resolution
+ * still reads it.
  *
  * Derived from the shared provider registry plus the Tavily names rather
- * than hand-copied — a hand-written list silently drifts. Exported so
- * `.env.example` is contract-tested against it (env-example-contract.test.ts)
- * and the example can never drift from the registry either.
+ * than hand-copied — a hand-written list silently drifts.
  */
-export const SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
+export const CREDENTIAL_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
   ...listProviders().flatMap((definition) => [
     ...providerEnvKeys(definition.id),
     ...providerDeprecatedEnvKeys(definition.id),
   ]),
   ...TAVILY_ENV_KEYS,
+]);
+
+/**
+ * Deliberate NON-credential supported names (BST-1350). These are `.env`-file
+ * loadable configuration, NOT secrets — they stay OUT of the child-env
+ * credential scrub (a child may legitimately need the region), but remain
+ * inside the strict allow-list boundary below. Extend deliberately; anything
+ * credential-shaped belongs in the registry-derived set instead.
+ *
+ * - `AWS_REGION`: the region an env-resolved Bedrock bearer key pairs with
+ *   (stored credentials carry their own region).
+ */
+export const NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> =
+  new Set<string>(['AWS_REGION']);
+
+/**
+ * `.env` file ALLOW-LIST (BST-1361) — the ONLY variables a desktop env file
+ * may set: the registry-derived credential names plus the deliberate
+ * non-credential names above. This is a PRIVILEGE BOUNDARY, not hygiene: an
+ * unrestricted file would escalate a write to `<userData>/.env` into code
+ * execution and traffic interception via NODE_OPTIONS, PATH,
+ * DYLD_INSERT_LIBRARIES, NODE_EXTRA_CA_CERTS, or HTTPS_PROXY — and could set
+ * NODE_ENV / ELECTRON_IS_E2E_TEST to flip this process's own test-mode
+ * semantics. Deprecated registry names stay listed forever: an unrecognized
+ * name rejects the WHOLE file, so dropping them would brick existing user
+ * files. Recognized-but-deprecated parses fine and is reported by name in
+ * {@link DesktopEnvLoadResult.deprecatedVariableNames}.
+ *
+ * Exported so `.env.example` is contract-tested against it
+ * (env-example-contract.test.ts) and the example can never drift from the
+ * registry either.
+ */
+export const SUPPORTED_ENV_FILE_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>([
+  ...CREDENTIAL_ENV_FILE_VARIABLE_NAMES,
+  ...NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES,
 ]);
 const DEPRECATED_VARIABLE_NAMES: ReadonlySet<string> = new Set<string>(
   listProviders().flatMap((definition) => [...providerDeprecatedEnvKeys(definition.id)])
@@ -104,7 +127,9 @@ let bootstrapResult: DesktopEnvLoadResult | undefined;
  * Copy a parent process environment without Brainstrike provider credentials.
  *
  * Repository-controlled child processes must not inherit credentials merely
- * because Desktop resolved them through the main-process environment.
+ * because Desktop resolved them through the main-process environment. The
+ * scrub is the CREDENTIAL set only (BST-1350): non-credential supported names
+ * (e.g. AWS_REGION) are configuration and pass through.
  */
 export function createCredentialIsolatedChildEnvironment(
   source: Readonly<NodeJS.ProcessEnv>
@@ -114,7 +139,7 @@ export function createCredentialIsolatedChildEnvironment(
     // Windows environment names are case-insensitive. Apply the same rule on
     // every platform so a mixed-case source object cannot bypass this boundary
     // in tests, IPC adapters, or a future cross-platform caller.
-    if (!SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name.toUpperCase())) {
+    if (!CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has(name.toUpperCase())) {
       environment[name] = value;
     }
   }

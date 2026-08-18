@@ -14,6 +14,10 @@ interface ProviderColorPair {
  */
 export const PROVIDER_COLOR_MAP: Record<string, ProviderColorPair> = {
   anthropic: { dark: 'hsl(25, 70%, 55%)', light: 'hsl(25, 70%, 45%)' },
+  // AWS-orange family (#FF9900 ≈ 36°); saturation pushed well above
+  // anthropic's 25°/70% so the two orange dots stay distinguishable at
+  // swatch size.
+  bedrock: { dark: 'hsl(36, 95%, 55%)', light: 'hsl(36, 95%, 38%)' },
   cohere: { dark: 'hsl(340, 60%, 55%)', light: 'hsl(340, 60%, 45%)' },
   google: { dark: 'hsl(210, 70%, 55%)', light: 'hsl(210, 70%, 45%)' },
   // 235° indigo: 45° from openrouter's 280° so the picker dots stay

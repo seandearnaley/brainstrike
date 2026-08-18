@@ -217,6 +217,7 @@
     | openrouter | `BRAINSTRIKE_OPENROUTER_API_KEY`  | `OPENROUTER_API_KEY`           | `AI_OPENROUTER_API_KEY`                                                             |
     | cohere     | `BRAINSTRIKE_COHERE_API_KEY`      | `COHERE_API_KEY`               | `AI_COHERE_API_KEY`                                                                 |
     | voyage     | `BRAINSTRIKE_VOYAGE_API_KEY`      | `VOYAGE_API_KEY`               | `AI_VOYAGE_API_KEY`                                                                 |
+    | bedrock    | `BRAINSTRIKE_BEDROCK_API_KEY`     | `AWS_BEARER_TOKEN_BEDROCK`     | —                                                                                   |
     | tavily     | `BRAINSTRIKE_TAVILY_API_KEY`      | `TAVILY_API_KEY`               | —                                                                                   |
 
     The registry (`provider-registry.ts` `envKeys` + `deprecatedEnvKeys`) is
@@ -226,8 +227,16 @@
     user files); they stay in the child-env credential scrubber forever (a
     credential-shaped var must never leak to children); and they are ABSENT
     from every resolution list, so a deprecated var never authenticates.
-    Scope: the scheme and its deprecation claims cover exactly the six keyed
-    providers above. The local runtimes' optional embeddings bearer tokens
+    Scope: the scheme and its deprecation claims cover exactly the seven keyed
+    providers above (bedrock's "key" is a Bedrock API bearer token; see the
+    Amazon Bedrock section for its region rule). The desktop allow-list is a
+    UNION since BST-1350: the registry-derived CREDENTIAL set
+    (`CREDENTIAL_ENV_FILE_VARIABLE_NAMES`, which alone drives the child-env
+    credential scrub) plus the deliberate NON-credential set
+    (`NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES`, today exactly
+    `AWS_REGION`) — a region is configuration, not a secret, so children may
+    inherit it while every bearer name is still stripped
+    (desktop-env.test.ts pins both directions). The local runtimes' optional embeddings bearer tokens
     (`OLLAMA_API_KEY`/`AI_OLLAMA_API_KEY`, `LMSTUDIO_API_KEY`/
     `AI_LMSTUDIO_API_KEY`) are separate LIVE transport names outside the
     registry scheme — not deprecated, not `.env`-file-loadable (they are not
@@ -941,8 +950,9 @@ auth metadata; the registry is the ONLY source for it:
   every provider. `'none'` marks the keyless providers (`local`, `ollama`,
   `lmstudio`); the local servers' optional bearer token is a TRANSPORT concern
   (`providerOptions.apiToken`, registry `runtime: 'local'`), not an authType.
-  `'oauth_subscription'` and `'aws'` exist ahead of use — no provider carries
-  them yet; downstream tickets consume them.
+  `'aws'` is carried by `bedrock` (BST-1350; the stored credential's `mode`
+  discriminates bearer vs the future profile chain). `'oauth_subscription'`
+  exists ahead of use — no provider carries it yet.
 - `docsUrl?` — the provider's "get an API key" page (required in practice for
   `api_key` providers).
 - `keyFormatHint?` — vendor-documented stable key prefix (e.g. `sk-ant-...`).
@@ -1041,9 +1051,13 @@ projection of it, not the contract. Three layers, each with one owner:
   embeddings remain api_key-only until a ticket needs otherwise — Bedrock is
   excluded from persistent memory by
   `PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`, and oauth providers will not
-  be memory providers. The request pipeline itself maps a resolved
-  non-api_key credential onto the SAME `api_key_unreadable` 400 (or the
-  keyless optional-token warn) the old `getKey` throw produced — never
+  be memory providers. The request pipeline's credential-type narrow IS the
+  shared projection since BST-1350 (`resolveCredentialOrReject` calls
+  `providerAuthInputFromCredential`): a projectable credential yields its
+  bearer surface (api_key keys, bedrock aws-bearer keys), and a
+  non-projectable one (oauth, aws profile_chain, aws stored on a non-aws
+  provider) maps onto the SAME `api_key_unreadable` 400 (or the keyless
+  optional-token warn) the old `getKey` throw produced — never
   `missing_api_key`.
 
 **Factory auth input** (`packages/agent/src/providers/provider-auth-input.ts`):
@@ -1065,9 +1079,11 @@ discriminated union instead of a bare key string:
   `native-web-search.auth-input.spec.ts`; a bare-key client under
   custom_fetch would send the dummy key to the real API).
 - `{ kind: 'aws', region, apiKey?, credentialProvider? }` — validated (region
-  REQUIRED, typed error when absent) but consumed by NO provider case yet;
-  BST-1350/BST-1353 add the Bedrock consumer. Every switch over the union is
-  exhaustive (compile error on an unhandled kind).
+  REQUIRED, typed error when absent — the actionable
+  `MISSING_AWS_REGION_DETAIL` text) and consumed ONLY by the `bedrock` case
+  via `requireAwsAuthInput` (BST-1350); every other case throws typed, and
+  BST-1353 adds the `credentialProvider` (SigV4) consumer. Every switch over
+  the union is exhaustive (compile error on an unhandled kind).
 
 **Threading rule (do not relitigate):** the auth input travels as a DIRECT
 parameter the whole way down — `runAssistantTurn` → `initializeAgentStream` →
@@ -1150,6 +1166,104 @@ red build. Pinned by
 the verify-provider block in `status-endpoints.integration.test.ts`,
 `packages/assistant-contract/src/__tests__/provider-verification.test.ts`,
 and the app-shell client/hook tests.
+
+### Amazon Bedrock (BST-1350 — phase 1: bearer auth + catalog)
+
+Registry entry `bedrock` (`authType: 'aws'`, `runtime: 'hosted'`, LLM-only).
+Phase 1 authenticates with Bedrock API keys (bearer tokens) ONLY; IAM
+SigV4 / profile-chain auth lands with BST-1353.
+
+- **Auth precedence** follows the global env-authoritative chain exactly:
+  `BRAINSTRIKE_BEDROCK_API_KEY` > `AWS_BEARER_TOKEN_BEDROCK` (AWS's
+  documented bearer variable) > the stored keychain credential
+  `{ type: 'aws', mode: 'bearer', bearerKey, region }`. An env bearer key
+  pairs with the region from `AWS_REGION`; a stored credential carries its
+  OWN region. The Credential Inventory's aws row-editor variant (BST-1362
+  `credential-row-editor.tsx`) requires the region, gates Save on the shared
+  `isValidAwsRegion` with an inline invalid-region hint, and writes through
+  the typed `saveCredential` bridge — never a bare `saveKey` string, which
+  would drop the region silently; a store-side `malformed_credential`
+  rejection toasts with the same region-format guidance.
+- **Region rule (do not relitigate): a missing region is a typed init
+  failure, never a default.** The ONE enforcement point is the factory
+  validator (`assertValidProviderAuthInput` / `requireAwsAuthInput`, message
+  `MISSING_AWS_REGION_DETAIL`: "Configure an AWS region for Bedrock in
+  Settings…"). The projection deliberately emits `region: ''` when
+  `AWS_REGION` is unset — its only visible-error channel is
+  SecretReadError-shaped, and a missing region is a CONFIG failure, so it
+  rides to the factory's actionable typed error instead of a misclassified
+  secret failure.
+- **Region FORMAT is SECURITY-enforced (PR #2522 review, finding 1).** The
+  region is interpolated into the request hostname
+  (`bedrock-runtime.<region>.amazonaws.com`), so a hostile "region" such as
+  `evil.example.com/` exfiltrates the bearer token and prompt content. The
+  shared `AWS_REGION_PATTERN` / `isValidAwsRegion`
+  (assistant-contract provider-credential.ts) is enforced in BOTH layers:
+  `isAwsCredential` (stored credentials, both modes — a bad region is
+  `malformed_credential`, never coerced) and `assertValidProviderAuthInput`
+  (`INVALID_AWS_REGION_DETAIL`, static text that never echoes the value).
+- **The bearer key is REQUIRED in phase 1 (finding 4).** A region-only aws
+  input throws `MISSING_AWS_BEARER_KEY_DETAIL` — without it the AI SDK would
+  fall back to ambient AWS environment credentials, and profile/
+  credential-chain auth is BST-1353's explicit, opt-in job.
+- **Persona pins cannot target Bedrock cross-provider (finding 5).**
+  `personaProviderApiKeys` carries bearer STRINGS with no region seat, so
+  `createPersonaPinnedModelResolver` throws the pin-unresolvable path naming
+  BST-1353/BST-1358 for any aws-authType pin (skip-with-warn upstream).
+  SAME-provider pins work: they reuse the parent's full aws auth input.
+- **NO prompt caching yet (finding 7 — BST-1354).** Anthropic-direct requests
+  ride `wrapAnthropicModelWithPromptCaching`; the Bedrock route does NOT, so
+  Claude-on-Bedrock agentic runs re-pay the full prompt as uncached input
+  every step — up to ~10x input cost versus the cached direct route. BST-1354
+  owns the Bedrock cache-breakpoint wrapper; do not bolt it on ad hoc here.
+- **DB catalog enablement (finding 8).** Migration 100 seeds the provider row
+  and every model row `is_enabled = false` — the same shape as the
+  openrouter seed. Enablement comes from `useBedrockDefaults`
+  (packages/app-shell), which mirrors `useOpenRouterDefaults`: on the first
+  readable bedrock configuration it enables `BEDROCK_RECOMMENDED_MODEL_IDS`
+  (assistant-contract) through the idempotent, user-choice-preserving
+  `initializeProviderModelDefaults`. Keep the two hooks parallel; the panel
+  wrapper consumes them through the ONE composed seam
+  `useProviderModelDefaults` (wrapper composition budget).
+- **Credential projection** (`providerAuthInputFromCredential`): on an
+  aws-auth provider an `api_key` credential (env bearer) and an aws/bearer
+  credential both project to `{ kind: 'aws', region, apiKey }`;
+  aws/profile_chain throws the SecretReadError-shaped
+  `credential_type_unsupported` with a static BST-1353 pointer; an aws
+  credential stored for a NON-aws provider throws too.
+- **Model ids are stored UNPREFIXED** (registry + DB catalog, migration
+  100). The cross-region inference-profile prefix (`us.`/`eu.`/`jp.`/`au.`;
+  `global.`/`apac.` pass through if already present) is applied per request
+  by `packages/agent/src/providers/bedrock-model-id.ts`. Since the PR #2522
+  review (finding 2/3) the tables are EXACT profile-id sets derived from
+  models.dev ground truth (dated in the module header) — a prefix is emitted
+  only when models.dev lists that regional profile; otherwise the id is sent
+  verbatim and Bedrock reports the outcome. Never double-prefixes; `us-gov*`
+  excluded; no `apac.` profiles exist today. Refresh procedure lives in the
+  module header.
+- **Exclusions:** no embeddings (`createEmbeddingProvider` throws), not a
+  persistent-memory provider (`PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`),
+  no reasoning controls yet (`resolveReasoningControlsAvailability`), and
+  NOT in `HOSTED_WEB_ASSISTANT_PROVIDERS` (desktop-only until a web ticket
+  says otherwise). `@ai-sdk/amazon-bedrock` is Node-only: it is imported
+  solely from provider-factory-adjacent modules, never from the browser-safe
+  agent subpaths.
+- **Env allow-list split:** see the canonical-env-names section — the child
+  scrub uses the credential set only; `AWS_REGION` is the one supported
+  non-credential file name.
+
+Pinned by `packages/agent/src/__tests__/provider-factory.bedrock.spec.ts` +
+`bedrock-model-id.spec.ts`, the aws-pin cases in
+`packages/agent/src/mastra/__tests__/persona-pinned-model.spec.ts`, the
+region-format cases in
+`packages/assistant-contract/src/__tests__/provider-credential.test.ts` +
+`bedrock-defaults.test.ts`,
+`packages/assistant-service/src/__tests__/provider-credential-projection.test.ts`
++ the BST-1350 blocks in `request.test.ts`,
+`packages/app-shell/src/hooks/use-bedrock-model-defaults.test.tsx`, the aws
+editor cases (save semantics + region-format gate) in
+`packages/settings-ui/.../__tests__/credential-inventory.test.tsx`, and
+the BST-1350 pins in `apps/desktop/src/__tests__/main/desktop-env.test.ts`.
 
 ---
 

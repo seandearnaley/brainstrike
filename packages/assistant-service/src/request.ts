@@ -34,7 +34,7 @@ import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { resolveRequestedProvider } from './memory-model-targets.js';
 import type { ProviderCredentialReader, ResolvedProviderCredential } from './ports.js';
-import { UnsupportedCredentialTypeError } from './provider-credential-projection.js';
+import { providerAuthInputFromCredential } from './provider-credential-projection.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
 import type { AssistantRequestPayload, AssistantUiMessage } from './types.js';
 
@@ -162,12 +162,13 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
  * a visible warn instead of a 400 — the token is optional, so an unreadable
  * keychain entry must not block the run.
  *
- * BST-1352: consumes the TYPED reader. A resolved non-api_key credential has
- * no consumer in this pipeline yet, so it takes the EXACT path a stored
- * non-api_key credential took when the string reader's `getKey` threw
- * `SecretReadError('credential_type_unsupported')` — the same
- * `api_key_unreadable` 400 (or the same keyless warn) — by throwing the
- * SecretReadError-shaped typed error into the classification below. The
+ * BST-1352: consumes the TYPED reader. The credential-type narrow is the ONE
+ * shared projection (`providerAuthInputFromCredential`, BST-1350): a
+ * credential it can project yields the bearer key surface (api_key keys, and
+ * bedrock aws-bearer keys whose region rides the exposed credential); a
+ * credential it cannot project throws the SecretReadError-shaped typed error
+ * into the classification below — the EXACT `api_key_unreadable` 400 (or the
+ * keyless warn) the old string reader's `getKey` throw produced. The
  * credential is never stringified.
  */
 async function resolveCredentialOrReject(
@@ -195,10 +196,8 @@ async function resolveCredentialOrReject(
     if (credential === undefined) {
       return { apiKey: undefined };
     }
-    if (credential.type !== 'api_key') {
-      throw new UnsupportedCredentialTypeError(provider);
-    }
-    return { apiKey: credential.key, credential };
+    const authInput = providerAuthInputFromCredential(provider, credential);
+    return { apiKey: authInput?.apiKey, credential };
   } catch (error) {
     const payload = getSecretReadErrorPayload(error);
     if (!payload) {

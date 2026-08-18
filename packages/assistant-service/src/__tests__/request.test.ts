@@ -693,6 +693,62 @@ describe('typed credential seam (BST-1352)', () => {
     expect(result.rejection.payload.error).not.toBe('missing_api_key');
   });
 
+  it('accepts a stored aws bearer credential for bedrock (BST-1350)', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      bearerKey: 'stored-bedrock-bearer',
+      mode: 'bearer',
+      region: 'us-east-1',
+      source: 'stored',
+      type: 'aws',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'bedrock' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error('expected success');
+    }
+    // The bearer key satisfies the missing_api_key gate; the region rides the
+    // exposed credential into the aws auth-input projection downstream.
+    expect(result.request.apiKey).toBe('stored-bedrock-bearer');
+    expect(result.request.credential).toEqual({
+      bearerKey: 'stored-bedrock-bearer',
+      mode: 'bearer',
+      region: 'us-east-1',
+      source: 'stored',
+      type: 'aws',
+    });
+  });
+
+  it('rejects a stored aws profile_chain credential as api_key_unreadable pointing at BST-1353', async () => {
+    resolveProviderCredential.mockResolvedValueOnce({
+      mode: 'profile_chain',
+      region: 'us-east-1',
+      source: 'stored',
+      type: 'aws',
+    });
+    const result = await prepare(
+      JSON.stringify({
+        data: { provider: 'bedrock' },
+        messages: [{ parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
+      })
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected rejection');
+    }
+    expect(result.rejection.status).toBe(400);
+    expect(result.rejection.payload).toMatchObject({
+      code: 'credential_type_unsupported',
+      error: 'api_key_unreadable',
+      provider: 'bedrock',
+    });
+    expect(result.rejection.payload.message).toContain('BST-1353');
+  });
+
   it('proceeds keyless (with a warn) when a keyless provider stores a non-api_key credential', async () => {
     resolveProviderCredential.mockResolvedValueOnce({
       access: 'a',

@@ -8,9 +8,11 @@ import {
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  CREDENTIAL_ENV_FILE_VARIABLE_NAMES,
   createCredentialIsolatedChildEnvironment,
   type LoadDesktopEnvironmentOptions,
   loadDesktopEnvironment,
+  NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES,
 } from '../../desktop-env';
 import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 
@@ -71,9 +73,52 @@ describe('createCredentialIsolatedChildEnvironment', () => {
       PATH: '/usr/bin',
     });
   });
+
+  it('scrubs both Bedrock bearer names (registry-derived, pinned by name — BST-1350)', () => {
+    // Explicit pin on top of the derived loop above: the two Bedrock env
+    // names are credential-shaped and must never reach children.
+    const result = createCredentialIsolatedChildEnvironment({
+      AWS_BEARER_TOKEN_BEDROCK: 'bearer-secret',
+      BRAINSTRIKE_BEDROCK_API_KEY: 'override-secret',
+      PATH: '/usr/bin',
+    });
+    expect(result).toEqual({ PATH: '/usr/bin' });
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_BEARER_TOKEN_BEDROCK')).toBe(true);
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('BRAINSTRIKE_BEDROCK_API_KEY')).toBe(true);
+  });
+
+  it('keeps AWS_REGION for children — a region is configuration, not a secret (BST-1350)', () => {
+    const result = createCredentialIsolatedChildEnvironment({
+      AWS_BEARER_TOKEN_BEDROCK: 'bearer-secret',
+      AWS_REGION: 'us-east-1',
+      PATH: '/usr/bin',
+    });
+    expect(result).toEqual({ AWS_REGION: 'us-east-1', PATH: '/usr/bin' });
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_REGION')).toBe(false);
+    // The non-credential set stays deliberately tiny: exactly AWS_REGION today.
+    expect([...NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES]).toEqual(['AWS_REGION']);
+  });
 });
 
 describe('loadDesktopEnvironment', () => {
+  it('accepts AWS_REGION from env files as a supported non-credential name (BST-1350)', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      ['AWS_BEARER_TOKEN_BEDROCK=bearer', 'AWS_REGION=us-east-1'].join('\n')
+    );
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    expect(result.failures).toEqual([]);
+    expect(result.appliedVariableCount).toBe(2);
+    expect(env).toMatchObject({
+      AWS_BEARER_TOKEN_BEDROCK: 'bearer',
+      AWS_REGION: 'us-east-1',
+    });
+  });
+
   it('applies existing env > .env.local > .env precedence in development', () => {
     const layout = createEnvironmentLayout();
     fs.writeFileSync(

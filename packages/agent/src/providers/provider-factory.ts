@@ -1,3 +1,4 @@
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -16,6 +17,7 @@ import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import type { RuntimeData } from '../types';
 import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
+import { resolveBedrockModelId } from './bedrock-model-id';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
@@ -23,9 +25,11 @@ import {
   apiKeyAuthInput,
   assertValidProviderAuthInput,
   bearerApiKeyOnly,
+  MISSING_AWS_BEARER_KEY_DETAIL,
   type ProviderAuthInput,
   type ProviderFetchOptions,
   providerFetchOptions,
+  requireAwsAuthInput,
 } from './provider-auth-input';
 import {
   isSupportedProvider,
@@ -207,6 +211,33 @@ export function createProvider(
         },
         [new OpenRouterStrictContentGateway(apiKey)]
       );
+    }
+
+    case 'bedrock': {
+      // BST-1350 phase 1: bearer-key ("Bedrock API key") auth only. The aws
+      // auth input is REQUIRED — a bearer key alone (api_key kind) or absent
+      // auth carries no region, and region is mandatory (typed failure, never
+      // a silent default). The bearer itself is mandatory too: without it the
+      // AI SDK would fall back to AMBIENT AWS environment credentials, and
+      // profile/credential-chain auth is BST-1353's explicit job.
+      const awsAuth = requireAwsAuthInput(auth, validatedProvider);
+      if (!awsAuth.apiKey) {
+        throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+          context: { authKind: 'aws', provider: validatedProvider },
+          detail: MISSING_AWS_BEARER_KEY_DETAIL,
+        });
+      }
+      // SDK settings ride the SAME providerFetchOptions seam as every other
+      // AI SDK factory case (PR #2522 review, finding 9) — a future
+      // fetch-carrying auth kind composes without a bespoke branch here.
+      const bedrockProvider = createAmazonBedrock({
+        ...providerFetchOptions(awsAuth, validatedProvider),
+        region: awsAuth.region,
+      });
+      // The catalog stores UNPREFIXED Bedrock model ids; the cross-region
+      // inference-profile prefix is a per-request routing concern derived
+      // from the request's region (see bedrock-model-id.ts).
+      return bedrockProvider(resolveBedrockModelId(modelName, awsAuth.region));
     }
 
     case 'ollama': {
@@ -415,6 +446,10 @@ export function createEmbeddingProvider(
     case 'openrouter':
     case 'cohere':
     case 'voyage':
+    // Bedrock exposes embedding models upstream, but Brainstrike's Bedrock
+    // phase 1 is LLM-only (registry capabilities.embeddings: false) — an
+    // explicit throw, never a silent degrade (BST-1350).
+    case 'bedrock':
     case 'ollama':
     case 'lmstudio':
     case 'local':

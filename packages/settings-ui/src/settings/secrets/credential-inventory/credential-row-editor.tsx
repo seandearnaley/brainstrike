@@ -1,3 +1,4 @@
+import { isValidAwsRegion } from '@brainstrike/assistant-contract';
 import { Button, CopyTextButton, Input } from '@brainstrike/ui';
 import { useEffect, useRef } from 'react';
 import type { CredentialSlot } from './credential-slots';
@@ -46,7 +47,14 @@ export function CredentialRowEditor({
   slot,
 }: CredentialRowEditorProps) {
   const isAws = slot.authType === 'aws';
-  const canSave = !busy && draftKey.trim().length > 0 && (!isAws || draftRegion.trim().length > 0);
+  // SECURITY (BST-1350 review, finding 1): the region is interpolated into
+  // the Bedrock request hostname, so a non-region value must never reach the
+  // keychain. The SHARED isValidAwsRegion (also enforced store-side in
+  // isAwsCredential) gates Save and explains the expected shape inline.
+  const trimmedRegion = draftRegion.trim();
+  const regionInvalid = isAws && trimmedRegion.length > 0 && !isValidAwsRegion(trimmedRegion);
+  const canSave =
+    !busy && draftKey.trim().length > 0 && (!isAws || (trimmedRegion.length > 0 && !regionInvalid));
   const keyHint = composeKeyHint(slot);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -133,6 +141,14 @@ export function CredentialRowEditor({
           Cancel
         </Button>
       </div>
+      {regionInvalid ? (
+        <p
+          className="text-destructive text-xs"
+          data-testid={`credential-region-invalid-${slot.id}`}
+        >
+          Not a valid AWS region — use a region identifier like us-east-1.
+        </p>
+      ) : null}
       {keyHint ? (
         <p
           className="text-muted-foreground text-xs"

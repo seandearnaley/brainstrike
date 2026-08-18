@@ -2,6 +2,7 @@ export * from './assistant-attachments.js';
 export * from './assistant-auth.js';
 export * from './assistant-stream-session.js';
 export * from './assistant-task-list.js';
+export * from './bedrock-defaults.js';
 export * from './compaction-summary.js';
 export * from './context-breakdown.js';
 export * from './context-budget.js';

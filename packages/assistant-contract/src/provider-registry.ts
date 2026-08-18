@@ -251,6 +251,7 @@ export type ProviderId =
   | 'openrouter'
   | 'cohere'
   | 'voyage'
+  | 'bedrock'
   | 'local'
   | 'ollama'
   | 'lmstudio';
@@ -1303,6 +1304,157 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'voyage-3-lite',
         supportsStandardDimension: false,
         type: 'embedding',
+      },
+    ],
+    runtime: 'hosted',
+  },
+  {
+    // BST-1350 phase 1: API-key (bearer) auth only. SigV4 / profile-chain auth
+    // lands with BST-1353; `authType: 'aws'` covers both modes — the stored
+    // credential's `mode` discriminates.
+    authType: 'aws',
+    capabilities: {
+      embeddings: false,
+      llm: true,
+      streaming: true,
+    },
+    displayName: 'Amazon Bedrock',
+    // AWS's "Generate Amazon Bedrock API keys" console docs page.
+    docsUrl: 'https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html',
+    // BST-1361 two-name scheme: app-scoped override first, then AWS's
+    // documented bearer-token variable for Bedrock API keys.
+    envKeys: ['BRAINSTRIKE_BEDROCK_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK'],
+    id: 'bedrock',
+    // AWS documents no stable printable prefix for Bedrock API keys, so there
+    // is no keyFormatHint.
+    keyNotes:
+      'Use an Amazon Bedrock API key (bearer token) from the AWS console. IAM SigV4 credentials and AWS profiles are not supported yet. Requests also need an AWS region: set AWS_REGION or store it with the key.',
+    // Model ids/pricing verified against https://models.dev/api.json
+    // (amazon-bedrock provider), retrieved 2026-08-18. Ids are stored
+    // UNPREFIXED; cross-region inference-profile prefixes (us./eu./…) are
+    // applied per request by resolveBedrockModelId in packages/agent.
+    // Cache pricing is deliberately absent: the registry pricing schema keeps
+    // cache rates Anthropic-first-party-only (provider-registry-pricing pin).
+    models: [
+      {
+        contextWindow: 1_000_000,
+        id: 'anthropic.claude-fable-5',
+        label: 'Claude Fable 5 (Bedrock)',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 10, outputPerMTok: 50 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 1_000_000,
+        id: 'anthropic.claude-opus-4-8',
+        label: 'Claude Opus 4.8 (Bedrock)',
+        maxOutputTokens: 128_000,
+        pricing: { inputPerMTok: 5, outputPerMTok: 25 },
+        supportsStreaming: true,
+        tagline: 'For your toughest challenges',
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 1_000_000,
+        default: true,
+        id: 'anthropic.claude-sonnet-5',
+        label: 'Claude Sonnet 5 (Bedrock)',
+        maxOutputTokens: 128_000,
+        // Bedrock mirrors Anthropic's introductory rate (models.dev 2026-08-18).
+        pricing: { inputPerMTok: 2, outputPerMTok: 10 },
+        supportsStreaming: true,
+        tagline: 'Best mix of smarts and speed',
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        // models.dev lists a 1M context for this Bedrock route; the registry
+        // pins the vendor's standard tier (200K), consistent with the direct
+        // Anthropic and OpenRouter rows for the same model.
+        contextWindow: 200_000,
+        id: 'anthropic.claude-sonnet-4-6',
+        label: 'Claude Sonnet 4.6 (Bedrock)',
+        maxOutputTokens: 64_000,
+        pricing: { inputPerMTok: 3, outputPerMTok: 15 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 200_000,
+        id: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+        label: 'Claude Haiku 4.5 (Bedrock)',
+        maxOutputTokens: 64_000,
+        pricing: { inputPerMTok: 1, outputPerMTok: 5 },
+        supportsStreaming: true,
+        tagline: 'Fastest for lightweight tasks',
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 300_000,
+        id: 'amazon.nova-pro-v1:0',
+        label: 'Amazon Nova Pro',
+        maxOutputTokens: 8192,
+        pricing: { inputPerMTok: 0.8, outputPerMTok: 3.2 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 300_000,
+        id: 'amazon.nova-lite-v1:0',
+        label: 'Amazon Nova Lite',
+        maxOutputTokens: 8192,
+        pricing: { inputPerMTok: 0.06, outputPerMTok: 0.24 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 128_000,
+        id: 'amazon.nova-micro-v1:0',
+        label: 'Amazon Nova Micro',
+        maxOutputTokens: 8192,
+        pricing: { inputPerMTok: 0.035, outputPerMTok: 0.14 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      },
+      // amazon.nova-premier is not listed by models.dev for Bedrock
+      // (2026-08-18), so it is deliberately absent.
+      {
+        contextWindow: 1_000_000,
+        id: 'meta.llama4-maverick-17b-instruct-v1:0',
+        label: 'Llama 4 Maverick (Bedrock)',
+        maxOutputTokens: 16_384,
+        pricing: { inputPerMTok: 0.24, outputPerMTok: 0.97 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 3_500_000,
+        id: 'meta.llama4-scout-17b-instruct-v1:0',
+        label: 'Llama 4 Scout (Bedrock)',
+        maxOutputTokens: 16_384,
+        pricing: { inputPerMTok: 0.17, outputPerMTok: 0.66 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 163_840,
+        id: 'deepseek.v3.2',
+        label: 'DeepSeek V3.2 (Bedrock)',
+        maxOutputTokens: 81_920,
+        pricing: { inputPerMTok: 0.62, outputPerMTok: 1.85 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
       },
     ],
     runtime: 'hosted',

@@ -162,7 +162,9 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
     });
   });
 
-  describe('aws kind (defined ahead of any consumer — BST-1350/BST-1353)', () => {
+  // The bedrock case CONSUMES the aws kind — its coverage lives in
+  // provider-factory.bedrock.spec.ts; every other case still fails typed.
+  describe('aws kind (consumed only by the bedrock case — BST-1350)', () => {
     it('rejects an aws auth input without a region with a typed error', () => {
       let thrown: unknown;
       try {
@@ -175,7 +177,7 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
       expect((thrown as MastraAgentError).message).toContain('region');
     });
 
-    it('rejects a valid aws auth input on every provider case (no consumer yet)', () => {
+    it('rejects a valid aws auth input on every non-bedrock provider case', () => {
       const auth: ProviderAuthInput = { kind: 'aws', region: 'us-east-1' };
       for (const provider of [
         'openai',

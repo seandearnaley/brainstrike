@@ -12,7 +12,7 @@ import {
 describe('provider registry metadata', () => {
   it('lists all supported providers with display names', () => {
     const providers = listProviders();
-    expect(providers).toHaveLength(9);
+    expect(providers).toHaveLength(10);
 
     for (const provider of providers) {
       expect(typeof provider.displayName).toBe('string');
@@ -54,6 +54,12 @@ describe('provider registry metadata', () => {
     expect(providerEnvKeys('google')).toEqual([
       'BRAINSTRIKE_GOOGLE_API_KEY',
       'GOOGLE_GENERATIVE_AI_API_KEY',
+    ]);
+    // BST-1350: bedrock keeps the same override-first order; the vendor name
+    // is AWS's documented bearer variable for Bedrock API keys.
+    expect(providerEnvKeys('bedrock')).toEqual([
+      'BRAINSTRIKE_BEDROCK_API_KEY',
+      'AWS_BEARER_TOKEN_BEDROCK',
     ]);
   });
 });
