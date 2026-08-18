@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { __workspaceCollectionSyncScanInternalsForTests } from '../workspace-collection-sync-scan';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { IFileNode } from '@brainstrike/types';
+import { describe, expect, it, vi } from 'vitest';
+import { ChunkingRedispatchTracker } from '../workspace-collection-sync-import';
+import {
+  __workspaceCollectionSyncScanInternalsForTests,
+  collectPreparedWorkspaceSyncChanges,
+} from '../workspace-collection-sync-scan';
+import { BALANCED_QOS_POLICY } from './workspace-collection-sync-service-test-helpers';
 
 describe('workspace collection sync scan path helpers', () => {
   it('extracts names and depths without changing split/filter path semantics', () => {
@@ -104,5 +111,87 @@ describe('workspace collection sync scan path helpers', () => {
         ...__workspaceCollectionSyncScanInternalsForTests.iterRelativePathSegments(path),
       ]).toEqual(segments);
     }
+  });
+});
+
+describe('workspace collection scoped traversal', () => {
+  it('preserves the durable rootId on rebuilt directory handles', async () => {
+    const rootHandle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+      rootId: 'outer-root-id',
+    };
+    const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
+      if (handle.path === rootHandle.path) {
+        return [
+          {
+            children: [],
+            depth: 0,
+            handle: {
+              kind: 'directory',
+              name: 'nested-root',
+              path: '/workspace/root/nested-root',
+              platform: 'electron',
+              rootId: 'outer-root-id',
+            } as unknown as IFileNode['handle'],
+            name: 'nested-root',
+            path: '/workspace/root/nested-root',
+            rootFolderId: 'outer-root-id',
+            selectionState: 'unchecked',
+            type: 'directory',
+          },
+        ];
+      }
+      return [];
+    });
+    const fileSystemAdapter = {
+      exists: vi.fn(),
+      readDirectory,
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+
+    await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: rootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'outer-root-id',
+        rootPath: rootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => []),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: rootHandle,
+        scope: {
+          changes: [
+            {
+              kind: 'directory',
+              path: '/workspace/root/nested-root',
+              type: 'modified',
+            },
+          ],
+          mode: 'paths',
+        },
+      },
+    });
+
+    expect(readDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/workspace/root/nested-root',
+        rootId: 'outer-root-id',
+      }),
+      expect.any(Object)
+    );
   });
 });

@@ -66,12 +66,14 @@ function detectPlatform(handle: unknown): 'web' | 'electron' {
  * Build a DirectoryHandle from an IFileNode
  */
 function buildDirectoryHandle(node: IFileNode): DirectoryHandle {
+  const nodeHandle = node.handle as Partial<DirectoryHandle>;
   return {
     _internal: node.handle,
     kind: 'directory',
     name: node.name,
     path: node.path,
     platform: detectPlatform(node.handle),
+    ...(nodeHandle.rootId === undefined ? {} : { rootId: nodeHandle.rootId }),
   };
 }
 
