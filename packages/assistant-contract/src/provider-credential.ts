@@ -25,14 +25,28 @@
  * Field rules: an `api_key` key must be NON-EMPTY (an empty key is never a
  * configured credential); `aws` splits by mode — `bearer` REQUIRES
  * `bearerKey`, `profile_chain` keeps `profile` optional (the default AWS
- * profile chain is legitimate).
+ * profile chain is legitimate). Both `api_key` and `aws` carry an optional
+ * non-secret string-record `metadata` (BST-1362 uses it for the
+ * `{last4, savedAt}` save fingerprint); `oauth` has no metadata field.
  */
 
 export type ProviderCredential =
   | { type: 'api_key'; key: string; metadata?: Record<string, string> }
   | { type: 'oauth'; access: string; refresh: string; expires: number; accountId?: string }
-  | { type: 'aws'; mode: 'bearer'; bearerKey: string; region: string }
-  | { type: 'aws'; mode: 'profile_chain'; profile?: string; region: string };
+  | {
+      type: 'aws';
+      mode: 'bearer';
+      bearerKey: string;
+      region: string;
+      metadata?: Record<string, string>;
+    }
+  | {
+      type: 'aws';
+      mode: 'profile_chain';
+      profile?: string;
+      region: string;
+      metadata?: Record<string, string>;
+    };
 
 export type ProviderCredentialType = ProviderCredential['type'];
 
@@ -112,12 +126,17 @@ export function isAwsCredential(
   }
   const candidate = value as {
     bearerKey?: unknown;
+    metadata?: unknown;
     mode?: unknown;
     profile?: unknown;
     region?: unknown;
     type?: unknown;
   };
-  if (candidate.type !== 'aws' || typeof candidate.region !== 'string') {
+  if (
+    candidate.type !== 'aws' ||
+    typeof candidate.region !== 'string' ||
+    !(candidate.metadata === undefined || isStringRecord(candidate.metadata))
+  ) {
     return false;
   }
   switch (candidate.mode) {

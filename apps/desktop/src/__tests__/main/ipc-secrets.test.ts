@@ -133,6 +133,7 @@ describe('registerSecretsIpcHandlers', () => {
 
     const secretsService: SecretsServiceMock = {
       deleteKey: vi.fn(),
+      getCredential: vi.fn().mockResolvedValue({ key: 'sk-stored', type: 'api_key' }),
       getKey: vi.fn(),
       listProviders: vi.fn().mockResolvedValue(['anthropic', ' custom ']),
       saveKey: vi.fn(),
@@ -154,6 +155,114 @@ describe('registerSecretsIpcHandlers', () => {
       { provider: 'anthropic', source: 'stored' },
     ]);
     expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it('projects the save-time fingerprint metadata onto stored list entries (BST-1362)', async () => {
+    process.env['NODE_ENV'] = 'production';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getCredential: vi.fn().mockImplementation((provider: string) => {
+        if (provider === 'anthropic') {
+          return Promise.resolve({
+            key: 'sk-ant-test-123',
+            metadata: { last4: '-123', other: 'kept-private', savedAt: '2026-08-18T10:00:00.000Z' },
+            type: 'api_key',
+          });
+        }
+        return Promise.resolve({ key: 'sk-legacy', type: 'api_key' });
+      }),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const result = await getHandler('secrets:list')!(createInvokeEvent());
+
+    // Only the fingerprint keys are projected; other metadata never crosses
+    // the wire, and a credential without a fingerprint yields no metadata.
+    expect(result).toEqual([
+      {
+        metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
+        provider: 'anthropic',
+        source: 'stored',
+      },
+      { provider: 'openai', source: 'stored' },
+    ]);
+  });
+
+  it('projects the fingerprint from stored aws credentials too', async () => {
+    process.env['NODE_ENV'] = 'production';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getCredential: vi.fn().mockResolvedValue({
+        bearerKey: 'bedrock-bearer',
+        metadata: { last4: 'arer', savedAt: '2026-08-18T10:00:00.000Z' },
+        mode: 'bearer',
+        region: 'us-east-1',
+        type: 'aws',
+      }),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['anthropic']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const result = await getHandler('secrets:list')!(createInvokeEvent());
+
+    expect(result).toEqual([
+      {
+        metadata: { last4: 'arer', savedAt: '2026-08-18T10:00:00.000Z' },
+        provider: 'anthropic',
+        source: 'stored',
+      },
+    ]);
+  });
+
+  it('still lists a stored entry whose credential cannot be read, without metadata', async () => {
+    process.env['NODE_ENV'] = 'production';
+
+    const { SecretReadError } = await import('../../secrets');
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getCredential: vi
+        .fn()
+        .mockRejectedValue(new SecretReadError('malformed_credential', 'anthropic')),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['anthropic']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const result = await getHandler('secrets:list')!(createInvokeEvent());
+
+    // The entry IS stored — that fact stands. The unreadable credential
+    // surfaces through the status probe and every read path; the listing
+    // only withholds the fingerprint it cannot know.
+    expect(result).toEqual([{ provider: 'anthropic', source: 'stored' }]);
+  });
+
+  it('withholds a partial fingerprint instead of forwarding it (never guessed)', async () => {
+    process.env['NODE_ENV'] = 'production';
+
+    const secretsService: SecretsServiceMock = {
+      deleteKey: vi.fn(),
+      getCredential: vi.fn().mockResolvedValue({
+        key: 'sk-tampered',
+        metadata: { last4: 'ered' },
+        type: 'api_key',
+      }),
+      getKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['anthropic']),
+      saveKey: vi.fn(),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const result = await getHandler('secrets:list')!(createInvokeEvent());
+
+    expect(result).toEqual([{ provider: 'anthropic', source: 'stored' }]);
   });
 
   it('reports Tavily env credentials and keeps env authoritative over storage', async () => {
@@ -455,6 +564,33 @@ describe('registerSecretsIpcHandlers', () => {
         name: 'SecretReadError',
         provider: 'anthropic',
       });
+    });
+
+    it('lists the fingerprint metadata for test-mode typed saves and omits it for legacy saves', async () => {
+      process.env['NODE_ENV'] = 'test';
+      const secretsService: SecretsServiceMock = {
+        deleteKey: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        saveKey: vi.fn(),
+      };
+
+      const { getHandler } = await bootstrap(secretsService);
+      await getHandler('secrets:saveCredential')!(createInvokeEvent(), 'anthropic', {
+        key: 'sk-ant-test-123',
+        metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
+        type: 'api_key',
+      });
+      await getHandler('secrets:save')!(createInvokeEvent(), 'openai', 'sk-legacy');
+
+      await expect(getHandler('secrets:list')!(createInvokeEvent())).resolves.toEqual([
+        {
+          metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
+          provider: 'anthropic',
+          source: 'stored',
+        },
+        { provider: 'openai', source: 'stored' },
+      ]);
     });
 
     it('saveCredential returns a malformed_credential result for an unrecognized type in test mode, storing nothing', async () => {

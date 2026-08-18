@@ -120,16 +120,25 @@ export default function SettingsPageContent() {
     return tokenCache.isOperational && tokenCache.countingMode === 'accurate';
   }, [tokenCache]);
   const apiKeyStatus = useMemo(() => {
+    // Every non-loading availability state may carry deprecated-env rename
+    // reports (BST-1361); the Credential Inventory renders them per row.
+    const deprecated =
+      assistantAvailability.state !== 'loading' &&
+      assistantAvailability.deprecatedEnvVars &&
+      assistantAvailability.deprecatedEnvVars.length > 0
+        ? { statusDeprecatedEnvVars: assistantAvailability.deprecatedEnvVars }
+        : {};
     if (assistantAvailability.state === 'enabled') {
       return {
+        ...deprecated,
         statusProviderKeySources: assistantAvailability.providerKeySources ?? [],
       };
     }
     if (assistantAvailability.state === 'error') {
       const failures = assistantAvailability.envFileFailures?.map(({ message }) => message) ?? [];
-      return failures.length > 0 ? { statusError: failures.join(' ') } : {};
+      return failures.length > 0 ? { ...deprecated, statusError: failures.join(' ') } : deprecated;
     }
-    return {};
+    return deprecated;
   }, [assistantAvailability]);
   const assistantProviderKeySources =
     assistantAvailability.state === 'enabled'

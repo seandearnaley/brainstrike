@@ -58,6 +58,10 @@
       "types": "./dist/settings/secrets/api-keys-settings-category.d.ts",
       "import": "./dist/settings/secrets/api-keys-settings-category.js"
     },
+    "./settings/secrets/credential-inventory": {
+      "types": "./dist/settings/secrets/credential-inventory/index.d.ts",
+      "import": "./dist/settings/secrets/credential-inventory/index.js"
+    },
     "./settings/system/logging-settings-section": {
       "types": "./dist/settings/system/logging-settings-section.d.ts",
       "import": "./dist/settings/system/logging-settings-section.js"

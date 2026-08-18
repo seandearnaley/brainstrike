@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures/electron-fixture';
 
 test.describe('Secrets Settings', { tag: '@smoke' }, () => {
-  test('shows the injected OpenAI environment key and enables its composer models', async ({
+  test('locks the injected OpenAI environment key row and enables its composer models', async ({
     window,
     homePage,
   }) => {
@@ -16,23 +16,23 @@ test.describe('Secrets Settings', { tag: '@smoke' }, () => {
       .click();
     await expect(window.getByTestId('settings-category-api-keys')).toBeVisible();
 
-    const providerSelect = window.getByTestId('llm-provider');
-    await expect(providerSelect).toBeVisible();
-    await providerSelect.click();
+    // The Credential Inventory shows EVERY slot at once — no dropdown remains.
+    await expect(window.getByTestId('credential-row-openai')).toBeVisible();
+    await expect(window.getByTestId('credential-row-anthropic')).toBeVisible();
+    await expect(window.getByTestId('credential-row-tavily')).toBeVisible();
+    await expect(window.getByTestId('llm-provider')).toHaveCount(0);
 
-    const option = window
-      .getByRole('option', { name: 'OpenAI' })
-      .or(window.getByRole('option', { name: /OpenAI/i }));
-    await option.click();
+    // The Variable column teaches the canonical vendor env name.
+    await expect(window.getByTestId('credential-env-var-openai')).toHaveText('OPENAI_API_KEY');
 
-    await expect(window.getByTestId('provider-key-status')).toContainText(
-      'Environment key (BRAINSTRIKE_OPENAI_API_KEY)'
+    // The injected env var locks the row read-only: badge + lock, no editor.
+    await expect(window.getByTestId('credential-status-openai')).toContainText(
+      'Env (BRAINSTRIKE_OPENAI_API_KEY)'
     );
-    await window.getByTestId('llm-api-key').fill('sk-inert');
-    await expect(window.getByTestId('save-llm-key')).toBeDisabled();
-    await expect(window.getByTestId('provider-env-key-warning')).toContainText(
-      'BRAINSTRIKE_OPENAI_API_KEY'
-    );
+    await expect(window.getByTestId('credential-env-lock-openai')).toBeVisible();
+    await expect(window.getByTestId('credential-set-openai')).toHaveCount(0);
+    await expect(window.getByTestId('credential-replace-openai')).toHaveCount(0);
+    await expect(window.getByTestId('credential-remove-openai')).toHaveCount(0);
 
     await window.keyboard.press('Escape');
     await expect(window.getByRole('navigation', { name: 'Settings categories' })).not.toBeVisible();
@@ -57,7 +57,7 @@ test.describe('Secrets Settings', { tag: '@smoke' }, () => {
     await expect(modelPicker).toHaveAccessibleName(/Selected model:.*GPT/i);
   });
 
-  test('saves, retrieves, and deletes an Anthropic key through settings and IPC', async ({
+  test('sets, fingerprints, retrieves, and removes an Anthropic key through the inventory row', async ({
     window,
     homePage,
   }) => {
@@ -68,14 +68,21 @@ test.describe('Secrets Settings', { tag: '@smoke' }, () => {
       .click();
     await expect(window.getByTestId('settings-category-api-keys')).toBeVisible();
 
-    const providerSelect = window.getByTestId('llm-provider');
-    await providerSelect.click();
-    await window.getByRole('option', { name: 'Anthropic' }).click();
+    const anthropicRow = window.getByTestId('credential-row-anthropic');
+    await expect(anthropicRow).toBeVisible();
+    await expect(window.getByTestId('credential-status-anthropic')).toContainText('Not set');
 
-    await expect(window.getByTestId('provider-key-status')).toContainText('Not configured');
-    await window.getByTestId('llm-api-key').fill('sk-ant-test-123');
-    await window.getByTestId('save-llm-key').click();
-    await expect(window.getByTestId('provider-key-status')).toContainText('Saved in keychain');
+    // Inline editor: Set expands the row, Enter saves (keyboard flow).
+    await window.getByTestId('credential-set-anthropic').click();
+    const keyInput = window.getByTestId('credential-key-input-anthropic');
+    await expect(keyInput).toBeFocused();
+    await keyInput.fill('sk-ant-test-123');
+    await window.keyboard.press('Enter');
+
+    await expect(window.getByTestId('credential-status-anthropic')).toContainText('Stored');
+    // Non-secret fingerprint: only the last four characters ever render.
+    await expect(window.getByTestId('credential-fingerprint-anthropic')).toContainText('…-123');
+    await expect(window.getByTestId('credential-editor-anthropic')).toHaveCount(0);
 
     const fetched = await window.evaluate(async () => {
       const globals = window as unknown as {
@@ -86,7 +93,32 @@ test.describe('Secrets Settings', { tag: '@smoke' }, () => {
     });
     expect(fetched).toBe('sk-ant-test-123');
 
-    await window.getByTestId('delete-llm-key').click();
-    await expect(window.getByTestId('provider-key-status')).toContainText('Not configured');
+    // Remove flow returns the row to Not set.
+    await window.getByTestId('credential-remove-anthropic').click();
+    await expect(window.getByTestId('credential-status-anthropic')).toContainText('Not set');
+    await expect(window.getByTestId('credential-fingerprint-anthropic')).toHaveCount(0);
+  });
+
+  test('cancels the inline editor with Escape without closing the settings dialog', async ({
+    window,
+    homePage,
+  }) => {
+    await homePage.openSettings();
+    await window
+      .getByRole('navigation', { name: 'Settings categories' })
+      .getByRole('button', { name: /API Keys/i })
+      .click();
+    await expect(window.getByTestId('settings-category-api-keys')).toBeVisible();
+
+    await window.getByTestId('credential-set-tavily').click();
+    const keyInput = window.getByTestId('credential-key-input-tavily');
+    await expect(keyInput).toBeFocused();
+    await keyInput.fill('tvly-discarded');
+    await window.keyboard.press('Escape');
+
+    // The editor closed, nothing saved, and the settings dialog stayed open.
+    await expect(window.getByTestId('credential-editor-tavily')).toHaveCount(0);
+    await expect(window.getByTestId('credential-status-tavily')).toContainText('Not set');
+    await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
   });
 });

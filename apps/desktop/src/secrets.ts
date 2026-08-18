@@ -5,6 +5,7 @@ import {
   type ProviderCredential,
   parseStoredCredential,
   type SecretReadErrorCode,
+  type StoredKeyFingerprint,
 } from '@brainstrike/assistant-contract';
 import { safeStorage } from 'electron';
 import ElectronStore from 'electron-store';
@@ -90,6 +91,32 @@ export function credentialToApiKey(provider: string, credential: ProviderCredent
     throw new SecretReadError('credential_type_unsupported', provider);
   }
   return credential.key;
+}
+
+/**
+ * Project the save-time `{last4, savedAt}` fingerprint (BST-1362) out of a
+ * stored credential's metadata for the `secrets:list` payload. Only these two
+ * keys ever cross the wire — other metadata stays main-side. A fingerprint
+ * exists only when BOTH keys are present (the single save path always writes
+ * them together); a partial pair is hand-tampered provenance and is withheld
+ * rather than forwarded or guessed at. `oauth` has no metadata field.
+ */
+export function credentialStoredKeyFingerprint(
+  credential: ProviderCredential
+): StoredKeyFingerprint | undefined {
+  if (credential.type === 'oauth') {
+    return;
+  }
+  const metadata = credential.metadata;
+  if (!metadata) {
+    return;
+  }
+  const last4 = metadata['last4'];
+  const savedAt = metadata['savedAt'];
+  if (typeof last4 !== 'string' || typeof savedAt !== 'string') {
+    return;
+  }
+  return { last4, savedAt };
 }
 
 interface SecretsSchema {

@@ -12,6 +12,7 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { resolveProviderEnvCredential } from './provider-api-key';
 import {
+  credentialStoredKeyFingerprint,
   credentialToApiKey,
   parseCredentialOrThrow,
   SecretReadError,
@@ -83,15 +84,39 @@ function isDesktopProviderKeyId(value: string): value is DesktopProviderKeyId {
   );
 }
 
-function appendTestModeProviders(
+/**
+ * Builds one stored-source entry, attaching the save-time fingerprint when
+ * the credential carries one. An unreadable credential still lists as stored
+ * — that fact stands regardless — but yields no fingerprint; its read failure
+ * already surfaces through the status probe and every actual read path.
+ */
+async function toStoredKeySource(
+  provider: DesktopProviderKeyId,
+  readCredential: () => Promise<ProviderCredential | null> | ProviderCredential | null
+): Promise<ProviderKeySource<DesktopProviderKeyId>> {
+  let fingerprint: ReturnType<typeof credentialStoredKeyFingerprint>;
+  try {
+    const credential = await readCredential();
+    fingerprint = credential ? credentialStoredKeyFingerprint(credential) : undefined;
+  } catch (err) {
+    if (!(err instanceof SecretReadError)) {
+      throw err;
+    }
+  }
+  return fingerprint
+    ? { metadata: fingerprint, provider, source: 'stored' }
+    : { provider, source: 'stored' };
+}
+
+async function appendTestModeProviders(
   target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>
-) {
+): Promise<void> {
   for (const [provider, value] of testModeSecrets.entries()) {
     const trimmedValue = typeof value === 'string' ? value.trim() : '';
     if (trimmedValue.length === 0 || !isDesktopProviderKeyId(provider)) {
       continue;
     }
-    target.set(provider, { provider, source: 'stored' });
+    target.set(provider, await toStoredKeySource(provider, () => readTestModeCredential(provider)));
   }
 }
 
@@ -116,7 +141,7 @@ async function appendStoredProviders(
     if (trimmed.length === 0 || !isDesktopProviderKeyId(trimmed) || target.has(trimmed)) {
       continue;
     }
-    target.set(trimmed, { provider: trimmed, source: 'stored' });
+    target.set(trimmed, await toStoredKeySource(trimmed, () => secrets.getCredential(trimmed)));
   }
 }
 
@@ -300,7 +325,7 @@ export function registerSecretsIpcHandlers(
       // In test mode, only use in-memory storage (ignore env vars)
       if (isTestMode()) {
         const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
-        appendTestModeProviders(providers);
+        await appendTestModeProviders(providers);
         return Array.from(providers.values());
       }
 

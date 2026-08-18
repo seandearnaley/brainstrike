@@ -115,6 +115,27 @@ describe('parseStoredCredential — round-trips for every credential type', () =
     };
     expect(roundTrip(credential)).toEqual(credential);
   });
+
+  it('round-trips an aws bearer credential with metadata (BST-1362 fingerprint)', () => {
+    const credential: ProviderCredential = {
+      bearerKey: 'bedrock-bearer',
+      metadata: { last4: 'arer', savedAt: '2026-08-18T10:00:00.000Z' },
+      mode: 'bearer',
+      region: 'us-east-1',
+      type: 'aws',
+    };
+    expect(roundTrip(credential)).toEqual(credential);
+  });
+
+  it('round-trips an aws profile_chain credential with metadata', () => {
+    const credential: ProviderCredential = {
+      metadata: { savedAt: '2026-08-18T10:00:00.000Z' },
+      mode: 'profile_chain',
+      region: 'eu-west-1',
+      type: 'aws',
+    };
+    expect(roundTrip(credential)).toEqual(credential);
+  });
 });
 
 describe('parseStoredCredential — hard failures (tagged but unrecognizable, never coerced)', () => {
@@ -206,6 +227,44 @@ describe('isProviderCredential', () => {
   it('rejects an aws bearer credential without bearerKey and an api_key with an empty key', () => {
     expect(isProviderCredential({ mode: 'bearer', region: 'us-east-1', type: 'aws' })).toBe(false);
     expect(isProviderCredential({ key: '', type: 'api_key' })).toBe(false);
+  });
+
+  it('accepts aws credentials with a string-record metadata and rejects invalid metadata', () => {
+    expect(
+      isProviderCredential({
+        bearerKey: 'k',
+        metadata: { last4: 'abcd', savedAt: '2026-08-18T10:00:00.000Z' },
+        mode: 'bearer',
+        region: 'us-east-1',
+        type: 'aws',
+      })
+    ).toBe(true);
+    expect(
+      isProviderCredential({
+        metadata: {},
+        mode: 'profile_chain',
+        region: 'us-east-1',
+        type: 'aws',
+      })
+    ).toBe(true);
+    expect(
+      isProviderCredential({
+        bearerKey: 'k',
+        metadata: { last4: 4 },
+        mode: 'bearer',
+        region: 'us-east-1',
+        type: 'aws',
+      })
+    ).toBe(false);
+    expect(
+      isProviderCredential({
+        bearerKey: 'k',
+        metadata: 'oops',
+        mode: 'bearer',
+        region: 'us-east-1',
+        type: 'aws',
+      })
+    ).toBe(false);
   });
 
   it('rejects non-objects, unrecognized tags, and invalid fields', () => {
