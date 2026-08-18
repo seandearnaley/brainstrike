@@ -80,7 +80,13 @@ function ProviderNameCell({ slot }: { readonly slot: CredentialSlot }) {
           } as CSSProperties
         }
       />
-      <span className="truncate font-medium">{slot.displayName}</span>
+      {/* `title` so a name the fixed-width column truncates stays readable on
+          hover. Measured in the live renderer: "OpenAI (ChatGPT)" needs 118px
+          in an 88px cell, so it renders as "OpenAI (Ch…" — ambiguous with the
+          plain "OpenAI" row directly above it without this. */}
+      <span className="truncate font-medium" title={slot.displayName}>
+        {slot.displayName}
+      </span>
     </span>
   );
 }
@@ -99,7 +105,16 @@ function CredentialStatusCell({
 }: Pick<CredentialRowProps, 'slot' | 'source' | 'sourceState'>) {
   if (isOAuthSlot(slot)) {
     return (
-      <Badge className="text-muted-foreground" data-testid={`credential-status-${slot.id}`}>
+      // `variant="outline"` is load-bearing, not styling preference: Badge's
+      // DEFAULT variant paints a solid primary background, so overriding only
+      // the text colour left muted grey on solid blue — measured at ~1.16:1
+      // contrast in the live renderer, far below WCAG AA. Outline matches the
+      // sibling KeySourceBadge treatments (transparent + muted text).
+      <Badge
+        className="text-muted-foreground"
+        data-testid={`credential-status-${slot.id}`}
+        variant="outline"
+      >
         Subscription sign-in
       </Badge>
     );
