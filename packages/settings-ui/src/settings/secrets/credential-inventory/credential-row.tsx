@@ -153,7 +153,10 @@ export function CredentialRow({
           <ProviderNameCell slot={slot} />
         </TableCell>
         <TableCell className="py-2">
-          <code className="font-mono text-xs" data-testid={`credential-env-var-${slot.id}`}>
+          <code
+            className="break-all font-mono text-xs"
+            data-testid={`credential-env-var-${slot.id}`}
+          >
             {slot.envVar}
           </code>
           {deprecatedReports.map((report) => (
