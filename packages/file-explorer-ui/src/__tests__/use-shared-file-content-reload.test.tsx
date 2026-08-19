@@ -452,6 +452,34 @@ describe('useSharedFileContentLoading reload ordering', () => {
     expect(result.current.store.getState().getFileContent(compositeKey)).toBeUndefined();
   });
 
+  it('factory reset clears projected terminal content errors', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const fileNode = createFileNode({ path: '/reset-error.txt', rootFolderId: 'root-reset-error' });
+    const compositeKey = encodeFileSelection('root-reset-error', '/reset-error.txt');
+    const workerFailure = new Error('read failed before reset');
+    const worker = vi.fn().mockRejectedValue(workerFailure);
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useSharedFileContentLoading([fileNode]), { wrapper });
+
+    await act(async () => {
+      await expect(result.current.handleFileContentLoading([compositeKey])).rejects.toBe(
+        workerFailure
+      );
+    });
+    expect(result.current.fileContentErrors.get(compositeKey)).toBe(workerFailure);
+
+    await act(async () => {
+      const resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(resetResult.success).toBe(true);
+    });
+
+    expect(result.current.fileContentErrors.size).toBe(0);
+    expect(result.current.error).toBeNull();
+  });
+
   it('settles preparation per key so a valid sibling loads before the batch rejects', async () => {
     const adapter = new MockFileSystemAdapter();
     const validNode = createFileNode({ path: '/valid.txt', rootFolderId: 'root-prepare' });
@@ -491,6 +519,8 @@ describe('useSharedFileContentLoading reload ordering', () => {
     expect(worker).toHaveBeenCalledOnce();
     expect(worker.mock.calls[0]?.[0].map((request) => request.compositeKey)).toEqual([validKey]);
     expect(result.current.fileContents[validKey]).toBe('valid sibling content');
+    expect(result.current.fileContentErrors.has(validKey)).toBe(false);
+    expect(result.current.fileContentErrors.get(malformedKey)).toBe(rejection);
     expect(result.current.loadingFiles.size).toBe(0);
     expect(result.current.error).toBeInstanceOf(Error);
   });
@@ -538,12 +568,15 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     expect(rejection).toBe(workerFailure);
     expect(result.current.error).toBe(workerFailure);
+    expect(result.current.fileContentErrors.get(firstKey)).toBe(workerFailure);
+    expect(result.current.fileContentErrors.get(secondKey)).toBe(workerFailure);
     expect(result.current.loadingFiles.size).toBe(0);
 
     await act(async () => {
       await result.current.handleFileContentLoading([firstKey, secondKey]);
     });
     expect(worker).toHaveBeenCalledTimes(2);
+    expect(result.current.fileContentErrors.size).toBe(0);
     expect(result.current.fileContents[firstKey]).toBe('retry content');
     expect(result.current.fileContents[secondKey]).toBe('retry content');
   });
@@ -639,11 +672,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     });
 
     expect(outcome).toEqual({ error: workerFailure, status: 'rejected' });
-    const fileContentErrors = (
-      result.current.loader as typeof result.current.loader & {
-        readonly fileContentErrors: ReadonlyMap<string, Error>;
-      }
-    ).fileContentErrors;
+    const { fileContentErrors } = result.current.loader;
     expect(fileContentErrors.get(compositeKeys[0] ?? '')).toBe(workerFailure);
     expect(fileContentErrors.has(compositeKeys[1] ?? '')).toBe(false);
     expect(fileContentErrors.has(compositeKeys[2] ?? '')).toBe(false);

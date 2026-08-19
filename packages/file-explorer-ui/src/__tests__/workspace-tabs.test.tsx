@@ -29,6 +29,7 @@ vi.mock('../shell/file-tab-explorer-pane', () => ({
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
     canLoadWithoutTree: false,
+    fileContentErrors: new Map<string, Error>(),
     fileContents: {},
     fileTree: [],
     loadFileContent: vi.fn().mockResolvedValue(undefined),

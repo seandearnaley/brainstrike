@@ -64,6 +64,7 @@ export function WorkspaceTabsProvider({
   const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
   const {
     canLoadWithoutTree,
+    fileContentErrors,
     fileContents,
     fileTree,
     loadFileContent,
@@ -442,6 +443,7 @@ export function WorkspaceTabsProvider({
   const value = useMemo<WorkspaceTabsValue>(
     () => ({
       apps,
+      fileContentErrors,
       fileContents,
       getTabStatusMessage: getStatusMessage,
       handleOpenFileInTab,
@@ -463,6 +465,7 @@ export function WorkspaceTabsProvider({
     }),
     [
       apps,
+      fileContentErrors,
       fileContents,
       getStatusMessage,
       handleOpenFileInTab,

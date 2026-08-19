@@ -11,11 +11,15 @@ const logger = createLogger('SharedFileContentLoading');
 const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;
 
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { resolveDirectReadPath, supportsDirectPathRead } from './file-content-direct-read-path';
 import {
   clearFileLoadingState,
+  collectFileContentFailures,
+  createFileContentLoadError,
   processFileContentWorkerResults,
   runFileContentWorkerBatch,
+  settleFileContentPromises,
   settleFileReadPreparations,
 } from './file-content-load-results';
 import { runFileContentReloadGroups } from './file-content-reload-scheduler';
@@ -77,14 +81,6 @@ function countTreeNodes(nodes: IFileNode[]): number {
     }
   }
   return count;
-}
-
-function createFileContentBatchError(failures: readonly unknown[]): Error {
-  const [onlyFailure] = failures;
-  if (failures.length === 1 && onlyFailure instanceof Error) {
-    return onlyFailure;
-  }
-  return new AggregateError(failures, 'One or more file-content reads failed.');
 }
 
 function shouldLoadFile(
@@ -195,49 +191,6 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
     getHandleCache?: () => CachedHandleLookup;
   };
   return adapterWithCache.getHandleCache?.() ?? null;
-}
-
-/**
- * Check if the adapter supports reading files directly by path.
- * This is available on Electron where we have direct file system access.
- */
-function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
-  const adapter = fileSystemAdapter as { readFileByPath?: unknown };
-  return typeof adapter.readFileByPath === 'function';
-}
-
-function normalizePathSeparators(value: string): string {
-  return value.replace(/\\/g, '/');
-}
-
-function isAbsolutePathLike(value: string): boolean {
-  const normalized = normalizePathSeparators(value);
-  return normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized);
-}
-
-function trimTrailingSlashes(value: string): string {
-  return value.replace(/\/+$/, '');
-}
-
-function isPathWithinFolder(absolutePath: string, folderId: string): boolean {
-  const normalizedPath = trimTrailingSlashes(normalizePathSeparators(absolutePath));
-  const normalizedFolder = trimTrailingSlashes(normalizePathSeparators(folderId));
-  return normalizedPath === normalizedFolder || normalizedPath.startsWith(`${normalizedFolder}/`);
-}
-
-function resolveDirectReadPath(folderId: string, selectionPath: string): string | null {
-  const normalizedFolder = trimTrailingSlashes(normalizePathSeparators(folderId));
-  if (!isAbsolutePathLike(normalizedFolder)) {
-    return null;
-  }
-
-  const normalizedPath = normalizePathSeparators(selectionPath);
-  if (isAbsolutePathLike(normalizedPath) && isPathWithinFolder(normalizedPath, normalizedFolder)) {
-    return normalizedPath;
-  }
-
-  const relativePath = normalizedPath.replace(/^\/+/, '');
-  return relativePath.length > 0 ? `${normalizedFolder}/${relativePath}` : normalizedFolder;
 }
 
 function getConfiguredMaxFileSize(): number {
@@ -677,7 +630,6 @@ async function prepareFileReadRequest(
 
 export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
   const loadingPathsRef = useRef(new Set<string>());
   const pendingFileLoadsRef = useRef<Set<string>>(new Set());
@@ -693,6 +645,13 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const loadAuthority = useFileContentLoadAuthority();
+  const fileContentErrors = useSyncExternalStore(
+    loadAuthority.subscribeErrors,
+    loadAuthority.getErrorsSnapshot,
+    loadAuthority.getErrorsSnapshot
+  );
+  const uniqueErrors = [...new Set(fileContentErrors.values())];
+  const error = uniqueErrors.length > 0 ? createFileContentLoadError(uniqueErrors) : null;
 
   // Try to use shared FileTreeIndex for O(1) lookups when available
   // Falls back to cache-based lookups when not within FileTreeProvider
@@ -785,7 +744,17 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       const worker = workerRef.current;
       if (!worker) {
         const unavailableError = new Error('File content worker is unavailable.');
-        setError(unavailableError);
+        loadAuthority.recordErrors(
+          compositeKeys.map((compositeKey) => ({
+            compositeKey,
+            error: unavailableError,
+            expectedGeneration: expectedGenerations.get(compositeKey) ?? 0,
+          }))
+        );
+        for (const compositeKey of compositeKeys) {
+          clearFileLoadingState(compositeKey, loadingPathsRef, setLoadingFiles);
+          clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
+        }
         throw unavailableError;
       }
 
@@ -811,7 +780,6 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       if (activeExecutionCountRef.current === 1) {
         setIsLoading(true);
       }
-      setError(null);
 
       try {
         const preparationResults = await Promise.allSettled(
@@ -820,7 +788,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         const clearLoading = (compositeKey: string): void => {
           clearFileLoadingState(compositeKey, loadingPathsRef, setLoadingFiles);
         };
-        const { failures, requests } = settleFileReadPreparations(
+        const { failures: preparationFailures, requests } = settleFileReadPreparations(
           preparationResults,
           compositeKeys,
           clearLoading
@@ -831,7 +799,6 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           requestedFiles: compositeKeys.length,
           successfulRequests: requests.length,
         });
-
         const workerResult = await runFileContentWorkerBatch({
           clearLoading,
           processResults: (results) => {
@@ -845,14 +812,16 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           requests,
           worker,
         });
-        if (workerResult.status === 'failed') {
-          failures.push(workerResult.error);
-        }
+        const { errorRecords, failures } = collectFileContentFailures({
+          expectedGenerations,
+          preparationFailures,
+          requests,
+          workerResult,
+        });
 
         if (failures.length > 0) {
-          const batchError = createFileContentBatchError(failures);
-          setError(batchError);
-          throw batchError;
+          loadAuthority.recordErrors(errorRecords);
+          throw createFileContentLoadError(failures);
         }
       } finally {
         activeExecutionCountRef.current -= 1;
@@ -862,9 +831,12 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     [prepareFileRead, store, canLoadWithoutTree, loadAuthority]
   );
 
-  const handleFileContentLoading = useCallback(
-    async (compositeKeys: readonly string[]): Promise<void> => {
+  const runFileContentLoading = useCallback(
+    async (compositeKeys: readonly string[], clearErrorsAtBoundary: boolean): Promise<void> => {
       const uniqueKeys = [...new Set(compositeKeys)];
+      if (clearErrorsAtBoundary) {
+        loadAuthority.clearErrors(uniqueKeys);
+      }
       const promises = new Set<Promise<void>>();
       const keysToStart: string[] = [];
       for (const key of uniqueKeys) {
@@ -890,9 +862,14 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         promises.add(batchPromise);
       }
 
-      await Promise.all(promises);
+      await settleFileContentPromises(promises);
     },
     [executeFileContentLoading, loadAuthority]
+  );
+
+  const handleFileContentLoading = useCallback(
+    (compositeKeys: readonly string[]): Promise<void> => runFileContentLoading(compositeKeys, true),
+    [runFileContentLoading]
   );
 
   const reloadFileContents = useCallback(
@@ -903,6 +880,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       }
 
       const requestedGenerations = loadAuthority.beginReload(uniqueKeys);
+      loadAuthority.clearErrors(uniqueKeys);
 
       // Evict synchronously before awaiting any older read. Every consumer of
       // the shared cache sees a loading boundary instead of stale disk bytes.
@@ -913,11 +891,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         compositeKeys: uniqueKeys,
         getActiveLoad: loadAuthority.getActiveLoad,
         isCurrentGeneration: loadAuthority.isCurrentGeneration,
-        reload: handleFileContentLoading,
+        reload: (keys) => runFileContentLoading(keys, false),
         requestedGenerations,
       });
     },
-    [handleFileContentLoading, loadAuthority, store]
+    [loadAuthority, runFileContentLoading, store]
   );
 
   useEffect(() => {
@@ -980,6 +958,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     /** True if files can be loaded without a file tree (Electron with readFileByPath) */
     canLoadWithoutTree,
     error,
+    fileContentErrors,
     fileContents,
     handleFileContentLoading,
     isLoading,

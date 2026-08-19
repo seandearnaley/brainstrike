@@ -37,6 +37,7 @@ vi.mock('../preview/preview-panel', () => ({
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
     canLoadWithoutTree: false,
+    fileContentErrors: new Map<string, Error>(),
     fileContents: {},
     fileTree: [],
     loadFileContent: vi.fn().mockResolvedValue(undefined),
@@ -336,6 +337,7 @@ describe('workspace tabs — file tab operations', () => {
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
+      fileContentErrors: new Map<string, Error>(),
       fileContents: { 'folderA|@|src/index.ts': 'export const file = "content";' },
       fileTree: [],
       loadFileContent: vi.fn().mockResolvedValue(undefined),
@@ -389,6 +391,7 @@ describe('workspace tabs — file tab operations', () => {
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
+      fileContentErrors: new Map<string, Error>(),
       fileContents: { 'folderA|@|src/index.ts': 'export const file = "content";' },
       fileTree: [],
       loadFileContent: vi.fn().mockResolvedValue(undefined),
@@ -446,6 +449,7 @@ describe('workspace tabs — file tab operations', () => {
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
+      fileContentErrors: new Map<string, Error>(),
       fileContents: {
         [indexKey]: 'export const file = "content";',
         [otherKey]: 'export const other = true;',
@@ -526,6 +530,7 @@ describe('workspace tabs — file tab operations', () => {
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
+      fileContentErrors: new Map<string, Error>(),
       fileContents: { [indexKey]: 'export const file = "content";' },
       fileTree: [],
       loadFileContent: vi.fn().mockResolvedValue(undefined),
@@ -854,6 +859,7 @@ describe('workspace tabs — file tab operations', () => {
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
+      fileContentErrors: new Map<string, Error>(),
       fileContents: {},
       fileTree: [],
       loadFileContent,
@@ -929,6 +935,7 @@ describe('workspace tabs — file tab operations', () => {
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
+      fileContentErrors: new Map<string, Error>(),
       fileContents: {},
       fileTree: [{ path: 'src/locked.ts' }],
       loadFileContent,
@@ -973,6 +980,7 @@ describe('workspace tabs — file tab operations', () => {
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
+      fileContentErrors: new Map<string, Error>(),
       fileContents: { [compositeKey]: inaccessibleContent },
       fileTree: [],
       loadFileContent: vi.fn().mockResolvedValue(undefined),

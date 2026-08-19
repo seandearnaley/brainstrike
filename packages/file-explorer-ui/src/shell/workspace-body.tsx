@@ -22,6 +22,7 @@ import { getTabRootPath } from './workspace-tab-utils';
 export function WorkspaceBody(): ReactElement {
   const {
     apps,
+    fileContentErrors,
     fileContents,
     isRestoring,
     loadingFiles,
@@ -35,6 +36,9 @@ export function WorkspaceBody(): ReactElement {
 
   const activeFileTab =
     selection.kind === 'file' ? tabs.find((t) => t.id === selection.tabId) : undefined;
+  const activeFileContentError = activeFileTab
+    ? fileContentErrors.get(activeFileTab.compositeKey)
+    : undefined;
   const activeAppIsRegistered =
     selection.kind === 'app' && apps.some((app) => app.id === selection.appId);
   // The dead-selection effect in the provider routes unresolvable selections to
@@ -78,6 +82,7 @@ export function WorkspaceBody(): ReactElement {
         >
           <FileTabBody
             content={fileContents[activeFileTab.compositeKey]}
+            {...(activeFileContentError ? { contentError: activeFileContentError } : {})}
             isLoading={loadingFiles.has(activeFileTab.compositeKey)}
             isRestoring={isRestoring}
             key={activeFileTab.compositeKey}

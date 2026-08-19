@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
+import { settleFileContentPromises } from './file-content-load-results';
 
 const logger = createLogger('FileContentReloadScheduler');
 
@@ -81,5 +82,5 @@ export async function runFileContentReloadGroups({
   for (const [precedingLoad, keys] of dependentKeyGroups) {
     reloads.push(reloadGroup(keys, precedingLoad));
   }
-  await Promise.all(reloads);
+  await settleFileContentPromises(reloads);
 }

@@ -8,12 +8,79 @@ import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 const logger = createLogger('FileContentLoadResults');
 
-interface SettledFileReadPreparations {
-  readonly failures: unknown[];
+export interface FileContentErrorRecord {
+  readonly compositeKey: string;
+  readonly error: Error;
+  readonly expectedGeneration: number;
+}
+
+export interface SettledFileReadPreparations {
+  readonly failures: readonly {
+    readonly compositeKey: string;
+    readonly error: unknown;
+  }[];
   readonly requests: FileReadRequest[];
 }
 
-type WorkerBatchResult = { readonly status: 'completed' } | { error: unknown; status: 'failed' };
+export type FileContentWorkerBatchResult =
+  | { readonly status: 'completed' }
+  | { error: unknown; status: 'failed' };
+
+export function createFileContentLoadError(failures: readonly unknown[]): Error {
+  const [onlyFailure] = failures;
+  if (failures.length === 1 && onlyFailure instanceof Error) {
+    return onlyFailure;
+  }
+  return new AggregateError(failures, 'One or more file-content reads failed.');
+}
+
+export function toFileContentError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error('File content read failed.', { cause: error });
+}
+
+export function collectFileContentFailures({
+  expectedGenerations,
+  preparationFailures,
+  requests,
+  workerResult,
+}: {
+  readonly expectedGenerations: ReadonlyMap<string, number>;
+  readonly preparationFailures: SettledFileReadPreparations['failures'];
+  readonly requests: readonly FileReadRequest[];
+  readonly workerResult: FileContentWorkerBatchResult;
+}): { readonly errorRecords: FileContentErrorRecord[]; readonly failures: unknown[] } {
+  const failures: unknown[] = preparationFailures.map((failure) => failure.error);
+  const errorRecords = preparationFailures.map((failure) => ({
+    compositeKey: failure.compositeKey,
+    error: toFileContentError(failure.error),
+    expectedGeneration: expectedGenerations.get(failure.compositeKey) ?? 0,
+  }));
+  if (workerResult.status === 'failed') {
+    failures.push(workerResult.error);
+    const workerError = toFileContentError(workerResult.error);
+    for (const request of requests) {
+      errorRecords.push({
+        compositeKey: request.compositeKey,
+        error: workerError,
+        expectedGeneration: expectedGenerations.get(request.compositeKey) ?? 0,
+      });
+    }
+  }
+  return { errorRecords, failures };
+}
+
+export async function settleFileContentPromises(promises: Iterable<Promise<void>>): Promise<void> {
+  const settled = await Promise.allSettled(promises);
+  const failures = settled.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw createFileContentLoadError(failures);
+  }
+}
 
 export function clearFileLoadingState(
   compositeKey: string,
@@ -58,13 +125,13 @@ export function settleFileReadPreparations(
   compositeKeys: readonly string[],
   clearLoading: (compositeKey: string) => void
 ): SettledFileReadPreparations {
-  const failures: unknown[] = [];
+  const failures: Array<{ readonly compositeKey: string; readonly error: unknown }> = [];
   const requests: FileReadRequest[] = [];
   for (const [index, result] of results.entries()) {
     if (result.status === 'rejected') {
-      failures.push(result.reason);
       const compositeKey = compositeKeys[index];
       if (compositeKey !== undefined) {
+        failures.push({ compositeKey, error: result.reason });
         clearLoading(compositeKey);
       }
       continue;
@@ -86,7 +153,7 @@ export async function runFileContentWorkerBatch({
   readonly processResults: (results: Record<string, FileContentReadResult>) => void;
   readonly requests: readonly FileReadRequest[];
   readonly worker: FileContentWorker;
-}): Promise<WorkerBatchResult> {
+}): Promise<FileContentWorkerBatchResult> {
   try {
     const results = await worker([...requests], ({ key }) => {
       clearLoading(key);

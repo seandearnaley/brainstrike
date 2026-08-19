@@ -68,6 +68,24 @@ export function FileContentPendingScreen({
   );
 }
 
+export function FileContentErrorScreen(): ReactElement {
+  return (
+    <div
+      aria-labelledby="file-content-error-title"
+      className="flex h-full flex-col items-center justify-center text-center"
+      role="alert"
+    >
+      <AlertCircle aria-hidden="true" className="mb-4 h-12 w-12 text-destructive" />
+      <p className="font-semibold text-lg" id="file-content-error-title">
+        File content unavailable
+      </p>
+      <p className="mt-2 max-w-md text-muted-foreground text-sm">
+        Brainstrike could not load this file. A later file refresh will retry the read.
+      </p>
+    </div>
+  );
+}
+
 export function InaccessibleFileScreen({ content }: { readonly content: string }): ReactElement {
   return (
     <div className="h-full overflow-auto p-4">

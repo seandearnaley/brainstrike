@@ -300,6 +300,7 @@ describe('FileExplorerPanel', () => {
       error: null,
       expandAllProgress: null,
       expandAllProgressively: vi.fn(),
+      fileContentErrors: new Map<string, Error>(),
       fileContents: {},
       fileTree: [],
       filterError: null,

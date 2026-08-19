@@ -85,6 +85,7 @@ async function configureFileExplorer(fileContents: Record<string, string>) {
   vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
     canLoadWithoutTree: false,
     clearFileContents,
+    fileContentErrors: new Map<string, Error>(),
     fileContents,
     fileTree: [],
     loadFileContent,

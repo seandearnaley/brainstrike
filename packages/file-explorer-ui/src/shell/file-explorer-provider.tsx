@@ -41,14 +41,24 @@ const FileExplorerStoreContext = createContext<FileExplorerStore | null>(null);
 
 interface FileContentLoadAuthority {
   beginReload: (compositeKeys: readonly string[]) => ReadonlyMap<string, number>;
+  clearErrors: (compositeKeys: readonly string[]) => void;
   clearGeneration: (compositeKey: string, expectedGeneration: number | undefined) => void;
   currentGeneration: (compositeKey: string) => number;
   getActiveLoad: (compositeKey: string) => Promise<void> | undefined;
+  getErrorsSnapshot: () => ReadonlyMap<string, Error>;
   invalidateAll: () => void;
   isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean;
   lifecycleId: number;
+  recordErrors: (
+    failures: readonly {
+      readonly compositeKey: string;
+      readonly error: Error;
+      readonly expectedGeneration: number;
+    }[]
+  ) => void;
   releaseActiveLoad: (compositeKeys: readonly string[], expectedPromise: Promise<void>) => void;
   runBatch: (task: () => Promise<void>) => Promise<void>;
+  subscribeErrors: (listener: () => void) => () => void;
   trackActiveLoad: (compositeKeys: readonly string[], promise: Promise<void>) => void;
 }
 
@@ -65,14 +75,22 @@ let nextFileContentLifecycleId = 0;
 function createFileContentLoadAuthority(): FileContentLoadAuthority {
   const activeLoads = new Map<string, Promise<void>>();
   const activeBatchIds = new Set<number>();
+  const errorListeners = new Set<() => void>();
   const generations = new Map<string, number>();
   const pendingBatches: PendingFileContentBatch[] = [];
+  let errorsSnapshot: ReadonlyMap<string, Error> = new Map();
   let lifecycleEpoch = 0;
   let lifecycleGeneration = 0;
   let nextBatchId = 0;
   let nextGeneration = 0;
   nextFileContentLifecycleId += 1;
   const lifecycleId = nextFileContentLifecycleId;
+  const publishErrors = (next: ReadonlyMap<string, Error>): void => {
+    errorsSnapshot = next;
+    for (const listener of errorListeners) {
+      listener();
+    }
+  };
   const drainBatchQueue = (): void => {
     while (activeBatchIds.size < MAX_CONCURRENT_FILE_CONTENT_BATCHES && pendingBatches.length > 0) {
       const pending = pendingBatches.shift();
@@ -106,6 +124,19 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       }
       return requested;
     },
+    clearErrors: (compositeKeys) => {
+      let next: Map<string, Error> | null = null;
+      for (const compositeKey of compositeKeys) {
+        if (!errorsSnapshot.has(compositeKey)) {
+          continue;
+        }
+        next ??= new Map(errorsSnapshot);
+        next.delete(compositeKey);
+      }
+      if (next) {
+        publishErrors(next);
+      }
+    },
     clearGeneration: (compositeKey, expectedGeneration) => {
       if (generations.get(compositeKey) === expectedGeneration) {
         generations.delete(compositeKey);
@@ -113,6 +144,7 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
     },
     currentGeneration: (compositeKey) => generations.get(compositeKey) ?? lifecycleGeneration,
     getActiveLoad: (compositeKey) => activeLoads.get(compositeKey),
+    getErrorsSnapshot: () => errorsSnapshot,
     invalidateAll: () => {
       lifecycleEpoch += 1;
       nextGeneration += 1;
@@ -123,10 +155,29 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
         pending.resolve();
       }
       activeBatchIds.clear();
+      if (errorsSnapshot.size > 0) {
+        publishErrors(new Map());
+      }
     },
     isCurrentGeneration: (compositeKey, expectedGeneration) =>
       (generations.get(compositeKey) ?? lifecycleGeneration) === expectedGeneration,
     lifecycleId,
+    recordErrors: (failures) => {
+      let next: Map<string, Error> | null = null;
+      for (const failure of failures) {
+        if (
+          (generations.get(failure.compositeKey) ?? lifecycleGeneration) !==
+          failure.expectedGeneration
+        ) {
+          continue;
+        }
+        next ??= new Map(errorsSnapshot);
+        next.set(failure.compositeKey, failure.error);
+      }
+      if (next) {
+        publishErrors(next);
+      }
+    },
     releaseActiveLoad: (compositeKeys, expectedPromise) => {
       for (const compositeKey of compositeKeys) {
         if (activeLoads.get(compositeKey) === expectedPromise) {
@@ -140,6 +191,12 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
         drainBatchQueue();
       });
       return scheduled;
+    },
+    subscribeErrors: (listener) => {
+      errorListeners.add(listener);
+      return () => {
+        errorListeners.delete(listener);
+      };
     },
     trackActiveLoad: (compositeKeys, promise) => {
       for (const compositeKey of compositeKeys) {

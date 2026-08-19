@@ -153,10 +153,11 @@ Desktop reset order:
 4. Reload renderer.
 Do not skip reload.
 
-The Explorer's file-content LRU and active read machinery are volatile but
+The Explorer's file-content LRU, active read machinery, and per-composite-key
+terminal error projection are volatile but
 still require renderer reset wiring because the web reset path may not reload.
 `FileExplorerProvider` registers one session-store resetter that invalidates
-all content generations and queued batches, clears the current store's raw
+all content generations, queued batches, and projected errors, clears the current store's raw
 `fileContents` plus its store-owned LRU, clears selections, and advances the
 provider content-lifecycle key so hook-local loading refs/state remount empty.
 An already-running obsolete read may settle afterward, but its invalidated

@@ -89,6 +89,8 @@ interface UseFileExplorerReturn {
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
     currentExpandedPaths?: ReadonlySet<string>
   ) => Promise<void>;
+  /** Terminal file-content read failures, scoped by composite selection key. */
+  fileContentErrors: ReadonlyMap<string, Error>;
   fileContents: { [path: string]: string };
   /** Filtered tree currently visible in the explorer */
   fileTree: IFileNode[];
@@ -303,7 +305,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Use the shared file content loading hook
   const {
     fileContents,
-    error: contentError,
+    fileContentErrors,
     loadingFiles: contentLoadingFiles,
     handleFileContentLoading,
     canLoadWithoutTree,
@@ -376,13 +378,12 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     [applyFiltersUtil, fileTree, setFilters, setUseRegex]
   );
 
-  // Derive error from tree, content, and filter errors
+  // Tree/filter failures affect the explorer as a whole. File-content read
+  // failures stay keyed to their viewer tab so one broken file cannot replace
+  // unrelated explorer or tab surfaces with a global error.
   const deriveDisplayError = (): Error | null => {
     if (treeError) {
       return treeError;
-    }
-    if (contentError) {
-      return contentError;
     }
     if (localFilterError) {
       return new Error(localFilterError);
@@ -556,6 +557,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     error: displayError,
     expandAllProgress,
     expandAllProgressively,
+    fileContentErrors,
     fileContents,
     fileTree: filteredTree,
     filterError: localFilterError,

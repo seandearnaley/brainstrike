@@ -786,10 +786,17 @@ fallback.
   generation; active-load entries are identity-cleaned on settlement, so
   close/reopen churn does not create an unbounded key registry. Read preparation
   is settled per key rather than fail-fast: valid siblings still reach the
-  worker, while preparation and worker failures clear every marked key, update
-  the visible content error, and reject the public load promise. Fire-and-forget
-  UI consumers explicitly observe that rejection after the shared error state
-  is set. Rebuilt worker `FileHandle`s carry
+  worker, while preparation and worker failures clear every marked key and
+  update a provider-owned immutable error map only for current failed composite
+  keys. Every physical reload group and deduped active read settles before the
+  public logical request rejects with the single error or an aggregate; a later
+  successful queued group cannot erase an earlier sibling's failure. A logical
+  retry clears only its requested keys at its boundary. `WorkspaceTabsProvider`
+  carries that map to `WorkspaceBody`, which exact-matches the active tab's key
+  and renders `FileContentErrorScreen` (an accessible terminal `alert`) instead
+  of the indefinite pending spinner. Content failures never enter the explorer's
+  global error surface or appear on unrelated tabs. Fire-and-forget UI consumers
+  explicitly observe the rejection after the shared error state is set. Rebuilt worker `FileHandle`s carry
   `fileNode.handle.rootId` when present; `rootFolderId` remains selection/cache
   identity and is NEVER substituted for durable read authority. Removed
   files/directories therefore replace the tab with its loading boundary and
@@ -1077,7 +1084,8 @@ fallback.
   `packages/file-explorer-ui/src/__tests__/use-shared-file-content-reload.test.tsx`
   (same-hook and cross-hook stale suppression, ready/dependent/rejected batch
   scheduling, reset/replacement lifecycle isolation, per-key preparation and
-  worker-error settlement, twenty-group queue bounds, and nested-handle RootId
+  worker-error settlement, all-settle rejection across independent groups,
+  per-key error retention, twenty-group queue bounds, and nested-handle RootId
   forwarding), `packages/file-explorer-ui/src/__tests__/file-explorer-provider.test.tsx`
   (live factory-reset content/cache clearing), plus
   `packages/file-explorer/src/__tests__/file-content-actions.test.ts`

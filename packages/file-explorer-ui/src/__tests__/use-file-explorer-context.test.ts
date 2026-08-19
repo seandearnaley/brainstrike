@@ -269,6 +269,7 @@ describe('useFileExplorer (context)', () => {
     vi.mocked(useSharedFileContentLoading).mockReturnValue({
       canLoadWithoutTree: false,
       error: null,
+      fileContentErrors: new Map(),
       fileContents: { '/file1.ts': 'content' },
       handleFileContentLoading: mockHandleFileContentLoading,
       isLoading: false,
