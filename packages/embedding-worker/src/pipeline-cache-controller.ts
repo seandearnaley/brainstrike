@@ -49,6 +49,7 @@ interface PipelineCacheEntry<Resource extends EmbeddingPipelineResource> {
   lastUsedAt: number;
   readonly model: string;
   readonly pipeline: Promise<Resource>;
+  state: 'pending' | 'ready';
 }
 
 interface EmbeddingPipelineCacheControllerOptions<Resource extends EmbeddingPipelineResource> {
@@ -303,7 +304,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
     const cutoff = readNow() - PIPELINE_IDLE_TIMEOUT_MS;
     const keysToEvict: string[] = [];
     for (const [cacheKey, entry] of entries) {
-      if (entry.lastUsedAt < cutoff) {
+      if (entry.state === 'ready' && entry.lastUsedAt < cutoff) {
         keysToEvict.push(cacheKey);
       }
     }
@@ -331,11 +332,43 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
     if (matching.length < maxResident) {
       return [];
     }
-    matching.sort((left, right) => left.lastUsedAt - right.lastUsedAt);
     const evictCount = matching.length - maxResident + 1;
-    return matching
+    const ready = matching.filter((entry) => entry.state === 'ready');
+    if (ready.length < evictCount) {
+      throw new Error(
+        `Embedding pipeline cache cannot admit a ${device} load because every resident slot is pending.`
+      );
+    }
+    ready.sort((left, right) => left.lastUsedAt - right.lastUsedAt);
+    return ready
       .slice(0, evictCount)
       .map((victim) => disposeEntry(victim.cacheKey, 'resident-limit', diagnostics));
+  };
+
+  const publishLoadFailure = (
+    request: EmbeddingPipelineCacheLoadRequest,
+    error: unknown,
+    entry?: PipelineCacheEntry<Resource>
+  ): void => {
+    if (entry && entries.get(entry.cacheKey) === entry) {
+      entries.delete(entry.cacheKey);
+      options.onResidencyChanged?.();
+      if (entries.size === 0) {
+        stopIdleSweep();
+      }
+    }
+    emitDiagnostic({
+      ...(entry ? { entry } : {}),
+      event: 'load-failed',
+      ...(request.diagnostics?.id ? { id: request.diagnostics.id } : {}),
+      ...(request.diagnostics?.sink ? { sink: request.diagnostics.sink } : {}),
+    });
+    options.onLoadFailed?.({
+      device: request.device,
+      dtype: request.dtype,
+      error,
+      model: request.model,
+    });
   };
 
   const load = async (request: EmbeddingPipelineCacheLoadRequest): Promise<Resource> => {
@@ -365,7 +398,13 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       return existing.pipeline;
     }
 
-    const victimDisposals = evictLruByDevice(request.device, request.diagnostics ?? {});
+    let victimDisposals: readonly Promise<void>[];
+    try {
+      victimDisposals = evictLruByDevice(request.device, request.diagnostics ?? {});
+    } catch (error) {
+      publishLoadFailure(request, error);
+      throw error;
+    }
     const pipeline = Promise.all(victimDisposals).then(async () => {
       assertCacheCanLoad();
       return await options.load(request.model, request.device, request.dtype);
@@ -381,6 +420,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       model: request.model,
       pipeline: pipeline.then(
         (loaded) => {
+          entry.state = 'ready';
           if (entries.get(cacheKey) === entry) {
             emitDiagnostic({
               entry,
@@ -392,28 +432,11 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
           return loaded;
         },
         (error: unknown) => {
-          if (entries.get(cacheKey) === entry) {
-            entries.delete(cacheKey);
-            options.onResidencyChanged?.();
-            if (entries.size === 0) {
-              stopIdleSweep();
-            }
-          }
-          emitDiagnostic({
-            entry,
-            event: 'load-failed',
-            ...(request.diagnostics?.id ? { id: request.diagnostics.id } : {}),
-            ...(request.diagnostics?.sink ? { sink: request.diagnostics.sink } : {}),
-          });
-          options.onLoadFailed?.({
-            device: request.device,
-            dtype: request.dtype,
-            error,
-            model: request.model,
-          });
+          publishLoadFailure(request, error, entry);
           throw error;
         }
       ),
+      state: 'pending',
     };
     entries.set(cacheKey, entry);
     startIdleSweep();

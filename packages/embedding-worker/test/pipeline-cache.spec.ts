@@ -26,11 +26,6 @@ function createDeferred<T>(): {
   return { promise, reject, resolve };
 }
 
-const flushMicrotasks = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
-};
-
 describe('pipeline cache metadata and dispose', () => {
   beforeEach(() => {
     resetMocks();
@@ -610,7 +605,7 @@ describe('pipeline cache metadata and dispose', () => {
     );
   });
 
-  it('does not delete a replacement pipeline when an evicted load later fails', async () => {
+  it('rejects pending WebGPU eviction, then retries after the failed load releases capacity', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     await installMockOrtWebGpuDevice();
     const pendingRaceLoads: ReturnType<
@@ -638,14 +633,17 @@ describe('pipeline cache metadata and dispose', () => {
     const firstRaceOutcome = firstRace.catch((error: unknown) => error);
     await vi.waitFor(() => expect(pendingRaceLoads).toHaveLength(1));
 
-    const evictor = runEmbedding({
-      deviceHint: 'webgpu',
-      id: 'evictor',
-      model: 'evictor-model',
-      texts: ['evict'],
-      type: 'embed',
-    });
-    await flushMicrotasks();
+    await expect(
+      runEmbedding({
+        deviceHint: 'webgpu',
+        id: 'evictor-blocked',
+        model: 'evictor-model',
+        texts: ['evict'],
+        type: 'embed',
+      })
+    ).rejects.toThrow(
+      'Embedding pipeline cache cannot admit a webgpu load because every resident slot is pending.'
+    );
     expect(pipelineMock).not.toHaveBeenCalledWith(
       'feature-extraction',
       'evictor-model',
@@ -654,9 +652,15 @@ describe('pipeline cache metadata and dispose', () => {
 
     pendingRaceLoads[0]?.reject(new Error('stale load failed'));
     await expect(firstRaceOutcome).resolves.toMatchObject({ message: 'stale load failed' });
-    await expect(evictor).resolves.toMatchObject({
-      vectors: [new Float32Array([1, 0, 0])],
-    });
+    await expect(
+      runEmbedding({
+        deviceHint: 'webgpu',
+        id: 'evictor-retry',
+        model: 'evictor-model',
+        texts: ['evict'],
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ vectors: [new Float32Array([1, 0, 0])] });
 
     const replacementRace = runEmbedding({
       deviceHint: 'webgpu',

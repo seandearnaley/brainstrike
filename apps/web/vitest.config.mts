@@ -46,6 +46,16 @@ export default defineConfig({
         find: '@brainstrike/workers',
         replacement: resolve(import.meta.dirname, '../../packages/workers'),
       },
+      // The package exports this worker from dist and the shared source registry
+      // deliberately skips prebuilt worker exports. The web Vitest source graph must
+      // resolve the current worker implementation, never stale or missing dist.
+      {
+        find: '@brainstrike/embedding-worker/worker',
+        replacement: resolve(
+          import.meta.dirname,
+          '../../packages/embedding-worker/src/embedding.worker.ts'
+        ),
+      },
       // B3/B4: shared workspace source-alias registry (#1651/#1658), so every
       // other `@brainstrike/*` runtime import in this app's test lanes
       // executes SOURCE instead of resolving to built dist via package

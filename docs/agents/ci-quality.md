@@ -300,8 +300,9 @@ This is an admission delay, not CI routing. It uses no labels and never selects
 a reduced test plan. The latest quiet PR head always runs the full graph,
 including all five stable required contexts (`Static`, `Unit`, `Build`,
 `Web E2E`, `Desktop E2E`) plus both native jobs and the non-required
-`Browser tests` lane (BST-994 — Vitest browser-mode suites for db/ui/storage
-in the pinned Playwright container; expensive enough that it keeps the same
+`Browser tests` lane (BST-994 — Vitest browser-mode suites for
+db/ui/storage/assistant-ui/embedding-worker in the pinned Playwright container;
+expensive enough that it keeps the same
 quiet-head gate, and `quiet-head-admission-contract.test.mjs` verifies it).
 Web and desktop E2E retain their `build` dependency. Push and
 `workflow_dispatch` events are admitted immediately, so their behavior is
@@ -1380,7 +1381,11 @@ gets a validated narrow prefix. Package vitest configs spread it (config-local
 mocks/dedicated helpers go BEFORE the spread — vitest `resolve.alias` is
 first-match). `@brainstrike/agent` is excluded (Mastra/Node deps): consumers use
 `createAgentBrowserSafeAliasEntries`. `@brainstrike/workers` has no `src/` dir:
-consumers alias its subpaths explicitly.
+consumers alias its subpaths explicitly. Prebuilt `*.worker` exports are also
+skipped by the shared registry. When a test graph imports one as executable
+source, it needs a narrow config-local override: web Vitest maps
+`@brainstrike/embedding-worker/worker` to `src/embedding.worker.ts` before the
+shared spread, and its integration config inherits that base alias verbatim.
 
 The guard EXECUTES each discovered vitest config (base + integration + mutation +
 models, and each inline project — projects do NOT inherit top-level
@@ -1460,9 +1465,9 @@ closed by aliasing instead: apps/web gained the missing root aliases
 indexing-contract, storage); apps/desktop now spreads this same
 `workspaceSrcAliases` registry (array-form alias, locals first) plus an
 agent-root→src alias mirroring web (the registry deliberately excludes agent).
-NOTE: this guard only checks `packages/*` — the app configs are outside its
-scope, so app alias gaps surface as loud clean-state resolution failures, not
-guard findings. Desktop's agent-client-loader test keeps a mirror of the
+The guard checks both `packages/*` and `apps/*`; app alias gaps therefore fail
+the same source-resolution contract instead of depending on a clean-state
+resolution crash. Desktop's agent-client-loader test keeps a mirror of the
 loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
 bypasses vitest aliases and needs dist, absent by default post-B4). See the
 Series B turbo-monorepo architecture review.
