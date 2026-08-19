@@ -30,7 +30,8 @@ export type DesktopIpcDomain =
   | 'terminal'
   | 'tools'
   | 'userCommands'
-  | 'userPersonas';
+  | 'userPersonas'
+  | 'vectorPreferences';
 
 export type DesktopIpcChannelKind = 'event' | 'invoke';
 

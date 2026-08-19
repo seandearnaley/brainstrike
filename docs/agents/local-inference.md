@@ -24,9 +24,37 @@ Flow:
    - Main creates a hidden BrowserWindow with `?mode=embedding-host`.
    - The window loads `hidden-preload.js` with the server-owned
      `embedding-host` role argument. That manifest exposes only the embedding
-     report/request bridge, power snapshot/events, logging ingest, and the database
-     capabilities the current renderer-owned queue needs. It never exposes
-     provider secrets or assistant-server credentials.
+     report/request bridge, power snapshot/events, logging ingest, the database
+     capabilities the current renderer-owned queue needs, and the scoped
+     vector-preferences capability below. It never exposes provider secrets,
+     assistant-server credentials, or the visible UI's unrestricted `storage`
+     key-value bridge.
+
+Vector device preference is ONE canonical record (BST-1380):
+- The host resolves `devicePref`/`devicePrefConfigured` from the SAME
+  `vector-preferences.v1` record the visible UI writes. The visible UI reaches it
+  through `electronAPI.storage`; the hidden host reaches it through the scoped
+  `electronAPI.vectorPreferences` capability (`vector-preferences:read` /
+  `:write` / `:clear`), authorized to the `embedding-host` role only. Those
+  channels accept NO key — `apps/desktop/src/platform/vector-preferences-storage-key.ts`
+  pins it in main — so a hidden host can neither enumerate keys nor address
+  another persisted store.
+- `packages/app-state/src/stores/vector-preferences-store.ts` must NOT fall back
+  to browser storage when an Electron renderer exposes neither capability; it
+  throws. Zustand's persist middleware swallows storage rejections and resolves
+  `rehydrate()` anyway, so `ensureVectorPreferencesHydrated` asserts the
+  capability itself — a swallowed read would otherwise present as
+  "unconfigured, use WebGPU".
+- History: BST-1235 moved hidden hosts onto the narrow manifest, which silently
+  dropped `electronAPI.storage`. The host then read an empty per-host
+  localStorage, saw `devicePrefConfigured: false`, ran auto-detection, and
+  fail-closed on every machine without a WebGPU adapter — ignoring the user's
+  explicit setting. Do not "fix" a recurrence by relaxing the E2E assertion or
+  by re-exposing the full storage bridge. Paired tests:
+  `vector-preferences-store.hidden-host.test.ts`,
+  `hidden-preload-runtime.test.ts`, `hidden-preload-contract.test.ts`,
+  `storage-preferences-ipc.test.ts`,
+  `vector-preferences-storage-key-contract.test.ts`.
    - The host renderer mounts `DbProvider` with `useElectronIPC=true`.
    - The host renderer uses `startEmbeddingWorker()` from `@brainstrike/embeddings`.
    - It pulls jobs from the PGlite-backed `job_queue`.

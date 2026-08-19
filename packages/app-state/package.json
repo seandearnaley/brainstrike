@@ -175,6 +175,10 @@
       "types": "./dist/stores/tree-table-column-sizes-store.d.ts",
       "import": "./dist/stores/tree-table-column-sizes-store.js"
     },
+    "./stores/vector-preferences-store-name": {
+      "types": "./dist/stores/vector-preferences-store-name.d.ts",
+      "import": "./dist/stores/vector-preferences-store-name.js"
+    },
     "./stores/vector-preferences-store": {
       "types": "./dist/stores/vector-preferences-store.d.ts",
       "import": "./dist/stores/vector-preferences-store.js"

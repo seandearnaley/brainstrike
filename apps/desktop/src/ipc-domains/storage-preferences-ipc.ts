@@ -5,7 +5,11 @@ import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import {
+  createDesktopIpcRegistry,
+  type DesktopIpcSenderPolicy,
+} from '../platform/desktop-ipc-registry';
+import { VECTOR_PREFERENCES_STORAGE_KEY } from '../platform/vector-preferences-storage-key';
 import type { DesktopSettingsStoreSchema } from '../store-schema';
 
 interface RegisterStoragePreferencesIpcHandlersOptions {
@@ -75,6 +79,39 @@ export function registerStoragePreferencesIpcHandlers({
   );
   registry.registerInvoke('storage', DESKTOP_IPC_CHANNELS.storage.getAllKeys, async () =>
     storage.getAllKeys()
+  );
+
+  // BST-1380: hidden inference hosts resolve their device preference from the
+  // SAME canonical record the visible UI writes. They receive this scoped
+  // capability instead of the unrestricted `storage` bridge above — the key is
+  // pinned here, never supplied by the renderer, so a hidden host can neither
+  // enumerate keys nor address another persisted store.
+  const vectorPreferencesSenderPolicy = {
+    roles: ['embedding-host'],
+  } as const satisfies DesktopIpcSenderPolicy;
+
+  registry.registerAuthorizedInvoke(
+    'vectorPreferences',
+    DESKTOP_IPC_CHANNELS.vectorPreferences.read,
+    vectorPreferencesSenderPolicy,
+    async () => storage.getItem(VECTOR_PREFERENCES_STORAGE_KEY)
+  );
+  registry.registerAuthorizedInvoke(
+    'vectorPreferences',
+    DESKTOP_IPC_CHANNELS.vectorPreferences.write,
+    vectorPreferencesSenderPolicy,
+    async (_event, value: string) => {
+      if (typeof value !== 'string') {
+        throw new TypeError('Vector preferences payload must be a string.');
+      }
+      return storage.setItem(VECTOR_PREFERENCES_STORAGE_KEY, value);
+    }
+  );
+  registry.registerAuthorizedInvoke(
+    'vectorPreferences',
+    DESKTOP_IPC_CHANNELS.vectorPreferences.clear,
+    vectorPreferencesSenderPolicy,
+    async () => storage.removeItem(VECTOR_PREFERENCES_STORAGE_KEY)
   );
 
   registry.registerInvoke(

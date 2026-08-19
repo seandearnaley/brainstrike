@@ -100,12 +100,26 @@ CI execution of the BST-438 tests) measured live heap growth of `1.8` MB in
 both live-query scenarios — the 16 MB heap ceilings hold in CI too. That same
 dispatch recalibrated the switching test's alive-generation identity bound
 from a local-only 6 to 8 (CI held 7 alive with 58/65 collected and zero
-drops), and exposed a PRE-EXISTING CI failure unrelated to the flag: since the
-Electron 43.4 provisioning window (first seen 2026-08-15, run `31903107189`),
-CI runners get no WebGPU adapter, device detection refuses to auto-select
-WASM, and the large-backfill error path emits a WebGPU-refusal message that
-`embedding-worker-renderer.memory.desktop.test.ts` does not expect — that
-breakage needs its own fix, not a memory-suite change.
+drops), and exposed a PRE-EXISTING CI failure unrelated to the flag, since
+fixed as BST-1380: the large-backfill error path emitted a WebGPU-refusal
+message that
+`embedding-worker-renderer.memory.desktop.test.ts` does not expect. Its
+correct attribution is recorded below — the Electron 43.4 provisioning window
+it coincided with was NOT the cause.
+
+The desktop embedding specs run under `--disable-gpu`, so they only exercise a
+real backfill because they configure WASM explicitly. Between 2026-08-12 and
+BST-1380 they did not: BST-1235 narrowed the hidden-host preload manifest, the
+host lost the capability to read that configured preference, and it fell back
+to auto-detection — which fail-closes with no WebGPU adapter. The symptom reads
+as an Electron/runner GPU regression and is not one; the last green run
+(`31458099061`, 2026-08-11) predates the preload change, and a fixed-Electron
+RED/GREEN on one host isolated it. Do not bisect Electron versions for it.
+Reproduce on any host by running the spec with `CI=true` (that env var is what
+adds `--disable-gpu`): a healthy run reports `outcome: "running"` with a
+non-zero `queueStats`, a broken one `outcome: "error"` with
+`queued 0 / running 0`. See `docs/agents/local-inference.md` for the capability
+contract.
 
 The 50k collection and 50k file-list ceilings are calibrated, not inherited
 from the older Collection Browser measurement window. On 2026-08-19, three
