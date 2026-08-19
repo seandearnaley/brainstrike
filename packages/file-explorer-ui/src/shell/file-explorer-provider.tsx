@@ -29,6 +29,55 @@ declare global {
 // Create a context for the file explorer store
 const FileExplorerStoreContext = createContext<FileExplorerStore | null>(null);
 
+interface FileContentLoadAuthority {
+  beginReload: (compositeKeys: readonly string[]) => ReadonlyMap<string, number>;
+  clearGeneration: (compositeKey: string, expectedGeneration: number | undefined) => void;
+  currentGeneration: (compositeKey: string) => number;
+  getActiveLoad: (compositeKey: string) => Promise<void> | undefined;
+  isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean;
+  releaseActiveLoad: (compositeKeys: readonly string[], expectedPromise: Promise<void>) => void;
+  trackActiveLoad: (compositeKeys: readonly string[], promise: Promise<void>) => void;
+}
+
+function createFileContentLoadAuthority(): FileContentLoadAuthority {
+  const activeLoads = new Map<string, Promise<void>>();
+  const generations = new Map<string, number>();
+  return {
+    beginReload: (compositeKeys) => {
+      const requested = new Map<string, number>();
+      for (const compositeKey of compositeKeys) {
+        const generation = (generations.get(compositeKey) ?? 0) + 1;
+        generations.set(compositeKey, generation);
+        requested.set(compositeKey, generation);
+      }
+      return requested;
+    },
+    clearGeneration: (compositeKey, expectedGeneration) => {
+      if (generations.get(compositeKey) === expectedGeneration) {
+        generations.delete(compositeKey);
+      }
+    },
+    currentGeneration: (compositeKey) => generations.get(compositeKey) ?? 0,
+    getActiveLoad: (compositeKey) => activeLoads.get(compositeKey),
+    isCurrentGeneration: (compositeKey, expectedGeneration) =>
+      (generations.get(compositeKey) ?? 0) === expectedGeneration,
+    releaseActiveLoad: (compositeKeys, expectedPromise) => {
+      for (const compositeKey of compositeKeys) {
+        if (activeLoads.get(compositeKey) === expectedPromise) {
+          activeLoads.delete(compositeKey);
+        }
+      }
+    },
+    trackActiveLoad: (compositeKeys, promise) => {
+      for (const compositeKey of compositeKeys) {
+        activeLoads.set(compositeKey, promise);
+      }
+    },
+  };
+}
+
+const FileContentLoadAuthorityContext = createContext<FileContentLoadAuthority | null>(null);
+
 export interface FileExplorerProviderProps {
   children: React.ReactNode;
   /** Optional file system adapter — when provided, enables inline fixture subscription */
@@ -41,8 +90,15 @@ export function FileExplorerProvider({
   fileSystemAdapter,
   children,
 }: FileExplorerProviderProps) {
-  // Create store instance with the provided storage adapter
-  const store = useMemo(() => createFileExplorerStore(storageAdapter), [storageAdapter]);
+  // Store and content-read authority share one lifecycle: replacing the
+  // storage adapter must never carry active reads into the replacement store.
+  const { fileContentLoadAuthority, store } = useMemo(
+    () => ({
+      fileContentLoadAuthority: createFileContentLoadAuthority(),
+      store: createFileExplorerStore(storageAdapter),
+    }),
+    [storageAdapter]
+  );
 
   // Set up inline fixture subscription when adapter is available.
   // Runs once on mount, outside the React render cycle.
@@ -91,8 +147,10 @@ export function FileExplorerProvider({
 
   return (
     <FileExplorerStoreContext.Provider value={store}>
-      <PersistenceRecoveryNotifier />
-      {children}
+      <FileContentLoadAuthorityContext.Provider value={fileContentLoadAuthority}>
+        <PersistenceRecoveryNotifier />
+        {children}
+      </FileContentLoadAuthorityContext.Provider>
     </FileExplorerStoreContext.Provider>
   );
 }
@@ -127,6 +185,14 @@ export function useFileExplorerStoreContext(): FileExplorerStore {
   const context = useContext(FileExplorerStoreContext);
   if (!context) {
     throw new Error('useFileExplorerStoreContext must be used within a FileExplorerProvider');
+  }
+  return context;
+}
+
+export function useFileContentLoadAuthority(): FileContentLoadAuthority {
+  const context = useContext(FileContentLoadAuthorityContext);
+  if (!context) {
+    throw new Error('useFileContentLoadAuthority must be used within a FileExplorerProvider');
   }
   return context;
 }

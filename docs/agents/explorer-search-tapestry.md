@@ -750,15 +750,23 @@ fallback.
   never echoed with their root/path.
 
   A matching event calls the shared content loader's `reloadFileContents`:
-  cached bytes are evicted synchronously before any await, then re-read. Each
-  key carries a monotonic in-memory generation while the reload is active, so
-  an older read resolving after a second disk change cannot republish stale
-  bytes; a superseded reload waits for the active read and only the latest
-  generation starts the replacement. Active-load entries and settled latest
-  generations are removed, so close/reopen churn does not create an unbounded
-  key registry. Removed files/directories therefore replace the tab with its
-  loading boundary and then a visible read-failure result, never the pre-delete
-  content. Listener cleanup is provider-scoped.
+  cached bytes are evicted synchronously before any await, then re-read. The
+  generation/active-read authority is owned ONCE by `FileExplorerProvider` and
+  shared by every `useSharedFileContentLoading` instance beneath it — hook-local
+  authority is invalid because all those hooks commit into the same provider
+  store/cache. Each key carries a monotonic in-memory generation while the
+  reload is active, so an older read resolving in a sibling hook after a second
+  disk change cannot republish stale bytes. A superseded reload waits for the
+  active reads, filters to keys whose generation is still current, and submits
+  all ready keys through ONE worker batch (never one queue per key). Active-load
+  entries and settled latest generations are removed, so close/reopen churn
+  does not create an unbounded key registry. Rebuilt worker `FileHandle`s carry
+  `fileNode.handle.rootId` when present; `rootFolderId` remains selection/cache
+  identity and is NEVER substituted for durable read authority. Removed
+  files/directories therefore replace the tab with its loading boundary and
+  then a visible read-failure result, never the pre-delete content. Listener
+  cleanup is provider-scoped. Windows comparison preserves drive roots such as
+  `C:\` while applying the existing case-insensitive drive/UNC semantics.
 
   **Surface audit (BST-1159):** file-tab `CodeSurface` is invoked without
   `editable`/`onChange` (read-only default), Markdown preview is read-only, and
@@ -1038,6 +1046,7 @@ fallback.
   `packages/file-explorer-ui/src/__tests__/workspace-tabs-refresh.test.tsx`
   (incremental/full/deleted/multi-root/Windows/cleanup) and
   `packages/file-explorer-ui/src/__tests__/use-shared-file-content-reload.test.tsx`
-  (stale in-flight generation suppression).
+  (same-hook and cross-hook stale suppression, one-batch multi-key reload, and
+  nested-handle RootId forwarding).
 
 When changing this flow, update this section and the paired tests.

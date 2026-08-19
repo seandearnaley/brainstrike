@@ -17,6 +17,7 @@ import type {
 } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  useFileContentLoadAuthority,
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './shell/file-explorer-provider';
@@ -31,7 +32,8 @@ import {
 // File handle creation helper
 function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): FileHandle {
   const adapterPlatform = (fileSystemAdapter as { platform?: Platform }).platform;
-  const handlePlatform = (fileNode.handle as { platform?: Platform }).platform;
+  const sourceHandle = fileNode.handle as { platform?: Platform; rootId?: string };
+  const handlePlatform = sourceHandle.platform;
   const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
   const fileHandle: FileHandle = {
@@ -41,6 +43,7 @@ function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): File
     path: fileNode.path,
     platform,
     rootFolderId: fileNode.rootFolderId,
+    ...(sourceHandle.rootId === undefined ? {} : { rootId: sourceHandle.rootId }),
   };
 
   const knownFileSize = getKnownFileSize(fileNode.size);
@@ -91,7 +94,7 @@ function processWorkerResults(
   results: Record<string, FileContentReadResult>,
   setFileContent: (key: string, content: string) => void,
   expectedGenerations: ReadonlyMap<string, number>,
-  currentGenerations: ReadonlyMap<string, number>
+  isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean
 ): void {
   let unexpectedResultCount = 0;
   for (const [key, result] of Object.entries(results)) {
@@ -100,7 +103,7 @@ function processWorkerResults(
       unexpectedResultCount += 1;
       continue;
     }
-    if ((currentGenerations.get(key) ?? 0) !== expectedGeneration) {
+    if (!isCurrentGeneration(key, expectedGeneration)) {
       continue;
     }
     setFileContent(key, result.status === 'accessible' ? result.content : result.message);
@@ -605,12 +608,12 @@ async function prepareFileReadRequest(
   deferredLookupAttemptsRef: React.RefObject<Map<string, number>>,
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>,
   canLoadWithoutTree: boolean,
-  contentGenerationsRef: React.RefObject<Map<string, number>>,
+  isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean,
   indexGetNode?: (folderId: string, path: string) => IFileNode | undefined
 ): Promise<FileReadRequest | null> {
   const { setFileContent: commitFileContent, fileContents } = store.getState();
   const setFileContent = (key: string, content: string): void => {
-    if ((contentGenerationsRef.current.get(key) ?? 0) !== expectedGeneration) {
+    if (!isCurrentGeneration(key, expectedGeneration)) {
       return;
     }
     commitFileContent(key, content);
@@ -709,8 +712,6 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const deferredLookupAttemptsRef = useRef<Map<string, number>>(new Map());
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
   const workerRef = useRef<FileContentWorker | null>(null);
-  const contentGenerationsRef = useRef<Map<string, number>>(new Map());
-  const activeLoadPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
   // Use ref to access current tree without closure stale state issues.
   const fileTreeRef = useRef(fileTree);
@@ -718,6 +719,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
+  const loadAuthority = useFileContentLoadAuthority();
 
   // Try to use shared FileTreeIndex for O(1) lookups when available
   // Falls back to cache-based lookups when not within FileTreeProvider
@@ -796,10 +798,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         deferredLookupAttemptsRef,
         setLoadingFiles,
         canLoadWithoutTree,
-        contentGenerationsRef,
+        loadAuthority.isCurrentGeneration,
         indexGetNode // Pass index getter for O(1) lookups when available
       ),
-    [fileSystemAdapter, store, canLoadWithoutTree, indexGetNode]
+    [fileSystemAdapter, store, canLoadWithoutTree, loadAuthority, indexGetNode]
   );
 
   const executeFileContentLoading = useCallback(
@@ -854,7 +856,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
             results,
             store.getState().setFileContent,
             expectedGenerations,
-            contentGenerationsRef.current
+            loadAuthority.isCurrentGeneration
           );
         });
       } catch (err) {
@@ -863,7 +865,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         setIsLoading(false);
       }
     },
-    [prepareFileRead, store, canLoadWithoutTree]
+    [prepareFileRead, store, canLoadWithoutTree, loadAuthority]
   );
 
   const handleFileContentLoading = useCallback(
@@ -872,7 +874,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       const promises = new Set<Promise<void>>();
       const keysToStart: string[] = [];
       for (const key of uniqueKeys) {
-        const activePromise = activeLoadPromisesRef.current.get(key);
+        const activePromise = loadAuthority.getActiveLoad(key);
         if (activePromise) {
           promises.add(activePromise);
         } else {
@@ -882,25 +884,19 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
       if (keysToStart.length > 0) {
         const expectedGenerations = new Map(
-          keysToStart.map((key) => [key, contentGenerationsRef.current.get(key) ?? 0] as const)
+          keysToStart.map((key) => [key, loadAuthority.currentGeneration(key)] as const)
         );
         let batchPromise: Promise<void>;
         batchPromise = executeFileContentLoading(keysToStart, expectedGenerations).finally(() => {
-          for (const key of keysToStart) {
-            if (activeLoadPromisesRef.current.get(key) === batchPromise) {
-              activeLoadPromisesRef.current.delete(key);
-            }
-          }
+          loadAuthority.releaseActiveLoad(keysToStart, batchPromise);
         });
-        for (const key of keysToStart) {
-          activeLoadPromisesRef.current.set(key, batchPromise);
-        }
+        loadAuthority.trackActiveLoad(keysToStart, batchPromise);
         promises.add(batchPromise);
       }
 
       await Promise.all(promises);
     },
-    [executeFileContentLoading]
+    [executeFileContentLoading, loadAuthority]
   );
 
   const reloadFileContents = useCallback(
@@ -910,41 +906,40 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         return;
       }
 
-      const requestedGenerations = new Map<string, number>();
-      for (const key of uniqueKeys) {
-        const generation = (contentGenerationsRef.current.get(key) ?? 0) + 1;
-        contentGenerationsRef.current.set(key, generation);
-        requestedGenerations.set(key, generation);
-      }
+      const requestedGenerations = loadAuthority.beginReload(uniqueKeys);
 
       // Evict synchronously before awaiting any older read. Every consumer of
       // the shared cache sees a loading boundary instead of stale disk bytes.
       store.getState().clearFileContents(uniqueKeys);
 
-      await Promise.all(
-        uniqueKeys.map(async (key) => {
-          const requestedGeneration = requestedGenerations.get(key);
-          try {
-            const olderLoad = activeLoadPromisesRef.current.get(key);
-            if (olderLoad) {
-              await olderLoad;
-            }
-            if (contentGenerationsRef.current.get(key) !== requestedGeneration) {
-              return;
-            }
-            await handleFileContentLoading([key]);
-          } finally {
-            // Once the latest reload (and every older load it awaited) has
-            // settled, generation zero is safe again. Superseded reloads must
-            // leave the newer generation intact.
-            if (contentGenerationsRef.current.get(key) === requestedGeneration) {
-              contentGenerationsRef.current.delete(key);
-            }
-          }
+      const precedingLoads = new Set(
+        uniqueKeys.flatMap((key) => {
+          const activeLoad = loadAuthority.getActiveLoad(key);
+          return activeLoad ? [activeLoad] : [];
         })
       );
+      try {
+        await Promise.all(precedingLoads);
+        const readyKeys = uniqueKeys.filter((key) => {
+          const requestedGeneration = requestedGenerations.get(key);
+          return (
+            requestedGeneration !== undefined &&
+            loadAuthority.isCurrentGeneration(key, requestedGeneration)
+          );
+        });
+        if (readyKeys.length > 0) {
+          await handleFileContentLoading(readyKeys);
+        }
+      } finally {
+        // Once the latest reload (and every older load it awaited) has
+        // settled, generation zero is safe again. Superseded reloads leave
+        // the newer generation intact.
+        for (const key of uniqueKeys) {
+          loadAuthority.clearGeneration(key, requestedGenerations.get(key));
+        }
+      }
     },
-    [handleFileContentLoading, store]
+    [handleFileContentLoading, loadAuthority, store]
   );
 
   useEffect(() => {
@@ -973,12 +968,19 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     // and the just-cleared pending key would never get another turn.
     const precedingLoads = new Set(
       pendingKeys.flatMap((key) => {
-        const activeLoad = activeLoadPromisesRef.current.get(key);
+        const activeLoad = loadAuthority.getActiveLoad(key);
         return activeLoad ? [activeLoad] : [];
       })
     );
     void Promise.all(precedingLoads).then(() => handleFileContentLoading(pendingKeys));
-  }, [canLoadWithoutTree, fileTree.length, handleFileContentLoading, indexVersion, store]);
+  }, [
+    canLoadWithoutTree,
+    fileTree.length,
+    handleFileContentLoading,
+    indexVersion,
+    loadAuthority,
+    store,
+  ]);
 
   // Content loading is demand-driven via handleFileContentLoading() when:
   // 1. User explicitly previews a file

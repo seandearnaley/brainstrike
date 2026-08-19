@@ -34,6 +34,9 @@ function normalizePath(path: string): string {
   if (withForwardSlashes === '/') {
     return withForwardSlashes;
   }
+  if (/^[A-Za-z]:\/+$/u.test(withForwardSlashes)) {
+    return `${withForwardSlashes.slice(0, 2)}/`;
+  }
   return withForwardSlashes.replace(/\/+$/, '');
 }
 
@@ -51,10 +54,13 @@ function pathComparisonKey(path: string, rootPath: string): string {
   let relativePath: string;
   if (comparablePath === comparableRoot) {
     relativePath = '';
-  } else if (comparablePath.startsWith(`${comparableRoot}/`)) {
-    relativePath = normalizedPath.slice(normalizedRoot.length + 1);
   } else {
-    relativePath = normalizeFilePathForFolder(path, rootPath);
+    const rootPrefix = comparableRoot.endsWith('/') ? comparableRoot : `${comparableRoot}/`;
+    if (comparablePath.startsWith(rootPrefix)) {
+      relativePath = normalizedPath.slice(rootPrefix.length);
+    } else {
+      relativePath = normalizeFilePathForFolder(path, rootPath);
+    }
   }
   const normalizedRelativePath = normalizePath(relativePath).replace(/^\/+/, '');
   return windowsRoot ? normalizedRelativePath.toLowerCase() : normalizedRelativePath;
@@ -148,7 +154,10 @@ export function useWorkspaceOpenFileRefresh({
   tabs,
 }: UseWorkspaceOpenFileRefreshParams): void {
   const paramsRef = useRef({ reloadFileContents, tabs });
-  paramsRef.current = { reloadFileContents, tabs };
+
+  useEffect(() => {
+    paramsRef.current = { reloadFileContents, tabs };
+  }, [reloadFileContents, tabs]);
 
   useEffect(() => {
     const handleRefresh = (event: Event): void => {
