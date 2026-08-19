@@ -1,0 +1,273 @@
+import { cpus, totalmem } from 'node:os';
+import { resolve } from 'node:path';
+import { expect, it, vi } from 'vitest';
+import {
+  parseMeasurementVariant,
+  verifyHistoricalSourceBinding,
+} from '../bench/bst-372-source-binding.mjs';
+
+interface MemorySample {
+  readonly arrayBuffers: number;
+  readonly external: number;
+  readonly heapUsed: number;
+  readonly label: string;
+  readonly rss: number;
+}
+
+interface EmbedResult {
+  readonly vectors: readonly Float32Array[];
+}
+
+const pipelineMock = vi.fn();
+const registeredHandlers: {
+  runEmbedding?: (payload: {
+    readonly deviceHint: 'wasm';
+    readonly id: string;
+    readonly maxBatchSize: number;
+    readonly model: string;
+    readonly targetDimension: number;
+    readonly texts: readonly string[];
+    readonly type: 'embed';
+  }) => Promise<EmbedResult>;
+} = {};
+
+class MockTensor {
+  readonly data: Float32Array;
+  readonly dims: readonly number[];
+
+  constructor(values: readonly number[], dims: readonly number[]) {
+    this.data = Float32Array.from(values);
+    this.dims = dims;
+  }
+
+  tolist(): number[] {
+    return Array.from(this.data);
+  }
+}
+
+vi.mock('workerpool', () => ({
+  Transfer: vi.fn(function TransferStub<T>(value: T) {
+    return value;
+  }),
+  worker: (handlers: typeof registeredHandlers) => {
+    registeredHandlers.runEmbedding = handlers.runEmbedding;
+  },
+  workerEmit: vi.fn(),
+}));
+
+vi.mock('@huggingface/transformers', () => ({
+  Tensor: MockTensor,
+  env: { allowRemoteModels: false },
+  pipeline: (...args: unknown[]) => pipelineMock(...args),
+}));
+
+function forceGarbageCollection(): void {
+  const collect = (globalThis as typeof globalThis & { gc?: () => void }).gc;
+  if (!collect) {
+    throw new Error('BST-372 measurement requires Node --expose-gc.');
+  }
+  collect();
+  collect();
+}
+
+function captureMemory(label: string): MemorySample {
+  const memory = process.memoryUsage();
+  return {
+    arrayBuffers: memory.arrayBuffers,
+    external: memory.external,
+    heapUsed: memory.heapUsed,
+    label,
+    rss: memory.rss,
+  };
+}
+
+function peak(samples: readonly MemorySample[], field: keyof Omit<MemorySample, 'label'>): number {
+  return Math.max(...samples.map((sample) => sample[field]));
+}
+
+it('measures the exact historical embedding implementation', async () => {
+  const variant = parseMeasurementVariant(process.env['BST372_VARIANT']);
+  const sourceBinding = verifyHistoricalSourceBinding({
+    packageRoot: resolve(import.meta.dirname, '..'),
+    variant,
+  });
+
+  const batchSize = 8;
+  const dimensions = 2000;
+  const inputCount = 4096;
+  const texts = Array.from({ length: inputCount }, (_, index) => `document-${index}`);
+  const expectedPayloadBytes = inputCount * dimensions * Float32Array.BYTES_PER_ELEMENT;
+  const samples: MemorySample[] = [];
+  let extractorCallCount = 0;
+  let streamedBatchCount = 0;
+  let streamedPayloadBytes = 0;
+  let handleMessage: ((event: MessageEvent<unknown>) => void) | undefined;
+  let resolveCompletion: (() => void) | undefined;
+  let rejectCompletion: ((error: Error) => void) | undefined;
+
+  const postMessage = (message: unknown, transferList: readonly ArrayBuffer[] = []): void => {
+    const event = message as {
+      readonly batchIndex?: number;
+      readonly id?: string;
+      readonly message?: string;
+      readonly transferBytes?: number;
+      readonly type?: string;
+    };
+    if (event.type === 'batch') {
+      if (event.id !== 'bst-372-measurement' || event.batchIndex === undefined) {
+        throw new Error('Streaming implementation emitted a malformed measurement batch.');
+      }
+      const uniqueTransferBytes = transferList.reduce(
+        (sum, buffer) => sum + buffer.byteLength,
+        0
+      );
+      if (event.transferBytes !== undefined && uniqueTransferBytes !== event.transferBytes) {
+        throw new Error('Streaming transfer byte telemetry does not match the transfer list.');
+      }
+      streamedBatchCount += 1;
+      streamedPayloadBytes += uniqueTransferBytes;
+      samples.push(captureMemory(`stream-batch-${event.batchIndex}`));
+      queueMicrotask(() => {
+        if (!handleMessage) {
+          throw new Error('Streaming message handler was not registered.');
+        }
+        handleMessage({
+          data: {
+            batchIndex: event.batchIndex,
+            id: event.id,
+            type: 'stream-ack',
+          },
+        } as MessageEvent<unknown>);
+      });
+      return;
+    }
+    if (event.type === 'complete') {
+      resolveCompletion?.();
+      return;
+    }
+    if (event.type === 'error') {
+      rejectCompletion?.(new Error(event.message ?? 'Unknown streaming worker error.'));
+    }
+  };
+
+  const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
+  vi.stubGlobal('self', {
+    addEventListener: (type: string, listener: (event: MessageEvent<unknown>) => void) => {
+      if (type === 'message') {
+        messageListeners.add(listener);
+      }
+    },
+    onerror: undefined,
+    onunhandledrejection: undefined,
+    postMessage,
+  });
+
+  pipelineMock.mockResolvedValue(async (slice: readonly string[]) => {
+    forceGarbageCollection();
+    samples.push(captureMemory(`before-extractor-${extractorCallCount}`));
+    extractorCallCount += 1;
+    const output = slice.map(() => new Float32Array(dimensions).fill(1));
+    samples.push(captureMemory(`raw-output-${extractorCallCount - 1}`));
+    return output;
+  });
+
+  await import('../src/embedding.worker');
+  forceGarbageCollection();
+  const baseline = captureMemory('baseline');
+  samples.push(baseline);
+
+  let measuredPayloadBytes: number;
+  if (variant === 'pre-stream') {
+    if (!registeredHandlers.runEmbedding) {
+      throw new Error('Pre-stream workerpool handler was not registered.');
+    }
+    const result = await registeredHandlers.runEmbedding({
+      deviceHint: 'wasm',
+      id: 'bst-372-measurement',
+      maxBatchSize: batchSize,
+      model: 'bge-m3',
+      targetDimension: dimensions,
+      texts,
+      type: 'embed',
+    });
+    forceGarbageCollection();
+    samples.push(captureMemory('pre-stream-result-retained'));
+    const uniqueBuffers = new Set(result.vectors.map((vector) => vector.buffer));
+    measuredPayloadBytes = [...uniqueBuffers].reduce(
+      (sum, buffer) => sum + buffer.byteLength,
+      0
+    );
+  } else {
+    [handleMessage] = [...messageListeners];
+    if (!handleMessage) {
+      throw new Error('Streaming message handler was not registered.');
+    }
+    const completion = new Promise<void>((resolve, reject) => {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+    handleMessage({
+      data: {
+        request: {
+          deviceHint: 'wasm',
+          id: 'bst-372-measurement',
+          maxBatchSize: batchSize,
+          model: 'bge-m3',
+          targetDimension: dimensions,
+          texts,
+          type: 'embed',
+        },
+        type: 'stream-embed',
+      },
+    } as MessageEvent<unknown>);
+    await completion;
+    forceGarbageCollection();
+    samples.push(captureMemory('stream-complete'));
+    measuredPayloadBytes = streamedPayloadBytes;
+  }
+
+  const expectedBatchCount = inputCount / batchSize;
+  expect(extractorCallCount).toBe(expectedBatchCount);
+  expect(measuredPayloadBytes).toBe(expectedPayloadBytes);
+  if (variant === 'stream') {
+    expect(streamedBatchCount).toBe(expectedBatchCount);
+  }
+
+  const peakMemory = {
+    arrayBuffers: peak(samples, 'arrayBuffers'),
+    external: peak(samples, 'external'),
+    heapUsed: peak(samples, 'heapUsed'),
+    rss: peak(samples, 'rss'),
+  };
+  const peakDelta = {
+    arrayBuffers: peakMemory.arrayBuffers - baseline.arrayBuffers,
+    external: peakMemory.external - baseline.external,
+    heapUsed: peakMemory.heapUsed - baseline.heapUsed,
+    rss: peakMemory.rss - baseline.rss,
+  };
+  const cpu = cpus()[0]?.model;
+  if (!cpu) {
+    throw new Error('Could not identify the measurement CPU.');
+  }
+
+  console.log(
+    `BST372_MEMORY_RESULT ${JSON.stringify({
+      baseline,
+      batchSize,
+      cpu,
+      dimensions,
+      expectedBatchCount,
+      implementationCommit: sourceBinding.commit,
+      inputCount,
+      node: process.version,
+      payloadBytes: measuredPayloadBytes,
+      peakDelta,
+      peakMemory,
+      platform: `${process.platform}-${process.arch}`,
+      sourceBlobs: sourceBinding.sourceBlobs,
+      totalMemoryBytes: totalmem(),
+      v8: process.versions.v8,
+      variant,
+    })}`
+  );
+});

@@ -2,8 +2,14 @@ import {
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
 } from '@brainstrike/indexing-contract';
+import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { EmbedWorkerRequest, EmbedWorkerSuccess } from '../src';
+import type {
+  EmbedWorkerBatch,
+  EmbedWorkerComplete,
+  EmbedWorkerRequest,
+  EmbedWorkerSuccess,
+} from '../src';
 
 const workerEmitMock = vi.fn();
 const transferMock = vi.fn(function TransferStub<T>(value: T) {
@@ -521,6 +527,136 @@ describe('embedding worker runtime', () => {
       }),
       []
     );
+  });
+
+  it('bounds a long maximum-dimension stream to one acknowledged batch and exact bytes', async () => {
+    const batchSize = 8;
+    const dimensions = MAX_EMBEDDING_DIMENSION;
+    const requestId = 'stream-max-dimension-stress';
+    const texts = Array.from({ length: 64 }, (_, index) => `document-${index}`);
+    const expectedBatchCount = texts.length / batchSize;
+    const expectedBytesPerBatch = batchSize * dimensions * Float32Array.BYTES_PER_ELEMENT;
+    const expectedTotalBytes = texts.length * dimensions * Float32Array.BYTES_PER_ELEMENT;
+    const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
+    const postMessage = vi.fn();
+    vi.stubGlobal('self', {
+      addEventListener: vi.fn((type: string, listener: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          messageListeners.add(listener);
+        }
+      }),
+      onerror: undefined,
+      onunhandledrejection: undefined,
+      postMessage,
+    });
+
+    let inferenceBatchCount = 0;
+    pipelineMock.mockResolvedValue(async (slice: readonly string[]) => {
+      inferenceBatchCount += 1;
+      return slice.map(() => new Float32Array(dimensions).fill(1));
+    });
+    await import('../src/embedding.worker');
+
+    const [handleMessage] = [...messageListeners];
+    if (!handleMessage) {
+      throw new Error('Expected worker message handler to be registered');
+    }
+
+    handleMessage({
+      data: {
+        request: {
+          deviceHint: 'wasm',
+          id: requestId,
+          maxBatchSize: batchSize,
+          model: 'bge-m3',
+          targetDimension: dimensions,
+          texts,
+          type: 'embed',
+        },
+        type: 'stream-embed',
+      },
+    } as MessageEvent<unknown>);
+
+    let observedTotalBytes = 0;
+    for (let batchIndex = 0; batchIndex < expectedBatchCount; batchIndex += 1) {
+      await waitForAssertion(() =>
+        expect(
+          postMessage.mock.calls.some(
+            ([message]) => (message as { readonly type?: unknown }).type === 'batch'
+          )
+        ).toBe(true)
+      );
+      const batchCall = postMessage.mock.calls.find(
+        ([message]) => (message as { readonly type?: unknown }).type === 'batch'
+      );
+      if (!batchCall) {
+        throw new Error(`Expected streamed batch ${batchIndex}`);
+      }
+      const batch = batchCall[0] as EmbedWorkerBatch;
+      const transferList = batchCall[1] as readonly ArrayBuffer[];
+
+      expect(batch).toMatchObject({
+        batchIndex,
+        endIndex: (batchIndex + 1) * batchSize,
+        id: requestId,
+        peakVectorsInFlight: batchSize,
+        startIndex: batchIndex * batchSize,
+        transferBytes: expectedBytesPerBatch,
+        type: 'batch',
+        vectorsInFlight: batchSize,
+      });
+      expect(batch.vectors).toHaveLength(batchSize);
+      expect(batch.vectors.every((vector) => vector.length === dimensions)).toBe(true);
+      const uniqueVectorBuffers = new Set(batch.vectors.map((vector) => vector.buffer));
+      expect(new Set(transferList)).toEqual(uniqueVectorBuffers);
+      expect(transferList).toHaveLength(uniqueVectorBuffers.size);
+      expect(transferList.reduce((sum, buffer) => sum + buffer.byteLength, 0)).toBe(
+        expectedBytesPerBatch
+      );
+
+      observedTotalBytes += batch.transferBytes;
+      await flushMicrotasks();
+      expect(inferenceBatchCount).toBe(batchIndex + 1);
+      expect(
+        postMessage.mock.calls.filter(
+          ([message]) => (message as { readonly type?: unknown }).type === 'batch'
+        )
+      ).toHaveLength(1);
+
+      postMessage.mockClear();
+      handleMessage({
+        data: {
+          batchIndex,
+          id: requestId,
+          type: 'stream-ack',
+        },
+      } as MessageEvent<unknown>);
+    }
+
+    await waitForAssertion(() =>
+      expect(
+        postMessage.mock.calls.some(
+          ([message]) => (message as { readonly type?: unknown }).type === 'complete'
+        )
+      ).toBe(true)
+    );
+    const completeCall = postMessage.mock.calls.find(
+      ([message]) => (message as { readonly type?: unknown }).type === 'complete'
+    );
+    if (!completeCall) {
+      throw new Error('Expected stream completion');
+    }
+    const complete = completeCall[0] as EmbedWorkerComplete;
+    expect(complete).toMatchObject({
+      id: requestId,
+      metadata: {
+        batchSize,
+        dimensions,
+      },
+      type: 'complete',
+    });
+    expect(inferenceBatchCount).toBe(expectedBatchCount);
+    expect(observedTotalBytes).toBe(expectedTotalBytes);
   });
 
   it('notifies active streaming requests before closing on WebGPU device loss', async () => {
