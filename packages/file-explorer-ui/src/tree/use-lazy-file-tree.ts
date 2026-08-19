@@ -1229,6 +1229,7 @@ export function useLazyFileTree(
     }));
   }, [
     cancelAllChildLoading,
+    childAbortControllersRef,
     commitNormalizedTree,
     flushPendingExpandAllUpdates,
     retireActiveWorkerTreeOperation,
@@ -1433,6 +1434,7 @@ export function useLazyFileTree(
     },
     [
       cancelChildLoading,
+      childAbortControllersRef,
       commitNormalizedTree,
       createAbortController,
       fileSystemAdapter,
