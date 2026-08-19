@@ -24,6 +24,7 @@ export interface WorkspaceTabsValue {
   readonly onCloseFileTabsToRight: (tabId: string) => void;
   readonly onCloseOtherFileTabs: (tabId: string) => void;
   readonly onOpenApp: (appId: string) => void;
+  readonly onRetryFileContent: (compositeKey: string) => void;
   readonly onSelectFileTab: (tabId: string) => void | Promise<void>;
   /** Registry ∩ openAppIds, in registry order — what the strip renders. */
   readonly openApps: readonly WorkspaceApp[];

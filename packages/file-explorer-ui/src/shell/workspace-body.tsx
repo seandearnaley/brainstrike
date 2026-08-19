@@ -28,6 +28,7 @@ export function WorkspaceBody(): ReactElement {
     loadingFiles,
     mountedAppIds,
     openApps,
+    onRetryFileContent,
     rootDescriptors,
     selection,
     tabs,
@@ -86,6 +87,7 @@ export function WorkspaceBody(): ReactElement {
             isLoading={loadingFiles.has(activeFileTab.compositeKey)}
             isRestoring={isRestoring}
             key={activeFileTab.compositeKey}
+            onRetryContent={() => onRetryFileContent(activeFileTab.compositeKey)}
             rootPath={getTabRootPath(activeFileTab, rootDescriptors)}
             status={tabStatuses.get(activeFileTab.compositeKey)}
             tab={activeFileTab}

@@ -45,6 +45,7 @@ export interface FileTabBodyProps {
   readonly contentError?: Error;
   readonly isLoading: boolean;
   readonly isRestoring: boolean;
+  readonly onRetryContent: () => void;
   readonly rootPath?: string | null;
   readonly status: TabFileStatus | undefined;
   readonly tab: FileTab;
@@ -56,6 +57,7 @@ export function FileTabBody({
   contentError,
   isLoading,
   isRestoring,
+  onRetryContent,
   rootPath = null,
   status,
 }: FileTabBodyProps) {
@@ -306,7 +308,9 @@ export function FileTabBody({
   } else if (status?.status === 'not-found') {
     body = <FileNotFoundScreen path={path} status={status} />;
   } else if (contentError) {
-    body = <FileContentErrorScreen />;
+    body = (
+      <FileContentErrorScreen contentError={contentError} onRetry={onRetryContent} path={path} />
+    );
   } else if (typeof content !== 'string') {
     // Three reasons content may be missing here, none of which is "the file is gone":
     //  1. Restoration is still in flight (status not yet emitted).

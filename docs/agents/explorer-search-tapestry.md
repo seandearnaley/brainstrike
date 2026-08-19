@@ -820,7 +820,10 @@ fallback.
   and renders `FileContentErrorScreen` (an accessible terminal `alert`) instead
   of the indefinite pending spinner. The automatic active-tab loader stops at
   that per-key error boundary instead of entering a fail/render/retry loop; a
-  later canonical refresh clears only the affected key and retries it. Content
+  user-visible Retry button calls `reloadFileContents([compositeKey])`, which
+  clears only that key and starts a fresh read. The screen shows the selected
+  file path plus a bounded safe error category, never a raw internal message.
+  A later canonical refresh can also clear only the affected key and retry it. Content
   failures never enter the explorer's global error surface or appear on
   unrelated tabs. Fire-and-forget UI consumers explicitly observe the rejection
   after the shared error state is set. Rebuilt worker `FileHandle`s carry

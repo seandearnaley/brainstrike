@@ -113,6 +113,17 @@ export function WorkspaceTabsProvider({
     },
     [loadFileContent]
   );
+  const handleRetryFileContent = useCallback(
+    (compositeKey: string): void => {
+      void reloadFileContents([compositeKey]).catch((error: unknown) => {
+        logger.error('Workspace file-content retry failed', {
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+          fileCount: 1,
+        });
+      });
+    },
+    [reloadFileContents]
+  );
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
@@ -496,6 +507,7 @@ export function WorkspaceTabsProvider({
       onCloseFileTabsToRight: handleCloseFileTabsToRight,
       onCloseOtherFileTabs: handleCloseOtherFileTabs,
       onOpenApp: handleOpenApp,
+      onRetryFileContent: handleRetryFileContent,
       onSelectFileTab: handleSelectFileTab,
       openApps,
       rootDescriptors,
@@ -518,6 +530,7 @@ export function WorkspaceTabsProvider({
       handleCloseFileTabsToRight,
       handleCloseOtherFileTabs,
       handleOpenApp,
+      handleRetryFileContent,
       handleSelectFileTab,
       openApps,
       rootDescriptors,

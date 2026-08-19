@@ -1,4 +1,5 @@
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
+import { Button } from '@brainstrike/ui';
 import { AlertCircle, Loader2, LockKeyhole } from 'lucide-react';
 import type { ReactElement } from 'react';
 
@@ -68,7 +69,28 @@ export function FileContentPendingScreen({
   );
 }
 
-export function FileContentErrorScreen(): ReactElement {
+function describeFileContentError(error: Error): string {
+  if (error.message === 'File content worker is unavailable.') {
+    return 'The file reader is unavailable.';
+  }
+  if (error.name === 'AbortError') {
+    return 'The file read was cancelled.';
+  }
+  if (error.name === 'AggregateError') {
+    return 'One or more file reads failed.';
+  }
+  return 'The file read failed.';
+}
+
+export function FileContentErrorScreen({
+  contentError,
+  onRetry,
+  path,
+}: {
+  readonly contentError: Error;
+  readonly onRetry: () => void;
+  readonly path: string;
+}): ReactElement {
   return (
     <div
       aria-labelledby="file-content-error-title"
@@ -80,8 +102,13 @@ export function FileContentErrorScreen(): ReactElement {
         File content unavailable
       </p>
       <p className="mt-2 max-w-md text-muted-foreground text-sm">
-        Brainstrike could not load this file. A later file refresh will retry the read.
+        Brainstrike could not load this file. Retry the read when you are ready.
       </p>
+      <p className="mt-2 text-destructive text-sm">{describeFileContentError(contentError)}</p>
+      <p className="mt-1 max-w-md break-all text-muted-foreground text-xs">{path}</p>
+      <Button className="mt-4" onClick={onRetry} type="button" variant="outline">
+        Retry file content
+      </Button>
     </div>
   );
 }

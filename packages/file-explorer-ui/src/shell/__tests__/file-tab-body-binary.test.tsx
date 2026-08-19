@@ -61,6 +61,7 @@ function renderBinaryBody({
         content={content}
         isLoading={false}
         isRestoring={false}
+        onRetryContent={vi.fn()}
         rootPath={rootPath}
         status={undefined}
         tab={{
