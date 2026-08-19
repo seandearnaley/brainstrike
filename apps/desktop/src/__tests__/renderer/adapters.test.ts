@@ -174,6 +174,24 @@ describe('ElectronRendererFileSystemAdapter', () => {
         absolutePath
       );
     });
+
+    it.each([
+      { absolutePath: '/workspace/file.txt', rootPath: '' },
+      { absolutePath: '/workspace/file.txt', rootPath: '   ' },
+      { absolutePath: '/workspace/file.txt', rootPath: 'workspace' },
+      { absolutePath: 'file.txt', rootPath: '/workspace' },
+      { absolutePath: '\\file.txt', rootPath: '/workspace' },
+    ])(
+      'rejects malformed explicit read authority root=$rootPath path=$absolutePath',
+      async ({ absolutePath, rootPath }) => {
+        mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue('unsafe-content');
+
+        await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath)).rejects.toThrow(
+          'absolute path'
+        );
+        expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('addRoot', () => {
