@@ -782,7 +782,11 @@ fallback.
   queues per lifecycle epoch: an existing slow queue leaves one lane for
   unrelated ready work, but twenty distinct predecessors settling together
   cannot create twenty queues. This is a concurrency bound, not a liveness
-  timeout. `FileContentWorker` accepts an optional `AbortSignal`, but the shared
+  timeout. Queued single-key loads use the interactive class and take the next
+  free lane ahead of queued bulk work; FIFO is preserved within each class,
+  and after TWO consecutive interactive dispatches while bulk waits, one bulk
+  batch runs before another interactive batch. Active work is never preempted.
+  `FileContentWorker` accepts an optional `AbortSignal`, but the shared
   loader currently passes no controller and there is no content-read timeout or
   user-cancel policy. If two adapter reads never settle, both lanes remain
   occupied, keys sharing either predecessor remain coupled, and queued batches

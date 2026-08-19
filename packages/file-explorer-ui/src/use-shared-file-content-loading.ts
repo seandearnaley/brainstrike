@@ -729,7 +729,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         );
         let batchPromise: Promise<void>;
         batchPromise = loadAuthority
-          .runBatch(() => executeFileContentLoading(keysToStart, expectedGenerations))
+          .runBatch(
+            () => executeFileContentLoading(keysToStart, expectedGenerations),
+            keysToStart.length === 1 ? 'interactive' : 'bulk'
+          )
           .finally(() => {
             loadAuthority.releaseActiveLoad(keysToStart, batchPromise);
           });

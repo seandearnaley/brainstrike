@@ -1,5 +1,7 @@
 import { createContext, useContext } from 'react';
 
+export type FileContentBatchPriority = 'bulk' | 'interactive';
+
 export interface FileContentLoadAuthority {
   beginReload: (compositeKeys: readonly string[]) => ReadonlyMap<string, number>;
   clearErrors: (compositeKeys: readonly string[]) => void;
@@ -18,7 +20,7 @@ export interface FileContentLoadAuthority {
     }[]
   ) => void;
   releaseActiveLoad: (compositeKeys: readonly string[], expectedPromise: Promise<void>) => void;
-  runBatch: (task: () => Promise<void>) => Promise<void>;
+  runBatch: (task: () => Promise<void>, priority: FileContentBatchPriority) => Promise<void>;
   /**
    * Replace one consumer's complete retained-key set. Terminal errors exist
    * only while a key is actively loading or retained by at least one owner.

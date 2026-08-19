@@ -18,6 +18,7 @@ import {
 import type { StoreApi } from 'zustand';
 import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
 import {
+  type FileContentBatchPriority,
   type FileContentLoadAuthority,
   FileContentLoadAuthorityContext,
 } from '../file-content-load-authority-context';
@@ -45,12 +46,14 @@ const FileExplorerStoreContext = createContext<FileExplorerStore | null>(null);
 
 interface PendingFileContentBatch {
   readonly epoch: number;
+  readonly priority: FileContentBatchPriority;
   readonly reject: (error: unknown) => void;
   readonly resolve: () => void;
   readonly task: () => Promise<void>;
 }
 
 const MAX_CONCURRENT_FILE_CONTENT_BATCHES = 2;
+const MAX_INTERACTIVE_BATCHES_BEFORE_BULK = 2;
 let nextFileContentLifecycleId = 0;
 
 function createFileContentLoadAuthority(): FileContentLoadAuthority {
@@ -66,6 +69,7 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
   let lifecycleGeneration = 0;
   let nextBatchId = 0;
   let nextGeneration = 0;
+  let consecutiveInteractiveBatches = 0;
   nextFileContentLifecycleId += 1;
   const lifecycleId = nextFileContentLifecycleId;
   const publishErrors = (next: ReadonlyMap<string, Error>): void => {
@@ -122,9 +126,32 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
     }
     pruneUnownedErrors(removedKeys);
   };
+  const takeNextPendingBatch = (): PendingFileContentBatch | undefined => {
+    const interactiveIndex = pendingBatches.findIndex(
+      (pending) => pending.priority === 'interactive'
+    );
+    const bulkIndex = pendingBatches.findIndex((pending) => pending.priority === 'bulk');
+    let nextIndex: number;
+    if (interactiveIndex >= 0 && bulkIndex >= 0) {
+      if (consecutiveInteractiveBatches >= MAX_INTERACTIVE_BATCHES_BEFORE_BULK) {
+        consecutiveInteractiveBatches = 0;
+        nextIndex = bulkIndex;
+      } else {
+        consecutiveInteractiveBatches += 1;
+        nextIndex = interactiveIndex;
+      }
+    } else {
+      consecutiveInteractiveBatches = 0;
+      nextIndex = interactiveIndex >= 0 ? interactiveIndex : bulkIndex;
+    }
+    if (nextIndex < 0) {
+      return;
+    }
+    return pendingBatches.splice(nextIndex, 1)[0];
+  };
   const drainBatchQueue = (): void => {
     while (activeBatchIds.size < MAX_CONCURRENT_FILE_CONTENT_BATCHES && pendingBatches.length > 0) {
-      const pending = pendingBatches.shift();
+      const pending = takeNextPendingBatch();
       if (!pending) {
         return;
       }
@@ -188,6 +215,7 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
         pending.resolve();
       }
       activeBatchIds.clear();
+      consecutiveInteractiveBatches = 0;
       if (errorsSnapshot.size > 0) {
         publishErrors(new Map());
       }
@@ -220,9 +248,9 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       }
       pruneUnownedErrors(compositeKeys);
     },
-    runBatch: (task) => {
+    runBatch: (task, priority) => {
       const scheduled = new Promise<void>((resolve, reject) => {
-        pendingBatches.push({ epoch: lifecycleEpoch, reject, resolve, task });
+        pendingBatches.push({ epoch: lifecycleEpoch, priority, reject, resolve, task });
         drainBatchQueue();
       });
       return scheduled;
