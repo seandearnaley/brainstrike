@@ -122,6 +122,8 @@ describe('performance benchmark measurement contracts', () => {
       "import { runEmbeddingModelSwitchMemoryProbe } from './embedding-model-switch-memory-probe'"
     );
     expect(hookSource).toContain("await import('./embedding-model-switch-memory-probe')");
+    expect(hookSource).toContain('window.navigator.webdriver !== true');
+    expect(hookSource).toContain('Reflect.get(window, BST369_E2E_INIT_FLAG)');
 
     expect(probeSource).toContain('createBrowserEmbeddingQueue');
     expect(probeSource).toContain('embedding-model-switch-memory-probe.worker.ts?worker&url');
@@ -131,6 +133,9 @@ describe('performance benchmark measurement contracts', () => {
     expect(probeSource).not.toContain('new Worker(');
 
     expect(workerSource).toContain("await import('@brainstrike/embedding-worker/worker')");
+    expect(workerSource).toContain('parseSingleFragmentValue');
+    expect(workerSource).toContain('runtime bootstrap was installed more than once');
+    expect(workerSource).toContain('requires exactly one');
     expect(workerSource).not.toContain('createEmbeddingPipelineCacheController');
 
     expect(embeddingWorkerPackage).toContain('"./dist/embedding.worker.js"');

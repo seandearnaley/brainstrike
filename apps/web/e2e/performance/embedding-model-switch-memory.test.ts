@@ -4,7 +4,10 @@ import { waitForAppLoad } from '../utils/layout-helpers';
 const WASM_MODEL_BYTES = 8 * 1024 * 1024;
 const GPU_MODEL_BYTES = 16 * 1024 * 1024;
 const MAX_LIVE_BYTES = 3 * WASM_MODEL_BYTES + GPU_MODEL_BYTES;
-const PROBE_WORKER_PLATEAU_GROWTH_MAX_BYTES = 4 * 1024 * 1024;
+// Exact-head a005b3e30 local Chromium calibration observed +208, +652, and +224
+// bytes over equal switch windows. 64 KiB leaves ~100x measured noise headroom
+// while remaining 128x smaller than the smallest retained 8 MiB model store.
+const PROBE_WORKER_PLATEAU_GROWTH_MAX_BYTES = 64 * 1024;
 const TASK_COUNT = 23;
 const VECTOR_TRANSFER_BYTES = 4 * Float32Array.BYTES_PER_ELEMENT;
 

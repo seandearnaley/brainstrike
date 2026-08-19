@@ -148,13 +148,36 @@ Embedding runtime telemetry (BST-402):
   `packages/embedding-worker/src/pipeline-cache-controller.ts`. The production worker
   injects the real Transformers.js loader; the controller owns the 1-WebGPU/3-WASM
   limits, LRU/idle eviction, disposal, and diagnostic snapshots. BST-369's deterministic
-  browser proof injects disposable probe pipelines into that same controller inside a
-  dedicated module worker. The probe is exposed only through the explicit
-  `navigator.webdriver` web-E2E hook, performs no model/network fetch, proves 18
-  resident-limit victims separately from 22 total disposals after controller close,
-  removes its telemetry source when the worker terminates, and asserts model-size
-  estimates only — it is not evidence of measured GPU allocation or real-model inference. Paired tests:
-  `pipeline-cache-controller.spec.ts`, `pipeline-cache-controller.browser.test.ts`, and
+  browser proof now routes ordinary queue tasks through a private
+  `createBrowserEmbeddingQueue` (`minWorkers = maxWorkers = 1`), workerpool's
+  `runEmbedding` RPC, and the actual `embedding.worker.ts` module. A wrapper installs a
+  one-shot, fixed synthetic Transformers runtime before dynamically importing that
+  production worker. Its allowlisted pipelines retain page-touched 8 MiB WASM or 16 MiB
+  GPU-class `Uint8Array` stores until the production controller invokes their real
+  `.dispose()` method. Network model requests are aborted and asserted absent; malformed,
+  duplicate, or late runtime bootstrap attempts throw rather than falling back.
+- The probe is lazy: normal app startup does not import its page module or worker. The
+  native page `navigator.webdriver === true` signal plus an explicit pre-bootstrap init
+  flag control exposure. Chromium's `WorkerNavigator` does not expose `webdriver`, so the
+  worker uses the wrapper's fixed one-shot attestation as defense in depth rather than
+  claiming a second native webdriver signal. Inputs, model IDs, sizes, and switch counts
+  are fixed and bounded; the external hook accepts no arguments.
+- BST-369's physical assertion is intentionally scoped. It proves browser-worker JS
+  backing-store residency and reclamation for both WASM and a **logical GPU-class proxy**;
+  it does not claim to measure GPU VRAM or real model inference. The test also asserts the
+  production telemetry estimate (three WASM plus one GPU-class resident), 23 transferred
+  result buffers, 18 exact resident-limit disposals, no runtime failure telemetry, and
+  telemetry-source removal on queue teardown.
+- Browser memory sampling uses only cross-origin-isolated
+  `performance.measureUserAgentSpecificMemory()`. The performance project pins Chromium
+  with `ForceEagerMeasureMemory`; missing capability, malformed totals, missing dedicated
+  worker attribution, or surviving attribution after teardown all fail. Two animation
+  frames separate `Worker.terminate()` from the final sample because invoking Chromium's
+  API in the termination task can remain pending before the agent teardown commits.
+  There is no `performance.memory` fallback. Paired tests:
+  `test-runtime-bootstrap.spec.ts`, `pipeline-cache-controller.spec.ts`,
+  `pipeline-cache-controller.browser.test.ts`,
+  `apps/web/src/__tests__/web-e2e-test-hooks.test.tsx`, and
   `apps/web/e2e/performance/embedding-model-switch-memory.test.ts`.
 - `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser
   workerpool own source-scoped, in-memory telemetry records. The workerpool records the
