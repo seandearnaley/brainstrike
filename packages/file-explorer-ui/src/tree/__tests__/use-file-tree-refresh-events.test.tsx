@@ -647,4 +647,30 @@ describe('useFileTreeRefreshEvents', () => {
 
     expect(refreshDirectory).toHaveBeenCalledExactlyOnceWith(String.raw`C:\workspace\src`);
   });
+
+  it('treats a child of a Windows drive root as a root-level structural change', async () => {
+    const driveRoot = 'C:\\';
+    renderHook(() =>
+      useFileTreeRefreshEvents({
+        ...params,
+        getNormalizedTree: () => createNormalizedFileTreeState([]),
+        rootPath: driveRoot,
+      })
+    );
+
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [{ kind: 'file', path: `${driveRoot}new.ts`, type: 'added' }],
+          rootId: ROOT_ID,
+          rootPath: driveRoot,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    expect(refreshTree).toHaveBeenCalledOnce();
+    expect(refreshDirectory).not.toHaveBeenCalled();
+  });
 });

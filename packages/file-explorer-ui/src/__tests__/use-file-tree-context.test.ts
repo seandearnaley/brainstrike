@@ -2192,6 +2192,104 @@ describe('useFileTree (lazy loading version)', () => {
       ]);
     });
 
+    it('forces a fresh directory read instead of joining an older in-flight expansion', async () => {
+      mockAdapter.setMockFileSystem(createNestedMockFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), { wrapper: TestWrapper });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      if (parentDir?.type !== 'directory') {
+        throw new Error('Expected parent directory before the forced refresh');
+      }
+
+      const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
+      let releaseStaleRead!: () => void;
+      const staleReadGate = new Promise<void>((resolve) => {
+        releaseStaleRead = resolve;
+      });
+      let staleReadCaptured: (() => void) | null = null;
+      const staleReadCapturedPromise = new Promise<void>((resolve) => {
+        staleReadCaptured = resolve;
+      });
+      let parentReadCount = 0;
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(
+        async (directoryHandle, onBatch, options) => {
+          if (directoryHandle.path !== parentDir.path) {
+            return originalReadDirectoryStreaming(directoryHandle, onBatch, options);
+          }
+          parentReadCount += 1;
+          if (parentReadCount !== 1) {
+            return originalReadDirectoryStreaming(directoryHandle, onBatch, options);
+          }
+
+          const capturedBatches: Parameters<typeof onBatch>[] = [];
+          await originalReadDirectoryStreaming(
+            directoryHandle,
+            (...batch) => {
+              capturedBatches.push(batch);
+            },
+            options
+          );
+          staleReadCaptured?.();
+          await staleReadGate;
+          for (const batch of capturedBatches) {
+            onBatch(...batch);
+          }
+        }
+      );
+
+      let staleExpansion: Promise<void> = Promise.resolve();
+      act(() => {
+        staleExpansion = result.current.loadChildren(parentDir.path);
+      });
+      await staleReadCapturedPromise;
+
+      mockAdapter.setMockFileSystem({
+        parent: {
+          children: {
+            'fresh-only.ts': {
+              content: 'fresh',
+              name: 'fresh-only.ts',
+              type: 'file' as const,
+            },
+          },
+          name: 'parent',
+          type: 'directory' as const,
+        },
+      });
+
+      const forcedResult: {
+        snapshot: Awaited<ReturnType<typeof result.current.refreshDirectory>>;
+      } = { snapshot: null };
+      let forcedRefresh: Promise<void> = Promise.resolve();
+      act(() => {
+        forcedRefresh = result.current.refreshDirectory(parentDir.path).then((snapshot) => {
+          forcedResult.snapshot = snapshot;
+        });
+      });
+
+      let freshReadStarted = false;
+      try {
+        await waitFor(() => expect(parentReadCount).toBe(2), { timeout: 250 });
+        freshReadStarted = true;
+      } finally {
+        releaseStaleRead();
+        await act(async () => {
+          await Promise.allSettled([staleExpansion, forcedRefresh]);
+        });
+      }
+
+      expect(freshReadStarted).toBe(true);
+      expect(forcedResult.snapshot?.entries.map((entry) => entry.name)).toEqual(['fresh-only.ts']);
+      const refreshedParent = result.current.__internalMaterializeSubtree?.(parentDir.path);
+      expect(refreshedParent?.children?.map((child) => child.name)).toEqual(['fresh-only.ts']);
+    });
+
     it('reports worker restoration progress and indexes rehydrated patch nodes', async () => {
       const nestedFS = createNestedMockFileSystem();
       mockAdapter.setMockFileSystem(nestedFS);
