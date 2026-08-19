@@ -690,8 +690,13 @@ describe('embedding worker runtime', () => {
       expect(batch.vectors).toHaveLength(batchSize);
       expect(batch.vectors.every((vector) => vector.length === dimensions)).toBe(true);
       const uniqueVectorBuffers = new Set(batch.vectors.map((vector) => vector.buffer));
-      expect(new Set(transferList)).toEqual(uniqueVectorBuffers);
+      // Identity (===) rather than deep equality: the mock vectors are
+      // byte-identical, so a deep compare is satisfied by COPIES of the
+      // buffers — the double-allocation topology this assertion forbids.
+      // Together these two force transferList to be exactly a permutation of
+      // the vectors' actual backing stores.
       expect(transferList).toHaveLength(uniqueVectorBuffers.size);
+      expect(batch.vectors.every((vector) => transferList.includes(vector.buffer))).toBe(true);
       expect(transferList.reduce((sum, buffer) => sum + buffer.byteLength, 0)).toBe(
         expectedBytesPerBatch
       );
@@ -989,7 +994,7 @@ describe('embedding worker runtime', () => {
       );
       const runEmbedding = await loadWorker();
 
-      await runEmbedding({
+      const result = await runEmbedding({
         deviceHint: 'wasm',
         id: 'pack-transfer',
         model: 'bge-m3',
@@ -1007,6 +1012,10 @@ describe('embedding worker runtime', () => {
       const transferList = call[1] as readonly ArrayBuffer[];
       expect(transferList).toHaveLength(1);
       expect(transferList[0]).toBeInstanceOf(ArrayBuffer);
+      // Identity, not just shape: the single transferred buffer must BE the
+      // packed backing store every returned vector is a view over — a copy
+      // (`.slice(0)`) satisfies the two assertions above.
+      expect(result.vectors.every((vector) => vector.buffer === transferList[0])).toBe(true);
     });
 
     it('transfers original vector buffers when uneven dimensions skip packing', async () => {
@@ -1028,7 +1037,13 @@ describe('embedding worker runtime', () => {
       expect(transferMock).toHaveBeenCalledTimes(1);
       const call = transferMock.mock.calls[0] as readonly unknown[];
       const transferList = call[1] as readonly ArrayBuffer[];
-      expect(transferList).toEqual(result.vectors.map((vector) => vector.buffer));
+      // Positional identity (===), not toEqual: this test guards the
+      // skip-packing fallback whose entire point is transferring the
+      // ORIGINALS — deep equality would accept byte-identical copies.
+      expect(transferList).toHaveLength(result.vectors.length);
+      expect(result.vectors.every((vector, index) => transferList[index] === vector.buffer)).toBe(
+        true
+      );
     });
 
     it('does not invoke Transfer when there are no vectors to return', async () => {
