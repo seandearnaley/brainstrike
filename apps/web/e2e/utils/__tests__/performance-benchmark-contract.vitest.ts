@@ -123,6 +123,7 @@ describe('performance benchmark measurement contracts', () => {
     expect(e2eSource).toContain("route.abort('blockedbyclient')");
     expect(e2eSource).toContain('expect(crossOriginRequests).toEqual([])');
     expect(e2eSource).toContain('expect(modelProxyRequests).toEqual([])');
+    expect(e2eSource).toContain('expect(browserErrors).toEqual([])');
     expect(e2eSource).toContain('hooks.runEmbeddingModelSwitchMemoryProbe()');
     expect(e2eSource).toContain('residentLimitEvictionCount).toBe(18)');
     expect(e2eSource).not.toContain('waitForTimeout(');

@@ -381,6 +381,46 @@ describe('pipeline cache metadata and dispose', () => {
     );
   });
 
+  it('reports idle direct-worker disposal failure through the owner-visible error channel', async () => {
+    vi.useFakeTimers({ now: 1000 });
+    const postMessage = vi.fn();
+    const reportError = vi.fn();
+    const mockSelf = {
+      close: vi.fn(),
+      onerror: null as ((event: ErrorEvent | string) => void) | null,
+      onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      postMessage,
+    };
+    vi.stubGlobal('self', mockSelf);
+    vi.stubGlobal('reportError', reportError);
+    const disposalError = new Error('idle direct release failed');
+    const { disposeMock, extractor } = makeExtractor('idle-direct-model');
+    disposeMock.mockRejectedValue(disposalError);
+    pipelineMock.mockResolvedValue(extractor);
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      id: 'idle-direct-cache-load',
+      model: 'idle-direct-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    await vi.advanceTimersByTimeAsync(330_000);
+
+    expect(reportError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        cause: disposalError,
+        message:
+          'Embedding pipeline disposal failed for idle-direct-model|wasm|fp16 (idle-timeout).',
+      })
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'evicted', reason: 'idle-timeout' }),
+      []
+    );
+  });
+
   it('keeps inference available when cached model-size telemetry changes', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
