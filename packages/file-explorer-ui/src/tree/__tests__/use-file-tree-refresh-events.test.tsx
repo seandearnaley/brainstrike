@@ -444,6 +444,50 @@ describe('useFileTreeRefreshEvents', () => {
     });
   });
 
+  it('retires queued and post-await watcher work when the provider unmounts', async () => {
+    const srcPath = `${ROOT_PATH}/src`;
+    let releaseFirstRefresh: (() => void) | null = null;
+    const firstRefreshGate = new Promise<void>((resolve) => {
+      releaseFirstRefresh = resolve;
+    });
+    refreshDirectory.mockImplementation(async (path) => {
+      if (refreshDirectory.mock.calls.length === 1) {
+        await firstRefreshGate;
+      }
+      return { directoryPath: path, entries: [] };
+    });
+    const { unmount } = renderHook(() => useFileTreeRefreshEvents(params));
+    const eventDetail = {
+      roots: [
+        {
+          changes: [
+            { kind: 'file' as const, path: `${srcPath}/changed.ts`, type: 'removed' as const },
+          ],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental' as const,
+      source: 'watcher' as const,
+    };
+
+    await dispatchRefresh(eventDetail);
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
+    await dispatchRefresh(eventDetail);
+    expect(refreshDirectory).toHaveBeenCalledOnce();
+
+    unmount();
+    await act(async () => {
+      releaseFirstRefresh?.();
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+
+    expect(refreshDirectory).toHaveBeenCalledOnce();
+    expect(reconcileSelectionWithDirectorySnapshots).not.toHaveBeenCalled();
+  });
+
   it('continues the serialized event queue after a refresh failure', async () => {
     const srcPath = `${ROOT_PATH}/src`;
     let rejectFirstRefresh: ((error: Error) => void) | null = null;
