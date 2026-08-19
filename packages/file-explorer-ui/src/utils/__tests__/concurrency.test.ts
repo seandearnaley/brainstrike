@@ -76,7 +76,7 @@ describe('runWithConcurrency', () => {
     expect(callOrder).toEqual([1, 2, 3]);
   });
 
-  it('should reject immediately and stop assigning new work after an error', async () => {
+  it('should drain started peers before rejecting and stop assigning new work after an error', async () => {
     const items = [1, 2, 3];
     const held = createDeferred();
     const fn = vi.fn(async (item: number) => {
@@ -88,12 +88,28 @@ describe('runWithConcurrency', () => {
       }
       return item * 2;
     });
+    let settlement: 'pending' | 'rejected' | 'resolved' = 'pending';
+    const result = runWithConcurrency(items, 2, fn);
+    void result.then(
+      () => {
+        settlement = 'resolved';
+      },
+      () => {
+        settlement = 'rejected';
+      }
+    );
 
-    await expect(runWithConcurrency(items, 2, fn)).rejects.toThrow('Error on item 2');
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(settlement).toBe('pending');
     expect(fn).toHaveBeenCalledTimes(2);
 
     held.resolve();
-    await Promise.resolve();
+    await expect(result).rejects.toThrow('Error on item 2');
+    expect(settlement).toBe('rejected');
     expect(fn).toHaveBeenCalledTimes(2);
   });
 

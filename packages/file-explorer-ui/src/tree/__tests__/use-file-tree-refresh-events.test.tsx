@@ -587,21 +587,43 @@ describe('useFileTreeRefreshEvents', () => {
     expect(reconcileSelectionWithDirectorySnapshots).not.toHaveBeenCalled();
   });
 
-  it('continues the serialized event queue after a refresh failure', async () => {
+  it('drains started peers before advancing the serialized queue after a refresh failure', async () => {
     const srcPath = `${ROOT_PATH}/src`;
-    let rejectFirstRefresh: ((error: Error) => void) | null = null;
-    const firstRefreshGate = new Promise<never>((_resolve, reject) => {
-      rejectFirstRefresh = reject;
+    const testPath = `${ROOT_PATH}/test`;
+    normalizedTree = createNormalizedFileTreeState([
+      directoryNode(srcPath, 'loaded'),
+      directoryNode(testPath, 'loaded'),
+    ]);
+    const heldPeer = createDeferred<void>();
+    let rejectFailingPeer: ((error: Error) => void) | null = null;
+    const failingPeer = new Promise<never>((_resolve, reject) => {
+      rejectFailingPeer = reject;
     });
-    refreshDirectory
-      .mockImplementationOnce(async () => firstRefreshGate)
-      .mockImplementationOnce(async (path) => ({ directoryPath: path, entries: [] }));
+    let srcReadCount = 0;
+    refreshDirectory.mockImplementation(async (path) => {
+      if (path === srcPath) {
+        srcReadCount += 1;
+        if (srcReadCount === 1) {
+          await heldPeer.promise;
+        }
+        return { directoryPath: path, entries: [] };
+      }
+      if (path === testPath) {
+        return failingPeer;
+      }
+      throw new Error(`Unexpected refresh path: ${path}`);
+    });
     renderHook(() => useFileTreeRefreshEvents(params));
-    const eventDetail = {
+    const firstEventDetail = {
       roots: [
         {
           changes: [
             { kind: 'file' as const, path: `${srcPath}/changed.ts`, type: 'removed' as const },
+            {
+              kind: 'file' as const,
+              path: `${testPath}/changed.test.ts`,
+              type: 'removed' as const,
+            },
           ],
           rootId: ROOT_ID,
           rootPath: ROOT_PATH,
@@ -610,19 +632,38 @@ describe('useFileTreeRefreshEvents', () => {
       scope: 'incremental' as const,
       source: 'watcher' as const,
     };
+    const secondEventDetail = {
+      roots: [
+        {
+          changes: [{ kind: 'file' as const, path: `${srcPath}/later.ts`, type: 'added' as const }],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental' as const,
+      source: 'watcher' as const,
+    };
 
-    await dispatchRefresh(eventDetail);
-    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
-    await dispatchRefresh(eventDetail);
-    expect(refreshDirectory).toHaveBeenCalledOnce();
+    await dispatchRefresh(firstEventDetail);
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(2));
+    await dispatchRefresh(secondEventDetail);
+    expect(refreshDirectory).toHaveBeenCalledTimes(2);
 
     act(() => {
-      rejectFirstRefresh?.(new Error('first refresh failed'));
+      rejectFailingPeer?.(new Error('first refresh failed'));
     });
+    await act(async () => Promise.resolve());
+
+    // The second event stays queued while the first event's already-started
+    // src read is still live, and no unstarted work is assigned after failure.
+    expect(refreshDirectory).toHaveBeenCalledTimes(2);
+
+    heldPeer.resolve();
     await waitFor(() => {
-      expect(refreshDirectory).toHaveBeenCalledTimes(2);
+      expect(refreshDirectory).toHaveBeenCalledTimes(3);
       expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
     });
+    expect(refreshDirectory.mock.calls[2]?.[0]).toBe(srcPath);
   });
 
   it('ignores watcher changes that belong to a different root', async () => {
