@@ -257,6 +257,28 @@ function createDeferredVectorPreferencesStorage(): StateStorage {
  */
 const storage = createJSONStorage(createDeferredVectorPreferencesStorage);
 
+/**
+ * The last rehydration failure, or null. Zustand's persist middleware catches
+ * storage rejections and resolves `rehydrate()` anyway, so this is the ONLY
+ * signal that a read failed: after a failed reload the store keeps whatever it
+ * hydrated previously, and its own `hasHydrated` field stays stale-`true`.
+ * Without this, a broken capability presents as fresh preferences.
+ *
+ * Deliberately a plain module-scoped binding, written only from
+ * `onRehydrateStorage`. That callback runs DURING `create(...)` for synchronous
+ * storage, while `useVectorPreferencesStore` is still in its temporal dead
+ * zone, so it must never touch the store binding — zustand swallows the
+ * resulting ReferenceError and the logic silently never runs.
+ */
+let lastRehydrationError: Error | null = null;
+
+function toRehydrationError(error: unknown): Error | null {
+  if (!error) {
+    return null;
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
   persist(
     (set) => ({
@@ -299,6 +321,14 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
         return sanitizePersistedData(state);
       },
       name: STORE_NAME,
+      // Runs at the START of every hydrate() (clearing any previous failure),
+      // and the returned callback runs on settle with the error, if any.
+      onRehydrateStorage: () => {
+        lastRehydrationError = null;
+        return (_state, error) => {
+          lastRehydrationError = toRehydrationError(error);
+        };
+      },
       partialize: (s) => ({
         devicePref: s.devicePref,
         devicePrefConfigured: s.devicePrefConfigured,
@@ -340,6 +370,14 @@ export async function ensureVectorPreferencesHydrated(options?: {
 
   if (forceReload || !hasHydrated() || !useVectorPreferencesStore.getState().hasHydrated) {
     await rehydrate();
+
+    // A rejected read leaves the store on whatever it hydrated before, with its
+    // own `hasHydrated` field still stale-`true` — so the guards below would
+    // accept it and the caller would receive stale preferences as if fresh.
+    // Surface the underlying failure instead.
+    if (lastRehydrationError) {
+      throw lastRehydrationError;
+    }
   }
 
   if (hasHydrated() && !useVectorPreferencesStore.getState().hasHydrated) {
