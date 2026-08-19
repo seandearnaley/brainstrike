@@ -117,13 +117,18 @@ ledger entries. These identity assertions are the primary retained-result
 proof; renderer heap and visible-renderer working set are independent physical
 pressure bounds, not substitutes for collection evidence.
 
-Renderer heap assertions require real forced collection. The desktop E2E
-launcher passes `--js-flags=--expose-gc`, and
+Renderer heap assertions require real forced collection AND real heap reads.
+The desktop E2E launcher passes `--js-flags=--expose-gc` plus
+`--enable-precise-memory-info` (without the latter,
+`performance.memory.usedJSHeapSize` is quantized and cached for 20 minutes, so
+every in-test heap delta reads as exactly `0.0`), and
 `forceRendererGarbageCollection` throws when `window.gc` is unavailable; a
 silent no-op would make the retained-heap result meaningless. Both regressions
 live in `apps/desktop/e2e/database-live-query-memory.desktop.test.ts` and are
 explicitly selected by the `memory-baseline` branch of
-`.github/workflows/desktop-e2e.yml`. Paired unit/contract coverage lives in
+`.github/workflows/desktop-e2e.yml`; nightly `full` runs include the file too,
+and both branches are pinned by
+`scripts/__tests__/desktop-memory-dispatch-contract.test.mjs`. Paired unit/contract coverage lives in
 `packages/db-explorer/src/__tests__/database-demo-panel.test.tsx`,
 `packages/db-explorer/src/hooks/__tests__/use-database-demo-test-hook.test.ts`,
 `packages/db-explorer/src/__tests__/use-database-demo-data.test.ts`,

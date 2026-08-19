@@ -27,6 +27,10 @@ describe('desktop E2E harness contract', () => {
     const memoryHelpersSource = readEmbeddingMemoryHelpersSource();
 
     expect(launcherSource).toContain("'--js-flags=--expose-gc'");
+    // Without precise memory info, Chromium quantizes performance.memory and
+    // caches it for 20 minutes, so every heap "growth" reads as exactly 0.0
+    // and the renderer heap ceilings can never bind.
+    expect(launcherSource).toContain("'--enable-precise-memory-info'");
     expect(memoryHelpersSource).toContain("typeof globalWindow.gc !== 'function'");
     expect(memoryHelpersSource).toContain(
       'Renderer garbage collection is unavailable in the desktop E2E runtime.'

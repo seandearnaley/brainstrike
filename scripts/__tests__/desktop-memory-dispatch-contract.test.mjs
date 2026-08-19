@@ -39,6 +39,11 @@ test('desktop workflow exposes an untruncated memory-baseline dispatch', async (
     /if \[\[ "\$DESKTOP_E2E_SUITE" == "memory-baseline" \]\]; then[\s\S]*?e2e\/database-live-query-memory\.desktop\.test\.ts[\s\S]*?\n\s*else/,
     'memory-baseline dispatch must run the database live-query memory regression'
   );
+  assert.match(
+    runStep?.run ?? '',
+    /\n\s*else\n[\s\S]*?e2e\/database-live-query-memory\.desktop\.test\.ts[\s\S]*?\n\s*fi/,
+    'the scheduled nightly full suite must also run the database live-query memory regression'
+  );
   assert.doesNotMatch(
     runStep?.run ?? '',
     /test_files|max_failures|test_grep/,

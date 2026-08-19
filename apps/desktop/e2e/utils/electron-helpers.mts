@@ -346,6 +346,10 @@ function createLaunchOptions(
     mainPath,
     '--test-mode',
     '--js-flags=--expose-gc',
+    // Without this flag Chromium quantizes performance.memory.usedJSHeapSize
+    // AND caches it for 20 minutes, so within a single test every heap read
+    // returns the identical value and the memory ceilings can never bind.
+    '--enable-precise-memory-info',
     `--brainstrike-desktop-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.

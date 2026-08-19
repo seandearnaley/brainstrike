@@ -202,7 +202,7 @@ export interface HeapSnapshot {
 export interface RuntimeProcessSnapshot {
   osProcessId: number | null;
   privateMB: number | null;
-  runtimeKind: 'chunking-host' | 'embedding-host' | 'visible-ui';
+  runtimeKind: 'chunking-host' | 'embedding-host' | 'llm-host' | 'visible-ui';
   sharedMB: number | null;
   workingSetMB: number | null;
 }
@@ -1119,12 +1119,23 @@ export async function readDesktopProcessSnapshot(
         } catch {
           mode = null;
         }
-        const runtimeKind: RuntimeProcessSnapshot['runtimeKind'] =
-          mode === 'embedding-host'
-            ? 'embedding-host'
-            : mode === 'chunking-host'
-              ? 'chunking-host'
-              : 'visible-ui';
+        // Hidden hosts declare their DesktopWindowRole via the `mode` URL
+        // param (renderer-host-lifecycle.ts); the visible window has none.
+        // An unknown mode must throw rather than be silently measured as the
+        // visible UI (e.g. a lazily started llm-host skewing UI ceilings).
+        if (
+          !(
+            mode === null ||
+            mode === 'embedding-host' ||
+            mode === 'chunking-host' ||
+            mode === 'llm-host'
+          )
+        ) {
+          throw new Error(
+            `Unknown desktop window mode "${mode}" (url: ${url}); update the E2E runtime classifier in embedding-worker-renderer.shared.ts.`
+          );
+        }
+        const runtimeKind: RuntimeProcessSnapshot['runtimeKind'] = mode ?? 'visible-ui';
         const osProcessId = browserWindow.webContents.getOSProcessId();
         if (typeof webContents.getProcessMemoryInfo !== 'function') {
           return {
@@ -1220,12 +1231,21 @@ export async function readTrackedRuntimeWorkingSetMB(
             } catch {
               mode = null;
             }
-            const runtimeKind =
-              mode === 'embedding-host'
-                ? 'embedding-host'
-                : mode === 'chunking-host'
-                  ? 'chunking-host'
-                  : 'visible-ui';
+            // Mirror readDesktopProcessSnapshot: an unknown window mode must
+            // throw, never be silently classified as the visible UI.
+            if (
+              !(
+                mode === null ||
+                mode === 'embedding-host' ||
+                mode === 'chunking-host' ||
+                mode === 'llm-host'
+              )
+            ) {
+              throw new Error(
+                `Unknown desktop window mode "${mode}" (url: ${url}); update the E2E runtime classifier in embedding-worker-renderer.shared.ts.`
+              );
+            }
+            const runtimeKind = mode ?? 'visible-ui';
             return runtimeKind === expectedRuntimeKind;
           });
           if (!hostWindow) {
