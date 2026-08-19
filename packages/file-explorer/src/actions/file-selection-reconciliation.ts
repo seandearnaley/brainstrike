@@ -72,7 +72,12 @@ function getQueryPaths(state: FileExplorerState, folderId: string): string[] {
   return Array.from(paths);
 }
 
-function getSelectedPaths(state: FileExplorerState, folderId: string): string[] {
+/**
+ * Resolve the exact root-scoped selection projection consumed by refresh
+ * reconciliation. Query-backed focused roots use their manifest/overrides;
+ * foreign roots use their explicit folder snapshot.
+ */
+export function getSelectionProjectionPaths(state: FileExplorerState, folderId: string): string[] {
   const isForeignRoot = state.currentFolderId !== null && state.currentFolderId !== folderId;
   if (state.selectionModel.mode === 'query' && !isForeignRoot) {
     return getQueryPaths(state, folderId);
@@ -124,7 +129,7 @@ export function getSelectionAncestorDirectories(
   const useBackslashPresentation = rootPath.includes('\\') && !rootPath.includes('/');
   const ancestorsByComparisonPath = new Map<string, { comparisonPath: string; path: string }>();
 
-  for (const selectedPath of getSelectedPaths(state, folderId)) {
+  for (const selectedPath of getSelectionProjectionPaths(state, folderId)) {
     const normalizedSelectedPath = normalizePath(selectedPath, false);
     const comparisonSelectedPath = normalizePath(selectedPath, caseInsensitive);
     if (!isPathWithinRoot(comparisonSelectedPath, comparisonRootPath)) {
@@ -229,7 +234,7 @@ export function getVanishedSelectionPaths(
   );
   const snapshotIndex = buildSnapshotIndex(snapshots, caseInsensitive);
   const vanishedPaths: string[] = [];
-  for (const originalPath of getSelectedPaths(state, folderId)) {
+  for (const originalPath of getSelectionProjectionPaths(state, folderId)) {
     if (
       isDisprovenByAuthoritativeSnapshots(
         normalizePath(originalPath, caseInsensitive),

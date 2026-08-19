@@ -8,7 +8,10 @@
  * eliminating duplicate O(N) tree traversals across features.
  */
 
-import { getSelectionAncestorDirectories } from '@brainstrike/file-explorer';
+import {
+  getSelectionAncestorDirectories,
+  getSelectionProjectionPaths,
+} from '@brainstrike/file-explorer';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useEventCallback } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
@@ -35,6 +38,7 @@ import {
 import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { createEmptyNormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
+import { createSelectionProjectionRevisionTracker } from './selection-projection-revision';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
 import { useFileTreeRefreshEvents } from './use-file-tree-refresh-events';
 
@@ -222,6 +226,19 @@ export function FileTreeProvider({
     }
     return getSelectionAncestorDirectories(store.getState(), currentRootIndexKey, currentRootPath);
   }, [currentRootIndexKey, currentRootPath, store]);
+  const [selectionProjectionRevisionTracker] = useState(() =>
+    createSelectionProjectionRevisionTracker()
+  );
+  const getCurrentSelectionProjectionRevision = useCallback(
+    (): number =>
+      selectionProjectionRevisionTracker.read(
+        currentRootIndexKey,
+        currentRootIndexKey
+          ? getSelectionProjectionPaths(store.getState(), currentRootIndexKey)
+          : []
+      ),
+    [currentRootIndexKey, selectionProjectionRevisionTracker, store]
+  );
 
   // Refcounted folder registration replaces clear-on-identity-change: the
   // effect cleanup releases the OLD key (clearing its entries only when this
@@ -310,7 +327,7 @@ export function FileTreeProvider({
   const refreshTreeWithSelection = useFileTreeRefreshEvents({
     getNormalizedTree: () => refreshEventsNormalizedTreeRef.current,
     getSelectionAncestorDirectories: getCurrentSelectionAncestorDirectories,
-    getSelectionVersion: () => store.getState().selectionVersion,
+    getSelectionProjectionRevision: getCurrentSelectionProjectionRevision,
     reconcileSelectionWithDirectorySnapshots,
     refreshDirectory: fileTreeState.refreshDirectory,
     refreshTree: fileTreeState.refreshTree,

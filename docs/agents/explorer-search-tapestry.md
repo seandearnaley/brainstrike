@@ -787,23 +787,33 @@ fallback.
   directory snapshot non-authoritative, so it cannot disprove selection.
   Ordinary expand, restoration, and expand-all enumeration never trigger
   reconciliation. Authoritative directories refresh parent-depth-first against
-  the shared normalized tree, with at most five same-depth reads in flight and
-  no cap or truncation of the derived path set; all complete snapshots from the
-  batch then publish through one store update bound to the root identity that
-  started the batch. The finite work bound is the number of unique ancestors
+  the shared normalized tree, with a work-conserving pool of at most five
+  same-depth reads in flight and no cap or truncation of the derived path set.
+  A freed slot immediately starts the next peer, while the next depth still
+  waits for every shallower peer; all complete snapshots from the batch then
+  publish through one store update bound to the root identity that started the
+  batch. The finite work bound is the number of unique ancestors
   derived from the bounded selection projection (at most selected paths times
   their ancestor depth), while live I/O remains bounded to five. Direct manual
   refreshes and refresh events run through one lossless queue per provider, so
-  they cannot publish overlapping snapshots. Each directory batch captures the
-  store's monotonic selection version and discards the entire stale batch if
-  selection changes before publication; it never reconciles an older snapshot
-  against a newer selection. A same-path root-id switch during a later
+  they cannot publish overlapping snapshots. Each provider owns a monotonic,
+  root-scoped effective-projection revision. At each fence read it resolves the
+  canonical selected path set through `getSelectionProjectionPaths` and advances
+  only when that set or root identity actually changes. Query-manifest updates,
+  focused explicit changes, and foreign `folderStates` writes are therefore all
+  observed without relying on incomplete action counters; value-equivalent
+  no-ops do not advance it. A directory batch discards its entire stale snapshot
+  set if that revision changes before publication; it never reconciles an older
+  snapshot against a newer selection. A same-path root-id switch during a later
   directory read can never retarget already-completed snapshots. A failed job
   is surfaced and consumed so later events still run. Every queued job carries
   the provider effect's lifecycle epoch;
   cleanup invalidates that epoch, so retired jobs stop before new I/O and an
   in-flight job discards all snapshots after its next await instead of
-  reconciling through an unmounted provider. Watcher changes retry `error`
+  reconciling through an unmounted provider. A direct caller receives
+  `{status:'cancelled'}` when retirement crosses either the root read or
+  directory revalidation await; only a still-active caller receives the raw
+  completed/cancelled outcome. Watcher changes retry `error`
   directories and retain invalidations
   for `loading` directories by forcing a fresh read instead of joining the
   pre-event request; genuinely `unloaded` directories still wait for expansion.

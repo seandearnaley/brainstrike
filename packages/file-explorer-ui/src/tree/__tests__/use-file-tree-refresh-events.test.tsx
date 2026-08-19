@@ -101,7 +101,7 @@ describe('useFileTreeRefreshEvents', () => {
     params = {
       getNormalizedTree: () => normalizedTree,
       getSelectionAncestorDirectories,
-      getSelectionVersion: () => 0,
+      getSelectionProjectionRevision: () => 0,
       reconcileSelectionWithDirectorySnapshots,
       refreshDirectory,
       refreshTree,
@@ -325,9 +325,9 @@ describe('useFileTreeRefreshEvents', () => {
     expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
   });
 
-  it('does not reconcile snapshots after the selection version changes during their read', async () => {
+  it('does not reconcile snapshots after the selection projection changes during their read', async () => {
     const srcPath = `${ROOT_PATH}/src`;
-    let selectionVersion = 4;
+    let selectionProjectionRevision = 4;
     let releaseRefresh: (() => void) | undefined;
     const refreshGate = new Promise<void>((resolve) => {
       releaseRefresh = resolve;
@@ -339,7 +339,7 @@ describe('useFileTreeRefreshEvents', () => {
     renderHook(() =>
       useFileTreeRefreshEvents({
         ...params,
-        getSelectionVersion: () => selectionVersion,
+        getSelectionProjectionRevision: () => selectionProjectionRevision,
       } as UseFileTreeRefreshEventsParams)
     );
 
@@ -355,7 +355,7 @@ describe('useFileTreeRefreshEvents', () => {
       source: 'watcher',
     });
     await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
-    selectionVersion += 1;
+    selectionProjectionRevision += 1;
     act(() => {
       releaseRefresh?.();
     });

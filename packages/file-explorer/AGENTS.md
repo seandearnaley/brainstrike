@@ -82,6 +82,10 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
     unique parent-first directory boundaries needed after a shallow root
     refresh by walking selected paths and ancestors only, never the file tree.
     It is a pure derivation and enforces no selection cap.
+  * `getSelectionProjectionPaths(state, folderId)` is the canonical effective
+    projection reader: focused query roots resolve manifest/overrides, while
+    foreign roots read their explicit folder snapshot. Refresh fencing must
+    reuse it rather than infer projection changes from `selectionVersion`.
   * Encode/decode composite keys through `@brainstrike/file-explorer/selection`.
     Malformed keys throw; callers must not guess or silently coerce them.
 * **Directory expansion**

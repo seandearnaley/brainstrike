@@ -177,8 +177,20 @@ describe('FileTreeProvider', () => {
     vi.clearAllMocks();
     Object.assign(storeMock, {
       getState: () => ({
+        currentFolderId: null,
+        folderStates: {},
+        querySelectionManifest: null,
         reconcileSelectionWithDirectorySnapshot: reconcileSelectionWithDirectorySnapshotMock,
         reconcileSelectionWithDirectorySnapshots: reconcileSelectionWithDirectorySnapshotsMock,
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit' as const,
+          queryDescriptor: null,
+        },
+        selectionVersion: 0,
       }),
     });
     getNodeMock.mockReturnValue(undefined);
@@ -551,6 +563,7 @@ describe('FileTreeProvider', () => {
     };
     const manualReadGate = createDeferred<void>();
     let selectedNewFile = false;
+    let selectedPaths = new Set<string>();
     let selectionVersion = 0;
     const refreshDirectory = vi.fn(async (path: string) => {
       if (refreshDirectory.mock.calls.length === 1) {
@@ -558,6 +571,7 @@ describe('FileTreeProvider', () => {
         return { directoryPath: path, entries: [] };
       }
       selectedNewFile = true;
+      selectedPaths = new Set([`${rootId}|@|${newFilePath}`]);
       selectionVersion += 1;
       return { directoryPath: path, entries: [newFile] };
     });
@@ -570,8 +584,19 @@ describe('FileTreeProvider', () => {
     );
     Object.assign(storeMock, {
       getState: () => ({
+        currentFolderId: rootId,
+        folderStates: {},
+        querySelectionManifest: null,
         reconcileSelectionWithDirectorySnapshot: reconcileSelectionWithDirectorySnapshotMock,
         reconcileSelectionWithDirectorySnapshots: reconcileSelectionWithDirectorySnapshotsMock,
+        selectedFilePaths: selectedPaths,
+        selectionModel: {
+          explicitPaths: selectedPaths,
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit' as const,
+          queryDescriptor: null,
+        },
         selectionVersion,
       }),
     });
@@ -659,6 +684,37 @@ describe('FileTreeProvider', () => {
     rawRefreshGate.resolve({ status: 'completed' });
 
     await expect(refreshResult).resolves.toEqual({ status: 'cancelled' });
+  });
+
+  it('preserves a raw cancelled refresh outcome while the provider remains active', async () => {
+    const rawRefreshTree = vi.fn().mockResolvedValue({ status: 'cancelled' as const });
+    const refreshDirectory = vi.fn();
+    const baseFileTreeState = useFileTreeMock();
+    useFileTreeMock.mockClear();
+    useFileTreeMock.mockReturnValue({
+      ...baseFileTreeState,
+      refreshDirectory,
+      refreshTree: rawRefreshTree,
+    });
+    getSelectionAncestorDirectoriesMock.mockReturnValue(['/workspace/src']);
+    let refreshFromContext: ReturnType<typeof useFileTreeContext>['refreshTree'] | null = null;
+    function RefreshProbe(): null {
+      refreshFromContext = useFileTreeContext().refreshTree;
+      return null;
+    }
+    render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle}>
+        <RefreshProbe />
+      </FileTreeProvider>
+    );
+
+    let refreshResult = Promise.resolve<FileTreeRefreshResult>({ status: 'completed' });
+    act(() => {
+      refreshResult = refreshFromContext?.() ?? refreshResult;
+    });
+
+    await expect(refreshResult).resolves.toEqual({ status: 'cancelled' });
+    expect(refreshDirectory).not.toHaveBeenCalled();
   });
 
   it('discards a gated snapshot when query manifest paths change without selectionVersion', async () => {

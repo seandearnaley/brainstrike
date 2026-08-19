@@ -71,8 +71,8 @@ export interface UseFileTreeRefreshEventsParams {
   getNormalizedTree: () => NormalizedFileTreeState | null;
   /** Current selected-path ancestor directories for this provider, parent-first. */
   getSelectionAncestorDirectories: () => readonly string[];
-  /** Monotonic selection revision used to reject stale snapshot batches. */
-  getSelectionVersion: () => number;
+  /** Monotonic effective-projection revision used to reject stale snapshot batches. */
+  getSelectionProjectionRevision: () => number;
   reconcileSelectionWithDirectorySnapshots: (
     snapshots: readonly FileTreeDirectorySnapshot[]
   ) => void;
@@ -92,7 +92,7 @@ export interface UseFileTreeRefreshEventsParams {
 export interface SelectionAwareRootRefreshParams {
   getNormalizedTree: () => NormalizedFileTreeState | null;
   getSelectionAncestorDirectories: () => readonly string[];
-  getSelectionVersion: () => number;
+  getSelectionProjectionRevision: () => number;
   reconcileSelectionWithDirectorySnapshots: (
     snapshots: readonly FileTreeDirectorySnapshot[]
   ) => void;
@@ -208,7 +208,7 @@ async function refreshAuthoritativeDirectories(
   directoryPaths: readonly string[],
   isActive: RefreshLifecycleGuard = isAlwaysActive
 ): Promise<void> {
-  const selectionVersion = current.getSelectionVersion();
+  const selectionProjectionRevision = current.getSelectionProjectionRevision();
   const snapshots: FileTreeDirectorySnapshot[] = [];
   for (const depthGroup of groupDirectoryPathsByDepth(directoryPaths)) {
     // Depths remain serialized so parents materialize descendant handles first.
@@ -236,10 +236,11 @@ async function refreshAuthoritativeDirectories(
     if (!isActive()) {
       return;
     }
-    if (current.getSelectionVersion() !== selectionVersion) {
-      logger.debug('Skipped stale directory snapshot reconciliation after selection changed', {
-        directoryCount: directoryPaths.length,
-      });
+    if (current.getSelectionProjectionRevision() !== selectionProjectionRevision) {
+      logger.debug(
+        'Skipped stale directory snapshot reconciliation after selection projection changed',
+        { directoryCount: directoryPaths.length }
+      );
       return;
     }
     for (const snapshot of groupSnapshots) {
@@ -262,7 +263,10 @@ async function refreshRootAndDirectories(
     return { status: 'cancelled' };
   }
   const outcome = await current.refreshTree();
-  if (!isActive() || outcome.status !== 'completed') {
+  if (!isActive()) {
+    return { status: 'cancelled' };
+  }
+  if (outcome.status !== 'completed') {
     return outcome;
   }
   await refreshAuthoritativeDirectories(
@@ -270,6 +274,9 @@ async function refreshRootAndDirectories(
     [...current.getSelectionAncestorDirectories(), ...additionalDirectoryPaths],
     isActive
   );
+  if (!isActive()) {
+    return { status: 'cancelled' };
+  }
   return outcome;
 }
 
@@ -413,7 +420,7 @@ async function processRefreshEventDetail(
 export function useFileTreeRefreshEvents({
   getNormalizedTree,
   getSelectionAncestorDirectories,
-  getSelectionVersion,
+  getSelectionProjectionRevision,
   reconcileSelectionWithDirectorySnapshots,
   refreshDirectory,
   refreshTree,
@@ -440,7 +447,7 @@ export function useFileTreeRefreshEvents({
       const current: UseFileTreeRefreshEventsParams = {
         getNormalizedTree,
         getSelectionAncestorDirectories,
-        getSelectionVersion,
+        getSelectionProjectionRevision,
         reconcileSelectionWithDirectorySnapshots,
         refreshDirectory,
         refreshTree,
@@ -460,7 +467,7 @@ export function useFileTreeRefreshEvents({
         {
           getNormalizedTree,
           getSelectionAncestorDirectories,
-          getSelectionVersion,
+          getSelectionProjectionRevision,
           reconcileSelectionWithDirectorySnapshots,
           refreshDirectory,
           refreshTree,
