@@ -6,21 +6,28 @@ releases, because the streaming landing commit also contains unrelated runtime c
 
 ## Comparison boundary
 
-| Variant | Exact revision | Production path | `embedding.worker.ts` Git blob |
-| --- | --- | --- | --- |
-| Pre-stream | `13541685dc1586efea302440041965efd807440a` | workerpool `runEmbedding` → request-wide `runBatches` accumulation | `e0ed795e41428555de2c5b77e3d005b8beb398cf` |
-| Stream | `f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32` | direct `stream-embed` → per-batch post + acknowledgement | `1ebfe5182583f2f8207a4bdc41654d212eb28d07` |
+| Variant | Exact revision | Production path | Worker Git blob | Shared Git blob |
+| --- | --- | --- | --- | --- |
+| Pre-stream | `13541685dc1586efea302440041965efd807440a` | workerpool `runEmbedding` → request-wide `runBatches` accumulation | `e0ed795e41428555de2c5b77e3d005b8beb398cf` | `0970779a73f979e32d4833afcaded232ceb01961` |
+| Stream | `f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32` | direct `stream-embed` → per-batch post + acknowledgement | `1ebfe5182583f2f8207a4bdc41654d212eb28d07` | `c62a34673eca59dbe14102f2e7101a4d255ada9e` |
 
-Both trees came from `git archive <revision>`. `git hash-object` on each extracted worker
-matched `git rev-parse <revision>:packages/embedding-worker/src/embedding.worker.ts`
-before measurement.
+`packages/embedding-worker/bench/bst-372-source-binding.mjs` is the single source of
+revision metadata. The runner first requires each configured blob to equal
+`git rev-parse <revision>:<path>`, then archives that complete revision. The copied harness
+independently computes the Git blob IDs of the extracted `embedding.worker.ts` and
+`shared.ts` before importing production code. The result's revision and blob metadata come
+from that verified binding; there is no caller-supplied commit label.
 
 The checked-in harness and config are the byte-for-byte files used for the reported runs:
 
 - `packages/embedding-worker/bench/bst-372-memory.measurement.spec.ts.fixture`
-  (SHA-256 `6a24235df4629efc9ae4630384f6b1d650f7005cc59bda14a6b90b83ab35e6bf`)
+  (SHA-256 `6439709d366767b14837d0495a4cb2c90bc446c46f2e11d050f2089a2d075d1a`)
 - `packages/embedding-worker/bench/vitest.bst-372.config.mts`
   (SHA-256 `3360d76c7e7e01b9263c7682a955c8e1aa4d27921f79779c2fb21c638fa4f920`)
+- `packages/embedding-worker/bench/bst-372-source-binding.mjs`
+  (SHA-256 `b363c4d8530a69267d631fc9eacf6199e78222de3bee3943a4a7903634a60a0a`)
+- `packages/embedding-worker/bench/run-bst-372-memory.mjs`
+  (SHA-256 `85a160a39244c2df404d356cee5d511c443195ff2ee60b0c569f281835918d55`)
 
 ## Controlled environment and fixture
 
@@ -41,56 +48,34 @@ The checked-in harness and config are the byte-for-byte files used for the repor
   result/completion. Reported peaks are maxima over those samples; deltas subtract that
   process's own post-import baseline.
 - The streaming post-message stub does not retain calls or vectors. It sends the matching
-  request-and-index acknowledgement in a microtask. It does not simulate structured-clone
-  detachment, so streamed buffers stay resident through the callback and the measurement is
-  conservative relative to a real transfer.
-- Five successful fresh processes were retained per variant. Execution order alternated. One
-  additional pre-stream attempt emitted a complete measurement but exceeded Vitest's former
-  5-second default while the machine was loaded; it was excluded, the config timeout was made
-  explicit at 30 seconds, and a passing replacement was collected.
+  request-and-index acknowledgement in a microtask, and the next extractor call forces
+  collection. This deliberately measures sender-side reachability after acknowledgement under
+  prompt collection. It does not model structured-clone detachment, receiver processing, or
+  receiver retention. Because a real Web Worker transfer moves ownership to a receiver in the
+  same renderer process, these process-RSS values are not conservative bounds for Electron.
+- The fail-closed runner collected five fresh processes per variant and alternated which variant
+  ran first. All ten source-bound processes completed successfully and are retained below.
 
 ## Replay commands
 
-Run from the repository root. `BST372_MEASURE_ROOT` and `BST372_REPO_ROOT` are
-task-specific variables; the archived trees are disposable measurement inputs.
+Run from a full-history checkout at the repository root. The runner refuses to measure if
+either historical revision is unavailable, any configured Git object differs, an extracted
+source differs, or a child result reports metadata different from the verified tree.
 
 ```bash
-BST372_REPO_ROOT="$(pwd)"
-BST372_MEASURE_ROOT="$(mktemp -d /tmp/bst372-memory.XXXXXX)"
-mkdir -p "$BST372_MEASURE_ROOT/pre" "$BST372_MEASURE_ROOT/stream"
-
-git archive 13541685dc1586efea302440041965efd807440a |
-  tar -x -C "$BST372_MEASURE_ROOT/pre"
-git archive f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32 |
-  tar -x -C "$BST372_MEASURE_ROOT/stream"
-
-ln -s "$BST372_REPO_ROOT/node_modules" "$BST372_MEASURE_ROOT/pre/node_modules"
-ln -s "$BST372_REPO_ROOT/node_modules" "$BST372_MEASURE_ROOT/stream/node_modules"
-ln -s "$BST372_REPO_ROOT/packages/embedding-worker/node_modules" "$BST372_MEASURE_ROOT/pre/packages/embedding-worker/node_modules"
-ln -s "$BST372_REPO_ROOT/packages/embedding-worker/node_modules" "$BST372_MEASURE_ROOT/stream/packages/embedding-worker/node_modules"
-
-cp packages/embedding-worker/bench/bst-372-memory.measurement.spec.ts.fixture "$BST372_MEASURE_ROOT/pre/packages/embedding-worker/test/bst-372-memory.measurement.spec.ts"
-cp packages/embedding-worker/bench/bst-372-memory.measurement.spec.ts.fixture "$BST372_MEASURE_ROOT/stream/packages/embedding-worker/test/bst-372-memory.measurement.spec.ts"
-cp packages/embedding-worker/bench/vitest.bst-372.config.mts "$BST372_MEASURE_ROOT/pre/packages/embedding-worker/vitest.bst372.config.mts"
-cp packages/embedding-worker/bench/vitest.bst-372.config.mts "$BST372_MEASURE_ROOT/stream/packages/embedding-worker/vitest.bst372.config.mts"
+node packages/embedding-worker/bench/run-bst-372-memory.mjs --runs 5
 ```
 
-Each pre-stream process used exactly:
+The runner creates disposable full-revision archives, links the same current workspace
+dependencies into both, copies the hashed harness artifacts, and launches each measurement in
+a fresh single-worker fork with `--expose-gc`. It alternates order automatically. The verified
+per-run record is `BST372_VERIFIED_MEMORY_RESULT`; the final record includes all results and
+artifact hashes under `BST372_MEMORY_RUNNER_SUMMARY`.
 
-```bash
-cd "$BST372_MEASURE_ROOT/pre/packages/embedding-worker"
-env BST372_VARIANT=pre-stream BST372_COMMIT=13541685dc1586efea302440041965efd807440a NODE_OPTIONS=--expose-gc "$BST372_REPO_ROOT/node_modules/.bin/vitest" run --config vitest.bst372.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism --reporter=verbose
-```
-
-Each streaming process used the same invocation shape:
-
-```bash
-cd "$BST372_MEASURE_ROOT/stream/packages/embedding-worker"
-env BST372_VARIANT=stream BST372_COMMIT=f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32 NODE_OPTIONS=--expose-gc "$BST372_REPO_ROOT/node_modules/.bin/vitest" run --config vitest.bst372.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism --reporter=verbose
-```
-
-Repeat those fresh-process invocations five times, alternating which variant runs first.
-The machine-readable record is the `BST372_MEMORY_RESULT` JSON line.
+`test/bst-372-source-binding.spec.ts` is the normal-suite negative proof. It presents streaming
+source blobs under a pre-stream label and requires the verifier to reject the first mismatched
+production source with `Refusing to measure`. This closes the previous seam where an arbitrary
+`BST372_COMMIT` environment string could mislabel a successful run.
 
 ## Raw successful results
 
@@ -100,16 +85,16 @@ other.
 
 | Variant | Run | Baseline RSS | Peak RSS | RSS delta | Baseline heapUsed | Peak heapUsed | Heap delta | Payload bytes |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Pre-stream | 1 | 77,479,936 | 114,360,320 | 36,880,384 | 10,550,344 | 11,878,328 | 1,327,984 | 32,768,000 |
-| Pre-stream | 2 | 77,889,536 | 114,802,688 | 36,913,152 | 10,550,088 | 11,878,144 | 1,328,056 | 32,768,000 |
-| Pre-stream | 3 | 77,496,320 | 114,540,544 | 37,044,224 | 10,550,192 | 11,878,248 | 1,328,056 | 32,768,000 |
-| Pre-stream | 4 | 78,970,880 | 115,113,984 | 36,143,104 | 10,550,064 | 11,878,120 | 1,328,056 | 32,768,000 |
-| Pre-stream | 5 | 78,725,120 | 114,933,760 | 36,208,640 | 10,550,016 | 11,877,920 | 1,327,904 | 32,768,000 |
-| Stream | 1 | 77,987,840 | 79,200,256 | 1,212,416 | 10,604,912 | 11,868,592 | 1,263,680 | 32,768,000 |
-| Stream | 2 | 79,036,416 | 79,691,776 | 655,360 | 10,604,568 | 11,457,184 | 852,616 | 32,768,000 |
-| Stream | 3 | 78,381,056 | 79,216,640 | 835,584 | 10,604,592 | 11,562,776 | 958,184 | 32,768,000 |
-| Stream | 4 | 77,905,920 | 79,183,872 | 1,277,952 | 10,604,736 | 11,740,064 | 1,135,328 | 32,768,000 |
-| Stream | 5 | 78,348,288 | 79,003,648 | 655,360 | 10,604,680 | 11,936,976 | 1,332,296 | 32,768,000 |
+| Pre-stream | 1 | 78,692,352 | 115,245,056 | 36,552,704 | 11,013,856 | 12,342,776 | 1,328,920 | 32,768,000 |
+| Pre-stream | 2 | 78,446,592 | 115,195,904 | 36,749,312 | 11,013,920 | 12,342,840 | 1,328,920 | 32,768,000 |
+| Pre-stream | 3 | 79,380,480 | 115,851,264 | 36,470,784 | 11,013,648 | 12,342,592 | 1,328,944 | 32,768,000 |
+| Pre-stream | 4 | 78,888,960 | 115,851,264 | 36,962,304 | 11,013,824 | 12,342,744 | 1,328,920 | 32,768,000 |
+| Pre-stream | 5 | 79,806,464 | 116,637,696 | 36,831,232 | 11,013,600 | 12,342,448 | 1,328,848 | 32,768,000 |
+| Stream | 1 | 78,987,264 | 80,265,216 | 1,277,952 | 11,067,776 | 12,034,072 | 966,296 | 32,768,000 |
+| Stream | 2 | 79,003,648 | 79,921,152 | 917,504 | 11,068,008 | 12,032,800 | 964,792 | 32,768,000 |
+| Stream | 3 | 78,512,128 | 79,691,776 | 1,179,648 | 11,068,008 | 12,029,344 | 961,336 | 32,768,000 |
+| Stream | 4 | 79,052,800 | 80,379,904 | 1,327,104 | 11,068,248 | 12,033,552 | 965,304 | 32,768,000 |
+| Stream | 5 | 79,446,016 | 80,723,968 | 1,277,952 | 11,067,752 | 11,921,216 | 853,464 | 32,768,000 |
 
 The external-memory counters were stable across all five runs:
 
@@ -118,21 +103,39 @@ The external-memory counters were stable across all five runs:
 | Pre-stream | 32,832,000 | 32,832,040 |
 | Stream | 256,000 | 256,040 |
 
+## Current-production regression
+
+The normal package unit suite discovers `test/bst-372-current-retention.spec.ts`. That test
+launches a fresh `--expose-gc` Vitest process containing only the current-production retention
+fixture. The fixture streams 4,096 maximum-dimension inputs as 512 acknowledged batches,
+drops each sender-side message immediately, and samples `process.memoryUsage().arrayBuffers`
+before each deterministic extractor allocation and while each batch is posted. Its bound is
+512,000 bytes—eight times the 64,000-byte batch payload, and far below the 32,768,000-byte
+request payload. The verified current head peaked at 256,000 bytes.
+
+Mutation proof: adding a request-scoped array and pushing every `vectorsFromBatch` into it left
+the protocol and acknowledgement assertions intact but raised the observed delta to 32,896,000
+bytes. The normal-suite wrapper failed on `expected 32896000 to be less than or equal to
+512000`. Removing the temporary accumulator restored the 256,000-byte green result. This
+regression therefore observes physical `ArrayBuffer` retention independently of the worker's
+self-reported in-flight counters.
+
 ## Observed comparison
 
-- Pre-stream RSS delta: 34.469–35.328 MiB; median 35.172 MiB.
-- Streaming RSS delta: 0.625–1.219 MiB; median 0.797 MiB.
-- Observed median RSS-delta difference: 34.375 MiB for the same 31.25 MiB payload.
-- Pre-stream heap delta: 1.266–1.267 MiB; median 1.267 MiB.
-- Streaming heap delta: 0.813–1.271 MiB; median 1.083 MiB.
+- Pre-stream RSS delta: 34.781–35.250 MiB; median 35.047 MiB.
+- Streaming RSS delta: 0.875–1.266 MiB; median 1.219 MiB.
+- Observed median RSS-delta difference: 33.828 MiB for the same 31.25 MiB payload.
+- Pre-stream heap delta: 1.267–1.267 MiB; median 1.267 MiB.
+- Streaming heap delta: 0.814–0.922 MiB; median 0.920 MiB.
 - Both variants produced and validated exactly 32,768,000 payload bytes. The streaming landing
   revision predates the later `transferBytes` event field, so the harness summed its actual
   transfer list. If that field exists, the same harness requires it to equal the transfer list.
   The pre-stream harness summed the unique buffers in the retained production result.
 
 These are measured values, not a reconstruction of a missing historical run. They demonstrate
-the resident-memory effect of the exact accumulator and streaming/ack implementations under one
-controlled synthetic extractor. They do not represent total Electron renderer RSS with a real
-model loaded, and they do not replace
+the sender-side resident-memory effect of the exact accumulator and streaming/ack
+implementations under one controlled synthetic extractor and prompt collection. They omit the
+receiver and do not represent total Electron renderer RSS with a real model loaded. They do not
+replace
 `apps/desktop/e2e/embedding-worker-renderer.memory.desktop.test.ts`, which remains the
 application-level regression boundary.
