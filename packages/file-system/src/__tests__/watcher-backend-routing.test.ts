@@ -114,6 +114,37 @@ describe('watchDirectory backend routing', () => {
     stop();
   });
 
+  it('forwards the concrete filtered-change reporting option to the Parcel owner', async () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    const adapter = new ElectronFileSystemAdapter();
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), undefined, {
+      reportDefaultFilteredChanges: true,
+    } as Parameters<ElectronFileSystemAdapter['watchDirectory']>[3]);
+    await vi.waitFor(() => {
+      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(startParcelWatchMock.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({ reportDefaultFilteredChanges: true })
+    );
+    stop();
+  });
+
+  it('keeps explicit git-metadata ignores marker-free by default', async () => {
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
+    const adapter = new ElectronFileSystemAdapter();
+    const stop = adapter.watchDirectory(makeHandle(), vi.fn(), undefined, { ignorePatterns: [] });
+    await vi.waitFor(() => {
+      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(startParcelWatchMock.mock.calls[0]?.[2]).toEqual(
+      expect.objectContaining({
+        ignorePatterns: [],
+        reportDefaultFilteredChanges: false,
+      })
+    );
+    stop();
+  });
+
   it('dispose before async engine start still stops the engine on arrival', async () => {
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_WATCHER_BACKEND');
     const engineStop = vi.fn();

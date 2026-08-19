@@ -135,10 +135,14 @@ describe('startParcelWatch (real binding)', () => {
 
   it('summarizes node_modules activity without exposing its detailed path', async (ctx) => {
     const metadataBatches: Array<FileSystemWatchBatchMetadata | undefined> = [];
-    stop = await startParcelWatch(makeHandle(root), (changes, metadata) => {
-      batches.push(changes);
-      metadataBatches.push(metadata);
-    });
+    stop = await startParcelWatch(
+      makeHandle(root),
+      (changes, metadata) => {
+        batches.push(changes);
+        metadataBatches.push(metadata);
+      },
+      { reportDefaultFilteredChanges: true } as Parameters<typeof startParcelWatch>[2]
+    );
 
     const keptPath = join(root, 'kept.txt');
 
