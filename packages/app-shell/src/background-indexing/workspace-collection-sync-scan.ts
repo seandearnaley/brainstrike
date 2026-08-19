@@ -225,19 +225,28 @@ async function resolveSyntheticFileNodeHandle(args: {
   node: IFileNode;
   onResolutionFailure: (path: string) => void;
   relativePath: string;
+  rootHandle: RootDirectoryHandle;
 }): Promise<IFileNode> {
   const { fileSystemAdapter } = args.deps;
   if (!fileSystemAdapter.resolveFileHandleByPath) {
     return args.node;
   }
+  // The durable rootId is the ONLY thing that names the root being scanned.
+  // Two weaker forms were tried and are wrong: the node's own path is prefixed
+  // with the root's display NAME, which the adapter never matches against its
+  // id-keyed handle cache; and a bare root-relative path is resolved against
+  // `lastRootFolderId` — the last root ADDED — so scanning any other root
+  // silently returns that root's copy of the same relative path and indexes
+  // its bytes here. Without a rootId there is no safe query to make.
+  const { rootId } = args.rootHandle;
+  if (!rootId) {
+    args.onResolutionFailure(args.node.path);
+    return args.node;
+  }
   try {
-    // Root-RELATIVE, never the node's root-prefixed path. A registered web root
-    // is keyed by a generated id while the root handle's `path` is the picked
-    // folder's display name, and the adapter strips a leading segment only when
-    // it equals that id. Passing the prefixed path makes it walk a phantom
-    // child of the root — resolving nothing, or (when the root holds a
-    // same-named directory) a DIFFERENT file's handle.
-    const rawFileHandle = await fileSystemAdapter.resolveFileHandleByPath(args.relativePath);
+    const rawFileHandle = await fileSystemAdapter.resolveFileHandleByPath(
+      `${rootId}/${args.relativePath}`
+    );
     // Mirror the web adapter's readDirectory shape: node.handle IS the raw handle.
     return { ...args.node, handle: rawFileHandle };
   } catch (error) {
@@ -439,6 +448,7 @@ async function resolveChangedFileNode(args: {
       node,
       onResolutionFailure: args.onFileHandleResolutionFailure,
       relativePath: args.relativePath,
+      rootHandle: args.rootHandle,
     });
   }
   return node;

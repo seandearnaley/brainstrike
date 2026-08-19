@@ -401,6 +401,7 @@ describe('workspace collection scoped traversal', () => {
       name: 'workspace',
       path: 'workspace',
       platform: 'web',
+      rootId: 'web-root-id',
     };
     const resolveFileHandleByPath = vi.fn(
       async () => rawFreshFileHandle as unknown as FileSystemFileHandle
@@ -456,9 +457,9 @@ describe('workspace collection scoped traversal', () => {
       },
     });
 
-    // Root-relative: see the real-adapter test below for why the node's own
-    // root-prefixed path cannot resolve against a registered web root.
-    expect(resolveFileHandleByPath).toHaveBeenCalledWith('fresh.md');
+    // Keyed by the durable rootId, not the root's display name and not a bare
+    // relative path: see the real-adapter tests below for why both are unsafe.
+    expect(resolveFileHandleByPath).toHaveBeenCalledWith('web-root-id/fresh.md');
     const readRequests = processFiles.mock.calls[0]?.[0];
     expect(readRequests).toHaveLength(1);
     expect(readRequests?.[0]?.fileNode.handle).toBe(rawFreshFileHandle);
@@ -475,6 +476,7 @@ describe('workspace collection scoped traversal', () => {
       name: 'workspace',
       path: 'workspace',
       platform: 'web',
+      rootId: 'web-root-id',
     };
     const resolveFileHandleByPath = vi.fn(async (): Promise<FileSystemFileHandle> => {
       throw new Error('A requested file or directory could not be found.');
@@ -530,7 +532,7 @@ describe('workspace collection scoped traversal', () => {
       },
     });
 
-    expect(resolveFileHandleByPath).toHaveBeenCalledWith('fresh.md');
+    expect(resolveFileHandleByPath).toHaveBeenCalledWith('web-root-id/fresh.md');
     const readRequests = processFiles.mock.calls[0]?.[0];
     expect(readRequests).toHaveLength(1);
     expect(readRequests?.[0]?.fileNode.handle).toEqual(
@@ -572,15 +574,22 @@ describe('workspace collection scoped traversal', () => {
       kind: 'directory',
       name: 'workspace',
     } as unknown as FileSystemDirectoryHandle;
+    let registeredRootId = '';
     const handleCache = createHandleCacheStub({
-      getRootHandle: vi.fn(async () => rootDirHandle),
+      getRootHandle: vi.fn(async (folderId: string) =>
+        folderId === registeredRootId ? rootDirHandle : null
+      ),
     });
     const fileSystemAdapter = new WebFileSystemAdapter({ handleCache });
     (
       window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
     ).showDirectoryPicker = vi.fn(async () => rootDirHandle);
-    // Registers the root under a generated UUID, exactly as production does.
-    const rootHandle = await fileSystemAdapter.requestDirectoryAccess();
+    // Registers the root under a generated UUID, exactly as production does,
+    // and stamps the handle with it the way `ensureStamped` guarantees for
+    // every root handle that reaches the reducer.
+    const descriptor = await fileSystemAdapter.addRoot();
+    registeredRootId = descriptor.rootId;
+    const rootHandle: DirectoryHandle = { ...descriptor.handle, rootId: descriptor.rootId };
     const processFiles = vi.fn(async (requests: FileContentRequest[]) =>
       Object.fromEntries(
         requests.map((request) => [
@@ -631,5 +640,239 @@ describe('workspace collection scoped traversal', () => {
     // file whenever the root happens to contain a same-named child directory.
     expect(getDirectoryHandle).not.toHaveBeenCalled();
     expect(getFileHandle).toHaveBeenCalledWith('fresh.md');
+  });
+
+  it('resolves against a restored root, where no root has been picked this session', async () => {
+    // restoreRoots() rehydrates roots from IndexedDB but never sets
+    // `lastRootFolderId` — the ordinary state after a page reload. A
+    // root-relative path then makes the adapter treat the file's own first
+    // segment as a root-cache key, which matches nothing. Only the durable
+    // rootId identifies the root being scanned.
+    const leafFileHandle = {
+      getFile: vi.fn(),
+      kind: 'file',
+      name: 'fresh.md',
+    } as unknown as FileSystemFileHandle;
+    const getFileHandle = vi.fn((name: string) =>
+      name === 'fresh.md'
+        ? Promise.resolve(leafFileHandle)
+        : Promise.reject(new Error(`NotFoundError: ${name}`))
+    );
+    const rootDirHandle = {
+      entries: () => emptyDirectoryListing(),
+      getDirectoryHandle: vi.fn((name: string) =>
+        Promise.reject(new Error(`NotFoundError: ${name}`))
+      ),
+      getFileHandle,
+      kind: 'directory',
+      name: 'workspace',
+    } as unknown as FileSystemDirectoryHandle;
+    const handleCache = createHandleCacheStub({
+      getRootHandle: vi.fn(async (folderId: string) =>
+        folderId === 'restored-root-id' ? rootDirHandle : null
+      ),
+    });
+    // Deliberately NO addRoot()/requestDirectoryAccess(): lastRootFolderId stays null.
+    const fileSystemAdapter = new WebFileSystemAdapter({ handleCache });
+    const rootHandle: DirectoryHandle = {
+      _internal: rootDirHandle,
+      kind: 'directory',
+      name: 'workspace',
+      path: 'workspace',
+      platform: 'web',
+      rootId: 'restored-root-id',
+    };
+    const processFiles = vi.fn(async (requests: FileContentRequest[]) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: '# fresh', status: 'accessible' as const },
+        ])
+      )
+    );
+
+    await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: rootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'root-1',
+        rootPath: rootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileContentProcessor: { processFiles },
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => []),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: rootHandle,
+        scope: {
+          changes: [{ kind: 'file', path: 'fresh.md', type: 'modified' }],
+          mode: 'paths',
+        },
+      },
+    });
+
+    const readRequests = processFiles.mock.calls[0]?.[0];
+    expect(readRequests?.[0]?.fileNode.handle).toBe(leafFileHandle);
+    expect(getFileHandle).toHaveBeenCalledWith('fresh.md');
+  });
+
+  it('never reads a sibling root when scanning a root that is not the active one', async () => {
+    // The scan is multi-root (`rootDirectoryHandles`), but the adapter resolves
+    // relative paths against `lastRootFolderId` — the LAST root added. Scanning
+    // any other root with a root-relative path would silently return the same
+    // relative path from the WRONG root and index those bytes under this root's
+    // database id. Failing to resolve is acceptable here; cross-root content is not.
+    const alphaFileHandle = {
+      getFile: vi.fn(),
+      kind: 'file',
+      name: 'fresh.md',
+    } as unknown as FileSystemFileHandle;
+    const alphaGetFileHandle = vi.fn(() => Promise.resolve(alphaFileHandle));
+    const alphaDirHandle = {
+      entries: () => emptyDirectoryListing(),
+      getDirectoryHandle: vi.fn((name: string) =>
+        Promise.reject(new Error(`NotFoundError: ${name}`))
+      ),
+      getFileHandle: alphaGetFileHandle,
+      kind: 'directory',
+      name: 'alpha',
+    } as unknown as FileSystemDirectoryHandle;
+    const betaDirHandle = {
+      entries: () => emptyDirectoryListing(),
+      getDirectoryHandle: vi.fn((name: string) =>
+        Promise.reject(new Error(`NotFoundError: ${name}`))
+      ),
+      getFileHandle: vi.fn((name: string) => Promise.reject(new Error(`NotFoundError: ${name}`))),
+      kind: 'directory',
+      name: 'beta',
+    } as unknown as FileSystemDirectoryHandle;
+    const rootHandlesById = new Map<string, FileSystemDirectoryHandle>();
+    const handleCache = createHandleCacheStub({
+      getRootHandle: vi.fn(async (folderId: string) => rootHandlesById.get(folderId) ?? null),
+    });
+    const fileSystemAdapter = new WebFileSystemAdapter({ handleCache });
+    const picker = vi
+      .fn<() => Promise<FileSystemDirectoryHandle>>()
+      .mockResolvedValueOnce(betaDirHandle)
+      .mockResolvedValueOnce(alphaDirHandle);
+    (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker = picker;
+    const beta = await fileSystemAdapter.addRoot();
+    rootHandlesById.set(beta.rootId, betaDirHandle);
+    // alpha is added LAST, so it becomes the adapter's active root.
+    const alpha = await fileSystemAdapter.addRoot();
+    rootHandlesById.set(alpha.rootId, alphaDirHandle);
+    const betaRootHandle: DirectoryHandle = { ...beta.handle, rootId: beta.rootId };
+    const processFiles = vi.fn(async (requests: FileContentRequest[]) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { message: 'unreadable', status: 'inaccessible' as const },
+        ])
+      )
+    );
+
+    await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: betaRootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'beta-db-root',
+        rootPath: betaRootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileContentProcessor: { processFiles },
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => []),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: betaRootHandle,
+        scope: {
+          changes: [{ kind: 'file', path: 'fresh.md', type: 'modified' }],
+          mode: 'paths',
+        },
+      },
+    });
+
+    // The safety property: alpha's bytes must never be indexed as beta's.
+    const readRequests = processFiles.mock.calls[0]?.[0];
+    expect(readRequests?.[0]?.fileNode.handle).not.toBe(alphaFileHandle);
+    expect(alphaGetFileHandle).not.toHaveBeenCalled();
+  });
+
+  it('does not query the adapter at all for a root with no durable rootId', async () => {
+    // Without a rootId there is no way to name the root being scanned, and the
+    // adapter would resolve a bare relative path against whichever root was
+    // added last. Asking anyway risks importing another root's bytes, so the
+    // node stays synthetic and the path surfaces as inaccessible instead.
+    const rootHandle: DirectoryHandle = {
+      _internal: { entries: () => undefined, kind: 'directory', name: 'workspace' },
+      kind: 'directory',
+      name: 'workspace',
+      path: 'workspace',
+      platform: 'web',
+    };
+    const resolveFileHandleByPath = vi.fn();
+    const fileSystemAdapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(async (): Promise<IFileNode[]> => []),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      resolveFileHandleByPath,
+    } as unknown as FileSystemAdapter;
+    const processFiles = vi.fn(async (requests: FileContentRequest[]) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { message: 'Invalid file handle', status: 'inaccessible' as const },
+        ])
+      )
+    );
+
+    const result = await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: rootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'root-1',
+        rootPath: rootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileContentProcessor: { processFiles },
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => []),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: rootHandle,
+        scope: {
+          changes: [{ kind: 'file', path: 'fresh.md', type: 'modified' }],
+          mode: 'paths',
+        },
+      },
+    });
+
+    expect(resolveFileHandleByPath).not.toHaveBeenCalled();
+    expect(result.prepared.inaccessiblePaths).toEqual(['workspace/fresh.md']);
   });
 });
