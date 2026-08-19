@@ -1,9 +1,12 @@
 import type { OAuthProviderDescriptor, OAuthTokenGrant } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
+import { ProviderAuthFlowCancelledError } from '../../provider-auth/errors';
 import {
   buildAuthorizeUrl,
   DEFAULT_TOKEN_EXPIRES_IN_SECONDS,
   exchangeAuthorizationCode,
+  type OAuthFlowDeps,
+  runLoopbackOAuthFlow,
   toStoredOAuthCredential,
 } from '../../provider-auth/oauth-flow';
 
@@ -150,5 +153,58 @@ describe('toStoredOAuthCredential', () => {
     expect(toStoredOAuthCredential(grant, { accountId: 'acct-7', now: 0 })).toMatchObject({
       accountId: 'acct-7',
     });
+  });
+});
+
+describe('runLoopbackOAuthFlow cancellation during server startup (PR #2529 finding 2)', () => {
+  it('honours a cancel that fires while startLoopbackServerFn is still pending', async () => {
+    // The abort listener used to be attached only AFTER `await startServer`.
+    // Aborting during startup therefore armed a signal that had ALREADY
+    // fired, so `addEventListener('abort', …)` never invoked the handler: the
+    // flow opened the browser anyway and sat on the callback wait until the
+    // 5-minute timeout, with engine.cancel() blocked behind it the whole time.
+    const controller = new AbortController();
+    const close = vi.fn(async () => undefined);
+    const cancel = vi.fn();
+    const openExternal = vi.fn(async () => undefined);
+    let releaseStartup: (() => void) | undefined;
+    const startedUp = new Promise<void>((resolve) => {
+      releaseStartup = resolve;
+    });
+
+    const attempt = runLoopbackOAuthFlow(makeDescriptor(), {
+      cancelSignal: controller.signal,
+      fetchFn: vi.fn() as unknown as typeof fetch,
+      openExternal,
+      secrets: {
+        deleteKey: vi.fn(),
+        getCredential: vi.fn(),
+        getKey: vi.fn(),
+        listProviders: vi.fn(),
+        setCredential: vi.fn(),
+        setKey: vi.fn(),
+      } as unknown as OAuthFlowDeps['secrets'],
+      startLoopbackServerFn: async () => {
+        await startedUp;
+        return {
+          cancel,
+          close,
+          port: 43_210,
+          redirectUri: 'http://127.0.0.1:43210/callback',
+          // A callback that never arrives: only the cancellation path can
+          // settle this flow.
+          waitForCallback: () => new Promise<never>(() => undefined),
+        };
+      },
+    });
+
+    controller.abort();
+    releaseStartup?.();
+
+    await expect(attempt).rejects.toBeInstanceOf(ProviderAuthFlowCancelledError);
+    // Cancelling means the user never wanted the browser opened.
+    expect(openExternal).not.toHaveBeenCalled();
+    // The listening socket must not outlive the flow.
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });
