@@ -1,7 +1,10 @@
 import { BrowserWindow, type IpcMainInvokeEvent, ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMainPlatformIpcHandlers } from '../../main-platform-ipc';
-import { resetAssistantAuthOriginsForTest } from '../../provider-auth/assistant-auth-origin';
+import {
+  resetAssistantAuthOriginsForTest,
+  resolveAssistantAuthOriginRole,
+} from '../../provider-auth/assistant-auth-origin';
 
 const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
   getWindowRoleByWebContentsIdMock: vi.fn(),
@@ -158,6 +161,13 @@ describe('main platform IPC', () => {
 
     expect(once).toHaveBeenCalledTimes(1);
     expect(once).toHaveBeenCalledWith('destroyed', expect.any(Function));
+
+    // The single listener carries the whole teardown now — prove it genuinely
+    // drops the issuance record, not just that it was attached.
+    expect(resolveAssistantAuthOriginRole()).toBe('visible-ui');
+    const onDestroyed = once.mock.calls[0]?.[1] as () => void;
+    onDestroyed();
+    expect(resolveAssistantAuthOriginRole()).toBeUndefined();
   });
 
   it('attaches a destroyed listener for each distinct sender', async () => {

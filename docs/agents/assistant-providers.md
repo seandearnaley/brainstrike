@@ -1662,6 +1662,22 @@ arm requires an injected `oauthSubscriptionFetch` capability that only the
 interactive desktop assistant-server supplies, and that supplier re-checks per
 resolution that a `visible-ui` window exists.
 
+**Assistant-token origin tracking**
+(`apps/desktop/src/provider-auth/assistant-auth-origin.ts`, BST-1356):
+`assistant:get-auth` records the issuing WebContents id on every token
+issuance (idempotent `Set.add`), and `resolveAssistantAuthOriginRole`
+re-reads the role registry per credential resolution — the record never
+caches authority, so a torn-down or role-cleared sender stops authorizing
+immediately. Cleanup lifetime invariant: exactly ONE `'destroyed'` listener
+per WebContents removes the id, de-duped via a `WeakSet<WebContents>` in
+`apps/desktop/src/main-platform-ipc.ts`. Do not attach per issuance —
+renderer reloads preserve the WebContents and re-request auth, so
+per-issuance listeners stack until `MaxListenersExceededWarning`. Reloads
+need no listener of their own: re-issuance re-records the same stable id.
+The listener is bookkeeping only, never the security boundary (the per-
+resolution role re-read above is). Pinned by the destroyed-listener tests in
+`apps/desktop/src/__tests__/main/main-platform-ipc.test.ts`.
+
 **ONE engine instance** is shared by the IPC domain and the assistant server
 via `provider-auth-runtime.ts`. This is load-bearing: a second engine would
 carry its own single-flight map and REPLAY a rotating refresh token.
