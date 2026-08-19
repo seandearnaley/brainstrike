@@ -17,6 +17,10 @@ import {
 } from 'react';
 import type { StoreApi } from 'zustand';
 import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
+import {
+  type FileContentLoadAuthority,
+  FileContentLoadAuthorityContext,
+} from '../file-content-load-authority-context';
 import { setupInlineFixtureSubscription } from '../setup-inline-fixture-subscription';
 import { shouldExposeAutomatedTestApis } from '../utils/fixture-test-exposure';
 
@@ -38,29 +42,6 @@ declare global {
 
 // Create a context for the file explorer store
 const FileExplorerStoreContext = createContext<FileExplorerStore | null>(null);
-
-interface FileContentLoadAuthority {
-  beginReload: (compositeKeys: readonly string[]) => ReadonlyMap<string, number>;
-  clearErrors: (compositeKeys: readonly string[]) => void;
-  clearGeneration: (compositeKey: string, expectedGeneration: number | undefined) => void;
-  currentGeneration: (compositeKey: string) => number;
-  getActiveLoad: (compositeKey: string) => Promise<void> | undefined;
-  getErrorsSnapshot: () => ReadonlyMap<string, Error>;
-  invalidateAll: () => void;
-  isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean;
-  lifecycleId: number;
-  recordErrors: (
-    failures: readonly {
-      readonly compositeKey: string;
-      readonly error: Error;
-      readonly expectedGeneration: number;
-    }[]
-  ) => void;
-  releaseActiveLoad: (compositeKeys: readonly string[], expectedPromise: Promise<void>) => void;
-  runBatch: (task: () => Promise<void>) => Promise<void>;
-  subscribeErrors: (listener: () => void) => () => void;
-  trackActiveLoad: (compositeKeys: readonly string[], promise: Promise<void>) => void;
-}
 
 interface PendingFileContentBatch {
   readonly epoch: number;
@@ -206,8 +187,6 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
   };
 }
 
-const FileContentLoadAuthorityContext = createContext<FileContentLoadAuthority | null>(null);
-
 export interface FileExplorerProviderProps {
   children: React.ReactNode;
   /** Optional file system adapter — when provided, enables inline fixture subscription */
@@ -330,14 +309,6 @@ export function useFileExplorerStoreContext(): FileExplorerStore {
   const context = useContext(FileExplorerStoreContext);
   if (!context) {
     throw new Error('useFileExplorerStoreContext must be used within a FileExplorerProvider');
-  }
-  return context;
-}
-
-export function useFileContentLoadAuthority(): FileContentLoadAuthority {
-  const context = useContext(FileContentLoadAuthorityContext);
-  if (!context) {
-    throw new Error('useFileContentLoadAuthority must be used within a FileExplorerProvider');
   }
   return context;
 }

@@ -11,11 +11,8 @@ import type {
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  FileExplorerProvider,
-  useFileContentLoadAuthority,
-  useFileExplorerStoreContext,
-} from '../shell/file-explorer-provider';
+import { useFileContentLoadAuthority } from '../file-content-load-authority-context';
+import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 vi.mock('@brainstrike/workers/file-content-worker', () => ({

@@ -13,6 +13,7 @@ const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { resolveDirectReadPath, supportsDirectPathRead } from './file-content-direct-read-path';
+import { useFileContentLoadAuthority } from './file-content-load-authority-context';
 import {
   clearFileLoadingState,
   collectFileContentFailures,
@@ -24,7 +25,6 @@ import {
 } from './file-content-load-results';
 import { runFileContentReloadGroups } from './file-content-reload-scheduler';
 import {
-  useFileContentLoadAuthority,
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './shell/file-explorer-provider';
