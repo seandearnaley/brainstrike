@@ -10,6 +10,7 @@ import type {
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { expect, it, vi } from 'vitest';
+import { useFileContentLoadAuthority } from '../file-content-load-authority-context';
 import { FileExplorerProvider } from '../shell/file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
@@ -131,5 +132,111 @@ it('runs queued interactive reads before bulk work while bounding bulk starvatio
     pendingReads[4]?.complete('queued bulk');
     pendingReads[5]?.complete('interactive two');
     await Promise.all(loads);
+  });
+});
+
+it('preserves background intent across twenty singleton reload groups ahead of real interactive work', async () => {
+  const adapter = new MockFileSystemAdapter();
+  const storage = new MemoryStorageAdapter();
+  const backgroundNodes = Array.from({ length: 20 }, (_, index) =>
+    createFileNode({ path: `/background-${index}.txt`, rootFolderId: 'root-logical-priority' })
+  );
+  const interactiveNodes = Array.from({ length: 3 }, (_, index) =>
+    createFileNode({ path: `/interactive-${index}.txt`, rootFolderId: 'root-logical-priority' })
+  );
+  const nodes = [...backgroundNodes, ...interactiveNodes];
+  const backgroundKeys = backgroundNodes.map((node) =>
+    encodeFileSelection('root-logical-priority', node.path)
+  );
+  const interactiveKeys = interactiveNodes.map((node) =>
+    encodeFileSelection('root-logical-priority', node.path)
+  );
+  const pendingReads: PendingWorkerRead[] = [];
+  const worker = createPendingWorker(pendingReads);
+  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+  function Wrapper({ children }: { readonly children: ReactNode }) {
+    return (
+      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
+        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      </AdaptersProvider>
+    );
+  }
+  const { result } = renderHook(
+    () => ({
+      authority: useFileContentLoadAuthority(),
+      loader: useSharedFileContentLoading(nodes),
+    }),
+    { wrapper: Wrapper }
+  );
+  const resolvePredecessors: Array<() => void> = [];
+  for (const compositeKey of backgroundKeys) {
+    let resolvePredecessor: (() => void) | undefined;
+    const predecessor = new Promise<void>((resolve) => {
+      resolvePredecessor = resolve;
+    });
+    let trackedPredecessor: Promise<void>;
+    trackedPredecessor = predecessor.finally(() => {
+      result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);
+    });
+    result.current.authority.trackActiveLoad([compositeKey], trackedPredecessor);
+    resolvePredecessors.push(() => resolvePredecessor?.());
+  }
+
+  let backgroundReload: Promise<void> | undefined;
+  act(() => {
+    backgroundReload = result.current.loader.reloadFileContents(backgroundKeys, 'background');
+    for (const resolvePredecessor of resolvePredecessors) {
+      resolvePredecessor();
+    }
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(2));
+
+  let interactiveLoads: Promise<void>[] = [];
+  act(() => {
+    interactiveLoads = interactiveKeys.map((key) =>
+      result.current.loader.handleFileContentLoading([key], 'interactive')
+    );
+  });
+
+  await act(async () => {
+    pendingReads[0]?.complete('first background');
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(3));
+  expect(pendingReads[2]?.requests.map((request) => request.compositeKey)).toEqual([
+    interactiveKeys[0],
+  ]);
+
+  await act(async () => {
+    pendingReads[1]?.complete('second background');
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(4));
+  expect(pendingReads[3]?.requests.map((request) => request.compositeKey)).toEqual([
+    interactiveKeys[1],
+  ]);
+
+  await act(async () => {
+    pendingReads[2]?.complete('first interactive');
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(5));
+  expect(pendingReads[4]?.requests.map((request) => request.compositeKey)).toEqual([
+    backgroundKeys[2],
+  ]);
+
+  for (let index = 3; index < backgroundKeys.length + interactiveKeys.length; index += 1) {
+    await act(async () => {
+      pendingReads[index]?.complete(`completion ${index}`);
+      await Promise.resolve();
+    });
+    if (index < backgroundKeys.length + interactiveKeys.length - 1) {
+      await waitFor(() => expect(pendingReads.length).toBeGreaterThan(index + 1));
+    }
+  }
+  await act(async () => {
+    await Promise.all([backgroundReload, ...interactiveLoads]);
   });
 });
