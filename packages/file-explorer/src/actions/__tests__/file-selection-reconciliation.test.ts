@@ -277,6 +277,35 @@ describe('file-selection refresh reconciliation', () => {
     ]);
   });
 
+  it.each(['persisted-path-without-prefix', '|@|/workspace/src/file.ts', 'root-id|@|'])(
+    'rejects malformed persisted selection keys during reconciliation: %s',
+    (malformedKey) => {
+      const folderId = 'root-id';
+      const selectedFilePaths = new Set([malformedKey]);
+      const state = installStateUpdater(
+        createMockState({
+          currentFolderId: folderId,
+          selectedFilePaths,
+          selectionModel: {
+            explicitPaths: selectedFilePaths,
+            materializedAt: null,
+            materializedPaths: null,
+            mode: 'explicit',
+            queryDescriptor: null,
+          },
+        })
+      );
+      const actions = createFileSelectionActions(state.set, state.getState) as ReturnType<
+        typeof createFileSelectionActions
+      > &
+        SelectionReconciliationAction;
+
+      expect(() =>
+        actions.reconcileSelectionWithDirectorySnapshot(folderId, '/workspace/src', [])
+      ).toThrow('Invalid composite key format');
+    }
+  );
+
   it('preserves Windows path identity while matching drive-root ancestors case-insensitively', () => {
     const folderId = 'root-id';
     const selectedFilePaths = new Set([`${folderId}|@|C:\\Workspace\\src\\nested\\file.ts`]);

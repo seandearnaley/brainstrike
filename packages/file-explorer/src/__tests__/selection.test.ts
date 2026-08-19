@@ -127,6 +127,13 @@ describe('file-selection-utils', () => {
     it('should throw error for empty composite key', () => {
       expect(() => decodeFileSelection('')).toThrow('Invalid composite key format');
     });
+
+    it.each(['|@|src/index.ts', 'folder-1|@|'])(
+      'should reject a composite key with an empty required component: %s',
+      (invalidKey) => {
+        expect(() => decodeFileSelection(invalidKey)).toThrow('Invalid composite key format');
+      }
+    );
   });
 
   describe('isPathSelectedInFolder', () => {

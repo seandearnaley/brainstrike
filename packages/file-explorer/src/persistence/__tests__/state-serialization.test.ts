@@ -365,6 +365,18 @@ describe('state-serialization', () => {
       expect(result.lastActiveTab).toBe('preview');
     });
 
+    it.each(['persisted-path-without-prefix', '|@|src/index.ts', 'folder-1|@|'])(
+      'rejects a malformed persisted selection key instead of coercing it: %s',
+      (malformedKey) => {
+        const persisted = serializeState(buildState());
+        persisted.selectedFilePaths = [malformedKey];
+
+        expect(() => mergeState(persisted, buildState(), false)).toThrow(
+          'Invalid composite key format'
+        );
+      }
+    );
+
     it('should log when shouldLog is true and persisted is null', () => {
       const current = buildState();
 

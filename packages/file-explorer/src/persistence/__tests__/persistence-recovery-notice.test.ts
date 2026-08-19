@@ -319,6 +319,24 @@ describe('persisted explorer recovery notice', () => {
     expect(store.getState().persistenceRecoveryNotice).toBeNull();
   });
 
+  it('drops malformed persisted selection keys and records a visible discard notice', async () => {
+    const storage = new MemoryStorageAdapter();
+    await seedPersistedState(storage, {
+      ...validSerializedState,
+      selectedFilePaths: [
+        'root-1|@|src/index.ts',
+        'persisted-path-without-prefix',
+        '|@|src/missing-root.ts',
+        'root-1|@|',
+      ],
+    });
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().selectedFilePaths).toEqual(new Set(['root-1|@|src/index.ts']));
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
   it('does not record a discard notice when no persisted state exists', async () => {
     const store = await createHydratedStore(new MemoryStorageAdapter());
 
