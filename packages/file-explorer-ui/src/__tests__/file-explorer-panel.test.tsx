@@ -322,6 +322,7 @@ describe('FileExplorerPanel', () => {
       refreshDirectory: vi.fn(),
       refreshFileExplorer: refreshFileExplorerMock,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
+      reloadFileContents: vi.fn(),
       removeRootDirectory: vi.fn().mockResolvedValue(undefined),
       restorationProgress: null,
       rootDirectoryHandle: {

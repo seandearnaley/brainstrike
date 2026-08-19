@@ -10,6 +10,7 @@ import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useTerminalHotkey } from './use-terminal-hotkey';
+import { useWorkspaceOpenFileRefresh } from './use-workspace-open-file-refresh';
 import { useWorkspaceTabHotkeys } from './use-workspace-tab-hotkeys';
 import {
   useWorkspaceTabs,
@@ -61,8 +62,14 @@ export function WorkspaceTabsProvider({
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
   const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
-  const { fileContents, loadingFiles, loadFileContent, fileTree, canLoadWithoutTree } =
-    useFileExplorer();
+  const {
+    canLoadWithoutTree,
+    fileContents,
+    fileTree,
+    loadFileContent,
+    loadingFiles,
+    reloadFileContents,
+  } = useFileExplorer();
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
@@ -110,6 +117,8 @@ export function WorkspaceTabsProvider({
   // silently vanished tab.
   const { tabStatuses, requestTabPermission, getStatusMessage, isRestoring } =
     useTabFileRestoration(tabs);
+
+  useWorkspaceOpenFileRefresh({ reloadFileContents, tabs });
 
   // Track in-flight permission requests to ignore double-clicks.
   const permissionRequestsInProgressRef = useRef<Set<string>>(new Set());

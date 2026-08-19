@@ -737,7 +737,36 @@ fallback.
   re-enumerates the named root via `refreshTree`; unlike manual/full this is
   NOT gated by `skipManualFullEvents` (nothing refreshes an overflow directly,
   so the outer authority provider must react too, else a single-root workspace
-  never reloads).
+  never reloads). (3) Open workspace file tabs:
+  `use-workspace-open-file-refresh.ts`, mounted once by `WorkspaceTabsProvider`,
+  maps the SAME event onto open composite keys. Incremental file changes match
+  the exact root-relative path; directory changes match open descendants; a
+  named full refresh reloads every open tab in only those durable RootIds; and
+  manual/full's canonical `roots:[]` is an ALL-OPEN-TABS broadcast. Durable
+  `folderId === rootId` wins; root-path matching exists only for legacy
+  path-identified composite keys, with the shared Windows drive/UNC
+  case-insensitive path semantics. Same relative paths in different durable
+  roots never cross-refresh. Malformed persisted keys are warn-logged by count,
+  never echoed with their root/path.
+
+  A matching event calls the shared content loader's `reloadFileContents`:
+  cached bytes are evicted synchronously before any await, then re-read. Each
+  key carries a monotonic in-memory generation while the reload is active, so
+  an older read resolving after a second disk change cannot republish stale
+  bytes; a superseded reload waits for the active read and only the latest
+  generation starts the replacement. Active-load entries and settled latest
+  generations are removed, so close/reopen churn does not create an unbounded
+  key registry. Removed files/directories therefore replace the tab with its
+  loading boundary and then a visible read-failure result, never the pre-delete
+  content. Listener cleanup is provider-scoped.
+
+  **Surface audit (BST-1159):** file-tab `CodeSurface` is invoked without
+  `editable`/`onChange` (read-only default), Markdown preview is read-only, and
+  `DiffView` is read-only. There is no in-app dirty buffer or save capability,
+  so inventing a conflict state here would be false architecture. Git-scope
+  Changes diffs already own an independent reload-token + generation guard
+  (BST-1161); rewind-preview diffs are immutable pre-apply snapshots. External
+  editor buffers remain outside Brainstrike's authority and are notice-only.
 - **An identical re-enumeration is a no-op in the worker (BST-1336).** Every
   `refreshTree` ends in `port.init(...)`, and one FSEvents overflow fires that
   once per mounted `FileTreeProvider` on the root, so a real desktop log showed
@@ -1005,5 +1034,10 @@ fallback.
   (post-rewind refresh + `failed`-only retry) and its wiring in
   `packages/app-shell/src/changes/__tests__/rewind-confirm-dialog.test.tsx`,
   `packages/file-system/src/__tests__/electron-watchers.test.ts`.
+  Open-tab content refresh is pinned by
+  `packages/file-explorer-ui/src/__tests__/workspace-tabs-refresh.test.tsx`
+  (incremental/full/deleted/multi-root/Windows/cleanup) and
+  `packages/file-explorer-ui/src/__tests__/use-shared-file-content-reload.test.tsx`
+  (stale in-flight generation suppression).
 
 When changing this flow, update this section and the paired tests.

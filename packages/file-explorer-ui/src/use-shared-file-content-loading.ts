@@ -89,10 +89,26 @@ function updateLoadingState(
 
 function processWorkerResults(
   results: Record<string, FileContentReadResult>,
-  setFileContent: (key: string, content: string) => void
+  setFileContent: (key: string, content: string) => void,
+  expectedGenerations: ReadonlyMap<string, number>,
+  currentGenerations: ReadonlyMap<string, number>
 ): void {
+  let unexpectedResultCount = 0;
   for (const [key, result] of Object.entries(results)) {
+    const expectedGeneration = expectedGenerations.get(key);
+    if (expectedGeneration === undefined) {
+      unexpectedResultCount += 1;
+      continue;
+    }
+    if ((currentGenerations.get(key) ?? 0) !== expectedGeneration) {
+      continue;
+    }
     setFileContent(key, result.status === 'accessible' ? result.content : result.message);
+  }
+  if (unexpectedResultCount > 0) {
+    logger.warn('Ignoring file-content results for unrequested keys', {
+      count: unexpectedResultCount,
+    });
   }
 }
 
@@ -343,7 +359,7 @@ async function buildCachedFileRequest(args: {
 }
 
 function deferFileLoadsUntilTreeReady(args: {
-  compositeKeys: string[];
+  compositeKeys: readonly string[];
   loadingPathsRef: React.RefObject<Set<string>>;
   pendingFileLoadsRef: React.RefObject<Set<string>>;
   store: ReturnType<typeof useFileExplorerStoreContext>;
@@ -579,6 +595,7 @@ async function handleInvalidFileNode(args: {
 // File read preparation logic
 async function prepareFileReadRequest(
   compositeKey: string,
+  expectedGeneration: number,
   fileTree: IFileNode[],
   fileSystemAdapter: unknown,
   store: ReturnType<typeof useFileExplorerStoreContext>,
@@ -588,9 +605,16 @@ async function prepareFileReadRequest(
   deferredLookupAttemptsRef: React.RefObject<Map<string, number>>,
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>,
   canLoadWithoutTree: boolean,
+  contentGenerationsRef: React.RefObject<Map<string, number>>,
   indexGetNode?: (folderId: string, path: string) => IFileNode | undefined
 ): Promise<FileReadRequest | null> {
-  const { setFileContent, fileContents } = store.getState();
+  const { setFileContent: commitFileContent, fileContents } = store.getState();
+  const setFileContent = (key: string, content: string): void => {
+    if ((contentGenerationsRef.current.get(key) ?? 0) !== expectedGeneration) {
+      return;
+    }
+    commitFileContent(key, content);
+  };
   const { folderId, path } = decodeFileSelection(compositeKey);
 
   if (
@@ -685,6 +709,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const deferredLookupAttemptsRef = useRef<Map<string, number>>(new Map());
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
   const workerRef = useRef<FileContentWorker | null>(null);
+  const contentGenerationsRef = useRef<Map<string, number>>(new Map());
+  const activeLoadPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
 
   // Use ref to access current tree without closure stale state issues.
   const fileTreeRef = useRef(fileTree);
@@ -757,9 +783,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   // Prepare a single file for reading - uses ref to get current tree
   // When FileTreeIndex is available, uses O(1) lookups instead of cache traversal
   const prepareFileRead = useCallback(
-    async (compositeKey: string): Promise<FileReadRequest | null> =>
+    async (compositeKey: string, expectedGeneration: number): Promise<FileReadRequest | null> =>
       prepareFileReadRequest(
         compositeKey,
+        expectedGeneration,
         fileTreeRef.current, // Use ref instead of closure to get current tree
         fileSystemAdapter,
         store,
@@ -769,14 +796,19 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         deferredLookupAttemptsRef,
         setLoadingFiles,
         canLoadWithoutTree,
+        contentGenerationsRef,
         indexGetNode // Pass index getter for O(1) lookups when available
       ),
     [fileSystemAdapter, store, canLoadWithoutTree, indexGetNode]
   );
 
-  const handleFileContentLoading = useCallback(
-    async (compositeKeys: string[]) => {
-      if (!workerRef.current) {
+  const executeFileContentLoading = useCallback(
+    async (
+      compositeKeys: readonly string[],
+      expectedGenerations: ReadonlyMap<string, number>
+    ): Promise<void> => {
+      const worker = workerRef.current;
+      if (!worker) {
         return;
       }
 
@@ -802,7 +834,9 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       setError(null);
 
       try {
-        const prepared = await Promise.all(compositeKeys.map((key) => prepareFileRead(key)));
+        const prepared = await Promise.all(
+          compositeKeys.map((key) => prepareFileRead(key, expectedGenerations.get(key) ?? 0))
+        );
         const requests: FileReadRequest[] = prepared.filter(
           (req): req is FileReadRequest => req !== null
         );
@@ -813,13 +847,16 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           successfulRequests: requests.length,
         });
 
-        await workerRef
-          .current(requests, ({ key }) => {
-            updateLoadingState(key, loadingPathsRef, setLoadingFiles);
-          })
-          .then((results) => {
-            processWorkerResults(results, store.getState().setFileContent);
-          });
+        await worker(requests, ({ key }) => {
+          updateLoadingState(key, loadingPathsRef, setLoadingFiles);
+        }).then((results) => {
+          processWorkerResults(
+            results,
+            store.getState().setFileContent,
+            expectedGenerations,
+            contentGenerationsRef.current
+          );
+        });
       } catch (err) {
         setError(err as Error);
       } finally {
@@ -827,6 +864,87 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       }
     },
     [prepareFileRead, store, canLoadWithoutTree]
+  );
+
+  const handleFileContentLoading = useCallback(
+    async (compositeKeys: readonly string[]): Promise<void> => {
+      const uniqueKeys = [...new Set(compositeKeys)];
+      const promises = new Set<Promise<void>>();
+      const keysToStart: string[] = [];
+      for (const key of uniqueKeys) {
+        const activePromise = activeLoadPromisesRef.current.get(key);
+        if (activePromise) {
+          promises.add(activePromise);
+        } else {
+          keysToStart.push(key);
+        }
+      }
+
+      if (keysToStart.length > 0) {
+        const expectedGenerations = new Map(
+          keysToStart.map((key) => [key, contentGenerationsRef.current.get(key) ?? 0] as const)
+        );
+        let batchPromise: Promise<void>;
+        batchPromise = executeFileContentLoading(keysToStart, expectedGenerations).finally(() => {
+          for (const key of keysToStart) {
+            if (activeLoadPromisesRef.current.get(key) === batchPromise) {
+              activeLoadPromisesRef.current.delete(key);
+            }
+          }
+        });
+        for (const key of keysToStart) {
+          activeLoadPromisesRef.current.set(key, batchPromise);
+        }
+        promises.add(batchPromise);
+      }
+
+      await Promise.all(promises);
+    },
+    [executeFileContentLoading]
+  );
+
+  const reloadFileContents = useCallback(
+    async (compositeKeys: readonly string[]): Promise<void> => {
+      const uniqueKeys = [...new Set(compositeKeys)];
+      if (uniqueKeys.length === 0) {
+        return;
+      }
+
+      const requestedGenerations = new Map<string, number>();
+      for (const key of uniqueKeys) {
+        const generation = (contentGenerationsRef.current.get(key) ?? 0) + 1;
+        contentGenerationsRef.current.set(key, generation);
+        requestedGenerations.set(key, generation);
+      }
+
+      // Evict synchronously before awaiting any older read. Every consumer of
+      // the shared cache sees a loading boundary instead of stale disk bytes.
+      store.getState().clearFileContents(uniqueKeys);
+
+      await Promise.all(
+        uniqueKeys.map(async (key) => {
+          const requestedGeneration = requestedGenerations.get(key);
+          try {
+            const olderLoad = activeLoadPromisesRef.current.get(key);
+            if (olderLoad) {
+              await olderLoad;
+            }
+            if (contentGenerationsRef.current.get(key) !== requestedGeneration) {
+              return;
+            }
+            await handleFileContentLoading([key]);
+          } finally {
+            // Once the latest reload (and every older load it awaited) has
+            // settled, generation zero is safe again. Superseded reloads must
+            // leave the newer generation intact.
+            if (contentGenerationsRef.current.get(key) === requestedGeneration) {
+              contentGenerationsRef.current.delete(key);
+            }
+          }
+        })
+      );
+    },
+    [handleFileContentLoading, store]
   );
 
   useEffect(() => {
@@ -849,7 +967,17 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       fileCount: pendingKeys.length,
     });
 
-    void handleFileContentLoading(pendingKeys);
+    // A preceding attempt can still be settling when the tree/index render
+    // arrives. Wait for those tracked attempts before consuming this retry;
+    // otherwise handleFileContentLoading dedupes against the active promise
+    // and the just-cleared pending key would never get another turn.
+    const precedingLoads = new Set(
+      pendingKeys.flatMap((key) => {
+        const activeLoad = activeLoadPromisesRef.current.get(key);
+        return activeLoad ? [activeLoad] : [];
+      })
+    );
+    void Promise.all(precedingLoads).then(() => handleFileContentLoading(pendingKeys));
   }, [canLoadWithoutTree, fileTree.length, handleFileContentLoading, indexVersion, store]);
 
   // Content loading is demand-driven via handleFileContentLoading() when:
@@ -869,5 +997,6 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     handleFileContentLoading,
     isLoading,
     loadingFiles,
+    reloadFileContents,
   };
 }

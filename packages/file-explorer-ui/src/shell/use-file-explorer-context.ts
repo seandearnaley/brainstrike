@@ -123,6 +123,8 @@ interface UseFileExplorerReturn {
   refreshFileExplorer: () => Promise<FileTreeRefreshResult>;
   /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
   registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;
+  /** Evict and re-read file contents while suppressing stale in-flight results. */
+  reloadFileContents: (compositeKeys: readonly string[]) => Promise<void>;
   /**
    * Disconnect a root by RootId (multi-root, Phase 5). Disconnect ≠ delete by
    * default; `options.deleteData` (Phase 6) opts into a cascade delete of the
@@ -305,6 +307,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     loadingFiles: contentLoadingFiles,
     handleFileContentLoading,
     canLoadWithoutTree,
+    reloadFileContents,
   } = useSharedFileContentLoading(fileTree);
 
   // Unify filtered tree computation in useMemo to avoid state/effect complexity
@@ -576,6 +579,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     refreshFileExplorer,
     /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
     registerRestoredHandles,
+    reloadFileContents,
     /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
     removeRootDirectory,
     restorationProgress,

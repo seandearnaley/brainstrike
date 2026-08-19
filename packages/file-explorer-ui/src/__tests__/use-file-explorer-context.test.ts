@@ -273,6 +273,7 @@ describe('useFileExplorer (context)', () => {
       handleFileContentLoading: mockHandleFileContentLoading,
       isLoading: false,
       loadingFiles: new Set<string>(),
+      reloadFileContents: vi.fn(),
     });
 
     const coreReturn = {
