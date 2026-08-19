@@ -1400,11 +1400,12 @@ are checked), then simulates vitest's first-match alias resolution: the winning
 entry must point at an existing non-dist source path, and an unaliased
 specifier must not resolve to `dist` via the dep's `exports` map. So dist-pin
 overrides, imported-but-unspread registries, per-dependency gaps, bare mutation
-configs, and transitive src-graph gaps all FAIL. Because the guard imports the
-configs under plain node ESM, config-relative imports need explicit extensions
-(e.g. `../config/src/vitest-browser.ts`). Legitimate built-artifact consumers
-go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with a reason string (NO silent
-fallback). This was the R3 enabler for dropping `test.dependsOn: ["^build"]` —
+configs, and transitive src-graph gaps all FAIL. The guard loads configs through
+Vite's `loadConfigFromFile`, so app configs with Vite-supported extensionless
+imports are inspected under the same loader semantics as their test lanes.
+Legitimate built-artifact consumers go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with
+a reason string (NO silent fallback). This was the R3 enabler for dropping
+`test.dependsOn: ["^build"]` —
 DONE in Series B4: `test`/`test:integration`/`test:coverage` now
 `dependsOn: ["topo"]`, a synthetic no-op **transit node** (`topo`,
 `dependsOn: ["^topo"]`) that carries the upstream SOURCE-hash cascade WITHOUT

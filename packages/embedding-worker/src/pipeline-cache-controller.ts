@@ -420,6 +420,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       model: request.model,
       pipeline: pipeline.then(
         (loaded) => {
+          entry.lastUsedAt = readNow();
           entry.state = 'ready';
           if (entries.get(cacheKey) === entry) {
             emitDiagnostic({

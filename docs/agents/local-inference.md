@@ -153,8 +153,8 @@ Embedding runtime telemetry (BST-402):
   therefore remain deduplicated and physically bounded. Pending entries are reservations,
   never resident-limit or idle-timeout eviction victims: if every device-class slot is
   pending, a distinct miss fails immediately with a request-scoped load-failure diagnostic
-  and can be retried once a ready victim exists. This prevents a pending caller from receiving
-  a resource that a concurrent miss already disposed. A resident-limit disposal rejection
+  and can be retried once capacity becomes available. This prevents a pending caller from
+  receiving a resource that a concurrent miss already disposed. A resident-limit disposal rejection
   blocks the pending replacement and emits its request-scoped load-failure diagnostic. Every
   disposer rejection latches the controller against future loads, remains visible to `wait`
   and `close`, and asks workerpool to replace the failed worker through its managed
