@@ -167,6 +167,11 @@ function gitEnv(cwd) {
     GIT_CONFIG_COUNT: String(pinned.length),
     GIT_CONFIG_GLOBAL: absentPath,
     GIT_CONFIG_NOSYSTEM: '1',
+    // The stderr assertions below match git's English messages ("not a git
+    // repository"); a gettext-localized git under a non-English LANG would
+    // translate them and blame the gate for a locale fact. Same class as the
+    // ceiling pin above, different env axis.
+    LC_ALL: 'C',
   };
   for (const [index, [key, value]] of pinned.entries()) {
     env[`GIT_CONFIG_KEY_${index}`] = key;
@@ -430,7 +435,10 @@ test('a stdin write that loses its reader does not erase git’s verdict', () =>
     // gitIgnoredPaths spawns git with the ambient environment, so the ceiling
     // has to be on the environment itself for the fixture to stay repo-less.
     const previousCeiling = process.env.GIT_CEILING_DIRECTORIES;
+    const previousLocale = process.env.LC_ALL;
     process.env.GIT_CEILING_DIRECTORIES = path.dirname(realpathSync(dir));
+    // Same locale pin as gitEnv(): the assertion matches English git stderr.
+    process.env.LC_ALL = 'C';
     try {
       assert.throws(
         () => gitIgnoredPaths(many, dir),
@@ -442,6 +450,11 @@ test('a stdin write that loses its reader does not erase git’s verdict', () =>
         delete process.env.GIT_CEILING_DIRECTORIES;
       } else {
         process.env.GIT_CEILING_DIRECTORIES = previousCeiling;
+      }
+      if (previousLocale === undefined) {
+        delete process.env.LC_ALL;
+      } else {
+        process.env.LC_ALL = previousLocale;
       }
     }
   });
