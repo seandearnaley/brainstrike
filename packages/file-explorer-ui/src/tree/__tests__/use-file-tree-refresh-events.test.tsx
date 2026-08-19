@@ -90,6 +90,7 @@ describe('useFileTreeRefreshEvents', () => {
     params = {
       getNormalizedTree: () => normalizedTree,
       getSelectionAncestorDirectories,
+      getSelectionVersion: () => 0,
       reconcileSelectionWithDirectorySnapshots,
       refreshDirectory,
       refreshTree,
@@ -220,17 +221,19 @@ describe('useFileTreeRefreshEvents', () => {
     ]);
   });
 
-  it('refreshes authoritative directories sequentially before one reconciliation publication', async () => {
+  it('waits for shallower authoritative reads before refreshing descendants', async () => {
+    const srcPath = `${ROOT_PATH}/src`;
+    const nestedPath = `${srcPath}/nested`;
+    const nestedNode = directoryNode(nestedPath, 'loaded');
     normalizedTree = createNormalizedFileTreeState([
-      directoryNode(`${ROOT_PATH}/src`, 'loaded'),
-      directoryNode(`${ROOT_PATH}/test`, 'loaded'),
+      { ...directoryNode(srcPath, 'loaded'), children: [nestedNode] },
     ]);
     let releaseFirstRefresh: (() => void) | null = null;
     const firstRefreshGate = new Promise<void>((resolve) => {
       releaseFirstRefresh = resolve;
     });
     refreshDirectory.mockImplementation(async (path) => {
-      if (path === `${ROOT_PATH}/src`) {
+      if (path === srcPath) {
         await firstRefreshGate;
       }
       return { directoryPath: path, entries: [] };
@@ -241,8 +244,8 @@ describe('useFileTreeRefreshEvents', () => {
       roots: [
         {
           changes: [
-            { kind: 'file', path: `${ROOT_PATH}/src/gone.ts`, type: 'removed' },
-            { kind: 'file', path: `${ROOT_PATH}/test/gone.test.ts`, type: 'removed' },
+            { kind: 'file', path: `${srcPath}/gone.ts`, type: 'removed' },
+            { kind: 'file', path: `${nestedPath}/gone.test.ts`, type: 'removed' },
           ],
           rootId: ROOT_ID,
           rootPath: ROOT_PATH,
@@ -253,7 +256,7 @@ describe('useFileTreeRefreshEvents', () => {
     });
 
     await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
-    expect(refreshDirectory).toHaveBeenLastCalledWith(`${ROOT_PATH}/src`);
+    expect(refreshDirectory).toHaveBeenLastCalledWith(srcPath);
     expect(reconcileSelectionWithDirectorySnapshots).not.toHaveBeenCalled();
 
     act(() => {
@@ -263,6 +266,7 @@ describe('useFileTreeRefreshEvents', () => {
       expect(refreshDirectory).toHaveBeenCalledTimes(2);
       expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
     });
+    expect(refreshDirectory.mock.calls.map(([path]) => path)).toEqual([srcPath, nestedPath]);
   });
 
   it('bounds same-depth refresh concurrency while completing every path parent-first', async () => {

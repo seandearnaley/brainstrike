@@ -53,19 +53,26 @@ import {
   type FileExplorerRefreshEvent,
   type FileExplorerRefreshRootDetail,
 } from '../shell/file-explorer-refresh-event';
+import { runWithConcurrency } from '../utils/concurrency';
 import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { getNormalizedNode } from '../utils/normalized-file-tree';
 import type { FileTreeDirectorySnapshot, FileTreeRefreshResult } from './use-lazy-file-tree';
 
 const logger = createLogger('FileTreeRefreshEvents');
+export const MAX_CONCURRENT_SELECTION_REVALIDATION_READS = 5;
 type RefreshLifecycleGuard = () => boolean;
 const isAlwaysActive: RefreshLifecycleGuard = () => true;
+interface RefreshQueueRef {
+  current: Promise<void>;
+}
 
 export interface UseFileTreeRefreshEventsParams {
   /** Reads the provider's CURRENT normalized tree (loaded-state lookups). */
   getNormalizedTree: () => NormalizedFileTreeState | null;
   /** Current selected-path ancestor directories for this provider, parent-first. */
   getSelectionAncestorDirectories: () => readonly string[];
+  /** Monotonic selection revision used to reject stale snapshot batches. */
+  getSelectionVersion: () => number;
   reconcileSelectionWithDirectorySnapshots: (
     snapshots: readonly FileTreeDirectorySnapshot[]
   ) => void;
@@ -85,6 +92,7 @@ export interface UseFileTreeRefreshEventsParams {
 export interface SelectionAwareRootRefreshParams {
   getNormalizedTree: () => NormalizedFileTreeState | null;
   getSelectionAncestorDirectories: () => readonly string[];
+  getSelectionVersion: () => number;
   reconcileSelectionWithDirectorySnapshots: (
     snapshots: readonly FileTreeDirectorySnapshot[]
   ) => void;
@@ -169,33 +177,75 @@ function orderDirectoryPaths(paths: readonly string[]): string[] {
   });
 }
 
+function groupDirectoryPathsByDepth(paths: readonly string[]): string[][] {
+  const groups: string[][] = [];
+  let currentDepth = -1;
+  for (const path of orderDirectoryPaths(paths)) {
+    const depth = directoryPathDepth(path);
+    if (depth !== currentDepth) {
+      groups.push([]);
+      currentDepth = depth;
+    }
+    groups.at(-1)?.push(path);
+  }
+  return groups;
+}
+
+function enqueueRefreshWork<TResult>(
+  queueRef: RefreshQueueRef,
+  work: () => Promise<TResult>
+): Promise<TResult> {
+  const result = queueRef.current.then(work, work);
+  queueRef.current = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
 async function refreshAuthoritativeDirectories(
   current: SelectionAwareRootRefreshParams,
   directoryPaths: readonly string[],
   isActive: RefreshLifecycleGuard = isAlwaysActive
 ): Promise<void> {
+  const selectionVersion = current.getSelectionVersion();
   const snapshots: FileTreeDirectorySnapshot[] = [];
-  for (const directoryPath of orderDirectoryPaths(directoryPaths)) {
-    if (!isActive()) {
-      return;
-    }
-    // A shallow root replacement resets surviving directories to unloaded.
-    // Existence + directory type are authoritative enough to force a read;
-    // removed/retyped paths are skipped instead of resurrected.
-    const tree = current.getNormalizedTree();
-    const node = tree ? getNormalizedNode(tree, directoryPath) : undefined;
-    if (node?.type !== 'directory') {
-      continue;
-    }
-    // Intentional serialization: parent refreshes materialize the handles for
-    // their selected descendants, and every replacement shares one tree.
+  for (const depthGroup of groupDirectoryPathsByDepth(directoryPaths)) {
+    // Depths remain serialized so parents materialize descendant handles first.
+    // Peers are independent and use the same finite I/O bound as worker-backed
+    // directory loading; no path is capped or dropped.
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    const snapshot = await current.refreshDirectory(directoryPath);
+    const groupSnapshots = await runWithConcurrency(
+      depthGroup,
+      MAX_CONCURRENT_SELECTION_REVALIDATION_READS,
+      async (directoryPath): Promise<FileTreeDirectorySnapshot | null> => {
+        if (!isActive()) {
+          return null;
+        }
+        // A shallow root replacement resets surviving directories to unloaded.
+        // Existence + directory type are authoritative enough to force a read;
+        // removed/retyped paths are skipped instead of resurrected.
+        const tree = current.getNormalizedTree();
+        const node = tree ? getNormalizedNode(tree, directoryPath) : undefined;
+        if (node?.type !== 'directory') {
+          return null;
+        }
+        return current.refreshDirectory(directoryPath);
+      }
+    );
     if (!isActive()) {
       return;
     }
-    if (snapshot) {
-      snapshots.push(snapshot);
+    if (current.getSelectionVersion() !== selectionVersion) {
+      logger.debug('Skipped stale directory snapshot reconciliation after selection changed', {
+        directoryCount: directoryPaths.length,
+      });
+      return;
+    }
+    for (const snapshot of groupSnapshots) {
+      if (snapshot) {
+        snapshots.push(snapshot);
+      }
     }
   }
   if (isActive() && snapshots.length > 0) {
@@ -228,9 +278,10 @@ async function refreshRootAndDirectories(
  * by bounded selected-path ancestor revalidation.
  */
 export async function refreshTreeWithSelectionRevalidation(
-  current: SelectionAwareRootRefreshParams
+  current: SelectionAwareRootRefreshParams,
+  isActive: RefreshLifecycleGuard = isAlwaysActive
 ): Promise<FileTreeRefreshResult> {
-  return refreshRootAndDirectories(current);
+  return refreshRootAndDirectories(current, [], isActive);
 }
 
 async function handleWatcherIncrementalRefresh(
@@ -362,14 +413,15 @@ async function processRefreshEventDetail(
 export function useFileTreeRefreshEvents({
   getNormalizedTree,
   getSelectionAncestorDirectories,
+  getSelectionVersion,
   reconcileSelectionWithDirectorySnapshots,
   refreshDirectory,
   refreshTree,
   rootId,
   rootPath,
   skipManualFullEvents,
-}: UseFileTreeRefreshEventsParams): void {
-  const [refreshQueueRef] = useState<{ current: Promise<void> }>(() => ({
+}: UseFileTreeRefreshEventsParams): () => Promise<FileTreeRefreshResult> {
+  const [refreshQueueRef] = useState<RefreshQueueRef>(() => ({
     current: Promise.resolve(),
   }));
   const [lifecycleEpochRef] = useState<{ current: number }>(() => ({ current: 0 }));
@@ -388,6 +440,7 @@ export function useFileTreeRefreshEvents({
       const current: UseFileTreeRefreshEventsParams = {
         getNormalizedTree,
         getSelectionAncestorDirectories,
+        getSelectionVersion,
         reconcileSelectionWithDirectorySnapshots,
         refreshDirectory,
         refreshTree,
@@ -399,20 +452,37 @@ export function useFileTreeRefreshEvents({
     }
   );
 
+  const refreshTreeWithSelection = useEventCallback((): Promise<FileTreeRefreshResult> => {
+    const lifecycleEpoch = lifecycleEpochRef.current;
+    const isActive = (): boolean => lifecycleEpochRef.current === lifecycleEpoch;
+    return enqueueRefreshWork(refreshQueueRef, () =>
+      refreshTreeWithSelectionRevalidation(
+        {
+          getNormalizedTree,
+          getSelectionAncestorDirectories,
+          getSelectionVersion,
+          reconcileSelectionWithDirectorySnapshots,
+          refreshDirectory,
+          refreshTree,
+        },
+        isActive
+      )
+    );
+  });
+
   useEffect(() => {
     const lifecycleEpoch = lifecycleEpochRef.current + 1;
     lifecycleEpochRef.current = lifecycleEpoch;
     const isActive = (): boolean => lifecycleEpochRef.current === lifecycleEpoch;
     const handleRefreshEvent = (event: Event): void => {
       const { detail } = event as FileExplorerRefreshEvent;
-      const runQueuedEvent = (): Promise<void> => processRefreshEvent(detail, isActive);
-      refreshQueueRef.current = refreshQueueRef.current
-        .then(runQueuedEvent, runQueuedEvent)
-        .catch((error: unknown) => {
+      void enqueueRefreshWork(refreshQueueRef, () => processRefreshEvent(detail, isActive)).catch(
+        (error: unknown) => {
           logger.warn('Unexpected file tree refresh queue failure', {
             error: error instanceof Error ? error.message : String(error),
           });
-        });
+        }
+      );
     };
 
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefreshEvent);
@@ -423,4 +493,6 @@ export function useFileTreeRefreshEvents({
       }
     };
   }, [lifecycleEpochRef, processRefreshEvent, refreshQueueRef]);
+
+  return refreshTreeWithSelection;
 }

@@ -69,8 +69,10 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
 * **Selections**
 
   * `addSelectedFile(folderId, path)` / `removeSelectedFile` / `toggleSelectedFile`
-  * `setSelectedFiles(Set<string>)` (keeps only valid composite keys)
+  * `setSelectedFiles(Set<string>)` validates every composite key before replacement.
   * `addMultipleSelectedFiles(folderId, paths[])` / `removeMultipleSelectedFiles(folderId, paths[])`
+    Selection-adding actions enforce `maxSelectionCount`; reducing the limit
+    trims the current selection.
   * `reconcileSelectionWithDirectorySnapshot(s)` consumes complete, root-scoped
     directory listings after refresh; it removes only selections disproven by
     those listings and preserves query mode through exclusion overrides. When
@@ -79,7 +81,7 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
   * `getSelectionAncestorDirectories(state, folderId, rootPath)` derives the
     unique parent-first directory boundaries needed after a shallow root
     refresh by walking selected paths and ancestors only, never the file tree.
-    All enforce `maxSelectionCount` and **trim** if the limit is reduced.
+    It is a pure derivation and enforces no selection cap.
   * Encode/decode composite keys through `@brainstrike/file-explorer/selection`.
     Malformed keys throw; callers must not guess or silently coerce them.
 * **Directory expansion**

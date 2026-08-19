@@ -1,4 +1,4 @@
-import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { type FileExplorerState, type IFileNode, isPseudoFileNodeType } from '@brainstrike/types';
 import { decodeFileSelection } from '../selection.js';
 import { resolveQuerySelection } from '../utils/query-selection-manifest.js';
 
@@ -180,7 +180,7 @@ function buildSnapshotIndex(
 ): SnapshotIndex {
   const index = new Map<string, ReadonlyMap<string, 'directory' | 'file'>>();
   for (const snapshot of snapshots) {
-    if (snapshot.entries.some((entry) => entry.type === 'loadMore' || entry.type === 'truncated')) {
+    if (snapshot.entries.some((entry) => isPseudoFileNodeType(entry.type))) {
       continue;
     }
     const entries = new Map<string, 'directory' | 'file'>();
@@ -204,7 +204,9 @@ function isDisprovenByAuthoritativeSnapshots(
     if (entries) {
       const directChildPath = getDirectChildPath(selectedPath, candidateDirectory);
       const entryType = directChildPath ? entries.get(directChildPath) : undefined;
-      if (!entryType || (entryType === 'file' && selectedPath !== directChildPath)) {
+      const isReplacedByFile = entryType === 'file' && selectedPath !== directChildPath;
+      const isReplacedByDirectory = entryType === 'directory' && selectedPath === directChildPath;
+      if (!entryType || isReplacedByFile || isReplacedByDirectory) {
         return true;
       }
     }

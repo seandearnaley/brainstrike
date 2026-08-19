@@ -1393,11 +1393,12 @@ export function useLazyFileTree(
         : null;
       const committedRootIdentity = committedRootIdentityRef.current;
       const rootGeneration = loadRootRunIdRef.current;
+      const node = getNormalizedNode(normalizedTreeRef.current, path);
       if (
         !expectedRootIdentity ||
         committedRootIdentity === null ||
         committedRootIdentity !== expectedRootIdentity ||
-        getNormalizedNode(normalizedTreeRef.current, path)?.type !== 'directory'
+        node?.type !== 'directory'
       ) {
         return null;
       }
@@ -1415,10 +1416,6 @@ export function useLazyFileTree(
         (update) => update.path !== path
       );
 
-      const node = findNodeByPath(fileTreeRef.current, path);
-      if (node?.type !== 'directory') {
-        return null;
-      }
       const abortController = createAbortController(path);
       const loadToken = Symbol(`forced:${path}`);
 
@@ -1465,15 +1462,16 @@ export function useLazyFileTree(
       if (!completedAsCurrent) {
         return null;
       }
-      const refreshedNode = materializeNormalizedSubtree(normalizedTreeRef.current, path);
+      const currentTree = normalizedTreeRef.current;
+      const refreshedNode = materializeNormalizedShallowNode(currentTree, path);
       if (
         refreshedNode?.type !== 'directory' ||
         refreshedNode.loadState !== 'loaded' ||
-        !refreshedNode.children
+        !currentTree.childPathsByPath.has(path)
       ) {
         return null;
       }
-      return { directoryPath: path, entries: refreshedNode.children };
+      return { directoryPath: path, entries: refreshedNode.children ?? [] };
     },
     [
       cancelChildLoading,

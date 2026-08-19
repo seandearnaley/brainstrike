@@ -2574,6 +2574,7 @@ describe('useFileTree (lazy loading version)', () => {
           useFileTreeRefreshEvents({
             getNormalizedTree: () => tree.__internalNormalizedTreeRef?.current ?? null,
             getSelectionAncestorDirectories: () => [],
+            getSelectionVersion: () => 0,
             reconcileSelectionWithDirectorySnapshots: () => {},
             refreshDirectory: tree.refreshDirectory,
             refreshTree: tree.refreshTree,
@@ -2701,6 +2702,7 @@ describe('useFileTree (lazy loading version)', () => {
           useFileTreeRefreshEvents({
             getNormalizedTree: () => tree.__internalNormalizedTreeRef?.current ?? null,
             getSelectionAncestorDirectories: () => [],
+            getSelectionVersion: () => 0,
             reconcileSelectionWithDirectorySnapshots: () => {},
             refreshDirectory: tree.refreshDirectory,
             refreshTree: tree.refreshTree,
@@ -2838,6 +2840,7 @@ describe('useFileTree (lazy loading version)', () => {
           useFileTreeRefreshEvents({
             getNormalizedTree: () => tree.__internalNormalizedTreeRef?.current ?? null,
             getSelectionAncestorDirectories: () => [],
+            getSelectionVersion: () => 0,
             reconcileSelectionWithDirectorySnapshots: () => {},
             refreshDirectory: tree.refreshDirectory,
             refreshTree: tree.refreshTree,
@@ -2996,6 +2999,7 @@ describe('useFileTree (lazy loading version)', () => {
           useFileTreeRefreshEvents({
             getNormalizedTree: () => tree.__internalNormalizedTreeRef?.current ?? null,
             getSelectionAncestorDirectories: () => [],
+            getSelectionVersion: () => 0,
             reconcileSelectionWithDirectorySnapshots: () => {},
             refreshDirectory: tree.refreshDirectory,
             refreshTree: tree.refreshTree,

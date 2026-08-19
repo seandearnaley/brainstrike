@@ -36,10 +36,7 @@ import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { createEmptyNormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
-import {
-  refreshTreeWithSelectionRevalidation,
-  useFileTreeRefreshEvents,
-} from './use-file-tree-refresh-events';
+import { useFileTreeRefreshEvents } from './use-file-tree-refresh-events';
 
 type FileTreeContextType = CancellableFileTreeHook & {
   isRestorationSettled: boolean;
@@ -310,18 +307,10 @@ export function FileTreeProvider({
   // RootSection providers react to them. See use-file-tree-refresh-events.ts.
   const refreshEventsNormalizedTreeRef =
     fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef;
-  const refreshTreeWithSelection = useEventCallback(async () =>
-    refreshTreeWithSelectionRevalidation({
-      getNormalizedTree: () => refreshEventsNormalizedTreeRef.current,
-      getSelectionAncestorDirectories: getCurrentSelectionAncestorDirectories,
-      reconcileSelectionWithDirectorySnapshots,
-      refreshDirectory: fileTreeState.refreshDirectory,
-      refreshTree: fileTreeState.refreshTree,
-    })
-  );
-  useFileTreeRefreshEvents({
+  const refreshTreeWithSelection = useFileTreeRefreshEvents({
     getNormalizedTree: () => refreshEventsNormalizedTreeRef.current,
     getSelectionAncestorDirectories: getCurrentSelectionAncestorDirectories,
+    getSelectionVersion: () => store.getState().selectionVersion,
     reconcileSelectionWithDirectorySnapshots,
     refreshDirectory: fileTreeState.refreshDirectory,
     refreshTree: fileTreeState.refreshTree,

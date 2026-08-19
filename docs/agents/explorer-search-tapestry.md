@@ -786,13 +786,21 @@ fallback.
   regardless of collection order; a `loadMore`/`truncated` pseudo-row makes that
   directory snapshot non-authoritative, so it cannot disprove selection.
   Ordinary expand, restoration, and expand-all enumeration never trigger
-  reconciliation. Watcher directories refresh sequentially against the shared
-  normalized tree, then all complete snapshots from the batch publish through
-  one store update bound to the root identity that started the batch; a
-  same-path root-id switch during a later directory read can never retarget
-  already-completed snapshots. Separate refresh events run through one lossless
-  queue per provider; a failed job is surfaced and consumed so later events
-  still run. Every queued job carries the provider effect's lifecycle epoch;
+  reconciliation. Authoritative directories refresh parent-depth-first against
+  the shared normalized tree, with at most five same-depth reads in flight and
+  no cap or truncation of the derived path set; all complete snapshots from the
+  batch then publish through one store update bound to the root identity that
+  started the batch. The finite work bound is the number of unique ancestors
+  derived from the bounded selection projection (at most selected paths times
+  their ancestor depth), while live I/O remains bounded to five. Direct manual
+  refreshes and refresh events run through one lossless queue per provider, so
+  they cannot publish overlapping snapshots. Each directory batch captures the
+  store's monotonic selection version and discards the entire stale batch if
+  selection changes before publication; it never reconciles an older snapshot
+  against a newer selection. A same-path root-id switch during a later
+  directory read can never retarget already-completed snapshots. A failed job
+  is surfaced and consumed so later events still run. Every queued job carries
+  the provider effect's lifecycle epoch;
   cleanup invalidates that epoch, so retired jobs stop before new I/O and an
   in-flight job discards all snapshots after its next await instead of
   reconciling through an unmounted provider. Watcher changes retry `error`
@@ -822,7 +830,9 @@ fallback.
   expansion/restoration read for that path, removes buffered pre-event evidence,
   commits outside renderer expand-all batching, and owns a token-checked
   in-flight entry, so it cannot join a pre-mutation listing or have that listing
-  erase its registry entry. The worker port exposes one shared bulk operation,
+  erase its registry entry. Its directory existence/type check is a normalized
+  O(1) lookup and its authoritative result materializes only immediate children,
+  never the descendant subtree. The worker port exposes one shared bulk operation,
   so retiring a worker-backed read cancels that active bulk sweep as a unit;
   the replacement physical read remains scoped to the affected directory, then
   the original bounded restoration/expand request continues through the

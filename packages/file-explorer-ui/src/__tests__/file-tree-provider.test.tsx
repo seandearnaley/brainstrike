@@ -582,11 +582,10 @@ describe('FileTreeProvider', () => {
       await manualRefresh;
     });
     await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(reconcileSelectionWithDirectorySnapshotsMock).toHaveBeenCalledTimes(2)
-    );
+    await act(async () => Promise.resolve());
 
     expect(watcherStartedBeforeManualSettled).toBe(false);
+    expect(reconcileSelectionWithDirectorySnapshotsMock).toHaveBeenCalledOnce();
     expect(selectedNewFile).toBe(true);
   });
 
