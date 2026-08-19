@@ -125,8 +125,11 @@ describe('FileExplorerProvider', () => {
     expect(result.current.getState().folderStates['root-a']?.selectedFilePaths.size).toBe(1);
     expect(result.current.getState().getFileContentCacheStats().entryCount).toBe(1);
 
-    const resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
-    expect(resetResult.success).toBe(true);
+    let resetResult: Awaited<ReturnType<typeof clearPersistentUiStateWithResult>> | undefined;
+    await act(async () => {
+      resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    });
+    expect(resetResult?.success).toBe(true);
     expect(result.current.getState().selectedFilePaths.size).toBe(0);
     expect(result.current.getState().folderStates['root-a']?.selectedFilePaths.size).toBe(0);
     expect(result.current.getState().fileContents).toEqual({});

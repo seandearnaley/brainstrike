@@ -39,9 +39,9 @@ vi.mock('../shell/use-file-explorer-context', () => ({
     canLoadWithoutTree: false,
     fileContents: {},
     fileTree: [],
-    loadFileContent: vi.fn(),
+    loadFileContent: vi.fn().mockResolvedValue(undefined),
     loadingFiles: new Set<string>(),
-    loadMultipleFileContents: vi.fn(),
+    loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
     rootDirectoryHandle: null,
   })),
 }));
@@ -338,9 +338,9 @@ describe('workspace tabs — file tab operations', () => {
       canLoadWithoutTree: false,
       fileContents: { 'folderA|@|src/index.ts': 'export const file = "content";' },
       fileTree: [],
-      loadFileContent: vi.fn(),
+      loadFileContent: vi.fn().mockResolvedValue(undefined),
       loadingFiles: new Set<string>(),
-      loadMultipleFileContents: vi.fn(),
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
@@ -391,9 +391,9 @@ describe('workspace tabs — file tab operations', () => {
       canLoadWithoutTree: false,
       fileContents: { 'folderA|@|src/index.ts': 'export const file = "content";' },
       fileTree: [],
-      loadFileContent: vi.fn(),
+      loadFileContent: vi.fn().mockResolvedValue(undefined),
       loadingFiles: new Set<string>(),
-      loadMultipleFileContents: vi.fn(),
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
@@ -451,9 +451,9 @@ describe('workspace tabs — file tab operations', () => {
         [otherKey]: 'export const other = true;',
       },
       fileTree: [],
-      loadFileContent: vi.fn(),
+      loadFileContent: vi.fn().mockResolvedValue(undefined),
       loadingFiles: new Set<string>(),
-      loadMultipleFileContents: vi.fn(),
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
@@ -528,9 +528,9 @@ describe('workspace tabs — file tab operations', () => {
       canLoadWithoutTree: false,
       fileContents: { [indexKey]: 'export const file = "content";' },
       fileTree: [],
-      loadFileContent: vi.fn(),
+      loadFileContent: vi.fn().mockResolvedValue(undefined),
       loadingFiles: new Set<string>(),
-      loadMultipleFileContents: vi.fn(),
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
@@ -850,7 +850,7 @@ describe('workspace tabs — file tab operations', () => {
       updateTabContent: vi.fn(),
     });
 
-    const loadFileContent = vi.fn();
+    const loadFileContent = vi.fn().mockResolvedValue(undefined);
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
@@ -858,7 +858,7 @@ describe('workspace tabs — file tab operations', () => {
       fileTree: [],
       loadFileContent,
       loadingFiles: new Set<string>(),
-      loadMultipleFileContents: vi.fn(),
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
@@ -925,7 +925,7 @@ describe('workspace tabs — file tab operations', () => {
       updateTabContent: vi.fn(),
     });
 
-    const loadFileContent = vi.fn();
+    const loadFileContent = vi.fn().mockResolvedValue(undefined);
     const fileExplorerModule = await import('../shell/use-file-explorer-context');
     vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
       canLoadWithoutTree: false,
@@ -933,7 +933,7 @@ describe('workspace tabs — file tab operations', () => {
       fileTree: [{ path: 'src/locked.ts' }],
       loadFileContent,
       loadingFiles: new Set<string>(),
-      loadMultipleFileContents: vi.fn(),
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
@@ -975,9 +975,9 @@ describe('workspace tabs — file tab operations', () => {
       canLoadWithoutTree: false,
       fileContents: { [compositeKey]: inaccessibleContent },
       fileTree: [],
-      loadFileContent: vi.fn(),
+      loadFileContent: vi.fn().mockResolvedValue(undefined),
       loadingFiles: new Set<string>(),
-      loadMultipleFileContents: vi.fn(),
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 

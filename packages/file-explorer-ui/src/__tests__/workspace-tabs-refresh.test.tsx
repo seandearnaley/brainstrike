@@ -83,7 +83,7 @@ async function configureFileExplorer(fileContents: Record<string, string>) {
     fileTree: [],
     loadFileContent,
     loadingFiles: new Set<string>(),
-    loadMultipleFileContents: vi.fn(),
+    loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
     reloadFileContents,
     rootDirectoryHandle: null,
   } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);

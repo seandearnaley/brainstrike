@@ -4,7 +4,17 @@ import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
 import { type FileExplorerState, FileExplorerStrings } from '@brainstrike/types';
-import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { StoreApi } from 'zustand';
 import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
 import { setupInlineFixtureSubscription } from '../setup-inline-fixture-subscription';
@@ -34,19 +44,63 @@ interface FileContentLoadAuthority {
   clearGeneration: (compositeKey: string, expectedGeneration: number | undefined) => void;
   currentGeneration: (compositeKey: string) => number;
   getActiveLoad: (compositeKey: string) => Promise<void> | undefined;
+  invalidateAll: () => void;
   isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean;
+  lifecycleId: number;
   releaseActiveLoad: (compositeKeys: readonly string[], expectedPromise: Promise<void>) => void;
+  runBatch: (task: () => Promise<void>) => Promise<void>;
   trackActiveLoad: (compositeKeys: readonly string[], promise: Promise<void>) => void;
 }
 
+interface PendingFileContentBatch {
+  readonly epoch: number;
+  readonly reject: (error: unknown) => void;
+  readonly resolve: () => void;
+  readonly task: () => Promise<void>;
+}
+
+const MAX_CONCURRENT_FILE_CONTENT_BATCHES = 2;
+let nextFileContentLifecycleId = 0;
+
 function createFileContentLoadAuthority(): FileContentLoadAuthority {
   const activeLoads = new Map<string, Promise<void>>();
+  const activeBatchIds = new Set<number>();
   const generations = new Map<string, number>();
+  const pendingBatches: PendingFileContentBatch[] = [];
+  let lifecycleEpoch = 0;
+  let lifecycleGeneration = 0;
+  let nextBatchId = 0;
+  let nextGeneration = 0;
+  nextFileContentLifecycleId += 1;
+  const lifecycleId = nextFileContentLifecycleId;
+  const drainBatchQueue = (): void => {
+    while (activeBatchIds.size < MAX_CONCURRENT_FILE_CONTENT_BATCHES && pendingBatches.length > 0) {
+      const pending = pendingBatches.shift();
+      if (!pending) {
+        return;
+      }
+      if (pending.epoch !== lifecycleEpoch) {
+        pending.resolve();
+        continue;
+      }
+      nextBatchId += 1;
+      const batchId = nextBatchId;
+      activeBatchIds.add(batchId);
+      void pending
+        .task()
+        .then(pending.resolve, pending.reject)
+        .finally(() => {
+          activeBatchIds.delete(batchId);
+          drainBatchQueue();
+        });
+    }
+  };
   return {
     beginReload: (compositeKeys) => {
       const requested = new Map<string, number>();
       for (const compositeKey of compositeKeys) {
-        const generation = (generations.get(compositeKey) ?? 0) + 1;
+        nextGeneration += 1;
+        const generation = nextGeneration;
         generations.set(compositeKey, generation);
         requested.set(compositeKey, generation);
       }
@@ -57,16 +111,35 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
         generations.delete(compositeKey);
       }
     },
-    currentGeneration: (compositeKey) => generations.get(compositeKey) ?? 0,
+    currentGeneration: (compositeKey) => generations.get(compositeKey) ?? lifecycleGeneration,
     getActiveLoad: (compositeKey) => activeLoads.get(compositeKey),
+    invalidateAll: () => {
+      lifecycleEpoch += 1;
+      nextGeneration += 1;
+      lifecycleGeneration = nextGeneration;
+      generations.clear();
+      activeLoads.clear();
+      for (const pending of pendingBatches.splice(0)) {
+        pending.resolve();
+      }
+      activeBatchIds.clear();
+    },
     isCurrentGeneration: (compositeKey, expectedGeneration) =>
-      (generations.get(compositeKey) ?? 0) === expectedGeneration,
+      (generations.get(compositeKey) ?? lifecycleGeneration) === expectedGeneration,
+    lifecycleId,
     releaseActiveLoad: (compositeKeys, expectedPromise) => {
       for (const compositeKey of compositeKeys) {
         if (activeLoads.get(compositeKey) === expectedPromise) {
           activeLoads.delete(compositeKey);
         }
       }
+    },
+    runBatch: (task) => {
+      const scheduled = new Promise<void>((resolve, reject) => {
+        pendingBatches.push({ epoch: lifecycleEpoch, reject, resolve, task });
+        drainBatchQueue();
+      });
+      return scheduled;
     },
     trackActiveLoad: (compositeKeys, promise) => {
       for (const compositeKey of compositeKeys) {
@@ -90,6 +163,7 @@ export function FileExplorerProvider({
   fileSystemAdapter,
   children,
 }: FileExplorerProviderProps) {
+  const [fileContentResetRevision, setFileContentResetRevision] = useState(0);
   // Store and content-read authority share one lifecycle: replacing the
   // storage adapter must never carry active reads into the replacement store.
   const { fileContentLoadAuthority, store } = useMemo(
@@ -98,6 +172,13 @@ export function FileExplorerProvider({
       store: createFileExplorerStore(storageAdapter),
     }),
     [storageAdapter]
+  );
+
+  useLayoutEffect(
+    () => () => {
+      fileContentLoadAuthority.invalidateAll();
+    },
+    [fileContentLoadAuthority]
   );
 
   // Set up inline fixture subscription when adapter is available.
@@ -136,20 +217,27 @@ export function FileExplorerProvider({
     () =>
       registerFactoryResetSessionStore(() => {
         const state = store.getState();
+        fileContentLoadAuthority.invalidateAll();
+        state.clearAllFileContents();
         state.clearSelectedFiles();
         state.resetSelectionToExplicit();
         for (const folderId of Object.keys(state.folderStates)) {
           state.setFolderSelection(folderId, []);
         }
+        setFileContentResetRevision((revision) => revision + 1);
       }),
-    [store]
+    [fileContentLoadAuthority, store]
   );
+
+  const fileContentLifecycleKey = `${fileContentLoadAuthority.lifecycleId}:${fileContentResetRevision}`;
 
   return (
     <FileExplorerStoreContext.Provider value={store}>
       <FileContentLoadAuthorityContext.Provider value={fileContentLoadAuthority}>
-        <PersistenceRecoveryNotifier />
-        {children}
+        <Fragment key={fileContentLifecycleKey}>
+          <PersistenceRecoveryNotifier />
+          {children}
+        </Fragment>
       </FileContentLoadAuthorityContext.Provider>
     </FileExplorerStoreContext.Provider>
   );

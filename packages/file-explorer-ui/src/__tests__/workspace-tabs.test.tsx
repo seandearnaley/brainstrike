@@ -31,9 +31,9 @@ vi.mock('../shell/use-file-explorer-context', () => ({
     canLoadWithoutTree: false,
     fileContents: {},
     fileTree: [],
-    loadFileContent: vi.fn(),
+    loadFileContent: vi.fn().mockResolvedValue(undefined),
     loadingFiles: new Set<string>(),
-    loadMultipleFileContents: vi.fn(),
+    loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
     rootDirectoryHandle: null,
   })),
 }));

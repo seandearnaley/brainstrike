@@ -213,7 +213,12 @@ export const FileExplorerMiddlePanelBase = () => {
     if (compositeKeys.length === 0) {
       return;
     }
-    void loadMultipleFileContents(compositeKeys);
+    void loadMultipleFileContents(compositeKeys).catch((error: unknown) => {
+      logger.error('Preview file-content batch failed', {
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        fileCount: compositeKeys.length,
+      });
+    });
   }, [loadMultipleFileContents]);
 
   const handlePreviewContentRequest = useCallback(

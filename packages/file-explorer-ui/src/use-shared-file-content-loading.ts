@@ -10,12 +10,14 @@ import { getKnownFileSize } from '@brainstrike/utils/file-content';
 const logger = createLogger('SharedFileContentLoading');
 const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;
 
-import type {
-  FileContentReadResult,
-  FileContentWorker,
-  FileReadRequest,
-} from '@brainstrike/workers/file-content-worker';
+import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  clearFileLoadingState,
+  processFileContentWorkerResults,
+  runFileContentWorkerBatch,
+  settleFileReadPreparations,
+} from './file-content-load-results';
 import { runFileContentReloadGroups } from './file-content-reload-scheduler';
 import {
   useFileContentLoadAuthority,
@@ -77,43 +79,12 @@ function countTreeNodes(nodes: IFileNode[]): number {
   return count;
 }
 
-// Loading state management helpers
-function updateLoadingState(
-  compositeKey: string,
-  loadingPathsRef: React.RefObject<Set<string>>,
-  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>
-): void {
-  loadingPathsRef.current.delete(compositeKey);
-  setLoadingFiles((prev) => {
-    const newSet = new Set(prev);
-    newSet.delete(compositeKey);
-    return newSet;
-  });
-}
-
-function processWorkerResults(
-  results: Record<string, FileContentReadResult>,
-  setFileContent: (key: string, content: string) => void,
-  expectedGenerations: ReadonlyMap<string, number>,
-  isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean
-): void {
-  let unexpectedResultCount = 0;
-  for (const [key, result] of Object.entries(results)) {
-    const expectedGeneration = expectedGenerations.get(key);
-    if (expectedGeneration === undefined) {
-      unexpectedResultCount += 1;
-      continue;
-    }
-    if (!isCurrentGeneration(key, expectedGeneration)) {
-      continue;
-    }
-    setFileContent(key, result.status === 'accessible' ? result.content : result.message);
+function createFileContentBatchError(failures: readonly unknown[]): Error {
+  const [onlyFailure] = failures;
+  if (failures.length === 1 && onlyFailure instanceof Error) {
+    return onlyFailure;
   }
-  if (unexpectedResultCount > 0) {
-    logger.warn('Ignoring file-content results for unrequested keys', {
-      count: unexpectedResultCount,
-    });
-  }
+  return new AggregateError(failures, 'One or more file-content reads failed.');
 }
 
 function shouldLoadFile(
@@ -713,6 +684,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const deferredLookupAttemptsRef = useRef<Map<string, number>>(new Map());
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
   const workerRef = useRef<FileContentWorker | null>(null);
+  const activeExecutionCountRef = useRef(0);
 
   // Use ref to access current tree without closure stale state issues.
   const fileTreeRef = useRef(fileTree);
@@ -812,7 +784,9 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     ): Promise<void> => {
       const worker = workerRef.current;
       if (!worker) {
-        return;
+        const unavailableError = new Error('File content worker is unavailable.');
+        setError(unavailableError);
+        throw unavailableError;
       }
 
       if (canLoadWithoutTree && fileTreeRef.current.length === 0 && compositeKeys.length > 0) {
@@ -833,15 +807,23 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         treeNodeCount,
       });
 
-      setIsLoading(true);
+      activeExecutionCountRef.current += 1;
+      if (activeExecutionCountRef.current === 1) {
+        setIsLoading(true);
+      }
       setError(null);
 
       try {
-        const prepared = await Promise.all(
+        const preparationResults = await Promise.allSettled(
           compositeKeys.map((key) => prepareFileRead(key, expectedGenerations.get(key) ?? 0))
         );
-        const requests: FileReadRequest[] = prepared.filter(
-          (req): req is FileReadRequest => req !== null
+        const clearLoading = (compositeKey: string): void => {
+          clearFileLoadingState(compositeKey, loadingPathsRef, setLoadingFiles);
+        };
+        const { failures, requests } = settleFileReadPreparations(
+          preparationResults,
+          compositeKeys,
+          clearLoading
         );
 
         logger.debug('Prepared file read requests', {
@@ -850,20 +832,31 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           successfulRequests: requests.length,
         });
 
-        await worker(requests, ({ key }) => {
-          updateLoadingState(key, loadingPathsRef, setLoadingFiles);
-        }).then((results) => {
-          processWorkerResults(
-            results,
-            store.getState().setFileContent,
-            expectedGenerations,
-            loadAuthority.isCurrentGeneration
-          );
+        const workerResult = await runFileContentWorkerBatch({
+          clearLoading,
+          processResults: (results) => {
+            processFileContentWorkerResults(
+              results,
+              store.getState().setFileContent,
+              expectedGenerations,
+              loadAuthority.isCurrentGeneration
+            );
+          },
+          requests,
+          worker,
         });
-      } catch (err) {
-        setError(err as Error);
+        if (workerResult.status === 'failed') {
+          failures.push(workerResult.error);
+        }
+
+        if (failures.length > 0) {
+          const batchError = createFileContentBatchError(failures);
+          setError(batchError);
+          throw batchError;
+        }
       } finally {
-        setIsLoading(false);
+        activeExecutionCountRef.current -= 1;
+        setIsLoading(activeExecutionCountRef.current > 0);
       }
     },
     [prepareFileRead, store, canLoadWithoutTree, loadAuthority]
@@ -888,9 +881,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           keysToStart.map((key) => [key, loadAuthority.currentGeneration(key)] as const)
         );
         let batchPromise: Promise<void>;
-        batchPromise = executeFileContentLoading(keysToStart, expectedGenerations).finally(() => {
-          loadAuthority.releaseActiveLoad(keysToStart, batchPromise);
-        });
+        batchPromise = loadAuthority
+          .runBatch(() => executeFileContentLoading(keysToStart, expectedGenerations))
+          .finally(() => {
+            loadAuthority.releaseActiveLoad(keysToStart, batchPromise);
+          });
         loadAuthority.trackActiveLoad(keysToStart, batchPromise);
         promises.add(batchPromise);
       }
@@ -955,7 +950,14 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         return activeLoad ? [activeLoad] : [];
       })
     );
-    void Promise.all(precedingLoads).then(() => handleFileContentLoading(pendingKeys));
+    void Promise.all(precedingLoads)
+      .then(() => handleFileContentLoading(pendingKeys))
+      .catch((error: unknown) => {
+        logger.error('Deferred file-content retry failed', {
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+          fileCount: pendingKeys.length,
+        });
+      });
   }, [
     canLoadWithoutTree,
     fileTree.length,

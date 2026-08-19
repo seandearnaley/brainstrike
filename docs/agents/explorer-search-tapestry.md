@@ -762,7 +762,14 @@ fallback.
   one memoized lifecycle. A retired provider read can finish only into its
   retired store/cache; it cannot repopulate content consumed by the replacement
   provider. Per-store clears, eviction, stats, and full reset act on that same
-  scoped cache. Each key carries a monotonic in-memory generation while the
+  scoped cache. Factory reset first invalidates all read generations and queued
+  batches, then clears the live store's raw content/LRU and advances a keyed
+  provider lifecycle. This remounts hook-local loading/pending/cache refs and
+  state on web even when reset does not reload; provider/store identity changes
+  use the same key, with commit-phase cleanup invalidating the retired
+  authority. Each generation token is globally monotonic within the authority,
+  so clearing its per-key map can never make a pre-reset token valid again.
+  Each key carries a monotonic in-memory generation while the
   reload is active, so an older read resolving in a sibling hook after a second
   disk change cannot republish stale bytes. Refresh partitions keys before its
   first await: immediately-ready keys start in ONE batch, while dependent keys
@@ -770,9 +777,19 @@ fallback.
   superseded generations and starts as soon as only its own predecessor
   settles, so one slow/hung read cannot blank and starve unrelated tabs. A
   rejected obsolete read is diagnosed by count (never path), then that group
-  still performs its fresh replacement. Each completed group clears its own
+  still performs its fresh replacement. All groups submit through the ONE
+  provider-owned scheduler, which permits at most TWO simultaneous worker
+  queues per lifecycle epoch: an existing slow queue leaves one lane for
+  unrelated ready work, but twenty distinct predecessors settling together
+  cannot create twenty queues.
+  Each completed group clears its own
   generation; active-load entries are identity-cleaned on settlement, so
-  close/reopen churn does not create an unbounded key registry. Rebuilt worker `FileHandle`s carry
+  close/reopen churn does not create an unbounded key registry. Read preparation
+  is settled per key rather than fail-fast: valid siblings still reach the
+  worker, while preparation and worker failures clear every marked key, update
+  the visible content error, and reject the public load promise. Fire-and-forget
+  UI consumers explicitly observe that rejection after the shared error state
+  is set. Rebuilt worker `FileHandle`s carry
   `fileNode.handle.rootId` when present; `rootFolderId` remains selection/cache
   identity and is NEVER substituted for durable read authority. Removed
   files/directories therefore replace the tab with its loading boundary and
@@ -1059,8 +1076,10 @@ fallback.
   (incremental/full/deleted/multi-root/Windows/commit-phase freshness/cleanup) and
   `packages/file-explorer-ui/src/__tests__/use-shared-file-content-reload.test.tsx`
   (same-hook and cross-hook stale suppression, ready/dependent/rejected batch
-  scheduling, provider replacement isolation, and nested-handle RootId
-  forwarding), plus
+  scheduling, reset/replacement lifecycle isolation, per-key preparation and
+  worker-error settlement, twenty-group queue bounds, and nested-handle RootId
+  forwarding), `packages/file-explorer-ui/src/__tests__/file-explorer-provider.test.tsx`
+  (live factory-reset content/cache clearing), plus
   `packages/file-explorer/src/__tests__/file-content-actions.test.ts`
   (store-scoped cache/reset lifecycle).
 

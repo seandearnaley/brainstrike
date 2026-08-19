@@ -618,13 +618,16 @@ describe('useSharedFileContentLoading reload ordering', () => {
         completeWorkerQueues[index]?.();
         await Promise.resolve();
       });
+      if (index < compositeKeys.length - 1) {
+        expect(result.current.loader.isLoading).toBe(true);
+      }
     }
     await act(async () => {
       await reload;
     });
 
     expect(worker).toHaveBeenCalledTimes(20);
-    expect(peakWorkerQueues).toBe(1);
+    expect(peakWorkerQueues).toBe(2);
   });
 
   it('resets hook-local loading state when the provider store identity changes', async () => {

@@ -70,6 +70,17 @@ export function WorkspaceTabsProvider({
     loadingFiles,
     reloadFileContents,
   } = useFileExplorer();
+  const startFileContentLoad = useCallback(
+    (compositeKey: string): void => {
+      void loadFileContent(compositeKey).catch((error: unknown) => {
+        logger.error('Workspace file-content load failed', {
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+          fileCount: 1,
+        });
+      });
+    },
+    [loadFileContent]
+  );
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
 
   const selection = useWorkspaceTabSelectionStore((s) => s.selection);
@@ -154,7 +165,7 @@ export function WorkspaceTabsProvider({
       try {
         const granted = await requestTabPermission(compositeKey);
         if (isMountedRef.current && granted) {
-          void loadFileContent(compositeKey);
+          startFileContentLoad(compositeKey);
         }
       } catch (err) {
         logger.error('Failed to request file permission', {
@@ -165,7 +176,7 @@ export function WorkspaceTabsProvider({
         permissionRequestsInProgressRef.current.delete(compositeKey);
       }
     },
-    [requestTabPermission, loadFileContent]
+    [requestTabPermission, startFileContentLoad]
   );
 
   const handleSelectFileTab = useCallback(
@@ -310,7 +321,7 @@ export function WorkspaceTabsProvider({
     if (status && status.status !== 'restored') {
       return;
     }
-    void loadFileContent(tab.compositeKey);
+    startFileContentLoad(tab.compositeKey);
   }, [
     selection,
     tabs,
@@ -319,7 +330,7 @@ export function WorkspaceTabsProvider({
     tabStatuses,
     canLoadWithoutTree,
     fileTree,
-    loadFileContent,
+    startFileContentLoad,
   ]);
 
   // Sync the latest snapshots into refs so the open-file callback can read them without
@@ -369,10 +380,10 @@ export function WorkspaceTabsProvider({
         fileContentsRef.current[compositeKey] === undefined &&
         !loadingFilesRef.current.has(compositeKey)
       ) {
-        void loadFileContent(compositeKey);
+        startFileContentLoad(compositeKey);
       }
     },
-    [openTab, selectFile, loadFileContent, setTarget, invalidatePendingSelection]
+    [openTab, selectFile, startFileContentLoad, setTarget, invalidatePendingSelection]
   );
 
   useTerminalHotkey(apps, handleOpenApp);
