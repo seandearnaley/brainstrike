@@ -792,7 +792,11 @@ fallback.
   same-path root-id switch during a later directory read can never retarget
   already-completed snapshots. Separate refresh events run through one lossless
   queue per provider; a failed job is surfaced and consumed so later events
-  still run. Watcher changes retry `error` directories and retain invalidations
+  still run. Every queued job carries the provider effect's lifecycle epoch;
+  cleanup invalidates that epoch, so retired jobs stop before new I/O and an
+  in-flight job discards all snapshots after its next await instead of
+  reconciling through an unmounted provider. Watcher changes retry `error`
+  directories and retain invalidations
   for `loading` directories by forcing a fresh read instead of joining the
   pre-event request; genuinely `unloaded` directories still wait for expansion.
   A shallow root replacement
@@ -820,10 +824,15 @@ fallback.
   in-flight entry, so it cannot join a pre-mutation listing or have that listing
   erase its registry entry. The worker port exposes one shared bulk operation,
   so retiring a worker-backed read cancels that active bulk sweep as a unit;
-  the replacement physical read remains scoped to the affected directory. A
-  forced root refresh retires the same provider's
+  the replacement physical read remains scoped to the affected directory, then
+  the original bounded restoration/expand request continues through the
+  renderer so unrelated paths are not silently reported as restored. A forced
+  root refresh retires the same provider's
   active root/child/bulk consumers and waits for any still-live shared root read
   that crossed the invalidation boundary before starting fresh physical I/O;
+  every actively loading child in the retained normalized snapshot is reset to
+  `unloaded` before replacement I/O, so a failed or cancelled root read leaves
+  no non-retryable loading marker or stale child controller;
   the shared registry deletes only identity-matching settled entries and remains
   bounded to live requests. Structural changes directly beneath a Windows drive
   root retain the `C:/` or `C:\\` parent boundary and therefore trigger the

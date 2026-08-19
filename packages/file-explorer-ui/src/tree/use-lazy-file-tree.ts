@@ -1235,6 +1235,41 @@ export function useLazyFileTree(
     retireActiveWorkerTreeOperation,
   ]);
 
+  const retireChildLoadsForRootRefresh = useCallback((): void => {
+    const activePaths = new Set([
+      ...loadingPathsRef.current,
+      ...childAbortControllersRef.current.keys(),
+      ...inFlightChildLoadsRef.current.keys(),
+    ]);
+    const pathsToReset = Array.from(activePaths).filter(
+      (path) => getNormalizedNode(normalizedTreeRef.current, path)?.loadState === 'loading'
+    );
+
+    cancelAllChildLoading();
+    inFlightChildLoadsRef.current.clear();
+    if (pathsToReset.length === 0) {
+      setState((currentState) =>
+        currentState.loadingPaths.size === 0
+          ? currentState
+          : { ...currentState, loadingPaths: new Set() }
+      );
+      return;
+    }
+
+    const nextTree = commitNormalizedTree((currentTree) => {
+      let nextTreeState = currentTree;
+      for (const path of pathsToReset) {
+        nextTreeState = setNormalizedNodeLoadState(nextTreeState, path, 'unloaded');
+      }
+      return nextTreeState;
+    });
+    setState((currentState) => ({
+      ...currentState,
+      fileTree: nextTree,
+      loadingPaths: new Set(),
+    }));
+  }, [cancelAllChildLoading, childAbortControllersRef, commitNormalizedTree]);
+
   const runWorkerExpandAll = useCallback(
     async (_args: ExpandAllExecutorArgs): Promise<ExpandAllExecutorResult | null> => {
       const port = portRef.current;
@@ -1260,7 +1295,11 @@ export function useLazyFileTree(
         work: () => port.expandAll(rootFolderId),
       });
       if (!result) {
-        return { discoveredDirectories: 0, pathsToCommit: [] };
+        // The shared worker operation was retired by an authoritative refresh.
+        // Continue the already-bounded expand request in the renderer instead
+        // of reporting unrelated paths as successfully expanded.
+        rendererExpandAllSessionRef.current = true;
+        return null;
       }
       return applyWorkerExpandAllResult({
         handleMapRef,
@@ -1476,8 +1515,7 @@ export function useLazyFileTree(
     if (isExpandingAllRef.current) {
       cancelExpandAll();
     }
-    cancelAllChildLoading();
-    inFlightChildLoadsRef.current.clear();
+    retireChildLoadsForRootRefresh();
 
     const outcome = await loadRoot(true, true);
     if (outcome.status === 'failed') {
@@ -1488,12 +1526,12 @@ export function useLazyFileTree(
     }
     return { status: 'cancelled' };
   }, [
-    cancelAllChildLoading,
     cancelExpandAll,
     cancelRootLoading,
     isExpandingAllRef,
     loadRoot,
     retireActiveWorkerTreeOperation,
+    retireChildLoadsForRootRefresh,
   ]);
 
   /**
@@ -1551,7 +1589,7 @@ export function useLazyFileTree(
         if (paths.length > 1) {
           const port = portRef.current;
           if (port) {
-            await runRetirableWorkerTreeOperation({
+            const workerCompleted = await runRetirableWorkerTreeOperation({
               activeOperationRef: activeWorkerTreeOperationRef,
               label: 'worker-path-restoration',
               work: async () => {
@@ -1569,15 +1607,21 @@ export function useLazyFileTree(
                 return true;
               },
             });
-            return;
-          }
-
-          logger.debug(
-            'loadSpecificPaths using serial restoration because worker port is unavailable',
-            {
-              pathCount: paths.length,
+            if (workerCompleted) {
+              return;
             }
-          );
+            logger.debug(
+              'loadSpecificPaths continuing serially after authoritative worker retirement',
+              { pathCount: paths.length }
+            );
+          } else {
+            logger.debug(
+              'loadSpecificPaths using serial restoration because worker port is unavailable',
+              {
+                pathCount: paths.length,
+              }
+            );
+          }
         }
 
         await loadSpecificPathsSerial({
