@@ -1,7 +1,7 @@
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, render, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { useLayoutEffect } from 'react';
+import { useCallback, useLayoutEffect, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileTab, UseTabManagerReturn } from '../hooks/use-tab-manager';
 import { createFileExplorerRefreshEvent } from '../shell/file-explorer-refresh-event';
@@ -9,8 +9,14 @@ import {
   planOpenFileRefresh,
   useWorkspaceOpenFileRefresh,
 } from '../shell/use-workspace-open-file-refresh';
+import { WorkspaceBody } from '../shell/workspace-body';
 import { WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
-import { __resetWorkspaceTabSelectionStoreForTests } from '../stores/workspace-tab-selection-store';
+import { useFileTabPaneStore } from '../stores/file-tab-pane-store';
+import {
+  __resetWorkspaceTabSelectionStoreForTests,
+  useWorkspaceTabSelectionStore,
+} from '../stores/workspace-tab-selection-store';
+import { stubMatchMedia } from './setup/stub-match-media';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 vi.mock('../shell/use-file-explorer-context', () => ({
@@ -88,6 +94,59 @@ async function configureFileExplorer(fileContents: Record<string, string>) {
     rootDirectoryHandle: null,
   } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
   return { clearFileContents, loadFileContent, reloadFileContents };
+}
+
+async function configureRejectedFileExplorer(
+  compositeKey: string,
+  loadError: Error
+): Promise<{ readonly reloadFileContents: ReturnType<typeof vi.fn> }> {
+  const loadFileContent = vi.fn().mockResolvedValue(undefined);
+  const loadingFiles = new Set<string>();
+  const reloadFileContents = vi.fn();
+  const fileExplorerModule = await import('../shell/use-file-explorer-context');
+  vi.mocked(fileExplorerModule.useFileExplorer).mockImplementation(() => {
+    const [fileContents, setFileContents] = useState<Record<string, string>>({
+      [compositeKey]: 'stale content before refresh',
+    });
+    const [fileContentErrors, setFileContentErrors] = useState<ReadonlyMap<string, Error>>(
+      new Map()
+    );
+    const rejectLoad = useCallback(
+      async (compositeKeys: readonly string[]): Promise<void> => {
+        setFileContents((previous) => {
+          const next = { ...previous };
+          for (const key of compositeKeys) {
+            delete next[key];
+          }
+          return next;
+        });
+        setFileContentErrors((previous) => {
+          const next = new Map(previous);
+          for (const key of compositeKeys) {
+            next.set(key, loadError);
+          }
+          return next;
+        });
+        throw loadError;
+      },
+      [loadError]
+    );
+    reloadFileContents.mockImplementation(rejectLoad);
+    return {
+      canLoadWithoutTree: true,
+      clearFileContents: vi.fn(),
+      fileContentErrors,
+      fileContents,
+      fileTree: [],
+      loadFileContent,
+      loadingFiles,
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
+      reloadFileContents,
+      rootDescriptors: {},
+      rootDirectoryHandle: null,
+    } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>;
+  });
+  return { reloadFileContents };
 }
 
 describe('workspace tabs open-file refresh', () => {
@@ -296,6 +355,45 @@ describe('workspace tabs open-file refresh', () => {
     });
 
     expect(plan.keysToReload).toEqual([deleted.compositeKey]);
+  });
+
+  it('renders a terminal content error after an open-tab refresh rejects', async () => {
+    stubMatchMedia();
+    const compositeKey = 'root-a|@|src/rejected.ts';
+    const tab = fileTab(compositeKey, 'src/rejected.ts');
+    const loadError = new Error('read worker rejected');
+    await configureTabs([tab]);
+    const { reloadFileContents } = await configureRejectedFileExplorer(compositeKey, loadError);
+    useWorkspaceTabSelectionStore.getState().selectFile(tab.id);
+    useFileTabPaneStore.getState().hydratePanes({
+      [compositeKey]: { expandedPaths: [], open: false, widthPct: 30 },
+    });
+
+    render(<WorkspaceBody />, { wrapper: Wrapper });
+    expect(screen.getByText('stale content before refresh')).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: '/workspace/a/src/rejected.ts', type: 'modified' }],
+              rootId: 'root-a',
+              rootPath: '/workspace/a',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+
+    await waitFor(() => expect(reloadFileContents).toHaveBeenCalledWith([compositeKey]));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveAccessibleName('File content unavailable');
+    expect(alert).toHaveTextContent('Brainstrike could not load this file.');
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Restoring…')).not.toBeInTheDocument();
   });
 
   it('stops reloading after the workspace tabs provider unmounts', async () => {

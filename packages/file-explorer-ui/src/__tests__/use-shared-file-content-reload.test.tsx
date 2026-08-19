@@ -548,6 +548,108 @@ describe('useSharedFileContentLoading reload ordering', () => {
     expect(result.current.fileContents[secondKey]).toBe('retry content');
   });
 
+  it('waits for every independent reload group and preserves only the failed key error', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const nodes = Array.from({ length: 3 }, (_, index) =>
+      createFileNode({ path: `/settled-${index}.txt`, rootFolderId: 'root-all-settled' })
+    );
+    const compositeKeys = nodes.map((node) => encodeFileSelection('root-all-settled', node.path));
+    const workerFailure = new Error('first scheduled group failed');
+    const pendingReads: PendingWorkerRead[] = [];
+    const worker = createPendingWorker(pendingReads);
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(
+      () => {
+        const authority = useFileContentLoadAuthority();
+        return { authority, loader: useSharedFileContentLoading(nodes) };
+      },
+      { wrapper }
+    );
+
+    const resolvePredecessors: Array<() => void> = [];
+    for (const compositeKey of compositeKeys) {
+      let resolvePredecessor: (() => void) | undefined;
+      const predecessor = new Promise<void>((resolve) => {
+        resolvePredecessor = resolve;
+      });
+      let trackedPredecessor: Promise<void>;
+      trackedPredecessor = predecessor.finally(() => {
+        result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);
+      });
+      result.current.authority.trackActiveLoad([compositeKey], trackedPredecessor);
+      resolvePredecessors.push(() => resolvePredecessor?.());
+    }
+
+    let reloadSettled = false;
+    let observedReload:
+      | Promise<
+          | { readonly error: unknown; readonly status: 'rejected' }
+          | { readonly status: 'fulfilled' }
+        >
+      | undefined;
+    act(() => {
+      observedReload = result.current.loader.reloadFileContents(compositeKeys).then(
+        () => {
+          reloadSettled = true;
+          return { status: 'fulfilled' as const };
+        },
+        (error: unknown) => {
+          reloadSettled = true;
+          return { error, status: 'rejected' as const };
+        }
+      );
+      for (const resolvePredecessor of resolvePredecessors) {
+        resolvePredecessor();
+      }
+    });
+
+    // The provider-wide two-lane scheduler starts two groups and retains the
+    // third until one lane settles.
+    await waitFor(() => expect(pendingReads).toHaveLength(2));
+    await act(async () => {
+      pendingReads[0]?.fail(workerFailure);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(3));
+
+    // A fail-fast aggregate would already have rejected here even though two
+    // sibling reads remain active. The public logical reload owns all three.
+    expect(reloadSettled).toBe(false);
+
+    await act(async () => {
+      pendingReads[1]?.complete('second group succeeded');
+      await Promise.resolve();
+    });
+    expect(reloadSettled).toBe(false);
+
+    let outcome:
+      | { readonly error: unknown; readonly status: 'rejected' }
+      | { readonly status: 'fulfilled' }
+      | undefined;
+    await act(async () => {
+      pendingReads[2]?.complete('queued group succeeded');
+      const reloadToObserve = observedReload;
+      if (!reloadToObserve) {
+        throw new Error('Expected the reload promise to be observed.');
+      }
+      outcome = await reloadToObserve;
+    });
+
+    expect(outcome).toEqual({ error: workerFailure, status: 'rejected' });
+    const fileContentErrors = (
+      result.current.loader as typeof result.current.loader & {
+        readonly fileContentErrors: ReadonlyMap<string, Error>;
+      }
+    ).fileContentErrors;
+    expect(fileContentErrors.get(compositeKeys[0] ?? '')).toBe(workerFailure);
+    expect(fileContentErrors.has(compositeKeys[1] ?? '')).toBe(false);
+    expect(fileContentErrors.has(compositeKeys[2] ?? '')).toBe(false);
+    expect(result.current.loader.loadingFiles.size).toBe(0);
+  });
+
   it('serializes twenty distinct predecessor groups through the provider batch queue', async () => {
     const adapter = new MockFileSystemAdapter();
     const nodes = Array.from({ length: 20 }, (_, index) =>
