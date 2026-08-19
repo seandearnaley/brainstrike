@@ -29,9 +29,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadParcelWatcher, selectParcelBackend } from '../adapters/parcel-backend.js';
-import { attributeWatcherFailure, probeWatcherLiveness } from '../testing/watcher-liveness.js';
+import {
+  assertNoPlatformSkips,
+  attributeWatcherFailure,
+  probeWatcherLiveness,
+} from '../testing/watcher-liveness.js';
 
 // The outer timeout must exceed the inner deadline PLUS the attribution probe
 // (up to ~2s native + ~2s control), or the ambiguous "Test timed out" wins the
@@ -95,4 +99,9 @@ describe('@parcel/watcher native binding', () => {
       await subscription.unsubscribe();
     }
   });
+});
+
+// A run that skipped its subject is not a pass — see assertNoPlatformSkips.
+afterAll(() => {
+  assertNoPlatformSkips();
 });

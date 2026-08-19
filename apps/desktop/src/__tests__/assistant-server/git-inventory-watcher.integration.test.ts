@@ -13,10 +13,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { attributeWatcherFailure } from '@brainstrike/file-system/testing/watcher-liveness';
+import {
+  assertNoPlatformSkips,
+  attributeWatcherFailure,
+} from '@brainstrike/file-system/testing/watcher-liveness';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import type { DirectoryHandle, WatcherHealthState } from '@brainstrike/types';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createGitInventoryWatchers,
   type WatchGitCommonDir,
@@ -304,4 +307,9 @@ describe('createGitInventoryWatchers (real repo, real @parcel/watcher)', () => {
       await attributeWatcherFailure(ctx, error);
     }
   });
+});
+
+// A run that skipped its subject is not a pass — see assertNoPlatformSkips.
+afterAll(() => {
+  assertNoPlatformSkips();
 });

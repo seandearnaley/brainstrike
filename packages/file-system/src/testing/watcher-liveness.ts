@@ -228,6 +228,41 @@ export interface SkippableTestContext {
   skip: (note?: string) => void;
 }
 
+let platformSkipCount = 0;
+
+/** Tests this module skipped for a dead platform, in THIS worker process. */
+export function getPlatformSkipCount(): number {
+  return platformSkipCount;
+}
+
+/**
+ * Fail the suite when any test was skipped because the platform was dead.
+ *
+ * Call from `afterAll`. Without it a degraded host produces a GREEN lane whose
+ * tests verified nothing — measured before this existed: 6 of 10 desktop runs
+ * exited 0 with both tests skipped, and 1 of 10 file-system runs exited 0 with
+ * four. Visible skips are not enough; an exit code of 0 is what CI and a human
+ * skimming a log actually read, and "green because nothing ran" is the same
+ * false-confidence shape this repo already treats as a defect elsewhere.
+ *
+ * The per-test skips still earn their keep: they keep each test's own result
+ * honest ("not run" rather than "failed") and stop a dead host from emitting N
+ * near-identical timeouts. This turns them into ONE explicit lane failure that
+ * says how many tests were lost and why.
+ */
+export function assertNoPlatformSkips(): void {
+  if (platformSkipCount === 0) {
+    return;
+  }
+  throw new Error(
+    `[BST-1328] ${platformSkipCount} test(s) in this file did not run: the host's watcher ` +
+      'layer was not delivering events when they needed it (see the per-test skip reasons ' +
+      'above). Failing the lane because a run that skipped its subject cannot be reported as ' +
+      'a pass. This is a HOST fault, not a regression in this repo — on macOS a reboot has ' +
+      'restored FSEvents delivery in past occurrences.'
+  );
+}
+
 /**
  * Attribute a watcher-test failure to the platform or to this repo, by probing
  * liveness AT THE MOMENT OF FAILURE, then either skipping or rethrowing.
@@ -267,6 +302,7 @@ export async function attributeWatcherFailure(
   const original = error instanceof Error ? error.message : String(error);
 
   if (!result.nativeDelivered) {
+    platformSkipCount += 1;
     const note = `SKIPPED — host watcher layer is dead. ${result.detail} Original failure: ${original}`;
     // biome-ignore lint/suspicious/noConsole: a skip must be visible in the log, not only in the summary.
     console.warn(`\n${note}\n`);
