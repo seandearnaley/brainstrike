@@ -48,6 +48,13 @@ export function registerMainPlatformIpcHandlers({
 }: MainPlatformIpcDependencies): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
+  // Renderer reloads preserve the WebContents, and every reload re-requests
+  // auth — without this guard each issuance stacks another 'destroyed'
+  // listener on the same sender (MaxListenersExceededWarning after ~11).
+  // One listener per WebContents suffices: the issuance record is keyed by
+  // sender id, which is stable until 'destroyed'.
+  const sendersWithDestroyedListener = new WeakSet<WebContents>();
+
   registry.registerAuthorizedInvoke(
     'agent',
     DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl,
@@ -73,7 +80,11 @@ export function registerMainPlatformIpcHandlers({
         // on every credential resolution, so a destroyed sender (whose role
         // entry is cleared) already stops authorizing without this listener.
         // Guarded because some senders (and test doubles) expose no `once`.
-        if (typeof event.sender.once === 'function') {
+        if (
+          typeof event.sender.once === 'function' &&
+          !sendersWithDestroyedListener.has(event.sender)
+        ) {
+          sendersWithDestroyedListener.add(event.sender);
           event.sender.once('destroyed', () => {
             forgetAssistantAuthIssuance(event.sender.id);
           });
