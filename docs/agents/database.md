@@ -54,6 +54,51 @@ collection, terminalizing the handle for every listener. 0.5.5 fixes the shadow
 (`(cb) => cb !== callback`), so a handle with other listeners now stays live.
 Nothing in this repo subscribes twice to one handle, so that fix is inert here.
 
+## DESKTOP LIVE-QUERY MEMORY TEST DIAGNOSTICS
+
+BST-438's memory regression lane observes live-query ownership without widening
+the production renderer bridge or changing cache lifetime. The database demo
+installs `__brainstrikeDatabaseDemoTestHooks__.getMemorySnapshot` only when the
+desktop lifecycle bridge reports test mode. Its bounded snapshot contains the
+active collection ID, at most 100 currently visible record IDs, cardinalities
+for the existing collection/page caches, and the query-telemetry live
+subscription/update counts. It must never include SQL, parameters, content,
+paths, or complete result arrays.
+
+The remote ownership snapshot is also test-only and counts the same live query
+at each retaining layer. The DB-host `diagnostics` response carries its internal
+`activeLiveQueryCount`; `DbHostManager.getDiagnostics()` deliberately strips
+that field from the normal diagnostics IPC result. In explicit test mode,
+`getLiveQueryDiagnosticsForTests()` reports the DB-host map and manager proxy
+map counts. Database IPC registration installs the main-process
+`__brainstrike_e2e_db_live_query_diagnostics__` function only in that mode,
+adds the renderer-owner map count, and removes the function when those handlers
+unregister. Missing test mode or a missing diagnostic function throws; it must
+not return a fabricated zero.
+
+Memory release means superseded result arrays and live-query handles stop
+accumulating. It does **not** mean evicting inactive database-demo pages: that
+surface intentionally retains one page per visited collection for fast
+revisits. The three-collection regression therefore warms A/B/C, asserts the
+cache cardinality plateaus at those keyed entries, and requires exact local,
+IPC, manager, and host handle counts before and after repeated switching. The
+mutation regression separately commits 100 alternating inserts/deletes and
+requires each current result before continuing.
+
+Renderer heap assertions require real forced collection. The desktop E2E
+launcher passes `--js-flags=--expose-gc`, and
+`forceRendererGarbageCollection` throws when `window.gc` is unavailable; a
+silent no-op would make the retained-heap result meaningless. Both regressions
+live in `apps/desktop/e2e/database-live-query-memory.desktop.test.ts` and are
+explicitly selected by the `memory-baseline` branch of
+`.github/workflows/desktop-e2e.yml`. Paired unit/contract coverage lives in
+`packages/db-explorer/src/__tests__/database-demo-panel.test.tsx`,
+`packages/db-explorer/src/__tests__/use-database-demo-data.test.ts`,
+`apps/desktop/src/__tests__/main/db-host-entry.test.ts`,
+`apps/desktop/src/__tests__/main/db-host-manager.test.ts`,
+`apps/desktop/src/__tests__/ipc-domains/db-ipc.test.ts`, and
+`apps/desktop/src/__tests__/desktop-e2e-harness-contract.test.ts`.
+
 The collector latches retention-clock failure per instance, logs the first
 producer failure, stops timer-driven publication, and
 publishes a stable explicit failed snapshot to `useSyncExternalStore` reads.
