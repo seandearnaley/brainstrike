@@ -34,6 +34,7 @@ function setWebDriver(value: boolean): void {
 describe('WebE2ETestHooks', () => {
   beforeEach(() => {
     Reflect.deleteProperty(window, '__brainstrikeWebE2ETestHooks__');
+    window.__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__ = true;
     usePGliteDatabaseMock.mockReset();
     runEmbeddingModelSwitchMemoryProbeMock.mockReset();
     runEmbeddingModelSwitchMemoryProbeMock.mockResolvedValue({
@@ -55,6 +56,7 @@ describe('WebE2ETestHooks', () => {
 
   afterEach(() => {
     Reflect.deleteProperty(window, '__brainstrikeWebE2ETestHooks__');
+    Reflect.deleteProperty(window, '__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
     vi.restoreAllMocks();
   });
 
@@ -113,6 +115,24 @@ describe('WebE2ETestHooks', () => {
     await waitFor(() => {
       expect(window.__brainstrikeWebE2ETestHooks__).toBeUndefined();
     });
+  });
+
+  it('does not expose the model-switch probe without the explicit init flag', async () => {
+    Reflect.deleteProperty(window, '__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
+    setWebDriver(true);
+    usePGliteDatabaseMock.mockReturnValue({
+      query: vi.fn(),
+      syncToFs: vi.fn(),
+    } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+    expect(
+      window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe
+    ).toBeUndefined();
   });
 
   it('exposes model state and durable sync helpers for webdriver tests', async () => {
@@ -206,9 +226,12 @@ describe('WebE2ETestHooks', () => {
       fallbackApplied: false,
       finite: true,
     });
-    await expect(
-      window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe()
-    ).resolves.toMatchObject({
+    const runModelSwitchProbe =
+      window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe;
+    if (!runModelSwitchProbe) {
+      throw new Error('Expected the explicitly enabled model-switch probe hook.');
+    }
+    await expect(runModelSwitchProbe()).resolves.toMatchObject({
       firstGpuEvictedModel: 'gpu-a',
       firstWasmEvictedModel: 'wasm-b',
     });

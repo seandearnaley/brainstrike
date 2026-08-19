@@ -88,11 +88,19 @@ describe('performance benchmark measurement contracts', () => {
   });
 
   it('routes the embedding model-switch regression through the production worker', async () => {
-    const [e2eSource, hookSource, probeSource, workerSource, playwrightConfig] = await Promise.all([
+    const [
+      e2eSource,
+      embeddingWorkerPackage,
+      hookSource,
+      probeSource,
+      workerSource,
+      playwrightConfig,
+    ] = await Promise.all([
       readFile(
         path.join(process.cwd(), 'e2e/performance/embedding-model-switch-memory.test.ts'),
         'utf8'
       ),
+      readFile(path.join(process.cwd(), '../../packages/embedding-worker/package.json'), 'utf8'),
       readFile(path.join(process.cwd(), 'src/web-e2e-test-hooks.tsx'), 'utf8'),
       readFile(path.join(process.cwd(), 'src/embedding-model-switch-memory-probe.ts'), 'utf8'),
       readFile(
@@ -116,6 +124,7 @@ describe('performance benchmark measurement contracts', () => {
     expect(hookSource).toContain("await import('./embedding-model-switch-memory-probe')");
 
     expect(probeSource).toContain('createBrowserEmbeddingQueue');
+    expect(probeSource).toContain('embedding-model-switch-memory-probe.worker.ts?worker&url');
     expect(probeSource).toContain('maxWorkers: 1');
     expect(probeSource).toContain('minWorkers: 1');
     expect(probeSource).toContain('measureUserAgentSpecificMemory');
@@ -123,6 +132,8 @@ describe('performance benchmark measurement contracts', () => {
 
     expect(workerSource).toContain("await import('@brainstrike/embedding-worker/worker')");
     expect(workerSource).not.toContain('createEmbeddingPipelineCacheController');
+
+    expect(embeddingWorkerPackage).toContain('"./dist/embedding.worker.js"');
 
     expect(playwrightConfig).toContain('ForceEagerMeasureMemory');
   });

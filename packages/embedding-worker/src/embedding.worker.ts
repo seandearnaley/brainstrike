@@ -37,6 +37,7 @@ import {
   truncateVector,
   vectorsFromPipelineOutput,
 } from './shared';
+import { consumeEmbeddingWorkerTestRuntimeOverride } from './test-runtime-bootstrap';
 
 function resolveEmbeddingWorkerInstanceId(): string {
   const workerName = (globalThis as typeof globalThis & { readonly name?: unknown }).name;
@@ -267,6 +268,25 @@ interface TransformersRuntime {
   readonly tensorConstructor: unknown;
 }
 
+function assertTransformersRuntime(value: unknown): TransformersRuntime {
+  if (!(typeof value === 'object' && value !== null && !Array.isArray(value))) {
+    throw new Error('Embedding worker test runtime must be an object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  const env = candidate['env'];
+  if (
+    !(typeof env === 'object' && env !== null && !Array.isArray(env)) ||
+    typeof candidate['pipeline'] !== 'function' ||
+    typeof candidate['tensorConstructor'] !== 'function'
+  ) {
+    throw new Error('Embedding worker test runtime is missing env, pipeline, or Tensor.');
+  }
+  if ((env as Record<string, unknown>)['allowRemoteModels'] !== false) {
+    throw new Error('Embedding worker test runtime must disable remote models.');
+  }
+  return value as TransformersRuntime;
+}
+
 /**
  * Model context window reference (for documentation).
  *
@@ -281,7 +301,11 @@ interface TransformersRuntime {
  * - Jina models: 8192 tokens
  */
 
-let transformersRuntimePromise: Promise<TransformersRuntime> | null = null;
+const testRuntimeOverride = consumeEmbeddingWorkerTestRuntimeOverride();
+const webGpuClassProxyEnabled = testRuntimeOverride?.webGpuClassProxy === true;
+let transformersRuntimePromise: Promise<TransformersRuntime> | null = testRuntimeOverride
+  ? Promise.resolve(assertTransformersRuntime(testRuntimeOverride.runtime))
+  : null;
 
 async function getTransformersRuntime(): Promise<TransformersRuntime> {
   if (transformersRuntimePromise !== null) {
@@ -639,8 +663,9 @@ async function initWebGpuDeviceGuard(): Promise<void> {
 
 function hasWebGPU(): boolean {
   return (
-    typeof navigator !== 'undefined' &&
-    typeof (navigator as Navigator & { gpu?: unknown }).gpu !== 'undefined'
+    webGpuClassProxyEnabled ||
+    (typeof navigator !== 'undefined' &&
+      typeof (navigator as Navigator & { gpu?: unknown }).gpu !== 'undefined')
   );
 }
 

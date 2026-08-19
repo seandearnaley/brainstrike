@@ -36,6 +36,11 @@
       "import": "./dist/pipeline-cache-controller.js",
       "require": "./dist/pipeline-cache-controller.cjs"
     },
+    "./test-runtime-bootstrap": {
+      "types": "./dist/test-runtime-bootstrap.d.ts",
+      "import": "./dist/test-runtime-bootstrap.js",
+      "require": "./dist/test-runtime-bootstrap.cjs"
+    },
     "./vite": {
       "types": "./src/vite.ts",
       "import": "./src/vite.ts"
@@ -58,7 +63,10 @@
     "type-check": "tsc --noEmit",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/embedding.worker.cjs",
+    "./dist/embedding.worker.js"
+  ],
   "turbo": {
     "outputs": [
       "dist/**"

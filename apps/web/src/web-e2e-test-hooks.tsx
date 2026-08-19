@@ -1,7 +1,7 @@
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useEffect } from 'react';
-import { runEmbeddingModelSwitchMemoryProbe } from './embedding-model-switch-memory-probe';
 import type { WebE2EEmbeddingModelSwitchMemoryProbeResult } from './embedding-model-switch-memory-probe-contract';
+import { BST369_E2E_INIT_FLAG } from './embedding-model-switch-memory-probe-contract';
 import { qualifyLocalEmbedding } from './qualify-local-embedding';
 
 interface ModelEnabledRow {
@@ -112,7 +112,7 @@ export interface WebE2ETestHooks {
   readonly readFileRowCounts: () => Promise<WebE2EFileRowCounts>;
   readonly readModelEnabled: (modelId: string) => Promise<boolean | null>;
   readonly readResetRowCounts: () => Promise<WebE2EResetRowCounts>;
-  readonly runEmbeddingModelSwitchMemoryProbe: () => Promise<WebE2EEmbeddingModelSwitchMemoryProbeResult>;
+  readonly runEmbeddingModelSwitchMemoryProbe?: () => Promise<WebE2EEmbeddingModelSwitchMemoryProbeResult>;
   /**
    * Seeds ONLY `file_records` + `file_chunks` — deliberately does NOT create
    * `mastra_workflow_snapshot` (contrast `seedResetProbeRows`). Used to prove
@@ -126,8 +126,20 @@ export interface WebE2ETestHooks {
 
 declare global {
   interface Window {
+    __brainstrikeEnableEmbeddingModelSwitchMemoryProbe__?: true;
     __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks;
   }
+}
+
+async function runEmbeddingModelSwitchMemoryProbe(): Promise<WebE2EEmbeddingModelSwitchMemoryProbeResult> {
+  if (window.navigator.webdriver !== true) {
+    throw new Error('Embedding model-switch memory probe is restricted to webdriver automation.');
+  }
+  if (Reflect.get(window, BST369_E2E_INIT_FLAG) !== true) {
+    throw new Error('Embedding model-switch memory probe requires the explicit init-script flag.');
+  }
+  const probe = await import('./embedding-model-switch-memory-probe');
+  return probe.runEmbeddingModelSwitchMemoryProbe();
 }
 
 function parseModelEnabled(value: ModelEnabledRow['is_enabled']): boolean {
@@ -336,7 +348,9 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
           workflowSnapshots: await countOf('mastra_workflow_snapshot'),
         };
       },
-      runEmbeddingModelSwitchMemoryProbe,
+      ...(Reflect.get(window, BST369_E2E_INIT_FLAG) === true
+        ? { runEmbeddingModelSwitchMemoryProbe }
+        : {}),
       seedFileRowsOnly: async (): Promise<void> => {
         if (typeof db.transaction !== 'function') {
           throw new Error('Web E2E database handle does not expose transactions');
