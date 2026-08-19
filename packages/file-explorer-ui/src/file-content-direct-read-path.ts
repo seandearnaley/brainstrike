@@ -13,27 +13,88 @@ function isAbsolutePathLike(value: string): boolean {
   return normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized);
 }
 
-function trimTrailingSlashes(value: string): string {
+function isCaseInsensitiveAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:\//.test(value) || value.startsWith('//');
+}
+
+function trimTrailingSlashesPreservingRoot(value: string): string {
+  if (value === '/' || /^[A-Za-z]:\/$/.test(value)) {
+    return value;
+  }
   return value.replace(/\/+$/, '');
 }
 
-function isPathWithinFolder(absolutePath: string, folderId: string): boolean {
-  const normalizedPath = trimTrailingSlashes(normalizePathSeparators(absolutePath));
-  const normalizedFolder = trimTrailingSlashes(normalizePathSeparators(folderId));
-  return normalizedPath === normalizedFolder || normalizedPath.startsWith(`${normalizedFolder}/`);
+function containsControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
+      return true;
+    }
+  }
+  return false;
 }
 
-export function resolveDirectReadPath(folderId: string, selectionPath: string): string | null {
-  const normalizedFolder = trimTrailingSlashes(normalizePathSeparators(folderId));
-  if (!isAbsolutePathLike(normalizedFolder)) {
+function hasInvalidSegments(segments: readonly string[]): boolean {
+  return segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..');
+}
+
+function isStructurallyValidAbsolutePath(value: string): boolean {
+  if (!isAbsolutePathLike(value) || containsControlCharacter(value)) {
+    return false;
+  }
+  if (/^[A-Za-z]:\//.test(value)) {
+    const remainder = value.slice(3);
+    return remainder.length === 0 || !hasInvalidSegments(remainder.split('/'));
+  }
+  if (value.startsWith('//')) {
+    const segments = value.slice(2).split('/');
+    return segments.length >= 2 && !hasInvalidSegments(segments);
+  }
+  const remainder = value.slice(1);
+  return remainder.length === 0 || !hasInvalidSegments(remainder.split('/'));
+}
+
+function isStructurallyValidRelativePath(value: string): boolean {
+  return (
+    value.length > 0 &&
+    !containsControlCharacter(value) &&
+    !/^[A-Za-z]:/u.test(value) &&
+    !hasInvalidSegments(value.split('/'))
+  );
+}
+
+function isPathWithinFolder(absolutePath: string, folderPath: string): boolean {
+  const caseInsensitive = isCaseInsensitiveAbsolutePath(folderPath);
+  const comparablePath = caseInsensitive ? absolutePath.toLowerCase() : absolutePath;
+  const comparableFolder = caseInsensitive ? folderPath.toLowerCase() : folderPath;
+  if (comparablePath === comparableFolder) {
+    return true;
+  }
+  const folderPrefix = comparableFolder.endsWith('/') ? comparableFolder : `${comparableFolder}/`;
+  return comparablePath.startsWith(folderPrefix);
+}
+
+export function resolveDirectReadPath(rootPath: string, selectionPath: string): string | null {
+  const normalizedRoot = trimTrailingSlashesPreservingRoot(normalizePathSeparators(rootPath));
+  if (!isStructurallyValidAbsolutePath(normalizedRoot)) {
     return null;
   }
 
-  const normalizedPath = normalizePathSeparators(selectionPath);
-  if (isAbsolutePathLike(normalizedPath) && isPathWithinFolder(normalizedPath, normalizedFolder)) {
-    return normalizedPath;
+  const normalizedSelection = normalizePathSeparators(selectionPath);
+  if (isAbsolutePathLike(normalizedSelection)) {
+    if (
+      isStructurallyValidAbsolutePath(normalizedSelection) &&
+      isPathWithinFolder(normalizedSelection, normalizedRoot)
+    ) {
+      return normalizedSelection;
+    }
+    return null;
   }
 
-  const relativePath = normalizedPath.replace(/^\/+/, '');
-  return relativePath.length > 0 ? `${normalizedFolder}/${relativePath}` : normalizedFolder;
+  if (!isStructurallyValidRelativePath(normalizedSelection)) {
+    return null;
+  }
+  return normalizedRoot.endsWith('/')
+    ? `${normalizedRoot}${normalizedSelection}`
+    : `${normalizedRoot}/${normalizedSelection}`;
 }

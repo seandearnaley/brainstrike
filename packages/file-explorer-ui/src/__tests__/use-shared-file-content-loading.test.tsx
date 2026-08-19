@@ -870,7 +870,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     ).readFileByPath = readFileByPathSpy;
 
     const rootFolderId = '/workspace/root';
-    const compositeKey = encodeFileSelection(rootFolderId, '/src/dynamic.ts');
+    const compositeKey = encodeFileSelection(rootFolderId, 'src/dynamic.ts');
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId });
 
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
