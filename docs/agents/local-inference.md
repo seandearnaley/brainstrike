@@ -227,8 +227,8 @@ Embedding runtime telemetry (BST-402):
   to be revisited explicitly.
 
 Streaming embedding payload-memory proof (BST-372):
-- The comparison boundary is source-level because there is no trustworthy historic
-  process-memory capture for the pre-streaming implementation. At parent commit
+- No contemporaneous pre-streaming process-memory capture exists, so the comparison boundary
+  is a controlled replay of the exact source implementations. At parent commit
   `13541685dc1586efea302440041965efd807440a`, `runBatches` appended every output vector to
   one request-wide array and `processEmbeddings` transferred those buffers only after all
   batches completed. Uniform Float32 output therefore retained
@@ -248,13 +248,17 @@ Streaming embedding payload-memory proof (BST-372):
   `await waitForBatchAck(...)` gate makes all eight inference batches start before the first
   acknowledgement and fails the assertion (`8` observed versus `1` allowed), proving the
   backpressure check has teeth.
+- `docs/bench-embedding-streaming-memory-2026-08.md` records the reproducible A/B harness,
+  environment, exact commands, source-blob verification, and every raw sample. Five fresh
+  processes per revision used the same deterministic 4,096-input, batch-8, 2,000-dimension
+  fixture and produced exactly 32,768,000 payload bytes. Pre-stream peak RSS growth was
+  34.469–35.328 MiB (35.172 MiB median); streaming growth was 0.625–1.219 MiB
+  (0.797 MiB median), an observed median difference of 34.375 MiB. This isolates the exact
+  request-wide accumulator versus stream/ack implementations under one Node/Vitest runtime;
+  it is not a claim about total Electron RSS with a real model loaded.
 - `apps/desktop/e2e/embedding-worker-renderer.memory.desktop.test.ts` remains the
-  process-level proof for bounded heap/RSS across large and repeated real-host runs. Its
-  current fixtures and measurement windows do not constitute a pre-streaming baseline, and
-  the streaming landing commit contains unrelated runtime changes. Do not label those
-  measurements as numeric before/after evidence. An apples-to-apples historical RSS result
-  would require rebuilding both exact revisions, then running the same pinned model,
-  dimensions, batch sequence, warmup, sampling window, hardware, and Electron/Node runtime.
+  application-level proof for bounded heap/RSS across large and repeated real-host runs. Its
+  model-backed measurements are complementary, not a historical pre-streaming baseline.
 
 ---
 
