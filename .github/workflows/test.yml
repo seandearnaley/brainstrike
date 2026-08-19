@@ -716,8 +716,15 @@ jobs:
       # test failure is exactly when the next run should not re-download them.
       # A failed header install is not cached — node-gyp rolls the dev dir back
       # on error, leaving nothing to save.
+      #
+      # The version guard is not politeness. If `Setup workspace` failed before
+      # setup-node resolved a version, this key would collapse onto the restore
+      # step's prefix — and an entry saved under the bare prefix EXACT-matches
+      # future restores, shadowing the good version-keyed entry that
+      # `restore-keys` would otherwise have found. Refusing to write a key that
+      # would be wrong beats writing one that silently outranks the right one.
       - name: Save node-gyp headers
-        if: always()
+        if: always() && steps.setup.outputs.node-version != ''
         uses: actions/cache/save@v5
         with:
           path: ${{ github.workspace }}\.node-gyp
