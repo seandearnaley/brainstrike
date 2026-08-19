@@ -208,6 +208,24 @@ describe('workspace tabs open-file refresh', () => {
     expect(plan.keysToReload).toEqual([tab.compositeKey]);
   });
 
+  it('preserves a Windows drive root while matching paths case-insensitively', () => {
+    const tab = fileTab('root-a|@|C:\\SRC\\Index.ts', 'C:\\SRC\\Index.ts');
+
+    const plan = planOpenFileRefresh([tab], {
+      roots: [
+        {
+          changes: [{ kind: 'file', path: 'c:/src/index.ts', type: 'modified' }],
+          rootId: 'root-a',
+          rootPath: 'C:\\',
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    expect(plan.keysToReload).toEqual([tab.compositeKey]);
+  });
+
   it('reloads an open descendant after its containing directory is removed', () => {
     const deleted = fileTab('root-a|@|src/deleted/file.ts', 'src/deleted/file.ts');
     const retained = fileTab('root-a|@|src/retained.ts', 'src/retained.ts');
