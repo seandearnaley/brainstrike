@@ -3,6 +3,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createFileExplorerRefreshEvent } from '../shell/file-explorer-refresh-event';
 import {
   FileTreeProvider,
   useFileTreeContext,
@@ -97,6 +98,17 @@ const rootHandle = {
   path: '/workspace',
   platform: 'electron',
 } as const;
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
 
 function Consumer(): ReactNode {
   const treeContext = useFileTreeContext();
@@ -319,6 +331,84 @@ describe('FileTreeProvider', () => {
       secondRootId,
       rootHandle.path,
       entries
+    );
+  });
+
+  it('keeps a sequential watcher snapshot batch bound to the root that started it', async () => {
+    const firstRootId = 'first-root-id';
+    const secondRootId = 'second-root-id';
+    const srcPath = `${rootHandle.path}/src`;
+    const testPath = `${rootHandle.path}/test`;
+    const directoryNode = (path: string): IFileNode => ({
+      children: [],
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      isVisible: true,
+      loadState: 'loaded',
+      name: path.split('/').at(-1) ?? path,
+      path,
+      rootFolderId: firstRootId,
+      selectionState: 'unchecked',
+      type: 'directory',
+    });
+    const normalizedTreeRef = {
+      current: createNormalizedFileTreeState([directoryNode(srcPath), directoryNode(testPath)]),
+    };
+    const secondReadGate = createDeferred<void>();
+    const refreshDirectory = vi.fn(async (path: string) => {
+      if (path === testPath) {
+        await secondReadGate.promise;
+      }
+      return { directoryPath: path, entries: [] };
+    });
+    const baseFileTreeState = useFileTreeMock();
+    useFileTreeMock.mockClear();
+    useFileTreeMock.mockReturnValue({
+      ...baseFileTreeState,
+      __internalNormalizedTreeRef: normalizedTreeRef,
+      refreshDirectory,
+      refreshTree: vi.fn().mockResolvedValue({ status: 'completed' as const }),
+    });
+
+    const { rerender } = render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={firstRootId}>
+        <Consumer />
+      </FileTreeProvider>
+    );
+    await act(async () => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [
+                { kind: 'file', path: `${srcPath}/gone.ts`, type: 'removed' },
+                { kind: 'file', path: `${testPath}/gone.test.ts`, type: 'removed' },
+              ],
+              rootId: firstRootId,
+              rootPath: rootHandle.path,
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(2));
+
+    rerender(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={secondRootId}>
+        <Consumer />
+      </FileTreeProvider>
+    );
+    secondReadGate.resolve();
+
+    await waitFor(() => expect(reconcileSelectionWithDirectorySnapshotsMock).toHaveBeenCalled());
+    expect(reconcileSelectionWithDirectorySnapshotsMock).toHaveBeenCalledExactlyOnceWith(
+      firstRootId,
+      [
+        { directoryPath: srcPath, entries: [] },
+        { directoryPath: testPath, entries: [] },
+      ]
     );
   });
 
