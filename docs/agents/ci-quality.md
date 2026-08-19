@@ -549,8 +549,8 @@ were local-dev constants x a flat 2.0 multiplier with no CI-derived floors):
   with the measured values, do not bump the floor to silence it.
 
 BST-369 adds a worker-memory **structural bound**, not a locally invented CI
-latency floor. On exact code head `b1c728dee`, this command ran three repetitions
-sequentially against one built app and one configured Chromium version:
+latency floor. On final rebased code head `156c0b052`, this command ran three
+repetitions sequentially against one built app and one configured Chromium version:
 
 ```bash
 cd apps/web
@@ -560,9 +560,9 @@ pnpm exec playwright test e2e/performance/embedding-model-switch-memory.test.ts 
 
 | Run | Baseline total | Warm worker | Window A worker | Window B worker | B - A | After worker |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 277,837,090 | 44,396,512 | 44,443,540 | 44,443,632 | +92 | 0 |
-| 2 | 277,750,884 | 44,396,512 | 44,443,596 | 44,443,672 | +76 | 0 |
-| 3 | 277,780,072 | 44,396,512 | 44,443,572 | 44,443,664 | +92 | 0 |
+| 1 | 278,926,311 | 44,397,878 | 44,446,090 | 44,446,626 | +536 | 0 |
+| 2 | 277,774,586 | 44,398,290 | 44,446,558 | 44,446,634 | +76 | 0 |
+| 3 | 277,832,659 | 44,398,290 | 44,446,542 | 44,446,634 | +92 | 0 |
 
 Two reversible, uncommitted mutations proved the browser assertion's teeth. Doubling each
 allocated backing store failed at the warm barrier with 80 MiB physically live against the
