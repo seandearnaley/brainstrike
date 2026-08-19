@@ -548,7 +548,7 @@ were local-dev constants x a flat 2.0 multiplier with no CI-derived floors):
   with the measured values, do not bump the floor to silence it.
 
 BST-369 adds a worker-memory **structural bound**, not a locally invented CI
-latency floor. On exact head `a005b3e30`, this command ran three repetitions
+latency floor. On exact code head `b1c728dee`, this command ran three repetitions
 sequentially against one built app and one configured Chromium version:
 
 ```bash
@@ -559,9 +559,15 @@ pnpm exec playwright test e2e/performance/embedding-model-switch-memory.test.ts 
 
 | Run | Baseline total | Warm worker | Window A worker | Window B worker | B - A | After worker |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 277,762,498 | 44,390,059 | 44,436,935 | 44,437,143 | +208 | 0 |
-| 2 | 277,745,320 | 44,389,647 | 44,436,539 | 44,437,191 | +652 | 0 |
-| 3 | 277,686,004 | 44,390,059 | 44,436,919 | 44,437,143 | +224 | 0 |
+| 1 | 277,837,090 | 44,396,512 | 44,443,540 | 44,443,632 | +92 | 0 |
+| 2 | 277,750,884 | 44,396,512 | 44,443,596 | 44,443,672 | +76 | 0 |
+| 3 | 277,780,072 | 44,396,512 | 44,443,572 | 44,443,664 | +92 | 0 |
+
+Two reversible, uncommitted mutations proved the browser assertion's teeth. Doubling each
+allocated backing store failed at the warm barrier with 80 MiB physically live against the
+40 MiB cap. Skipping the asynchronous-disposal prerequisite failed with five resources and
+56 MiB live before the delayed GPU-class victim release completed. Both mutations were
+restored before the three-run table above.
 
 The three local repetitions qualify the measurement signal; they do not set a
 CI floor. The 4 MiB later-window ceiling is instead a structural bound: half

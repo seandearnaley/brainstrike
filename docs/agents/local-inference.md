@@ -147,15 +147,23 @@ Embedding runtime telemetry (BST-402):
 - Pipeline-cache residency policy has one implementation:
   `packages/embedding-worker/src/pipeline-cache-controller.ts`. The production worker
   injects the real Transformers.js loader; the controller owns the 1-WebGPU/3-WASM
-  limits, LRU/idle eviction, disposal, and diagnostic snapshots. BST-369's deterministic
+  limits, LRU/idle eviction, disposal, and diagnostic snapshots. A miss reserves its
+  logical cache slot synchronously, but the replacement loader cannot allocate until the
+  evicted resource's possibly asynchronous `.dispose()` completes. Concurrent misses
+  therefore remain deduplicated and physically bounded. A disposal rejection blocks the
+  replacement, latches the controller against future loads, remains visible to `wait` and
+  `close`, emits request-scoped load-failure diagnostics, and asks workerpool to replace the
+  failed worker through its lifetime-error channel. BST-369's deterministic
   browser proof now routes ordinary queue tasks through a private
   `createBrowserEmbeddingQueue` (`minWorkers = maxWorkers = 1`), workerpool's
   `runEmbedding` RPC, and the actual `embedding.worker.ts` module. A wrapper installs a
   one-shot, fixed synthetic Transformers runtime before dynamically importing that
   production worker. Its allowlisted pipelines retain page-touched 8 MiB WASM or 16 MiB
-  GPU-class `Uint8Array` stores until the production controller invokes their real
-  `.dispose()` method. Network model requests are aborted and asserted absent; malformed,
-  duplicate, or late runtime bootstrap attempts throw rather than falling back.
+  GPU-class `Uint8Array` stores until the production controller awaits their deliberately
+  asynchronous `.dispose()` method. The physical ledger sums each live allocation's actual
+  `store.byteLength`, not declared model metadata. Every cross-origin HTTP(S) request and
+  the same-origin `/api/hf/` proxy are aborted and asserted absent; malformed, duplicate,
+  or late runtime bootstrap attempts throw rather than falling back.
 - The probe is lazy: normal app startup does not import its page module or worker. The
   native page `navigator.webdriver === true` signal plus an explicit pre-bootstrap init
   flag control exposure. Chromium's `WorkerNavigator` does not expose `webdriver`, so the
@@ -177,6 +185,7 @@ Embedding runtime telemetry (BST-402):
   API in the termination task can remain pending before the agent teardown commits.
   There is no `performance.memory` fallback. Paired tests:
   `test-runtime-bootstrap.spec.ts`, `pipeline-cache-controller.spec.ts`,
+  `pipeline-cache.spec.ts`,
   `pipeline-cache-controller.browser.test.ts`,
   `apps/web/src/__tests__/web-e2e-test-hooks.test.tsx`, and
   `apps/web/e2e/performance/embedding-model-switch-memory.test.ts`.
