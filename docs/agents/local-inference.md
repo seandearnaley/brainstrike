@@ -226,6 +226,36 @@ Embedding runtime telemetry (BST-402):
   persistence or export path requires the diagnostics privacy and factory-reset contracts
   to be revisited explicitly.
 
+Streaming embedding payload-memory proof (BST-372):
+- The comparison boundary is source-level because there is no trustworthy historic
+  process-memory capture for the pre-streaming implementation. At parent commit
+  `13541685dc1586efea302440041965efd807440a`, `runBatches` appended every output vector to
+  one request-wide array and `processEmbeddings` transferred those buffers only after all
+  batches completed. Uniform Float32 output therefore retained
+  `totalInputs * dimensions * 4` payload bytes until request completion, in addition to
+  model/runtime/input/transient memory. Streaming landed in
+  `f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32`: `streamEmbeddings` transfers one batch,
+  reports the exact unique-buffer byte count, and awaits the matching request-and-index
+  acknowledgement before starting the next batch. Its transport-output retention bound is
+  therefore `batchSize * dimensions * 4` bytes for uniform Float32 vectors. This is a
+  payload bound, not a claim about total renderer RSS or heap.
+- `embedding.worker.runtime.spec.ts` exercises the live maximum supported dimension with a
+  deterministic long sequence: 64 inputs, batch size 8, and 2,000 dimensions produce eight
+  batches of 64,000 bytes (512,000 bytes total). Before each acknowledgement, the test
+  requires exactly one inference batch and one posted batch, eight current/peak vectors in
+  flight, and an exact transfer-list byte sum. The message mock is cleared before each
+  acknowledgement so the harness does not retain prior vector payloads. Removing the
+  `await waitForBatchAck(...)` gate makes all eight inference batches start before the first
+  acknowledgement and fails the assertion (`8` observed versus `1` allowed), proving the
+  backpressure check has teeth.
+- `apps/desktop/e2e/embedding-worker-renderer.memory.desktop.test.ts` remains the
+  process-level proof for bounded heap/RSS across large and repeated real-host runs. Its
+  current fixtures and measurement windows do not constitute a pre-streaming baseline, and
+  the streaming landing commit contains unrelated runtime changes. Do not label those
+  measurements as numeric before/after evidence. An apples-to-apples historical RSS result
+  would require rebuilding both exact revisions, then running the same pinned model,
+  dimensions, batch sequence, warmup, sampling window, hardware, and Electron/Node runtime.
+
 ---
 
 
