@@ -244,6 +244,61 @@ describe('WorkspaceRootRegistry', () => {
     }
   });
 
+  it.each([
+    {
+      name: 'a multi-megabyte absolute path',
+      requestedPath: `/${'a'.repeat(2_000_000)}RAW_DIAGNOSTIC_TAIL_MUST_NOT_APPEAR`,
+      verify: (diagnosticPath: string) => {
+        expect(diagnosticPath).toContain('[truncated]');
+        expect(diagnosticPath).not.toContain('RAW_DIAGNOSTIC_TAIL_MUST_NOT_APPEAR');
+      },
+    },
+    {
+      name: 'a path containing renderer-controlled line breaks and controls',
+      requestedPath: '/workspace/line-one\nline-two\tcontrol',
+      verify: (diagnosticPath: string) => {
+        expect(diagnosticPath).toContain('\\u000a');
+        expect(diagnosticPath).toContain('\\u0009');
+        expect(diagnosticPath).not.toMatch(/[\n\r\t]/u);
+      },
+    },
+  ])('bounds the denial diagnostic for $name', async ({ requestedPath, verify }) => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceRootRegistry' &&
+        record.level === LogLevel.WARN &&
+        record.message === 'Workspace read denied'
+      ) {
+        captured.push(record);
+      }
+    });
+    try {
+      const registry = createRegistry();
+      const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
+        requestedPath: unknown,
+        claimedRootPath: unknown,
+        claimedRootId: unknown
+      ) => Promise<string>;
+
+      await expect(readScoped(requestedPath, '/workspace', 'root-a')).rejects.toThrow();
+
+      expect(captured).toHaveLength(1);
+      const diagnosticFields = captured[0]?.args[1];
+      if (!(diagnosticFields && typeof diagnosticFields === 'object')) {
+        throw new Error('Missing denial diagnostic fields');
+      }
+      const diagnosticPath = (diagnosticFields as { requestedPath?: unknown }).requestedPath;
+      if (typeof diagnosticPath !== 'string') {
+        throw new Error('Missing denial diagnostic path');
+      }
+      expect(diagnosticPath.length).toBeLessThanOrEqual(256);
+      verify(diagnosticPath);
+    } finally {
+      removeListener();
+    }
+  });
+
   it('fails visibly instead of treating malformed persistence as zero roots', async () => {
     storage = createStorage({ rootsList: '{broken' });
     const registry = createRegistry();
