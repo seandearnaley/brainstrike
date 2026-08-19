@@ -92,7 +92,9 @@ describe('performance benchmark measurement contracts', () => {
       e2eSource,
       embeddingWorkerPackageSource,
       hookSource,
+      performanceWorkflow,
       probeSource,
+      vitestConfig,
       workerSource,
       playwrightConfig,
     ] = await Promise.all([
@@ -102,7 +104,9 @@ describe('performance benchmark measurement contracts', () => {
       ),
       readFile(path.join(process.cwd(), '../../packages/embedding-worker/package.json'), 'utf8'),
       readFile(path.join(process.cwd(), 'src/web-e2e-test-hooks.tsx'), 'utf8'),
+      readFile(path.join(process.cwd(), '../../.github/workflows/performance.yml'), 'utf8'),
       readFile(path.join(process.cwd(), 'src/embedding-model-switch-memory-probe.ts'), 'utf8'),
+      readFile(path.join(process.cwd(), 'vitest.config.mts'), 'utf8'),
       readFile(
         path.join(process.cwd(), 'src/embedding-model-switch-memory-probe.worker.ts'),
         'utf8'
@@ -153,5 +157,20 @@ describe('performance benchmark measurement contracts', () => {
     expect(sideEffects).toEqual(['./dist/embedding.worker.cjs', './dist/embedding.worker.js']);
 
     expect(playwrightConfig).toContain('ForceEagerMeasureMemory');
+    expect(playwrightConfig).toContain("testMatch: '**/performance/*.test.ts'");
+    expect(performanceWorkflow).toContain("default: 'performance'");
+    expect(performanceWorkflow).toContain('pnpm exec playwright test --project="$PERF_PROJECT"');
+
+    const coverageExcludeBlock =
+      /coverage:\s*\{[\s\S]*?exclude:\s*\[([\s\S]*?)\][\s\S]*?include:/u.exec(vitestConfig)?.[1];
+    expect(coverageExcludeBlock, 'web coverage exclude block not found').toBeDefined();
+    const modelSwitchExclusions = [
+      ...(coverageExcludeBlock?.matchAll(/['"](src\/embedding-model-switch-memory-[^'"]+)['"]/gu) ??
+        []),
+    ].map((match) => match[1]);
+    expect(modelSwitchExclusions).toEqual([
+      'src/embedding-model-switch-memory-probe.ts',
+      'src/embedding-model-switch-memory-probe.worker.ts',
+    ]);
   });
 });
