@@ -398,6 +398,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       return existing.pipeline;
     }
 
+    const timestamp = readNow();
     let victimDisposals: readonly Promise<void>[];
     try {
       victimDisposals = evictLruByDevice(request.device, request.diagnostics ?? {});
@@ -409,7 +410,6 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       assertCacheCanLoad();
       return await options.load(request.model, request.device, request.dtype);
     });
-    const timestamp = readNow();
     const entry: PipelineCacheEntry<Resource> = {
       cacheKey,
       createdAt: timestamp,

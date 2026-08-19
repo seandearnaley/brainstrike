@@ -148,8 +148,10 @@ Embedding runtime telemetry (BST-402):
   `packages/embedding-worker/src/pipeline-cache-controller.ts`. The production worker
   injects the real Transformers.js loader; the controller owns the 1-WebGPU/3-WASM
   limits, LRU/idle eviction, disposal, and diagnostic snapshots. A miss reserves its
-  logical cache slot synchronously, but the replacement loader cannot allocate until the
-  evicted resource's possibly asynchronous `.dispose()` completes. Concurrent misses
+  logical cache slot synchronously. Request and cache-clock validation finish before any
+  eviction or loader call, so a rejected request cannot orphan a physical allocation. The
+  replacement loader cannot allocate until the evicted resource's possibly asynchronous
+  `.dispose()` completes. Concurrent misses
   therefore remain deduplicated and physically bounded. Pending entries are reservations,
   never resident-limit or idle-timeout eviction victims: if every device-class slot is
   pending, a distinct miss fails immediately with a request-scoped load-failure diagnostic
