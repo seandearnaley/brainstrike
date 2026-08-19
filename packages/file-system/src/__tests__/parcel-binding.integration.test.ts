@@ -33,7 +33,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadParcelWatcher, selectParcelBackend } from '../adapters/parcel-backend.js';
 import { attributeWatcherFailure, probeWatcherLiveness } from '../testing/watcher-liveness.js';
 
-vi.setConfig({ testTimeout: getAdjustedTimeout('integration') });
+// The outer timeout must exceed the inner deadline PLUS the attribution probe
+// (up to ~2s native + ~2s control), or the ambiguous "Test timed out" wins the
+// race again — measured at exactly 15021ms against a 15s bound while building
+// this. It bounds hangs only; every wait below is bounded by its own deadline,
+// so this raises no assertion's patience.
+vi.setConfig({ testTimeout: getAdjustedTimeout('heavy') });
 
 /** Comfortably below the test timeout, so this deadline wins the race. */
 const EVENT_DEADLINE_MS = 5000;

@@ -22,7 +22,11 @@ import { startParcelWatch } from '../adapters/parcel-watchers.js';
 import { attributeWatcherFailure } from '../testing/watcher-liveness.js';
 import type { DirectoryHandle, FileSystemChange } from '../types.js';
 
-vi.setConfig({ testTimeout: getAdjustedTimeout('integration') });
+// Must exceed the inner deadline PLUS the attribution probe (~2s native + ~2s
+// control) so the DIAGNOSTIC wins the race, never the bare "Test timed out":
+// measured at exactly 15021ms against a 15s bound while building this. It
+// bounds hangs only — every wait below is bounded by its own deadline.
+vi.setConfig({ testTimeout: getAdjustedTimeout('heavy') });
 
 const EVENT_DEADLINE_MS = 5000;
 
