@@ -140,6 +140,29 @@ describe('embedding pipeline cache controller', () => {
     }
   });
 
+  it('does not invoke the loader when the cache clock is invalid', async () => {
+    const load = vi.fn(async () => ({ dispose: vi.fn() }));
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      now: () => Number.NaN,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'invalid-clock-worker',
+    });
+
+    await expect(
+      controller.load({
+        device: 'wasm',
+        dtype: 'q4',
+        estimatedModelBytes: WASM_MODEL_BYTES,
+        model: 'must-not-allocate',
+      })
+    ).rejects.toThrow('Embedding pipeline cache clock must return a non-negative finite number.');
+    await Promise.resolve();
+
+    expect(load).not.toHaveBeenCalled();
+    await controller.close();
+  });
+
   it('awaits asynchronous resident-limit disposal before allocating the replacement', async () => {
     const disposalStarted = createDeferred<void>();
     const releaseDisposal = createDeferred<void>();
