@@ -8,10 +8,8 @@ import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { useTextTokenCount } from '../indexing/use-text-token-count';
 import { useTokenCounting } from '../indexing/use-token-counting';
-import {
-  PreviewContentFailureAlert,
-  usePreviewContentFailure,
-} from '../preview/preview-content-failure';
+import { usePreviewContentFailure } from '../preview/preview-content-failure';
+import { PreviewContentFailureAlert } from '../preview/preview-content-failure-alert';
 import { PreviewPanel } from '../preview/preview-panel';
 import { usePreviewPanelReportActions } from '../preview/use-preview-panel-report-actions';
 import { buildFileNodeCache } from '../utils/file-node-cache';
