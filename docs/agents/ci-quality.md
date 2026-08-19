@@ -44,10 +44,11 @@ required reference before they write the summary.
 
 Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
 scheduled workflow exactly. `memory-baseline` skips the unrelated broad
-regression job and runs only the desktop embedding memory spec with no
-max-failure truncation. Use the narrow mode for controlled, sequential
-same-head memory calibration runs; it is evidence collection, not a way to
-replace or route required PR checks.
+regression job and runs only the desktop embedding-worker and database
+live-query memory specs with one worker, no retries, and no max-failure
+truncation. Use the narrow mode for controlled, sequential same-head memory
+calibration runs; it is evidence collection, not a way to replace or route
+required PR checks.
 
 ### Desktop Electron provisioning (BST-563)
 
@@ -87,6 +88,29 @@ failing a material full-collection hydration. Calibration evidence is in
 workflow runs `31458099061`, `31458469270`, and `31459112520`; replace this
 table and re-run three sequential same-head samples when changing the fixture,
 measurement window, or process-memory source.
+
+BST-438's database live-query limits are calibrated independently from those
+50k-list scenarios because its primary signal is forced-GC collection of actual
+result-array identities. On 2026-08-19, three sequential local regression runs
+at exact executable head `07bc230ae756382a51e4c8346b917617954b1af7`
+produced:
+
+| Scenario | Visible heap growth (MB) | Visible working-set growth (MB) | Collected / tracked generations |
+| --- | --- | --- | --- |
+| 100 alternating committed mutations | `0.0`, `0.0`, `0.0` | `-34.2`, `-31.8`, `-31.5` | `100/101`, `100/101`, `100/101` |
+| 10 A/B/C switch cycles plus final insert/delete | `0.0`, `0.0`, `0.0` | `12.6`, `13.2`, `13.8` | `60/65`, `60/65`, `60/65` |
+
+An earlier three-run threshold-selection sample at implementation head
+`32cd1a46afd97971ceca9d8e96a11abc82b469f0` observed switching working-set
+growth of `13.0`, `29.4`, and `11.7` MB, so the 48 MB switch ceiling retains
+18.6 MB of headroom over the worst of all six samples. The mutation working-set
+ceiling remains 32 MB and both heap ceilings remain the positive 16 MB floor.
+Every final-head run also held the exact renderer/IPC/manager/host ownership
+delta, exact one- or three-entry cache cardinalities, zero dropped WeakRef
+observations, removal of all named superseded generations, and a live current
+generation. Re-run three sequential exact-head samples when changing the
+fixture, switch/mutation count, forced-GC window, cache policy, or process-memory
+source.
 
 The AI Tools settings specs are deliberately part of both required PR smoke
 lanes. Their tool category/loading-tier assertions follow the shared assistant

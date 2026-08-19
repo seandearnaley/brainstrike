@@ -549,7 +549,10 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
       return { inserted: true };
     }
     case 'diagnostics':
-      return getDatabaseDiagnostics();
+      return {
+        ...getDatabaseDiagnostics(),
+        activeLiveQueryCount: liveQueries.size,
+      };
     case 'reset':
       await unsubscribeAllLiveQueries();
       await resetLocalDatabase();

@@ -189,6 +189,7 @@ export function DatabaseDemoPanel({
   const {
     collectionCounts,
     collectionCountsStatus,
+    getTestCacheDiagnostics,
     records,
     refreshing,
     loadRecords,
@@ -217,10 +218,12 @@ export function DatabaseDemoPanel({
   // explorer's selection bar), not from a duplicate service mounted here.
   useDatabaseDemoTestHook({
     activeCollectionId,
+    getCacheDiagnostics: getTestCacheDiagnostics,
     isImporting: isImportActive,
     recordCount: records.length,
     recordCurrentPage: recordPagination.currentPage,
     recordPageSize: recordPagination.pageSize,
+    records,
     recordTotalRecords: recordPagination.totalRecords,
   });
 

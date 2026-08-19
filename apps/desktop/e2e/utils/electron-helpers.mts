@@ -345,6 +345,7 @@ function createLaunchOptions(
   const baseArgs = [
     mainPath,
     '--test-mode',
+    '--js-flags=--expose-gc',
     `--brainstrike-desktop-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.

@@ -1,6 +1,6 @@
 import { buildAssistantThreadRunsSchemaSql } from '@brainstrike/assistant-data';
 import type { IpcMainInvokeEvent } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -34,6 +34,10 @@ vi.mock('electron', () => ({
 const { transactionSpy } = vi.hoisted(() => ({ transactionSpy: vi.fn() }));
 const { dbHostManagerMock } = vi.hoisted(() => ({
   dbHostManagerMock: {
+    getLiveQueryDiagnosticsForTests: vi.fn(async () => ({
+      hostLiveQueryCount: 2,
+      managerLiveQueryCount: 2,
+    })),
     insertChunksAndEnqueueEmbeddingJobs: vi.fn(async () => undefined),
   },
 }));
@@ -65,11 +69,19 @@ vi.mock('../../db-host-manager', () => ({
 import { assertRendererSql, registerDatabaseIpcHandlers } from '../../ipc-domains/db-ipc';
 
 describe('database IPC domain', () => {
+  let unregisterDatabaseHandlers: (() => void) | null = null;
+
   beforeEach(() => {
     handlers.clear();
     removeHandler.mockClear();
+    dbHostManagerMock.getLiveQueryDiagnosticsForTests.mockClear();
     dbHostManagerMock.insertChunksAndEnqueueEmbeddingJobs.mockClear();
-    registerDatabaseIpcHandlers({});
+    unregisterDatabaseHandlers = registerDatabaseIpcHandlers({});
+  });
+
+  afterEach(() => {
+    unregisterDatabaseHandlers?.();
+    unregisterDatabaseHandlers = null;
   });
 
   it('registers lightweight diagnostics handlers and unregisters owned channels', async () => {
@@ -89,6 +101,40 @@ describe('database IPC domain', () => {
     expect(removeHandler).toHaveBeenCalledWith('db:ping');
     expect(removeHandler).toHaveBeenCalledWith('db:scheduler:snapshot');
     expect(removeHandler).toHaveBeenCalledWith('db:live-query:start');
+  });
+
+  it('publishes and clears test-only live-query ownership diagnostics', async () => {
+    const diagnosticsKey = '__brainstrike_e2e_db_live_query_diagnostics__' as const;
+    const e2eGlobal = globalThis as typeof globalThis &
+      Partial<
+        Record<
+          typeof diagnosticsKey,
+          () => Promise<{
+            hostLiveQueryCount: number;
+            ipcLiveQueryCount: number;
+            managerLiveQueryCount: number;
+          }>
+        >
+      >;
+    const unregister = unregisterDatabaseHandlers;
+    if (!unregister) {
+      throw new Error('Expected database IPC handlers to be registered for the test.');
+    }
+    const diagnostics = e2eGlobal[diagnosticsKey];
+    if (!diagnostics) {
+      throw new Error('Expected test-only live-query diagnostics to be registered.');
+    }
+
+    await expect(diagnostics()).resolves.toEqual({
+      hostLiveQueryCount: 2,
+      ipcLiveQueryCount: 0,
+      managerLiveQueryCount: 2,
+    });
+    expect(dbHostManagerMock.getLiveQueryDiagnosticsForTests).toHaveBeenCalledTimes(1);
+
+    unregister();
+    unregisterDatabaseHandlers = null;
+    expect(e2eGlobal[diagnosticsKey]).toBeUndefined();
   });
 
   it('rejects malformed renderer SQL before scheduling database work', async () => {
