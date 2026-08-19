@@ -30,9 +30,6 @@
       "path": "../../packages/platform-utils"
     },
     {
-      "path": "../../packages/utils"
-    },
-    {
       "path": "../logging"
     }
   ]
