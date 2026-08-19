@@ -714,8 +714,6 @@ jobs:
 
       # `always()`: the headers are valid whether or not the C++ compiled, and a
       # test failure is exactly when the next run should not re-download them.
-      # A failed header install is not cached — node-gyp rolls the dev dir back
-      # on error, leaving nothing to save.
       #
       # The version guard is not politeness. If `Setup workspace` failed before
       # setup-node resolved a version, this key would collapse onto the restore
@@ -723,8 +721,18 @@ jobs:
       # future restores, shadowing the good version-keyed entry that
       # `restore-keys` would otherwise have found. Refusing to write a key that
       # would be wrong beats writing one that silently outranks the right one.
+      #
+      # The outcome guard covers the OTHER failure window: the header download
+      # runs inside the composite's install step, AFTER setup-node — and a
+      # composite exposes its outputs even when a later embedded step fails. A
+      # failed download rolls back only the NEW version's dev dir, so on a
+      # patch bump a cross-version restore survives in the devdir; without this
+      # guard `always()` would archive that older tree under the new exact key,
+      # which is immutable and preferred by restore-keys (newest) from then on.
+      # A test/build failure leaves the setup outcome `success`, so the
+      # keep-the-cache-warm intent of `always()` is unaffected.
       - name: Save node-gyp headers
-        if: always() && steps.setup.outputs.node-version != ''
+        if: always() && steps.setup.outcome == 'success' && steps.setup.outputs.node-version != ''
         uses: actions/cache/save@v5
         with:
           path: ${{ github.workspace }}\.node-gyp

@@ -125,6 +125,19 @@ function assertHeaderCacheContract(workflow, composite) {
     new RegExp(`steps\\.${setupId}\\.outputs\\.node-version\\s*!=\\s*''`),
     'the save must refuse to run with an empty node-version, or it poisons the restore prefix'
   );
+  // The empty-version guard only covers failure BEFORE setup-node resolves a
+  // version. The header download runs later, inside the composite's install
+  // step, and composite outputs survive a later embedded step's failure — so
+  // node-version is non-empty on exactly the runs where node-gyp's rollback
+  // has deleted only the NEW version dir and left a cross-version restore in
+  // the devdir. Cache keys are immutable: `always()` would archive that older
+  // tree under the new exact key, restore-keys would prefer it (newest) from
+  // then on, and no later run could repair it until the next patch bump.
+  assert.match(
+    String(steps[saveIndex].if ?? ''),
+    new RegExp(`steps\\.${setupId}\\.outcome\\s*==\\s*'success'`),
+    'the save must refuse to run when Setup workspace failed, or a cross-version restore is archived under the new immutable exact key'
+  );
 
   const outputValue = composite?.outputs?.['node-version']?.value;
   assert.ok(
@@ -185,6 +198,19 @@ test('CONTROL: dropping the empty-version guard FAILS the contract', () => {
     () => assertHeaderCacheContract(workflow, readComposite()),
     /poisons the restore prefix/,
     'a save that can write the bare prefix must not pass'
+  );
+});
+
+test('CONTROL: dropping the setup-outcome guard FAILS the contract', () => {
+  const workflow = structuredClone(readWorkflow());
+  const steps = workflow.jobs['native-windows'].steps;
+  const save = steps.find((step) => usesPrefix(step, 'actions/cache/save@'));
+  const setupId = steps.find((step) => usesPrefix(step, './.github/actions/setup-workspace'))?.id;
+  save.if = `always() && steps.${setupId}.outputs.node-version != ''`;
+  assert.throws(
+    () => assertHeaderCacheContract(workflow, readComposite()),
+    /archived under the new immutable exact key/,
+    'a save that still runs after a failed setup must not pass'
   );
 });
 
