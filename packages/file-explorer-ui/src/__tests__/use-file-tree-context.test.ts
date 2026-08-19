@@ -11,7 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileExplorerRefreshEvent } from '../shell/file-explorer-refresh-event';
 import { type FileTreeRefreshResult, useFileTree } from '../tree/use-file-tree-context';
 import { useFileTreeRefreshEvents } from '../tree/use-file-tree-refresh-events';
-import { __resetInFlightRootLoads } from '../tree/use-lazy-file-tree';
+import { __resetInFlightRootLoads, type LazyFileTreeState } from '../tree/use-lazy-file-tree';
+import { createLoadRootPendingState } from '../tree/use-lazy-file-tree-root-load';
 import * as normalizedFileTree from '../utils/normalized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -268,6 +269,25 @@ describe('useFileTree (lazy loading version)', () => {
     expect(result.current.cancellable).toBe(false);
     expect(result.current.isCancelling).toBe(false);
     expect(result.current.loadingPaths.size).toBe(0);
+  });
+
+  it('does not publish root pending state for an ordinary joined request after a root was applied', () => {
+    const currentState: LazyFileTreeState = {
+      error: null,
+      fileTree: [],
+      isInitialLoading: false,
+      loadingPaths: new Set(['mock-root/active-child']),
+    };
+
+    const createPendingState: (
+      state: LazyFileTreeState,
+      publishPending: boolean
+    ) => LazyFileTreeState = createLoadRootPendingState;
+    const nextState = createPendingState(currentState, false);
+
+    expect(nextState).toBe(currentState);
+    expect(nextState.isInitialLoading).toBe(false);
+    expect(nextState.loadingPaths).toEqual(new Set(['mock-root/active-child']));
   });
 
   it('loads only root-level contents on initial load (lazy loading)', async () => {
@@ -1945,6 +1965,44 @@ describe('useFileTree (lazy loading version)', () => {
           'File tree worker port terminated'
         );
       });
+      await waitFor(() => expect(result.current.error?.message).toContain('terminated'));
+    });
+
+    it('surfaces and rejects a non-abort serial restoration failure', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const parent = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      if (parent?.type !== 'directory') {
+        throw new Error('Expected parent directory before serial restoration failure');
+      }
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(
+        async (...args): Promise<void> => {
+          if (args[0].path === parent.path) {
+            throw new Error('serial restoration read failed');
+          }
+          await originalReadDirectoryStreaming(...args);
+        }
+      );
+
+      await act(async () => {
+        await expect(result.current.loadSpecificPaths([parent.path])).rejects.toThrow(
+          'serial restoration read failed'
+        );
+      });
+      await waitFor(() =>
+        expect(result.current.error?.message).toBe('serial restoration read failed')
+      );
     });
 
     it('skips restoration requests while expand-all is in progress', async () => {

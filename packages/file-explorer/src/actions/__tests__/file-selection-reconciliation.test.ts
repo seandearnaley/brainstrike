@@ -327,6 +327,43 @@ describe('file-selection refresh reconciliation', () => {
     ]);
   });
 
+  it.each([
+    {
+      expected: [String.raw`C:\workspace/src`, String.raw`C:\workspace/src\nested`],
+      rootPath: String.raw`C:\workspace`,
+      selectedPath: String.raw`C:\workspace/src\nested/file.ts`,
+    },
+    {
+      expected: ['C:/workspace/src', 'C:/workspace/src/nested'],
+      rootPath: String.raw`C:\workspace`,
+      selectedPath: 'C:/workspace/src/nested/file.ts',
+    },
+    {
+      expected: [String.raw`\\server\share/src`, String.raw`\\server\share/src\nested`],
+      rootPath: String.raw`\\server\share`,
+      selectedPath: String.raw`\\server\share/src\nested/file.ts`,
+    },
+  ])(
+    'preserves each selected path separator presentation while deriving ancestors: $selectedPath',
+    ({ expected, rootPath, selectedPath }) => {
+      const folderId = 'root-id';
+      const selectedFilePaths = new Set([`${folderId}|@|${selectedPath}`]);
+      const state = createMockState({
+        currentFolderId: folderId,
+        selectedFilePaths,
+        selectionModel: {
+          explicitPaths: selectedFilePaths,
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
+          queryDescriptor: null,
+        },
+      });
+
+      expect(getSelectionAncestorDirectories(state, folderId, rootPath)).toEqual(expected);
+    }
+  );
+
   it('does not invent a replacement count from an inexact materialized query cache', () => {
     const folderId = 'root-id';
     const cachedPath = '/workspace/src/cached.ts';
@@ -628,7 +665,7 @@ describe('file-selection refresh reconciliation', () => {
     expect(state.getState().selectedFilePaths).toEqual(selection);
   });
 
-  it('drops a selected file replaced by a same-path directory', () => {
+  it('enforces the files-only selection invariant when a selected file is retyped as a directory', () => {
     const folderId = 'root-id';
     const path = '/workspace/src/replaced.ts';
     const key = `${folderId}|@|${path}`;
