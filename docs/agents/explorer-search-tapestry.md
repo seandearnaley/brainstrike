@@ -834,9 +834,12 @@ fallback.
   request-id-scoped renderer `AbortController`. Explicit abort, bulk
   supersession, runtime failure, and port termination abort and remove all live
   request controllers; ordinary settlement removes only the identity-matching
-  controller, keeping the registry bounded. The signal fences the handle-map
-  publication after directory I/O, and the port suppresses any result/error
-  that settles after its request was retired. As a second ordering defense, the
+  controller, keeping the registry bounded. Runtime failure and port
+  termination also reject and clear the shared pending bulk operation before
+  worker disposal, so provider cleanup cannot strand restoration ownership
+  across a remount. The signal fences the handle-map publication after
+  directory I/O, and the port suppresses any result/error that settles after
+  its request was retired. As a second ordering defense, the
   BFS engine rejects a correlated result/error whose request id and path are no
   longer pending before touching its tree; legacy id-less standalone updates
   remain valid. A forced

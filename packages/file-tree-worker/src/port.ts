@@ -634,6 +634,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     terminate() {
+      rejectPendingOperation(new Error('File tree worker port terminated'));
       abortActiveRequestLoads(new DOMException('File tree worker port terminated', 'AbortError'));
       removeMessageListener();
       runtime.dispose();
