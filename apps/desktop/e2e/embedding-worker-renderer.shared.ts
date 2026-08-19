@@ -202,7 +202,7 @@ export interface HeapSnapshot {
 export interface RuntimeProcessSnapshot {
   osProcessId: number | null;
   privateMB: number | null;
-  runtimeKind: 'chunking-host' | 'embedding-host' | 'visible-ui';
+  runtimeKind: 'chunking-host' | 'embedding-host' | 'llm-host' | 'visible-ui';
   sharedMB: number | null;
   workingSetMB: number | null;
 }
@@ -298,10 +298,12 @@ export const LARGE_BACKFILL_MAIN_RSS_GROWTH_LIMIT_MB = 180;
 export const LARGE_BACKFILL_MAIN_HEAP_GROWTH_LIMIT_MB = 80;
 export const LARGE_BACKFILL_IDLE_HOST_HEAP_DRIFT_LIMIT_MB = 40;
 export const LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB = 90;
-// Calibrated from three sequential exact-head Ubuntu workflow runs documented
-// in docs/agents/ci-quality.md. Both paths measured 0 MB heap growth and a
-// shrinking working set; these positive floors retain noise headroom while
-// still rejecting a material full-collection hydration regression.
+// Calibrated from three sequential local runs with --enable-precise-memory-info
+// documented in docs/agents/ci-quality.md (the earlier Ubuntu workflow samples
+// predate that flag, when heap reads were quantized/cached and every delta was
+// a dead 0.0). Both paths measured shrinking heap (-8.1..-8.4 MB) and
+// working set; these positive floors retain noise headroom while still
+// rejecting a material full-collection hydration regression.
 export const LARGE_COLLECTION_VISIBLE_HEAP_GROWTH_LIMIT_MB = 16;
 export const LARGE_COLLECTION_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 32;
 export const LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB = 16;
@@ -1119,12 +1121,23 @@ export async function readDesktopProcessSnapshot(
         } catch {
           mode = null;
         }
-        const runtimeKind: RuntimeProcessSnapshot['runtimeKind'] =
-          mode === 'embedding-host'
-            ? 'embedding-host'
-            : mode === 'chunking-host'
-              ? 'chunking-host'
-              : 'visible-ui';
+        // Hidden hosts declare their DesktopWindowRole via the `mode` URL
+        // param (renderer-host-lifecycle.ts); the visible window has none.
+        // An unknown mode must throw rather than be silently measured as the
+        // visible UI (e.g. a lazily started llm-host skewing UI ceilings).
+        if (
+          !(
+            mode === null ||
+            mode === 'embedding-host' ||
+            mode === 'chunking-host' ||
+            mode === 'llm-host'
+          )
+        ) {
+          throw new Error(
+            `Unknown desktop window mode "${mode}" (url: ${url}); update the E2E runtime classifier in embedding-worker-renderer.shared.ts.`
+          );
+        }
+        const runtimeKind: RuntimeProcessSnapshot['runtimeKind'] = mode ?? 'visible-ui';
         const osProcessId = browserWindow.webContents.getOSProcessId();
         if (typeof webContents.getProcessMemoryInfo !== 'function') {
           return {
@@ -1212,7 +1225,13 @@ export async function readTrackedRuntimeWorkingSetMB(
     try {
       return await app.evaluate<number | null, RuntimeProcessSnapshot['runtimeKind']>(
         ({ app: electronApp, BrowserWindow }, expectedRuntimeKind) => {
-          const hostWindow = BrowserWindow.getAllWindows().find((browserWindow) => {
+          // Classify EVERY window before selecting, mirroring
+          // readDesktopProcessSnapshot: a `find` predicate would short-circuit
+          // at the first match (the mode-less visible window is created
+          // first), so an unknown-mode guard inside it could never fire for a
+          // 'visible-ui' lookup. An unknown window mode must throw, never be
+          // silently classified as the visible UI.
+          const classifiedWindows = BrowserWindow.getAllWindows().map((browserWindow) => {
             const url = browserWindow.webContents.getURL();
             let mode: string | null = null;
             try {
@@ -1220,14 +1239,23 @@ export async function readTrackedRuntimeWorkingSetMB(
             } catch {
               mode = null;
             }
-            const runtimeKind =
-              mode === 'embedding-host'
-                ? 'embedding-host'
-                : mode === 'chunking-host'
-                  ? 'chunking-host'
-                  : 'visible-ui';
-            return runtimeKind === expectedRuntimeKind;
+            if (
+              !(
+                mode === null ||
+                mode === 'embedding-host' ||
+                mode === 'chunking-host' ||
+                mode === 'llm-host'
+              )
+            ) {
+              throw new Error(
+                `Unknown desktop window mode "${mode}" (url: ${url}); update the E2E runtime classifier in embedding-worker-renderer.shared.ts.`
+              );
+            }
+            return { browserWindow, runtimeKind: mode ?? 'visible-ui' };
           });
+          const hostWindow = classifiedWindows.find(
+            (entry) => entry.runtimeKind === expectedRuntimeKind
+          )?.browserWindow;
           if (!hostWindow) {
             return null;
           }
