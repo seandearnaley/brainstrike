@@ -383,7 +383,9 @@ export function useLazyFileTree(
   loadingPathsRef.current = state.loadingPaths;
   const normalizedTreeRef = useRef<NormalizedFileTreeState>(createEmptyNormalizedFileTreeState());
   const [normalizedTreeVersion, setNormalizedTreeVersion] = useState(0);
-  const inFlightChildLoadsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const inFlightChildLoadsRef = useRef<Map<string, { promise: Promise<void>; token: symbol }>>(
+    new Map()
+  );
   const loadChildrenRef = useRef<(path: string) => Promise<void>>(async () => {});
   const specificPathProgressRef = useRef<
     ((loaded: number, total: number, currentPath: string) => void) | null
@@ -1033,7 +1035,7 @@ export function useLazyFileTree(
 
       const existingLoad = inFlightChildLoadsRef.current.get(path);
       if (existingLoad) {
-        await existingLoad;
+        await existingLoad.promise;
         return;
       }
 
@@ -1060,6 +1062,7 @@ export function useLazyFileTree(
         }));
       }
 
+      const loadToken = Symbol(path);
       const loadPromise = (async () => {
         try {
           if (!node) {
@@ -1067,12 +1070,14 @@ export function useLazyFileTree(
           }
           await performDirectoryLoad(path, node, abortController, fileSystemAdapter);
         } finally {
-          inFlightChildLoadsRef.current.delete(path);
+          if (inFlightChildLoadsRef.current.get(path)?.token === loadToken) {
+            inFlightChildLoadsRef.current.delete(path);
+          }
           removeChildController(path, abortController);
         }
       })();
 
-      inFlightChildLoadsRef.current.set(path, loadPromise);
+      inFlightChildLoadsRef.current.set(path, { promise: loadPromise, token: loadToken });
       await loadPromise;
     },
     [fileSystemAdapter, createAbortController, performDirectoryLoad, removeChildController]
@@ -1247,6 +1252,16 @@ export function useLazyFileTree(
         return null;
       }
 
+      // A refresh is an authoritative read boundary, not another consumer of
+      // an older expansion/restoration request. Retire any prior read so a
+      // mutation that happened after it began cannot be hidden by in-flight
+      // deduplication. Controller identity and token-aware promise cleanup keep
+      // the retired request from publishing into or deleting this new one.
+      if (inFlightChildLoadsRef.current.has(path)) {
+        cancelChildLoading(path);
+        inFlightChildLoadsRef.current.delete(path);
+      }
+
       // Reset to unloaded state first
       const nextTree = commitNormalizedTree((currentTree) =>
         setNormalizedNodeLoadState(currentTree, path, 'unloaded')
@@ -1277,7 +1292,14 @@ export function useLazyFileTree(
       }
       return { directoryPath: path, entries: refreshedNode.children };
     },
-    [commitNormalizedTree, fileSystemAdapter, loadChildren, resolvedRootFolderId, rootDirectoryPath]
+    [
+      cancelChildLoading,
+      commitNormalizedTree,
+      fileSystemAdapter,
+      loadChildren,
+      resolvedRootFolderId,
+      rootDirectoryPath,
+    ]
   );
 
   /**

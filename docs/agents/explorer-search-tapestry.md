@@ -809,7 +809,12 @@ fallback.
   invents manifest membership. Forced root snapshots carry the root id resolved
   by that refresh, and forced directory snapshots capture both committed root
   identity and generation before I/O; a late callback or directory read after a
-  same-path root-id switch therefore returns no snapshot for the new root.
+  same-path root-id switch therefore returns no snapshot for the new root. A
+  forced directory refresh also retires any older expansion/restoration read
+  for that path and owns a token-checked in-flight entry, so it cannot join a
+  pre-mutation listing or have that listing erase its registry entry. Structural
+  changes directly beneath a Windows drive root retain the `C:/` or `C:\\`
+  parent boundary and therefore trigger the required root refresh.
   Pinned by `file-selection-reconciliation.test.ts`,
   `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`, and
   `file-tree-provider.test.tsx`.

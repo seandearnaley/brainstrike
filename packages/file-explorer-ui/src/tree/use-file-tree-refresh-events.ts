@@ -94,6 +94,9 @@ function parentPathOf(changePath: string): string | null {
   if (lastSeparator <= 0) {
     return null;
   }
+  if (lastSeparator === 2 && /^[A-Za-z]:[\\/]$/u.test(changePath.slice(0, 3))) {
+    return changePath.slice(0, 3);
+  }
   return changePath.slice(0, lastSeparator);
 }
 
