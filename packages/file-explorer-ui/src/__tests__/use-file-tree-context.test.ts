@@ -769,36 +769,40 @@ describe('useFileTree (lazy loading version)', () => {
       const secondSnapshot = vi.fn();
       const TestWrapper = ({ children }: { children: ReactNode }) =>
         FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      const { result, rerender } = renderHook(
-        ({ onRootRefreshSnapshot, rootId }) =>
-          useFileTree(handle, { onRootRefreshSnapshot, rootId }),
-        {
-          initialProps: {
-            onRootRefreshSnapshot: firstSnapshot,
-            rootId: 'first-root-id',
-          },
-          wrapper: TestWrapper,
-        }
-      );
+      const useRootSwitchProbe = ({
+        onRootRefreshSnapshot,
+        rootId,
+      }: {
+        onRootRefreshSnapshot: typeof firstSnapshot;
+        rootId: string;
+      }) => useFileTree(handle, { onRootRefreshSnapshot, rootId });
+      const { result, rerender } = renderHook((props) => useRootSwitchProbe(props), {
+        initialProps: {
+          onRootRefreshSnapshot: firstSnapshot,
+          rootId: 'first-root-id',
+        },
+        wrapper: TestWrapper,
+      });
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(firstSnapshot).not.toHaveBeenCalled();
-      let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
-        status: 'cancelled',
-      });
       act(() => {
         rerender({
           onRootRefreshSnapshot: secondSnapshot,
           rootId: 'second-root-id',
         });
-        refreshPromise = result.current.refreshTree();
       });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
       await act(async () => {
-        await refreshPromise;
+        await result.current.refreshTree();
       });
 
       expect(firstSnapshot).not.toHaveBeenCalled();
-      expect(secondSnapshot).toHaveBeenCalledExactlyOnceWith(handle.path, expect.any(Array));
+      expect(secondSnapshot).toHaveBeenCalledExactlyOnceWith(
+        'second-root-id',
+        handle.path,
+        expect.any(Array)
+      );
     });
 
     it('settles an atomic root switch and permits retry when worker reset throws', async () => {

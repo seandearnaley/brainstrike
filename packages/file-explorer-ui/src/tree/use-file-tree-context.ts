@@ -149,7 +149,11 @@ export interface UseFileTreeOptions {
    * Selection owners use this authoritative boundary to remove keys whose
    * direct child vanished without scanning the full lazy tree.
    */
-  onRootRefreshSnapshot?: (directoryPath: string, entries: readonly IFileNode[]) => void;
+  onRootRefreshSnapshot?: (
+    rootFolderId: string,
+    directoryPath: string,
+    entries: readonly IFileNode[]
+  ) => void;
 
   /**
    * Durable RootId UUID for this root (storage v5).

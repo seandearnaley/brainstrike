@@ -196,15 +196,12 @@ export function FileTreeProvider({
   const currentRootPath = rootDirectoryHandle?.path ?? null;
   const currentRootIndexKey = rootId ?? currentRootPath;
   const reconcileSelectionWithDirectorySnapshot = useCallback(
-    (directoryPath: string, entries: readonly IFileNode[]): void => {
-      if (!currentRootIndexKey) {
-        return;
-      }
+    (snapshotRootId: string, directoryPath: string, entries: readonly IFileNode[]): void => {
       store
         .getState()
-        .reconcileSelectionWithDirectorySnapshot(currentRootIndexKey, directoryPath, entries);
+        .reconcileSelectionWithDirectorySnapshot(snapshotRootId, directoryPath, entries);
     },
-    [currentRootIndexKey, store]
+    [store]
   );
   const reconcileSelectionWithDirectorySnapshots = useCallback(
     (snapshots: readonly { directoryPath: string; entries: readonly IFileNode[] }[]): void => {

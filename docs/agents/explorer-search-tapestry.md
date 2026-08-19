@@ -779,14 +779,22 @@ fallback.
   removed child directory; direct files and descendants of a surviving child
   directory remain selected. Query-backed selection stays in query mode and
   records a vanished manifest path as an exclusion instead of degrading to an
-  explicit set. A `loadMore`/`truncated` pseudo-row makes that directory
-  snapshot non-authoritative, so it cannot remove selection. Ordinary expand,
-  restoration, and expand-all enumeration never trigger reconciliation. All
-  loaded-directory snapshots from one watcher batch publish through one store
-  update; the reducer indexes snapshots once and walks only the bounded
-  selection paths and their ancestors, never the full or filtered tree. Pinned
-  by `file-selection-reconciliation.test.ts`,
-  `use-file-tree-refresh-events.test.tsx`, and `file-tree-provider.test.tsx`.
+  explicit set. Path joining is slash-aware so drive roots such as `C:/` retain
+  surviving selections under the normalized `c:/` identity. When one batch
+  contains overlapping directory snapshots, an authoritative ancestor that no
+  longer lists the descendant directory wins over a nearer descendant snapshot,
+  regardless of collection order; a `loadMore`/`truncated` pseudo-row makes that
+  directory snapshot non-authoritative, so it cannot disprove selection.
+  Ordinary expand, restoration, and expand-all enumeration never trigger
+  reconciliation. Watcher directories refresh sequentially against the shared
+  normalized tree, then all complete snapshots from the batch publish through
+  one store update. The reducer indexes snapshots once and walks only the bounded
+  selection paths and their ancestors, never the full or filtered tree. Forced
+  root snapshots carry the root id resolved by that refresh; a late callback
+  after a same-path root-id switch therefore cannot reconcile the old root.
+  Pinned by `file-selection-reconciliation.test.ts`,
+  `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`, and
+  `file-tree-provider.test.tsx`.
 - **Narrow toolbar geometry.** The Explorer panel's 180px minimum width leaves
   a 76px right grid track. Below 236px, Refresh, View Filters **and Expand All /
   Collapse All** move into one 24px compact-actions menu beside the 24px Select

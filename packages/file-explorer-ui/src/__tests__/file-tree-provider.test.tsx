@@ -271,12 +271,41 @@ describe('FileTreeProvider', () => {
     ];
 
     act(() => {
-      options?.onRootRefreshSnapshot?.('/workspace', entries);
+      options?.onRootRefreshSnapshot?.(rootId, '/workspace', entries);
     });
 
     expect(reconcileSelectionWithDirectorySnapshotMock).toHaveBeenCalledWith(
       rootId,
       '/workspace',
+      entries
+    );
+  });
+
+  it('routes a late same-path root-switch snapshot by its authoritative rootId', () => {
+    const firstRootId = 'first-root-id';
+    const secondRootId = 'second-root-id';
+    const { rerender } = render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={firstRootId}>
+        <Consumer />
+      </FileTreeProvider>
+    );
+    const staleSnapshotCallback = useFileTreeMock.mock.calls[0]?.[1]?.onRootRefreshSnapshot;
+
+    rerender(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={secondRootId}>
+        <Consumer />
+      </FileTreeProvider>
+    );
+    reconcileSelectionWithDirectorySnapshotMock.mockClear();
+    const entries: IFileNode[] = [];
+
+    act(() => {
+      staleSnapshotCallback?.(secondRootId, rootHandle.path, entries);
+    });
+
+    expect(reconcileSelectionWithDirectorySnapshotMock).toHaveBeenCalledExactlyOnceWith(
+      secondRootId,
+      rootHandle.path,
       entries
     );
   });

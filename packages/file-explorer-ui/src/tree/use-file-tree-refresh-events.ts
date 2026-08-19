@@ -155,20 +155,22 @@ async function handleWatcherIncrementalRefresh(
   if (refreshRoot) {
     await current.refreshTree();
   }
-  const snapshotResults = await Promise.all(
-    Array.from(parentsToRefresh, async (parent) => {
-      // Re-check after a root reload — it may have reset this directory to
-      // unloaded, in which case expand re-enumerates it anyway.
-      const tree = current.getNormalizedTree();
-      if (!(tree && getNormalizedNode(tree, parent)?.loadState === 'loaded')) {
-        return null;
-      }
-      return current.refreshDirectory(parent);
-    })
-  );
-  const snapshots = snapshotResults.filter(
-    (snapshot): snapshot is FileTreeDirectorySnapshot => snapshot !== null
-  );
+  const snapshots: FileTreeDirectorySnapshot[] = [];
+  for (const parent of parentsToRefresh) {
+    // Re-check after every prior refresh — ancestor/descendant updates share
+    // one normalized tree and must never race each other's replacement.
+    const tree = current.getNormalizedTree();
+    if (!(tree && getNormalizedNode(tree, parent)?.loadState === 'loaded')) {
+      continue;
+    }
+    // Intentional serialization: ancestor and descendant replacements mutate
+    // the same normalized tree, so parallel enumeration can publish stale data.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const snapshot = await current.refreshDirectory(parent);
+    if (snapshot) {
+      snapshots.push(snapshot);
+    }
+  }
   if (snapshots.length > 0) {
     current.reconcileSelectionWithDirectorySnapshots(snapshots);
   }

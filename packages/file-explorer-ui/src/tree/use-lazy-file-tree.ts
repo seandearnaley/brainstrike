@@ -299,7 +299,11 @@ export interface UseLazyFileTreeOptions {
   onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
 
   /** Called only after a forced root refresh commits a complete root listing. */
-  onRootRefreshSnapshot?: (directoryPath: string, entries: readonly IFileNode[]) => void;
+  onRootRefreshSnapshot?: (
+    rootFolderId: string,
+    directoryPath: string,
+    entries: readonly IFileNode[]
+  ) => void;
 
   /**
    * Durable RootId UUID for this root (storage v5).
@@ -352,9 +356,10 @@ export function useLazyFileTree(
   const onNodesIndexedRef = useRef(onNodesIndexed);
   onNodesIndexedRef.current = onNodesIndexed;
   const onRootRefreshSnapshotRef = useRef(onRootRefreshSnapshot);
-  useEffect(() => {
-    onRootRefreshSnapshotRef.current = onRootRefreshSnapshot;
-  }, [onRootRefreshSnapshot]);
+  // A forced refresh can settle before a passive effect; update during render
+  // so it can never publish through the callback from the previous root id.
+  // react-doctor-disable-next-line react-doctor/no-ref-current-in-render
+  onRootRefreshSnapshotRef.current = onRootRefreshSnapshot;
 
   // Core state
   const [state, setState] = useState<LazyFileTreeState>({
@@ -790,7 +795,7 @@ export function useLazyFileTree(
         );
         syncNormalizedTree(children);
         if (force) {
-          onRootRefreshSnapshotRef.current?.(rootPath, children);
+          onRootRefreshSnapshotRef.current?.(resolvedRootFolderId, rootPath, children);
         }
         committedRootIdentityRef.current = rootIdentity;
         lastAppliedRootLoadRef.current = rootLoadRequest.request;

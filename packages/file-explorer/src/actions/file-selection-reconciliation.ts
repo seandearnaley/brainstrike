@@ -24,7 +24,7 @@ function getDirectChildPath(selectedPath: string, directoryPath: string): string
   if (selectedPath === directoryPath) {
     return null;
   }
-  const prefix = directoryPath === '/' ? '/' : `${directoryPath}/`;
+  const prefix = directoryPath.endsWith('/') ? directoryPath : `${directoryPath}/`;
   if (!selectedPath.startsWith(prefix)) {
     return null;
   }
@@ -34,7 +34,7 @@ function getDirectChildPath(selectedPath: string, directoryPath: string): string
   }
   const separatorIndex = remainder.indexOf('/');
   const childName = separatorIndex === -1 ? remainder : remainder.slice(0, separatorIndex);
-  return directoryPath === '/' ? `/${childName}` : `${directoryPath}/${childName}`;
+  return `${prefix}${childName}`;
 }
 
 function getExplicitPaths(compositeKeys: ReadonlySet<string>, folderId: string): string[] {
@@ -118,14 +118,19 @@ function buildSnapshotIndex(
   return index;
 }
 
-function isDisprovenByNearestSnapshot(selectedPath: string, snapshots: SnapshotIndex): boolean {
+function isDisprovenByAuthoritativeSnapshots(
+  selectedPath: string,
+  snapshots: SnapshotIndex
+): boolean {
   let candidateDirectory = parentPath(selectedPath);
   while (candidateDirectory) {
     const entries = snapshots.get(candidateDirectory);
     if (entries) {
       const directChildPath = getDirectChildPath(selectedPath, candidateDirectory);
       const entryType = directChildPath ? entries.get(directChildPath) : undefined;
-      return !entryType || (entryType === 'file' && selectedPath !== directChildPath);
+      if (!entryType || (entryType === 'file' && selectedPath !== directChildPath)) {
+        return true;
+      }
     }
     const parent = parentPath(candidateDirectory);
     if (parent === candidateDirectory) {
@@ -147,7 +152,12 @@ export function getVanishedSelectionPaths(
   const snapshotIndex = buildSnapshotIndex(snapshots, caseInsensitive);
   const vanishedPaths: string[] = [];
   for (const originalPath of getSelectedPaths(state, folderId)) {
-    if (isDisprovenByNearestSnapshot(normalizePath(originalPath, caseInsensitive), snapshotIndex)) {
+    if (
+      isDisprovenByAuthoritativeSnapshots(
+        normalizePath(originalPath, caseInsensitive),
+        snapshotIndex
+      )
+    ) {
       vanishedPaths.push(originalPath);
     }
   }
