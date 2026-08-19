@@ -16,7 +16,7 @@ import type { Migration } from './migration-runner';
  * `attachment: false` field is about file attachments, not image input — do
  * not derive vision from it.)
  *
- * Ships `is_enabled = false` like every other Bedrock row (migration 100); the
+ * Ships `is_enabled = false` like every other Bedrock row (migration 101); the
  * user enables it from Settings. It is deliberately NOT added to
  * `BEDROCK_RECOMMENDED_MODEL_IDS`, which stays a curated two-model Claude
  * starter set.
@@ -26,7 +26,7 @@ import type { Migration } from './migration-runner';
  * db-explorer display only, and rewriting settled rows to move one entry is
  * not worth the migration surface.
  */
-export const migration101AmazonNova2Lite: Migration = {
+export const migration102AmazonNova2Lite: Migration = {
   down: `
     DELETE FROM models WHERE id = 'amazon.nova-2-lite-v1:0' AND provider_id = 'bedrock';
   `,
@@ -54,5 +54,5 @@ export const migration101AmazonNova2Lite: Migration = {
       sort_order = EXCLUDED.sort_order,
       is_enabled = models.is_enabled;
   `,
-  version: 101,
+  version: 102,
 };

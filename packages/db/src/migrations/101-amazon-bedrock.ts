@@ -14,7 +14,7 @@ import type { Migration } from './migration-runner';
  * composer availability is preferences/registry-driven, so seeding rows
  * disabled preserves the existing new-row convention (migration 099).
  */
-export const migration100AmazonBedrock: Migration = {
+export const migration101AmazonBedrock: Migration = {
   down: `
     DELETE FROM models WHERE provider_id = 'bedrock';
     DELETE FROM providers WHERE id = 'bedrock';
@@ -150,5 +150,5 @@ export const migration100AmazonBedrock: Migration = {
       sort_order = EXCLUDED.sort_order,
       is_enabled = models.is_enabled;
   `,
-  version: 100,
+  version: 101,
 };

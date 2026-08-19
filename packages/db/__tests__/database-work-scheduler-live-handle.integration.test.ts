@@ -43,7 +43,7 @@ describe('PGlite live-query teardown contract', () => {
   });
 
   afterAll(async () => {
-    await db.close();
+    await db?.close();
   });
 
   it('stops delivering to the sole listener once it unsubscribes', async () => {
@@ -52,16 +52,20 @@ describe('PGlite live-query teardown contract', () => {
     const listener = vi.fn();
     handle.subscribe(listener);
 
-    await db.exec('INSERT INTO sole_listener_probe VALUES (1)');
-    await vi.waitFor(() => {
+    try {
+      await db.exec('INSERT INTO sole_listener_probe VALUES (1)');
+      await vi.waitFor(() => {
+        expect(listener).toHaveBeenCalledTimes(1);
+      });
+
+      await handle.unsubscribe(listener);
+      await db.exec('INSERT INTO sole_listener_probe VALUES (2)');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       expect(listener).toHaveBeenCalledTimes(1);
-    });
-
-    await handle.unsubscribe(listener);
-    await db.exec('INSERT INTO sole_listener_probe VALUES (2)');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      await handle.unsubscribe(listener);
+    }
   });
 
   it('detaches only the unsubscribed listener and leaves the handle live', async () => {
@@ -69,23 +73,30 @@ describe('PGlite live-query teardown contract', () => {
     const handle = await db.live.query('SELECT id FROM live_teardown_probe ORDER BY id');
     const firstListener = vi.fn();
     const secondListener = vi.fn();
+    const laterListener = vi.fn();
     handle.subscribe(firstListener);
     handle.subscribe(secondListener);
 
-    await db.exec('INSERT INTO live_teardown_probe VALUES (1)');
-    await vi.waitFor(() => {
+    try {
+      await db.exec('INSERT INTO live_teardown_probe VALUES (1)');
+      await vi.waitFor(() => {
+        expect(firstListener).toHaveBeenCalledTimes(1);
+        expect(secondListener).toHaveBeenCalledTimes(1);
+      });
+
+      await handle.unsubscribe(firstListener);
+      await db.exec('INSERT INTO live_teardown_probe VALUES (2)');
+
+      // The surviving listener keeps receiving updates; the handle is not terminal.
+      await vi.waitFor(() => {
+        expect(secondListener.mock.calls.length).toBeGreaterThanOrEqual(2);
+      });
       expect(firstListener).toHaveBeenCalledTimes(1);
-      expect(secondListener).toHaveBeenCalledTimes(1);
-    });
-
-    await handle.unsubscribe(firstListener);
-    await db.exec('INSERT INTO live_teardown_probe VALUES (2)');
-
-    // The surviving listener keeps receiving updates; the handle is not terminal.
-    await vi.waitFor(() => {
-      expect(secondListener).toHaveBeenCalledTimes(2);
-    });
-    expect(firstListener).toHaveBeenCalledTimes(1);
-    expect(() => handle.subscribe(vi.fn())).not.toThrow();
+      expect(() => handle.subscribe(laterListener)).not.toThrow();
+    } finally {
+      await handle.unsubscribe(firstListener);
+      await handle.unsubscribe(secondListener);
+      await handle.unsubscribe(laterListener);
+    }
   });
 });

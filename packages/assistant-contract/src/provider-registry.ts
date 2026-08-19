@@ -962,6 +962,27 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'unsupported',
       },
       {
+        // Identity, modalities, context, output-limit semantics, mandatory
+        // reasoning, and effort levels: official xAI Grok 4.6 docs/release
+        // notes, retrieved 2026-08-18. Route and standard gateway pricing:
+        // OpenRouter Models API, retrieved 2026-08-18 (BST-1374).
+        contextWindow: 500_000,
+        id: 'x-ai/grok-4.6',
+        label: 'Grok 4.6 (OpenRouter)',
+        // xAI documents "No text output limit" and OpenRouter reports null;
+        // omit maxOutputTokens rather than inventing a numeric ceiling.
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
         contextWindow: 500_000,
         id: 'x-ai/grok-4.5',
         label: 'Grok 4.5 (OpenRouter)',

@@ -136,6 +136,7 @@ describe('frontier model refresh (2026-07)', () => {
           'thinkingmachines/inkling',
           'kwaipilot/kat-coder-air-v2.5',
           'kwaipilot/kat-coder-pro-v2.5',
+          'x-ai/grok-4.6',
           'x-ai/grok-4.5',
           'moonshotai/kimi-k2.6',
           'moonshotai/kimi-k2.7-code',
@@ -267,6 +268,27 @@ describe('frontier model refresh (2026-07)', () => {
         type: 'llm',
         vision: 'supported',
       });
+    });
+
+    it('declares Grok 4.6 from vendor capabilities and gateway metadata', () => {
+      const grok = getLlmModelDefinition('openrouter', 'x-ai/grok-4.6');
+
+      expect(grok).toEqual({
+        contextWindow: 500_000,
+        id: 'x-ai/grok-4.6',
+        label: 'Grok 4.6 (OpenRouter)',
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          defaultEffort: 'high',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+      expect(grok.maxOutputTokens).toBeUndefined();
     });
 
     it('declares Qwen3.8 27B from vendor capabilities and gateway metadata', () => {

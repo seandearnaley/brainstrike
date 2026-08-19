@@ -52,7 +52,9 @@ describe('ipc-handlers filesystem composition', () => {
         storedValues.set(key, value);
       }),
     } as unknown as ElectronStorageAdapter;
-    registerIpcHandlers(fileSystem, storage, () => null);
+    registerIpcHandlers(fileSystem, storage, () => null, {
+      isSyntheticFileSystemPath: () => true,
+    });
   });
 
   afterEach(() => {

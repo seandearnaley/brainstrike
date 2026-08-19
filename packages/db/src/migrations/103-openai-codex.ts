@@ -20,7 +20,7 @@ import type { Migration } from './migration-runner';
  * conflict preserves the USER's toggle on re-run — never
  * `EXCLUDED.is_enabled`, which would clobber it.
  */
-export const migration102OpenAiCodex: Migration = {
+export const migration103OpenAiCodex: Migration = {
   down: `
     DELETE FROM models WHERE provider_id = 'openai-codex';
     DELETE FROM providers WHERE id = 'openai-codex';
@@ -86,5 +86,5 @@ export const migration102OpenAiCodex: Migration = {
       sort_order = EXCLUDED.sort_order,
       is_enabled = models.is_enabled;
   `,
-  version: 102,
+  version: 103,
 };

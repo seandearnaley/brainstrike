@@ -89,9 +89,10 @@ import { migration096OpenRouterQwen3827B } from '../migrations/096-openrouter-qw
 import { migration097OpenRouterQwen38TwoPointFourT } from '../migrations/097-openrouter-qwen-3-8-2-4t-a95b.js';
 import { migration098OpenRouterQwen38Max } from '../migrations/098-openrouter-qwen-3-8-max.js';
 import { migration099OpenRouterNemotron35Lightning } from '../migrations/099-openrouter-nemotron-3-5-lightning.js';
-import { migration100AmazonBedrock } from '../migrations/100-amazon-bedrock.js';
-import { migration101AmazonNova2Lite } from '../migrations/101-amazon-nova-2-lite.js';
-import { migration102OpenAiCodex } from '../migrations/102-openai-codex.js';
+import { migration100OpenRouterGrok46 } from '../migrations/100-openrouter-grok-4-6.js';
+import { migration101AmazonBedrock } from '../migrations/101-amazon-bedrock.js';
+import { migration102AmazonNova2Lite } from '../migrations/102-amazon-nova-2-lite.js';
+import { migration103OpenAiCodex } from '../migrations/103-openai-codex.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -325,9 +326,10 @@ const customMigrations: Migration[] = [
     'custom-099-openrouter-nemotron-3-5-lightning',
     migration099OpenRouterNemotron35Lightning
   ),
-  customMigration('custom-100-amazon-bedrock', migration100AmazonBedrock),
-  customMigration('custom-101-amazon-nova-2-lite', migration101AmazonNova2Lite),
-  customMigration('custom-102-openai-codex', migration102OpenAiCodex),
+  customMigration('custom-100-openrouter-grok-4-6', migration100OpenRouterGrok46),
+  customMigration('custom-101-amazon-bedrock', migration101AmazonBedrock),
+  customMigration('custom-102-amazon-nova-2-lite', migration102AmazonNova2Lite),
+  customMigration('custom-103-openai-codex', migration103OpenAiCodex),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
