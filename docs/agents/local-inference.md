@@ -234,11 +234,12 @@ Streaming embedding payload-memory proof (BST-372):
   batches completed. Uniform Float32 output therefore retained
   `totalInputs * dimensions * 4` payload bytes until request completion, in addition to
   model/runtime/input/transient memory. Streaming landed in
-  `f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32`: `streamEmbeddings` transfers one batch,
-  reports the exact unique-buffer byte count, and awaits the matching request-and-index
-  acknowledgement before starting the next batch. Its transport-output retention bound is
-  therefore `batchSize * dimensions * 4` bytes for uniform Float32 vectors. This is a
-  payload bound, not a claim about total renderer RSS or heap.
+  `f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32`: `streamEmbeddings` transferred one batch and
+  awaited the matching request-and-index acknowledgement before starting the next batch. That
+  revision predates the `transferBytes` event field; the current runtime additionally reports
+  the exact unique-buffer byte count there. Its transport-output retention bound is therefore
+  `batchSize * dimensions * 4` bytes for uniform Float32 vectors. This is a payload bound, not a
+  claim about total renderer RSS or heap.
 - `embedding.worker.runtime.spec.ts` exercises the live maximum supported dimension across
   eight protocol batches. Before each acknowledgement, the test
   requires exactly one inference batch and one posted batch, eight current/peak vectors in
