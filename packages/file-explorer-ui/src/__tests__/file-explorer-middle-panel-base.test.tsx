@@ -21,8 +21,8 @@ const mocks = vi.hoisted(() => {
     useRegex: false,
   };
   return {
-    copyContext: vi.fn(async () => {}),
-    downloadContext: vi.fn(async () => {}),
+    copyContext: vi.fn(async () => ({ ok: true as const })),
+    downloadContext: vi.fn(async () => ({ ok: true as const })),
     loadMultipleFileContents: vi.fn(async () => {}),
     performUndoableAction: vi.fn(),
     persistFileExplorerStateImmediately: vi.fn(async () => {}),
@@ -142,7 +142,9 @@ describe('FileExplorerMiddlePanelBase', () => {
     mocks.storeState.includeFilters = ['src/**'];
     mocks.storeState.useRegex = false;
     mocks.copyContext.mockClear();
+    mocks.copyContext.mockResolvedValue({ ok: true });
     mocks.downloadContext.mockClear();
+    mocks.downloadContext.mockResolvedValue({ ok: true });
     mocks.setSelectedFilesFromList.mockClear();
     mocks.loadMultipleFileContents.mockClear();
     mocks.performUndoableAction.mockClear();
@@ -287,5 +289,67 @@ describe('FileExplorerMiddlePanelBase', () => {
         screen.queryByRole('alert', { name: 'Preview content unavailable' })
       ).not.toBeInTheDocument()
     );
+  });
+
+  it('retries the exact failed copy operation and original export options', async () => {
+    const exportOptions = {
+      projectTreeUsesViewFilters: true,
+      selectedLineRangesByFile: {
+        [selectedFileKey]: [
+          { color: 'blue', endLine: 8, id: 'range-a', isActive: true, startLine: 3 },
+        ],
+      },
+    };
+    mocks.copyContext
+      .mockResolvedValueOnce({ ok: false, reason: 'generation-failed' })
+      .mockResolvedValueOnce({ ok: true });
+    render(<FileExplorerMiddlePanelBase />);
+    const props = mocks.previewProps.current;
+    if (!props) {
+      throw new Error('PreviewPanel props were not captured');
+    }
+
+    props.onCopyContext?.(exportOptions);
+    const alert = await screen.findByRole('alert', { name: 'Context copy failed' });
+    expect(alert).toHaveTextContent('copy');
+    expect(screen.queryByRole('button', { name: 'Retry preview content' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry context copy' }));
+    await waitFor(() => expect(mocks.copyContext).toHaveBeenCalledTimes(2));
+    expect(mocks.copyContext).toHaveBeenNthCalledWith(1, exportOptions);
+    expect(mocks.copyContext).toHaveBeenNthCalledWith(2, exportOptions);
+    await waitFor(() =>
+      expect(screen.queryByRole('alert', { name: 'Context copy failed' })).not.toBeInTheDocument()
+    );
+  });
+
+  it('labels download failure accurately and fences its retry after selection changes', async () => {
+    let settleDownload: ((outcome: { ok: false; reason: 'action-failed' }) => void) | undefined;
+    mocks.downloadContext.mockImplementationOnce(
+      async () =>
+        new Promise((resolve) => {
+          settleDownload = resolve;
+        })
+    );
+    const view = render(<FileExplorerMiddlePanelBase />);
+    const props = mocks.previewProps.current;
+    if (!props) {
+      throw new Error('PreviewPanel props were not captured');
+    }
+    const exportOptions = {
+      projectTreeUsesViewFilters: false,
+      selectedLineRangesByFile: {},
+    };
+
+    props.onDownloadContext?.(exportOptions);
+    mocks.selectedFilePaths = new Set(['other-root|@|src/other.ts']);
+    view.rerender(<FileExplorerMiddlePanelBase />);
+    await act(async () => {
+      settleDownload?.({ ok: false, reason: 'action-failed' });
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole('alert', { name: 'Context download failed' })).not.toBeInTheDocument();
+    expect(mocks.downloadContext).toHaveBeenCalledExactlyOnceWith(exportOptions);
   });
 });
