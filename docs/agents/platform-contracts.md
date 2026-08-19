@@ -83,6 +83,26 @@ must remain even when a preload omits the channel. Add new sensitive invoke
 channels through the authorized registration API and cover both an allowed
 sender and hidden/untracked rejection.
 
+Narrowing a manifest can silently REMOVE a capability a hidden host still
+depends on. BST-1235 dropped `electronAPI.storage` from the hidden hosts, and
+the vector-preferences store quietly degraded to per-host browser storage —
+so the embedding host stopped honouring the user's configured device
+preference and fail-closed wherever WebGPU was unavailable (BST-1380). Two
+standing rules follow:
+
+1. When a hidden host genuinely needs shared persisted state, give it a
+   PURPOSE-SCOPED capability, not the unrestricted `storage` bridge. The
+   canonical shape is `vector-preferences:read|write|clear`: registered with
+   `registerAuthorizedInvoke` for exactly the roles that need it, and carrying
+   NO renderer-supplied key — main pins the record, so the capability can
+   neither enumerate keys (`getAllKeys`) nor wipe the store (`clear`) nor be
+   pointed at another key. Main duplicates the key literal rather than importing
+   a renderer store module; a paired contract test pins the two together.
+2. A store reached from more than one window role must FAIL VISIBLY when its
+   capability is absent, never fall back to browser storage. "Electron renderer
+   with no capability" and "web/SSR with no bridge at all" are different states
+   and must not share a code path.
+
 ---
 
 ## FACTORY RESET CONTRACT

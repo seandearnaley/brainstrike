@@ -41,6 +41,15 @@ describe('hidden renderer preload contract', () => {
     expect(source).not.toContain('provider-auth:');
   });
 
+  it('cannot expose the unrestricted key-value storage bridge (BST-1380: scoped vector preferences only)', () => {
+    const source = readHiddenPreloadSource();
+
+    expect(source).not.toContain('storage:getItem');
+    expect(source).not.toContain('storage:setItem');
+    expect(source).not.toContain('storage:getAllKeys');
+    expect(source).not.toContain('storage:clear');
+  });
+
   it('pins every self-contained channel literal to the canonical channel catalog', () => {
     const source = readHiddenPreloadSource();
     const expectedChannels = [
@@ -56,6 +65,9 @@ describe('hidden renderer preload contract', () => {
       DESKTOP_PRELOAD_IPC_CHANNELS.files.parserHostParse,
       DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot,
       DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerState,
+      DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.clear,
+      DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.read,
+      DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.write,
     ];
 
     for (const channel of expectedChannels) {

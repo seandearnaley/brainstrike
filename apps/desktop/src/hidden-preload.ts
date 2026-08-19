@@ -38,6 +38,11 @@ const DESKTOP_PRELOAD_IPC_CHANNELS = {
     powerSnapshot: 'app:power-snapshot',
     powerState: 'app:power-state',
   },
+  vectorPreferences: {
+    clear: 'vector-preferences:clear',
+    read: 'vector-preferences:read',
+    write: 'vector-preferences:write',
+  },
 } as const;
 const CHUNKING_HOST_REQUEST_EVENT = 'chunking-host:request' as const;
 const CHUNKING_HOST_REPORT_RESPONSE_CHANNEL = 'chunking-host:report-response' as const;
@@ -114,7 +119,15 @@ function exposeChunkingHostBridge(): void {
   });
 }
 
-function exposeEmbeddingDatabaseBridge(): void {
+/**
+ * The embedding host's `electronAPI` surface: the database capabilities the
+ * renderer-owned queue needs, plus the scoped vector-preferences capability
+ * (BST-1380). The host must resolve its device preference from the SAME
+ * canonical record the visible UI writes; it deliberately does NOT receive the
+ * visible UI's unrestricted `storage` bridge, and these channels carry no key
+ * because main pins the record server-side.
+ */
+function exposeEmbeddingElectronApiBridge(): void {
   contextBridge.exposeInMainWorld('electronAPI', {
     db: {
       applyManagedCacheBatch: (payload: unknown, options?: unknown) =>
@@ -160,11 +173,17 @@ function exposeEmbeddingDatabaseBridge(): void {
         ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.db.schedulerSnapshot),
       test: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.db.test),
     },
+    vectorPreferences: {
+      clear: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.clear),
+      read: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.read),
+      write: (value: string) =>
+        ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.vectorPreferences.write, value),
+    },
   });
 }
 
 function exposeEmbeddingHostBridge(): void {
-  exposeEmbeddingDatabaseBridge();
+  exposeEmbeddingElectronApiBridge();
   contextBridge.exposeInMainWorld('embeddingHost', {
     onCommand: (callback: (command: EmbeddingHostCommand) => void) =>
       subscribe(EMBEDDING_HOST_COMMAND_EVENT, callback),

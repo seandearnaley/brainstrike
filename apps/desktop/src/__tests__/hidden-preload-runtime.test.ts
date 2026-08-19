@@ -79,6 +79,52 @@ describe('hidden preload runtime capability manifest', () => {
     expect(invokeMock).toHaveBeenCalledWith('app:power-snapshot');
   });
 
+  it('gives the embedding host a key-less vector preferences capability', async () => {
+    invokeMock.mockResolvedValueOnce('{"state":{},"version":3}');
+    const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}embedding-host`]);
+    const electronAPI = exposed.get('electronAPI') as {
+      storage?: unknown;
+      vectorPreferences?: {
+        clear: () => Promise<unknown>;
+        read: () => Promise<unknown>;
+        write: (value: string) => Promise<unknown>;
+      };
+    };
+
+    // BST-1380: the host reads the SAME canonical record the visible UI writes,
+    // but never receives the unrestricted key-value bridge.
+    expect(electronAPI.storage).toBeUndefined();
+    await expect(electronAPI.vectorPreferences?.read()).resolves.toBe('{"state":{},"version":3}');
+    expect(invokeMock).toHaveBeenCalledWith('vector-preferences:read');
+
+    await electronAPI.vectorPreferences?.write('{"state":{},"version":3}');
+    expect(invokeMock).toHaveBeenCalledWith('vector-preferences:write', '{"state":{},"version":3}');
+
+    await electronAPI.vectorPreferences?.clear();
+    expect(invokeMock).toHaveBeenCalledWith('vector-preferences:clear');
+
+    // No call may carry a renderer-chosen key — main pins the record.
+    for (const call of invokeMock.mock.calls) {
+      expect(call).not.toContain('vector-preferences.v1');
+    }
+  });
+
+  it.each([
+    ['chunking-host', 'electronAPI'],
+    ['llm-host', 'electronAPI'],
+  ] as const)(
+    'withholds the vector preferences capability from the %s role',
+    async (role, globalName) => {
+      const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}${role}`]);
+      const electronAPI = exposed.get(globalName) as
+        | { storage?: unknown; vectorPreferences?: unknown }
+        | undefined;
+
+      expect(electronAPI?.vectorPreferences).toBeUndefined();
+      expect(electronAPI?.storage).toBeUndefined();
+    }
+  );
+
   it.each([
     ['a missing role', []],
     ['an unsupported role', [`${ROLE_ARGUMENT_PREFIX}visible-ui`]],

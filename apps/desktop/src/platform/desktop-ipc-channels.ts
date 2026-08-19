@@ -237,6 +237,18 @@ export const DESKTOP_IPC_CHANNELS = {
   userPersonas: {
     list: 'user-personas:list',
   },
+  /**
+   * Scoped read/write for the single canonical vector-preferences record
+   * (BST-1380). Hidden inference hosts must observe the SAME device preference
+   * the visible UI writes, but must not receive the unrestricted `storage`
+   * bridge. These channels accept no key — main pins the record server-side —
+   * so they can neither enumerate nor address any other persisted store.
+   */
+  vectorPreferences: {
+    clear: 'vector-preferences:clear',
+    read: 'vector-preferences:read',
+    write: 'vector-preferences:write',
+  },
 } as const;
 
 export const DESKTOP_PRELOAD_IPC_CHANNELS = DESKTOP_IPC_CHANNELS;

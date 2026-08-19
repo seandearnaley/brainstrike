@@ -1,6 +1,6 @@
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -26,6 +26,21 @@ vi.mock('electron', () => ({
 }));
 
 import { registerStoragePreferencesIpcHandlers } from '../../ipc-domains/storage-preferences-ipc';
+import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-role';
+
+const EMBEDDING_HOST_SENDER_ID = 9401;
+const VISIBLE_UI_SENDER_ID = 9402;
+
+function trackSender(senderId: number, role: 'embedding-host' | 'visible-ui'): void {
+  assignWindowRole(
+    { isDestroyed: () => false, once: vi.fn(), webContents: { id: senderId } } as never,
+    role
+  );
+}
+
+function senderEvent(senderId: number): IpcMainInvokeEvent {
+  return { sender: { id: senderId } } as unknown as IpcMainInvokeEvent;
+}
 
 interface FakeStore {
   clear: () => void;
@@ -161,5 +176,61 @@ describe('storage preferences IPC domain', () => {
     expect(removeHandler).toHaveBeenCalledWith('storage:getItem');
     expect(removeHandler).toHaveBeenCalledWith('layout:save');
     expect(removeHandler).toHaveBeenCalledWith('settings:clearAll');
+  });
+
+  describe('scoped vector preferences capability (BST-1380)', () => {
+    beforeEach(() => {
+      trackSender(EMBEDDING_HOST_SENDER_ID, 'embedding-host');
+      trackSender(VISIBLE_UI_SENDER_ID, 'visible-ui');
+    });
+
+    afterEach(() => {
+      clearWindowRoleByWebContentsId(EMBEDDING_HOST_SENDER_ID);
+      clearWindowRoleByWebContentsId(VISIBLE_UI_SENDER_ID);
+    });
+
+    it('serves the embedding host the canonical record without accepting a key', async () => {
+      const read = handlers.get('vector-preferences:read');
+      const write = handlers.get('vector-preferences:write');
+      const clear = handlers.get('vector-preferences:clear');
+
+      // A renderer-supplied key is ignored: main pins the record.
+      await expect(read?.(senderEvent(EMBEDDING_HOST_SENDER_ID), 'other-store.v1')).resolves.toBe(
+        'value:vector-preferences.v1'
+      );
+      expect(storage.getItem).toHaveBeenCalledWith('vector-preferences.v1');
+
+      await write?.(senderEvent(EMBEDDING_HOST_SENDER_ID), '{"state":{},"version":3}');
+      expect(storage.setItem).toHaveBeenCalledWith(
+        'vector-preferences.v1',
+        '{"state":{},"version":3}'
+      );
+
+      await clear?.(senderEvent(EMBEDDING_HOST_SENDER_ID));
+      expect(storage.removeItem).toHaveBeenCalledWith('vector-preferences.v1');
+      expect(storage.clear).not.toHaveBeenCalled();
+      expect(storage.getAllKeys).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-string payload before it reaches the adapter', async () => {
+      const write = handlers.get('vector-preferences:write');
+
+      await expect(write?.(senderEvent(EMBEDDING_HOST_SENDER_ID), 42)).rejects.toThrow(
+        'Vector preferences payload must be a string.'
+      );
+      expect(storage.setItem).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the visible UI, which uses the full storage bridge', VISIBLE_UI_SENDER_ID],
+      ['an untracked sender', 9403],
+    ] as const)('rejects %s', async (_label, senderId) => {
+      const read = handlers.get('vector-preferences:read');
+
+      await expect(read?.(senderEvent(senderId))).rejects.toThrow(
+        'Desktop IPC vector-preferences:read requires sender role embedding-host.'
+      );
+      expect(storage.getItem).not.toHaveBeenCalled();
+    });
   });
 });
