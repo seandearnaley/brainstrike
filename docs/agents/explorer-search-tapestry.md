@@ -626,10 +626,14 @@ fallback.
   saturation that killed an active run); do not "fix" the staleness back
   into a watch. The background-indexing excluded-path globs still feed the
   native layer for roots outside excluded trees — this is the load-bearing
-  run-5189 overflow guard. `DEFAULT_IGNORE_PATTERNS` deliberately do NOT:
-  Parcel delivers those records to a lightweight JS classifier, which omits
-  their detailed paths from Explorer/indexing but ORs one bounded
-  `omittedChanges:true` marker into the existing watcher batch (BST-1180).
+  run-5189 overflow guard. The generic Parcel/Electron watcher remains
+  default-false and retains `DEFAULT_IGNORE_PATTERNS` natively. The concrete
+  MAIN-owned Explorer `fs:watch` closure is the sole production caller of
+  `reportDefaultFilteredChanges:true` (never renderer/wire input): for that
+  subscription Parcel delivers other default-filtered records to a lightweight
+  JS classifier, which omits their detailed paths from Explorer/indexing but
+  ORs one bounded `omittedChanges:true` marker into the existing watcher batch
+  (BST-1180).
   This is how the same subscription keeps Git views fresh for a tracked
   `dist`/`build`/`node_modules` file; native ignores erase that evidence before
   any renderer consumer exists. Ignored records never stat, never enter the
@@ -644,9 +648,10 @@ fallback.
   owns its bounded HEAD/index/refs signal and deliberately excludes objects
   churn. A per-subscription `ignorePatterns` override exists
   (BST-1112, see `docs/agents/platform-contracts.md`) for main-owned callers
-  outside this pipeline, e.g. a git-metadata watcher; the Explorer refresh
-  pipeline described here NEVER passes it, so "same names, never broader"
-  holds unconditionally for this path. Typed watcher health
+  outside this pipeline, e.g. a git-metadata watcher. It is mutually exclusive
+  with coarse reporting, including the explicit `[]` override; Notes Vault
+  retains default native filtering and git metadata remains marker-free.
+  Typed watcher health
   (`starting|healthy|degraded|failed|stopped`) flows over one-way
   `fs:watch-health` pushes scoped to the owning WebContents (no root-path
   field on the wire); `fs:watch-retry` is MANUAL-only with escalating

@@ -88,7 +88,7 @@ function withDefaultFilteredReporting(
   return {
     ...options,
     reportDefaultFilteredChanges: true,
-  } as Parameters<typeof startParcelWatch>[2];
+  };
 }
 
 async function waitForBatch(batches: FileSystemChange[][], minBatches = 1): Promise<void> {
@@ -279,9 +279,12 @@ describe('startParcelWatch', () => {
     });
 
     // The native layer must not swallow the whole subscription either:
-    // parcel matches ignore globs against absolute paths, so the worktrees
-    // globs are omitted for a root already inside an excluded tree.
-    expect(fake.lastSubscribeArgs.ignore).toEqual(['**/.git', '**/.git/**']);
+    // Parcel matches ignore globs against absolute paths, so only the hard
+    // worktrees globs are omitted for a root already inside that tree. The
+    // default-false watcher still preserves its ordinary native filters.
+    expect(fake.lastSubscribeArgs.ignore).toEqual(
+      DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`])
+    );
 
     const filePath = join(worktreeRoot, 'src.ts');
     await writeFile(filePath, 'x');

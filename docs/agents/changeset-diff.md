@@ -425,10 +425,15 @@ canonical manual-full empty-roots broadcast maps all mounted registrations. A
 `Set` dedupes multiple worktrees/scopes of one repository. Unregistered /
 snapshot changesets are never guessed into the result.
 
-The watcher source preserves default-filtered activity (BST-1180 review): the
-single Parcel subscription does not natively ignore `DEFAULT_IGNORE_PATTERNS`.
-Instead its JS guard withholds those detailed paths from Explorer/indexing and
-adds `omittedChanges:true` to the existing batched root entry. Changes treats
+The watcher source preserves default-filtered activity (BST-1180 review) only
+for the concrete MAIN-owned Explorer `fs:watch` subscription, which explicitly
+sets `reportDefaultFilteredChanges:true`; the option is not renderer/wire input.
+Generic Parcel/Electron watchers remain default-false and retain
+`DEFAULT_IGNORE_PATTERNS` natively, so Notes Vault keeps its prior callback/load
+behavior. The Explorer opt-in keeps `.git` plus hard `.claude/worktrees` native,
+then its JS guard withholds other default-filtered detailed paths from
+Explorer/indexing and adds `omittedChanges:true` to the existing batched root
+entry. Changes treats
 that marker as coarse evidence for every mounted Git registration in the named
 durable root; it is not overflow and cannot trigger a tree/index full scan.
 Custom Explorer exclude filters are display-only and therefore keep their
@@ -437,6 +442,9 @@ documented run-5189 exception and intentionally produces neither signal. The
 Explorer subscription also keeps `.git` natively ignored: it is not a tracked
 working-tree path, and the private git-metadata watcher already owns its
 interesting HEAD/index/refs evidence without forwarding objects churn.
+The opt-in rejects every explicit `ignorePatterns` override (including `[]`),
+so git inventory's existing `ignorePatterns: []` subscription stays marker-free
+and no ambiguous configuration silently changes ownership.
 
 Path work is bounded before scanning a watcher batch: registration paths are
 normalized once at registration, event root paths once per root, and change

@@ -141,7 +141,7 @@ describe('startParcelWatch (real binding)', () => {
         batches.push(changes);
         metadataBatches.push(metadata);
       },
-      { reportDefaultFilteredChanges: true } as Parameters<typeof startParcelWatch>[2]
+      { reportDefaultFilteredChanges: true }
     );
 
     const keptPath = join(root, 'kept.txt');

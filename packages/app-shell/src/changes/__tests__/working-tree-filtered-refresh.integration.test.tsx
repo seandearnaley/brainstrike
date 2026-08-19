@@ -84,7 +84,7 @@ class ParcelProducingTestAdapter extends MockFileSystemAdapter {
     void startParcelWatch(handle, callback, {
       loadModule: () => Promise.resolve(this.#module),
       reportDefaultFilteredChanges: true,
-    } as Parameters<typeof startParcelWatch>[2]).then((nextStop) => {
+    }).then((nextStop) => {
       this.#resolveReady();
       if (closed) {
         nextStop();

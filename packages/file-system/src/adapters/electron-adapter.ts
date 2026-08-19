@@ -26,7 +26,7 @@ import type {
 } from '../types.js';
 import { validateDirectoryPath } from '../utils.js';
 import { normalizeDirectoryReadOptions } from '../utils-browser.js';
-import { startParcelWatch } from './parcel-watchers.js';
+import { assertValidParcelWatchFilterOptions, startParcelWatch } from './parcel-watchers.js';
 
 const logger = createLogger('ElectronFileSystemAdapter');
 
@@ -73,13 +73,18 @@ export interface WatchDirectoryOptions {
    * DEFAULT_IGNORE_PATTERNS for THIS watch only — e.g. a main-owned
    * git-metadata watcher that needs `.git/HEAD` events the default patterns
    * would drop. Explicit overrides apply natively and in the event guard.
-   * `undefined` keeps the shared default detailed-path filter while allowing
-   * its coarse `omittedChanges` marker; `[]` means "ignore nothing", never a
-   * silent fallback. The shared Explorer refresh pipeline never passes this.
+   * `undefined` keeps the shared default native + detailed-path filter; `[]`
+   * means "ignore nothing", never a silent fallback.
    */
   ignorePatterns?: readonly string[] | undefined;
   /** Typed watcher health transitions (BST-568 slice 3). */
   onHealth?: (event: WatcherHealthTransition) => void;
+  /**
+   * Opt into coarse markers for DEFAULT_IGNORE_PATTERNS. Default false and
+   * mutually exclusive with `ignorePatterns`; only the main fs:watch Explorer
+   * owner enables it.
+   */
+  reportDefaultFilteredChanges?: boolean;
 }
 
 /** Default batch size for streaming directory reads */
@@ -620,6 +625,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     onSignal?: (signal: FileSystemWatchSignal) => void,
     options?: WatchDirectoryOptions
   ): () => void {
+    assertValidParcelWatchFilterOptions(options ?? {});
     resolveWatcherBackend();
     let closed = false;
     let dispose: () => void = () => {};
@@ -669,6 +675,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     startParcelWatch(handle, callbackWithCacheInvalidation, {
       ignorePatterns: options?.ignorePatterns,
       onHealth,
+      reportDefaultFilteredChanges: options?.reportDefaultFilteredChanges ?? false,
     })
       .then((stop) => {
         if (closed) {

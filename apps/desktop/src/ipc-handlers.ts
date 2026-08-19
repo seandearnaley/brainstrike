@@ -72,9 +72,11 @@ export function registerIpcHandlers(
     storage,
   });
   const unregisterFileSystemWatchIpcHandlers = registerFileSystemWatchIpcHandlers({
-    // Recursive watcher (batched, ignoreInitial, path-filtered) — the same
-    // engine the notes-vault watch channel uses. Health transitions flow back
-    // over fs:watch-health (BST-568 slice 3).
+    // Recursive Explorer watcher (batched, ignoreInitial, path-filtered). This
+    // concrete MAIN-owned closure is the sole production opt-in to coarse
+    // DEFAULT_IGNORE_PATTERNS reporting; the renderer/wire cannot request it.
+    // Notes Vault and git metadata retain their separate legacy policies.
+    // Health transitions flow back over fs:watch-health (BST-568 slice 3).
     startWatch: (directoryPath, onChanges, onHealth) =>
       fileSystem.watchDirectory(
         {
@@ -87,7 +89,7 @@ export function registerIpcHandlers(
         // The shared onSignal channel is derived FROM onHealth inside the
         // adapter; IPC consumers use the richer health protocol directly.
         undefined,
-        { onHealth }
+        { onHealth, reportDefaultFilteredChanges: true }
       ),
   });
   const unregisterDatabaseIpcHandlers = registerDatabaseIpcHandlers(options);

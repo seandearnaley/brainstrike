@@ -131,9 +131,10 @@ export default function Explorer() {
 
 * Browser builds rely on the **File System Access API** (Chrome/Edge et al.). The UX must respect permission prompts and error mapping (permission denied, dialog failures). Don’t bypass those guardrails or you’ll ship a broken experience across browsers. ([Chrome for Developers][4])
 * `FILE_EXPLORER_REFRESH_EVENT` may carry per-root `omittedChanges:true`: this
-  is coarse Git freshness for default-filtered watcher activity, not overflow.
-  Explorer tree/index/metadata consumers use only detailed `changes` and must
-  not turn a marker-only incremental event into a full scan.
+  is coarse Git freshness from the concrete main Explorer watcher's explicit
+  `reportDefaultFilteredChanges:true` opt-in, not overflow or a generic adapter
+  default. Explorer tree/index/metadata consumers use only detailed `changes`
+  and must not turn a marker-only incremental event into a full scan.
 
 ---
 

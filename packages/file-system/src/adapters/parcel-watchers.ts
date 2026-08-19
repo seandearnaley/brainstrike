@@ -21,7 +21,8 @@
 //   deliberately opened inside an excluded tree watches normally.
 //   The unconditional excluded-path globs still feed the native layer: that
 //   is the run-5189 overflow guard and those trees are deliberately not live.
-//   Working-tree-capable DEFAULT_IGNORE_PATTERNS no longer do (BST-1180): the
+//   DEFAULT_IGNORE_PATTERNS remain native by default. Only the concrete main
+//   Explorer owner opts into `reportDefaultFilteredChanges` (BST-1180): that
 //   one subscription must observe default-filtered activity so Git views can
 //   receive a coarse root invalidation while Explorer/indexing keep the
 //   detailed record filtered. `.git` remains a native ignore because the
@@ -36,7 +37,11 @@ import {
   isUnconditionalExcludedNativePath,
   UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
 } from '@brainstrike/utils/background-indexing-policy';
-import { buildIgnorePatternRegex, fileFilter } from '@brainstrike/utils/path-filter';
+import {
+  buildIgnorePatternRegex,
+  DEFAULT_IGNORE_PATTERNS,
+  fileFilter,
+} from '@brainstrike/utils/path-filter';
 import type {
   DirectoryHandle,
   FileSystemChange,
@@ -76,9 +81,9 @@ export interface StartParcelWatchOptions {
    * Per-subscription ignore override (BST-1112): when provided, REPLACES
    * DEFAULT_IGNORE_PATTERNS for THIS subscription only. Explicit overrides
    * apply at both the native and event-guard layers. `undefined` keeps the
-   * default Explorer guard, but default-filtered records reach JavaScript and
-   * are summarized as `omittedChanges` rather than being natively erased.
-   * `[]` means "ignore nothing" — it does NOT fall back to the defaults.
+   * legacy default native + JS filtering unless
+   * `reportDefaultFilteredChanges` is explicitly true. `[]` means "ignore
+   * nothing" — it does NOT fall back to the defaults.
    */
   ignorePatterns?: readonly string[] | undefined;
   /** Test seam: overrides the lazy binding load. */
@@ -89,8 +94,26 @@ export interface StartParcelWatchOptions {
    * episode (a clean batch recovers degraded to healthy); stopped once.
    */
   onHealth?: (event: WatcherHealthTransition) => void;
+  /**
+   * Preserve coarse evidence for paths matched by DEFAULT_IGNORE_PATTERNS.
+   * Default false: legacy consumers keep those paths at the native boundary
+   * and receive no marker. The desktop Explorer fs:watch owner is the sole
+   * production opt-in. Mutually exclusive with every explicit
+   * `ignorePatterns` override, including `[]`.
+   */
+  reportDefaultFilteredChanges?: boolean;
   /** Test seam: overrides PARCEL_SUBSCRIBE_TIMEOUT_MS. */
   subscribeTimeoutMs?: number;
+}
+
+export function assertValidParcelWatchFilterOptions(
+  options: Pick<StartParcelWatchOptions, 'ignorePatterns' | 'reportDefaultFilteredChanges'>
+): void {
+  if (options.reportDefaultFilteredChanges && options.ignorePatterns !== undefined) {
+    throw new Error(
+      'reportDefaultFilteredChanges cannot be combined with an explicit ignorePatterns override.'
+    );
+  }
 }
 
 interface ParcelEvent {
@@ -107,11 +130,14 @@ export async function startParcelWatch(
   callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
   options: StartParcelWatchOptions = {}
 ): Promise<() => void> {
+  assertValidParcelWatchFilterOptions(options);
   const backend = selectParcelBackend();
   const timeoutMs = options.subscribeTimeoutMs ?? PARCEL_SUBSCRIBE_TIMEOUT_MS;
-  // undefined -> shared default JS guard + coarse marker; a provided array
-  // (including []) REPLACES the default at both native and JS layers.
+  const reportDefaultFilteredChanges = options.reportDefaultFilteredChanges ?? false;
   const ignorePatterns = options.ignorePatterns;
+  // A provided array (including []) REPLACES the default at both native and
+  // JS layers. Undefined uses the shared defaults; only the explicit report
+  // option broadens native delivery for coarse Git freshness.
   const ignoreRegex = ignorePatterns === undefined ? null : buildIgnorePatternRegex(ignorePatterns);
 
   // Health transitions fire exactly once per state change; a repeated cause
@@ -204,7 +230,10 @@ export async function startParcelWatch(
     if (isExcludedEventPath(eventPath)) {
       return 'silenced';
     }
-    return fileFilter.shouldIgnorePath(eventPath) ? 'default-filtered' : 'visible';
+    if (!fileFilter.shouldIgnorePath(eventPath)) {
+      return 'visible';
+    }
+    return reportDefaultFilteredChanges ? 'default-filtered' : 'silenced';
   };
 
   const processEvent = async (event: ParcelEvent, eventPath: string): Promise<void> => {
@@ -306,22 +335,24 @@ export async function startParcelWatch(
 
   const subscribePromise = module.subscribe(handle.path, handleBackendCallback, {
     backend,
-    // Explicit overrides still agree with `ignoreRegex` exactly. The default
-    // subscription deliberately omits working-tree-capable default patterns
-    // here so the callback can summarize those records for Git freshness;
-    // `.git` remains native because its dedicated watcher owns that metadata.
-    // The JS guard remains the authority for detailed Explorer changes.
+    // Explicit overrides still agree with `ignoreRegex` exactly. Legacy
+    // default consumers retain DEFAULT_IGNORE_PATTERNS natively. Only the
+    // explicitly opted-in Explorer owner omits working-tree-capable defaults
+    // so the callback can summarize them for Git freshness; `.git` remains
+    // native because its dedicated watcher owns that metadata.
     // Parcel matches globs against ABSOLUTE paths, so unconditional
     // excluded-path globs are omitted when the root itself sits inside an
     // excluded tree: they would otherwise swallow the whole subscription.
     ignore:
       ignorePatterns === undefined
-        ? rootInsideExcludedTree
-          ? nativeIgnoreGlobs(NATIVE_NON_WORKTREE_IGNORE_PATTERNS)
-          : [
-              ...nativeIgnoreGlobs(NATIVE_NON_WORKTREE_IGNORE_PATTERNS),
-              ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
-            ]
+        ? [
+            ...nativeIgnoreGlobs(
+              reportDefaultFilteredChanges
+                ? NATIVE_NON_WORKTREE_IGNORE_PATTERNS
+                : DEFAULT_IGNORE_PATTERNS
+            ),
+            ...(rootInsideExcludedTree ? [] : UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS),
+          ]
         : nativeIgnoreGlobs(ignorePatterns),
   });
 

@@ -713,22 +713,28 @@ indexed state only.
   `fileFilter.shouldIgnorePath` guard PLUS (BST-1342) the background-indexing
   policy's unconditional excluded-path prefixes (`.claude/worktrees`),
   applied root-relatively and skipped entirely when the subscription root
-  itself sits inside an excluded tree. Only the unconditional prefixes and
-  `.git` (owned by the private git-metadata watcher, not working-tree content)
-  feed native globs on the default Explorer subscription. Other
-  default-filtered records
-  must reach the JS guard so its existing batch/IPC callback can carry
-  `omittedChanges:true` for coarse Git freshness without exposing detailed
-  Explorer changes (BST-1180); feeding those defaults back into Parcel would
-  silently erase the signal. `[]` means "ignore nothing", never a
+  itself sits inside an excluded tree. `StartParcelWatchOptions` and concrete
+  Electron `WatchDirectoryOptions` also expose
+  `reportDefaultFilteredChanges`, default `false`. With that option false,
+  `DEFAULT_IGNORE_PATTERNS` retain their pre-BST-1180 native globs and the
+  callback receives no coarse marker. Only `ipc-handlers.ts`'s MAIN-owned
+  Explorer `fs:watch` dependency passes `true`; this removes working-tree-capable
+  defaults from that subscription's native globs, keeps `.git` plus the hard
+  `.claude/worktrees` exclusion native, and lets the JS guard emit one bounded
+  `omittedChanges:true` marker without exposing detailed Explorer changes.
+  Notes Vault stays explicitly false. Git inventory keeps its explicit
+  `ignorePatterns: []` and is marker-free. Reporting true plus ANY explicit
+  override (including `[]`) throws before watcher setup — the configuration is
+  ambiguous and never silently coerced. `[]` means "ignore nothing", never a
   silent fallback to defaults. Overrides
   cannot reach the desktop `fs:watch` IPC domain: `StartFileSystemWatch`
   takes no `ignorePatterns`, and that domain deduplicates native
   subscriptions on `(ownerId, resolvedPath)` only. Any future caller that
   threads an override through it MUST add the pattern set to
   `subscriptionKey`, or two registrations for the same root would silently
-  share one filter set. The shared Explorer refresh pipeline never passes
-  this option — "same names, never broader" stays true for that path (see
+  share one filter set. Neither option is renderer/wire input; the shared
+  Explorer refresh pipeline's broadening is fixed by its concrete main-process
+  owner, so "same names, never broader" stays true (see
   `docs/agents/explorer-search-tapestry.md`).
 - **Git-inventory watcher dead-on-failure (BST-1112)**: `git-inventory-watcher.ts`'s
   per-repo subscriptions (one per common dir, using the ignore override above)
