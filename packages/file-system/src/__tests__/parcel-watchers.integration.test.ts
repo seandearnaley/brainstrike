@@ -20,7 +20,7 @@ import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startParcelWatch } from '../adapters/parcel-watchers.js';
 import { assertNoPlatformSkips, attributeWatcherFailure } from '../testing/watcher-liveness.js';
-import type { DirectoryHandle, FileSystemChange } from '../types.js';
+import type { DirectoryHandle, FileSystemChange, FileSystemWatchBatchMetadata } from '../types.js';
 
 // Must exceed the inner deadline PLUS the attribution probe (~2s native + ~2s
 // control) so the DIAGNOSTIC wins the race, never the bare "Test timed out":
@@ -133,9 +133,11 @@ describe('startParcelWatch (real binding)', () => {
     expect(batches.flat().length).toBe(deliveredBeforeStop);
   });
 
-  it('ignores events under node_modules at the native layer', async (ctx) => {
-    stop = await startParcelWatch(makeHandle(root), (changes) => {
+  it('summarizes node_modules activity without exposing its detailed path', async (ctx) => {
+    const metadataBatches: Array<FileSystemWatchBatchMetadata | undefined> = [];
+    stop = await startParcelWatch(makeHandle(root), (changes, metadata) => {
       batches.push(changes);
+      metadataBatches.push(metadata);
     });
 
     const keptPath = join(root, 'kept.txt');
@@ -161,6 +163,7 @@ describe('startParcelWatch (real binding)', () => {
 
     const flatPaths = batches.flat().map((change) => change.path);
     expect(flatPaths.some((changedPath) => changedPath.includes('node_modules'))).toBe(false);
+    expect(metadataBatches).toContainEqual({ omittedChanges: true });
   });
 });
 
