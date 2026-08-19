@@ -5,6 +5,10 @@ import {
   getEmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
 import { createBrowserEmbeddingQueue } from '@brainstrike/queue/browser';
+import {
+  readExclusiveProbeWorkerMemory,
+  readMemoryMeasurement,
+} from './embedding-model-switch-memory-measurement';
 import embeddingModelSwitchMemoryProbeWorkerUrl from './embedding-model-switch-memory-probe.worker.ts?worker&url';
 import {
   assertEmbeddingModelSwitchMemoryProbeWorkerMessage,
@@ -30,26 +34,10 @@ import {
 } from './embedding-model-switch-memory-probe-contract';
 
 const PROBE_TIMEOUT_MS = 30_000;
-const PROBE_WORKER_URL_MARKER = 'embedding-model-switch-memory-probe.worker';
 const EXPECTED_TRANSFER_BYTES = 4 * Float32Array.BYTES_PER_ELEMENT;
 
 function markProbeProgress(label: string): void {
   performance.mark(`bst-369:${label}`);
-}
-
-interface MemoryBreakdownAttribution {
-  readonly scope: string;
-  readonly url: string;
-}
-
-interface MemoryBreakdownEntry {
-  readonly attribution: readonly MemoryBreakdownAttribution[];
-  readonly bytes: number;
-}
-
-interface MemoryMeasurement {
-  readonly breakdown: readonly MemoryBreakdownEntry[];
-  readonly bytes: number;
 }
 
 interface ProbeTelemetry {
@@ -60,43 +48,6 @@ interface ProbeTelemetry {
   readonly sourceRemoved: () => boolean;
   readonly transferBytes: () => number;
   readonly transferEventCount: () => number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readMemoryMeasurement(value: unknown): MemoryMeasurement {
-  if (!(isRecord(value) && Array.isArray(value['breakdown']))) {
-    throw new Error('measureUserAgentSpecificMemory returned a malformed measurement.');
-  }
-  const bytes = value['bytes'];
-  if (!(typeof bytes === 'number' && Number.isFinite(bytes) && bytes >= 0)) {
-    throw new Error('measureUserAgentSpecificMemory returned invalid total bytes.');
-  }
-  const breakdown: MemoryBreakdownEntry[] = value['breakdown'].map((entry: unknown) => {
-    if (!(isRecord(entry) && Array.isArray(entry['attribution']))) {
-      throw new Error('measureUserAgentSpecificMemory returned a malformed breakdown entry.');
-    }
-    const entryBytes = entry['bytes'];
-    if (!(typeof entryBytes === 'number' && Number.isFinite(entryBytes) && entryBytes >= 0)) {
-      throw new Error('measureUserAgentSpecificMemory returned invalid breakdown bytes.');
-    }
-    const attribution: MemoryBreakdownAttribution[] = entry['attribution'].map(
-      (candidate: unknown) => {
-        if (
-          !isRecord(candidate) ||
-          typeof candidate['scope'] !== 'string' ||
-          typeof candidate['url'] !== 'string'
-        ) {
-          throw new Error('measureUserAgentSpecificMemory returned malformed attribution.');
-        }
-        return { scope: candidate['scope'], url: candidate['url'] };
-      }
-    );
-    return { attribution, bytes: entryBytes };
-  });
-  return { breakdown, bytes };
 }
 
 async function readAgentMemory(
@@ -110,30 +61,11 @@ async function readAgentMemory(
     throw new Error('BST-369 requires performance.measureUserAgentSpecificMemory().');
   }
   const measurement = readMemoryMeasurement(await candidate.call(performance));
-  let workerBytes = 0;
-  let workerBreakdownCount = 0;
-  const workerUrls = new Set<string>();
-  for (const entry of measurement.breakdown) {
-    const matchingAttribution = entry.attribution.filter(
-      (attribution) =>
-        attribution.scope === 'DedicatedWorkerGlobalScope' &&
-        attribution.url.includes(PROBE_WORKER_URL_MARKER)
-    );
-    if (matchingAttribution.length === 0) {
-      continue;
-    }
-    workerBreakdownCount += 1;
-    workerBytes += entry.bytes;
-    for (const attribution of matchingAttribution) {
-      workerUrls.add(attribution.url);
-    }
-  }
+  const workerMemory = readExclusiveProbeWorkerMemory(measurement);
   return {
     label,
     totalBytes: measurement.bytes,
-    workerBreakdownCount,
-    workerBytes,
-    workerUrls: [...workerUrls].sort(),
+    ...workerMemory,
   };
 }
 

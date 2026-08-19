@@ -563,11 +563,11 @@ pnpm exec playwright test e2e/performance/embedding-model-switch-memory.test.ts 
 | 2 | 277,745,320 | 44,389,647 | 44,436,539 | 44,437,191 | +652 | 0 |
 | 3 | 277,686,004 | 44,390,059 | 44,436,919 | 44,437,143 | +224 | 0 |
 
-The 64 KiB later-window ceiling is roughly 100 times the worst locally
-observed attributed-worker noise while remaining 128 times smaller than the
-smallest retained 8 MiB synthetic model store; a single leaked store cannot
-hide inside it. This local qualification must not justify loosening the
-nightly lane. If the pinned CI environment first breaches, use the controlled
+The three local repetitions qualify the measurement signal; they do not set a
+CI floor. The 4 MiB later-window ceiling is instead a structural bound: half
+the smallest retained 8 MiB synthetic model store, so a single leaked store
+cannot hide inside it while JIT/runtime bookkeeping has implementation-level
+headroom. If the pinned CI environment first breaches, use the controlled
 same-SHA dispatch procedure above before changing any budget.
 
 ### Primary Linux x64 jobs run on Ubicloud (BST-765)

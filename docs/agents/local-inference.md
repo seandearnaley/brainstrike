@@ -171,7 +171,8 @@ Embedding runtime telemetry (BST-402):
 - Browser memory sampling uses only cross-origin-isolated
   `performance.measureUserAgentSpecificMemory()`. The performance project pins Chromium
   with `ForceEagerMeasureMemory`; missing capability, malformed totals, missing dedicated
-  worker attribution, or surviving attribution after teardown all fail. Two animation
+  worker attribution, mixed page/worker attribution that cannot isolate the probe, or
+  surviving attribution after teardown all fail. Two animation
   frames separate `Worker.terminate()` from the final sample because invoking Chromium's
   API in the termination task can remain pending before the agent teardown commits.
   There is no `performance.memory` fallback. Paired tests:
