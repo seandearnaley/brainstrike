@@ -788,10 +788,28 @@ fallback.
   Ordinary expand, restoration, and expand-all enumeration never trigger
   reconciliation. Watcher directories refresh sequentially against the shared
   normalized tree, then all complete snapshots from the batch publish through
-  one store update. The reducer indexes snapshots once and walks only the bounded
-  selection paths and their ancestors, never the full or filtered tree. Forced
-  root snapshots carry the root id resolved by that refresh; a late callback
-  after a same-path root-id switch therefore cannot reconcile the old root.
+  one store update. Separate refresh events run through one lossless queue per
+  provider; a failed job is surfaced and consumed so later events still run,
+  and a second event for a directory already loading waits for a fresh read
+  instead of joining and losing its invalidation. A shallow root replacement
+  cannot prove nested membership merely because its top-level directory
+  survives, so every successful watcher/full or manual/full root refresh
+  derives the current selection's unique ancestor directories from the core
+  explicit/query projection, refreshes those surviving directories parent-first,
+  and publishes their snapshots as one bounded batch. The outer provider's
+  direct toolbar refresh uses that same orchestration before it ignores the
+  manual/full fan-out event; nested forest providers perform it while handling
+  the event. Mixed root+directory watcher batches likewise force-refresh a
+  surviving directory even when the shallow root reload reset it to `unloaded`,
+  while removed or file-retyped paths skip. The reducer indexes snapshots once
+  and walks only the bounded selection paths and their ancestors, never the full
+  or filtered tree. When a query manifest is absent, loading, errored, or
+  mismatched, reconciliation mutates only its exact materialized projection
+  (paths, exclusions, count, and version) and preserves query mode; it never
+  invents manifest membership. Forced root snapshots carry the root id resolved
+  by that refresh, and forced directory snapshots capture both committed root
+  identity and generation before I/O; a late callback or directory read after a
+  same-path root-id switch therefore returns no snapshot for the new root.
   Pinned by `file-selection-reconciliation.test.ts`,
   `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`, and
   `file-tree-provider.test.tsx`.

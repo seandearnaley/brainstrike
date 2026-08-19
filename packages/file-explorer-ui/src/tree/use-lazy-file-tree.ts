@@ -14,6 +14,7 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import { canLoadNode } from '@brainstrike/file-tree-worker';
+import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
@@ -355,11 +356,11 @@ export function useLazyFileTree(
   // Ref for callback to avoid stale closures
   const onNodesIndexedRef = useRef(onNodesIndexed);
   onNodesIndexedRef.current = onNodesIndexed;
-  const onRootRefreshSnapshotRef = useRef(onRootRefreshSnapshot);
-  // A forced refresh can settle before a passive effect; update during render
-  // so it can never publish through the callback from the previous root id.
-  // react-doctor-disable-next-line react-doctor/no-ref-current-in-render
-  onRootRefreshSnapshotRef.current = onRootRefreshSnapshot;
+  const dispatchRootRefreshSnapshot = useEventCallback(
+    (snapshotRootId: string, directoryPath: string, entries: readonly IFileNode[]): void => {
+      onRootRefreshSnapshot?.(snapshotRootId, directoryPath, entries);
+    }
+  );
 
   // Core state
   const [state, setState] = useState<LazyFileTreeState>({
@@ -795,7 +796,7 @@ export function useLazyFileTree(
         );
         syncNormalizedTree(children);
         if (force) {
-          onRootRefreshSnapshotRef.current?.(resolvedRootFolderId, rootPath, children);
+          dispatchRootRefreshSnapshot(resolvedRootFolderId, rootPath, children);
         }
         committedRootIdentityRef.current = rootIdentity;
         lastAppliedRootLoadRef.current = rootLoadRequest.request;
@@ -816,6 +817,7 @@ export function useLazyFileTree(
         }
       }
     },
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- isExpandingAllRef is a stable ref returned by the later useExpandAll declaration, which itself consumes callbacks declared after loadRoot; reading .current at call time is intentional.
     [
       rootDirectoryHandle,
       fileSystemAdapter,
@@ -824,6 +826,7 @@ export function useLazyFileTree(
       portRef,
       resetCommittedRootState,
       syncNormalizedTree,
+      dispatchRootRefreshSnapshot,
       resolvedRootFolderId,
     ]
   );
@@ -1230,6 +1233,19 @@ export function useLazyFileTree(
       if (!fileSystemAdapter) {
         return null;
       }
+      const expectedRootIdentity = rootDirectoryPath
+        ? createRootIdentityKey(rootDirectoryPath, resolvedRootFolderId)
+        : null;
+      const committedRootIdentity = committedRootIdentityRef.current;
+      const rootGeneration = loadRootRunIdRef.current;
+      if (
+        !expectedRootIdentity ||
+        committedRootIdentity === null ||
+        committedRootIdentity !== expectedRootIdentity ||
+        getNormalizedNode(normalizedTreeRef.current, path)?.type !== 'directory'
+      ) {
+        return null;
+      }
 
       // Reset to unloaded state first
       const nextTree = commitNormalizedTree((currentTree) =>
@@ -1245,6 +1261,12 @@ export function useLazyFileTree(
       if (node && node.type === 'directory') {
         await loadChildren(path);
       }
+      if (
+        loadRootRunIdRef.current !== rootGeneration ||
+        committedRootIdentityRef.current !== committedRootIdentity
+      ) {
+        return null;
+      }
       const refreshedNode = materializeNormalizedSubtree(normalizedTreeRef.current, path);
       if (
         refreshedNode?.type !== 'directory' ||
@@ -1255,7 +1277,7 @@ export function useLazyFileTree(
       }
       return { directoryPath: path, entries: refreshedNode.children };
     },
-    [commitNormalizedTree, fileSystemAdapter, loadChildren]
+    [commitNormalizedTree, fileSystemAdapter, loadChildren, resolvedRootFolderId, rootDirectoryPath]
   );
 
   /**

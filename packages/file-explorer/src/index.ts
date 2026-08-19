@@ -1,6 +1,7 @@
 /* c8 ignore file -- barrel exports only */
 export * from './actions/directory-expansion-actions';
 export * from './actions/file-selection-actions';
+export { getSelectionAncestorDirectories } from './actions/file-selection-reconciliation';
 export * from './actions/folder-state-actions';
 export * from './actions/selection-model-actions';
 export * from './actions/settings-actions';

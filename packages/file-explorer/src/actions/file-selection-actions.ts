@@ -100,8 +100,7 @@ function reconcileDirectorySnapshots(
     return applyForeignExplicitMutation(state, folderId, [], vanishedPaths).changes;
   }
   if (state.selectionModel.mode === 'query') {
-    return applyQuerySelectionMutation({
-      additions: [],
+    return applyQuerySelectionReconciliation({
       folderId,
       removals: vanishedPaths,
       state,
@@ -331,6 +330,76 @@ function applyQuerySelectionMutation(args: {
     selectedFilePaths: buildCompatibleSelectedFilePaths(folderId, nextDescriptor),
     selectionModel: {
       ...state.selectionModel,
+      queryDescriptor: nextDescriptor,
+    },
+    selectionVersion: state.selectionVersion + 1,
+  };
+}
+
+function applyQuerySelectionReconciliation(args: {
+  folderId: string;
+  removals: readonly string[];
+  state: FileExplorerState;
+}): Partial<FileExplorerState> {
+  const { folderId, removals, state } = args;
+  const descriptor = state.selectionModel.queryDescriptor;
+  const manifest = state.querySelectionManifest;
+  if (state.selectionModel.mode !== 'query' || !descriptor || descriptor.folderId !== folderId) {
+    return {};
+  }
+  if (isReadyQueryManifest(descriptor, manifest)) {
+    return applyQuerySelectionMutation({ additions: [], folderId, removals, state });
+  }
+
+  // While a query manifest is absent, loading, errored, or belongs to a
+  // superseded descriptor, materializedPaths is the only exact projection we
+  // may reconcile. Never infer membership from the unavailable manifest.
+  const materializedPaths = state.selectionModel.materializedPaths;
+  if (!materializedPaths) {
+    return {};
+  }
+
+  const projectedPaths = new Set(materializedPaths);
+  const includedPaths = new Set(descriptor.includedPaths);
+  const excludedPaths = new Set(descriptor.excludedPaths);
+  for (const path of excludedPaths) {
+    projectedPaths.delete(path);
+  }
+  for (const path of includedPaths) {
+    projectedPaths.add(path);
+  }
+  if (projectedPaths.size !== descriptor.totalSelectedCount) {
+    logger.warn('Skipped query refresh reconciliation because materialized projection is inexact', {
+      descriptorCount: descriptor.totalSelectedCount,
+      materializedCount: projectedPaths.size,
+    });
+    return {};
+  }
+
+  let didChange = false;
+  for (const path of removals) {
+    if (!projectedPaths.delete(path)) {
+      continue;
+    }
+    includedPaths.delete(path);
+    excludedPaths.add(path);
+    didChange = true;
+  }
+  if (!didChange) {
+    return {};
+  }
+
+  const nextDescriptor: SelectionQueryDescriptor = {
+    ...descriptor,
+    excludedPaths: sortPaths(excludedPaths),
+    includedPaths: sortPaths(includedPaths),
+    totalSelectedCount: projectedPaths.size,
+  };
+  return {
+    selectedFilePaths: buildCompatibleSelectedFilePaths(folderId, nextDescriptor),
+    selectionModel: {
+      ...state.selectionModel,
+      materializedPaths: projectedPaths,
       queryDescriptor: nextDescriptor,
     },
     selectionVersion: state.selectionVersion + 1,

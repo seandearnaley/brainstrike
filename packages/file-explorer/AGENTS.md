@@ -73,7 +73,12 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
   * `addMultipleSelectedFiles(folderId, paths[])` / `removeMultipleSelectedFiles(folderId, paths[])`
   * `reconcileSelectionWithDirectorySnapshot(s)` consumes complete, root-scoped
     directory listings after refresh; it removes only selections disproven by
-    those listings and preserves query mode through exclusion overrides.
+    those listings and preserves query mode through exclusion overrides. When
+    a query manifest is unavailable, only the exact cached materialized
+    projection may be reconciled; never infer missing manifest membership.
+  * `getSelectionAncestorDirectories(state, folderId, rootPath)` derives the
+    unique parent-first directory boundaries needed after a shallow root
+    refresh by walking selected paths and ancestors only, never the file tree.
     All enforce `maxSelectionCount` and **trim** if the limit is reduced.
   * Encode/decode composite keys through `@brainstrike/file-explorer/selection`.
     Malformed keys throw; callers must not guess or silently coerce them.

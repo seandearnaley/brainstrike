@@ -82,6 +82,81 @@ function getSelectedPaths(state: FileExplorerState, folderId: string): string[] 
   return getExplicitPaths(keys, folderId);
 }
 
+function isPathWithinRoot(path: string, rootPath: string): boolean {
+  if (path === rootPath) {
+    return true;
+  }
+  const rootPrefix = rootPath.endsWith('/') ? rootPath : `${rootPath}/`;
+  return path.startsWith(rootPrefix);
+}
+
+function pathDepth(path: string): number {
+  return path.split('/').filter(Boolean).length;
+}
+
+function compareAncestorDirectories(
+  left: { comparisonPath: string; path: string },
+  right: { comparisonPath: string; path: string }
+): number {
+  const depthDifference = pathDepth(left.comparisonPath) - pathDepth(right.comparisonPath);
+  if (depthDifference !== 0) {
+    return depthDifference;
+  }
+  if (left.comparisonPath === right.comparisonPath) {
+    return 0;
+  }
+  return left.comparisonPath < right.comparisonPath ? -1 : 1;
+}
+
+/**
+ * Derive only the directory boundaries needed to revalidate the current
+ * selection after a shallow root refresh. The result is unique and
+ * parent-first; it walks selected paths and their ancestors, never the tree.
+ */
+export function getSelectionAncestorDirectories(
+  state: FileExplorerState,
+  folderId: string,
+  rootPath: string
+): string[] {
+  const caseInsensitive = isCaseInsensitivePath(rootPath);
+  const comparisonRootPath = normalizePath(rootPath, caseInsensitive);
+  const useBackslashPresentation = rootPath.includes('\\') && !rootPath.includes('/');
+  const ancestorsByComparisonPath = new Map<string, { comparisonPath: string; path: string }>();
+
+  for (const selectedPath of getSelectedPaths(state, folderId)) {
+    const normalizedSelectedPath = normalizePath(selectedPath, false);
+    const comparisonSelectedPath = normalizePath(selectedPath, caseInsensitive);
+    if (!isPathWithinRoot(comparisonSelectedPath, comparisonRootPath)) {
+      continue;
+    }
+
+    let candidatePath = parentPath(normalizedSelectedPath);
+    while (candidatePath) {
+      const comparisonPath = normalizePath(candidatePath, caseInsensitive);
+      if (comparisonPath === comparisonRootPath) {
+        break;
+      }
+      if (!isPathWithinRoot(comparisonPath, comparisonRootPath)) {
+        break;
+      }
+      const presentationPath = useBackslashPresentation
+        ? candidatePath.replace(/\//gu, '\\')
+        : candidatePath;
+      if (!ancestorsByComparisonPath.has(comparisonPath)) {
+        ancestorsByComparisonPath.set(comparisonPath, {
+          comparisonPath,
+          path: presentationPath,
+        });
+      }
+      candidatePath = parentPath(candidatePath);
+    }
+  }
+
+  return Array.from(ancestorsByComparisonPath.values())
+    .sort(compareAncestorDirectories)
+    .map((entry) => entry.path);
+}
+
 function parentPath(path: string): string | null {
   const separatorIndex = path.lastIndexOf('/');
   if (separatorIndex < 0) {
@@ -90,7 +165,7 @@ function parentPath(path: string): string | null {
   if (separatorIndex === 0) {
     return '/';
   }
-  if (separatorIndex === 2 && /^[a-z]:\//u.test(path)) {
+  if (separatorIndex === 2 && /^[A-Za-z]:\//u.test(path)) {
     return path.slice(0, 3);
   }
   return path.slice(0, separatorIndex);

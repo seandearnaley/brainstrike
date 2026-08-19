@@ -171,6 +171,18 @@ describe('file-selection refresh reconciliation', () => {
       },
     ],
     [
+      'errored',
+      {
+        directoryCounts: new Map<string, number>(),
+        errorMessage: 'manifest read failed',
+        filePaths: [],
+        fingerprint: 'fingerprint-1',
+        pathSet: new Set<string>(),
+        snapshotId: 'snapshot-1',
+        status: 'error' as const,
+      },
+    ],
+    [
       'mismatched',
       {
         directoryCounts: new Map<string, number>(),
@@ -263,6 +275,70 @@ describe('file-selection refresh reconciliation', () => {
       '/workspace/src/other',
       '/workspace/src/nested/deep',
     ]);
+  });
+
+  it('preserves Windows path identity while matching drive-root ancestors case-insensitively', () => {
+    const folderId = 'root-id';
+    const selectedFilePaths = new Set([`${folderId}|@|C:\\Workspace\\src\\nested\\file.ts`]);
+    const state = createMockState({
+      currentFolderId: folderId,
+      selectedFilePaths,
+      selectionModel: {
+        explicitPaths: selectedFilePaths,
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit',
+        queryDescriptor: null,
+      },
+    });
+
+    expect(getSelectionAncestorDirectories(state, folderId, 'c:\\workspace\\')).toEqual([
+      'C:\\Workspace\\src',
+      'C:\\Workspace\\src\\nested',
+    ]);
+  });
+
+  it('does not invent a replacement count from an inexact materialized query cache', () => {
+    const folderId = 'root-id';
+    const cachedPath = '/workspace/src/cached.ts';
+    const materializedPaths = new Set([cachedPath]);
+    const selectionModel = {
+      explicitPaths: new Set<string>(),
+      materializedAt: '2026-08-19T00:00:00.000Z',
+      materializedPaths,
+      mode: 'query' as const,
+      queryDescriptor: {
+        coveredDirectoryPaths: ['/workspace/src'],
+        excludedPaths: [],
+        excludeFilters: [],
+        folderId,
+        includedPaths: [],
+        includeFilters: ['**/*.ts'],
+        kind: 'recursive-select-all' as const,
+        manifestFingerprint: 'fingerprint-1',
+        manifestSnapshotId: 'snapshot-1',
+        rootPath: '/workspace',
+        totalSelectedCount: 2,
+        useRegex: false,
+      },
+    };
+    const state = installStateUpdater(
+      createMockState({
+        currentFolderId: folderId,
+        querySelectionManifest: null,
+        selectionModel,
+        selectionVersion: 4,
+      })
+    );
+
+    createFileSelectionActions(state.set, state.getState).reconcileSelectionWithDirectorySnapshot(
+      folderId,
+      '/workspace/src',
+      []
+    );
+
+    expect(state.getState().selectionModel).toBe(selectionModel);
+    expect(state.getState().selectionVersion).toBe(4);
   });
 
   it('batches multiple refreshed directories into one selection-state publication', () => {

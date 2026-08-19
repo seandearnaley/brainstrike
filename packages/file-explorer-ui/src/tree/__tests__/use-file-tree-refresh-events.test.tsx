@@ -36,6 +36,19 @@ function directoryNode(path: string, loadState: 'loaded' | 'unloaded'): IFileNod
   };
 }
 
+function fileNode(path: string): IFileNode {
+  return {
+    depth: path.split('/').length - 2,
+    handle: {} as FileSystemFileHandle,
+    isVisible: true,
+    name: path.split('/').at(-1) ?? path,
+    path,
+    rootFolderId: ROOT_ID,
+    selectionState: 'unchecked',
+    type: 'file',
+  };
+}
+
 function buildNormalizedTree(): NormalizedFileTreeState {
   return createNormalizedFileTreeState([
     directoryNode(`${ROOT_PATH}/src`, 'loaded'),
@@ -350,6 +363,42 @@ describe('useFileTreeRefreshEvents', () => {
     await waitFor(() => expect(refreshDirectory).toHaveBeenCalledExactlyOnceWith(srcPath));
     expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['removed', []],
+    ['retyped as a file', [fileNode(`${ROOT_PATH}/src`)]],
+  ])(
+    'skips a mixed-batch directory that the root refresh proves was %s',
+    async (_label, refreshedRootEntries) => {
+      const srcPath = `${ROOT_PATH}/src`;
+      normalizedTree = createNormalizedFileTreeState([directoryNode(srcPath, 'loaded')]);
+      refreshTree.mockImplementation(async () => {
+        normalizedTree = createNormalizedFileTreeState(refreshedRootEntries);
+        return { status: 'completed' };
+      });
+      renderHook(() => useFileTreeRefreshEvents(params));
+
+      await dispatchRefresh({
+        roots: [
+          {
+            changes: [
+              { kind: 'file', path: `${ROOT_PATH}/root-file.ts`, type: 'added' },
+              { kind: 'file', path: `${srcPath}/nested-file.ts`, type: 'removed' },
+            ],
+            rootId: ROOT_ID,
+            rootPath: ROOT_PATH,
+          },
+        ],
+        scope: 'incremental',
+        source: 'watcher',
+      });
+
+      await waitFor(() => expect(refreshTree).toHaveBeenCalledOnce());
+      await act(async () => Promise.resolve());
+      expect(refreshDirectory).not.toHaveBeenCalled();
+      expect(reconcileSelectionWithDirectorySnapshots).not.toHaveBeenCalled();
+    }
+  );
 
   it('serializes separate watcher events for the same directory without dropping either event', async () => {
     const srcPath = `${ROOT_PATH}/src`;

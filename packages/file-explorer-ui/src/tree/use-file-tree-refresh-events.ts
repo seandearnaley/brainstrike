@@ -42,9 +42,10 @@
  * 300ms, so a build burst arrives as one event with many changes.
  */
 
+import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange } from '@brainstrike/types';
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import {
   FILE_EXPLORER_REFRESH_EVENT,
   type FileExplorerRefreshEvent,
@@ -59,6 +60,8 @@ const logger = createLogger('FileTreeRefreshEvents');
 export interface UseFileTreeRefreshEventsParams {
   /** Reads the provider's CURRENT normalized tree (loaded-state lookups). */
   getNormalizedTree: () => NormalizedFileTreeState | null;
+  /** Current selected-path ancestor directories for this provider, parent-first. */
+  getSelectionAncestorDirectories: () => readonly string[];
   reconcileSelectionWithDirectorySnapshots: (
     snapshots: readonly FileTreeDirectorySnapshot[]
   ) => void;
@@ -73,6 +76,16 @@ export interface UseFileTreeRefreshEventsParams {
    * manual/full events. Forest RootSection providers pass false.
    */
   skipManualFullEvents: boolean;
+}
+
+export interface SelectionAwareRootRefreshParams {
+  getNormalizedTree: () => NormalizedFileTreeState | null;
+  getSelectionAncestorDirectories: () => readonly string[];
+  reconcileSelectionWithDirectorySnapshots: (
+    snapshots: readonly FileTreeDirectorySnapshot[]
+  ) => void;
+  refreshDirectory: (path: string) => Promise<FileTreeDirectorySnapshot | null>;
+  refreshTree: () => Promise<FileTreeRefreshResult>;
 }
 
 /** Strip the last path segment; handles both posix and windows separators. */
@@ -131,6 +144,75 @@ function collectStructuralRefreshTargets(
   return { parentsToRefresh, refreshRoot };
 }
 
+function directoryPathDepth(path: string): number {
+  return path.replace(/\\/gu, '/').split('/').filter(Boolean).length;
+}
+
+function orderDirectoryPaths(paths: readonly string[]): string[] {
+  return Array.from(new Set(paths)).sort((left, right) => {
+    const depthDifference = directoryPathDepth(left) - directoryPathDepth(right);
+    if (depthDifference !== 0) {
+      return depthDifference;
+    }
+    if (left === right) {
+      return 0;
+    }
+    return left < right ? -1 : 1;
+  });
+}
+
+async function refreshAuthoritativeDirectories(
+  current: SelectionAwareRootRefreshParams,
+  directoryPaths: readonly string[]
+): Promise<void> {
+  const snapshots: FileTreeDirectorySnapshot[] = [];
+  for (const directoryPath of orderDirectoryPaths(directoryPaths)) {
+    // A shallow root replacement resets surviving directories to unloaded.
+    // Existence + directory type are authoritative enough to force a read;
+    // removed/retyped paths are skipped instead of resurrected.
+    const tree = current.getNormalizedTree();
+    const node = tree ? getNormalizedNode(tree, directoryPath) : undefined;
+    if (node?.type !== 'directory') {
+      continue;
+    }
+    // Intentional serialization: parent refreshes materialize the handles for
+    // their selected descendants, and every replacement shares one tree.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const snapshot = await current.refreshDirectory(directoryPath);
+    if (snapshot) {
+      snapshots.push(snapshot);
+    }
+  }
+  if (snapshots.length > 0) {
+    current.reconcileSelectionWithDirectorySnapshots(snapshots);
+  }
+}
+
+async function refreshRootAndDirectories(
+  current: SelectionAwareRootRefreshParams,
+  additionalDirectoryPaths: readonly string[] = []
+): Promise<FileTreeRefreshResult> {
+  const outcome = await current.refreshTree();
+  if (outcome.status !== 'completed') {
+    return outcome;
+  }
+  await refreshAuthoritativeDirectories(current, [
+    ...current.getSelectionAncestorDirectories(),
+    ...additionalDirectoryPaths,
+  ]);
+  return outcome;
+}
+
+/**
+ * Provider-level manual refresh authority: shallow root replacement followed
+ * by bounded selected-path ancestor revalidation.
+ */
+export async function refreshTreeWithSelectionRevalidation(
+  current: SelectionAwareRootRefreshParams
+): Promise<FileTreeRefreshResult> {
+  return refreshRootAndDirectories(current);
+}
+
 async function handleWatcherIncrementalRefresh(
   detail: FileExplorerRefreshEvent['detail'],
   current: UseFileTreeRefreshEventsParams,
@@ -151,29 +233,13 @@ async function handleWatcherIncrementalRefresh(
   );
 
   // Sequence root before directories: a concurrent root replacement could
-  // otherwise clobber a child re-enumeration mid-flight.
+  // otherwise clobber a child re-enumeration mid-flight. The same batch also
+  // revalidates selected ancestors that a shallow root listing cannot prove.
   if (refreshRoot) {
-    await current.refreshTree();
+    await refreshRootAndDirectories(current, Array.from(parentsToRefresh));
+    return;
   }
-  const snapshots: FileTreeDirectorySnapshot[] = [];
-  for (const parent of parentsToRefresh) {
-    // Re-check after every prior refresh — ancestor/descendant updates share
-    // one normalized tree and must never race each other's replacement.
-    const tree = current.getNormalizedTree();
-    if (!(tree && getNormalizedNode(tree, parent)?.loadState === 'loaded')) {
-      continue;
-    }
-    // Intentional serialization: ancestor and descendant replacements mutate
-    // the same normalized tree, so parallel enumeration can publish stale data.
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    const snapshot = await current.refreshDirectory(parent);
-    if (snapshot) {
-      snapshots.push(snapshot);
-    }
-  }
-  if (snapshots.length > 0) {
-    current.reconcileSelectionWithDirectorySnapshots(snapshots);
-  }
+  await refreshAuthoritativeDirectories(current, Array.from(parentsToRefresh));
 }
 
 /**
@@ -195,11 +261,67 @@ async function handleWatcherOverflowRefresh(
   if (!overflowsThisRoot) {
     return;
   }
-  await current.refreshTree();
+  await refreshRootAndDirectories(current);
+}
+
+async function runRefreshWork(
+  work: () => Promise<void>,
+  warningMessage: string,
+  rootPath: string
+): Promise<void> {
+  try {
+    await work();
+  } catch (error) {
+    logger.warn(warningMessage, {
+      error: error instanceof Error ? error.message : String(error),
+      rootPath,
+    });
+  }
+}
+
+async function processRefreshEventDetail(
+  detail: FileExplorerRefreshEvent['detail'],
+  current: UseFileTreeRefreshEventsParams
+): Promise<void> {
+  const currentRootPath = current.rootPath;
+  if (currentRootPath === null) {
+    return;
+  }
+  const effectiveRootId = current.rootId ?? currentRootPath;
+
+  if (detail.source === 'manual' && detail.scope === 'full') {
+    if (current.skipManualFullEvents) {
+      return;
+    }
+    await runRefreshWork(
+      async () => {
+        await refreshTreeWithSelectionRevalidation(current);
+      },
+      'Manual full tree refresh failed',
+      currentRootPath
+    );
+    return;
+  }
+  if (detail.source === 'watcher' && detail.scope === 'incremental') {
+    await runRefreshWork(
+      () => handleWatcherIncrementalRefresh(detail, current, effectiveRootId, currentRootPath),
+      'Watcher-driven tree refresh failed',
+      currentRootPath
+    );
+    return;
+  }
+  if (detail.source === 'watcher' && detail.scope === 'full') {
+    await runRefreshWork(
+      () => handleWatcherOverflowRefresh(detail, current, effectiveRootId, currentRootPath),
+      'Watcher overflow tree refresh failed',
+      currentRootPath
+    );
+  }
 }
 
 export function useFileTreeRefreshEvents({
   getNormalizedTree,
+  getSelectionAncestorDirectories,
   reconcileSelectionWithDirectorySnapshots,
   refreshDirectory,
   refreshTree,
@@ -207,74 +329,45 @@ export function useFileTreeRefreshEvents({
   rootPath,
   skipManualFullEvents,
 }: UseFileTreeRefreshEventsParams): void {
-  // Latest-value refs: the event listener must never restart on identity
-  // churn of the tree callbacks (they are recreated every render).
-  const paramsRef = useRef({
-    getNormalizedTree,
-    reconcileSelectionWithDirectorySnapshots,
-    refreshDirectory,
-    refreshTree,
-    rootId,
-    rootPath,
-    skipManualFullEvents,
-  });
-  paramsRef.current = {
-    getNormalizedTree,
-    reconcileSelectionWithDirectorySnapshots,
-    refreshDirectory,
-    refreshTree,
-    rootId,
-    rootPath,
-    skipManualFullEvents,
-  };
+  const [refreshQueueRef] = useState<{ current: Promise<void> }>(() => ({
+    current: Promise.resolve(),
+  }));
+
+  // Commit-phase latest-value dispatcher: queued events execute against the
+  // provider identity that is current when their turn begins. A same-path
+  // rootId switch therefore cannot make an old event refresh the new root.
+  const processRefreshEvent = useEventCallback(
+    async (detail: FileExplorerRefreshEvent['detail']): Promise<void> => {
+      const current: UseFileTreeRefreshEventsParams = {
+        getNormalizedTree,
+        getSelectionAncestorDirectories,
+        reconcileSelectionWithDirectorySnapshots,
+        refreshDirectory,
+        refreshTree,
+        rootId,
+        rootPath,
+        skipManualFullEvents,
+      };
+      await processRefreshEventDetail(detail, current);
+    }
+  );
 
   useEffect(() => {
     const handleRefreshEvent = (event: Event): void => {
       const { detail } = event as FileExplorerRefreshEvent;
-      const current = paramsRef.current;
-      const currentRootPath = current.rootPath;
-      if (currentRootPath === null) {
-        return;
-      }
-      const effectiveRootId = current.rootId ?? currentRootPath;
-
-      if (detail.source === 'manual' && detail.scope === 'full') {
-        if (!current.skipManualFullEvents) {
-          current.refreshTree().catch((error: unknown) => {
-            logger.warn('Manual full tree refresh failed', {
-              error: error instanceof Error ? error.message : String(error),
-              rootPath: currentRootPath,
-            });
+      const runQueuedEvent = (): Promise<void> => processRefreshEvent(detail);
+      refreshQueueRef.current = refreshQueueRef.current
+        .then(runQueuedEvent, runQueuedEvent)
+        .catch((error: unknown) => {
+          logger.warn('Unexpected file tree refresh queue failure', {
+            error: error instanceof Error ? error.message : String(error),
           });
-        }
-        return;
-      }
-      if (detail.source === 'watcher' && detail.scope === 'incremental') {
-        handleWatcherIncrementalRefresh(detail, current, effectiveRootId, currentRootPath).catch(
-          (error: unknown) => {
-            logger.warn('Watcher-driven tree refresh failed', {
-              error: error instanceof Error ? error.message : String(error),
-              rootPath: currentRootPath,
-            });
-          }
-        );
-        return;
-      }
-      if (detail.source === 'watcher' && detail.scope === 'full') {
-        handleWatcherOverflowRefresh(detail, current, effectiveRootId, currentRootPath).catch(
-          (error: unknown) => {
-            logger.warn('Watcher overflow tree refresh failed', {
-              error: error instanceof Error ? error.message : String(error),
-              rootPath: currentRootPath,
-            });
-          }
-        );
-      }
+        });
     };
 
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefreshEvent);
     return () => {
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefreshEvent);
     };
-  }, []);
+  }, [processRefreshEvent, refreshQueueRef]);
 }
