@@ -15,6 +15,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadConfigFromFile } from 'vite';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -24,8 +25,19 @@ const WORKSPACE_DIRS = ['packages', 'apps'];
 /** The base config each package runs its `test` script against. */
 const BASE_CONFIG_NAME = 'vitest.config.mts';
 
-/** Substring proving the config wired the reporter in. */
-const REPORTER_SPECIFIER = 'vitest-lost-file-reporter';
+/**
+ * Class name of a registered reporter instance.
+ *
+ * Matched on `constructor.name` of an entry in the LOADED config's effective
+ * `reporters`, deliberately not on `instanceof`: `packages/test-utils` and
+ * `packages/types` import the reporter by relative path while everyone else
+ * uses the package specifier, and tying the check to module identity would make
+ * the guard's verdict depend on how the import was spelled.
+ */
+const REPORTER_CLASS_NAME = 'LostTestFileReporter';
+
+/** Module id naming the reporter on a vitest CLI `--reporter=` flag. */
+const REPORTER_MODULE_ID = '@brainstrike/test-utils/vitest-lost-file-reporter';
 
 /**
  * Anti-vacuous-green floor, in the style of MIN_VERIFY_SCRIPTS in
@@ -101,18 +113,110 @@ export function findVitestConfigs(repoRoot) {
 }
 
 /**
- * Configs that do not reference the reporter, minus the domain exemption.
+ * Does this LOADED config actually register the reporter?
+ *
+ * Entries may be a bare name ('default'), a [name, options] tuple, or a reporter
+ * INSTANCE — only the last can be ours. Duck-typing the instance (right class
+ * name AND an `onTestRunEnd` hook) keeps a stray same-named object from
+ * satisfying the guard.
+ */
+export function registersReporter(reporters) {
+  if (!Array.isArray(reporters)) {
+    return false;
+  }
+  return reporters.some(
+    (entry) =>
+      entry !== null &&
+      typeof entry === 'object' &&
+      entry.constructor?.name === REPORTER_CLASS_NAME &&
+      typeof entry.onTestRunEnd === 'function'
+  );
+}
+
+/** The `test.reporters` vitest would actually use for this config file. */
+export async function loadEffectiveReporters(configPath) {
+  const loaded = await loadConfigFromFile({ command: 'serve', mode: 'test' }, configPath);
+  if (!loaded?.config) {
+    throw new Error(`verify-lost-file-reporter: vite could not load ${configPath}`);
+  }
+  return loaded.config.test?.reporters;
+}
+
+/**
+ * Configs that do not REGISTER the reporter, minus the domain exemption.
+ *
+ * This LOADS each config and inspects the effective `reporters` array rather
+ * than grepping the source. An earlier version matched the module name as a
+ * substring, which an unused import, a commented-out registration, or even a
+ * passing mention in a comment satisfied while `test.reporters` omitted the
+ * reporter entirely — a guard that could not fail, protecting nothing. See the
+ * "cannot fail is not evidence" cases in the paired spec.
  *
  * `exemptPackageNames` defaults to empty so unit tests can drive miniature
  * workspaces that carry no domain map; `main()` supplies the real set.
  */
-export function findConfigsMissingReporter(repoRoot, configs, exemptPackageNames = new Set()) {
-  return configs.filter((configPath) => {
-    if (exemptPackageNames.has(packageNameForConfig(repoRoot, configPath))) {
-      return false;
+export async function findConfigsMissingReporter(
+  repoRoot,
+  configs,
+  exemptPackageNames = new Set()
+) {
+  const eligible = configs.filter(
+    (configPath) => !exemptPackageNames.has(packageNameForConfig(repoRoot, configPath))
+  );
+  // Loading a vite config costs a TS transform each; run them concurrently so
+  // the guard stays seconds rather than a minute.
+  const verdicts = await Promise.all(
+    eligible.map(async (configPath) => ({
+      configPath,
+      registered: registersReporter(await loadEffectiveReporters(join(repoRoot, configPath))),
+    }))
+  );
+  return verdicts.filter((verdict) => !verdict.registered).map((verdict) => verdict.configPath);
+}
+
+/**
+ * Scripts that invoke vitest with a CLI `--reporter`, which OVERRIDES the
+ * config's `reporters` array and therefore drops the lost-file guarantee for
+ * that lane. vitest 4.1.10 has no additive `--additional-reporter` flag, so the
+ * only fix is to name this reporter among them too — `--reporter` accepts a
+ * module id, so `--reporter=@brainstrike/test-utils/vitest-lost-file-reporter`
+ * works alongside `default`/`blob`/`verbose`.
+ *
+ * Without this check the gap reopens SILENTLY the next time someone adds a
+ * `--reporter` script: config registration would still look complete while the
+ * lane that actually runs had no protection at all.
+ *
+ * @returns {{ packageName: string, script: string }[]}
+ */
+export function findScriptsOverridingReporters(repoRoot, exemptPackageNames = new Set()) {
+  const offenders = [];
+  for (const workspaceDir of WORKSPACE_DIRS) {
+    const absoluteWorkspace = join(repoRoot, workspaceDir);
+    if (!existsSync(absoluteWorkspace)) {
+      continue;
     }
-    return !readFileSync(join(repoRoot, configPath), 'utf8').includes(REPORTER_SPECIFIER);
-  });
+    for (const entry of readdirSync(absoluteWorkspace).sort()) {
+      const packageJsonPath = join(absoluteWorkspace, entry, 'package.json');
+      if (!existsSync(packageJsonPath)) {
+        continue;
+      }
+      const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+      if (exemptPackageNames.has(pkg.name)) {
+        continue;
+      }
+      for (const [scriptName, command] of Object.entries(pkg.scripts ?? {})) {
+        if (
+          typeof command === 'string' &&
+          command.includes('vitest') &&
+          command.includes('--reporter=') &&
+          !command.includes(REPORTER_MODULE_ID)
+        ) {
+          offenders.push({ packageName: pkg.name, script: scriptName });
+        }
+      }
+    }
+  }
+  return offenders;
 }
 
 export async function main({ repoRoot = REPO_ROOT } = {}) {
@@ -128,7 +232,7 @@ export async function main({ repoRoot = REPO_ROOT } = {}) {
   }
 
   const exemptPackageNames = loadExemptPackageNames(repoRoot);
-  const missing = findConfigsMissingReporter(repoRoot, configs, exemptPackageNames);
+  const missing = await findConfigsMissingReporter(repoRoot, configs, exemptPackageNames);
   if (missing.length > 0) {
     process.exitCode = 1;
     process.stderr.write(
@@ -139,6 +243,19 @@ export async function main({ repoRoot = REPO_ROOT } = {}) {
         "Add to the config's `test` block:\n" +
         "  import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';\n" +
         "  reporters: ['default', new LostTestFileReporter()],\n"
+    );
+    return;
+  }
+
+  const overriding = findScriptsOverridingReporters(repoRoot, exemptPackageNames);
+  if (overriding.length > 0) {
+    process.exitCode = 1;
+    process.stderr.write(
+      `verify-lost-file-reporter: ${overriding.length} package script(s) pass a CLI ` +
+        "`--reporter`, which OVERRIDES the config's `reporters` and drops the lost-file " +
+        'guarantee for that lane (BST-1221):\n' +
+        `${overriding.map((o) => `  - ${o.packageName} -> ${o.script}`).join('\n')}\n\n` +
+        `Append \`--reporter=${REPORTER_MODULE_ID}\` to those invocations.\n`
     );
     return;
   }

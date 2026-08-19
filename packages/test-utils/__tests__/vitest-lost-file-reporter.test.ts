@@ -25,6 +25,24 @@ describe('findLostTestFiles', () => {
     expect(lost).toEqual(['/b.test.ts']);
   });
 
+  it('names a module left QUEUED — enqueued but never executed', () => {
+    // vitest 4.1.10 has TWO non-verdict states. A pool killed before it picked
+    // the module up leaves `queued`, which carries no verdict either; matching
+    // only `pending` would let that file vanish silently.
+    const lost = findLostTestFiles(
+      [mod('/a.test.ts', 'passed'), mod('/b.test.ts', 'queued')],
+      'passed'
+    );
+    expect(lost).toEqual(['/b.test.ts']);
+  });
+
+  it('fails CLOSED on an unrecognised state rather than assuming it is a pass', () => {
+    // If a future vitest adds a state, the safe default is "lost": a loud,
+    // fixable failure beats a silent green.
+    const lost = findLostTestFiles([mod('/a.test.ts', 'some-future-state')], 'passed');
+    expect(lost).toEqual(['/a.test.ts']);
+  });
+
   it('reports nothing when every module reached a verdict', () => {
     const lost = findLostTestFiles(
       [mod('/a.test.ts', 'passed'), mod('/b.test.ts', 'failed'), mod('/c.test.ts', 'skipped')],

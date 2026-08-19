@@ -11,7 +11,8 @@
 // What vitest does with that, measured on 4.1.10 (see the PR for the captured
 // runs):
 //
-//   * the lost module IS present at `onTestRunEnd`, with `state() === 'pending'`;
+//   * the lost module IS present at `onTestRunEnd`, with a NON-VERDICT state —
+//     `pending` (started, never resolved) or `queued` (never executed at all);
 //   * the run's own verdict is `reason: 'passed'`;
 //   * the summary line reads `Test Files 2 passed (3)` — a PASS phrasing whose
 //     only hint is a parenthesised total that does not match;
@@ -34,10 +35,31 @@
 const NON_DIAGNOSTIC_REASONS = new Set(['interrupted']);
 
 /**
+ * The ONLY module states that constitute a verdict.
+ *
+ * Verified against vitest 4.1.10 rather than assumed:
+ * `type TestModuleState = TestSuiteState | 'queued'` and
+ * `type TestSuiteState = 'skipped' | 'pending' | 'failed' | 'passed'`
+ * (dist/chunks/reporters.d.*.d.ts:351-352), with the runtime confirming the
+ * extra arm — `state() { if (this.task.result?.state === 'queued') return
+ * 'queued'; return getSuiteState(this.task); }`.
+ *
+ * So there are TWO non-verdict states, not one:
+ * - `pending` — collected and started, never resolved (a worker died holding it);
+ * - `queued`  — enqueued and never executed at all (abnormal pool termination
+ *   killed the run before this module was picked up).
+ *
+ * Listed POSITIVELY on purpose. An exclusion list of known-bad states silently
+ * stops catching anything vitest adds later, which is the same silent-loss
+ * shape this reporter exists to prevent; enumerating the good states instead
+ * fails CLOSED — an unrecognised state counts as lost and fails the lane
+ * loudly, which is a bug report rather than a false green.
+ */
+const VERDICT_STATES = new Set(['passed', 'failed', 'skipped']);
+
+/**
  * Test modules that never produced a verdict.
  *
- * `pending` at run end means the module was collected and never resolved to
- * passed/failed/skipped — the signature of a worker that died holding it.
  * An INTERRUPTED run (Ctrl-C, or a bail) legitimately leaves modules unstarted,
  * so it is excluded: reporting those would be noise, not a lost file.
  *
@@ -49,7 +71,7 @@ export function findLostTestFiles(testModules, reason) {
   if (NON_DIAGNOSTIC_REASONS.has(reason)) {
     return [];
   }
-  return testModules.filter((module) => module.state() === 'pending').map((m) => m.moduleId);
+  return testModules.filter((module) => !VERDICT_STATES.has(module.state())).map((m) => m.moduleId);
 }
 
 /**
