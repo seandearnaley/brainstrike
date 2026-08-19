@@ -46,12 +46,19 @@ export function useOpenAiCodexDefaults(
   );
   const attempted = useRef<InitializationAttempt | null>(null);
   const { toast } = useToast();
+  // Read during render, not inside the effect: `openai-codex` needs COMPUTED
+  // member access (the hyphen rules out the dot form `useBedrockDefaults`
+  // uses), and a computed expression in a dependency array cannot be checked
+  // statically — which is what let the effect close over `providerReadErrors`
+  // while depending only on one slot of it. Naming the value keeps the
+  // dependency and the value the effect actually uses the same thing.
+  const codexReadError = providerReadErrors?.['openai-codex'];
 
   useEffect(() => {
     if (
       !(providerDiscoveryEnabled && db && hasLoaded) ||
       registryError ||
-      providerReadErrors?.['openai-codex'] ||
+      codexReadError ||
       !configuredProviders.includes('openai-codex')
     ) {
       return;
@@ -76,12 +83,12 @@ export function useOpenAiCodexDefaults(
       });
     });
   }, [
+    codexReadError,
     configuredProviders,
     db,
     hasLoaded,
     initializeProviderModelDefaults,
     providerDiscoveryEnabled,
-    providerReadErrors?.['openai-codex'],
     registryError,
     secretsVersion,
     toast,

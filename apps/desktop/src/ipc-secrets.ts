@@ -155,7 +155,10 @@ async function appendStoredProviders(
   secrets: SecretsService
 ) {
   const storedProviders = await secrets.listProviders();
-  const eligible: DesktopProviderKeyId[] = [];
+  // A Set both dedupes in O(1) and PRESERVES insertion order, so the listing
+  // order the reads land in below is unchanged (an array + `.includes` rescan
+  // was quadratic in the slot count for the same result).
+  const eligible = new Set<DesktopProviderKeyId>();
   for (const provider of storedProviders) {
     if (typeof provider !== 'string') {
       continue;
@@ -165,11 +168,11 @@ async function appendStoredProviders(
       trimmed.length === 0 ||
       !isDesktopProviderKeyId(trimmed) ||
       target.has(trimmed) ||
-      eligible.includes(trimmed)
+      eligible.has(trimmed)
     ) {
       continue;
     }
-    eligible.push(trimmed);
+    eligible.add(trimmed);
   }
   // The per-provider decrypt+parse reads are independent, so they run in
   // parallel (bounded by the slot count); entries land in listing order.
@@ -178,7 +181,9 @@ async function appendStoredProviders(
   // inside) the encrypted credential — the listing would then never need
   // key material at all.
   const sources = await Promise.all(
-    eligible.map((provider) => toStoredKeySource(provider, () => secrets.getCredential(provider)))
+    [...eligible].map((provider) =>
+      toStoredKeySource(provider, () => secrets.getCredential(provider))
+    )
   );
   for (const source of sources) {
     target.set(source.provider, source);

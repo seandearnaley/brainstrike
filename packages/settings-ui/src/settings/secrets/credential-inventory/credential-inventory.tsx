@@ -222,10 +222,15 @@ export function CredentialInventory({
   // listCredentialSlots reads the frozen registry constant; only the derived
   // allocations need memos.
   const allSlots = useMemo(() => listCredentialSlots(), []);
-  const visibleSlots = useMemo(
-    () => (providers ? allSlots.filter((slot) => providers.includes(slot.id)) : allSlots),
-    [allSlots, providers]
-  );
+  const visibleSlots = useMemo(() => {
+    if (!providers) {
+      return allSlots;
+    }
+    // The filter predicate is a membership test, so the allow-list becomes a
+    // Set once instead of being rescanned for every slot.
+    const allowed = new Set(providers);
+    return allSlots.filter((slot) => allowed.has(slot.id));
+  }, [allSlots, providers]);
   // The listing may legitimately mention providers the table does not show —
   // a stored entry for a keyless local runtime (e.g. ollama) simply has no
   // row. The allowed set is therefore EVERY provider the bridge can emit:

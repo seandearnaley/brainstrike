@@ -290,6 +290,17 @@ function collectEnvBearerSources(
   }
 }
 
+/** One provider's stored-credential read, with its failure kept rather than thrown. */
+type StoredCredentialRead =
+  | { readonly credential: ProviderCredential | null; readonly provider: SupportedProvider }
+  | { readonly error: unknown; readonly provider: SupportedProvider };
+
+function isFailedRead(
+  read: StoredCredentialRead
+): read is { readonly error: unknown; readonly provider: SupportedProvider } {
+  return 'error' in read;
+}
+
 /** Rungs 2 and 4: stored credentials of any type, skipping env-configured providers. */
 async function collectStoredSources(
   configured: ConfiguredProviderMap,
@@ -297,39 +308,66 @@ async function collectStoredSources(
 ): Promise<void> {
   const secretsService = getSecretsService();
   const storedProviders: string[] = await secretsService.listProviders();
-  const inspected = new Set<SupportedProvider>();
 
+  // A Set both dedupes in O(1) and preserves insertion order, so eligibility
+  // is decided in listing order exactly as the sequential loop did. Env-
+  // configured providers are already in `configured` (rung 1 ran first), so
+  // this decision does not depend on anything the reads below produce.
+  const eligible = new Set<SupportedProvider>();
   for (const provider of storedProviders) {
     if (!isSupportedProvider(provider)) {
       continue;
     }
     const supported = provider as SupportedProvider;
-    if (configured.has(supported) || inspected.has(supported)) {
-      continue;
+    if (!configured.has(supported)) {
+      eligible.add(supported);
     }
-    inspected.add(supported);
-    try {
-      // Typed read (BST-1352 review finding 3): a VALID stored credential of
-      // ANY type marks the provider configured — the availability verdict and
-      // the typed-consumer verdict must agree. Blank legacy api_key strings
-      // stay "not configured" via the same normalization the request path uses.
-      const credential = await secretsService.getCredential(supported);
-      if (credential !== null && normalizeStoredCredential(credential)) {
-        configured.set(supported, {
-          ...storedAuthMode(supported, credential),
-          provider: supported,
-          source: 'stored',
-        });
+  }
+
+  // The per-provider decrypt+parse reads are INDEPENDENT, so they run in
+  // parallel (same shape as ipc-secrets' appendStoredProviders). Each read is
+  // still issued exactly once — `eligible` deduped — and every failure is
+  // CAPTURED rather than thrown, so the verdicts below are applied strictly in
+  // listing order. Rejecting straight out of `Promise.all` would surface
+  // whichever provider happened to fail FIRST IN TIME, making both the thrown
+  // error and the `readFailures` order nondeterministic.
+  const reads: StoredCredentialRead[] = await Promise.all(
+    [...eligible].map(async (provider): Promise<StoredCredentialRead> => {
+      try {
+        return { credential: await secretsService.getCredential(provider), provider };
+      } catch (error) {
+        return { error, provider };
       }
-    } catch (error) {
-      if (!(error instanceof SecretReadError)) {
-        throw error;
+    })
+  );
+
+  for (const read of reads) {
+    if (isFailedRead(read)) {
+      if (!(read.error instanceof SecretReadError)) {
+        throw read.error;
       }
       logger.error('Stored provider credential is unreadable; reporting provider failure', {
-        error,
-        provider: supported,
+        error: read.error,
+        provider: read.provider,
       });
-      readFailures.push({ code: error.code, message: error.message, provider: supported });
+      readFailures.push({
+        code: read.error.code,
+        message: read.error.message,
+        provider: read.provider,
+      });
+      continue;
+    }
+    // Typed read (BST-1352 review finding 3): a VALID stored credential of
+    // ANY type marks the provider configured — the availability verdict and
+    // the typed-consumer verdict must agree. Blank legacy api_key strings
+    // stay "not configured" via the same normalization the request path uses.
+    const { credential } = read;
+    if (credential !== null && normalizeStoredCredential(credential)) {
+      configured.set(read.provider, {
+        ...storedAuthMode(read.provider, credential),
+        provider: read.provider,
+        source: 'stored',
+      });
     }
   }
 }
