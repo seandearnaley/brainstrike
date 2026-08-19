@@ -1,7 +1,7 @@
 import type { Migration } from './migration-runner';
 
 /** Add Gemini 3.7 Flash to the persisted direct Google model picker. */
-export const migration101GoogleGemini37Flash: Migration = {
+export const migration104GoogleGemini37Flash: Migration = {
   down: `
     DELETE FROM models
     WHERE provider_id = 'google'
@@ -18,7 +18,7 @@ export const migration101GoogleGemini37Flash: Migration = {
         'gemini-3.7-flash',
         'google',
         'Gemini 3.7 Flash',
-        'Latest high-speed multimodal reasoning',
+        'Our most capable Flash model for agentic workflows and multimodal reasoning.',
         '["Agentic workflows", "Function calling", "Multimodal reasoning"]',
         '{"type":"llm","streaming":true,"vision":true}',
         1,
@@ -33,5 +33,5 @@ export const migration101GoogleGemini37Flash: Migration = {
       sort_order = EXCLUDED.sort_order,
       is_enabled = models.is_enabled;
   `,
-  version: 101,
+  version: 104,
 };

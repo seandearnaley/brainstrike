@@ -631,6 +631,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       {
         // Direct Google GA route and introductory pricing through 2026-12-31:
         // https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash
+        // https://ai.google.dev/gemini-api/docs/changelog
         // https://ai.google.dev/gemini-api/docs/pricing (BST-1339).
         contextWindow: 1_048_576,
         id: 'gemini-3.7-flash',
@@ -638,7 +639,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
         supportsStreaming: true,
-        tagline: 'Latest high-speed multimodal reasoning',
+        tagline: 'Our most capable Flash model for agentic workflows and multimodal reasoning.',
         type: 'llm',
         vision: 'supported',
       },

@@ -1021,7 +1021,7 @@ describe('frontier models migrations', () => {
       },
     ]);
   });
-  it('adds direct Gemini 3.7 Flash disabled, preserves its toggle, and rolls back migration 101', {
+  it('adds direct Gemini 3.7 Flash disabled, preserves its toggle, and rolls back migration 104', {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
@@ -1075,6 +1075,17 @@ describe('frontier models migrations', () => {
         sort_order: 3,
       },
     ]);
+    await expect(
+      db.query<{ tagline: string }>(
+        "SELECT tagline FROM models WHERE provider_id = 'google' AND id = 'gemini-3.7-flash'"
+      )
+    ).resolves.toMatchObject({
+      rows: [
+        {
+          tagline: 'Our most capable Flash model for agentic workflows and multimodal reasoning.',
+        },
+      ],
+    });
 
     await runner.down(migrations, 100);
     expect(await readRows()).toEqual([
@@ -1118,5 +1129,23 @@ describe('frontier models migrations', () => {
       name: 'Gemini 3.7 Flash',
       sort_order: 1,
     });
+
+    await runner.down(migrations, 100);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'gemini-3.5-flash',
+        is_enabled: true,
+        name: 'Gemini 3.5 Flash',
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'gemini-3.1-pro-preview',
+        is_enabled: true,
+        name: 'Gemini 3.1 Pro (Preview)',
+        sort_order: 2,
+      },
+    ]);
   });
 });

@@ -111,7 +111,7 @@ describe('frontier model refresh (2026-07)', () => {
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
         supportsStreaming: true,
-        tagline: 'Latest high-speed multimodal reasoning',
+        tagline: 'Our most capable Flash model for agentic workflows and multimodal reasoning.',
         type: 'llm',
         vision: 'supported',
       });

@@ -85,6 +85,10 @@ export const GOOGLE_FLASH_THINKING_LEVELS: readonly GoogleThinkingLevel[] = [
 /** Gemini 3 Pro restricts thinking to low/high (no minimal/medium). */
 export const GOOGLE_PRO_THINKING_LEVELS: readonly GoogleThinkingLevel[] = ['low', 'high'];
 
+/**
+ * Gemini 3.7 Flash accepts low/medium/high and rejects minimal.
+ * https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash (retrieved 2026-08-19)
+ */
 const GOOGLE_GEMINI_37_FLASH_THINKING_LEVELS: readonly GoogleThinkingLevel[] = [
   'low',
   'medium',
