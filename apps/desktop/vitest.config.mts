@@ -1,4 +1,5 @@
 import path from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
@@ -216,6 +217,7 @@ export default defineConfig({
     // that CI and `pnpm test` run is FORKS, not threads. This default only
     // applies when vitest is invoked directly without that flag.
     pool: 'threads',
+    reporters: ['default', new LostTestFileReporter()],
     server: {
       deps: {
         // Force `electron` through Vite's transform pipeline so the

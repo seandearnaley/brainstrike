@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
@@ -24,6 +25,7 @@ export default defineConfig({
     environment: 'node',
     hookTimeout: 15_000,
     include: ['src/**/__tests__/*.spec.ts'],
+    reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['./vitest.setup.ts'],
     // Longer timeout for MCP/Mastra integration tests under parallel load
     testTimeout: 30_000,

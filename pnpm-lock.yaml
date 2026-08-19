@@ -1687,6 +1687,9 @@ importers:
         specifier: ^19.2.8
         version: 19.2.8
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
