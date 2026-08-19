@@ -703,7 +703,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         setIsLoading(activeExecutionCountRef.current > 0);
       }
     },
-    [prepareFileRead, store, canLoadWithoutTree, loadAuthority]
+    [prepareFileRead, store, loadAuthority]
   );
 
   const runFileContentLoading = useCallback(
