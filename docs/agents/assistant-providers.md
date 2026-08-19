@@ -1213,8 +1213,14 @@ pre-burn its own TTL (#2519 review). Exposed as
 `GET /assistant/verify-provider?provider=<id>` beside the OpenRouter metadata
 endpoint (same origin/auth gates); the renderer sends ONLY the provider id —
 credentials resolve main-side via the typed reader. Renderer seam:
-`fetchProviderVerification` + the button-driven `useProviderVerification`
-(`packages/app-shell`); the Test-connection UI lands with BST-1362/BST-1358.
+`fetchProviderVerification` + the button-driven `verifyProviderCredential`
+(`packages/app-shell/src/verify-provider-credential.ts`) — a plain async
+FUNCTION, not a hook: settings-ui owns the probe UI but cannot import
+app-shell (that would close a cycle), and a hook may not be passed as a value.
+The React state around it lives in `use-provider-verification-state`
+(`packages/settings-ui`). BST-1378 deleted the original `useProviderVerification`
+hook, which lost its last consumer when BST-1358 moved that lifecycle into
+settings-ui.
 Wire contract: `ProviderVerificationSnapshot` in
 `packages/assistant-contract/src/provider-verification.ts`.
 

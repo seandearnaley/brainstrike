@@ -27,9 +27,6 @@
       "path": "../tokenization"
     },
     {
-      "path": "../utils"
-    },
-    {
       "path": "../types"
     }
   ]

@@ -42,9 +42,6 @@
       "path": "../db"
     },
     {
-      "path": "../text-splitter"
-    },
-    {
       "path": "../tokenization"
     },
     {

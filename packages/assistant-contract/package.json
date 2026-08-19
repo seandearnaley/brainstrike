@@ -4,8 +4,7 @@
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/types": "workspace:*"
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
