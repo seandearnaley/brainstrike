@@ -1,3 +1,4 @@
+import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
@@ -400,6 +401,287 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     expect(result.current.store.getState().getFileContent(compositeKey)).toBe(
       'replacement content'
+    );
+  });
+
+  it('factory reset invalidates an in-flight read and clears live content state', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const fileNode = createFileNode({ path: '/reset.txt', rootFolderId: 'root-reset' });
+    const compositeKey = encodeFileSelection('root-reset', '/reset.txt');
+    const pendingReads: PendingWorkerRead[] = [];
+    const worker = createPendingWorker(pendingReads);
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(
+      () => {
+        const store = useFileExplorerStoreContext();
+        return { loader: useSharedFileContentLoading([fileNode]), store };
+      },
+      { wrapper }
+    );
+
+    let inFlightLoad: Promise<void> | undefined;
+    act(() => {
+      inFlightLoad = result.current.loader.handleFileContentLoading([compositeKey]);
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(1));
+    act(() => {
+      result.current.store.getState().setFileContent(compositeKey, 'cached before reset');
+    });
+
+    await act(async () => {
+      const resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+      expect(resetResult.success).toBe(true);
+    });
+    const loadingImmediatelyAfterReset = new Set(result.current.loader.loadingFiles);
+    const contentsImmediatelyAfterReset = result.current.store.getState().fileContents;
+    const cacheEntriesImmediatelyAfterReset = result.current.store
+      .getState()
+      .getFileContentCacheStats().entryCount;
+
+    await act(async () => {
+      pendingReads[0]?.complete('obsolete content after reset');
+      await Promise.allSettled([inFlightLoad]);
+    });
+
+    expect(loadingImmediatelyAfterReset.size).toBe(0);
+    expect(contentsImmediatelyAfterReset).toEqual({});
+    expect(cacheEntriesImmediatelyAfterReset).toBe(0);
+    expect(result.current.store.getState().getFileContent(compositeKey)).toBeUndefined();
+  });
+
+  it('settles preparation per key so a valid sibling loads before the batch rejects', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const validNode = createFileNode({ path: '/valid.txt', rootFolderId: 'root-prepare' });
+    const validKey = encodeFileSelection('root-prepare', '/valid.txt');
+    const malformedKey = 'malformed-selection-key';
+    const worker = vi.fn(
+      async (
+        requests: FileReadRequest[],
+        onProgress?: (event: { key: string; loaded: number; total: number }) => void
+      ): Promise<Record<string, FileContentReadResult>> => {
+        const results: Record<string, FileContentReadResult> = {};
+        for (const request of requests) {
+          results[request.compositeKey] = {
+            content: 'valid sibling content',
+            status: 'accessible',
+          };
+          onProgress?.({ key: request.compositeKey, loaded: 1, total: requests.length });
+        }
+        return results;
+      }
+    );
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useSharedFileContentLoading([validNode]), { wrapper });
+    let rejection: unknown;
+    await act(async () => {
+      try {
+        await result.current.handleFileContentLoading([malformedKey, validKey]);
+      } catch (error) {
+        rejection = error;
+      }
+    });
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect(worker).toHaveBeenCalledOnce();
+    expect(worker.mock.calls[0]?.[0].map((request) => request.compositeKey)).toEqual([validKey]);
+    expect(result.current.fileContents[validKey]).toBe('valid sibling content');
+    expect(result.current.loadingFiles.size).toBe(0);
+    expect(result.current.error).toBeInstanceOf(Error);
+  });
+
+  it('rethrows worker rejection and cleans every loading marker before retry', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const firstNode = createFileNode({ path: '/first.txt', rootFolderId: 'root-worker-error' });
+    const secondNode = createFileNode({ path: '/second.txt', rootFolderId: 'root-worker-error' });
+    const firstKey = encodeFileSelection('root-worker-error', '/first.txt');
+    const secondKey = encodeFileSelection('root-worker-error', '/second.txt');
+    const workerFailure = new Error('worker batch rejected');
+    let invocation = 0;
+    const worker = vi.fn(
+      async (
+        requests: FileReadRequest[],
+        onProgress?: (event: { key: string; loaded: number; total: number }) => void
+      ): Promise<Record<string, FileContentReadResult>> => {
+        invocation += 1;
+        if (invocation === 1) {
+          throw workerFailure;
+        }
+        const results: Record<string, FileContentReadResult> = {};
+        for (const request of requests) {
+          results[request.compositeKey] = { content: 'retry content', status: 'accessible' };
+          onProgress?.({ key: request.compositeKey, loaded: 1, total: requests.length });
+        }
+        return results;
+      }
+    );
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useSharedFileContentLoading([firstNode, secondNode]), {
+      wrapper,
+    });
+    let rejection: unknown;
+    await act(async () => {
+      try {
+        await result.current.handleFileContentLoading([firstKey, secondKey]);
+      } catch (error) {
+        rejection = error;
+      }
+    });
+
+    expect(rejection).toBe(workerFailure);
+    expect(result.current.error).toBe(workerFailure);
+    expect(result.current.loadingFiles.size).toBe(0);
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([firstKey, secondKey]);
+    });
+    expect(worker).toHaveBeenCalledTimes(2);
+    expect(result.current.fileContents[firstKey]).toBe('retry content');
+    expect(result.current.fileContents[secondKey]).toBe('retry content');
+  });
+
+  it('serializes twenty distinct predecessor groups through the provider batch queue', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const nodes = Array.from({ length: 20 }, (_, index) =>
+      createFileNode({ path: `/file-${index}.txt`, rootFolderId: 'root-concurrency' })
+    );
+    const compositeKeys = nodes.map((node) => encodeFileSelection('root-concurrency', node.path));
+    let activeWorkerQueues = 0;
+    let peakWorkerQueues = 0;
+    const completeWorkerQueues: Array<() => void> = [];
+    const worker = vi.fn(
+      (
+        requests: FileReadRequest[],
+        onProgress?: (event: { key: string; loaded: number; total: number }) => void
+      ) =>
+        new Promise<Record<string, FileContentReadResult>>((resolve) => {
+          activeWorkerQueues += 1;
+          peakWorkerQueues = Math.max(peakWorkerQueues, activeWorkerQueues);
+          completeWorkerQueues.push(() => {
+            const results: Record<string, FileContentReadResult> = {};
+            for (const request of requests) {
+              results[request.compositeKey] = { content: 'fresh content', status: 'accessible' };
+              onProgress?.({ key: request.compositeKey, loaded: 1, total: requests.length });
+            }
+            activeWorkerQueues -= 1;
+            resolve(results);
+          });
+        })
+    );
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(
+      () => {
+        const authority = useFileContentLoadAuthority();
+        return { authority, loader: useSharedFileContentLoading(nodes) };
+      },
+      { wrapper }
+    );
+    const resolvePredecessors: Array<() => void> = [];
+    for (const compositeKey of compositeKeys) {
+      let resolvePredecessor: (() => void) | undefined;
+      const predecessor = new Promise<void>((resolve) => {
+        resolvePredecessor = resolve;
+      });
+      let trackedPredecessor: Promise<void>;
+      trackedPredecessor = predecessor.finally(() => {
+        result.current.authority.releaseActiveLoad([compositeKey], trackedPredecessor);
+      });
+      result.current.authority.trackActiveLoad([compositeKey], trackedPredecessor);
+      resolvePredecessors.push(() => resolvePredecessor?.());
+    }
+
+    let reload: Promise<void> | undefined;
+    act(() => {
+      reload = result.current.loader.reloadFileContents(compositeKeys);
+    });
+    await act(async () => {
+      for (const resolvePredecessor of resolvePredecessors) {
+        resolvePredecessor();
+      }
+      await Promise.resolve();
+    });
+
+    for (let index = 0; index < compositeKeys.length; index += 1) {
+      await waitFor(() => expect(completeWorkerQueues.length).toBeGreaterThan(index));
+      await act(async () => {
+        completeWorkerQueues[index]?.();
+        await Promise.resolve();
+      });
+    }
+    await act(async () => {
+      await reload;
+    });
+
+    expect(worker).toHaveBeenCalledTimes(20);
+    expect(peakWorkerQueues).toBe(1);
+  });
+
+  it('resets hook-local loading state when the provider store identity changes', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const fileNode = createFileNode({ path: '/identity.txt', rootFolderId: 'root-identity' });
+    const compositeKey = encodeFileSelection('root-identity', '/identity.txt');
+    const pendingReads: PendingWorkerRead[] = [];
+    const worker = createPendingWorker(pendingReads);
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    let storage = new MemoryStorageAdapter();
+    function ReplaceableWrapper({ children }: { readonly children: ReactNode }) {
+      return (
+        <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
+          <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+        </AdaptersProvider>
+      );
+    }
+    const { rerender, result } = renderHook(
+      () => {
+        const store = useFileExplorerStoreContext();
+        return { loader: useSharedFileContentLoading([fileNode]), store };
+      },
+      { wrapper: ReplaceableWrapper }
+    );
+
+    let oldLoad: Promise<void> | undefined;
+    act(() => {
+      oldLoad = result.current.loader.handleFileContentLoading([compositeKey]);
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(1));
+
+    storage = new MemoryStorageAdapter();
+    rerender();
+    const loadingImmediatelyAfterReplacement = new Set(result.current.loader.loadingFiles);
+    let replacementLoad: Promise<void> | undefined;
+    act(() => {
+      replacementLoad = result.current.loader.handleFileContentLoading([compositeKey]);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const workerCallsAfterReplacement = pendingReads.length;
+
+    await act(async () => {
+      pendingReads[1]?.complete('fresh replacement content');
+      pendingReads[0]?.complete('obsolete provider content');
+      await Promise.allSettled([oldLoad, replacementLoad]);
+    });
+
+    expect(loadingImmediatelyAfterReplacement.size).toBe(0);
+    expect(workerCallsAfterReplacement).toBe(2);
+    expect(result.current.loader.loadingFiles.size).toBe(0);
+    expect(result.current.loader.error).toBeNull();
+    expect(result.current.store.getState().getFileContent(compositeKey)).toBe(
+      'fresh replacement content'
     );
   });
 
