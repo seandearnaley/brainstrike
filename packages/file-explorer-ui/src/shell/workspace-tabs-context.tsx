@@ -317,6 +317,14 @@ export function WorkspaceTabsProvider({
     if (loadingFiles.has(tab.compositeKey)) {
       return;
     }
+    // A terminal per-key failure is an explicit retry boundary. Re-entering
+    // the automatic loader as soon as loading clears would create an unbounded
+    // fail/render/retry loop and could erase the visible error without user or
+    // filesystem activity. The next canonical refresh clears this key's error
+    // at the logical request boundary and performs the retry.
+    if (fileContentErrors.has(tab.compositeKey)) {
+      return;
+    }
     const status = tabStatuses.get(tab.compositeKey);
     // Skip auto-load if the tab needs an explicit user gesture for permission.
     if (status && status.status !== 'restored') {
@@ -327,6 +335,7 @@ export function WorkspaceTabsProvider({
     selection,
     tabs,
     fileContents,
+    fileContentErrors,
     loadingFiles,
     tabStatuses,
     canLoadWithoutTree,

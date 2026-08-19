@@ -794,9 +794,12 @@ fallback.
   retry clears only its requested keys at its boundary. `WorkspaceTabsProvider`
   carries that map to `WorkspaceBody`, which exact-matches the active tab's key
   and renders `FileContentErrorScreen` (an accessible terminal `alert`) instead
-  of the indefinite pending spinner. Content failures never enter the explorer's
-  global error surface or appear on unrelated tabs. Fire-and-forget UI consumers
-  explicitly observe the rejection after the shared error state is set. Rebuilt worker `FileHandle`s carry
+  of the indefinite pending spinner. The automatic active-tab loader stops at
+  that per-key error boundary instead of entering a fail/render/retry loop; a
+  later canonical refresh clears only the affected key and retries it. Content
+  failures never enter the explorer's global error surface or appear on
+  unrelated tabs. Fire-and-forget UI consumers explicitly observe the rejection
+  after the shared error state is set. Rebuilt worker `FileHandle`s carry
   `fileNode.handle.rootId` when present; `rootFolderId` remains selection/cache
   identity and is NEVER substituted for durable read authority. Removed
   files/directories therefore replace the tab with its loading boundary and
