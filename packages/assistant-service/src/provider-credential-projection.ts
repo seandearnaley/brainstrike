@@ -115,9 +115,29 @@ export interface ProviderAuthProjectionOptions {
   ) => typeof globalThis.fetch;
 }
 
-function envAwsRegion(options: ProviderAuthProjectionOptions | undefined): string {
-  const env = options?.env ?? process.env;
+/**
+ * The ONE resolution of "the region an env-supplied Bedrock bearer pairs
+ * with". Env vars cannot express the aws credential union, so such a bearer
+ * arrives as an `api_key` credential with no region of its own and this is
+ * where the missing half comes from.
+ *
+ * Exported (PR #2529 review, finding 3) so the desktop verification probe
+ * resolves the region exactly as the request path does. When the probe and
+ * the request path each read the environment their own way they drift, and
+ * "Test connection" starts disagreeing with what a real turn does.
+ *
+ * `''` means "no region configured" — deliberately NOT a default: BST-1350
+ * settled that Bedrock has no implicit region, and each consumer turns the
+ * empty string into its own actionable error.
+ */
+export function resolveEnvAwsRegion(
+  env: Readonly<Record<string, string | undefined>> = process.env
+): string {
   return env['AWS_REGION']?.trim() ?? '';
+}
+
+function envAwsRegion(options: ProviderAuthProjectionOptions | undefined): string {
+  return resolveEnvAwsRegion(options?.env ?? process.env);
 }
 
 /**

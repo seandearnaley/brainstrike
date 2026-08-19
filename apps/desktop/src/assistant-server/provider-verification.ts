@@ -16,7 +16,11 @@
  *   declare its probe, never inherit a guess).
  * - authType 'aws' + bearer credential → the Bedrock foundation-models
  *   listing. Activates whenever a registry provider declares authType 'aws'
- *   (BST-1350).
+ *   (BST-1350). An `api_key` credential counts as a bearer here, because that
+ *   is the only shape an env var (or a legacy bare-string key) can produce and
+ *   the request projection already treats it as one — its region comes from
+ *   the shared `resolveEnvAwsRegion`, so probe and runtime cannot drift
+ *   (PR #2529 finding 3).
  * - authType 'aws' + profile_chain credential → CHAIN RESOLUTION itself
  *   (BST-1353), not an HTTP call. This replaced the old `not_applicable`:
  *   the chain is the credential, so resolving it is the most direct possible
@@ -57,6 +61,7 @@ import {
   type ProviderVerificationSnapshot,
   type ProviderVerificationStatus,
 } from '@brainstrike/assistant-contract';
+import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-credential-projection';
 import { resolveProviderCredential } from './provider-credentials';
 import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './web-search-tool';
 
@@ -107,6 +112,12 @@ export interface ProviderVerificationService {
 }
 
 interface ProviderVerificationServiceOptions {
+  /**
+   * Environment the Bedrock region is read from, for the bearer credentials
+   * that carry no region of their own (PR #2529 finding 3). Defaults to
+   * `process.env` — the same source the request-path projection uses.
+   */
+  readonly env?: Readonly<Record<string, string | undefined>>;
   /** Short failure-result TTL — click-storm dedup only, never persistence. */
   readonly failureTtlMs?: number;
   readonly fetchImpl?: typeof fetch;
@@ -266,16 +277,19 @@ const API_KEY_PROBES: Record<ApiKeyProbeProviderId, (key: string) => ProbeReques
   }),
 };
 
-function buildAwsBearerProbe(
-  credential: Extract<ProviderCredential, { type: 'aws'; mode: 'bearer' }>
-): ProbeRequest {
-  if (!AWS_REGION_PATTERN.test(credential.region)) {
+function buildAwsBearerProbe(bearerKey: string, region: string): ProbeRequest {
+  if (region.length === 0) {
+    // DISTINCT from a malformed region: nothing is configured at all. Say so,
+    // because the fix is different (set one) and because reporting "invalid
+    // region name" for an absent region misdiagnoses the problem.
+    throw new UnsupportedVerificationCredentialError(
+      'no AWS region is configured for Bedrock — set one in Settings or via AWS_REGION'
+    );
+  }
+  if (!AWS_REGION_PATTERN.test(region)) {
     throw new UnsupportedVerificationCredentialError('the AWS region is not a valid region name');
   }
-  return bearerProbe(
-    `https://bedrock.${credential.region}.amazonaws.com/foundation-models`,
-    credential.bearerKey
-  );
+  return bearerProbe(`https://bedrock.${region}.amazonaws.com/foundation-models`, bearerKey);
 }
 
 /** Pinned by the probe-coverage contract test — see {@link ApiKeyProbeProviderId}. */
@@ -318,7 +332,8 @@ function isSubscriptionProbe(
 function resolveProbe(
   providerId: string,
   target: ProviderVerificationTarget,
-  credential: ProviderCredential
+  credential: ProviderCredential,
+  env: Readonly<Record<string, string | undefined>>
 ): ProbeRequest | ChainProbe | SubscriptionProbe {
   if (target.authType === 'oauth_subscription') {
     if (credential.type !== 'oauth') {
@@ -330,6 +345,17 @@ function resolveProbe(
   }
 
   if (target.authType === 'aws') {
+    // An `api_key` credential on an aws provider IS a Bedrock bearer (PR
+    // #2529 review, finding 3): environment variables cannot encode the aws
+    // union, so BRAINSTRIKE_BEDROCK_API_KEY / AWS_BEARER_TOKEN_BEDROCK — and
+    // every legacy bare-string key stored under bedrock — resolve to this
+    // shape. `providerAuthInputFromCredential` deliberately projects it to
+    // aws bearer auth with the env region, so the probe MUST do the same:
+    // rejecting it reported `verification_unsupported` for a credential that
+    // real turns authenticate with successfully.
+    if (credential.type === 'api_key') {
+      return buildAwsBearerProbe(credential.key, resolveEnvAwsRegion(env));
+    }
     if (credential.type !== 'aws') {
       throw new UnsupportedVerificationCredentialError(
         'the provider expects an AWS credential but a different type is stored'
@@ -342,7 +368,9 @@ function resolveProbe(
       // ("will my SSO session work?") before they spend a turn finding out.
       return { resolveChain: credential.profile };
     }
-    return buildAwsBearerProbe(credential);
+    // A STORED aws bearer carries its own region; the environment never
+    // overrides it (matching the projection's `credential.region`).
+    return buildAwsBearerProbe(credential.bearerKey, credential.region);
   }
 
   if (credential.type !== 'api_key') {
@@ -393,6 +421,7 @@ export function createProviderVerificationService(
   options: ProviderVerificationServiceOptions = {}
 ): ProviderVerificationService {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const env = options.env ?? process.env;
   const now = options.now ?? Date.now;
   const findProvider = options.findProvider ?? defaultFindProvider;
   const readCredential = options.readCredential ?? defaultReadCredential;
@@ -582,7 +611,7 @@ export function createProviderVerificationService(
       if (!credential) {
         throw new MissingProviderCredentialError(providerId);
       }
-      const probe = resolveProbe(providerId, target, credential);
+      const probe = resolveProbe(providerId, target, credential, env);
 
       // Cache and single-flight key on (provider, credential digest): a
       // just-changed key must re-probe immediately, never serve the previous
