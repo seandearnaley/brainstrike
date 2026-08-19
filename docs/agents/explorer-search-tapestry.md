@@ -818,7 +818,10 @@ fallback.
   expansion/restoration read for that path, removes buffered pre-event evidence,
   commits outside renderer expand-all batching, and owns a token-checked
   in-flight entry, so it cannot join a pre-mutation listing or have that listing
-  erase its registry entry. A forced root refresh retires the same provider's
+  erase its registry entry. The worker port exposes one shared bulk operation,
+  so retiring a worker-backed read cancels that active bulk sweep as a unit;
+  the replacement physical read remains scoped to the affected directory. A
+  forced root refresh retires the same provider's
   active root/child/bulk consumers and waits for any still-live shared root read
   that crossed the invalidation boundary before starting fresh physical I/O;
   the shared registry deletes only identity-matching settled entries and remains
