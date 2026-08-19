@@ -342,11 +342,14 @@ test.describe('Database live-query memory', () => {
       ...preWarmRemoteDiagnostics,
       rendererLiveQueryCount: preWarmMemoryDiagnostics.activeLiveSubscriptions,
     });
+    // Re-read after the second reload so every assertion below describes the
+    // realm the rest of the test actually runs in, not the reloaded-away one.
+    const postReloadMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
     const expectedActiveOwnership = addActiveCollectionLiveQueryOwnership(
       preWarmRemoteDiagnostics,
-      preWarmMemoryDiagnostics.activeLiveSubscriptions
+      postReloadMemoryDiagnostics.activeLiveSubscriptions
     );
-    expect(preWarmMemoryDiagnostics).toMatchObject({
+    expect(postReloadMemoryDiagnostics).toMatchObject({
       activeCollectionId: null,
       cache: EMPTY_DATABASE_DEMO_CACHE,
       recordArrayRetention: {
@@ -464,6 +467,7 @@ test.describe('Database live-query memory', () => {
         finalMemoryDiagnostics,
         midpointMemory,
         mutationCount: LIVE_QUERY_MUTATION_COUNT,
+        postReloadMemoryDiagnostics,
         preWarmMemoryDiagnostics,
         preWarmRemoteDiagnostics,
         type: 'desktop-live-query-mutation-memory',

@@ -874,6 +874,78 @@ describe('database IPC handlers', () => {
     expect(racedHandle.subscribe).not.toHaveBeenCalled();
   });
 
+  // The raced-handle teardown is the one unsubscribe in this file that does
+  // not go through cleanupLiveSubscription's error tolerance. A rejection
+  // there must neither replace the context-changed error nor — via
+  // withCorruptionRecovery — let a benign reload race trigger a full database
+  // replacement. It must still be VISIBLE (logged), never swallowed silently.
+  it('db:live-query:start surfaces the context-changed error even when the raced handle teardown rejects', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    if (!startHandler) {
+      throw new Error('handler not registered');
+    }
+
+    let resolveHandle: ((handle: unknown) => void) | null = null;
+    mockDb.live.query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHandle = resolve;
+        })
+    );
+    const owner = createFakeLiveQueryOwner(113);
+
+    const pendingStart = startHandler({ sender: owner } as unknown, { query: 'select 1' });
+    await vi.waitFor(() => {
+      expect(mockDb.live.query).toHaveBeenCalledTimes(1);
+    });
+    const releaseHandle: unknown = resolveHandle;
+    if (typeof releaseHandle !== 'function') {
+      throw new Error('expected pending live-query handle creation');
+    }
+
+    owner.emit('did-navigate');
+    const racedHandle = createLiveHandleMock();
+    const teardownFailure = new Error('invalid page in block 7');
+    racedHandle.unsubscribe.mockRejectedValueOnce(teardownFailure);
+    // Even a corruption-shaped teardown failure must not reach recover().
+    isCorruptionErrorMock.mockImplementation((error: unknown) => error === teardownFailure);
+    releaseHandle(racedHandle);
+
+    await expect(pendingStart).rejects.toThrow(
+      'db:live-query:start: the requesting renderer context changed during setup.'
+    );
+    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'Failed to tear down a live-query handle reaped mid-setup',
+      {
+        error: teardownFailure,
+      }
+    );
+  });
+
+  // Mirrors fs-watch's pre-attach guard: a start processed after the sender is
+  // already destroyed would attach a reaper to an emitter whose teardown
+  // events have already fired — no reap would ever arrive, permanently
+  // registering the subscription and retaining the dead WebContents through
+  // the update-listener closure.
+  it('db:live-query:start rejects a sender that is already destroyed before touching the database', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    if (!startHandler) {
+      throw new Error('handler not registered');
+    }
+
+    const owner = createFakeLiveQueryOwner(114);
+    owner.isDestroyed.mockReturnValue(true);
+
+    await expect(startHandler({ sender: owner } as unknown, { query: 'select 1' })).rejects.toThrow(
+      'db:live-query:start: the requesting renderer is already destroyed.'
+    );
+    expect(mockDb.live.query).not.toHaveBeenCalled();
+    for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+      expect(owner.listenerCount(teardownEvent)).toBe(0);
+    }
+  });
+
   it('db:live-query:start supports incremental mode with key', async () => {
     const handler = handlers.get('db:live-query:start');
     if (!handler) {

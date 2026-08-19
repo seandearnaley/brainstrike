@@ -619,6 +619,13 @@ export function registerDatabaseIpcHandlers(
       workOptions?: DatabaseWorkOptions
     ) => {
       const sender = event.sender;
+      // Mirrors fs-watch's pre-attach guard: attaching to an already-destroyed
+      // WebContents arms a reaper whose teardown events have ALREADY fired, so
+      // no reap would ever arrive and the subscription would be registered
+      // permanently, retaining the dead sender through the update listener.
+      if (sender.isDestroyed()) {
+        throw new Error('db:live-query:start: the requesting renderer is already destroyed.');
+      }
       // Read the generation and attach the reaper BEFORE any await — a reload
       // or crash landing while this start is queued or while
       // createLiveQueryHandle is in flight must still be observable.
@@ -640,7 +647,16 @@ export function registerDatabaseIpcHandlers(
               // handle already belongs to a dead page. Registering it would
               // create a permanent orphan the reap (which already ran) cannot
               // see, so tear it down and surface the teardown visibly.
-              await handle.unsubscribe();
+              try {
+                await handle.unsubscribe();
+              } catch (error) {
+                // Guarded (unlike every other teardown, which goes through
+                // cleanupLiveSubscription's tolerance): a rejection here must
+                // neither replace the context-changed error below nor — via
+                // withCorruptionRecovery — let a benign reload race trigger a
+                // full database replacement. Logged, never swallowed silently.
+                logger.warn('Failed to tear down a live-query handle reaped mid-setup', { error });
+              }
               throw new Error(
                 'db:live-query:start: the requesting renderer context changed during setup.'
               );
