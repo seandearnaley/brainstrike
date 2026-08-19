@@ -1,7 +1,10 @@
 import { cpus, totalmem } from 'node:os';
+import { resolve } from 'node:path';
 import { expect, it, vi } from 'vitest';
-
-type MeasurementVariant = 'pre-stream' | 'stream';
+import {
+  parseMeasurementVariant,
+  verifyHistoricalSourceBinding,
+} from '../bench/bst-372-source-binding.mjs';
 
 interface MemorySample {
   readonly arrayBuffers: number;
@@ -83,14 +86,11 @@ function peak(samples: readonly MemorySample[], field: keyof Omit<MemorySample, 
 }
 
 it('measures the exact historical embedding implementation', async () => {
-  const variant = process.env['BST372_VARIANT'] as MeasurementVariant | undefined;
-  if (variant !== 'pre-stream' && variant !== 'stream') {
-    throw new Error('BST372_VARIANT must be pre-stream or stream.');
-  }
-  const implementationCommit = process.env['BST372_COMMIT'];
-  if (!implementationCommit) {
-    throw new Error('BST372_COMMIT is required.');
-  }
+  const variant = parseMeasurementVariant(process.env['BST372_VARIANT']);
+  const sourceBinding = verifyHistoricalSourceBinding({
+    packageRoot: resolve(import.meta.dirname, '..'),
+    variant,
+  });
 
   const batchSize = 8;
   const dimensions = 2000;
@@ -257,13 +257,14 @@ it('measures the exact historical embedding implementation', async () => {
       cpu,
       dimensions,
       expectedBatchCount,
-      implementationCommit,
+      implementationCommit: sourceBinding.commit,
       inputCount,
       node: process.version,
       payloadBytes: measuredPayloadBytes,
       peakDelta,
       peakMemory,
       platform: `${process.platform}-${process.arch}`,
+      sourceBlobs: sourceBinding.sourceBlobs,
       totalMemoryBytes: totalmem(),
       v8: process.versions.v8,
       variant,
