@@ -320,6 +320,38 @@ describe('file system IPC domain', () => {
     ).rejects.toThrow('outside the selected workspace root');
   });
 
+  it('enforces the exact claimed mounted root for scoped absolute reads', async () => {
+    register();
+    const rootAPath = '/users/test/workspace-a';
+    const rootBPath = '/users/test/workspace-b';
+    vi.mocked(fileSystem.requestDirectoryAccess)
+      .mockResolvedValueOnce({
+        kind: 'directory',
+        name: 'workspace-a',
+        path: rootAPath,
+        platform: 'electron',
+      })
+      .mockResolvedValueOnce({
+        kind: 'directory',
+        name: 'workspace-b',
+        path: rootBPath,
+        platform: 'electron',
+      });
+
+    await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+    await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+
+    const readScoped = handlers.get('fs:readFileByAbsolutePath');
+    expect(readScoped).toBeDefined();
+    await expect(
+      readScoped?.({} as IpcMainInvokeEvent, path.join(rootBPath, 'readme.md'), rootBPath)
+    ).resolves.toBe('file content');
+    await expect(
+      readScoped?.({} as IpcMainInvokeEvent, path.join(rootBPath, 'readme.md'), rootAPath)
+    ).rejects.toThrow('outside the selected workspace root');
+    expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
+  });
+
   it('preserves structured oversized and missing-file payloads after authorization', async () => {
     register();
     const descriptor = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as {
