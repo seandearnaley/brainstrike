@@ -115,7 +115,10 @@ exactly one bounded diagnostic record. Renderer-controlled requested paths and
 handle RootIds are projected before entering that logger: control and
 line-separator characters use visible Unicode escapes, each field is capped at
 256 UTF-16 code units, and truncation ends with `…[truncated]`; non-string input
-projects to the empty string. The legacy
+projects to the empty string. Error messages are never copied into the record:
+the logger emits a static access/path-validation/filesystem category message
+plus only a syntactically bounded safe error code, so native `realpath` text
+cannot re-inject a path or line break through metadata. The legacy
 `fs:readFileByPath` channel remains a separate generic mounted-path API and is
 never a fallback for the scoped capability.
 

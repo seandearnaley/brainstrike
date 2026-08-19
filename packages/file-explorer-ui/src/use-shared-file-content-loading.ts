@@ -786,22 +786,46 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         return;
       }
 
-      const requestedGenerations = loadAuthority.beginReload(uniqueKeys);
       loadAuthority.clearErrors(uniqueKeys);
+
+      // Explicit tab Retry is allowed to promote/join an already queued read.
+      // Starting a replacement generation first would turn that queued read
+      // into a stale predecessor, forcing duplicate I/O before Retry could run.
+      // Background watcher refreshes deliberately keep replacement semantics:
+      // a mutation may have happened after an older read began.
+      const joinedInteractiveLoads = new Set<Promise<void>>();
+      const keysToReload: string[] = [];
+      for (const key of uniqueKeys) {
+        const activeLoad = intent === 'interactive' ? loadAuthority.getActiveLoad(key) : undefined;
+        if (!activeLoad) {
+          keysToReload.push(key);
+          continue;
+        }
+        joinedInteractiveLoads.add(loadAuthority.promoteQueuedLoad(key) ?? activeLoad);
+      }
+
+      if (keysToReload.length === 0) {
+        await settleFileContentPromises(joinedInteractiveLoads);
+        return;
+      }
+
+      const requestedGenerations = loadAuthority.beginReload(keysToReload);
 
       // Evict synchronously before awaiting any older read. Every consumer of
       // the shared cache sees a loading boundary instead of stale disk bytes.
-      store.getState().clearFileContents(uniqueKeys);
+      store.getState().clearFileContents(keysToReload);
 
-      await runFileContentReloadGroups({
+      const replacement = runFileContentReloadGroups({
         clearGeneration: loadAuthority.clearGeneration,
-        compositeKeys: uniqueKeys,
+        compositeKeys: keysToReload,
         getActiveLoad: loadAuthority.getActiveLoad,
         intent,
         isCurrentGeneration: loadAuthority.isCurrentGeneration,
         reload: (keys, reloadIntent) => runFileContentLoading(keys, false, reloadIntent),
         requestedGenerations,
       });
+      joinedInteractiveLoads.add(replacement);
+      await settleFileContentPromises(joinedInteractiveLoads);
     },
     [loadAuthority, runFileContentLoading, store]
   );

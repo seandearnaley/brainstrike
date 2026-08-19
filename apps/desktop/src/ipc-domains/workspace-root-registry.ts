@@ -7,7 +7,10 @@ import {
   type IFileNode,
   isDurableRootId,
 } from '@brainstrike/file-system';
-import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
+import {
+  type PathValidationErrorCode,
+  resolveValidatedPath,
+} from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { RootDescriptor } from '@brainstrike/types';
@@ -19,7 +22,7 @@ import {
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 import { isFileNotFoundError } from '../file-read-errors';
-import { projectReadDenialDiagnostic } from './read-denial-diagnostic';
+import { projectReadDenialDiagnostic, projectReadDenialError } from './read-denial-diagnostic';
 import {
   assertNativeAbsoluteReadPath,
   isContained,
@@ -210,6 +213,18 @@ function buildDirectoryNode(
 
 const TRUNCATION_NODE_BASENAME = '…truncated…' as const;
 
+class WorkspaceReadPathValidationError extends AccessError {
+  readonly readDenialCategory = 'path-validation' as const;
+
+  constructor(
+    message: string,
+    requestedPath: string,
+    readonly readDenialCode: PathValidationErrorCode
+  ) {
+    super(message, requestedPath, 'read');
+  }
+}
+
 function buildTruncationNode(
   mounted: MountedWorkspaceRoot,
   parentPath: string,
@@ -283,10 +298,10 @@ export class WorkspaceRootRegistry {
           rootDir: canonicalRoot,
         });
         if (!result.ok) {
-          throw new AccessError(
+          throw new WorkspaceReadPathValidationError(
             `Path validation failed: ${result.error.message}`,
             requestedPath,
-            'read'
+            result.error.code
           );
         }
         return path.normalize(result.path);
@@ -898,8 +913,9 @@ export class WorkspaceRootRegistry {
       return await run();
     } catch (error) {
       if (error instanceof AccessError && !isFileNotFoundError(error)) {
+        const diagnosticError = projectReadDenialError(error);
         logger.warn('Workspace read denied', {
-          message: error.message,
+          ...diagnosticError,
           operation,
           requestedPath,
           rootId: rootId ?? null,

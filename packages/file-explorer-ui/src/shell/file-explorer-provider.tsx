@@ -327,10 +327,6 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       if (queued.priority === 'interactive') {
         return queued.scheduled;
       }
-      if (queued.compositeKeys.length === 1) {
-        queued.priority = 'interactive';
-        return queued.scheduled;
-      }
       const keyIndex = queued.compositeKeys.indexOf(compositeKey);
       if (keyIndex < 0) {
         throw new Error('Queued file-content ownership is inconsistent');
@@ -339,6 +335,17 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       const promoted = createPendingBatch([compositeKey], queued.task, 'interactive', queued.epoch);
       queued.dependencies.add(promoted.scheduled);
       enqueueBatch(promoted);
+      if (queued.compositeKeys.length === 0) {
+        const queuedIndex = pendingBatches.indexOf(queued);
+        if (queuedIndex < 0) {
+          throw new Error('Queued file-content ticket is missing from the pending queue');
+        }
+        pendingBatches.splice(queuedIndex, 1);
+        // The original logical request still owns settlement, but no physical
+        // keys remain on its background ticket. Settle it from the promoted
+        // dependency without consuming a provider lane or changing FIFO.
+        void settleTicketFromWork(queued, Promise.resolve());
+      }
       drainBatchQueue();
       return promoted.scheduled;
     },
