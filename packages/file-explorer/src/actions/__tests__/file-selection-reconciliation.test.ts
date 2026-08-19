@@ -2,7 +2,18 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createNewFolderState } from '../../utils/file-explorer-utils';
 import { createFileSelectionActions } from '../file-selection-actions';
+import * as selectionReconciliation from '../file-selection-reconciliation';
 import { consoleSpy, createMockState, mockSet } from './file-selection-actions-test-support';
+
+const getSelectionAncestorDirectories = (
+  selectionReconciliation as typeof selectionReconciliation & {
+    getSelectionAncestorDirectories: (
+      state: FileExplorerState,
+      folderId: string,
+      rootPath: string
+    ) => string[];
+  }
+).getSelectionAncestorDirectories;
 
 interface DirectorySnapshotEntry {
   path: string;
@@ -143,6 +154,115 @@ describe('file-selection refresh reconciliation', () => {
       '/workspace/src/vanished.ts',
     ]);
     expect(reconciled.selectionVersion).toBe(3);
+  });
+
+  it.each([
+    ['missing', null],
+    [
+      'loading',
+      {
+        directoryCounts: new Map<string, number>(),
+        errorMessage: null,
+        filePaths: [],
+        fingerprint: 'fingerprint-1',
+        pathSet: new Set<string>(),
+        snapshotId: 'snapshot-1',
+        status: 'loading' as const,
+      },
+    ],
+    [
+      'mismatched',
+      {
+        directoryCounts: new Map<string, number>(),
+        errorMessage: null,
+        filePaths: ['/stale/from-another-query.ts'],
+        fingerprint: 'other-fingerprint',
+        pathSet: new Set(['/stale/from-another-query.ts']),
+        snapshotId: 'other-snapshot',
+        status: 'ready' as const,
+      },
+    ],
+  ])(
+    'reconciles the exact materialized query projection when its manifest is %s',
+    (_label, querySelectionManifest) => {
+      const folderId = 'root-id';
+      const keepPath = '/workspace/src/keep.ts';
+      const vanishedPath = '/workspace/src/vanished.ts';
+      const materializedPaths = new Set([keepPath, vanishedPath]);
+      const state = installStateUpdater(
+        createMockState({
+          currentFolderId: folderId,
+          querySelectionManifest,
+          selectedFilePaths: new Set<string>(),
+          selectionModel: {
+            explicitPaths: new Set<string>(),
+            materializedAt: '2026-08-19T00:00:00.000Z',
+            materializedPaths,
+            mode: 'query',
+            queryDescriptor: {
+              coveredDirectoryPaths: ['/workspace/src'],
+              excludedPaths: [],
+              excludeFilters: [],
+              folderId,
+              includedPaths: [],
+              includeFilters: ['**/*.ts'],
+              kind: 'recursive-select-all',
+              manifestFingerprint: 'fingerprint-1',
+              manifestSnapshotId: 'snapshot-1',
+              rootPath: '/workspace',
+              totalSelectedCount: 2,
+              useRegex: false,
+            },
+          },
+          selectionVersion: 12,
+        })
+      );
+
+      createFileSelectionActions(state.set, state.getState).reconcileSelectionWithDirectorySnapshot(
+        folderId,
+        '/workspace/src',
+        [{ path: keepPath, type: 'file' }]
+      );
+
+      const reconciled = state.getState();
+      expect(reconciled.selectionModel.mode).toBe('query');
+      expect(reconciled.selectionModel.materializedPaths).toEqual(new Set([keepPath]));
+      expect(reconciled.selectionModel.queryDescriptor).toMatchObject({
+        excludedPaths: [vanishedPath],
+        includedPaths: [],
+        totalSelectedCount: 1,
+      });
+      expect(reconciled.querySelectionManifest).toBe(querySelectionManifest);
+      expect(reconciled.selectionVersion).toBe(13);
+    }
+  );
+
+  it('derives unique selected-file ancestor directories parent-first without walking the tree', () => {
+    const folderId = 'root-id';
+    const explicitPaths = new Set([
+      `${folderId}|@|/workspace/src/nested/deep/file.ts`,
+      `${folderId}|@|/workspace/src/other/readme.md`,
+      `${folderId}|@|/workspace/root-file.ts`,
+      'other-root|@|/other/ignored.ts',
+    ]);
+    const state = createMockState({
+      currentFolderId: folderId,
+      selectedFilePaths: explicitPaths,
+      selectionModel: {
+        explicitPaths,
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit',
+        queryDescriptor: null,
+      },
+    });
+
+    expect(getSelectionAncestorDirectories(state, folderId, '/workspace')).toEqual([
+      '/workspace/src',
+      '/workspace/src/nested',
+      '/workspace/src/other',
+      '/workspace/src/nested/deep',
+    ]);
   });
 
   it('batches multiple refreshed directories into one selection-state publication', () => {

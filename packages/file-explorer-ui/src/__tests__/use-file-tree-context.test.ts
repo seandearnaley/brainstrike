@@ -805,6 +805,93 @@ describe('useFileTree (lazy loading version)', () => {
       );
     });
 
+    it('returns no directory snapshot when a gated refresh crosses a same-path rootId generation', async () => {
+      mockAdapter.setMockFileSystem(createNestedMockFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result, rerender } = renderHook(({ rootId }) => useFileTree(handle, { rootId }), {
+        initialProps: { rootId: 'first-root-id' },
+        wrapper: TestWrapper,
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const parentPath = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      )?.path;
+      if (!parentPath) {
+        throw new Error('Expected parent directory before gated refresh');
+      }
+
+      const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
+      let releaseFirstParentRead: (() => void) | null = null;
+      const firstParentReadGate = new Promise<void>((resolve) => {
+        releaseFirstParentRead = resolve;
+      });
+      let parentReadCount = 0;
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(async (...args) => {
+        if (args[0].path === parentPath) {
+          parentReadCount += 1;
+          if (parentReadCount === 1) {
+            await firstParentReadGate;
+          }
+        }
+        return originalReadDirectoryStreaming(...args);
+      });
+
+      let firstGenerationSnapshot: Awaited<ReturnType<typeof result.current.refreshDirectory>> =
+        null;
+      let firstGenerationRefresh = Promise.resolve();
+      act(() => {
+        firstGenerationRefresh = result.current.refreshDirectory(parentPath).then((snapshot) => {
+          firstGenerationSnapshot = snapshot;
+        });
+      });
+      await waitFor(() => expect(parentReadCount).toBe(1));
+
+      mockAdapter.setMockFileSystem({
+        parent: {
+          children: {
+            'second-root-only.ts': {
+              content: 'second root',
+              name: 'second-root-only.ts',
+              type: 'file' as const,
+            },
+          },
+          name: 'parent',
+          type: 'directory' as const,
+        },
+      });
+      act(() => {
+        rerender({ rootId: 'second-root-id' });
+      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      // Load the second root's same-path directory before the old read settles.
+      // A stale implementation then materializes B's children as A's result.
+      act(() => {
+        // The root switch aborts A, but its promise remains registered until
+        // the gated adapter call settles. Release that stale registry entry so
+        // B can establish an independently loaded same-path directory.
+        result.current.cancelChildLoading(parentPath);
+      });
+      await act(async () => {
+        await result.current.loadChildren(parentPath);
+      });
+      expect(parentReadCount).toBe(2);
+
+      await act(async () => {
+        releaseFirstParentRead?.();
+        await firstGenerationRefresh;
+      });
+
+      expect(firstGenerationSnapshot).toBeNull();
+      const secondRootParent = result.current.__internalMaterializeSubtree?.(parentPath);
+      expect(secondRootParent?.rootFolderId).toBe('second-root-id');
+      expect(secondRootParent?.children?.map((child) => child.name)).toEqual([
+        'second-root-only.ts',
+      ]);
+    });
+
     it('settles an atomic root switch and permits retry when worker reset throws', async () => {
       mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
       const firstHandle = await mockAdapter.requestDirectoryAccess();

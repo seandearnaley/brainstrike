@@ -11,6 +11,7 @@ import {
   useOptionalFileTreeIndexContext,
   useOptionalFileTreeNormalizedContext,
 } from '../tree/file-tree-provider';
+import { createNormalizedFileTreeState } from '../utils/normalized-file-tree';
 
 const {
   addNodesMock,
@@ -18,6 +19,7 @@ const {
   clearMock,
   getHandleMock,
   getNodeMock,
+  getSelectionAncestorDirectoriesMock,
   reconcileSelectionWithDirectorySnapshotMock,
   reconcileSelectionWithDirectorySnapshotsMock,
   setExpandedPathsMock,
@@ -31,6 +33,7 @@ const {
   clearMock: vi.fn(),
   getHandleMock: vi.fn(),
   getNodeMock: vi.fn(),
+  getSelectionAncestorDirectoriesMock: vi.fn(),
   reconcileSelectionWithDirectorySnapshotMock: vi.fn(),
   reconcileSelectionWithDirectorySnapshotsMock: vi.fn(),
   setExpandedPathsMock: vi.fn(),
@@ -39,6 +42,14 @@ const {
   useExpandSelectedFileParentDirectoriesMock: vi.fn(),
   useFileTreeMock: vi.fn(),
 }));
+
+vi.mock('@brainstrike/file-explorer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer')>();
+  return {
+    ...actual,
+    getSelectionAncestorDirectories: getSelectionAncestorDirectoriesMock,
+  };
+});
 
 vi.mock('../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => storeMock,
@@ -118,6 +129,7 @@ describe('FileTreeProvider', () => {
     });
     getNodeMock.mockReturnValue(undefined);
     getHandleMock.mockReturnValue(undefined);
+    getSelectionAncestorDirectoriesMock.mockReturnValue([]);
     useFileTreeMock.mockReturnValue({
       __internalNormalizedTreeVersion: 7,
       cancelChildLoading: vi.fn(),
@@ -308,6 +320,72 @@ describe('FileTreeProvider', () => {
       rootHandle.path,
       entries
     );
+  });
+
+  it('revalidates selected ancestors when the outer provider is refreshed directly', async () => {
+    const rootId = 'd4e516c5-e91e-4b1d-89ed-cb01cbfec159';
+    const srcPath = `${rootHandle.path}/src`;
+    const nestedPath = `${srcPath}/nested`;
+    const nestedNode: IFileNode = {
+      children: [],
+      depth: 1,
+      handle: {} as FileSystemDirectoryHandle,
+      isVisible: true,
+      loadState: 'unloaded',
+      name: 'nested',
+      path: nestedPath,
+      rootFolderId: rootId,
+      selectionState: 'unchecked',
+      type: 'directory',
+    };
+    const srcNode: IFileNode = {
+      ...nestedNode,
+      children: [nestedNode],
+      depth: 0,
+      name: 'src',
+      path: srcPath,
+    };
+    const normalizedTreeRef = {
+      current: createNormalizedFileTreeState([srcNode]),
+    };
+    const rawRefreshTree = vi.fn().mockResolvedValue({ status: 'completed' as const });
+    const refreshDirectory = vi.fn(async (path: string) => ({
+      directoryPath: path,
+      entries: path === srcPath ? [nestedNode] : [],
+    }));
+    const baseFileTreeState = useFileTreeMock();
+    useFileTreeMock.mockClear();
+    useFileTreeMock.mockReturnValue({
+      ...baseFileTreeState,
+      __internalNormalizedTreeRef: normalizedTreeRef,
+      refreshDirectory,
+      refreshTree: rawRefreshTree,
+    });
+    getSelectionAncestorDirectoriesMock.mockReturnValue([srcPath, nestedPath]);
+    let refreshFromContext: ReturnType<typeof useFileTreeContext>['refreshTree'] | null = null;
+    function RefreshProbe(): null {
+      refreshFromContext = useFileTreeContext().refreshTree;
+      return null;
+    }
+    render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={rootId}>
+        <RefreshProbe />
+      </FileTreeProvider>
+    );
+
+    if (!refreshFromContext) {
+      throw new Error('Expected the provider refresh dispatcher');
+    }
+    await act(async () => {
+      await refreshFromContext?.();
+    });
+
+    expect(rawRefreshTree).toHaveBeenCalledOnce();
+    expect(refreshDirectory.mock.calls.map(([path]) => path)).toEqual([srcPath, nestedPath]);
+    expect(reconcileSelectionWithDirectorySnapshotsMock).toHaveBeenCalledExactlyOnceWith(rootId, [
+      { directoryPath: srcPath, entries: [nestedNode] },
+      { directoryPath: nestedPath, entries: [] },
+    ]);
   });
 
   it('keeps FileTreeContext value identity stable across re-renders when deps are unchanged', () => {

@@ -60,6 +60,7 @@ describe('useFileTreeRefreshEvents', () => {
     typeof vi.fn<(path: string) => Promise<FileTreeDirectorySnapshot | null>>
   >;
   let refreshTree: ReturnType<typeof vi.fn<() => Promise<FileTreeRefreshResult>>>;
+  let getSelectionAncestorDirectories: ReturnType<typeof vi.fn<() => readonly string[]>>;
   let params: UseFileTreeRefreshEventsParams;
 
   beforeEach(() => {
@@ -72,15 +73,17 @@ describe('useFileTreeRefreshEvents', () => {
     refreshTree = vi
       .fn<() => Promise<FileTreeRefreshResult>>()
       .mockResolvedValue({ status: 'completed' });
+    getSelectionAncestorDirectories = vi.fn<() => readonly string[]>().mockReturnValue([]);
     params = {
       getNormalizedTree: () => normalizedTree,
+      getSelectionAncestorDirectories,
       reconcileSelectionWithDirectorySnapshots,
       refreshDirectory,
       refreshTree,
       rootId: ROOT_ID,
       rootPath: ROOT_PATH,
       skipManualFullEvents: false,
-    };
+    } as UseFileTreeRefreshEventsParams;
   });
 
   it('refreshes the whole tree on a manual full refresh (forest sections)', async () => {
@@ -91,6 +94,58 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshTree).toHaveBeenCalledOnce();
     expect(refreshDirectory).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['manual', { roots: [], scope: 'full' as const, source: 'manual' as const }],
+    [
+      'watcher',
+      {
+        roots: [{ changes: [], rootId: ROOT_ID, rootPath: ROOT_PATH }],
+        scope: 'full' as const,
+        source: 'watcher' as const,
+      },
+    ],
+  ])(
+    'revalidates selected nested ancestors after a shallow %s full root refresh',
+    async (_label, detail) => {
+      const srcPath = `${ROOT_PATH}/src`;
+      const nestedPath = `${srcPath}/nested`;
+      getSelectionAncestorDirectories.mockReturnValue([srcPath, nestedPath]);
+      refreshTree.mockImplementation(async () => {
+        normalizedTree = createNormalizedFileTreeState([directoryNode(srcPath, 'unloaded')]);
+        return { status: 'completed' };
+      });
+      refreshDirectory.mockImplementation(async (path) => {
+        if (path === srcPath) {
+          const nested = directoryNode(nestedPath, 'unloaded');
+          normalizedTree = createNormalizedFileTreeState([
+            { ...directoryNode(srcPath, 'loaded'), children: [nested] },
+          ]);
+          return { directoryPath: srcPath, entries: [nested] };
+        }
+        if (path === nestedPath) {
+          normalizedTree = createNormalizedFileTreeState([
+            {
+              ...directoryNode(srcPath, 'loaded'),
+              children: [{ ...directoryNode(nestedPath, 'loaded'), children: [] }],
+            },
+          ]);
+          return { directoryPath: nestedPath, entries: [] };
+        }
+        throw new Error(`Unexpected refresh path: ${path}`);
+      });
+      renderHook(() => useFileTreeRefreshEvents(params));
+
+      await dispatchRefresh(detail);
+
+      await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(2));
+      expect(refreshDirectory.mock.calls.map(([path]) => path)).toEqual([srcPath, nestedPath]);
+      expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledExactlyOnceWith([
+        expect.objectContaining({ directoryPath: srcPath }),
+        expect.objectContaining({ directoryPath: nestedPath }),
+      ]);
+    }
+  );
 
   it('ignores manual full refreshes as the panel refresh authority (outer provider)', async () => {
     renderHook(() => useFileTreeRefreshEvents({ ...params, skipManualFullEvents: true }));
@@ -265,6 +320,117 @@ describe('useFileTreeRefreshEvents', () => {
     const treeOrder = refreshTree.mock.invocationCallOrder[0] ?? Number.NaN;
     const directoryOrder = refreshDirectory.mock.invocationCallOrder[0] ?? Number.NaN;
     expect(treeOrder).toBeLessThan(directoryOrder);
+  });
+
+  it('force-refreshes a surviving directory after a mixed root and nested incremental batch', async () => {
+    const srcPath = `${ROOT_PATH}/src`;
+    normalizedTree = createNormalizedFileTreeState([directoryNode(srcPath, 'loaded')]);
+    refreshTree.mockImplementation(async () => {
+      // A real shallow root replacement retains src but resets it to unloaded.
+      normalizedTree = createNormalizedFileTreeState([directoryNode(srcPath, 'unloaded')]);
+      return { status: 'completed' };
+    });
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [
+            { kind: 'file', path: `${ROOT_PATH}/root-file.ts`, type: 'added' },
+            { kind: 'file', path: `${srcPath}/nested-file.ts`, type: 'removed' },
+          ],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledExactlyOnceWith(srcPath));
+    expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
+  });
+
+  it('serializes separate watcher events for the same directory without dropping either event', async () => {
+    const srcPath = `${ROOT_PATH}/src`;
+    let releaseFirstRefresh: (() => void) | null = null;
+    const firstRefreshGate = new Promise<void>((resolve) => {
+      releaseFirstRefresh = resolve;
+    });
+    refreshDirectory.mockImplementation(async (path) => {
+      if (refreshDirectory.mock.calls.length === 1) {
+        await firstRefreshGate;
+      }
+      return { directoryPath: path, entries: [] };
+    });
+    renderHook(() => useFileTreeRefreshEvents(params));
+    const eventDetail = {
+      roots: [
+        {
+          changes: [
+            { kind: 'file' as const, path: `${srcPath}/changed.ts`, type: 'removed' as const },
+          ],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental' as const,
+      source: 'watcher' as const,
+    };
+
+    await dispatchRefresh(eventDetail);
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
+    await dispatchRefresh(eventDetail);
+
+    // The second event must queue behind the first instead of joining or
+    // racing the same in-flight directory load.
+    expect(refreshDirectory).toHaveBeenCalledOnce();
+
+    act(() => {
+      releaseFirstRefresh?.();
+    });
+    await waitFor(() => {
+      expect(refreshDirectory).toHaveBeenCalledTimes(2);
+      expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('continues the serialized event queue after a refresh failure', async () => {
+    const srcPath = `${ROOT_PATH}/src`;
+    let rejectFirstRefresh: ((error: Error) => void) | null = null;
+    const firstRefreshGate = new Promise<never>((_resolve, reject) => {
+      rejectFirstRefresh = reject;
+    });
+    refreshDirectory
+      .mockImplementationOnce(async () => firstRefreshGate)
+      .mockImplementationOnce(async (path) => ({ directoryPath: path, entries: [] }));
+    renderHook(() => useFileTreeRefreshEvents(params));
+    const eventDetail = {
+      roots: [
+        {
+          changes: [
+            { kind: 'file' as const, path: `${srcPath}/changed.ts`, type: 'removed' as const },
+          ],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental' as const,
+      source: 'watcher' as const,
+    };
+
+    await dispatchRefresh(eventDetail);
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
+    await dispatchRefresh(eventDetail);
+    expect(refreshDirectory).toHaveBeenCalledOnce();
+
+    act(() => {
+      rejectFirstRefresh?.(new Error('first refresh failed'));
+    });
+    await waitFor(() => {
+      expect(refreshDirectory).toHaveBeenCalledTimes(2);
+      expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
+    });
   });
 
   it('ignores watcher changes that belong to a different root', async () => {
