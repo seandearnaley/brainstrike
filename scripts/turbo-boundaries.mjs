@@ -136,14 +136,32 @@ export function gitIgnoredPaths(paths, cwd = process.cwd()) {
     input: `${paths.join('\0')}\0`,
     maxBuffer: 64 * 1024 * 1024,
   });
-  if (result.error) {
-    throw new Error(`could not run git check-ignore: ${result.error.message}`);
+  // ORDER IS LOAD-BEARING (BST-1376). `git check-ignore` exits immediately when
+  // cwd is not a repository — before reading a byte of stdin — so the path list
+  // above lands on a pipe whose reader is gone. `spawnSync` surfaces that as
+  // `error: EPIPE` while STILL reporting the child's real exit status, and
+  // reading `error` first threw that status away to blame the spawn ("could not
+  // run git check-ignore") for a git that ran and answered. Whether the write
+  // loses the race depends on payload size and scheduling, which is why the
+  // no-repository case classified fine on developer machines and failed in CI.
+  // A null status is the only state in which nothing ran.
+  if (result.status === null) {
+    throw new Error(`could not run git check-ignore: ${result.error?.message ?? 'no exit status'}`);
   }
   // 0 = some paths are ignored, 1 = none are. Anything else (128: not a git
   // repository, bad path) means the classification is unknown.
   if (result.status !== 0 && result.status !== 1) {
     throw new Error(
       `git check-ignore failed (exit ${result.status}): ${result.stderr.trim() || 'no output'}`
+    );
+  }
+  // git answered, but only about as much of the list as it received. A verdict
+  // over an unknown subset cannot classify anything: suppression may only ever
+  // rest on a path git actually confirmed, so this is never a partial pass.
+  if (result.error) {
+    throw new Error(
+      `git check-ignore was given an incomplete path list (${result.error.message}); ` +
+        'its answer covers an unknown subset of the findings and cannot be trusted'
     );
   }
   return new Set(result.stdout.split('\0').filter(Boolean));
