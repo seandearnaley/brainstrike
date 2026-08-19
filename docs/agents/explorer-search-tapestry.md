@@ -879,8 +879,12 @@ fallback.
   serial replay. Restoration locks carry provider-owner identity: owner
   unmount deletes even an in-flight entry, late finalizers touch only their
   exact entry, and only a successful physical load plus expansion commit marks
-  the restoration key complete. Failed, stale, or terminated runs therefore
-  remain retryable without releasing another provider's lock. The signal
+  the restoration key complete. A visible non-abort failure records one failed
+  automatic attempt for that provider/root/key, so loading-state transitions
+  cannot hammer a permanently unreadable directory; unmount or a new root/key
+  releases the owner-scoped record and is the explicit retry boundary. Stale or
+  terminated runs likewise remain retryable without releasing another
+  provider's lock. The signal
   fences the handle-map publication after directory I/O, and the port
   suppresses any result/error that settles after its request was retired. As a
   second ordering defense, the
@@ -909,9 +913,8 @@ fallback.
   forced/fresh root boundary publishes root-pending state.
   `loadSpecificPaths` rejects every non-abort worker, patch-rehydration, or
   serial directory-read failure after publishing the visible tree error.
-  Restoration callers consume that rejection and keep the failed key
-  retryable; abort semantics remain cancellation rather than a visible tree
-  error.
+  Restoration callers consume that rejection without retrying it in an effect
+  loop; abort semantics remain cancellation rather than a visible tree error.
   Pinned by `file-selection-reconciliation.test.ts`,
   `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`,
   `use-file-tree-worker.test.tsx`, `port.test.ts`, `bfs-engine.test.ts`, and
