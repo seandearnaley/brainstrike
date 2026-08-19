@@ -314,13 +314,80 @@ describe('FileExplorerMiddlePanelBase', () => {
     expect(alert).toHaveTextContent('copy');
     expect(screen.queryByRole('button', { name: 'Retry preview content' })).not.toBeInTheDocument();
 
+    exportOptions.projectTreeUsesViewFilters = false;
+    exportOptions.selectedLineRangesByFile[selectedFileKey]?.push({
+      color: 'red',
+      endLine: 21,
+      id: 'mutated-after-click',
+      isActive: true,
+      startLine: 13,
+    });
+
     fireEvent.click(screen.getByRole('button', { name: 'Retry context copy' }));
     await waitFor(() => expect(mocks.copyContext).toHaveBeenCalledTimes(2));
-    expect(mocks.copyContext).toHaveBeenNthCalledWith(1, exportOptions);
-    expect(mocks.copyContext).toHaveBeenNthCalledWith(2, exportOptions);
+    expect(mocks.copyContext).toHaveBeenNthCalledWith(2, {
+      projectTreeUsesViewFilters: true,
+      selectedLineRangesByFile: {
+        [selectedFileKey]: [
+          { color: 'blue', endLine: 8, id: 'range-a', isActive: true, startLine: 3 },
+        ],
+      },
+    });
     await waitFor(() =>
       expect(screen.queryByRole('alert', { name: 'Context copy failed' })).not.toBeInTheDocument()
     );
+  });
+
+  it('keeps nested report content loading owned by the copy operation', async () => {
+    mocks.loadMultipleFileContents
+      .mockRejectedValueOnce(new Error('nested missing content failed'))
+      .mockResolvedValueOnce(undefined);
+    mocks.copyContext.mockImplementation(async () => {
+      const reportActionsInput = mocks.reportActionsInput.current;
+      if (!reportActionsInput) {
+        throw new Error('Report action input was not captured');
+      }
+      try {
+        await reportActionsInput.loadMultipleFileContents([selectedFileKey]);
+        return { ok: true } as const;
+      } catch {
+        return { ok: false, reason: 'generation-failed' } as const;
+      }
+    });
+    render(<FileExplorerMiddlePanelBase />);
+    const props = mocks.previewProps.current;
+    if (!props) {
+      throw new Error('PreviewPanel props were not captured');
+    }
+
+    props.onCopyContext?.({ projectTreeUsesViewFilters: false, selectedLineRangesByFile: {} });
+    expect(await screen.findByRole('alert', { name: 'Context copy failed' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('alert', { name: 'Preview content unavailable' })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry context copy' }));
+    await waitFor(() => expect(mocks.copyContext).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.loadMultipleFileContents).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.queryByRole('alert', { name: 'Context copy failed' })).not.toBeInTheDocument()
+    );
+  });
+
+  it('labels a download delivery failure and retry control precisely', async () => {
+    mocks.downloadContext.mockResolvedValueOnce({ ok: false, reason: 'action-failed' });
+    render(<FileExplorerMiddlePanelBase />);
+    const props = mocks.previewProps.current;
+    if (!props) {
+      throw new Error('PreviewPanel props were not captured');
+    }
+
+    props.onDownloadContext?.({ projectTreeUsesViewFilters: false, selectedLineRangesByFile: {} });
+    const alert = await screen.findByRole('alert', { name: 'Context download failed' });
+    expect(alert).toHaveTextContent('could not be saved');
+    expect(screen.getByRole('button', { name: 'Retry context download' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry context copy' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry preview content' })).not.toBeInTheDocument();
   });
 
   it('labels download failure accurately and fences its retry after selection changes', async () => {
