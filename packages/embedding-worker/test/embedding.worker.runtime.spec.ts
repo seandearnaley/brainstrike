@@ -692,6 +692,12 @@ describe('embedding worker runtime', () => {
       const uniqueVectorBuffers = new Set(batch.vectors.map((vector) => vector.buffer));
       expect(new Set(transferList)).toEqual(uniqueVectorBuffers);
       expect(transferList).toHaveLength(uniqueVectorBuffers.size);
+      // Set equality above is DEEP: every mock vector is byte-identical, so a
+      // regression that transfers copies of the buffers (double allocation —
+      // the sender keeps the originals) would still pass it. Identity via
+      // includes (===) is what pins the transfer list to the vectors' actual
+      // backing stores.
+      expect(batch.vectors.every((vector) => transferList.includes(vector.buffer))).toBe(true);
       expect(transferList.reduce((sum, buffer) => sum + buffer.byteLength, 0)).toBe(
         expectedBytesPerBatch
       );
