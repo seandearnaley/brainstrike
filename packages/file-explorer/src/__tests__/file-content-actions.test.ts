@@ -120,6 +120,19 @@ describe('file-content-actions', () => {
     expect(state.fileContents).toEqual({});
   });
 
+  it('keeps cache contents and reset lifecycle scoped to each store', () => {
+    const firstStore = createTestStore();
+    const secondStore = createTestStore();
+    const compositeKey = 'root|@|shared.ts';
+
+    firstStore.getState().setFileContent(compositeKey, 'first store content');
+    secondStore.getState().setFileContent(compositeKey, 'second store content');
+    firstStore.getState().clearAllFileContents();
+
+    expect(secondStore.getState().getFileContentCacheStats().entryCount).toBe(1);
+    expect(secondStore.getState().getFileContent(compositeKey)).toBe('second store content');
+  });
+
   it('getFileContent should prioritize cache over state to prevent split-brain scenario', () => {
     // Set some content in state directly (simulating old state)
     store.setState((state) => ({

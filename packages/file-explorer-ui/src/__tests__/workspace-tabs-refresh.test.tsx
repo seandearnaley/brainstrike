@@ -1,10 +1,14 @@
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { useLayoutEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileTab, UseTabManagerReturn } from '../hooks/use-tab-manager';
 import { createFileExplorerRefreshEvent } from '../shell/file-explorer-refresh-event';
-import { planOpenFileRefresh } from '../shell/use-workspace-open-file-refresh';
+import {
+  planOpenFileRefresh,
+  useWorkspaceOpenFileRefresh,
+} from '../shell/use-workspace-open-file-refresh';
 import { WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
 import { __resetWorkspaceTabSelectionStoreForTests } from '../stores/workspace-tab-selection-store';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -34,6 +38,15 @@ function Wrapper({ children }: { readonly children: ReactNode }) {
       <WorkspaceTabsProvider apps={[]}>{children}</WorkspaceTabsProvider>
     </FileExplorerTestWrapper>
   );
+}
+
+function makeCommitPhaseWrapper(emit: () => void) {
+  return function CommitPhaseWrapper({ children }: { readonly children: ReactNode }) {
+    useLayoutEffect(() => {
+      emit();
+    });
+    return children;
+  };
 }
 
 function fileTab(compositeKey: string, path: string): FileTab {
@@ -129,6 +142,46 @@ describe('workspace tabs open-file refresh', () => {
       expect(loadFileContent).toHaveBeenCalledExactlyOnceWith(rootAKey);
       expect(reloadFileContents).toHaveBeenCalledExactlyOnceWith([rootAKey]);
     });
+  });
+
+  it('routes commit-phase refresh events through the latest tabs and reload callback', () => {
+    const previousTab = fileTab('root-a|@|previous.ts', 'previous.ts');
+    const currentTab = fileTab('root-a|@|current.ts', 'current.ts');
+    const previousReload = vi.fn().mockResolvedValue(undefined);
+    const currentReload = vi.fn().mockResolvedValue(undefined);
+    let armed = false;
+    const emit = (): void => {
+      if (!armed) {
+        return;
+      }
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: '/workspace/a/current.ts', type: 'modified' }],
+              rootId: 'root-a',
+              rootPath: '/workspace/a',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    };
+
+    const { rerender } = renderHook(
+      ({ reloadFileContents, tabs }) => useWorkspaceOpenFileRefresh({ reloadFileContents, tabs }),
+      {
+        initialProps: { reloadFileContents: previousReload, tabs: [previousTab] },
+        wrapper: makeCommitPhaseWrapper(emit),
+      }
+    );
+
+    armed = true;
+    rerender({ reloadFileContents: currentReload, tabs: [currentTab] });
+
+    expect(previousReload).not.toHaveBeenCalled();
+    expect(currentReload).toHaveBeenCalledExactlyOnceWith([currentTab.compositeKey]);
   });
 
   it('strips a relative web root prefix without crossing same-named durable roots', () => {

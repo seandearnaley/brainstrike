@@ -10,7 +10,11 @@ import type {
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import {
+  FileExplorerProvider,
+  useFileContentLoadAuthority,
+  useFileExplorerStoreContext,
+} from '../shell/file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 vi.mock('@brainstrike/workers/file-content-worker', () => ({
@@ -19,6 +23,7 @@ vi.mock('@brainstrike/workers/file-content-worker', () => ({
 
 interface PendingWorkerRead {
   readonly complete: (content: string) => void;
+  readonly fail: (error: Error) => void;
   readonly requests: readonly FileReadRequest[];
 }
 
@@ -28,7 +33,7 @@ function createPendingWorker(pendingReads: PendingWorkerRead[]) {
       requests: FileReadRequest[],
       onProgress?: (event: { key: string; loaded: number; total: number }) => void
     ) =>
-      new Promise<Record<string, FileContentReadResult>>((resolve) => {
+      new Promise<Record<string, FileContentReadResult>>((resolve, reject) => {
         pendingReads.push({
           complete: (content) => {
             const results: Record<string, FileContentReadResult> = {};
@@ -38,6 +43,7 @@ function createPendingWorker(pendingReads: PendingWorkerRead[]) {
             }
             resolve(results);
           },
+          fail: reject,
           requests,
         });
       })
@@ -195,6 +201,205 @@ describe('useSharedFileContentLoading reload ordering', () => {
         expect.objectContaining({ compositeKey: secondKey }),
       ],
       expect.any(Function)
+    );
+  });
+
+  it('starts idle reload keys in one batch without waiting for an active key', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const activeNode = createFileNode({ path: '/active.txt', rootFolderId: 'root-groups' });
+    const idleNodeA = createFileNode({ path: '/idle-a.txt', rootFolderId: 'root-groups' });
+    const idleNodeB = createFileNode({ path: '/idle-b.txt', rootFolderId: 'root-groups' });
+    const activeKey = encodeFileSelection('root-groups', '/active.txt');
+    const idleKeyA = encodeFileSelection('root-groups', '/idle-a.txt');
+    const idleKeyB = encodeFileSelection('root-groups', '/idle-b.txt');
+    const pendingReads: PendingWorkerRead[] = [];
+    const worker = createPendingWorker(pendingReads);
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(
+      () => useSharedFileContentLoading([activeNode, idleNodeA, idleNodeB]),
+      { wrapper }
+    );
+
+    let activeLoad: Promise<void> | undefined;
+    act(() => {
+      activeLoad = result.current.handleFileContentLoading([activeKey]);
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(1));
+
+    let reload: Promise<void> | undefined;
+    act(() => {
+      reload = result.current.reloadFileContents([activeKey, idleKeyA, idleKeyB]);
+    });
+
+    await waitFor(() => expect(pendingReads).toHaveLength(2));
+    expect(pendingReads[1]?.requests.map((request) => request.compositeKey)).toEqual([
+      idleKeyA,
+      idleKeyB,
+    ]);
+
+    await act(async () => {
+      pendingReads[1]?.complete('idle fresh content');
+      pendingReads[0]?.complete('active stale content');
+      await activeLoad;
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(3));
+    expect(pendingReads[2]?.requests.map((request) => request.compositeKey)).toEqual([activeKey]);
+
+    await act(async () => {
+      pendingReads[2]?.complete('active fresh content');
+      await reload;
+    });
+  });
+
+  it('reloads each preceding-read group as soon as that group settles', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const slowNode = createFileNode({ path: '/slow.txt', rootFolderId: 'root-groups' });
+    const fastNode = createFileNode({ path: '/fast.txt', rootFolderId: 'root-groups' });
+    const slowKey = encodeFileSelection('root-groups', '/slow.txt');
+    const fastKey = encodeFileSelection('root-groups', '/fast.txt');
+    const pendingReads: PendingWorkerRead[] = [];
+    const worker = createPendingWorker(pendingReads);
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useSharedFileContentLoading([slowNode, fastNode]), {
+      wrapper,
+    });
+
+    let slowLoad: Promise<void> | undefined;
+    let fastLoad: Promise<void> | undefined;
+    act(() => {
+      slowLoad = result.current.handleFileContentLoading([slowKey]);
+      fastLoad = result.current.handleFileContentLoading([fastKey]);
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(2));
+
+    let reload: Promise<void> | undefined;
+    act(() => {
+      reload = result.current.reloadFileContents([slowKey, fastKey]);
+    });
+    await act(async () => {
+      pendingReads[1]?.complete('fast stale content');
+      await fastLoad;
+    });
+
+    await waitFor(() => expect(pendingReads).toHaveLength(3));
+    expect(pendingReads[2]?.requests.map((request) => request.compositeKey)).toEqual([fastKey]);
+    expect(slowLoad).toBeDefined();
+
+    await act(async () => {
+      pendingReads[2]?.complete('fast fresh content');
+      pendingReads[0]?.complete('slow stale content');
+      await slowLoad;
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(4));
+    expect(pendingReads[3]?.requests.map((request) => request.compositeKey)).toEqual([slowKey]);
+
+    await act(async () => {
+      pendingReads[3]?.complete('slow fresh content');
+      await reload;
+    });
+  });
+
+  it('retries a rejected preceding group without starving idle keys', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const rejectedNode = createFileNode({ path: '/rejected.txt', rootFolderId: 'root-errors' });
+    const idleNode = createFileNode({ path: '/idle.txt', rootFolderId: 'root-errors' });
+    const rejectedKey = encodeFileSelection('root-errors', '/rejected.txt');
+    const idleKey = encodeFileSelection('root-errors', '/idle.txt');
+    const pendingReads: PendingWorkerRead[] = [];
+    const worker = createPendingWorker(pendingReads);
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(
+      () => {
+        const authority = useFileContentLoadAuthority();
+        return { authority, loader: useSharedFileContentLoading([rejectedNode, idleNode]) };
+      },
+      { wrapper }
+    );
+
+    let rejectPreceding: ((error: Error) => void) | undefined;
+    const sourcePromise = new Promise<void>((_resolve, reject) => {
+      rejectPreceding = reject;
+    });
+    let trackedPromise: Promise<void>;
+    trackedPromise = sourcePromise.finally(() => {
+      result.current.authority.releaseActiveLoad([rejectedKey], trackedPromise);
+    });
+    result.current.authority.trackActiveLoad([rejectedKey], trackedPromise);
+
+    let reload: Promise<void> | undefined;
+    act(() => {
+      reload = result.current.loader.reloadFileContents([rejectedKey, idleKey]);
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(1));
+    expect(pendingReads[0]?.requests.map((request) => request.compositeKey)).toEqual([idleKey]);
+
+    act(() => {
+      rejectPreceding?.(new Error('preceding read failed'));
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(2));
+    expect(pendingReads[1]?.requests.map((request) => request.compositeKey)).toEqual([rejectedKey]);
+
+    await act(async () => {
+      pendingReads[0]?.complete('idle fresh content');
+      pendingReads[1]?.complete('rejected fresh content');
+      await reload;
+    });
+  });
+
+  it('keeps a replacement provider cache isolated from an older in-flight read', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const fileNode = createFileNode({ path: '/provider.txt', rootFolderId: 'root-provider' });
+    const compositeKey = encodeFileSelection('root-provider', '/provider.txt');
+    const pendingReads: PendingWorkerRead[] = [];
+    const worker = createPendingWorker(pendingReads);
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    let storage = new MemoryStorageAdapter();
+    function ReplaceableWrapper({ children }: { readonly children: ReactNode }) {
+      return (
+        <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
+          <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+        </AdaptersProvider>
+      );
+    }
+
+    const { rerender, result } = renderHook(
+      () => {
+        const store = useFileExplorerStoreContext();
+        return { loader: useSharedFileContentLoading([fileNode]), store };
+      },
+      { wrapper: ReplaceableWrapper }
+    );
+
+    let oldProviderLoad: Promise<void> | undefined;
+    act(() => {
+      oldProviderLoad = result.current.loader.handleFileContentLoading([compositeKey]);
+    });
+    await waitFor(() => expect(pendingReads).toHaveLength(1));
+
+    storage = new MemoryStorageAdapter();
+    rerender();
+    act(() => {
+      result.current.store.getState().setFileContent(compositeKey, 'replacement content');
+    });
+
+    await act(async () => {
+      pendingReads[0]?.complete('obsolete provider content');
+      await oldProviderLoad;
+    });
+
+    expect(result.current.store.getState().getFileContent(compositeKey)).toBe(
+      'replacement content'
     );
   });
 
