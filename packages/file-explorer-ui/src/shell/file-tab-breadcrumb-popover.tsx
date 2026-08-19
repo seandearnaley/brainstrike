@@ -54,11 +54,12 @@ function PopoverTree({
       return;
     }
     let cancelled = false;
-    void loadSpecificPaths(chain).finally(() => {
+    const settleChain = (): void => {
       if (!cancelled) {
         setChainSettled(true);
       }
-    });
+    };
+    void loadSpecificPaths(chain).then(settleChain, settleChain);
     return () => {
       cancelled = true;
     };

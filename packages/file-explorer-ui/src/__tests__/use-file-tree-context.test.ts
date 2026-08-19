@@ -1940,9 +1940,11 @@ describe('useFileTree (lazy loading version)', () => {
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       mockWorkerPort.loadPaths.mockRejectedValueOnce(new Error('File tree worker port terminated'));
 
-      await expect(result.current.loadSpecificPaths(['parent', 'parent/child'])).rejects.toThrow(
-        'File tree worker port terminated'
-      );
+      await act(async () => {
+        await expect(result.current.loadSpecificPaths(['parent', 'parent/child'])).rejects.toThrow(
+          'File tree worker port terminated'
+        );
+      });
     });
 
     it('skips restoration requests while expand-all is in progress', async () => {
@@ -3148,7 +3150,7 @@ describe('useFileTree (lazy loading version)', () => {
       );
     });
 
-    it('logs and ignores worker restoration patches whose handles cannot be rehydrated', async () => {
+    it('surfaces and rejects worker restoration patches whose handles cannot be rehydrated', async () => {
       const nestedFS = createNestedMockFileSystem();
       mockAdapter.setMockFileSystem(nestedFS);
 
@@ -3195,10 +3197,13 @@ describe('useFileTree (lazy loading version)', () => {
         await waitFor(() => expect(result.current.isLoading).toBe(false));
 
         await act(async () => {
-          await result.current.loadSpecificPaths(['mock-root/parent', 'missing-dir']);
+          await expect(
+            result.current.loadSpecificPaths(['mock-root/parent', 'missing-dir'])
+          ).rejects.toThrow();
         });
 
         await waitFor(() => expect(loggedErrors).toContain('loadSpecificPaths failed'));
+        expect(result.current.error).not.toBeNull();
         expect(result.current.loadingPaths.size).toBe(0);
       } finally {
         unsubscribe();

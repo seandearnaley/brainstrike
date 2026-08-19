@@ -837,9 +837,17 @@ fallback.
   controller, keeping the registry bounded. Runtime failure and port
   termination also reject and clear the shared pending bulk operation before
   worker disposal, so provider cleanup cannot strand restoration ownership
-  across a remount. The signal fences the handle-map publication after
-  directory I/O, and the port suppresses any result/error that settles after
-  its request was retired. As a second ordering defense, the
+  across a remount. The lazy-tree caller propagates every non-retired worker or
+  patch failure instead of reporting successful restoration; only an
+  explicitly watcher-retired worker operation continues through the bounded
+  serial replay. Restoration locks carry provider-owner identity: owner
+  unmount deletes even an in-flight entry, late finalizers touch only their
+  exact entry, and only a successful physical load plus expansion commit marks
+  the restoration key complete. Failed, stale, or terminated runs therefore
+  remain retryable without releasing another provider's lock. The signal
+  fences the handle-map publication after directory I/O, and the port
+  suppresses any result/error that settles after its request was retired. As a
+  second ordering defense, the
   BFS engine rejects a correlated result/error whose request id and path are no
   longer pending before touching its tree; legacy id-less standalone updates
   remain valid. A forced

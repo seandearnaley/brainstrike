@@ -1635,14 +1635,24 @@ export function useLazyFileTree(
           paths,
         });
       } catch (err) {
-        if (!isAbortError(err)) {
-          logger.error('loadSpecificPaths failed', { error: String(err) });
+        const error = toError(err);
+        if (!isAbortError(error)) {
+          logger.error('loadSpecificPaths failed', { error: String(error) });
+          handleWorkerError(error);
         }
+        throw error;
       } finally {
         specificPathProgressRef.current = null;
       }
     },
-    [fileSystemAdapter, handleMapRef, onNodesIndexedRef, portRef, syncNormalizedTree]
+    [
+      fileSystemAdapter,
+      handleMapRef,
+      handleWorkerError,
+      isExpandingAllRef,
+      onNodesIndexedRef,
+      portRef,
+    ]
   );
 
   // Store loadRoot in a ref to avoid effect dependency on the callback itself.
