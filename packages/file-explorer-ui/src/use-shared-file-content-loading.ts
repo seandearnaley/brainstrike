@@ -12,6 +12,7 @@ const logger = createLogger('SharedFileContentLoading');
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { resolveDirectReadPath, supportsDirectPathRead } from './file-content-direct-read-path';
+import type { FileContentLoadIntent } from './file-content-load-authority-context';
 import { useFileContentLoadAuthority } from './file-content-load-authority-context';
 import {
   clearFileLoadingState,
@@ -707,7 +708,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   );
 
   const runFileContentLoading = useCallback(
-    async (compositeKeys: readonly string[], clearErrorsAtBoundary: boolean): Promise<void> => {
+    async (
+      compositeKeys: readonly string[],
+      clearErrorsAtBoundary: boolean,
+      intent: FileContentLoadIntent
+    ): Promise<void> => {
       const uniqueKeys = [...new Set(compositeKeys)];
       if (clearErrorsAtBoundary) {
         loadAuthority.clearErrors(uniqueKeys);
@@ -731,7 +736,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         batchPromise = loadAuthority
           .runBatch(
             () => executeFileContentLoading(keysToStart, expectedGenerations),
-            keysToStart.length === 1 ? 'interactive' : 'bulk'
+            intent === 'interactive' ? 'interactive' : 'bulk'
           )
           .finally(() => {
             loadAuthority.releaseActiveLoad(keysToStart, batchPromise);
@@ -746,12 +751,13 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   );
 
   const handleFileContentLoading = useCallback(
-    (compositeKeys: readonly string[]): Promise<void> => runFileContentLoading(compositeKeys, true),
+    (compositeKeys: readonly string[], intent: FileContentLoadIntent): Promise<void> =>
+      runFileContentLoading(compositeKeys, true, intent),
     [runFileContentLoading]
   );
 
   const reloadFileContents = useCallback(
-    async (compositeKeys: readonly string[]): Promise<void> => {
+    async (compositeKeys: readonly string[], intent: FileContentLoadIntent): Promise<void> => {
       const uniqueKeys = [...new Set(compositeKeys)];
       if (uniqueKeys.length === 0) {
         return;
@@ -768,8 +774,9 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         clearGeneration: loadAuthority.clearGeneration,
         compositeKeys: uniqueKeys,
         getActiveLoad: loadAuthority.getActiveLoad,
+        intent,
         isCurrentGeneration: loadAuthority.isCurrentGeneration,
-        reload: (keys) => runFileContentLoading(keys, false),
+        reload: (keys, reloadIntent) => runFileContentLoading(keys, false, reloadIntent),
         requestedGenerations,
       });
     },

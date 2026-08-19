@@ -118,7 +118,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     });
 
     await act(async () => {
-      await result.current.loader.reloadFileContents([compositeKey]);
+      await result.current.loader.reloadFileContents([compositeKey], 'background');
     });
 
     expect(worker).toHaveBeenCalledWith(
@@ -158,13 +158,13 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     let initialLoad: Promise<void> | undefined;
     act(() => {
-      initialLoad = result.current.handleFileContentLoading([compositeKey]);
+      initialLoad = result.current.handleFileContentLoading([compositeKey], 'background');
     });
     await waitFor(() => expect(pendingReads).toHaveLength(1));
 
     let reload: Promise<void> | undefined;
     act(() => {
-      reload = result.current.reloadFileContents([compositeKey]);
+      reload = result.current.reloadFileContents([compositeKey], 'background');
     });
 
     await act(async () => {
@@ -207,13 +207,13 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     let initialLoad: Promise<void> | undefined;
     act(() => {
-      initialLoad = result.current.first.handleFileContentLoading([compositeKey]);
+      initialLoad = result.current.first.handleFileContentLoading([compositeKey], 'background');
     });
     await waitFor(() => expect(firstPendingReads).toHaveLength(1));
 
     let reload: Promise<void> | undefined;
     act(() => {
-      reload = result.current.second.reloadFileContents([compositeKey]);
+      reload = result.current.second.reloadFileContents([compositeKey], 'background');
     });
     await act(async () => {
       await Promise.resolve();
@@ -267,7 +267,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     });
 
     await act(async () => {
-      await result.current.reloadFileContents([firstKey, secondKey]);
+      await result.current.reloadFileContents([firstKey, secondKey], 'background');
     });
 
     expect(worker).toHaveBeenCalledTimes(1);
@@ -301,13 +301,13 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     let activeLoad: Promise<void> | undefined;
     act(() => {
-      activeLoad = result.current.handleFileContentLoading([activeKey]);
+      activeLoad = result.current.handleFileContentLoading([activeKey], 'background');
     });
     await waitFor(() => expect(pendingReads).toHaveLength(1));
 
     let reload: Promise<void> | undefined;
     act(() => {
-      reload = result.current.reloadFileContents([activeKey, idleKeyA, idleKeyB]);
+      reload = result.current.reloadFileContents([activeKey, idleKeyA, idleKeyB], 'background');
     });
 
     await waitFor(() => expect(pendingReads).toHaveLength(2));
@@ -349,14 +349,14 @@ describe('useSharedFileContentLoading reload ordering', () => {
     let slowLoad: Promise<void> | undefined;
     let fastLoad: Promise<void> | undefined;
     act(() => {
-      slowLoad = result.current.handleFileContentLoading([slowKey]);
-      fastLoad = result.current.handleFileContentLoading([fastKey]);
+      slowLoad = result.current.handleFileContentLoading([slowKey], 'background');
+      fastLoad = result.current.handleFileContentLoading([fastKey], 'background');
     });
     await waitFor(() => expect(pendingReads).toHaveLength(2));
 
     let reload: Promise<void> | undefined;
     act(() => {
-      reload = result.current.reloadFileContents([slowKey, fastKey]);
+      reload = result.current.reloadFileContents([slowKey, fastKey], 'background');
     });
     await act(async () => {
       pendingReads[1]?.complete('fast stale content');
@@ -413,7 +413,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     let reload: Promise<void> | undefined;
     act(() => {
-      reload = result.current.loader.reloadFileContents([rejectedKey, idleKey]);
+      reload = result.current.loader.reloadFileContents([rejectedKey, idleKey], 'background');
     });
     await waitFor(() => expect(pendingReads).toHaveLength(1));
     expect(pendingReads[0]?.requests.map((request) => request.compositeKey)).toEqual([idleKey]);
@@ -459,7 +459,10 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     let oldProviderLoad: Promise<void> | undefined;
     act(() => {
-      oldProviderLoad = result.current.loader.handleFileContentLoading([compositeKey]);
+      oldProviderLoad = result.current.loader.handleFileContentLoading(
+        [compositeKey],
+        'background'
+      );
     });
     await waitFor(() => expect(pendingReads).toHaveLength(1));
 
@@ -499,7 +502,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     let inFlightLoad: Promise<void> | undefined;
     act(() => {
-      inFlightLoad = result.current.loader.handleFileContentLoading([compositeKey]);
+      inFlightLoad = result.current.loader.handleFileContentLoading([compositeKey], 'background');
     });
     await waitFor(() => expect(pendingReads).toHaveLength(1));
     act(() => {
@@ -550,9 +553,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     });
 
     await act(async () => {
-      await expect(result.current.loader.handleFileContentLoading([compositeKey])).rejects.toBe(
-        workerFailure
-      );
+      await expect(
+        result.current.loader.handleFileContentLoading([compositeKey], 'background')
+      ).rejects.toBe(workerFailure);
     });
     expect(result.current.loader.fileContentErrors.get(compositeKey)).toBe(workerFailure);
 
@@ -594,7 +597,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     let rejection: unknown;
     await act(async () => {
       try {
-        await result.current.handleFileContentLoading([malformedKey, validKey]);
+        await result.current.handleFileContentLoading([malformedKey, validKey], 'background');
       } catch (error) {
         rejection = error;
       }
@@ -652,7 +655,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     let rejection: unknown;
     await act(async () => {
       try {
-        await result.current.loader.handleFileContentLoading([firstKey, secondKey]);
+        await result.current.loader.handleFileContentLoading([firstKey, secondKey], 'background');
       } catch (error) {
         rejection = error;
       }
@@ -665,7 +668,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     expect(result.current.loader.loadingFiles.size).toBe(0);
 
     await act(async () => {
-      await result.current.loader.handleFileContentLoading([firstKey, secondKey]);
+      await result.current.loader.handleFileContentLoading([firstKey, secondKey], 'background');
     });
     expect(worker).toHaveBeenCalledTimes(2);
     expect(result.current.loader.fileContentErrors.size).toBe(0);
@@ -720,7 +723,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
         >
       | undefined;
     act(() => {
-      observedReload = result.current.loader.reloadFileContents(compositeKeys).then(
+      observedReload = result.current.loader.reloadFileContents(compositeKeys, 'background').then(
         () => {
           reloadSettled = true;
           return { status: 'fulfilled' as const };
@@ -830,7 +833,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     let reload: Promise<void> | undefined;
     act(() => {
-      reload = result.current.loader.reloadFileContents(compositeKeys);
+      reload = result.current.loader.reloadFileContents(compositeKeys, 'background');
     });
     await act(async () => {
       for (const resolvePredecessor of resolvePredecessors) {
@@ -884,7 +887,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
 
     let oldLoad: Promise<void> | undefined;
     act(() => {
-      oldLoad = result.current.loader.handleFileContentLoading([compositeKey]);
+      oldLoad = result.current.loader.handleFileContentLoading([compositeKey], 'background');
     });
     await waitFor(() => expect(pendingReads).toHaveLength(1));
 
@@ -893,7 +896,10 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const loadingImmediatelyAfterReplacement = new Set(result.current.loader.loadingFiles);
     let replacementLoad: Promise<void> | undefined;
     act(() => {
-      replacementLoad = result.current.loader.handleFileContentLoading([compositeKey]);
+      replacementLoad = result.current.loader.handleFileContentLoading(
+        [compositeKey],
+        'background'
+      );
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -939,7 +945,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     const wrapper = createWrapper(adapter);
     const { result } = renderHook(() => useSharedFileContentLoading([fileNode]), { wrapper });
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     const request = worker.mock.calls[0]?.[0]?.[0];

@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
+import type { FileContentLoadIntent } from './file-content-load-authority-context';
 import { settleFileContentPromises } from './file-content-load-results';
 
 const logger = createLogger('FileContentReloadScheduler');
@@ -7,8 +8,12 @@ interface RunFileContentReloadGroupsParams {
   readonly clearGeneration: (compositeKey: string, expectedGeneration: number | undefined) => void;
   readonly compositeKeys: readonly string[];
   readonly getActiveLoad: (compositeKey: string) => Promise<void> | undefined;
+  readonly intent: FileContentLoadIntent;
   readonly isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean;
-  readonly reload: (compositeKeys: readonly string[]) => Promise<void>;
+  readonly reload: (
+    compositeKeys: readonly string[],
+    intent: FileContentLoadIntent
+  ) => Promise<void>;
   readonly requestedGenerations: ReadonlyMap<string, number>;
 }
 
@@ -21,6 +26,7 @@ export async function runFileContentReloadGroups({
   clearGeneration,
   compositeKeys,
   getActiveLoad,
+  intent,
   isCurrentGeneration,
   reload,
   requestedGenerations,
@@ -65,7 +71,7 @@ export async function runFileContentReloadGroups({
       if (currentKeys.length === 0) {
         return;
       }
-      await reload(currentKeys);
+      await reload(currentKeys, intent);
     } finally {
       // Clean this group as soon as its replacement settles. Another group's
       // slow/hung predecessor must not retain completed generations.

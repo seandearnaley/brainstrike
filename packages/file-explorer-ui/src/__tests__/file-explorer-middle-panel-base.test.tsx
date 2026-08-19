@@ -1,8 +1,10 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import type { ContextExportOutcome } from '@brainstrike/hooks';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PreviewPanel } from '../preview/preview-panel';
+import type { ContextExportOptions } from '../context-export-options';
 import { FileExplorerMiddlePanelBase } from '../shell/file-explorer-middle-panel-base';
 
 const mocks = vi.hoisted(() => {
@@ -21,8 +23,12 @@ const mocks = vi.hoisted(() => {
     useRegex: false,
   };
   return {
-    copyContext: vi.fn(async () => ({ ok: true as const })),
-    downloadContext: vi.fn(async () => ({ ok: true as const })),
+    copyContext: vi.fn<
+      (options?: ContextExportOptions) => Promise<ContextExportOutcome>
+    >(async () => ({ ok: true })),
+    downloadContext: vi.fn<
+      (options?: ContextExportOptions) => Promise<ContextExportOutcome>
+    >(async () => ({ ok: true })),
     loadMultipleFileContents: vi.fn(async () => {}),
     performUndoableAction: vi.fn(),
     persistFileExplorerStateImmediately: vi.fn(async () => {}),

@@ -77,10 +77,12 @@ async function configureTabs(tabs: readonly FileTab[]): Promise<void> {
 async function configureFileExplorer(fileContents: Record<string, string>) {
   const clearFileContents = vi.fn();
   const loadFileContent = vi.fn().mockResolvedValue(undefined);
-  const reloadFileContents = vi.fn(async (compositeKeys: readonly string[]) => {
-    clearFileContents([...compositeKeys]);
-    await Promise.all(compositeKeys.map((compositeKey) => loadFileContent(compositeKey)));
-  });
+  const reloadFileContents = vi.fn(
+    async (compositeKeys: readonly string[], intent: 'background' | 'interactive') => {
+      clearFileContents([...compositeKeys]);
+      await Promise.all(compositeKeys.map((compositeKey) => loadFileContent(compositeKey, intent)));
+    }
+  );
   const fileExplorerModule = await import('../shell/use-file-explorer-context');
   vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
     canLoadWithoutTree: false,
@@ -217,8 +219,8 @@ describe('workspace tabs open-file refresh', () => {
 
     await waitFor(() => {
       expect(clearFileContents).toHaveBeenCalledExactlyOnceWith([rootAKey]);
-      expect(loadFileContent).toHaveBeenCalledExactlyOnceWith(rootAKey);
-      expect(reloadFileContents).toHaveBeenCalledExactlyOnceWith([rootAKey]);
+      expect(loadFileContent).toHaveBeenCalledExactlyOnceWith(rootAKey, 'background');
+      expect(reloadFileContents).toHaveBeenCalledExactlyOnceWith([rootAKey], 'background');
     });
   });
 
@@ -259,7 +261,7 @@ describe('workspace tabs open-file refresh', () => {
     rerender({ reloadFileContents: currentReload, tabs: [currentTab] });
 
     expect(previousReload).not.toHaveBeenCalled();
-    expect(currentReload).toHaveBeenCalledExactlyOnceWith([currentTab.compositeKey]);
+    expect(currentReload).toHaveBeenCalledExactlyOnceWith([currentTab.compositeKey], 'background');
   });
 
   it('strips a relative web root prefix without crossing same-named durable roots', () => {
@@ -410,7 +412,9 @@ describe('workspace tabs open-file refresh', () => {
       );
     });
 
-    await waitFor(() => expect(reloadFileContents).toHaveBeenCalledWith([compositeKey]));
+    await waitFor(() =>
+      expect(reloadFileContents).toHaveBeenCalledWith([compositeKey], 'background')
+    );
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveAccessibleName('File content unavailable');
     expect(alert).toHaveTextContent('Brainstrike could not load this file.');
@@ -419,6 +423,7 @@ describe('workspace tabs open-file refresh', () => {
     expect(alert).not.toHaveTextContent('read worker rejected');
     fireEvent.click(screen.getByRole('button', { name: 'Retry file content' }));
     await waitFor(() => expect(reloadFileContents).toHaveBeenCalledTimes(2));
+    expect(reloadFileContents).toHaveBeenLastCalledWith([compositeKey], 'interactive');
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
     expect(screen.queryByText('Restoring…')).not.toBeInTheDocument();

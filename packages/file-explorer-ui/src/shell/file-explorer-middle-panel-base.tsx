@@ -71,6 +71,10 @@ export const FileExplorerMiddlePanelBase = () => {
   );
 
   const { selectedFilePaths, setSelectedFilesFromList } = useSelectionManager();
+  const loadBackgroundFileContents = useCallback(
+    (compositeKeys: string[]) => loadMultipleFileContents(compositeKeys, 'background'),
+    [loadMultipleFileContents]
+  );
   // Multi-root (Phase 6): resolve a RootId to its display name so the context
   // snapshot can label same-relative-path files from different roots.
   const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
@@ -140,7 +144,7 @@ export const FileExplorerMiddlePanelBase = () => {
     // Report generation owns its nested content reads. Passing the raw loader
     // prevents a missing-content read from replacing the outer copy/download
     // failure with a generic preview-only retry.
-    loadMultipleFileContents,
+    loadMultipleFileContents: loadBackgroundFileContents,
     projectTreeUsesViewFilters,
     rootDirectoryHandle,
     selectedFiles: selectedFilePaths,
@@ -158,7 +162,7 @@ export const FileExplorerMiddlePanelBase = () => {
   } = usePreviewContentFailure({
     handleCopyContext,
     handleDownloadContext,
-    loadMultipleFileContents,
+    loadMultipleFileContents: loadBackgroundFileContents,
     selectedFilePaths,
   });
   // Phase 6 cross-root: the preview shows the EFFECTIVE UNION of every active

@@ -1,6 +1,8 @@
 import { createContext, useContext } from 'react';
 
 export type FileContentBatchPriority = 'bulk' | 'interactive';
+/** Logical caller intent; physical batch size must never choose scheduling priority. */
+export type FileContentLoadIntent = 'background' | 'interactive';
 
 export interface FileContentLoadAuthority {
   beginReload: (compositeKeys: readonly string[]) => ReadonlyMap<string, number>;

@@ -4,6 +4,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange } from '@brainstrike/types';
 import { normalizeFilePathForFolder } from '@brainstrike/utils/relative-file-path';
 import { useEffect } from 'react';
+import type { FileContentLoadIntent } from '../file-content-load-authority-context';
 import type { FileTab } from '../hooks/use-tab-manager';
 import { normalizePathForRootScope } from '../utils/root-scoped-paths';
 import {
@@ -26,7 +27,10 @@ interface DecodedOpenTab {
 }
 
 export interface UseWorkspaceOpenFileRefreshParams {
-  readonly reloadFileContents: (compositeKeys: readonly string[]) => Promise<void>;
+  readonly reloadFileContents: (
+    compositeKeys: readonly string[],
+    intent: FileContentLoadIntent
+  ) => Promise<void>;
   readonly tabs: readonly FileTab[];
 }
 
@@ -165,7 +169,7 @@ export function useWorkspaceOpenFileRefresh({
     if (plan.keysToReload.length === 0) {
       return;
     }
-    reloadFileContents(plan.keysToReload).catch((error: unknown) => {
+    reloadFileContents(plan.keysToReload, 'background').catch((error: unknown) => {
       logger.error('Failed to reload open file content after workspace refresh', {
         error: error instanceof Error ? error.message : String(error),
         fileCount: plan.keysToReload.length,

@@ -104,7 +104,7 @@ export function WorkspaceTabsProvider({
   } = useFileExplorer();
   const startFileContentLoad = useCallback(
     (compositeKey: string): void => {
-      void loadFileContent(compositeKey).catch((error: unknown) => {
+      void loadFileContent(compositeKey, 'interactive').catch((error: unknown) => {
         logger.error('Workspace file-content load failed', {
           errorName: error instanceof Error ? error.name : 'UnknownError',
           fileCount: 1,
@@ -115,7 +115,7 @@ export function WorkspaceTabsProvider({
   );
   const handleRetryFileContent = useCallback(
     (compositeKey: string): void => {
-      void reloadFileContents([compositeKey]).catch((error: unknown) => {
+      void reloadFileContents([compositeKey], 'interactive').catch((error: unknown) => {
         logger.error('Workspace file-content retry failed', {
           errorName: error instanceof Error ? error.name : 'UnknownError',
           fileCount: 1,

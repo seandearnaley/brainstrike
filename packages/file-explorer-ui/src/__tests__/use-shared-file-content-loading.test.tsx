@@ -142,7 +142,7 @@ describe('useSharedFileContentLoading - caching', () => {
     });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(findSpy).not.toHaveBeenCalled();
@@ -156,7 +156,7 @@ describe('useSharedFileContentLoading - caching', () => {
     findSpy.mockClear();
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(findSpy).not.toHaveBeenCalled();
@@ -217,7 +217,7 @@ describe('useSharedFileContentLoading - caching', () => {
     });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     act(() => {
@@ -232,7 +232,7 @@ describe('useSharedFileContentLoading - caching', () => {
     });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(findSpy).not.toHaveBeenCalled();
@@ -270,7 +270,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -303,7 +303,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -367,7 +367,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     // Start loading
     let loadingPromise: Promise<void>;
     act(() => {
-      loadingPromise = result.current.handleFileContentLoading([key1, key2]);
+      loadingPromise = result.current.handleFileContentLoading([key1, key2], 'background');
     });
 
     // Check that files are initially in loading state
@@ -424,7 +424,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -446,7 +446,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -475,7 +475,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -503,7 +503,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -538,7 +538,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
 
     await act(async () => {
-      const promise = result.current.handleFileContentLoading([compositeKey]);
+      const promise = result.current.handleFileContentLoading([compositeKey], 'background');
       vi.advanceTimersByTime(100);
       await promise;
       rerender();
@@ -577,7 +577,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       await vi.advanceTimersByTimeAsync(100);
       await loadPromise;
       rerender();
@@ -628,7 +628,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       await vi.advanceTimersByTimeAsync(100);
       await loadPromise;
       rerender();
@@ -665,7 +665,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([indexedNode]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       await vi.advanceTimersByTimeAsync(100);
       await loadPromise;
       rerender();
@@ -720,7 +720,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       await vi.advanceTimersByTimeAsync(100);
       await loadPromise;
     });
@@ -755,7 +755,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result, rerender } = renderHook(() => useTestHook([directoryNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
       rerender();
     });
 
@@ -804,7 +804,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result } = renderHook(() => useTestHook(nodes), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading(keys);
+      await result.current.handleFileContentLoading(keys, 'background');
     });
 
     // All files should be loaded
@@ -823,7 +823,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result } = renderHook(() => useTestHook([]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([]);
+      await result.current.handleFileContentLoading([], 'background');
     });
 
     expect(result.current.isLoading).toBe(false);
@@ -854,7 +854,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result } = renderHook(() => useTestHook([]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(mockWorker).not.toHaveBeenCalled();
@@ -894,7 +894,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
 
     await act(async () => {
-      await result.current.handleFileContentLoading([compositeKey]);
+      await result.current.handleFileContentLoading([compositeKey], 'background');
     });
 
     expect(mockWorker).not.toHaveBeenCalled();
@@ -948,7 +948,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       vi.advanceTimersByTime(100);
       await loadPromise;
     });
@@ -1032,7 +1032,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     try {
       await act(async () => {
-        const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+        const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
         vi.advanceTimersByTime(100);
         await loadPromise;
       });
@@ -1088,7 +1088,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const { result } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
-      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
       vi.advanceTimersByTime(100);
       await loadPromise;
     });
@@ -1161,7 +1161,7 @@ describe('useSharedFileContentLoading - cross-root import (Phase 6)', () => {
       });
 
       await act(async () => {
-        await result.current.handleFileContentLoading([keyA, keyB]);
+        await result.current.handleFileContentLoading([keyA, keyB], 'background');
       });
 
       expect(result.current.fileContents[keyA]).toBe('content of /a.ts');

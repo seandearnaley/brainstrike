@@ -83,10 +83,10 @@ it('runs queued interactive reads before bulk work while bounding bulk starvatio
   let loads: Promise<void>[] = [];
   act(() => {
     loads = [
-      result.current.handleFileContentLoading(bulkA),
-      result.current.handleFileContentLoading(bulkB),
-      result.current.handleFileContentLoading(queuedBulk),
-      ...interactive.map((key) => result.current.handleFileContentLoading([key])),
+      result.current.handleFileContentLoading(bulkA, 'background'),
+      result.current.handleFileContentLoading(bulkB, 'background'),
+      result.current.handleFileContentLoading(queuedBulk, 'background'),
+      ...interactive.map((key) => result.current.handleFileContentLoading([key], 'interactive')),
     ];
   });
 

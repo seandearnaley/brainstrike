@@ -14,6 +14,7 @@ import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import type { FileContentLoadIntent } from '../file-content-load-authority-context';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import { useOptionalFileTreeContext } from '../tree/file-tree-provider';
 import {
@@ -111,7 +112,7 @@ interface UseFileExplorerReturn {
   isRestoringExpandedPaths: boolean;
   /** Load children of a directory on expand (lazy loading) */
   loadChildren: (path: string) => Promise<void>;
-  loadFileContent: (path: string) => Promise<void>;
+  loadFileContent: (path: string, intent: FileContentLoadIntent) => Promise<void>;
   loadingFiles: Set<string>;
   /** Path of the folder being loaded for selection (if any) */
   loadingPathForSelection: string | null;
@@ -119,14 +120,20 @@ interface UseFileExplorerReturn {
   loadingPaths: Set<string>;
   loadingProgress: LoadingProgressState | null;
   /** Load content for multiple files at once (batch loading for report generation) */
-  loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
+  loadMultipleFileContents: (
+    compositeKeys: string[],
+    intent: FileContentLoadIntent
+  ) => Promise<void>;
   /** Refresh a specific directory */
   refreshDirectory: (path: string) => Promise<FileTreeDirectorySnapshot | null>;
   refreshFileExplorer: () => Promise<FileTreeRefreshResult>;
   /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
   registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;
   /** Evict and re-read file contents while suppressing stale in-flight results. */
-  reloadFileContents: (compositeKeys: readonly string[]) => Promise<void>;
+  reloadFileContents: (
+    compositeKeys: readonly string[],
+    intent: FileContentLoadIntent
+  ) => Promise<void>;
   /**
    * Disconnect a root by RootId (multi-root, Phase 5). Disconnect ≠ delete by
    * default; `options.deleteData` (Phase 6) opts into a cascade delete of the
@@ -336,8 +343,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   ]);
 
   const loadFileContent = useCallback(
-    async (compositeKey: string) => {
-      await handleFileContentLoading([compositeKey]);
+    async (compositeKey: string, intent: FileContentLoadIntent) => {
+      await handleFileContentLoading([compositeKey], intent);
     },
     [handleFileContentLoading]
   );

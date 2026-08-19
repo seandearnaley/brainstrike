@@ -782,10 +782,15 @@ fallback.
   queues per lifecycle epoch: an existing slow queue leaves one lane for
   unrelated ready work, but twenty distinct predecessors settling together
   cannot create twenty queues. This is a concurrency bound, not a liveness
-  timeout. Queued single-key loads use the interactive class and take the next
-  free lane ahead of queued bulk work; FIFO is preserved within each class,
-  and after TWO consecutive interactive dispatches while bulk waits, one bulk
-  batch runs before another interactive batch. Active work is never preempted.
+  timeout. Scheduling class comes from the CALLER'S logical intent, never the
+  physical key count after dedupe or predecessor grouping. Tab open and explicit
+  tab Retry pass `interactive`; preview/report loads and canonical
+  `FILE_EXPLORER_REFRESH_EVENT` reloads pass `background`. Every dependent
+  reload group carries that original intent even when twenty groups each contain
+  one key. Interactive work takes the next free lane ahead of queued background
+  work; FIFO is preserved within each class, and after TWO consecutive
+  interactive dispatches while background work waits, one background batch runs
+  before another interactive batch. Active work is never preempted.
   `FileContentWorker` accepts an optional `AbortSignal`, but the shared
   loader currently passes no controller and there is no content-read timeout or
   user-cancel policy. If two adapter reads never settle, both lanes remain
