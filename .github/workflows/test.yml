@@ -640,15 +640,61 @@ jobs:
     needs: [admission]
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      # BST-1375: pin node-gyp's dev dir (default `%LOCALAPPDATA%\node-gyp\Cache`)
+      # to a path the cache steps below can name. node-gyp reads this the same
+      # way it reads any npm config, and it survives pnpm's script runner, so
+      # the lifecycle-invoked `node-gyp rebuild` of both native packages honours
+      # it. This is NOT about path length — see the comment on the restore step.
+      npm_config_devdir: ${{ github.workspace }}\.node-gyp
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      # BST-1375: the Node HEADER TARBALL, cached so it is not downloaded here.
+      #
+      # This job installs TWO packages that build native addons, and neither has
+      # the headers: `secure-fs-native` (implicit `node-gyp rebuild`, from
+      # `gypfile: true`) and `windows-job-native` (an explicit install script
+      # that shells out to node-gyp on win32). pnpm runs workspace install
+      # scripts CONCURRENTLY — measured locally: two projects' install scripts
+      # start within 1ms of each other — so both processes GET the same ~30MB
+      # `node-vX-headers.tar.gz` from nodejs.org at the same moment. Twice in
+      # 290 Native Windows attempts one of those two streams returned 200 and
+      # was then aborted mid-body ~80s later (`TypeError: terminated`, undici
+      # `Fetch.onAborted`), failing the whole `Setup workspace` step. The
+      # `TAR_ENTRY_ERROR ENOENT` lines that dominate the log are downstream
+      # noise: node-gyp's rollback deletes the temp dir while tar is still
+      # writing into it. The paths involved are ~133 characters, so MAX_PATH and
+      # long-path settings have nothing to do with it, and node-gyp extracts to
+      # `os.tmpdir()` rather than the dev dir, so a shorter devdir would not
+      # have moved that path either.
+      #
+      # A restored dev dir removes the download outright: node-gyp's `--ensure`
+      # stats it, reads `installVersion`, re-checks `<arch>/node.lib` on Windows
+      # and reports "version is good" without issuing a single HTTP request
+      # (verified against the pinned node-gyp 13.0.1). No download, nothing to
+      # abort. A cold cache still downloads twice and keeps today's exposure —
+      # this narrows the window rather than making the fetch itself robust.
+      #
+      # Restore is prefix-only because `.nvmrc` pins a major (`24`) and the
+      # exact version is not known until setup-node runs inside the composite
+      # below; the save step keys on that resolved version, so a patch bump
+      # writes a NEW entry instead of hitting a stale key forever.
+      - name: Restore node-gyp headers
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ github.workspace }}\.node-gyp
+          key: ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-
 
       # No turbo-cache: this job doesn't route through turbo. `shell: bash` in
       # the composite's install step works on windows-latest via the runner's
       # bundled Git Bash, same as every other step in this composite already
       # running fine cross-platform.
       - name: Setup workspace
+        id: setup
         uses: ./.github/actions/setup-workspace
 
       # Explicit build first: the package's `test` script deliberately does NOT
@@ -665,6 +711,17 @@ jobs:
         run: |
           pnpm --filter @brainstrike/windows-job-native build
           pnpm --filter @brainstrike/windows-job-native test
+
+      # `always()`: the headers are valid whether or not the C++ compiled, and a
+      # test failure is exactly when the next run should not re-download them.
+      # A failed header install is not cached — node-gyp rolls the dev dir back
+      # on error, leaving nothing to save.
+      - name: Save node-gyp headers
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ github.workspace }}\.node-gyp
+          key: ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-${{ steps.setup.outputs.node-version }}
 
   native-electron:
     name: Native Electron Package
