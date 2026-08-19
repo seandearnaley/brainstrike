@@ -1,5 +1,5 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PreviewPanel } from '../preview/preview-panel';
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => {
     performUndoableAction: vi.fn(),
     persistFileExplorerStateImmediately: vi.fn(async () => {}),
     previewProps,
+    selectedFilePaths: new Set<string>(),
     setFolderSummaryThreshold: vi.fn(),
     setIncludeProjectTree: vi.fn(),
     setSelectedFilesFromList: vi.fn(),
@@ -116,7 +117,7 @@ vi.mock('../shell/use-file-explorer-context', () => ({
 
 vi.mock('../shell/use-selection-manager-context', () => ({
   useSelectionManager: () => ({
-    selectedFilePaths: new Set([selectedFileKey, 'not-a-selection']),
+    selectedFilePaths: mocks.selectedFilePaths,
     setSelectedFilesFromList: mocks.setSelectedFilesFromList,
   }),
 }));
@@ -133,6 +134,7 @@ describe('FileExplorerMiddlePanelBase', () => {
     mocks.performUndoableAction.mockClear();
     mocks.persistFileExplorerStateImmediately.mockClear();
     mocks.previewProps.current = null;
+    mocks.selectedFilePaths = new Set([selectedFileKey, 'not-a-selection']);
     mocks.setFolderSummaryThreshold.mockClear();
     mocks.setIncludeProjectTree.mockClear();
     mocks.setTokenBudget.mockClear();
@@ -220,5 +222,54 @@ describe('FileExplorerMiddlePanelBase', () => {
     const remaining = new Set([selectedFileKey, 'other-root|@|src/x.ts']);
     props.onSelectionChange?.(remaining);
     expect(mocks.setSelectedFilesFromList).toHaveBeenCalledWith([...remaining]);
+  });
+
+  it('renders a selection-scoped terminal failure and retries preview content', async () => {
+    mocks.loadMultipleFileContents
+      .mockRejectedValueOnce(new Error('worker internals must stay private'))
+      .mockResolvedValueOnce(undefined);
+    render(<FileExplorerMiddlePanelBase />);
+    const props = mocks.previewProps.current;
+    if (!props) {
+      throw new Error('PreviewPanel props were not captured');
+    }
+
+    props.onRequestFileContent?.(selectedFileKey);
+    const alert = await screen.findByRole('alert', { name: 'Preview content unavailable' });
+    expect(alert).toHaveTextContent('1 selected file could not be loaded.');
+    expect(alert).not.toHaveTextContent('worker internals must stay private');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry preview content' }));
+    await waitFor(() => expect(mocks.loadMultipleFileContents).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('alert', { name: 'Preview content unavailable' })
+      ).not.toBeInTheDocument()
+    );
+  });
+
+  it('surfaces report-loading rejection and clears it when the selection changes', async () => {
+    mocks.copyContext.mockRejectedValueOnce(new Error('report loader details'));
+    const view = render(<FileExplorerMiddlePanelBase />);
+    const props = mocks.previewProps.current;
+    if (!props) {
+      throw new Error('PreviewPanel props were not captured');
+    }
+
+    props.onCopyContext?.({
+      projectTreeUsesViewFilters: false,
+      selectedLineRangesByFile: {},
+    });
+    expect(
+      await screen.findByRole('alert', { name: 'Preview content unavailable' })
+    ).not.toHaveTextContent('report loader details');
+
+    mocks.selectedFilePaths = new Set(['other-root|@|src/other.ts']);
+    view.rerender(<FileExplorerMiddlePanelBase />);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('alert', { name: 'Preview content unavailable' })
+      ).not.toBeInTheDocument()
+    );
   });
 });
