@@ -57,6 +57,7 @@ const mockElectronAPI = {
     onWatchHealth: vi.fn((_callback: (event: unknown) => void) => () => {}),
     readDirectory: vi.fn().mockResolvedValue([]),
     readFile: vi.fn().mockResolvedValue('mock file content'),
+    readFileByAbsolutePath: vi.fn().mockResolvedValue('mock file content by absolute path'),
     readFileByPath: vi.fn().mockResolvedValue('mock file content by path'),
     requestDirectoryAccess: vi.fn().mockResolvedValue({
       kind: 'directory',

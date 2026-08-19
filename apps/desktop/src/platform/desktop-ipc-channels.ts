@@ -91,6 +91,7 @@ export const DESKTOP_IPC_CHANNELS = {
     parserHostParse: 'parser-host:parse',
     readDirectory: 'fs:readDirectory',
     readFile: 'fs:readFile',
+    readFileByAbsolutePath: 'fs:readFileByAbsolutePath',
     readFileByPath: 'fs:readFileByPath',
     removeRoot: 'fs:removeRoot',
     requestDirectoryAccess: 'fs:requestDirectoryAccess',

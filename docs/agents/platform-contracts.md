@@ -103,6 +103,13 @@ standing rules follow:
    with no capability" and "web/SSR with no bridge at all" are different states
    and must not share a code path.
 
+The handleless native file-read channel `fs:readFileByAbsolutePath` is also
+visible-UI-only. Its typed payload carries both the requested absolute path and
+the exact claimed mounted-root path; main resolves that root identity in the
+live `WorkspaceRootRegistry` and rejects cross-root claims. The legacy
+`fs:readFileByPath` channel remains a separate generic mounted-path API and is
+never a fallback for the scoped capability.
+
 ---
 
 ## FACTORY RESET CONTRACT

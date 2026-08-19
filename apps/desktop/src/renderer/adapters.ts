@@ -223,7 +223,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   async readFileByAbsolutePath(absolutePath: string, rootPath: string): Promise<string> {
     assertExplicitAbsoluteReadPath(rootPath, 'Mounted root path');
     assertExplicitAbsoluteReadPath(absolutePath, 'Requested file path');
-    return requireElectronAPI().fileSystem.readFileByPath(absolutePath);
+    return requireElectronAPI().fileSystem.readFileByAbsolutePath(absolutePath, rootPath);
   }
 
   async exists(path: string): Promise<boolean> {

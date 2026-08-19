@@ -822,7 +822,12 @@ fallback.
   then a visible read-failure result, never the pre-delete content. Listener
   cleanup is provider-scoped. Absolute handleless reads are gated ONLY by the
   explicit `readFileByAbsolutePath(absolutePath, mountedRootPath)` adapter
-  method. `readFileByPath` is adapter-defined—the real web adapter implements
+  method. On desktop that adapter uses the distinct visible-UI-only
+  `fs:readFileByAbsolutePath` IPC channel, which carries BOTH values; main
+  exact-matches the claimed presentation/canonical root against the live root
+  registry before authorizing the requested path. A path under mounted root B
+  therefore cannot be read while claiming mounted root A. `readFileByPath` is
+  adapter-defined—the real web adapter implements
   it for root-relative browser-handle resolution—so its presence is never
   treated as desktop/native authority. Web missing/lazy nodes therefore retain
   their cached-handle and permission route even when their root descriptor is a

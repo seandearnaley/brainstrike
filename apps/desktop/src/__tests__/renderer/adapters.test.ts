@@ -165,13 +165,15 @@ describe('ElectronRendererFileSystemAdapter', () => {
     it('carries the claimed mounted root through the scoped bridge API', async () => {
       const absolutePath = '/Users/test/project/file.txt';
       const rootPath = '/Users/test/project';
-      const readFileByAbsolutePath = vi.fn().mockResolvedValue('absolute content');
-      Object.assign(mockElectronAPI.fileSystem, { readFileByAbsolutePath });
+      mockElectronAPI.fileSystem.readFileByAbsolutePath.mockResolvedValue('absolute content');
 
       await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath)).resolves.toBe(
         'absolute content'
       );
-      expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(absolutePath, rootPath);
+      expect(mockElectronAPI.fileSystem.readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+        absolutePath,
+        rootPath
+      );
       expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
     });
 

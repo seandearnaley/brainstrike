@@ -4,8 +4,6 @@ import {
   AccessError,
   type DirectoryHandle,
   type FileHandle,
-  formatFileSize,
-  getFileSizeConfig,
   type IFileNode,
 } from '@brainstrike/file-system';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
@@ -20,18 +18,18 @@ import {
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 import { isFileNotFoundError } from '../file-read-errors';
+import {
+  assertNativeAbsoluteReadPath,
+  isContained,
+  pathsEqual,
+  type ResolvedWorkspaceRead,
+  readResolvedWorkspaceFile,
+  resolveReadAgainstMountedRoot,
+} from './workspace-root-read';
 
 const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 const MAX_DIRECTORY_ENTRIES = 10_000;
-/**
- * The native secure-fs read path (SecureRoot.readFileAsync) caps a single
- * read at 16MB regardless of the configured maxFileSize. A configured value
- * above this cap would silently degrade every oversized read to
- * `status: 'unreadable'` — indistinguishable from a real access failure — so
- * readFile fails loud at the configuration boundary instead.
- */
-const NATIVE_MAX_READ_BYTES = 16 * 1024 * 1024;
 const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
 const logger = createLogger('WorkspaceRootRegistry');
 
@@ -133,43 +131,9 @@ function parseStoredRoots(raw: string | null): StoredWorkspaceRoot[] {
   return parsed;
 }
 
-function isContained(rootPath: string, candidatePath: string): boolean {
-  const relative = path.relative(rootPath, candidatePath);
-  return (
-    relative === '' ||
-    !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-  );
-}
-
-function pathsEqual(left: string, right: string): boolean {
-  const normalizedLeft = path.normalize(left);
-  const normalizedRight = path.normalize(right);
-  return process.platform === 'win32'
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
-}
-
 function pathKey(value: string): string {
   const normalized = path.normalize(value);
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-}
-
-function resolveLexicalRelativePath(mounted: MountedWorkspaceRoot, requestedPath: string): string {
-  if (path.isAbsolute(requestedPath)) {
-    const normalized = path.normalize(requestedPath);
-    if (isContained(mounted.presentationPath, normalized)) {
-      return path.relative(mounted.presentationPath, normalized);
-    }
-    if (isContained(mounted.canonicalPath, normalized)) {
-      return path.relative(mounted.canonicalPath, normalized);
-    }
-  } else {
-    const lexicalTarget = path.resolve(mounted.canonicalPath, requestedPath);
-    if (isContained(mounted.canonicalPath, lexicalTarget)) {
-      return path.relative(mounted.canonicalPath, lexicalTarget);
-    }
-  }
-  throw new AccessError('Path is outside the selected workspace root.', requestedPath, 'read');
 }
 
 function descriptorFor(
@@ -441,6 +405,36 @@ export class WorkspaceRootRegistry {
     );
   }
 
+  readFileByAbsolutePath(requestedPath: unknown, claimedRootPath: unknown): Promise<string> {
+    assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
+    assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
+    return this.withReadDenialLogging('readFileByAbsolutePath', requestedPath, undefined, () =>
+      this.readFileByAbsolutePathUnlogged(requestedPath, claimedRootPath)
+    );
+  }
+
+  private async readFileByAbsolutePathUnlogged(
+    requestedPath: string,
+    claimedRootPath: string
+  ): Promise<string> {
+    await this.mutationTail;
+    this.assertActive();
+    const mounted = [...this.mounted.values()].find(
+      (candidate) =>
+        pathsEqual(candidate.presentationPath, claimedRootPath) ||
+        pathsEqual(candidate.canonicalPath, claimedRootPath)
+    );
+    if (!mounted) {
+      throw new AccessError('Claimed workspace root is not mounted.', claimedRootPath, 'read');
+    }
+    const resolved = await resolveReadAgainstMountedRoot(
+      requestedPath,
+      mounted,
+      this.resolveReadPath
+    );
+    return readResolvedWorkspaceFile(requestedPath, resolved);
+  }
+
   private async readFileUnlogged(
     requestedPath: string,
     rootId: string | undefined
@@ -448,36 +442,7 @@ export class WorkspaceRootRegistry {
     await this.mutationTail;
     this.assertActive();
     const resolved = await this.resolveRead(requestedPath, rootId);
-    const { maxFileSize } = getFileSizeConfig();
-    if (maxFileSize > NATIVE_MAX_READ_BYTES) {
-      throw new AccessError(
-        `Configured maxFileSize (${formatFileSize(maxFileSize)}) exceeds the native secure-read cap (${formatFileSize(NATIVE_MAX_READ_BYTES)}).`,
-        requestedPath,
-        'read'
-      );
-    }
-    const result = await resolved.mounted.root.readFile(resolved.relativePath, maxFileSize);
-    if (result.status === 'ok') {
-      return result.content.toString('utf8');
-    }
-    if (result.status === 'oversized') {
-      throw new AccessError(
-        `File too large (max: ${formatFileSize(maxFileSize)})`,
-        requestedPath,
-        'read'
-      );
-    }
-    if (result.status === 'not-found') {
-      throw new AccessError('ENOENT: File not found', requestedPath, 'read');
-    }
-    if (resolved.traversedSymlink) {
-      throw new AccessError(
-        'File is a symbolic link. Links are not followed inside workspace roots.',
-        requestedPath,
-        'read'
-      );
-    }
-    throw new AccessError('File is not accessible.', requestedPath, 'read');
+    return readResolvedWorkspaceFile(requestedPath, resolved);
   }
 
   removeRoot(rootId: string): Promise<void> {
@@ -896,7 +861,7 @@ export class WorkspaceRootRegistry {
    * handles) stay quiet: the IPC layer converts those to a normal payload.
    */
   private async withReadDenialLogging<T>(
-    operation: 'readDirectory' | 'readFile',
+    operation: 'readDirectory' | 'readFile' | 'readFileByAbsolutePath',
     requestedPath: string,
     rootId: string | undefined,
     run: () => Promise<T>
@@ -919,11 +884,7 @@ export class WorkspaceRootRegistry {
   private async resolveRead(
     requestedPath: string,
     rootId?: string
-  ): Promise<{
-    mounted: MountedWorkspaceRoot;
-    relativePath: string;
-    traversedSymlink: boolean;
-  }> {
+  ): Promise<ResolvedWorkspaceRead> {
     if (requestedPath.includes('\0')) {
       throw new AccessError('Requested path contains null bytes.', requestedPath, 'read');
     }
@@ -942,28 +903,7 @@ export class WorkspaceRootRegistry {
         'read'
       );
     }
-    const lexicalRelativePath = resolveLexicalRelativePath(mounted, requestedPath);
-
-    // Realpath is an authorization preflight only. The native operation keeps
-    // the lexical relative path so an in-root symlink cannot be rewritten to
-    // its target and accidentally become readable.
-    const canonicalTarget = await this.resolveReadPath(requestedPath, mounted.canonicalPath);
-    if (!isContained(mounted.canonicalPath, canonicalTarget)) {
-      throw new AccessError('Path is outside the selected workspace root.', requestedPath, 'read');
-    }
-    // A symlink was traversed or is the leaf itself when the realpath
-    // preflight resolved somewhere other than the purely lexical target —
-    // the native read below never follows it (see comment above), so this
-    // is reported to the caller as a precise, non-generic error instead.
-    const lexicalAbsoluteTarget = path.normalize(
-      path.join(mounted.canonicalPath, lexicalRelativePath)
-    );
-    const traversedSymlink = !pathsEqual(lexicalAbsoluteTarget, canonicalTarget);
-    return {
-      mounted,
-      relativePath: lexicalRelativePath || '.',
-      traversedSymlink,
-    };
+    return resolveReadAgainstMountedRoot(requestedPath, mounted, this.resolveReadPath);
   }
 
   /**

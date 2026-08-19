@@ -357,6 +357,15 @@ export function registerFileSystemIpcHandlers({
           },
           readFile: async (relativePath) => {
             const filePath = path.join(rootPath, relativePath);
+            const fixture = getElectronE2eFileSystemFixture();
+            if (fixture && path.normalize(fixture.rootHandle.path) === path.normalize(rootPath)) {
+              fixture.readFileByPathCalls.push(filePath);
+              const fixtureContent = fixture.fileContentsByPath[filePath];
+              if (fixtureContent === undefined) {
+                return { status: 'not-found' };
+              }
+              return { content: Buffer.from(fixtureContent), status: 'ok' };
+            }
             const content = await fileSystem.readFile({
               kind: 'file',
               name: path.basename(filePath),
@@ -498,6 +507,24 @@ export function registerFileSystemIpcHandlers({
         return await roots.readFile(resolvedHandle);
       } catch (error) {
         const payload = toFileReadErrorPayload(error, handle?.path ?? '');
+        if (payload) {
+          return payload;
+        }
+        throw error;
+      }
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.readFileByAbsolutePath,
+    { roles: ['visible-ui'] },
+    async (_event, absolutePath: unknown, claimedRootPath: unknown) => {
+      const diagnosticPath = typeof absolutePath === 'string' ? absolutePath : '';
+      try {
+        return await roots.readFileByAbsolutePath(absolutePath, claimedRootPath);
+      } catch (error) {
+        const payload = toFileReadErrorPayload(error, diagnosticPath);
         if (payload) {
           return payload;
         }
