@@ -92,11 +92,24 @@ function writeFixture(
     // not some repository above the temp dir, or `dist` would be classified
     // against the wrong .gitignore and the suppression tests would be testing
     // an unrelated tree.
+    //
+    // Compared through realpathSync on BOTH sides rather than as strings: Git
+    // for Windows reports `--absolute-git-dir` with forward slashes, which
+    // never equals a `path.join` result on win32, and realpath also settles
+    // drive-letter case and any symlinked temp dir. Comparing the raw strings
+    // would fail this control on a Windows workstation for a fixture git had
+    // resolved perfectly correctly.
     const discovery = gitDiscovery(dir);
+    const found = discovery.stdout.trim();
+    assert.notEqual(
+      found,
+      '',
+      `fixture control: git reported no git dir for the fixture: ${discovery.stderr.trim()}`
+    );
     assert.equal(
-      discovery.stdout.trim(),
-      path.join(realpathSync(dir), '.git'),
-      `fixture control: git resolved a repository outside the fixture: ${discovery.stdout.trim() || discovery.stderr.trim()}`
+      realpathSync(found),
+      realpathSync(path.join(dir, '.git')),
+      `fixture control: git resolved a repository outside the fixture: ${found}`
     );
   }
   if (!generatedViolation) {
