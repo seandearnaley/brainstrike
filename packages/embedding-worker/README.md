@@ -54,8 +54,10 @@ Results arrive as `EmbedWorkerSuccess` instances containing Float32Array vectors
 ### Commands
 
 ```bash
-pnpm --filter @brainstrike/embedding-worker test      # run Vitest suites
-pnpm --filter @brainstrike/embedding-worker run build # clean + tsc + tsup bundle
+pnpm --filter @brainstrike/embedding-worker test                # unit project only
+pnpm --filter @brainstrike/embedding-worker test:browser        # deterministic Chromium suite
+pnpm --filter @brainstrike/embedding-worker test:webgpu-memory  # opt-in hardware memory probe
+pnpm --filter @brainstrike/embedding-worker run build           # clean + tsc + tsup bundle
 ```
 
 `vitest.config.mts` aliases internal dependencies so tests reference source files directly without building `dist/`.

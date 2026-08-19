@@ -26,11 +26,6 @@ function createDeferred<T>(): {
   return { promise, reject, resolve };
 }
 
-const flushMicrotasks = async (): Promise<void> => {
-  await Promise.resolve();
-  await Promise.resolve();
-};
-
 describe('pipeline cache metadata and dispose', () => {
   beforeEach(() => {
     resetMocks();
@@ -381,6 +376,46 @@ describe('pipeline cache metadata and dispose', () => {
     );
   });
 
+  it('reports idle direct-worker disposal failure through the owner-visible error channel', async () => {
+    vi.useFakeTimers({ now: 1000 });
+    const postMessage = vi.fn();
+    const reportError = vi.fn();
+    const mockSelf = {
+      close: vi.fn(),
+      onerror: null as ((event: ErrorEvent | string) => void) | null,
+      onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      postMessage,
+    };
+    vi.stubGlobal('self', mockSelf);
+    vi.stubGlobal('reportError', reportError);
+    const disposalError = new Error('idle direct release failed');
+    const { disposeMock, extractor } = makeExtractor('idle-direct-model');
+    disposeMock.mockRejectedValue(disposalError);
+    pipelineMock.mockResolvedValue(extractor);
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      id: 'idle-direct-cache-load',
+      model: 'idle-direct-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    await vi.advanceTimersByTimeAsync(330_000);
+
+    expect(reportError).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        cause: disposalError,
+        message:
+          'Embedding pipeline disposal failed for idle-direct-model|wasm|fp16 (idle-timeout).',
+      })
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'evicted', reason: 'idle-timeout' }),
+      []
+    );
+  });
+
   it('keeps inference available when cached model-size telemetry changes', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
@@ -501,7 +536,76 @@ describe('pipeline cache metadata and dispose', () => {
     expect(pipelineMock).toHaveBeenCalledTimes(2);
   });
 
-  it('does not delete a replacement pipeline when an evicted load later fails', async () => {
+  it('blocks replacement allocation and broadcasts lifetime failure when disposal rejects', async () => {
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}pool-worker-disposal-failure`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=pool-disposal-failure-telemetry`,
+    });
+    const channelMessages: unknown[] = [];
+    class MockBroadcastChannel {
+      constructor(readonly name: string) {}
+
+      postMessage(message: unknown): void {
+        channelMessages.push(message);
+      }
+    }
+    vi.stubGlobal(
+      'BroadcastChannel',
+      MockBroadcastChannel as unknown as typeof globalThis.BroadcastChannel
+    );
+    const disposalError = new Error('physical release failed');
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    pipelineMock.mockImplementation((_task: string, model: string) => {
+      const { disposeMock, extractor } = makeExtractor(model);
+      if (model === 'dispose-fail-a') {
+        disposeMock.mockRejectedValue(disposalError);
+      }
+      return Promise.resolve(extractor);
+    });
+    const runEmbedding = await loadWorker();
+
+    for (const model of ['dispose-fail-a', 'dispose-fail-b', 'dispose-fail-c']) {
+      await runEmbedding({
+        deviceHint: 'wasm',
+        id: `load-${model}`,
+        model,
+        texts: ['hello'],
+        type: 'embed',
+      });
+    }
+
+    await expect(
+      runEmbedding({
+        deviceHint: 'wasm',
+        id: 'blocked-replacement',
+        model: 'dispose-fail-d',
+        texts: ['hello'],
+        type: 'embed',
+      })
+    ).rejects.toBe(disposalError);
+
+    expect(pipelineMock.mock.calls.map(([, model]) => model)).not.toContain('dispose-fail-d');
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'blocked-replacement',
+        message: 'physical release failed',
+        type: 'error',
+      })
+    );
+    expect(channelMessages).toContainEqual({
+      cause: 'physical release failed',
+      message: 'Embedding pipeline disposal failed for dispose-fail-a|wasm|fp16 (resident-limit).',
+      type: 'worker-lifetime-error',
+      workerInstanceId: 'pool-worker-disposal-failure',
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      '[EmbeddingWorker]',
+      'Embedding pipeline disposal failed for dispose-fail-a|wasm|fp16 (resident-limit).',
+      { cause: 'physical release failed' }
+    );
+  });
+
+  it('rejects pending WebGPU eviction, then retries after the failed load releases capacity', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     await installMockOrtWebGpuDevice();
     const pendingRaceLoads: ReturnType<
@@ -527,15 +631,36 @@ describe('pipeline cache metadata and dispose', () => {
       type: 'embed',
     });
     const firstRaceOutcome = firstRace.catch((error: unknown) => error);
-    await flushMicrotasks();
+    await vi.waitFor(() => expect(pendingRaceLoads).toHaveLength(1));
 
-    await runEmbedding({
-      deviceHint: 'webgpu',
-      id: 'evictor',
-      model: 'evictor-model',
-      texts: ['evict'],
-      type: 'embed',
-    });
+    await expect(
+      runEmbedding({
+        deviceHint: 'webgpu',
+        id: 'evictor-blocked',
+        model: 'evictor-model',
+        texts: ['evict'],
+        type: 'embed',
+      })
+    ).rejects.toThrow(
+      'Embedding pipeline cache cannot admit a webgpu load because every resident slot is pending.'
+    );
+    expect(pipelineMock).not.toHaveBeenCalledWith(
+      'feature-extraction',
+      'evictor-model',
+      expect.anything()
+    );
+
+    pendingRaceLoads[0]?.reject(new Error('stale load failed'));
+    await expect(firstRaceOutcome).resolves.toMatchObject({ message: 'stale load failed' });
+    await expect(
+      runEmbedding({
+        deviceHint: 'webgpu',
+        id: 'evictor-retry',
+        model: 'evictor-model',
+        texts: ['evict'],
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ vectors: [new Float32Array([1, 0, 0])] });
 
     const replacementRace = runEmbedding({
       deviceHint: 'webgpu',
@@ -544,10 +669,7 @@ describe('pipeline cache metadata and dispose', () => {
       texts: ['replacement'],
       type: 'embed',
     });
-    await flushMicrotasks();
-
-    pendingRaceLoads[0]?.reject(new Error('stale load failed'));
-    await expect(firstRaceOutcome).resolves.toMatchObject({ message: 'stale load failed' });
+    await vi.waitFor(() => expect(pendingRaceLoads).toHaveLength(2));
 
     pendingRaceLoads[1]?.resolve(makeExtractor('race-replacement').extractor);
     await expect(replacementRace).resolves.toMatchObject({

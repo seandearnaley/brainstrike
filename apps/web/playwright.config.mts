@@ -18,6 +18,14 @@ harmonizeColorEnvironment();
 
 // Get environment configuration
 const config = getEnvironmentConfig();
+const performanceLaunchArgs = [
+  ...(config.isCI ? getCILaunchArgs() : []),
+  '--enable-blink-features=ForceEagerMeasureMemory',
+];
+const performanceUse = {
+  channel: 'chromium' as const,
+  launchOptions: { args: performanceLaunchArgs },
+};
 
 // Check if full browser coverage is requested
 const useFullBrowserCoverage = !!process.env[fullBrowserCoverageEnv];
@@ -106,7 +114,7 @@ export default defineConfig({
           retries: 1, // Fewer retries for performance tests
           testMatch: '**/performance/*.test.ts',
           timeout: 120_000, // 2 minutes for performance tests
-          use: { channel: 'chromium' },
+          use: performanceUse,
         },
       ]
     : [
@@ -129,7 +137,7 @@ export default defineConfig({
           retries: 1, // Fewer retries for performance tests
           testMatch: '**/performance/*.test.ts',
           timeout: 120_000, // 2 minutes for performance tests
-          use: { channel: 'chromium' },
+          use: performanceUse,
         },
       ],
 

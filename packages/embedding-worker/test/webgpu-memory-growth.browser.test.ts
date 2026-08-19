@@ -9,7 +9,7 @@
  * memory can only be observed externally (Activity Monitor) while the test runs
  * with headless: false.
  *
- * Run: pnpm --filter @brainstrike/embedding-worker vitest run --project browser
+ * Run: pnpm --filter @brainstrike/embedding-worker test:webgpu-memory
  */
 
 import { describe, expect, it } from 'vitest';

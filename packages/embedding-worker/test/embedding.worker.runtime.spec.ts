@@ -10,6 +10,12 @@ import type {
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
 } from '../src';
+import {
+  EMBEDDING_WORKER_TEST_RUNTIME_AUTOMATION,
+  EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY,
+  EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_MARKER,
+  EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY,
+} from '../src/test-runtime-bootstrap';
 
 const workerEmitMock = vi.fn();
 const transferMock = vi.fn(function TransferStub<T>(value: T) {
@@ -93,6 +99,8 @@ vi.mock('@huggingface/transformers', () => ({
 describe('embedding worker runtime', () => {
   beforeEach(() => {
     vi.resetModules();
+    Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY);
+    Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY);
     workerEmitMock.mockReset();
     pipelineMock.mockReset();
     transferMock.mockClear();
@@ -146,6 +154,80 @@ describe('embedding worker runtime', () => {
     }
     assertion();
   };
+
+  function installTestRuntime(runtime: Record<string, unknown>): void {
+    Object.defineProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY, {
+      configurable: true,
+      value: {
+        automation: EMBEDDING_WORKER_TEST_RUNTIME_AUTOMATION,
+        marker: EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_MARKER,
+        takeRuntime: () => ({ runtime, webGpuClassProxy: true }),
+      },
+    });
+  }
+
+  describe('webdriver test runtime validation', () => {
+    it('boots the production worker from a valid fixed runtime without importing Transformers', async () => {
+      transformersImportState.error = new Error('Transformers import must remain unused');
+      const extractor = vi.fn(async () => Float32Array.from([0.25, 0.75]));
+      const injectedPipeline = vi.fn(async () => extractor);
+      installTestRuntime({
+        env: { allowRemoteModels: false },
+        pipeline: injectedPipeline,
+        tensorConstructor: MockTensor,
+      });
+
+      await expect(import('../src/embedding.worker')).resolves.toBeDefined();
+      const runEmbedding = registeredHandlers.runEmbedding;
+      if (!runEmbedding) {
+        throw new Error('Expected the production worker to register its embedding handler.');
+      }
+      await expect(
+        runEmbedding({
+          deviceHint: 'wasm',
+          id: 'injected-runtime-proof',
+          model: 'bge-m3',
+          texts: ['offline probe'],
+          truncateDim: 2,
+          type: 'embed',
+        })
+      ).resolves.toMatchObject({ id: 'injected-runtime-proof', type: 'result' });
+      expect(injectedPipeline).toHaveBeenCalledOnce();
+      expect(extractor).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing environment',
+        runtime: { pipeline: vi.fn(), tensorConstructor: MockTensor },
+      },
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing pipeline loader',
+        runtime: { env: { allowRemoteModels: false }, tensorConstructor: MockTensor },
+      },
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing Tensor constructor',
+        runtime: { env: { allowRemoteModels: false }, pipeline: vi.fn() },
+      },
+      {
+        error: 'Embedding worker test runtime must disable remote models.',
+        name: 'remote model loading',
+        runtime: {
+          env: { allowRemoteModels: true },
+          pipeline: vi.fn(),
+          tensorConstructor: MockTensor,
+        },
+      },
+    ])('rejects $name before registering the worker', async ({ error, runtime }) => {
+      installTestRuntime(runtime);
+
+      await expect(import('../src/embedding.worker')).rejects.toThrow(error);
+      expect(registeredHandlers.runEmbedding).toBeUndefined();
+    });
+  });
 
   describe('global error handlers', () => {
     it('sets up onerror handler in worker context', async () => {

@@ -144,6 +144,61 @@ Embedding runtime telemetry (BST-402):
   into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
   entries to heap memory. Missing registry metadata remains explicitly unavailable; it
   is never presented as a measured browser-memory value.
+- Pipeline-cache residency policy has one implementation:
+  `packages/embedding-worker/src/pipeline-cache-controller.ts`. The production worker
+  injects the real Transformers.js loader; the controller owns the 1-WebGPU/3-WASM
+  limits, LRU/idle eviction, disposal, and diagnostic snapshots. A miss reserves its
+  logical cache slot synchronously. Request and cache-clock validation finish before any
+  eviction or loader call, so a rejected request cannot orphan a physical allocation. The
+  replacement loader cannot allocate until the evicted resource's possibly asynchronous
+  `.dispose()` completes. Concurrent misses
+  therefore remain deduplicated and physically bounded. Pending entries are reservations,
+  never resident-limit or idle-timeout eviction victims: if every device-class slot is
+  pending, a distinct miss fails immediately with a request-scoped load-failure diagnostic
+  and can be retried once capacity becomes available. This prevents a pending caller from
+  receiving a resource that a concurrent miss already disposed. A resident-limit disposal
+  rejection blocks the pending replacement and emits its request-scoped load-failure
+  diagnostic. Every disposer rejection latches the controller against future loads, remains
+  visible to `wait` and `close`, and asks workerpool to replace the failed worker through its
+  managed lifetime-error channel. A direct worker has no such channel, so an idle disposer
+  failure is re-reported immediately through the owner-visible uncaught-worker-error path;
+  the streaming client then fails and retires that worker. BST-369's deterministic
+  browser proof now routes ordinary queue tasks through a private
+  `createBrowserEmbeddingQueue` (`minWorkers = maxWorkers = 1`), workerpool's
+  `runEmbedding` RPC, and the actual `embedding.worker.ts` module. A wrapper installs a
+  one-shot, fixed synthetic Transformers runtime before dynamically importing that
+  production worker. Its allowlisted pipelines retain page-touched 8 MiB WASM or 16 MiB
+  GPU-class `Uint8Array` stores until the production controller awaits their deliberately
+  asynchronous `.dispose()` method. The physical ledger sums each live allocation's actual
+  `store.byteLength`, not declared model metadata. Every cross-origin HTTP(S) request and
+  the same-origin `/api/hf/` proxy are aborted and asserted absent; malformed, duplicate,
+  or late runtime bootstrap attempts throw rather than falling back.
+- The probe is lazy: normal app startup does not import its page module or worker. The
+  native page `navigator.webdriver === true` signal plus an explicit pre-bootstrap init
+  flag control exposure. Chromium's `WorkerNavigator` does not expose `webdriver`, so the
+  worker uses the wrapper's fixed one-shot attestation as defense in depth rather than
+  claiming a second native webdriver signal. Inputs, model IDs, sizes, and switch counts
+  are fixed and bounded; the external hook accepts no arguments.
+- BST-369's physical assertion is intentionally scoped. It proves browser-worker JS
+  backing-store residency and reclamation for both WASM and a **logical GPU-class proxy**;
+  it does not claim to measure GPU VRAM or real model inference. The test also asserts the
+  production telemetry estimate (three WASM plus one GPU-class resident), 23 transferred
+  result buffers, 18 exact resident-limit disposals, no runtime failure telemetry, and
+  telemetry-source removal on queue teardown.
+- Browser memory sampling uses only cross-origin-isolated
+  `performance.measureUserAgentSpecificMemory()`. The performance project pins Chromium
+  with `ForceEagerMeasureMemory`; missing capability, malformed totals, missing dedicated
+  worker attribution, mixed page/worker attribution that cannot isolate the probe, or
+  surviving attribution after teardown all fail. Two animation
+  frames separate `Worker.terminate()` from the final sample because invoking Chromium's
+  API in the termination task can remain pending before the agent teardown commits.
+  There is no `performance.memory` fallback. Paired tests:
+  `test-runtime-bootstrap.spec.ts`, `pipeline-cache-controller.spec.ts`,
+  `pipeline-cache.spec.ts`,
+  `pipeline-cache-controller.browser.test.ts`,
+  `embedding-model-switch-memory-probe-contract.test.ts`,
+  `apps/web/src/__tests__/web-e2e-test-hooks.test.tsx`, and
+  `apps/web/e2e/performance/embedding-model-switch-memory.test.ts`.
 - `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser
   workerpool own source-scoped, in-memory telemetry records. The workerpool records the
   unique buffers transferred with each completed result and forwards pipeline-cache
