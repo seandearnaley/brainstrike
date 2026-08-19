@@ -25,9 +25,9 @@
  * const port = createFileTreeWorkerPort(worker);
  *
  * // Register handlers
- * port.onRequestLoad(async (requestId, paths) => {
+ * port.onRequestLoad(async (requestId, paths, abortSignal) => {
  *   // Load directories using FileSystemHandles (main thread only)
- *   const results = await loadDirectories(paths);
+ *   const results = await loadDirectories(paths, abortSignal);
  *   return results;
  * });
  *

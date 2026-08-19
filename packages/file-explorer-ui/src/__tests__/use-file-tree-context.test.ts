@@ -16,7 +16,7 @@ import * as normalizedFileTree from '../utils/normalized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 let requestLoadHandler:
-  | ((requestId: string, paths: string[]) => Promise<BatchLoadResult[]>)
+  | ((requestId: string, paths: string[], signal?: AbortSignal) => Promise<BatchLoadResult[]>)
   | null = null;
 
 const mockWorkerPort = {
@@ -31,10 +31,21 @@ const mockWorkerPort = {
   onNodeLoadStateChanged: vi.fn(() => () => {}),
   onProgress: vi.fn(() => () => {}),
   onRequestLoad: vi.fn(
-    (handler: (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>) => {
-      requestLoadHandler = handler;
+    (
+      handler: (
+        requestId: string,
+        paths: string[],
+        signal: AbortSignal
+      ) => Promise<BatchLoadResult[]>
+    ) => {
+      const registeredHandler = (
+        requestId: string,
+        paths: string[],
+        signal = new AbortController().signal
+      ) => handler(requestId, paths, signal);
+      requestLoadHandler = registeredHandler;
       return () => {
-        if (requestLoadHandler === handler) {
+        if (requestLoadHandler === registeredHandler) {
           requestLoadHandler = null;
         }
       };

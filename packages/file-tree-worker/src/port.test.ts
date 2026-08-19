@@ -380,6 +380,48 @@ describe('createFileTreeWorkerPort', () => {
     expect(settledSignal?.aborted).toBe(false);
   });
 
+  it('aborts an active renderer load when a newer bulk operation takes the worker slot', async () => {
+    const worker = new MockWorker();
+    const port = createFileTreeWorkerPort(worker as unknown as Worker);
+    const readGate = createDeferred<BatchLoadResult[]>();
+    const requestStarted = createDeferred<void>();
+    let requestSignal: AbortSignal | undefined;
+
+    port.onRequestLoad(async (_requestId, _paths, signal) => {
+      requestSignal = signal;
+      requestStarted.resolve();
+      return readGate.promise;
+    });
+    const displacedOperation = port.loadPaths(['/root/dir']);
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/root/dir'], requestId: 'req-displaced' },
+      type: 'requestLoad',
+    });
+    await requestStarted.promise;
+
+    const activeOperation = port.loadPaths(['/root/other']);
+    await expect(displacedOperation).rejects.toThrow('Operation aborted by new request');
+    expect(requestSignal?.aborted).toBe(true);
+
+    readGate.resolve([
+      {
+        children: [createDirectoryNode('/root/dir/stale')],
+        path: '/root/dir',
+      },
+    ]);
+    await flushMicrotasks();
+    expect(worker.postedMessages).not.toContainEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({ requestId: 'req-displaced' }),
+        type: 'loadResult',
+      })
+    );
+
+    port.abort();
+    await expect(activeOperation).rejects.toThrow('Operation aborted');
+  });
+
   it('resolves and rejects long-running operations correctly', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);

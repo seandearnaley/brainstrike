@@ -93,6 +93,10 @@ async function runRetirableWorkerTreeOperation<T>(args: {
     retired: false,
     token: Symbol(args.label),
   };
+  const previousOperation = args.activeOperationRef.current;
+  if (previousOperation) {
+    previousOperation.retired = true;
+  }
   args.activeOperationRef.current = operation;
   try {
     const result = await args.work();

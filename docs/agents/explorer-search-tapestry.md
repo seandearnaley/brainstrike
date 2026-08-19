@@ -826,7 +826,20 @@ fallback.
   so retiring a worker-backed read cancels that active bulk sweep as a unit;
   the replacement physical read remains scoped to the affected directory, then
   the original bounded restoration/expand request continues through the
-  renderer so unrelated paths are not silently reported as restored. A forced
+  renderer so unrelated paths are not silently reported as restored. Starting
+  another bulk operation marks the displaced operation retired before taking
+  the shared worker slot; the port's supersession rejection therefore triggers
+  that same bounded renderer replay instead of being logged and falsely
+  settling the older restoration. Every worker `requestLoad` also owns a
+  request-id-scoped renderer `AbortController`. Explicit abort, bulk
+  supersession, runtime failure, and port termination abort and remove all live
+  request controllers; ordinary settlement removes only the identity-matching
+  controller, keeping the registry bounded. The signal fences the handle-map
+  publication after directory I/O, and the port suppresses any result/error
+  that settles after its request was retired. As a second ordering defense, the
+  BFS engine rejects a correlated result/error whose request id and path are no
+  longer pending before touching its tree; legacy id-less standalone updates
+  remain valid. A forced
   root refresh retires the same provider's
   active root/child/bulk consumers and waits for any still-live shared root read
   that crossed the invalidation boundary before starting fresh physical I/O;
@@ -838,7 +851,8 @@ fallback.
   root retain the `C:/` or `C:\\` parent boundary and therefore trigger the
   required root refresh.
   Pinned by `file-selection-reconciliation.test.ts`,
-  `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`, and
+  `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`,
+  `use-file-tree-worker.test.tsx`, `port.test.ts`, `bfs-engine.test.ts`, and
   `file-tree-provider.test.tsx`.
 - **Narrow toolbar geometry.** The Explorer panel's 180px minimum width leaves
   a 76px right grid track. Below 236px, Refresh, View Filters **and Expand All /

@@ -81,6 +81,7 @@ async function loadSingleDirectory(
       sortFileNodes,
     });
 
+    abortSignal.throwIfAborted();
     addHandlesToMap(children, handleMap);
 
     return { children: toWorkerFileNodes(children), path };
@@ -196,13 +197,12 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
     // Handle load requests from worker - perform I/O with FileSystemHandles
     unsubscribes.push(
-      port.onRequestLoad(async (_requestId, paths) => {
+      port.onRequestLoad(async (_requestId, paths, abortSignal) => {
+        abortSignal.throwIfAborted();
         if (!fileSystemAdapter) {
           logger.warn('onRequestLoad: no file system adapter');
           return paths.map((path) => ({ error: 'No file system adapter', path }));
         }
-
-        const abortController = new AbortController();
 
         // Get root info for building nodes
         const rootHandle = rootHandleRef.current;
@@ -231,7 +231,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
                 rootHandle.rootId,
                 handleMapRef.current,
                 fileSystemAdapter,
-                abortController.signal
+                abortSignal
               );
             } catch (err) {
               // Ignore abort errors (operation was cancelled)
@@ -246,6 +246,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
           }
         );
 
+        abortSignal.throwIfAborted();
         return results;
       })
     );
