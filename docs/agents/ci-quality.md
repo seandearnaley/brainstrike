@@ -577,6 +577,18 @@ cannot hide inside it while JIT/runtime bookkeeping has implementation-level
 headroom. If the pinned CI environment first breaches, use the controlled
 same-SHA dispatch procedure above before changing any budget.
 
+The web unit-coverage census exact-excludes only the browser page probe and its
+wrapper worker. Those modules require a production Vite worker bundle,
+cross-origin isolation, workerpool, and Chromium's
+`measureUserAgentSpecificMemory()`; their executable owner is the scheduled and
+dispatchable `performance.yml` Playwright project above. The paired
+`performance-benchmark-contract.vitest.ts` test pins the exact two exclusions,
+the webdriver-gated lazy hook, the page-probe-to-worker-to-production-worker
+route, and the scheduled workflow selection. The platform-neutral memory
+measurement and worker-message validation modules remain in unit coverage, and
+the web L98/F85/B73/S89 thresholds are unchanged. Do not broaden this exception
+or replace it with a wildcard.
+
 ### Primary Linux x64 jobs run on Ubicloud (BST-765)
 
 `unit-shard`, `build`, `native-electron`, `web-e2e`, and `desktop-e2e` in

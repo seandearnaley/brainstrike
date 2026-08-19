@@ -194,6 +194,7 @@ Embedding runtime telemetry (BST-402):
   `test-runtime-bootstrap.spec.ts`, `pipeline-cache-controller.spec.ts`,
   `pipeline-cache.spec.ts`,
   `pipeline-cache-controller.browser.test.ts`,
+  `embedding-model-switch-memory-probe-contract.test.ts`,
   `apps/web/src/__tests__/web-e2e-test-hooks.test.tsx`, and
   `apps/web/e2e/performance/embedding-model-switch-memory.test.ts`.
 - `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser

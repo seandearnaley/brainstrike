@@ -82,6 +82,13 @@ export default defineConfig({
         '**/vitest.config.*',
         '**/playwright.config.*',
         'e2e/**',
+        // These two modules are the browser-only BST-369 E2E runtime: they
+        // require the production Vite worker bundle, cross-origin isolation,
+        // workerpool, and measureUserAgentSpecificMemory. The paired benchmark
+        // contract pins this exact exclusion to the scheduled Playwright owner;
+        // the pure measurement and message-contract modules remain unit-covered.
+        'src/embedding-model-switch-memory-probe.ts',
+        'src/embedding-model-switch-memory-probe.worker.ts',
       ],
       include: ['src/**/*.{ts,tsx}'],
       provider: 'v8',
