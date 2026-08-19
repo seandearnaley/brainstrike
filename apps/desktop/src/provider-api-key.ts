@@ -196,6 +196,27 @@ export async function readProviderCredential(
   // mode env still wins over stored, which is why the env chain outranks the
   // stored chain. `resolveHostedProviderCredential` already decided 1-vs-2,
   // so the only work left here is inserting 3 ahead of a stored chain.
+  //
+  // NO SILENT FALLBACK (PR #2529 review, finding 1): the store-read failure is
+  // checked BEFORE rung 3, because a failed read is not "nothing stored" — the
+  // entry it could not decrypt may be a stored BEARER, which OUTRANKS the env
+  // chain. Selecting the chain here would sign requests with whatever ambient
+  // AWS identity happens to be in the environment while the credential the
+  // user actually chose is merely unreadable, and nothing would ever say so.
+  // The resolver cannot know the intended winner, so it surfaces the failure.
+  //
+  // This does NOT weaken the healthy path: the core only consults the store
+  // after every env source came up empty and never reports `secretReadError`
+  // alongside a credential, so an env bearer (rung 1) has already returned
+  // above with no failure to surface.
+  if (resolution.secretReadError !== undefined) {
+    logger.error('Failed to read secrets entry for provider', {
+      error: resolution.secretReadError,
+      provider,
+    });
+    throw resolution.secretReadError;
+  }
+
   if (isAwsAuthProvider(provider)) {
     const envChain = resolveAwsEnvChainCredential(
       process.env,
@@ -208,13 +229,6 @@ export async function readProviderCredential(
 
   if (resolution.credential && resolution.source) {
     return { ...resolution.credential, source: resolution.source };
-  }
-  if (resolution.secretReadError !== undefined) {
-    logger.error('Failed to read secrets entry for provider', {
-      error: resolution.secretReadError,
-      provider,
-    });
-    throw resolution.secretReadError;
   }
   return;
 }
@@ -328,7 +342,8 @@ async function collectStoredSources(
  */
 function applyEnvChainSources(
   providers: readonly SupportedProvider[],
-  configured: ConfiguredProviderMap
+  configured: ConfiguredProviderMap,
+  unreadable: ReadonlySet<SupportedProvider>
 ): void {
   // Loop-INVARIANT (PR #2525 review, finding 9): the env chain depends only on
   // process.env, never on the provider, so resolve it ONCE. Inside the loop it
@@ -342,6 +357,16 @@ function applyEnvChainSources(
     // a legacy bare-string key under bedrock counts as a bearer — see
     // storedAuthMode.
     if (!isAwsAuthProvider(provider) || configured.get(provider)?.authMode === 'bearer') {
+      continue;
+    }
+    // NO SILENT FALLBACK (PR #2529 review, finding 1 — listing side): an
+    // UNREADABLE stored credential may be a bearer, which outranks the chain.
+    // `readProviderCredential` now surfaces that failure instead of guessing,
+    // so labelling the row `profile_chain` here would announce a mode the next
+    // request refuses to use — the exact disagreement this rung exists to
+    // avoid. The provider stays out of `configuredProviders` and is reported
+    // through `readFailures` alone.
+    if (unreadable.has(provider)) {
       continue;
     }
     configured.set(provider, {
@@ -360,7 +385,11 @@ export async function inspectProviderKeys(): Promise<ProviderKeyInspection> {
 
   collectEnvBearerSources(supportedProviders, configured);
   await collectStoredSources(configured, readFailures);
-  applyEnvChainSources(supportedProviders, configured);
+  applyEnvChainSources(
+    supportedProviders,
+    configured,
+    new Set(readFailures.map(({ provider }) => provider))
+  );
 
   return {
     configuredProviders: [...configured.values()],
