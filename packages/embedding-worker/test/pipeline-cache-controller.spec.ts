@@ -330,6 +330,99 @@ describe('embedding pipeline cache controller', () => {
     }
   });
 
+  it('rejects a concurrent WebGPU miss until its pending resident becomes evictable', async () => {
+    const pendingGpuLoad = createDeferred<{ readonly dispose: () => void }>();
+    const firstDispose = vi.fn();
+    const secondResource = { dispose: vi.fn() };
+    const diagnostics: EmbedWorkerPipelineCacheDiagnostic[] = [];
+    const onLoadFailed = vi.fn();
+    const load = vi.fn(async (model: string) => {
+      if (model === 'gpu-pending') {
+        return await pendingGpuLoad.promise;
+      }
+      return secondResource;
+    });
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      onLoadFailed,
+      publishDiagnostic: (diagnostic) => {
+        diagnostics.push(diagnostic);
+      },
+      workerInstanceId: 'pending-gpu-worker',
+    });
+    const firstLoad = controller.load({
+      device: 'webgpu',
+      dtype: 'fp16',
+      estimatedModelBytes: GPU_MODEL_BYTES,
+      model: 'gpu-pending',
+    });
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+
+    let admissionError: unknown;
+    const concurrentLoad = controller
+      .load({
+        device: 'webgpu',
+        diagnostics: { id: 'gpu-concurrent' },
+        dtype: 'fp16',
+        estimatedModelBytes: GPU_MODEL_BYTES,
+        model: 'gpu-concurrent',
+      })
+      .catch((error: unknown) => {
+        admissionError = error;
+        return secondResource;
+      });
+
+    try {
+      await vi.waitFor(() => expect(admissionError).toBeInstanceOf(Error), { timeout: 250 });
+      expect(admissionError).toMatchObject({
+        message:
+          'Embedding pipeline cache cannot admit a webgpu load because every resident slot is pending.',
+      });
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(firstDispose).not.toHaveBeenCalled();
+      expect(controller.getResidentEntries()).toMatchObject([
+        { cacheKey: 'gpu-pending|webgpu|fp16', model: 'gpu-pending' },
+      ]);
+      expect(diagnostics).not.toContainEqual(
+        expect.objectContaining({ event: 'evicted', reason: 'resident-limit' })
+      );
+      expect(diagnostics).toContainEqual(
+        expect.objectContaining({
+          cacheSize: 1,
+          event: 'load-failed',
+          id: 'gpu-concurrent',
+          reason: 'load-failure',
+        })
+      );
+      expect(onLoadFailed).toHaveBeenCalledWith({
+        device: 'webgpu',
+        dtype: 'fp16',
+        error: admissionError,
+        model: 'gpu-concurrent',
+      });
+
+      const firstResource = { dispose: firstDispose };
+      pendingGpuLoad.resolve(firstResource);
+      await expect(firstLoad).resolves.toBe(firstResource);
+      await expect(concurrentLoad).resolves.toBe(secondResource);
+
+      await expect(
+        controller.load({
+          device: 'webgpu',
+          dtype: 'fp16',
+          estimatedModelBytes: GPU_MODEL_BYTES,
+          model: 'gpu-concurrent',
+        })
+      ).resolves.toBe(secondResource);
+      expect(firstDispose).toHaveBeenCalledOnce();
+      expect(load).toHaveBeenCalledTimes(2);
+    } finally {
+      pendingGpuLoad.resolve({ dispose: firstDispose });
+      await Promise.allSettled([firstLoad, concurrentLoad]);
+      await controller.close();
+    }
+  });
+
   it('surfaces a settled background disposal failure through wait and close', async () => {
     const disposalError = new Error('device-lost release failed');
     const onDisposeFailed = vi.fn();

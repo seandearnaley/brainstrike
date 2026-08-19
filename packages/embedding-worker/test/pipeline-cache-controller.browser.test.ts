@@ -1,11 +1,61 @@
 import type { EmbedWorkerPipelineCacheDiagnostic } from '@brainstrike/indexing-contract';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createEmbeddingPipelineCacheController } from '../src/pipeline-cache-controller';
 
 const WASM_MODEL_BYTES = 8 * 1024 * 1024;
 const GPU_MODEL_BYTES = 16 * 1024 * 1024;
 
 describe('embedding pipeline cache controller in Chromium', () => {
+  it('does not evict a pending WebGPU resource for a concurrent miss', async () => {
+    let resolvePending!: (resource: { readonly dispose: () => void }) => void;
+    const pendingResource = new Promise<{ readonly dispose: () => void }>((resolve) => {
+      resolvePending = resolve;
+    });
+    const dispose = vi.fn();
+    const load = vi.fn(async (model: string) => {
+      if (model === 'gpu-pending') {
+        return await pendingResource;
+      }
+      return { dispose: vi.fn() };
+    });
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'browser-pending-gpu-worker',
+    });
+    const firstLoad = controller.load({
+      device: 'webgpu',
+      dtype: 'fp16',
+      estimatedModelBytes: GPU_MODEL_BYTES,
+      model: 'gpu-pending',
+    });
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    let admissionError: unknown;
+    const concurrentLoad = controller
+      .load({
+        device: 'webgpu',
+        dtype: 'fp16',
+        estimatedModelBytes: GPU_MODEL_BYTES,
+        model: 'gpu-concurrent',
+      })
+      .catch((error: unknown) => {
+        admissionError = error;
+      });
+
+    try {
+      await vi.waitFor(() => expect(admissionError).toBeInstanceOf(Error), { timeout: 250 });
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(dispose).not.toHaveBeenCalled();
+      expect(controller.getResidentEntries()).toMatchObject([
+        { cacheKey: 'gpu-pending|webgpu|fp16' },
+      ]);
+    } finally {
+      resolvePending({ dispose });
+      await Promise.allSettled([firstLoad, concurrentLoad]);
+      await controller.close();
+    }
+  });
+
   it('disposes every resident-limit victim across repeated device-class switches', async () => {
     const diagnostics: EmbedWorkerPipelineCacheDiagnostic[] = [];
     const disposedModels: string[] = [];
