@@ -357,6 +357,7 @@ describe('SettingsPageContent tool operations', () => {
       'token-counting',
       'cost-tracking',
       'local-runtimes',
+      'providers',
       'models',
       'logging',
       'ai-tools',

@@ -4,7 +4,7 @@ import {
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
-import { useAssistantAvailability } from '@brainstrike/app-shell';
+import { useAssistantAvailability, verifyProviderCredential } from '@brainstrike/app-shell';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
@@ -15,7 +15,7 @@ import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/inde
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
-import { createApiKeysSettingsCategory } from '@brainstrike/settings-ui/settings/secrets/api-keys-settings-category';
+import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
 import { createSelfImprovementSignalSettingsCategory } from '@brainstrike/settings-ui/settings/system/self-improvement-signal-settings-category';
 import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/system/skills-settings-category';
@@ -353,9 +353,10 @@ export default function SettingsPageContent() {
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
-      createApiKeysSettingsCategory({
+      createProvidersSettingsCategory({
         ...apiKeyStatus,
         ...(revealEnvFile ? { onRevealPath: revealEnvFile } : {}),
+        verifyProvider: verifyProviderCredential,
       }),
       {
         content: (
@@ -366,11 +367,12 @@ export default function SettingsPageContent() {
               : {})}
           />
         ),
-        description: 'Choose chat and embedding models, manage downloads, and configure providers.',
+        description:
+          'Browse every catalogued model, manage local downloads, and set the model cache directory.',
         icon: Layers,
         id: 'embedding-models',
-        keywords: ['embeddings', 'models', 'providers', 'vector', 'llm', 'download'],
-        title: 'Models & Providers',
+        keywords: ['embeddings', 'models', 'catalog', 'vector', 'llm', 'download', 'cache'],
+        title: 'Model Catalog',
       },
       {
         content: <DesktopLoggingSettings />,

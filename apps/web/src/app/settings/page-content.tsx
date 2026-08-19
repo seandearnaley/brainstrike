@@ -4,6 +4,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/agent/tool-metadata';
+import { verifyProviderCredential } from '@brainstrike/app-shell';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import {
   createSystemDiagnosticsSettingsCategory,
@@ -19,6 +20,7 @@ import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/inde
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
+import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import {
   LoggingSettingsSection,
   type LogSourceAdapter,
@@ -184,13 +186,17 @@ export default function SettingsPageContent() {
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
+      // Web has no `window.secrets` bridge, so the hub renders provider status
+      // read-only ("configured via server environment") with no editors. The
+      // capability check lives inside the component — never a platform test.
+      createProvidersSettingsCategory({ verifyProvider: verifyProviderCredential }),
       {
         content: <ModelSelectionCategory />,
-        description: 'Manage AI providers and enable/disable specific models.',
+        description: 'Browse every catalogued model and enable the ones you want.',
         icon: Layers,
         id: 'models',
-        keywords: ['models', 'providers', 'llm', 'embedding', 'vector'],
-        title: 'Models & Providers',
+        keywords: ['models', 'catalog', 'llm', 'embedding', 'vector'],
+        title: 'Model Catalog',
       },
       {
         content: (

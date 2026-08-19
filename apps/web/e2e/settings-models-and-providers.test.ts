@@ -45,7 +45,7 @@ async function waitForPersistedModelState(
   );
 }
 
-test.describe('Models & Providers settings (web) @web-settings-state', () => {
+test.describe('Model Catalog settings (web) @web-settings-state', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await resetAppState(page);
@@ -62,7 +62,7 @@ test.describe('Models & Providers settings (web) @web-settings-state', () => {
     const settings = new SettingsPage(page);
     await home.goto();
     await home.navigateToSettings();
-    const modelsContent = await settings.openCategory(/Models & Providers/i, 'models');
+    const modelsContent = await settings.openCategory(/Model Catalog/i, 'models');
 
     const registryError = modelsContent.getByTestId('model-registry-error');
     await expect(registryError).toBeVisible({ timeout: 15_000 });
@@ -87,7 +87,7 @@ test.describe('Models & Providers settings (web) @web-settings-state', () => {
     const settings = new SettingsPage(page);
     await home.goto({ waitForDatabase: false });
     await home.navigateToSettings();
-    await settings.openCategory(/Models & Providers/i, 'models');
+    await settings.openCategory(/Model Catalog/i, 'models');
 
     await page.getByTestId('model-cache-dir-select').click();
 
@@ -104,7 +104,7 @@ test.describe('Models & Providers settings (web) @web-settings-state', () => {
     const settings = new SettingsPage(page);
     await home.goto();
     await home.navigateToSettings();
-    await settings.openCategory(/Models & Providers/i, 'models');
+    await settings.openCategory(/Model Catalog/i, 'models');
 
     const modelRows = page.locator('[data-testid^="model-row-"]');
     await expect(modelRows.first()).toBeVisible({ timeout: 30_000 });
@@ -153,7 +153,7 @@ test.describe('Models & Providers settings (web) @web-settings-state', () => {
       })
       .toBe(dbPathBeforeReload);
     await home.navigateToSettings();
-    await settings.openCategory(/Models & Providers/i, 'models');
+    await settings.openCategory(/Model Catalog/i, 'models');
 
     await expect(page.getByTestId(`model-toggle-${modelId}`)).toHaveAttribute(
       'aria-checked',

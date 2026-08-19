@@ -30,7 +30,7 @@ const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
 const MAX_SNIPPET_CHARS = 600;
 
 const UNAVAILABLE_MESSAGE =
-  'Web search is unavailable — add a Tavily API key in Settings → API Keys to enable it.';
+  'Web search is unavailable — add a Tavily API key in Settings → Providers → Other credentials to enable it.';
 
 class MalformedTavilyCitationUrlError extends Error {
   constructor() {

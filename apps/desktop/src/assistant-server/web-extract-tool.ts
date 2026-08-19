@@ -17,7 +17,7 @@ export { WEB_EXTRACT_TOOL_ID };
 const DEFAULT_TIMEOUT_MS = 15_000;
 const TAVILY_EXTRACT_URL = 'https://api.tavily.com/extract';
 const UNAVAILABLE_MESSAGE =
-  'Web extract is unavailable — add a Tavily API key in Settings → API Keys to enable it.';
+  'Web extract is unavailable — add a Tavily API key in Settings → Providers → Other credentials to enable it.';
 
 /** One extracted page returned to the model. */
 export interface WebExtractResultItem {
