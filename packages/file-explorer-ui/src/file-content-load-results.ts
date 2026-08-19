@@ -1,4 +1,9 @@
+import {
+  buildInaccessibleContent,
+  INACCESSIBLE_CONTENT_PREFIX,
+} from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
+import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import type {
   FileContentReadResult,
   FileContentWorker,
@@ -111,7 +116,16 @@ export function processFileContentWorkerResults(
     if (!isCurrentGeneration(key, expectedGeneration)) {
       continue;
     }
-    setFileContent(key, result.status === 'accessible' ? result.content : result.message);
+    if (result.status === 'accessible') {
+      setFileContent(key, result.content);
+      continue;
+    }
+    const content =
+      result.message === BINARY_CONTENT_MESSAGE ||
+      result.message.startsWith(INACCESSIBLE_CONTENT_PREFIX)
+        ? result.message
+        : buildInaccessibleContent(result.message);
+    setFileContent(key, content);
   }
   if (unexpectedResultCount > 0) {
     logger.warn('Ignoring file-content results for unrequested keys', {
