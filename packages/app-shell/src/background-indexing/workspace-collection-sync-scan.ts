@@ -9,10 +9,7 @@ import {
   type BackgroundIndexingPolicyPreset,
   createBackgroundIndexingEntryPolicy,
 } from '@brainstrike/utils';
-import {
-  isAbsoluteFileSystemPath,
-  normalizeSelectionPathForFolder,
-} from '@brainstrike/utils/relative-file-path';
+import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import {
   type ChunkingRedispatchTracker,
   collectPreparedChangesInBatches,
@@ -20,6 +17,18 @@ import {
   type PreparedChangesSummary,
 } from './workspace-collection-sync-import';
 import { createScanningStatusReporter, throwIfAborted } from './workspace-collection-sync-progress';
+import {
+  countRelativePathSegments,
+  getParentRelativePath,
+  getPathName,
+  isRootSelfPath,
+  isUnderRelativePrefix,
+  isUnderTruncatedDirectory,
+  iterRelativePathSegments,
+  joinRootRelativePath,
+  normalizeScopedChangePath,
+  toTruncatedRelativePrefixes,
+} from './workspace-collection-sync-scan-paths';
 
 interface RootDirectoryHandle {
   _internal?: unknown;
@@ -82,41 +91,7 @@ interface ScopedPendingRemoval {
 
 type WorkspaceIndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 
-const SLASH_CHAR_CODE = 47;
-
 const logger = createLogger('WorkspaceCollectionSyncScan');
-
-/**
- * Convert the walker's absolute truncated-directory paths into root-relative
- * prefixes ('' = the root itself) for absence-inference guards.
- */
-function toTruncatedRelativePrefixes(
-  truncatedDirectoryPaths: ReadonlySet<string>,
-  rootPath: string
-): string[] {
-  const prefixes = new Set<string>();
-  for (const path of truncatedDirectoryPaths) {
-    if (toSlashPath(path.replace(/\\/g, '/')) === toSlashPath(rootPath)) {
-      prefixes.add('');
-      continue;
-    }
-    prefixes.add(
-      normalizeSelectionPathForFolder(path, rootPath, {
-        label: 'Workspace Index truncated directory path',
-      })
-    );
-  }
-  return [...prefixes];
-}
-
-function isUnderTruncatedDirectory(
-  relativePath: string,
-  truncatedDirectoryPrefixes: readonly string[]
-): boolean {
-  return truncatedDirectoryPrefixes.some(
-    (prefix) => prefix === '' || relativePath === prefix || relativePath.startsWith(`${prefix}/`)
-  );
-}
 
 /**
  * A truncated adapter listing means the scan only saw the first N entries of a
@@ -148,70 +123,6 @@ function createEmptyPreparedSyncChanges(): PreparedSyncChanges {
       unchangedCount: 0,
     },
   };
-}
-
-function toSlashPath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/\/+$/u, '');
-}
-
-function joinRootRelativePath(rootPath: string, relativePath: string): string {
-  const normalizedRoot = toSlashPath(rootPath);
-  return `${normalizedRoot}/${relativePath.replace(/^\/+/u, '')}`;
-}
-
-function getPathName(path: string): string {
-  let end = path.length;
-  while (end > 0 && path.charCodeAt(end - 1) === SLASH_CHAR_CODE) {
-    end -= 1;
-  }
-  if (end === 0) {
-    return path;
-  }
-  const separatorIndex = path.lastIndexOf('/', end - 1);
-  return path.slice(separatorIndex + 1, end);
-}
-
-function countRelativePathSegments(path: string): number {
-  let count = 0;
-  let inSegment = false;
-  for (let index = 0; index < path.length; index += 1) {
-    if (path.charCodeAt(index) === SLASH_CHAR_CODE) {
-      inSegment = false;
-      continue;
-    }
-    if (inSegment) {
-      continue;
-    }
-    count += 1;
-    inSegment = true;
-  }
-  return count;
-}
-
-function* iterRelativePathSegments(path: string): IterableIterator<string> {
-  let start = 0;
-  while (start < path.length) {
-    while (start < path.length && path.charCodeAt(start) === SLASH_CHAR_CODE) {
-      start += 1;
-    }
-    if (start >= path.length) {
-      return;
-    }
-    let end = path.indexOf('/', start);
-    if (end === -1) {
-      end = path.length;
-    }
-    // Directory change resolution may run for many watcher paths; scanning here
-    // avoids split/filter arrays while preserving empty-segment skipping.
-    yield path.slice(start, end);
-    start = end + 1;
-  }
-}
-
-function getParentRelativePath(relativePath: string): string | null {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/\/+$/u, '');
-  const separatorIndex = normalized.lastIndexOf('/');
-  return separatorIndex === -1 ? null : normalized.slice(0, separatorIndex);
 }
 
 function isDirectoryNode(node: IFileNode): boolean {
@@ -257,25 +168,6 @@ function collectFullScanMissingFileInvalidations(args: {
   });
 }
 
-function normalizeScopedChangePath(change: FileSystemChange, rootPath: string): string {
-  const normalizedPath = change.path.replace(/\\/g, '/');
-  const normalizedRoot = toSlashPath(rootPath);
-  if (isAbsoluteFileSystemPath(normalizedPath)) {
-    const pathLower = normalizedPath.toLowerCase();
-    const rootLower = normalizedRoot.toLowerCase();
-    if (!(pathLower === rootLower || pathLower.startsWith(`${rootLower}/`))) {
-      throw new Error(`Workspace Index watcher path is outside the active root: ${change.path}`);
-    }
-  }
-  return normalizeSelectionPathForFolder(normalizedPath, rootPath, {
-    label: 'Workspace Index watcher path',
-  });
-}
-
-function isRootSelfPath(path: string, rootPath: string): boolean {
-  return toSlashPath(path.replace(/\\/g, '/')) === toSlashPath(rootPath);
-}
-
 function toDirectoryHandle(node: IFileNode, rootHandle: RootDirectoryHandle): RootDirectoryHandle {
   const nodeHandle = node.handle as Partial<RootDirectoryHandle>;
   const rootId = nodeHandle.rootId ?? rootHandle.rootId;
@@ -315,6 +207,68 @@ function toSyntheticFileNode(args: {
     selectionState: 'unchecked',
     type: 'file',
   };
+}
+
+/**
+ * A synthetic descriptor handle is unreadable on web: file content processing
+ * stamps `node.handle` as the FileHandle's `_internal`, and the web adapter's
+ * readFile requires that to be a raw FileSystemFileHandle. When the sibling
+ * listing missed a changed file (truncated listing, or created after the
+ * parent was listed), resolve the real child handle through the adapter's
+ * capability seam — absent on adapters that read by path (Electron), which
+ * keep the synthetic node. A failed resolution also keeps the synthetic node:
+ * the doomed read surfaces the path in `inaccessiblePaths` instead of the
+ * change silently vanishing from the scan.
+ */
+async function resolveSyntheticFileNodeHandle(args: {
+  deps: WorkspaceCollectionSyncScanDeps;
+  node: IFileNode;
+  onResolutionFailure: (path: string) => void;
+  relativePath: string;
+}): Promise<IFileNode> {
+  const { fileSystemAdapter } = args.deps;
+  if (!fileSystemAdapter.resolveFileHandleByPath) {
+    return args.node;
+  }
+  try {
+    // Root-RELATIVE, never the node's root-prefixed path. A registered web root
+    // is keyed by a generated id while the root handle's `path` is the picked
+    // folder's display name, and the adapter strips a leading segment only when
+    // it equals that id. Passing the prefixed path makes it walk a phantom
+    // child of the root — resolving nothing, or (when the root holds a
+    // same-named directory) a DIFFERENT file's handle.
+    const rawFileHandle = await fileSystemAdapter.resolveFileHandleByPath(args.relativePath);
+    // Mirror the web adapter's readDirectory shape: node.handle IS the raw handle.
+    return { ...args.node, handle: rawFileHandle };
+  } catch (error) {
+    args.onResolutionFailure(args.node.path);
+    logger.debug('Workspace Index could not resolve a web file handle for a changed path', {
+      error: error instanceof Error ? error.message : String(error),
+      path: args.node.path,
+    });
+    return args.node;
+  }
+}
+
+/**
+ * A failed resolution leaves an unreadable synthetic node, so the file lands in
+ * `inaccessiblePaths` rather than being indexed. A single miss is an ordinary
+ * race (deleted between the watcher event and the scan) and stays at debug; a
+ * batch of them means something systemic — root handle evicted, permission
+ * revoked — which would otherwise repeat invisibly on every scan forever. One
+ * warning per scan, mirroring `warnOnTruncatedDirectories`.
+ */
+function warnOnFileHandleResolutionFailures(failedPaths: ReadonlySet<string>): void {
+  if (failedPaths.size === 0) {
+    return;
+  }
+  logger.warn(
+    'Workspace Index could not resolve readable file handles for changed paths; they will surface as inaccessible',
+    {
+      failedResolutions: failedPaths.size,
+      samplePaths: [...failedPaths].slice(0, 10),
+    }
+  );
 }
 
 async function readDirectoryWithProgress(args: {
@@ -410,6 +364,7 @@ async function resolveChangedFileNode(args: {
   entryPolicy: WorkspaceIndexingEntryPolicy;
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
+  onFileHandleResolutionFailure: (path: string) => void;
   relativePath: string;
   rootHandle: RootDirectoryHandle;
   rootPath: string;
@@ -430,11 +385,12 @@ async function resolveChangedFileNode(args: {
       })
     : args.rootHandle;
   const fileName = getPathName(args.relativePath);
-  let node = toSyntheticFileNode({
+  const syntheticNode = toSyntheticFileNode({
     relativePath: args.relativePath,
     rootHandle: args.rootHandle,
     rootPath: args.rootPath,
   });
+  let node = syntheticNode;
   if (parentHandle) {
     const siblings = await readDirectoryWithProgress({
       abortSignal: args.abortSignal,
@@ -471,6 +427,19 @@ async function resolveChangedFileNode(args: {
   ) {
     args.onExcludedEntry();
     return null;
+  }
+  // Resolve only what survives the gate: on web this costs a getDirectoryHandle
+  // per path segment plus a best-effort handle-cache write, and a watcher burst
+  // (installs, builds) is overwhelmingly paths the gate drops. Ordering is
+  // safe because resolution cannot change the gate's inputs — a raw
+  // FileSystemFileHandle carries neither the name nor the size it reads.
+  if (node === syntheticNode) {
+    node = await resolveSyntheticFileNodeHandle({
+      deps: args.deps,
+      node,
+      onResolutionFailure: args.onFileHandleResolutionFailure,
+      relativePath: args.relativePath,
+    });
   }
   return node;
 }
@@ -544,10 +513,6 @@ async function readScopedDirectoryTree(args: {
     fileNodes.push(node);
   }
   return fileNodes;
-}
-
-function isUnderRelativePrefix(path: string, prefix: string): boolean {
-  return path === prefix || path.startsWith(`${prefix}/`);
 }
 
 function makeInvalidationTargetKey(target: ManagedCacheInvalidationTarget): string {
@@ -710,6 +675,7 @@ async function collectScopedChange(args: {
   entryPolicy: WorkspaceIndexingEntryPolicy;
   onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
+  onFileHandleResolutionFailure: (path: string) => void;
   rootHandle: RootDirectoryHandle;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<void> {
@@ -733,6 +699,7 @@ async function collectScopedChange(args: {
       entryPolicy: args.entryPolicy,
       onDirectoryTruncated: args.onDirectoryTruncated,
       onExcludedEntry: args.onExcludedEntry,
+      onFileHandleResolutionFailure: args.onFileHandleResolutionFailure,
       relativePath,
       rootHandle: args.rootHandle,
       rootPath: args.context.rootPath,
@@ -882,6 +849,10 @@ async function collectPreparedScopedChanges(args: {
   const onDirectoryTruncated = (path: string): void => {
     truncatedDirectoryPaths.add(path);
   };
+  const fileHandleResolutionFailurePaths = new Set<string>();
+  const onFileHandleResolutionFailure = (path: string): void => {
+    fileHandleResolutionFailurePaths.add(path);
+  };
   const accumulator: ScopedChangeAccumulator = {
     changedFileNodesByPath: new Map<string, IFileNode>(),
     forceReadRelativePaths: new Set<string>(),
@@ -899,12 +870,14 @@ async function collectPreparedScopedChanges(args: {
         entryPolicy,
         onDirectoryTruncated,
         onExcludedEntry,
+        onFileHandleResolutionFailure,
         rootHandle,
         statusReporter,
       });
     }
     throwIfAborted(args.abortSignal);
     warnOnTruncatedDirectories(truncatedDirectoryPaths);
+    warnOnFileHandleResolutionFailures(fileHandleResolutionFailurePaths);
 
     const existingEntries = await args.deps.fileRecordRepository.listManagedCacheEntryMetadata(
       args.context.collectionId
