@@ -4,6 +4,7 @@ import {
   formatFileSize,
   getFileSizeConfig,
   getFileTooLargeMessage,
+  isFullyQualifiedFileSystemPath,
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
@@ -70,6 +71,14 @@ async function readRequestContent(
     return fileSystemAdapter.readFile(request.handle);
   }
   if (request.absoluteRootPath !== undefined) {
+    if (
+      !(
+        isFullyQualifiedFileSystemPath(request.absoluteRootPath) &&
+        isFullyQualifiedFileSystemPath(request.path)
+      )
+    ) {
+      throw new Error('Absolute path reads require non-empty fully qualified root and file paths');
+    }
     if (!fileSystemAdapter.readFileByAbsolutePath) {
       throw new Error('Absolute path read capability is unavailable');
     }

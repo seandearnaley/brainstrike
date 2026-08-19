@@ -351,9 +351,11 @@ export interface FileSystemAdapter {
    * Explicit capability for reading an absolute native path without a
    * materialized file-tree handle.
    *
-   * Consumers MUST pass the authoritative mounted root and confine the path to
-   * it before invoking this method. Implementations must independently enforce
-   * their mounted-root authority. The method's presence is the capability gate;
+   * Consumers MUST pass non-empty, fully qualified absolute paths for both the
+   * authoritative mounted root and requested file, and confine the file to the
+   * root before invoking this method. Implementations must reject malformed
+   * arguments and independently enforce their mounted-root authority. The
+   * method's presence is the capability gate;
    * `readFileByPath` alone is not evidence of absolute-path authority because
    * web adapters use it for root-relative handle resolution.
    *

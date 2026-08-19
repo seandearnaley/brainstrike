@@ -826,7 +826,11 @@ fallback.
   it for root-relative browser-handle resolution—so its presence is never
   treated as desktop/native authority. Web missing/lazy nodes therefore retain
   their cached-handle and permission route even when their root descriptor is a
-  non-absolute folder name. A direct-path-capable adapter completes this read
+  non-absolute folder name. Every explicit request is rejected at both the
+  worker and adapter boundary unless its mounted root and requested file are
+  non-empty fully qualified paths. Native reads use the canonical path returned
+  by root validation rather than re-reading the original alias. A
+  direct-path-capable adapter completes this read
   even when refresh has produced an empty tree (including deletion of the last
   open file); it never returns fulfilled while leaving the tab pending. Direct
   worker requests carry the mounted root and never fall back to generic

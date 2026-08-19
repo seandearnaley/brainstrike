@@ -123,6 +123,37 @@ describe('file-content-worker', () => {
   });
 
   it.each([
+    { absoluteRootPath: 'C:\\Workspace', path: 'C:\\Workspace\\file.txt' },
+    {
+      absoluteRootPath: '\\\\server\\share',
+      path: '\\\\server\\share\\file.txt',
+    },
+  ])(
+    'preserves drive and UNC explicit read shapes root=$absoluteRootPath',
+    async ({ absoluteRootPath, path }) => {
+      const readFileByAbsolutePath = vi.fn(async () => 'cross-platform-content');
+      const adapter = {
+        exists: vi.fn(),
+        readDirectory: vi.fn(),
+        readFile: vi.fn(),
+        readFileByAbsolutePath,
+        requestDirectoryAccess: vi.fn(),
+      } as unknown as FileSystemAdapter;
+      const request = {
+        absoluteRootPath,
+        compositeKey: `root|@|${path}`,
+        path,
+      };
+
+      const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+      const results = await worker([request]);
+
+      expect(displayResult(results[request.compositeKey])).toBe('cross-platform-content');
+      expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(path, absoluteRootPath);
+    }
+  );
+
+  it.each([
     { absoluteRootPath: '', path: '/workspace/file.txt' },
     { absoluteRootPath: '   ', path: '/workspace/file.txt' },
     { absoluteRootPath: 'workspace', path: '/workspace/file.txt' },

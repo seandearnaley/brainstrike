@@ -1,4 +1,9 @@
-import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import {
+  type DirectoryHandle,
+  type FileHandle,
+  type FileSystemAdapter,
+  isFullyQualifiedFileSystemPath,
+} from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type {
@@ -14,6 +19,13 @@ import type {
 } from '@brainstrike/types';
 
 const logger = createLogger('ElectronRendererAdapters');
+
+function assertExplicitAbsoluteReadPath(value: unknown, label: string): asserts value is string {
+  if (isFullyQualifiedFileSystemPath(value)) {
+    return;
+  }
+  throw new Error(`${label} must be a non-empty absolute path`);
+}
 
 function requireElectronAPI(): ElectronAPI {
   const api = window.electronAPI;
@@ -208,7 +220,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
    * Explicit absolute-path capability. The renderer confines the path to
    * `rootPath`; main independently authorizes it against the mounted registry.
    */
-  async readFileByAbsolutePath(absolutePath: string, _rootPath: string): Promise<string> {
+  async readFileByAbsolutePath(absolutePath: string, rootPath: string): Promise<string> {
+    assertExplicitAbsoluteReadPath(rootPath, 'Mounted root path');
+    assertExplicitAbsoluteReadPath(absolutePath, 'Requested file path');
     return requireElectronAPI().fileSystem.readFileByPath(absolutePath);
   }
 
