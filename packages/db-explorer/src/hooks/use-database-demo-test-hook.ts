@@ -103,7 +103,7 @@ function createRecordArrayRetentionTracker(): RecordArrayRetentionTracker {
   };
 }
 
-function createRecordArrayWeakReference(
+export function createRecordArrayWeakReference(
   records: readonly { readonly id: string }[]
 ): WeakRef<readonly { readonly id: string }[]> {
   if (typeof WeakRef !== 'function') {

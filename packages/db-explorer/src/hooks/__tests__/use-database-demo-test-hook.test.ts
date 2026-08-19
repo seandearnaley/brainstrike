@@ -1,6 +1,9 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useDatabaseDemoTestHook } from '../use-database-demo-test-hook';
+import {
+  createRecordArrayWeakReference,
+  useDatabaseDemoTestHook,
+} from '../use-database-demo-test-hook';
 
 const databaseTelemetrySnapshot = vi.hoisted(() =>
   vi.fn(() => ({ activeLiveSubscriptions: 3, liveUpdateCount: 17 }))
@@ -146,6 +149,17 @@ describe('useDatabaseDemoTestHook memory diagnostics', () => {
         trackedGenerationCount: 256,
       });
     });
+  });
+
+  it('fails closed when WeakRef diagnostics are unavailable', () => {
+    vi.stubGlobal('WeakRef', undefined);
+    try {
+      expect(() => createRecordArrayWeakReference([{ id: 'record-a' }])).toThrow(
+        'Database memory test diagnostics require WeakRef support.'
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('does not install the memory hook outside explicit desktop test mode', () => {
