@@ -258,6 +258,100 @@ it('promotes only a queued matching background key without duplicating its physi
   expect(physicallyReadKeys.filter((key) => key === target)).toHaveLength(1);
 });
 
+it('settles promoted tickets once on reset and permits a fresh same-key schedule', async () => {
+  const adapter = new MockFileSystemAdapter();
+  const storage = new MemoryStorageAdapter();
+  const names = ['active-a', 'active-b', 'target', 'hitchhiker'] as const;
+  const nodes = names.map((name) =>
+    createFileNode({ path: `/${name}.txt`, rootFolderId: 'root-promotion-reset' })
+  );
+  const keys = Object.fromEntries(
+    names.map((name) => [name, encodeFileSelection('root-promotion-reset', `/${name}.txt`)])
+  );
+  const activeA = keys['active-a'];
+  const activeB = keys['active-b'];
+  const target = keys['target'];
+  const hitchhiker = keys['hitchhiker'];
+  if (!(activeA && activeB && target && hitchhiker)) {
+    throw new Error('Missing reset test keys');
+  }
+  const pendingReads: PendingWorkerRead[] = [];
+  const worker = createPendingWorker(pendingReads);
+  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+  function Wrapper({ children }: { readonly children: ReactNode }) {
+    return (
+      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
+        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      </AdaptersProvider>
+    );
+  }
+  const { result, unmount } = renderHook(
+    () => ({
+      authority: useFileContentLoadAuthority(),
+      loader: useSharedFileContentLoading(nodes),
+    }),
+    { wrapper: Wrapper }
+  );
+  let originalLoads: Promise<void>[] = [];
+  act(() => {
+    originalLoads = [
+      result.current.loader.handleFileContentLoading([activeA], 'background'),
+      result.current.loader.handleFileContentLoading([activeB], 'background'),
+      result.current.loader.handleFileContentLoading([target, hitchhiker], 'background'),
+      result.current.loader.handleFileContentLoading([target], 'interactive'),
+    ];
+  });
+  const settlementCounts = originalLoads.map(() => 0);
+  for (const [index, load] of originalLoads.entries()) {
+    void load.then(
+      () => {
+        settlementCounts[index] = (settlementCounts[index] ?? 0) + 1;
+      },
+      () => {
+        settlementCounts[index] = (settlementCounts[index] ?? 0) + 1;
+      }
+    );
+  }
+  await waitFor(() => expect(pendingReads).toHaveLength(2));
+
+  act(() => {
+    result.current.authority.invalidateAll();
+  });
+  await act(async () => {
+    await Promise.allSettled(originalLoads);
+  });
+  expect(settlementCounts).toEqual([1, 1, 1, 1]);
+
+  let replacementLoad = Promise.resolve();
+  act(() => {
+    replacementLoad = result.current.loader.handleFileContentLoading([target], 'interactive');
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(3));
+  expect(pendingReads[2]?.requests.map((request) => request.compositeKey)).toEqual([target]);
+
+  await act(async () => {
+    pendingReads[2]?.complete('replacement target');
+    await replacementLoad;
+    pendingReads[0]?.complete('late active a');
+    pendingReads[1]?.complete('late active b');
+    await Promise.resolve();
+  });
+  expect(settlementCounts).toEqual([1, 1, 1, 1]);
+  expect(
+    pendingReads
+      .flatMap((read) => read.requests)
+      .filter((request) => request.compositeKey === target)
+  ).toHaveLength(1);
+  expect(
+    pendingReads
+      .flatMap((read) => read.requests)
+      .filter((request) => request.compositeKey === hitchhiker)
+  ).toHaveLength(0);
+  unmount();
+});
+
 it('preserves background intent across twenty singleton reload groups ahead of real interactive work', async () => {
   const adapter = new MockFileSystemAdapter();
   const storage = new MemoryStorageAdapter();

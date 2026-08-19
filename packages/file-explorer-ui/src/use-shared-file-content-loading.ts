@@ -734,7 +734,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       const promises = new Set<Promise<void>>();
       const keysToStart: string[] = [];
       for (const key of uniqueKeys) {
-        const activePromise = loadAuthority.getActiveLoad(key);
+        let activePromise = loadAuthority.getActiveLoad(key);
+        if (activePromise && intent === 'interactive') {
+          activePromise = loadAuthority.promoteQueuedLoad(key) ?? activePromise;
+        }
         if (activePromise) {
           promises.add(activePromise);
         } else {
@@ -746,16 +749,22 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         const expectedGenerations = new Map(
           keysToStart.map((key) => [key, loadAuthority.currentGeneration(key)] as const)
         );
-        let batchPromise: Promise<void>;
-        batchPromise = loadAuthority
-          .runBatch(
-            () => executeFileContentLoading(keysToStart, expectedGenerations),
-            intent === 'interactive' ? 'interactive' : 'bulk'
-          )
-          .finally(() => {
-            loadAuthority.releaseActiveLoad(keysToStart, batchPromise);
-          });
-        loadAuthority.trackActiveLoad(keysToStart, batchPromise);
+        const batchPromise = loadAuthority.scheduleBatch(
+          keysToStart,
+          (scheduledKeys) => {
+            const scheduledGenerations = new Map(
+              scheduledKeys.map((key) => {
+                const expectedGeneration = expectedGenerations.get(key);
+                if (expectedGeneration === undefined) {
+                  throw new Error('Scheduled file-content key is missing its generation');
+                }
+                return [key, expectedGeneration] as const;
+              })
+            );
+            return executeFileContentLoading(scheduledKeys, scheduledGenerations);
+          },
+          intent === 'interactive' ? 'interactive' : 'bulk'
+        );
         promises.add(batchPromise);
       }
 

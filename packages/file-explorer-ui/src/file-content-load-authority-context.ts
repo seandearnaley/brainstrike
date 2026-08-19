@@ -14,6 +14,7 @@ export interface FileContentLoadAuthority {
   invalidateAll: () => void;
   isCurrentGeneration: (compositeKey: string, expectedGeneration: number) => boolean;
   lifecycleId: number;
+  promoteQueuedLoad: (compositeKey: string) => Promise<void> | undefined;
   recordErrors: (
     failures: readonly {
       readonly compositeKey: string;
@@ -22,7 +23,11 @@ export interface FileContentLoadAuthority {
     }[]
   ) => void;
   releaseActiveLoad: (compositeKeys: readonly string[], expectedPromise: Promise<void>) => void;
-  runBatch: (task: () => Promise<void>, priority: FileContentBatchPriority) => Promise<void>;
+  scheduleBatch: (
+    compositeKeys: readonly string[],
+    task: (scheduledCompositeKeys: readonly string[]) => Promise<void>,
+    priority: FileContentBatchPriority
+  ) => Promise<void>;
   /**
    * Replace one consumer's complete retained-key set. Terminal errors exist
    * only while a key is actively loading or retained by at least one owner.

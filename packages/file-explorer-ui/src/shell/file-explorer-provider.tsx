@@ -45,11 +45,15 @@ declare global {
 const FileExplorerStoreContext = createContext<FileExplorerStore | null>(null);
 
 interface PendingFileContentBatch {
+  readonly compositeKeys: string[];
+  readonly dependencies: Set<Promise<void>>;
   readonly epoch: number;
-  readonly priority: FileContentBatchPriority;
+  priority: FileContentBatchPriority;
   readonly reject: (error: unknown) => void;
   readonly resolve: () => void;
-  readonly task: () => Promise<void>;
+  readonly scheduled: Promise<void>;
+  settled: boolean;
+  readonly task: (scheduledCompositeKeys: readonly string[]) => Promise<void>;
 }
 
 const MAX_CONCURRENT_FILE_CONTENT_BATCHES = 2;
@@ -58,10 +62,11 @@ let nextFileContentLifecycleId = 0;
 
 function createFileContentLoadAuthority(): FileContentLoadAuthority {
   const activeLoads = new Map<string, Promise<void>>();
-  const activeBatchIds = new Set<number>();
+  const activeBatches = new Map<number, PendingFileContentBatch>();
   const errorListeners = new Set<() => void>();
   const generations = new Map<string, number>();
   const pendingBatches: PendingFileContentBatch[] = [];
+  const queuedBatchByKey = new Map<string, PendingFileContentBatch>();
   const retainedErrorKeysByOwner = new Map<object, ReadonlySet<string>>();
   const retainedErrorKeyCounts = new Map<string, number>();
   let errorsSnapshot: ReadonlyMap<string, Error> = new Map();
@@ -149,26 +154,116 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
     }
     return pendingBatches.splice(nextIndex, 1)[0];
   };
+  const releaseTicketKeys = (ticket: PendingFileContentBatch): void => {
+    for (const compositeKey of ticket.compositeKeys) {
+      if (activeLoads.get(compositeKey) === ticket.scheduled) {
+        activeLoads.delete(compositeKey);
+      }
+      if (queuedBatchByKey.get(compositeKey) === ticket) {
+        queuedBatchByKey.delete(compositeKey);
+      }
+    }
+    pruneUnownedErrors(ticket.compositeKeys);
+  };
+  const settleTicket = (
+    ticket: PendingFileContentBatch,
+    outcome: { readonly ok: true } | { readonly error: unknown; readonly ok: false }
+  ): void => {
+    if (ticket.settled) {
+      return;
+    }
+    ticket.settled = true;
+    releaseTicketKeys(ticket);
+    if (outcome.ok) {
+      ticket.resolve();
+      return;
+    }
+    ticket.reject(outcome.error);
+  };
+  const settleTicketFromWork = async (
+    ticket: PendingFileContentBatch,
+    physicalWork: Promise<void>
+  ): Promise<void> => {
+    const settled = await Promise.allSettled([physicalWork, ...ticket.dependencies]);
+    const failures = settled.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (failures.length === 0) {
+      settleTicket(ticket, { ok: true });
+      return;
+    }
+    settleTicket(ticket, {
+      error:
+        failures.length === 1
+          ? failures[0]
+          : new AggregateError(failures, 'One or more file-content reads failed.'),
+      ok: false,
+    });
+  };
+  const createPendingBatch = (
+    compositeKeys: readonly string[],
+    task: (scheduledCompositeKeys: readonly string[]) => Promise<void>,
+    priority: FileContentBatchPriority,
+    epoch: number
+  ): PendingFileContentBatch => {
+    let resolveScheduled: (() => void) | undefined;
+    let rejectScheduled: ((error: unknown) => void) | undefined;
+    const scheduled = new Promise<void>((resolve, reject) => {
+      resolveScheduled = resolve;
+      rejectScheduled = reject;
+    });
+    if (!(resolveScheduled && rejectScheduled)) {
+      throw new Error('Failed to initialize file-content batch settlement');
+    }
+    return {
+      compositeKeys: [...compositeKeys],
+      dependencies: new Set(),
+      epoch,
+      priority,
+      reject: rejectScheduled,
+      resolve: resolveScheduled,
+      scheduled,
+      settled: false,
+      task,
+    };
+  };
+  const enqueueBatch = (ticket: PendingFileContentBatch): void => {
+    pendingBatches.push(ticket);
+    for (const compositeKey of ticket.compositeKeys) {
+      queuedBatchByKey.set(compositeKey, ticket);
+      activeLoads.set(compositeKey, ticket.scheduled);
+    }
+  };
   const drainBatchQueue = (): void => {
-    while (activeBatchIds.size < MAX_CONCURRENT_FILE_CONTENT_BATCHES && pendingBatches.length > 0) {
+    while (activeBatches.size < MAX_CONCURRENT_FILE_CONTENT_BATCHES && pendingBatches.length > 0) {
       const pending = takeNextPendingBatch();
       if (!pending) {
         return;
       }
       if (pending.epoch !== lifecycleEpoch) {
-        pending.resolve();
+        settleTicket(pending, { ok: true });
         continue;
+      }
+      for (const compositeKey of pending.compositeKeys) {
+        if (queuedBatchByKey.get(compositeKey) === pending) {
+          queuedBatchByKey.delete(compositeKey);
+        }
       }
       nextBatchId += 1;
       const batchId = nextBatchId;
-      activeBatchIds.add(batchId);
-      void pending
-        .task()
-        .then(pending.resolve, pending.reject)
-        .finally(() => {
-          activeBatchIds.delete(batchId);
-          drainBatchQueue();
-        });
+      activeBatches.set(batchId, pending);
+      let physicalWork: Promise<void>;
+      try {
+        physicalWork = pending.task([...pending.compositeKeys]);
+      } catch (error) {
+        physicalWork = Promise.reject(error);
+      }
+      void settleTicketFromWork(pending, physicalWork);
+      const releaseSlot = (): void => {
+        activeBatches.delete(batchId);
+        drainBatchQueue();
+      };
+      void physicalWork.then(releaseSlot, releaseSlot);
     }
   };
   return {
@@ -211,10 +306,11 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       activeLoads.clear();
       retainedErrorKeysByOwner.clear();
       retainedErrorKeyCounts.clear();
-      for (const pending of pendingBatches.splice(0)) {
-        pending.resolve();
+      for (const pending of [...pendingBatches.splice(0), ...activeBatches.values()]) {
+        settleTicket(pending, { ok: true });
       }
-      activeBatchIds.clear();
+      queuedBatchByKey.clear();
+      activeBatches.clear();
       consecutiveInteractiveBatches = 0;
       if (errorsSnapshot.size > 0) {
         publishErrors(new Map());
@@ -223,6 +319,29 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
     isCurrentGeneration: (compositeKey, expectedGeneration) =>
       (generations.get(compositeKey) ?? lifecycleGeneration) === expectedGeneration,
     lifecycleId,
+    promoteQueuedLoad: (compositeKey) => {
+      const queued = queuedBatchByKey.get(compositeKey);
+      if (!queued) {
+        return activeLoads.get(compositeKey);
+      }
+      if (queued.priority === 'interactive') {
+        return queued.scheduled;
+      }
+      if (queued.compositeKeys.length === 1) {
+        queued.priority = 'interactive';
+        return queued.scheduled;
+      }
+      const keyIndex = queued.compositeKeys.indexOf(compositeKey);
+      if (keyIndex < 0) {
+        throw new Error('Queued file-content ownership is inconsistent');
+      }
+      queued.compositeKeys.splice(keyIndex, 1);
+      const promoted = createPendingBatch([compositeKey], queued.task, 'interactive', queued.epoch);
+      queued.dependencies.add(promoted.scheduled);
+      enqueueBatch(promoted);
+      drainBatchQueue();
+      return promoted.scheduled;
+    },
     recordErrors: (failures) => {
       let next: Map<string, Error> | null = null;
       for (const failure of failures) {
@@ -248,12 +367,20 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       }
       pruneUnownedErrors(compositeKeys);
     },
-    runBatch: (task, priority) => {
-      const scheduled = new Promise<void>((resolve, reject) => {
-        pendingBatches.push({ epoch: lifecycleEpoch, priority, reject, resolve, task });
-        drainBatchQueue();
-      });
-      return scheduled;
+    scheduleBatch: (compositeKeys, task, priority) => {
+      const ownedKeys = [...new Set(compositeKeys)];
+      if (ownedKeys.length === 0) {
+        return Promise.resolve();
+      }
+      for (const compositeKey of ownedKeys) {
+        if (activeLoads.has(compositeKey)) {
+          throw new Error('File-content key is already scheduled');
+        }
+      }
+      const scheduled = createPendingBatch(ownedKeys, task, priority, lifecycleEpoch);
+      enqueueBatch(scheduled);
+      drainBatchQueue();
+      return scheduled.scheduled;
     },
     setRetainedErrorKeys: replaceRetainedErrorKeys,
     subscribeErrors: (listener) => {
