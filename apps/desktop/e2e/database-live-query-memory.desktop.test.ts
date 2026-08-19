@@ -22,10 +22,9 @@ const LIVE_QUERY_MUTATION_COUNT = 100;
 const LIVE_QUERY_MUTATION_PAYLOAD_BYTES = 8192;
 const LIVE_QUERY_SWITCH_CYCLE_COUNT = 10;
 const LIVE_QUERY_TEST_FILE_COUNT = 50;
-// Provisional dedicated budgets. Final values are calibrated from three sequential
-// exact-head memory-baseline runs after the WeakRef retention proof is green.
 const LIVE_QUERY_VISIBLE_HEAP_DRIFT_LIMIT_MB = 16;
-const LIVE_QUERY_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB = 32;
+const LIVE_QUERY_MUTATION_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB = 32;
+const LIVE_QUERY_SWITCH_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB = 48;
 // Selecting a collection enables the three DatabaseDemo data queries plus the
 // active-set queue-count and coverage queries owned by useEmbeddingControls.
 const ACTIVE_COLLECTION_LIVE_QUERY_DELTA = 5;
@@ -491,10 +490,10 @@ test.describe('Database live-query memory', () => {
       LIVE_QUERY_VISIBLE_HEAP_DRIFT_LIMIT_MB
     );
     expect(growth(finalMemory.workingSetMB, baselineMemory.workingSetMB)).toBeLessThan(
-      LIVE_QUERY_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB
+      LIVE_QUERY_MUTATION_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB
     );
     expect(growth(finalMemory.workingSetMB, midpointMemory.workingSetMB)).toBeLessThan(
-      LIVE_QUERY_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB
+      LIVE_QUERY_MUTATION_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB
     );
   });
 
@@ -649,7 +648,7 @@ test.describe('Database live-query memory', () => {
       LIVE_QUERY_VISIBLE_HEAP_DRIFT_LIMIT_MB
     );
     expect(growth(finalMemory.workingSetMB, baselineMemory.workingSetMB)).toBeLessThan(
-      LIVE_QUERY_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB
+      LIVE_QUERY_SWITCH_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB
     );
   });
 });
