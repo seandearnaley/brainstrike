@@ -722,6 +722,13 @@ describe('DatabaseDemoPanel', () => {
           loadedRecordPageEntries: expect.any(Number),
         },
         liveUpdateCount: expect.any(Number),
+        recordArrayRetention: {
+          aliveGenerations: [],
+          collectedGenerationCount: 0,
+          currentGeneration: null,
+          droppedGenerationCount: 0,
+          trackedGenerationCount: 0,
+        },
         recordIds: [],
       });
 

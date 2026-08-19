@@ -11,8 +11,6 @@ import {
   getDatabaseDemoImportSnapshot,
   growth,
   isDatabaseError,
-  LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB,
-  LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB,
   readRendererHeapSnapshot,
   reloadRendererInTest,
   showDatabaseDemoPanel,
@@ -24,9 +22,21 @@ const LIVE_QUERY_MUTATION_COUNT = 100;
 const LIVE_QUERY_MUTATION_PAYLOAD_BYTES = 8192;
 const LIVE_QUERY_SWITCH_CYCLE_COUNT = 10;
 const LIVE_QUERY_TEST_FILE_COUNT = 50;
-const LIVE_QUERY_VISIBLE_HEAP_DRIFT_LIMIT_MB = LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB;
-const LIVE_QUERY_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB =
-  LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB;
+// Provisional dedicated budgets. Final values are calibrated from three sequential
+// exact-head memory-baseline runs after the WeakRef retention proof is green.
+const LIVE_QUERY_VISIBLE_HEAP_DRIFT_LIMIT_MB = 16;
+const LIVE_QUERY_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB = 32;
+// Selecting a collection enables the three DatabaseDemo data queries plus the
+// active-set queue-count and coverage queries owned by useEmbeddingControls.
+const ACTIVE_COLLECTION_LIVE_QUERY_DELTA = 5;
+
+interface RecordArrayRetentionSnapshot {
+  aliveGenerations: number[];
+  collectedGenerationCount: number;
+  currentGeneration: number | null;
+  droppedGenerationCount: number;
+  trackedGenerationCount: number;
+}
 
 interface DatabaseMemoryTestSnapshot {
   activeCollectionId: string | null;
@@ -39,6 +49,7 @@ interface DatabaseMemoryTestSnapshot {
     loadedRecordPageEntries: number;
   };
   liveUpdateCount: number;
+  recordArrayRetention: RecordArrayRetentionSnapshot;
   recordIds: string[];
 }
 
@@ -52,6 +63,47 @@ interface VisibleMemorySnapshot {
   heapUsedMB: number;
   label: string;
   workingSetMB: number;
+}
+
+const EMPTY_DATABASE_DEMO_CACHE = {
+  cachedChunkPageEntries: 0,
+  cachedCollectionCountEntries: 0,
+  cachedRecordPageEntries: 0,
+  cachedRecordTotalEntries: 0,
+  loadedRecordPageEntries: 0,
+} as const;
+
+function expectedDatabaseDemoCache(collectionCount: number): DatabaseMemoryTestSnapshot['cache'] {
+  return {
+    cachedChunkPageEntries: collectionCount,
+    cachedCollectionCountEntries: collectionCount,
+    cachedRecordPageEntries: collectionCount,
+    cachedRecordTotalEntries: collectionCount,
+    loadedRecordPageEntries: collectionCount,
+  };
+}
+
+function requireCurrentRecordArrayGeneration(
+  snapshot: DatabaseMemoryTestSnapshot,
+  context: string
+): number {
+  const generation = snapshot.recordArrayRetention.currentGeneration;
+  if (generation === null) {
+    throw new Error(`Expected a current record-array generation after ${context}.`);
+  }
+  return generation;
+}
+
+function addActiveCollectionLiveQueryOwnership(
+  preWarmRemote: RemoteLiveQueryDiagnostics,
+  preWarmRendererCount: number
+): RemoteLiveQueryDiagnostics & { readonly rendererLiveQueryCount: number } {
+  return {
+    hostLiveQueryCount: preWarmRemote.hostLiveQueryCount + ACTIVE_COLLECTION_LIVE_QUERY_DELTA,
+    ipcLiveQueryCount: preWarmRemote.ipcLiveQueryCount + ACTIVE_COLLECTION_LIVE_QUERY_DELTA,
+    managerLiveQueryCount: preWarmRemote.managerLiveQueryCount + ACTIVE_COLLECTION_LIVE_QUERY_DELTA,
+    rendererLiveQueryCount: preWarmRendererCount + ACTIVE_COLLECTION_LIVE_QUERY_DELTA,
+  };
 }
 
 async function getDatabaseMemoryTestSnapshot(page: Page): Promise<DatabaseMemoryTestSnapshot> {
@@ -124,7 +176,10 @@ async function seedLiveQueryPayload(page: Page, collectionId: string): Promise<v
   );
 }
 
-async function selectMemoryCollection(page: Page, collectionId: string): Promise<void> {
+async function selectMemoryCollection(
+  page: Page,
+  collectionId: string
+): Promise<DatabaseMemoryTestSnapshot> {
   const option = page.locator(`#collection-option-${collectionId}`);
   await expect(option).toBeVisible({ timeout: 30_000 });
   await option.click({ timeout: 5000 });
@@ -148,6 +203,7 @@ async function selectMemoryCollection(page: Page, collectionId: string): Promise
       recordsBelongToCollection: true,
       visibleRecordCount: LIVE_QUERY_TEST_FILE_COUNT,
     });
+  return await getDatabaseMemoryTestSnapshot(page);
 }
 
 async function readVisibleMemorySnapshot(
@@ -164,13 +220,88 @@ async function readVisibleMemorySnapshot(
   return { heapUsedMB: heap.usedMB, label, workingSetMB };
 }
 
-async function expectRemoteLiveQueryCounts(
+async function expectLiveQueryOwnership(
   app: ElectronApplication,
-  expected: RemoteLiveQueryDiagnostics
+  page: Page,
+  expected: RemoteLiveQueryDiagnostics & { readonly rendererLiveQueryCount: number }
 ): Promise<void> {
   await expect
-    .poll(async () => await getRemoteLiveQueryDiagnostics(app), { timeout: 30_000 })
+    .poll(
+      async () => {
+        const [remote, renderer] = await Promise.all([
+          getRemoteLiveQueryDiagnostics(app),
+          getDatabaseMemoryTestSnapshot(page),
+        ]);
+        return {
+          ...remote,
+          rendererLiveQueryCount: renderer.activeLiveSubscriptions,
+        };
+      },
+      { timeout: 30_000 }
+    )
     .toEqual(expected);
+}
+
+async function mutateCollectionProbe(
+  page: Page,
+  collectionId: string,
+  operation: 'delete' | 'insert'
+): Promise<string> {
+  const probeId = `${collectionId}-current-live-probe`;
+  if (operation === 'delete') {
+    await queryDatabase(page, 'DELETE FROM file_records WHERE id = $1', [probeId]);
+    return probeId;
+  }
+
+  const now = new Date().toISOString();
+  await queryDatabase(
+    page,
+    `INSERT INTO file_records (
+       id, path, name, size, content, content_hash, embedding_set_id,
+       created_at, updated_at, chunks_count, token_count
+     )
+     VALUES ($1, $2, $3, $4, '', $5, $6, $7, $7, 0, 0)`,
+    [
+      probeId,
+      `/list/${collectionId}/current-live-probe.ts`,
+      'current-live-probe.ts',
+      LIVE_QUERY_MUTATION_PAYLOAD_BYTES,
+      `current-live-${'q'.repeat(LIVE_QUERY_MUTATION_PAYLOAD_BYTES)}`,
+      collectionId,
+      now,
+    ]
+  );
+  return probeId;
+}
+
+async function expectCurrentLiveProbeState(
+  page: Page,
+  args: {
+    readonly minimumLiveUpdateCount: number;
+    readonly present: boolean;
+    readonly probeId: string;
+  }
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const [importSnapshot, memorySnapshot] = await Promise.all([
+          getDatabaseDemoImportSnapshot(page),
+          getDatabaseMemoryTestSnapshot(page),
+        ]);
+        return {
+          liveUpdateCountReached: memorySnapshot.liveUpdateCount >= args.minimumLiveUpdateCount,
+          probePresent: memorySnapshot.recordIds.includes(args.probeId),
+          totalRecords: importSnapshot?.recordPagination.totalRecords ?? null,
+        };
+      },
+      { timeout: 30_000 }
+    )
+    .toEqual({
+      liveUpdateCountReached: true,
+      probePresent: args.present,
+      totalRecords: LIVE_QUERY_TEST_FILE_COUNT + (args.present ? 1 : 0),
+    });
 }
 
 test.describe('Database live-query memory', () => {
@@ -199,19 +330,47 @@ test.describe('Database live-query memory', () => {
     await seedLiveQueryPayload(activeWindow, fixture.embeddingSetId);
     await reloadRendererInTest(activeWindow, 'database-live-query-mutation-memory');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
+    const preWarmMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
+    const preWarmRemoteDiagnostics = await getRemoteLiveQueryDiagnostics(electronApp.app);
+    const expectedActiveOwnership = addActiveCollectionLiveQueryOwnership(
+      preWarmRemoteDiagnostics,
+      preWarmMemoryDiagnostics.activeLiveSubscriptions
+    );
+    expect(preWarmMemoryDiagnostics).toMatchObject({
+      activeCollectionId: null,
+      cache: EMPTY_DATABASE_DEMO_CACHE,
+      recordArrayRetention: {
+        aliveGenerations: [],
+        currentGeneration: null,
+        droppedGenerationCount: 0,
+        trackedGenerationCount: 0,
+      },
+      recordIds: [],
+    });
     await selectMemoryCollection(activeWindow, fixture.embeddingSetId);
+    await expectLiveQueryOwnership(electronApp.app, activeWindow, expectedActiveOwnership);
 
-    const baselineMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
-    const baselineRemoteDiagnostics = await getRemoteLiveQueryDiagnostics(electronApp.app);
     const baselineMemory = await readVisibleMemorySnapshot(
       electronApp.app,
       activeWindow,
       'live-query-mutations-baseline'
     );
+    const baselineMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
+    const baselineRemoteDiagnostics = await getRemoteLiveQueryDiagnostics(electronApp.app);
+    const baselineRecordArrayGeneration = requireCurrentRecordArrayGeneration(
+      baselineMemoryDiagnostics,
+      'the mutation baseline'
+    );
+    expect(baselineMemoryDiagnostics.cache).toEqual(expectedDatabaseDemoCache(1));
+    expect(baselineMemoryDiagnostics.recordArrayRetention).toMatchObject({
+      aliveGenerations: expect.arrayContaining([baselineRecordArrayGeneration]),
+      droppedGenerationCount: 0,
+    });
     const probeId = `${fixture.embeddingSetId}-mutation-probe`;
     const probePath = `/list/${fixture.embeddingSetId}/mutation-probe.ts`;
     const payload = 'p'.repeat(LIVE_QUERY_MUTATION_PAYLOAD_BYTES);
     let midpointMemory: VisibleMemorySnapshot | null = null;
+    let midpointRecordArrayGeneration: number | null = null;
 
     for (let mutation = 0; mutation < LIVE_QUERY_MUTATION_COUNT; mutation += 1) {
       const insertProbe = mutation % 2 === 0;
@@ -263,27 +422,28 @@ test.describe('Database live-query memory', () => {
           activeWindow,
           'live-query-mutations-midpoint'
         );
+        const midpointDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
+        midpointRecordArrayGeneration = requireCurrentRecordArrayGeneration(
+          midpointDiagnostics,
+          '50 committed mutations'
+        );
+        expect(midpointDiagnostics.recordArrayRetention.aliveGenerations).not.toContain(
+          baselineRecordArrayGeneration
+        );
       }
     }
 
-    if (!midpointMemory) {
+    if (!(midpointMemory && midpointRecordArrayGeneration !== null)) {
       throw new Error('Expected a visible-memory midpoint after 50 committed mutations.');
     }
 
-    await expectRemoteLiveQueryCounts(electronApp.app, baselineRemoteDiagnostics);
-    await expect
-      .poll(
-        async () => (await getDatabaseMemoryTestSnapshot(activeWindow)).activeLiveSubscriptions,
-        { timeout: 30_000 }
-      )
-      .toBe(baselineMemoryDiagnostics.activeLiveSubscriptions);
-
-    const finalMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
+    await expectLiveQueryOwnership(electronApp.app, activeWindow, expectedActiveOwnership);
     const finalMemory = await readVisibleMemorySnapshot(
       electronApp.app,
       activeWindow,
       'live-query-mutations-final'
     );
+    const finalMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
 
     console.log(
       JSON.stringify({
@@ -294,6 +454,8 @@ test.describe('Database live-query memory', () => {
         finalMemoryDiagnostics,
         midpointMemory,
         mutationCount: LIVE_QUERY_MUTATION_COUNT,
+        preWarmMemoryDiagnostics,
+        preWarmRemoteDiagnostics,
         type: 'desktop-live-query-mutation-memory',
       })
     );
@@ -303,6 +465,25 @@ test.describe('Database live-query memory', () => {
     ).toBeGreaterThanOrEqual(LIVE_QUERY_MUTATION_COUNT);
     expect(finalMemoryDiagnostics.cache).toEqual(baselineMemoryDiagnostics.cache);
     expect(finalMemoryDiagnostics.recordIds).not.toContain(probeId);
+    expect(finalMemoryDiagnostics.recordArrayRetention.droppedGenerationCount).toBe(0);
+    expect(
+      finalMemoryDiagnostics.recordArrayRetention.trackedGenerationCount
+    ).toBeGreaterThanOrEqual(LIVE_QUERY_MUTATION_COUNT + 1);
+    expect(
+      finalMemoryDiagnostics.recordArrayRetention.collectedGenerationCount
+    ).toBeGreaterThanOrEqual(LIVE_QUERY_MUTATION_COUNT - 3);
+    expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations).not.toContain(
+      baselineRecordArrayGeneration
+    );
+    expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations).not.toContain(
+      midpointRecordArrayGeneration
+    );
+    expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations).toContain(
+      requireCurrentRecordArrayGeneration(finalMemoryDiagnostics, '100 committed mutations')
+    );
+    expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations.length).toBeLessThanOrEqual(
+      4
+    );
     expect(growth(finalMemory.heapUsedMB, baselineMemory.heapUsedMB)).toBeLessThan(
       LIVE_QUERY_VISIBLE_HEAP_DRIFT_LIMIT_MB
     );
@@ -345,42 +526,83 @@ test.describe('Database live-query memory', () => {
 
     await reloadRendererInTest(activeWindow, 'database-three-collection-switch-memory');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
-    for (const fixture of fixtures) {
-      await selectMemoryCollection(activeWindow, fixture.embeddingSetId);
-    }
+    const preWarmMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
+    const preWarmRemoteDiagnostics = await getRemoteLiveQueryDiagnostics(electronApp.app);
+    const expectedActiveOwnership = addActiveCollectionLiveQueryOwnership(
+      preWarmRemoteDiagnostics,
+      preWarmMemoryDiagnostics.activeLiveSubscriptions
+    );
+    expect(preWarmMemoryDiagnostics).toMatchObject({
+      activeCollectionId: null,
+      cache: EMPTY_DATABASE_DEMO_CACHE,
+      recordArrayRetention: {
+        aliveGenerations: [],
+        currentGeneration: null,
+        droppedGenerationCount: 0,
+        trackedGenerationCount: 0,
+      },
+      recordIds: [],
+    });
 
-    const baselineMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
-    const baselineRemoteDiagnostics = await getRemoteLiveQueryDiagnostics(electronApp.app);
+    const warmRecordArrayGenerations: number[] = [];
+    for (const fixture of fixtures) {
+      const snapshot = await selectMemoryCollection(activeWindow, fixture.embeddingSetId);
+      warmRecordArrayGenerations.push(
+        requireCurrentRecordArrayGeneration(snapshot, `warming ${fixture.embeddingSetId}`)
+      );
+      await expectLiveQueryOwnership(electronApp.app, activeWindow, expectedActiveOwnership);
+    }
+    expect(new Set(warmRecordArrayGenerations).size).toBe(fixtures.length);
+
     const baselineMemory = await readVisibleMemorySnapshot(
       electronApp.app,
       activeWindow,
       'collection-switch-baseline'
     );
+    const baselineMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
+    const baselineRemoteDiagnostics = await getRemoteLiveQueryDiagnostics(electronApp.app);
+    expect(baselineMemoryDiagnostics.cache).toEqual(expectedDatabaseDemoCache(fixtures.length));
+    expect(baselineMemoryDiagnostics.activeLiveSubscriptions).toBe(
+      expectedActiveOwnership.rendererLiveQueryCount
+    );
+    expect(baselineRemoteDiagnostics).toEqual({
+      hostLiveQueryCount: expectedActiveOwnership.hostLiveQueryCount,
+      ipcLiveQueryCount: expectedActiveOwnership.ipcLiveQueryCount,
+      managerLiveQueryCount: expectedActiveOwnership.managerLiveQueryCount,
+    });
 
     for (let cycle = 0; cycle < LIVE_QUERY_SWITCH_CYCLE_COUNT; cycle += 1) {
       for (const fixture of fixtures) {
         await selectMemoryCollection(activeWindow, fixture.embeddingSetId);
       }
+      await expectLiveQueryOwnership(electronApp.app, activeWindow, expectedActiveOwnership);
     }
 
-    await expectRemoteLiveQueryCounts(electronApp.app, baselineRemoteDiagnostics);
-    await expect
-      .poll(
-        async () => (await getDatabaseMemoryTestSnapshot(activeWindow)).activeLiveSubscriptions,
-        { timeout: 30_000 }
-      )
-      .toBe(baselineMemoryDiagnostics.activeLiveSubscriptions);
-
-    const finalMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
+    const finalCollectionId = fixtures.at(-1)?.embeddingSetId;
+    if (!finalCollectionId) {
+      throw new Error('Expected three seeded collection fixtures.');
+    }
+    const beforeCurrentLiveProof = await getDatabaseMemoryTestSnapshot(activeWindow);
+    const probeId = await mutateCollectionProbe(activeWindow, finalCollectionId, 'insert');
+    await expectCurrentLiveProbeState(activeWindow, {
+      minimumLiveUpdateCount: beforeCurrentLiveProof.liveUpdateCount + 1,
+      present: true,
+      probeId,
+    });
+    await expectLiveQueryOwnership(electronApp.app, activeWindow, expectedActiveOwnership);
+    await mutateCollectionProbe(activeWindow, finalCollectionId, 'delete');
+    await expectCurrentLiveProbeState(activeWindow, {
+      minimumLiveUpdateCount: beforeCurrentLiveProof.liveUpdateCount + 2,
+      present: false,
+      probeId,
+    });
+    await expectLiveQueryOwnership(electronApp.app, activeWindow, expectedActiveOwnership);
     const finalMemory = await readVisibleMemorySnapshot(
       electronApp.app,
       activeWindow,
       'collection-switch-final'
     );
-    const finalCollectionId = fixtures.at(-1)?.embeddingSetId;
-    if (!finalCollectionId) {
-      throw new Error('Expected three seeded collection fixtures.');
-    }
+    const finalMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
 
     console.log(
       JSON.stringify({
@@ -390,6 +612,8 @@ test.describe('Database live-query memory', () => {
         cycleCount: LIVE_QUERY_SWITCH_CYCLE_COUNT,
         finalMemory,
         finalMemoryDiagnostics,
+        preWarmMemoryDiagnostics,
+        preWarmRemoteDiagnostics,
         type: 'desktop-three-collection-switch-memory',
       })
     );
@@ -402,7 +626,25 @@ test.describe('Database live-query memory', () => {
     // Inactive pages are intentionally retained for fast revisits. The memory
     // contract is that switching overwrites the same three keyed entries and
     // releases superseded result arrays/handles instead of growing per switch.
-    expect(finalMemoryDiagnostics.cache).toEqual(baselineMemoryDiagnostics.cache);
+    expect(finalMemoryDiagnostics.cache).toEqual(expectedDatabaseDemoCache(fixtures.length));
+    expect(finalMemoryDiagnostics.recordArrayRetention.droppedGenerationCount).toBe(0);
+    expect(
+      finalMemoryDiagnostics.recordArrayRetention.trackedGenerationCount
+    ).toBeGreaterThanOrEqual(fixtures.length + LIVE_QUERY_SWITCH_CYCLE_COUNT * fixtures.length + 2);
+    expect(
+      finalMemoryDiagnostics.recordArrayRetention.collectedGenerationCount
+    ).toBeGreaterThanOrEqual(LIVE_QUERY_SWITCH_CYCLE_COUNT * fixtures.length);
+    for (const warmGeneration of warmRecordArrayGenerations) {
+      expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations).not.toContain(
+        warmGeneration
+      );
+    }
+    expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations).toContain(
+      requireCurrentRecordArrayGeneration(finalMemoryDiagnostics, 'the final live proof')
+    );
+    expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations.length).toBeLessThanOrEqual(
+      6
+    );
     expect(growth(finalMemory.heapUsedMB, baselineMemory.heapUsedMB)).toBeLessThan(
       LIVE_QUERY_VISIBLE_HEAP_DRIFT_LIMIT_MB
     );
