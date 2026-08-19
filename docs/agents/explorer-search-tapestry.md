@@ -781,14 +781,30 @@ fallback.
   provider-owned scheduler, which permits at most TWO simultaneous worker
   queues per lifecycle epoch: an existing slow queue leaves one lane for
   unrelated ready work, but twenty distinct predecessors settling together
-  cannot create twenty queues.
+  cannot create twenty queues. This is a concurrency bound, not a liveness
+  timeout. `FileContentWorker` accepts an optional `AbortSignal`, but the shared
+  loader currently passes no controller and there is no content-read timeout or
+  user-cancel policy. If two adapter reads never settle, both lanes remain
+  occupied, keys sharing either predecessor remain coupled, and queued batches
+  plus their logical waiters remain pending. Do not invent an elapsed-time
+  cutoff here: a safe bound needs an explicit cancellation owner/trigger and
+  adapter cancellation contract.
   Each completed group clears its own
   generation; active-load entries are identity-cleaned on settlement, so
   close/reopen churn does not create an unbounded key registry. Read preparation
   is settled per key rather than fail-fast: valid siblings still reach the
   worker, while preparation and worker failures clear every marked key and
   update a provider-owned immutable error map only for current failed composite
-  keys. Every physical reload group and deduped active read settles before the
+  keys. That map is a live projection, not an error history: a key is retained
+  only while its physical read is active or an explicit consumer owns it.
+  `WorkspaceTabsProvider` subscribes synchronously to the tab store and owns
+  exactly its open composite keys, so the durable projection is bounded by the
+  tab store's hard maximum of 20. Single close, bulk close, external hydration,
+  oldest-tab eviction, unmount, and factory reset all retire their keys
+  immediately. An unowned report/preview failure is still returned through the
+  rejected logical request, then pruned when its active read releases; there is
+  no arbitrary eviction that could hide an active tab's terminal error. Every
+  physical reload group and deduped active read settles before the
   public logical request rejects with the single error or an aggregate; a later
   successful queued group cannot erase an earlier sibling's failure. A logical
   retry clears only its requested keys at its boundary. `WorkspaceTabsProvider`
@@ -804,8 +820,19 @@ fallback.
   identity and is NEVER substituted for durable read authority. Removed
   files/directories therefore replace the tab with its loading boundary and
   then a visible read-failure result, never the pre-delete content. Listener
-  cleanup is provider-scoped. Windows comparison preserves drive roots such as
-  `C:\` while applying the existing case-insensitive drive/UNC semantics.
+  cleanup is provider-scoped. A direct-path-capable adapter completes this read
+  even when refresh has produced an empty tree (including deletion of the last
+  open file); it never returns fulfilled while leaving the tab pending. Direct
+  path resolution preserves POSIX `/`, Windows drive roots such as `C:\`, and
+  UNC share roots. Relative paths reject empty, control, `.` and `..` segments.
+  Absolute paths are accepted only when contained by the selected root, using
+  POSIX case-sensitive and Windows drive/UNC case-insensitive semantics; an
+  outside absolute path is rejected visibly rather than reinterpreted as a
+  relative path or concatenated as a fallback. A structured worker
+  `status:'inaccessible'` result is canonicalized through
+  `buildInaccessibleContent`, while the exact `BINARY_CONTENT_MESSAGE` sentinel
+  is preserved so the tab routes binary files to `BinaryFilePreview` instead of
+  rendering either message as source code.
 
   **Surface audit (BST-1159):** file-tab `CodeSurface` is invoked without
   `editable`/`onChange` (read-only default), Markdown preview is read-only, and
@@ -1088,8 +1115,13 @@ fallback.
   (same-hook and cross-hook stale suppression, ready/dependent/rejected batch
   scheduling, reset/replacement lifecycle isolation, per-key preparation and
   worker-error settlement, all-settle rejection across independent groups,
-  per-key error retention, twenty-group queue bounds, and nested-handle RootId
-  forwarding), `packages/file-explorer-ui/src/__tests__/file-explorer-provider.test.tsx`
+  owned versus transient error retention, empty-tree direct refresh, twenty-group
+  queue bounds, and nested-handle RootId forwarding),
+  `packages/file-explorer-ui/src/__tests__/workspace-tabs-error-lifecycle.test.tsx`
+  (single/bulk close, twenty-tab eviction, and reset pruning),
+  `packages/file-explorer-ui/src/__tests__/file-content-direct-read-path.test.ts`
+  (POSIX/drive/UNC root preservation and strict containment),
+  `packages/file-explorer-ui/src/__tests__/file-explorer-provider.test.tsx`
   (live factory-reset content/cache clearing), plus
   `packages/file-explorer/src/__tests__/file-content-actions.test.ts`
   (store-scoped cache/reset lifecycle).
