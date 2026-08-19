@@ -169,14 +169,31 @@ describe('embedding worker runtime', () => {
   describe('webdriver test runtime validation', () => {
     it('boots the production worker from a valid fixed runtime without importing Transformers', async () => {
       transformersImportState.error = new Error('Transformers import must remain unused');
+      const extractor = vi.fn(async () => Float32Array.from([0.25, 0.75]));
+      const injectedPipeline = vi.fn(async () => extractor);
       installTestRuntime({
         env: { allowRemoteModels: false },
-        pipeline: vi.fn(),
+        pipeline: injectedPipeline,
         tensorConstructor: MockTensor,
       });
 
       await expect(import('../src/embedding.worker')).resolves.toBeDefined();
-      expect(registeredHandlers.runEmbedding).toBeTypeOf('function');
+      const runEmbedding = registeredHandlers.runEmbedding;
+      if (!runEmbedding) {
+        throw new Error('Expected the production worker to register its embedding handler.');
+      }
+      await expect(
+        runEmbedding({
+          deviceHint: 'wasm',
+          id: 'injected-runtime-proof',
+          model: 'bge-m3',
+          texts: ['offline probe'],
+          truncateDim: 2,
+          type: 'embed',
+        })
+      ).resolves.toMatchObject({ id: 'injected-runtime-proof', type: 'result' });
+      expect(injectedPipeline).toHaveBeenCalledOnce();
+      expect(extractor).toHaveBeenCalledOnce();
     });
 
     it.each([

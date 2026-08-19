@@ -199,6 +199,62 @@ describe('embedding pipeline cache controller', () => {
     await controller.close();
   });
 
+  it('does not evict a resident before rejecting an invalid cache clock', async () => {
+    const disposedModels: string[] = [];
+    let clock = 0;
+    let clockIsValid = true;
+    const load = vi.fn(async (model: string) => ({
+      dispose: () => {
+        disposedModels.push(model);
+      },
+    }));
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      now: () => {
+        if (!clockIsValid) {
+          return Number.NaN;
+        }
+        clock += 1;
+        return clock;
+      },
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'invalid-replacement-clock-worker',
+    });
+    const loadWasm = async (model: string): Promise<void> => {
+      await controller.load({
+        device: 'wasm',
+        dtype: 'q4',
+        estimatedModelBytes: WASM_MODEL_BYTES,
+        model,
+      });
+    };
+
+    try {
+      await loadWasm('wasm-a');
+      await loadWasm('wasm-b');
+      await loadWasm('wasm-c');
+      const residentsBeforeRejection = controller
+        .getResidentEntries()
+        .map((entry) => entry.cacheKey);
+
+      clockIsValid = false;
+      await expect(loadWasm('wasm-d')).rejects.toThrow(
+        'Embedding pipeline cache clock must return a non-negative finite number.'
+      );
+      await Promise.resolve();
+
+      expect(load).toHaveBeenCalledTimes(3);
+      expect(disposedModels).toEqual([]);
+      clockIsValid = true;
+      expect(controller.getResidentEntries().map((entry) => entry.cacheKey)).toEqual(
+        residentsBeforeRejection
+      );
+    } finally {
+      clockIsValid = true;
+      await controller.close();
+    }
+  });
+
   it('awaits asynchronous resident-limit disposal before allocating the replacement', async () => {
     const disposalStarted = createDeferred<void>();
     const releaseDisposal = createDeferred<void>();
