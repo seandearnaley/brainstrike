@@ -5,6 +5,22 @@ import { createEmbeddingPipelineCacheController } from '../src/pipeline-cache-co
 const WASM_MODEL_BYTES = 8 * 1024 * 1024;
 const GPU_MODEL_BYTES = 16 * 1024 * 1024;
 
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly reject: (reason: unknown) => void;
+  readonly resolve: (value: T) => void;
+}
+
+function createDeferred<T>(): Deferred<T> {
+  let reject!: (reason: unknown) => void;
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, reject, resolve };
+}
+
 describe('embedding pipeline cache controller', () => {
   it('keeps repeated WASM and GPU-class model switches within their resident limits', async () => {
     const diagnostics: EmbedWorkerPipelineCacheDiagnostic[] = [];
@@ -119,6 +135,92 @@ describe('embedding pipeline cache controller', () => {
         error: loadError,
         model: 'broken-model',
       });
+    } finally {
+      await controller.close();
+    }
+  });
+
+  it('awaits asynchronous resident-limit disposal before allocating the replacement', async () => {
+    const disposalStarted = createDeferred<void>();
+    const releaseDisposal = createDeferred<void>();
+    const physicallyLiveModels = new Set<string>();
+    const load = vi.fn(async (model: string) => {
+      physicallyLiveModels.add(model);
+      return {
+        dispose: async (): Promise<void> => {
+          disposalStarted.resolve();
+          await releaseDisposal.promise;
+          physicallyLiveModels.delete(model);
+        },
+      };
+    });
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'async-disposal-worker',
+    });
+
+    const loadWasm = async (model: string): Promise<void> => {
+      await controller.load({
+        device: 'wasm',
+        dtype: 'q4',
+        estimatedModelBytes: WASM_MODEL_BYTES,
+        model,
+      });
+    };
+
+    try {
+      await loadWasm('wasm-a');
+      await loadWasm('wasm-b');
+      await loadWasm('wasm-c');
+
+      const replacement = loadWasm('wasm-d');
+      await disposalStarted.promise;
+
+      expect(load).toHaveBeenCalledTimes(3);
+      expect(physicallyLiveModels).toEqual(new Set(['wasm-a', 'wasm-b', 'wasm-c']));
+
+      releaseDisposal.resolve();
+      await replacement;
+
+      expect(load).toHaveBeenCalledTimes(4);
+      expect(physicallyLiveModels).toEqual(new Set(['wasm-b', 'wasm-c', 'wasm-d']));
+    } finally {
+      releaseDisposal.resolve();
+      await controller.close();
+    }
+  });
+
+  it('rejects replacement loading when resident-limit disposal fails', async () => {
+    const disposalError = new Error('physical release failed');
+    const load = vi.fn(async (model: string) => ({
+      dispose: async (): Promise<void> => {
+        if (model === 'wasm-a') {
+          throw disposalError;
+        }
+      },
+    }));
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'failed-disposal-worker',
+    });
+    const loadWasm = async (model: string): Promise<void> => {
+      await controller.load({
+        device: 'wasm',
+        dtype: 'q4',
+        estimatedModelBytes: WASM_MODEL_BYTES,
+        model,
+      });
+    };
+
+    try {
+      await loadWasm('wasm-a');
+      await loadWasm('wasm-b');
+      await loadWasm('wasm-c');
+
+      await expect(loadWasm('wasm-d')).rejects.toBe(disposalError);
+      expect(load).toHaveBeenCalledTimes(3);
     } finally {
       await controller.close();
     }

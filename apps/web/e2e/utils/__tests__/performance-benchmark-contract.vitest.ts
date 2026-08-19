@@ -90,7 +90,7 @@ describe('performance benchmark measurement contracts', () => {
   it('routes the embedding model-switch regression through the production worker', async () => {
     const [
       e2eSource,
-      embeddingWorkerPackage,
+      embeddingWorkerPackageSource,
       hookSource,
       probeSource,
       workerSource,
@@ -109,10 +109,17 @@ describe('performance benchmark measurement contracts', () => {
       ),
       readFile(path.join(process.cwd(), 'playwright.config.mts'), 'utf8'),
     ]);
+    const embeddingWorkerPackage = JSON.parse(embeddingWorkerPackageSource) as unknown;
+    if (!(typeof embeddingWorkerPackage === 'object' && embeddingWorkerPackage !== null)) {
+      throw new Error('Embedding worker package.json must contain an object.');
+    }
+    const sideEffects = Reflect.get(embeddingWorkerPackage, 'sideEffects');
 
     expect(e2eSource).toContain('__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
     expect(e2eSource).toContain('page.addInitScript');
     expect(e2eSource).toContain('page.route');
+    expect(e2eSource).toContain('const appOrigin = new URL(baseURL).origin');
+    expect(e2eSource).toContain('expect(crossOriginRequests).toEqual([])');
     expect(e2eSource).toContain('hooks.runEmbeddingModelSwitchMemoryProbe()');
     expect(e2eSource).toContain('expect(modelRequests).toEqual([])');
     expect(e2eSource).toContain('residentLimitEvictionCount).toBe(18)');
@@ -136,9 +143,10 @@ describe('performance benchmark measurement contracts', () => {
     expect(workerSource).toContain('parseSingleFragmentValue');
     expect(workerSource).toContain('runtime bootstrap was installed more than once');
     expect(workerSource).toContain('requires exactly one');
+    expect(workerSource).toContain('liveBytes += resource.store.byteLength');
     expect(workerSource).not.toContain('createEmbeddingPipelineCacheController');
 
-    expect(embeddingWorkerPackage).toContain('"./dist/embedding.worker.js"');
+    expect(sideEffects).toEqual(['./dist/embedding.worker.cjs', './dist/embedding.worker.js']);
 
     expect(playwrightConfig).toContain('ForceEagerMeasureMemory');
   });
