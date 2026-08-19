@@ -331,11 +331,25 @@ test.describe('Database live-query memory', () => {
     activeWindow = await showDatabaseDemoPanel(activeWindow);
     const preWarmMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
     const preWarmRemoteDiagnostics = await getRemoteLiveQueryDiagnostics(electronApp.app);
+    // Reload idempotence: the main process reaps an owner's live subscriptions
+    // on 'did-navigate', so a second reload + panel mount must reproduce every
+    // main-side ownership count exactly — reloads may not accrete orphans. The
+    // renderer count gates the sample so it cannot pass on the transient
+    // window before the fresh page has re-registered its own subscriptions.
+    await reloadRendererInTest(activeWindow, 'database-live-query-reload-reap-idempotence');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+    await expectLiveQueryOwnership(electronApp.app, activeWindow, {
+      ...preWarmRemoteDiagnostics,
+      rendererLiveQueryCount: preWarmMemoryDiagnostics.activeLiveSubscriptions,
+    });
+    // Re-read after the second reload so every assertion below describes the
+    // realm the rest of the test actually runs in, not the reloaded-away one.
+    const postReloadMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
     const expectedActiveOwnership = addActiveCollectionLiveQueryOwnership(
       preWarmRemoteDiagnostics,
-      preWarmMemoryDiagnostics.activeLiveSubscriptions
+      postReloadMemoryDiagnostics.activeLiveSubscriptions
     );
-    expect(preWarmMemoryDiagnostics).toMatchObject({
+    expect(postReloadMemoryDiagnostics).toMatchObject({
       activeCollectionId: null,
       cache: EMPTY_DATABASE_DEMO_CACHE,
       recordArrayRetention: {
@@ -453,6 +467,7 @@ test.describe('Database live-query memory', () => {
         finalMemoryDiagnostics,
         midpointMemory,
         mutationCount: LIVE_QUERY_MUTATION_COUNT,
+        postReloadMemoryDiagnostics,
         preWarmMemoryDiagnostics,
         preWarmRemoteDiagnostics,
         type: 'desktop-live-query-mutation-memory',

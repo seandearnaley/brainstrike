@@ -105,7 +105,9 @@ const {
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
   const loggerDebug = vi.fn();
-  const isCorruptionErrorMock = vi.fn(() => false);
+  // Matches the production isCorruptionError(error) signature so tests can
+  // install error-discriminating implementations.
+  const isCorruptionErrorMock = vi.fn((_error: unknown) => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
   const closeDatabaseMock = vi.fn();

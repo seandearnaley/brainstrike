@@ -33,6 +33,73 @@ function setBrowserWindows(...senders: unknown[]): void {
   );
 }
 
+/** The three owner-teardown shapes the live-query reaper must cover. */
+const LIVE_QUERY_TEARDOWN_EVENTS = ['destroyed', 'render-process-gone', 'did-navigate'] as const;
+
+interface FakeLiveQueryOwner {
+  emit: (event: string) => void;
+  id: number;
+  isDestroyed: ReturnType<typeof vi.fn>;
+  listenerCount: (event: string) => number;
+  on: (event: string, listener: () => void) => void;
+  removeListener: (event: string, listener: () => void) => void;
+  send: ReturnType<typeof vi.fn>;
+}
+
+/**
+ * A minimal WebContents stand-in with real add/remove listener semantics so
+ * reaper attachment, sibling-listener removal, and re-attachment after a reap
+ * are observable via `listenerCount` (mirrors the fs-watch reaper tests).
+ */
+function createFakeLiveQueryOwner(id: number): FakeLiveQueryOwner {
+  const listeners = new Map<string, Array<() => void>>();
+  return {
+    emit: (event: string): void => {
+      // Snapshot before firing — the reap listener mutates the map mid-fire.
+      for (const listener of [...(listeners.get(event) ?? [])]) {
+        listener();
+      }
+    },
+    id,
+    isDestroyed: vi.fn(() => false),
+    listenerCount: (event: string): number => listeners.get(event)?.length ?? 0,
+    on: (event: string, listener: () => void): void => {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+    },
+    removeListener: (event: string, listener: () => void): void => {
+      const remaining = (listeners.get(event) ?? []).filter((entry) => entry !== listener);
+      if (remaining.length === 0) {
+        listeners.delete(event);
+      } else {
+        listeners.set(event, remaining);
+      }
+    },
+    send: vi.fn(),
+  };
+}
+
+function createLiveHandleMock(): {
+  initialResults: { rows: unknown[] };
+  refresh: ReturnType<typeof vi.fn>;
+  subscribe: ReturnType<typeof vi.fn>;
+  unsubscribe: ReturnType<typeof vi.fn>;
+} {
+  return {
+    initialResults: { rows: [] },
+    refresh: vi.fn(),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+  };
+}
+
+async function flushAsyncOwnerCleanup(): Promise<void> {
+  // The reap schedules owner cleanup (Promise.allSettled over unsubscribes);
+  // drain a few microtask turns so its effects are observable.
+  for (let turn = 0; turn < 5; turn += 1) {
+    await Promise.resolve();
+  }
+}
+
 describe('database IPC handlers', () => {
   beforeEach(async () => {
     await resetDatabaseIpcHandlerMocks();
@@ -604,7 +671,8 @@ describe('database IPC handlers', () => {
     const sender = {
       id: 22,
       isDestroyed: vi.fn(() => false),
-      once: vi.fn((_event: string, _cb: () => void) => {}),
+      on: vi.fn(),
+      removeListener: vi.fn(),
       send: vi.fn(),
     };
 
@@ -655,7 +723,15 @@ describe('database IPC handlers', () => {
     mockDb.live.query.mockResolvedValue(liveHandle);
 
     await handler(
-      { sender: { id: 23, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
+      {
+        sender: {
+          id: 23,
+          isDestroyed: () => false,
+          on: vi.fn(),
+          removeListener: vi.fn(),
+          send: vi.fn(),
+        },
+      } as unknown,
       {
         params: ['needle'],
         query: "SELECT * FROM file_records WHERE path LIKE '%' || $1 || '%'",
@@ -670,38 +746,204 @@ describe('database IPC handlers', () => {
     });
   });
 
-  it('db:live-query:start registers a single destroyed listener per webContents', async () => {
+  it('db:live-query:start attaches one owner reaper per webContents covering all three teardown events', async () => {
     const handler = handlers.get('db:live-query:start');
     if (!handler) {
       throw new Error('handler not registered');
     }
 
-    const firstHandle = {
-      initialResults: { rows: [] },
-      refresh: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    };
-    const secondHandle = {
-      initialResults: { rows: [] },
-      refresh: vi.fn(),
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-    };
-    mockDb.live.query.mockResolvedValueOnce(firstHandle).mockResolvedValueOnce(secondHandle);
+    mockDb.live.query
+      .mockResolvedValueOnce(createLiveHandleMock())
+      .mockResolvedValueOnce(createLiveHandleMock());
+    const owner = createFakeLiveQueryOwner(101);
 
-    const sender = {
-      id: 101,
-      isDestroyed: vi.fn(() => false),
-      once: vi.fn(),
-      send: vi.fn(),
-    };
+    await handler({ sender: owner } as unknown, { query: 'select 1' });
+    await handler({ sender: owner } as unknown, { query: 'select 2' });
 
-    await handler({ sender } as unknown, { query: 'select 1' });
-    await handler({ sender } as unknown, { query: 'select 2' });
+    for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+      expect(owner.listenerCount(teardownEvent)).toBe(1);
+    }
+  });
 
-    expect(sender.once).toHaveBeenCalledTimes(1);
-    expect(sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
+  // Reload (Cmd+R / crash-recovery reload) preserves the WebContents, so a
+  // 'destroyed'-only hook leaks every old-page subscription: each orphan
+  // update keeps being computed by PGlite, serialized over IPC, and dropped by
+  // the new page's id filter — unbounded growth until window close. The reaper
+  // must cover all three teardown shapes, and because 'did-navigate' and
+  // 'render-process-gone' leave the WebContents ALIVE, a fired reap must
+  // remove its sibling listeners so re-registration cannot pile them up.
+  it.each(LIVE_QUERY_TEARDOWN_EVENTS)(
+    "db:live-query:start reaps every owner subscription on '%s'",
+    async (teardownEvent) => {
+      const startHandler = handlers.get('db:live-query:start');
+      const refreshHandler = handlers.get('db:live-query:refresh');
+      if (!(startHandler && refreshHandler)) {
+        throw new Error('handler not registered');
+      }
+
+      const firstHandle = createLiveHandleMock();
+      const secondHandle = createLiveHandleMock();
+      mockDb.live.query.mockResolvedValueOnce(firstHandle).mockResolvedValueOnce(secondHandle);
+      const owner = createFakeLiveQueryOwner(110);
+
+      const first = (await startHandler({ sender: owner } as unknown, {
+        query: 'select 1',
+      })) as { id: number };
+      const second = (await startHandler({ sender: owner } as unknown, {
+        query: 'select 2',
+      })) as { id: number };
+
+      owner.emit(teardownEvent);
+      await flushAsyncOwnerCleanup();
+
+      expect(firstHandle.unsubscribe).toHaveBeenCalledTimes(1);
+      expect(secondHandle.unsubscribe).toHaveBeenCalledTimes(1);
+      await expect(refreshHandler({} as unknown, { id: first.id })).resolves.toEqual({
+        message: 'Subscription not found',
+        success: false,
+      });
+      await expect(refreshHandler({} as unknown, { id: second.id })).resolves.toEqual({
+        message: 'Subscription not found',
+        success: false,
+      });
+      // A fired reap must remove ALL teardown listeners, not only its own.
+      for (const remaining of LIVE_QUERY_TEARDOWN_EVENTS) {
+        expect(owner.listenerCount(remaining)).toBe(0);
+      }
+    }
+  );
+
+  it('db:live-query:start re-attaches the owner reaper after a did-navigate reap', async () => {
+    const handler = handlers.get('db:live-query:start');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    mockDb.live.query
+      .mockResolvedValueOnce(createLiveHandleMock())
+      .mockResolvedValueOnce(createLiveHandleMock());
+    const owner = createFakeLiveQueryOwner(111);
+
+    await handler({ sender: owner } as unknown, { query: 'select 1' });
+    owner.emit('did-navigate');
+    await flushAsyncOwnerCleanup();
+
+    await handler({ sender: owner } as unknown, { query: 'select 2' });
+
+    for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+      expect(owner.listenerCount(teardownEvent)).toBe(1);
+    }
+  });
+
+  // The mid-setup race: a reload landing while createLiveQueryHandle is being
+  // awaited would otherwise register a fresh subscription already owned by the
+  // dead page — a permanent orphan the reap (which already ran) cannot see.
+  it('db:live-query:start discards a handle created for a renderer context reaped mid-setup', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    if (!startHandler) {
+      throw new Error('handler not registered');
+    }
+
+    let resolveHandle: ((handle: unknown) => void) | null = null;
+    mockDb.live.query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHandle = resolve;
+        })
+    );
+    const owner = createFakeLiveQueryOwner(112);
+
+    const pendingStart = startHandler({ sender: owner } as unknown, { query: 'select 1' });
+    await vi.waitFor(() => {
+      expect(mockDb.live.query).toHaveBeenCalledTimes(1);
+    });
+    const releaseHandle: unknown = resolveHandle;
+    if (typeof releaseHandle !== 'function') {
+      throw new Error('expected pending live-query handle creation');
+    }
+
+    // Reload lands while the handle creation is still in flight.
+    owner.emit('did-navigate');
+    const racedHandle = createLiveHandleMock();
+    releaseHandle(racedHandle);
+
+    await expect(pendingStart).rejects.toThrow(
+      'db:live-query:start: the requesting renderer context changed during setup.'
+    );
+    expect(racedHandle.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(racedHandle.subscribe).not.toHaveBeenCalled();
+  });
+
+  // The raced-handle teardown is the one unsubscribe in this file that does
+  // not go through cleanupLiveSubscription's error tolerance. A rejection
+  // there must neither replace the context-changed error nor — via
+  // withCorruptionRecovery — let a benign reload race trigger a full database
+  // replacement. It must still be VISIBLE (logged), never swallowed silently.
+  it('db:live-query:start surfaces the context-changed error even when the raced handle teardown rejects', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    if (!startHandler) {
+      throw new Error('handler not registered');
+    }
+
+    let resolveHandle: ((handle: unknown) => void) | null = null;
+    mockDb.live.query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHandle = resolve;
+        })
+    );
+    const owner = createFakeLiveQueryOwner(113);
+
+    const pendingStart = startHandler({ sender: owner } as unknown, { query: 'select 1' });
+    await vi.waitFor(() => {
+      expect(mockDb.live.query).toHaveBeenCalledTimes(1);
+    });
+    const releaseHandle: unknown = resolveHandle;
+    if (typeof releaseHandle !== 'function') {
+      throw new Error('expected pending live-query handle creation');
+    }
+
+    owner.emit('did-navigate');
+    const racedHandle = createLiveHandleMock();
+    const teardownFailure = new Error('invalid page in block 7');
+    racedHandle.unsubscribe.mockRejectedValueOnce(teardownFailure);
+    // Even a corruption-shaped teardown failure must not reach recover().
+    isCorruptionErrorMock.mockImplementation((error: unknown) => error === teardownFailure);
+    releaseHandle(racedHandle);
+
+    await expect(pendingStart).rejects.toThrow(
+      'db:live-query:start: the requesting renderer context changed during setup.'
+    );
+    expect(handleRuntimeCorruptionMock).not.toHaveBeenCalled();
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'Failed to tear down a live-query handle reaped mid-setup',
+      {
+        error: teardownFailure,
+      }
+    );
+  });
+
+  // Mirrors fs-watch's pre-attach guard: a start processed after the sender is
+  // already destroyed would attach a reaper to an emitter whose teardown
+  // events have already fired — no reap would ever arrive, permanently
+  // registering the subscription and retaining the dead WebContents through
+  // the update-listener closure.
+  it('db:live-query:start rejects a sender that is already destroyed before touching the database', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    if (!startHandler) {
+      throw new Error('handler not registered');
+    }
+
+    const owner = createFakeLiveQueryOwner(114);
+    owner.isDestroyed.mockReturnValue(true);
+
+    await expect(startHandler({ sender: owner } as unknown, { query: 'select 1' })).rejects.toThrow(
+      'db:live-query:start: the requesting renderer is already destroyed.'
+    );
+    expect(mockDb.live.query).not.toHaveBeenCalled();
+    for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+      expect(owner.listenerCount(teardownEvent)).toBe(0);
+    }
   });
 
   it('db:live-query:start supports incremental mode with key', async () => {
@@ -719,7 +961,15 @@ describe('database IPC handlers', () => {
     mockDb.live.incrementalQuery.mockResolvedValue(liveHandle);
 
     await handler(
-      { sender: { id: 1, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
+      {
+        sender: {
+          id: 1,
+          isDestroyed: () => false,
+          on: vi.fn(),
+          removeListener: vi.fn(),
+          send: vi.fn(),
+        },
+      } as unknown,
       { key: 'id', limit: 5, mode: 'incremental', offset: 2, query: 'select *' }
     );
 
@@ -740,7 +990,15 @@ describe('database IPC handlers', () => {
 
     await expect(
       handler(
-        { sender: { id: 1, isDestroyed: () => false, once: vi.fn(), send: vi.fn() } } as unknown,
+        {
+          sender: {
+            id: 1,
+            isDestroyed: () => false,
+            on: vi.fn(),
+            removeListener: vi.fn(),
+            send: vi.fn(),
+          },
+        } as unknown,
         { mode: 'incremental', query: 'select *' }
       )
     ).rejects.toThrow('Live incremental queries require a key column');
@@ -772,7 +1030,8 @@ describe('database IPC handlers', () => {
     const sender = {
       id: 77,
       isDestroyed: vi.fn(() => false),
-      once: vi.fn((_event: string, _cb: () => void) => {}),
+      on: vi.fn(),
+      removeListener: vi.fn(),
       send: vi.fn(),
     };
 
@@ -810,7 +1069,8 @@ describe('database IPC handlers', () => {
     const sender = {
       id: 55,
       isDestroyed: vi.fn(() => false),
-      once: vi.fn((_event: string, _cb: () => void) => {}),
+      on: vi.fn(),
+      removeListener: vi.fn(),
       send: vi.fn(),
     };
 
@@ -1355,13 +1615,15 @@ describe('database IPC handlers', () => {
     function createLiveQuerySender(id: number): {
       id: number;
       isDestroyed: ReturnType<typeof vi.fn>;
+      on: ReturnType<typeof vi.fn>;
+      removeListener: ReturnType<typeof vi.fn>;
       send: ReturnType<typeof vi.fn>;
-      once: ReturnType<typeof vi.fn>;
     } {
       return {
         id,
         isDestroyed: vi.fn(() => false),
-        once: vi.fn(),
+        on: vi.fn(),
+        removeListener: vi.fn(),
         send: vi.fn(),
       };
     }
@@ -1570,40 +1832,25 @@ describe('database IPC handlers', () => {
       });
     });
 
-    it('keeps owner destroy-listener registration when disposed-frame cleanup runs before webContents destruction', async () => {
+    it('keeps the owner reaper attached when disposed-frame cleanup runs before webContents teardown', async () => {
       const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       const handler = handlers.get('db:live-query:start');
       if (!handler) {
         throw new Error('handler not registered');
       }
 
-      const firstLiveHandle = {
-        initialResults: { rows: [] },
-        refresh: vi.fn(),
-        subscribe: vi.fn(),
-        unsubscribe: vi.fn(),
-      };
-      const secondLiveHandle = {
-        initialResults: { rows: [] },
-        refresh: vi.fn(),
-        subscribe: vi.fn(),
-        unsubscribe: vi.fn(),
-      };
+      const firstLiveHandle = createLiveHandleMock();
+      const secondLiveHandle = createLiveHandleMock();
       mockDb.live.query
         .mockResolvedValueOnce(firstLiveHandle)
         .mockResolvedValueOnce(secondLiveHandle);
 
-      const sender = {
-        id: 51,
-        isDestroyed: vi.fn(() => false),
-        once: vi.fn(),
-        send: vi
-          .fn()
-          .mockImplementationOnce(() => {
-            throw new Error('Render frame was disposed before WebFrameMain could be accessed');
-          })
-          .mockImplementation(() => undefined),
-      };
+      const sender = createFakeLiveQueryOwner(51);
+      sender.send
+        .mockImplementationOnce(() => {
+          throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+        })
+        .mockImplementation(() => undefined);
       setBrowserWindows(sender);
 
       const firstResult = (await handler({ sender } as unknown, {
@@ -1622,7 +1869,9 @@ describe('database IPC handlers', () => {
       await Promise.resolve();
 
       expect(firstLiveHandle.unsubscribe).toHaveBeenCalled();
-      expect(sender.once).toHaveBeenCalledTimes(1);
+      for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+        expect(sender.listenerCount(teardownEvent)).toBe(1);
+      }
 
       const secondResult = (await handler({ sender } as unknown, {
         query: 'SELECT 2',
@@ -1630,7 +1879,11 @@ describe('database IPC handlers', () => {
 
       expect(secondResult.id).not.toBe(firstResult.id);
       expect(secondLiveHandle.subscribe).toHaveBeenCalledTimes(1);
-      expect(sender.once).toHaveBeenCalledTimes(1);
+      // Disposed-frame cleanup does not detach the reaper, so a later start
+      // must not attach a duplicate set of teardown listeners.
+      for (const teardownEvent of LIVE_QUERY_TEARDOWN_EVENTS) {
+        expect(sender.listenerCount(teardownEvent)).toBe(1);
+      }
     });
 
     it('resets live-query module state during shutdown cleanup', async () => {
