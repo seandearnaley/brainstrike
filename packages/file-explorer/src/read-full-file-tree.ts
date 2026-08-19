@@ -56,12 +56,15 @@ function createFileNodeBase(node: IFileNode, state: TraversalState): IFileNode {
 }
 
 function createChildDirectoryHandle(node: IFileNode, parent: DirectoryHandle): DirectoryHandle {
+  const entryHandle = node.handle as Partial<DirectoryHandle> | undefined;
+  const rootId = entryHandle?.rootId ?? parent.rootId;
   return {
     _internal: node.handle,
     kind: 'directory',
     name: node.name,
     path: node.path,
     platform: parent.platform,
+    ...(rootId === undefined ? {} : { rootId }),
   };
 }
 

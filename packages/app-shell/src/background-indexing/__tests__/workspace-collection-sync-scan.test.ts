@@ -194,4 +194,83 @@ describe('workspace collection scoped traversal', () => {
       expect.any(Object)
     );
   });
+
+  it('inherits the root handle rootId when a child directory handle is unstamped', async () => {
+    const rootHandle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+      rootId: 'outer-root-id',
+    };
+    const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
+      if (handle.path === rootHandle.path) {
+        return [
+          {
+            children: [],
+            depth: 0,
+            handle: {
+              kind: 'directory',
+              name: 'nested-root',
+              path: '/workspace/root/nested-root',
+              platform: 'electron',
+            } as unknown as IFileNode['handle'],
+            name: 'nested-root',
+            path: '/workspace/root/nested-root',
+            rootFolderId: 'folder-state-id',
+            selectionState: 'unchecked',
+            type: 'directory',
+          },
+        ];
+      }
+      return [];
+    });
+    const fileSystemAdapter = {
+      exists: vi.fn(),
+      readDirectory,
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+
+    await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: rootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'outer-root-id',
+        rootPath: rootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => []),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: rootHandle,
+        scope: {
+          changes: [
+            {
+              kind: 'directory',
+              path: '/workspace/root/nested-root',
+              type: 'modified',
+            },
+          ],
+          mode: 'paths',
+        },
+      },
+    });
+
+    expect(readDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/workspace/root/nested-root',
+        rootId: 'outer-root-id',
+      }),
+      expect.any(Object)
+    );
+  });
 });

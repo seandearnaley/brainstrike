@@ -18,16 +18,13 @@ import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-import {
-  useAbortControllers,
-  useExpandAll,
-  useRecursiveFolderSelect,
-  useRecursiveSelectAll,
-} from '../hooks';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
+import { useAbortControllers } from '../hooks/use-abort-controllers';
 import type { ExpandAllExecutorArgs, ExpandAllExecutorResult } from '../hooks/use-expand-all';
+import { useExpandAll } from '../hooks/use-expand-all';
 import { useFileTreeWorker } from '../hooks/use-file-tree-worker';
+import { useRecursiveFolderSelect } from '../hooks/use-recursive-folder-select';
+import { useRecursiveSelectAll } from '../hooks/use-recursive-select-all';
 import { estimateTreePayloadBytes, recordFileTreeTelemetry } from '../utils/file-tree-telemetry';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import {
@@ -336,6 +333,12 @@ export function useLazyFileTree(
   const { filterTreeFn, onNodesIndexed, rootId } = options;
   const { fileSystemAdapter } = useAdapters();
   const rootDirectoryPath = rootDirectoryHandle?.path ?? null;
+  // A legacy mounted handle may lack its own rootId; `rootId` is the
+  // already-resolved fallback identity (rootIdByPath lookup done by
+  // FileTreeWrapper/RootSection before this hook is called), so it must
+  // anchor child reads too or the parentRootId plumbing below is a no-op
+  // for every caller that relies on that fallback.
+  const rootHandleRootId = rootDirectoryHandle?.rootId ?? rootId;
 
   // Ref for callback to avoid stale closures
   const onNodesIndexedRef = useRef(onNodesIndexed);
@@ -667,6 +670,7 @@ export function useLazyFileTree(
       materializeNormalizedSubtree(normalizedTreeRef.current, path),
     onDirectoriesLoaded: handleScannedDirectoriesLoaded,
     onError: handleWorkerError,
+    ...(rootHandleRootId === undefined ? {} : { parentRootId: rootHandleRootId }),
     ...filterTreeOption,
   };
 
@@ -676,6 +680,7 @@ export function useLazyFileTree(
     getCurrentTree: () => materializeNormalizedFileTree(normalizedTreeRef.current),
     onError: handleWorkerError,
     onTreeUpdate: handleTreeUpdate,
+    ...(rootHandleRootId === undefined ? {} : { parentRootId: rootHandleRootId }),
     ...filterTreeOption,
   };
 
@@ -965,6 +970,7 @@ export function useLazyFileTree(
             },
             {
               abortSignal: abortController.signal,
+              parentRootId: rootHandleRootId,
               sortFileNodes,
             }
           );
@@ -972,6 +978,7 @@ export function useLazyFileTree(
           // Fallback to non-streaming
           const children = await loadDirectoryChildren(adapter, node, {
             abortSignal: abortController.signal,
+            parentRootId: rootHandleRootId,
             sortFileNodes,
           });
           if (!abortController.signal.aborted) {
@@ -989,7 +996,7 @@ export function useLazyFileTree(
         handleLoadError(path, errorMsg, abortController);
       }
     },
-    [handleLoadSuccess, handleLoadError, handleLoadAborted]
+    [handleLoadSuccess, handleLoadError, handleLoadAborted, rootHandleRootId]
   );
 
   /**

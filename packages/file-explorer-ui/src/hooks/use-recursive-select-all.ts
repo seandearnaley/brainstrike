@@ -6,7 +6,7 @@ import {
   getForeignSelectionCount,
 } from '@brainstrike/file-explorer';
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
-import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type {
@@ -313,6 +313,7 @@ export interface UseRecursiveSelectAllOptions {
   getCurrentTree: () => IFileNode[];
   onError?: (error: Error) => void;
   onTreeUpdate: (tree: IFileNode[]) => void;
+  parentRootId?: DirectoryHandle['rootId'];
 }
 
 export interface SelectAllResult {
@@ -363,6 +364,7 @@ export function useRecursiveSelectAll(
     getCurrentTree,
     onError,
     onTreeUpdate,
+    parentRootId,
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
@@ -474,6 +476,7 @@ export function useRecursiveSelectAll(
               },
             }));
           },
+          parentRootId,
           useRegex,
         });
 
@@ -519,6 +522,7 @@ export function useRecursiveSelectAll(
       internalFilterTreeFn,
       onError,
       onTreeUpdate,
+      parentRootId,
       setQuerySelection,
       showToast,
       storageAdapter,

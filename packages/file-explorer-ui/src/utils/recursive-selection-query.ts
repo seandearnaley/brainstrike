@@ -1,4 +1,4 @@
-import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { checkBudget, createTimer } from '@brainstrike/utils';
@@ -61,6 +61,7 @@ export interface RecursiveSelectionQueryOptions {
   maxDirectories?: number;
   maxResults?: number;
   onProgress?: (progress: RecursiveSelectionQueryProgress) => void;
+  parentRootId?: DirectoryHandle['rootId'];
   roots: IFileNode[];
   useRegex: boolean;
 }
@@ -256,28 +257,38 @@ function consumeNodes(args: {
   return false;
 }
 
-async function readDirectoryChildrenWithBudget(
-  adapter: FileSystemAdapter,
-  node: IFileNode,
-  abortSignal?: AbortSignal
-): Promise<IFileNode[]> {
+async function readDirectoryChildrenWithBudget(args: {
+  abortSignal: AbortSignal | undefined;
+  adapter: FileSystemAdapter;
+  node: IFileNode;
+  parentRootId: DirectoryHandle['rootId'];
+}): Promise<IFileNode[]> {
+  const { abortSignal, adapter, node, parentRootId } = args;
   const timer = createTimer();
   const children = await loadDirectoryChildren(adapter, node, {
     ...(abortSignal ? { abortSignal } : {}),
     includeMetadata: false,
+    parentRootId,
   });
   checkBudget(`recursive-selection:${node.path}`, timer.elapsed(), 'listDirectory');
   return children;
 }
 
-async function scanDirectory(
-  adapter: FileSystemAdapter,
-  node: IFileNode,
-  filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined,
-  abortSignal: AbortSignal | undefined,
-  recordDirectoryUpdate: (update: RecursiveSelectionDirectoryUpdate) => void
-): Promise<IFileNode[]> {
-  const children = await readDirectoryChildrenWithBudget(adapter, node, abortSignal);
+async function scanDirectory(args: {
+  abortSignal: AbortSignal | undefined;
+  adapter: FileSystemAdapter;
+  filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
+  node: IFileNode;
+  parentRootId: DirectoryHandle['rootId'];
+  recordDirectoryUpdate: (update: RecursiveSelectionDirectoryUpdate) => void;
+}): Promise<IFileNode[]> {
+  const { abortSignal, adapter, filterTreeFn, node, parentRootId, recordDirectoryUpdate } = args;
+  const children = await readDirectoryChildrenWithBudget({
+    abortSignal,
+    adapter,
+    node,
+    parentRootId,
+  });
   // Record BEFORE filtering: hydration wants the raw listing.
   recordDirectoryUpdate({ children, path: node.path });
   return applyOptionalFilter(children, filterTreeFn);
@@ -414,6 +425,7 @@ async function scanUnloadedDirectories(args: {
   mode: RecursiveSelectionQueryMetrics['mode'];
   nextFrontier: IFileNode[];
   onProgress: ((progress: RecursiveSelectionQueryProgress) => void) | undefined;
+  parentRootId: DirectoryHandle['rootId'];
   state: MutableQueryState;
   unloadedDirectories: IFileNode[];
 }): Promise<void> {
@@ -428,6 +440,7 @@ async function scanUnloadedDirectories(args: {
     mode,
     nextFrontier,
     onProgress,
+    parentRootId,
     state,
     unloadedDirectories,
   } = args;
@@ -446,13 +459,14 @@ async function scanUnloadedDirectories(args: {
       }
       directoryTraversalState.scannedDirectoryPaths.add(node.path);
       state.currentPath = node.path;
-      const children = await scanDirectory(
-        fileSystemAdapter,
-        node,
-        filterTreeFn,
+      const children = await scanDirectory({
         abortSignal,
-        (update) => state.directoryUpdates.push(update)
-      );
+        adapter: fileSystemAdapter,
+        filterTreeFn,
+        node,
+        parentRootId,
+        recordDirectoryUpdate: (update) => state.directoryUpdates.push(update),
+      });
       state.directoriesReadFromAdapter++;
       state.directoriesCompleted++;
       const stopped = consumeNodes({
@@ -481,6 +495,7 @@ async function scanUnloadedDirectories(args: {
     matcher,
     nextFrontier,
     onProgress,
+    parentRootId,
     state,
     unloadedDirectories,
   });
@@ -496,6 +511,7 @@ async function scanUnloadedDirectoriesInThroughputMode(args: {
   matcher: PathFilterMatcher;
   nextFrontier: IFileNode[];
   onProgress: ((progress: RecursiveSelectionQueryProgress) => void) | undefined;
+  parentRootId: DirectoryHandle['rootId'];
   state: MutableQueryState;
   unloadedDirectories: IFileNode[];
 }): Promise<void> {
@@ -509,6 +525,7 @@ async function scanUnloadedDirectoriesInThroughputMode(args: {
     matcher,
     nextFrontier,
     onProgress,
+    parentRootId,
     state,
     unloadedDirectories,
   } = args;
@@ -533,6 +550,7 @@ async function scanUnloadedDirectoriesInThroughputMode(args: {
       limit,
       matcher,
       nextFrontier,
+      parentRootId,
       progressReporter,
       scanAbortController,
       state,
@@ -553,6 +571,7 @@ async function drainThroughputScanQueue(args: {
   limit: number;
   matcher: PathFilterMatcher;
   nextFrontier: IFileNode[];
+  parentRootId: DirectoryHandle['rootId'];
   progressReporter: { emit: (force?: boolean) => void };
   scanAbortController: AbortController;
   state: MutableQueryState;
@@ -566,6 +585,7 @@ async function drainThroughputScanQueue(args: {
     limit,
     matcher,
     nextFrontier,
+    parentRootId,
     progressReporter,
     scanAbortController,
     state,
@@ -582,6 +602,7 @@ async function drainThroughputScanQueue(args: {
       fileSystemAdapter,
       filterTreeFn,
       nextDirectoryIndex,
+      parentRootId,
       recordDirectoryUpdate: (update) => {
         if (state.collectDirectoryUpdates) {
           state.directoryUpdates.push(update);
@@ -672,6 +693,7 @@ function createScanBatch(args: {
   fileSystemAdapter: FileSystemAdapter;
   filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
   nextDirectoryIndex: number;
+  parentRootId: DirectoryHandle['rootId'];
   recordDirectoryUpdate: (update: RecursiveSelectionDirectoryUpdate) => void;
   scanAbortController: AbortController;
   unloadedDirectories: IFileNode[];
@@ -684,6 +706,7 @@ function createScanBatch(args: {
     fileSystemAdapter,
     filterTreeFn,
     nextDirectoryIndex,
+    parentRootId,
     recordDirectoryUpdate,
     scanAbortController,
     unloadedDirectories,
@@ -706,13 +729,14 @@ function createScanBatch(args: {
     }
 
     activeTaskCount += 1;
-    const task = scanDirectory(
-      fileSystemAdapter,
-      node,
+    const task = scanDirectory({
+      abortSignal: scanAbortController.signal,
+      adapter: fileSystemAdapter,
       filterTreeFn,
-      scanAbortController.signal,
-      recordDirectoryUpdate
-    )
+      node,
+      parentRootId,
+      recordDirectoryUpdate,
+    })
       .then((children) => {
         resultQueue.push({
           children,
@@ -839,6 +863,7 @@ export async function querySelectableFiles(
     maxDirectories = MAX_DIRECTORY_TRAVERSAL_COUNT,
     maxResults,
     onProgress,
+    parentRootId,
     roots,
     useRegex,
   } = options;
@@ -923,6 +948,7 @@ export async function querySelectableFiles(
       mode,
       nextFrontier,
       onProgress,
+      parentRootId,
       state,
       unloadedDirectories,
     });

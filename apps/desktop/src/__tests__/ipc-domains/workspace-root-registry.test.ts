@@ -766,4 +766,41 @@ describe('WorkspaceRootRegistry', () => {
       })
     ).rejects.toThrow('Workspace root is not mounted.');
   });
+
+  it('an inherited rootId anchors a nested read to the traversal (outer) root, not the innermost path-matched mount (pinned intent)', async () => {
+    const outerListDir = vi.fn(async () => ({ entries: [], inspected: 0, truncated: false }));
+    const innerListDir = vi.fn(async () => ({ entries: [], inspected: 0, truncated: false }));
+    const registry = createRegistry({
+      createSecureRoot: async (rootPath) => ({
+        ...secureRoot(rootPath),
+        listDir: rootPath === '/canon/outer' ? outerListDir : innerListDir,
+      }),
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+
+    const outer = await registry.addRoot(rootHandle('/canon/outer'));
+    // A second root nested inside the first: findMountedRootForAbsolutePath
+    // would normally pick this one for a path under it (longest containing
+    // path wins), but a caller-supplied rootId short-circuits that lookup.
+    await registry.addRoot(rootHandle('/canon/outer/nested'));
+
+    // Reads made during a traversal anchored at the outer root are
+    // authorized and attributed under the outer root's capability — that is
+    // the intent, not a side effect: `resolveMountedRoot` short-circuits to
+    // `this.mounted.get(rootId)` before ever consulting path containment. A
+    // self-identifying nested root still wins via the caller supplying its
+    // OWN rootId (entryHandle?.rootId ?? parent.rootId precedence upstream);
+    // this only anchors to the outer mount when the caller has none more
+    // specific to offer.
+    await registry.readDirectory({
+      kind: 'directory',
+      name: 'child',
+      path: '/canon/outer/nested/child',
+      platform: 'electron',
+      rootId: outer.rootId,
+    });
+
+    expect(outerListDir).toHaveBeenCalled();
+    expect(innerListDir).not.toHaveBeenCalled();
+  });
 });
