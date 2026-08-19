@@ -423,6 +423,51 @@ describe('embedding pipeline cache controller', () => {
     }
   });
 
+  it('does not idle-evict a pending pipeline and later deliver its disposed resource', async () => {
+    vi.useFakeTimers();
+    let clock = 0;
+    const pendingLoad = createDeferred<{ readonly dispose: () => void }>();
+    const dispose = vi.fn();
+    const diagnostics: EmbedWorkerPipelineCacheDiagnostic[] = [];
+    const controller = createEmbeddingPipelineCacheController({
+      load: async () => await pendingLoad.promise,
+      now: () => clock,
+      publishDiagnostic: (diagnostic) => {
+        diagnostics.push(diagnostic);
+      },
+      workerInstanceId: 'pending-idle-worker',
+    });
+    const load = controller.load({
+      device: 'wasm',
+      dtype: 'q4',
+      estimatedModelBytes: WASM_MODEL_BYTES,
+      model: 'slow-pending-model',
+    });
+
+    try {
+      await Promise.resolve();
+      clock = 5 * 60 * 1000 + 1;
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(controller.getResidentEntries()).toMatchObject([
+        { cacheKey: 'slow-pending-model|wasm|q4' },
+      ]);
+      expect(diagnostics).not.toContainEqual(
+        expect.objectContaining({ event: 'evicted', reason: 'idle-timeout' })
+      );
+
+      const resource = { dispose };
+      pendingLoad.resolve(resource);
+      await expect(load).resolves.toBe(resource);
+      expect(dispose).not.toHaveBeenCalled();
+    } finally {
+      pendingLoad.resolve({ dispose });
+      await Promise.allSettled([load]);
+      await controller.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('surfaces a settled background disposal failure through wait and close', async () => {
     const disposalError = new Error('device-lost release failed');
     const onDisposeFailed = vi.fn();
