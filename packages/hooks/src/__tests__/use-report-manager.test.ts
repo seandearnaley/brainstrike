@@ -82,8 +82,9 @@ describe('useReportManager', () => {
       })
     );
 
+    let outcome: unknown;
     await act(async () => {
-      await result.current.handleCopyContext();
+      outcome = await result.current.handleCopyContext();
     });
 
     // Should show an error toast
@@ -94,6 +95,7 @@ describe('useReportManager', () => {
     });
     // Should not call context generation
     expect(mockGenerateContextWithContent).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ ok: false, reason: 'root-unavailable', retryable: false });
   });
 
   it('should handle error during context generation', async () => {
@@ -119,7 +121,7 @@ describe('useReportManager', () => {
     });
     expect(mockDismiss).toHaveBeenCalledTimes(1);
     expect(clipboardMocks.writeText).not.toHaveBeenCalled();
-    expect(outcome).toEqual({ ok: false, reason: 'generation-failed' });
+    expect(outcome).toEqual({ ok: false, reason: 'generation-failed', retryable: true });
   });
 
   it('should handle error during clipboard copy', async () => {
@@ -146,7 +148,7 @@ describe('useReportManager', () => {
       title: FileExplorerStrings.error.title,
       variant: 'destructive',
     });
-    expect(outcome).toEqual({ ok: false, reason: 'action-failed' });
+    expect(outcome).toEqual({ ok: false, reason: 'action-failed', retryable: true });
   });
 
   it('returns a truthful failure outcome when the download action rejects', async () => {
@@ -164,9 +166,9 @@ describe('useReportManager', () => {
       outcome = await result.current.handleDownloadContext();
     });
 
-    expect(outcome).toEqual({ ok: false, reason: 'action-failed' });
+    expect(outcome).toEqual({ ok: false, reason: 'action-failed', retryable: true });
     expect(mockToast).toHaveBeenCalledWith({
-      description: `${FileExplorerStrings.error.contextGenerationFailed}: save bridge failed`,
+      description: `${FileExplorerStrings.error.contextDownloadFailed}: save bridge failed`,
       title: FileExplorerStrings.error.title,
       variant: 'destructive',
     });
@@ -359,7 +361,7 @@ describe('useReportManager', () => {
     });
 
     expect(mockToast).toHaveBeenCalledWith({
-      description: `${FileExplorerStrings.error.contextGenerationFailed}: disk full`,
+      description: `${FileExplorerStrings.error.contextDownloadFailed}: disk full`,
       title: FileExplorerStrings.error.title,
       variant: 'destructive',
     });

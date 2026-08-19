@@ -265,32 +265,6 @@ describe('FileExplorerMiddlePanelBase', () => {
     );
   });
 
-  it('surfaces report-loading rejection and clears it when the selection changes', async () => {
-    mocks.loadMultipleFileContents.mockRejectedValueOnce(new Error('report loader details'));
-    const view = render(<FileExplorerMiddlePanelBase />);
-    const reportActionsInput = mocks.reportActionsInput.current;
-    if (!reportActionsInput) {
-      throw new Error('Report action input was not captured');
-    }
-
-    await act(async () => {
-      await expect(reportActionsInput.loadMultipleFileContents([selectedFileKey])).rejects.toThrow(
-        'report loader details'
-      );
-    });
-    expect(
-      await screen.findByRole('alert', { name: 'Preview content unavailable' })
-    ).not.toHaveTextContent('report loader details');
-
-    mocks.selectedFilePaths = new Set(['other-root|@|src/other.ts']);
-    view.rerender(<FileExplorerMiddlePanelBase />);
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('alert', { name: 'Preview content unavailable' })
-      ).not.toBeInTheDocument()
-    );
-  });
-
   it('retries the exact failed copy operation and original export options', async () => {
     const exportOptions = {
       projectTreeUsesViewFilters: true,
@@ -301,7 +275,7 @@ describe('FileExplorerMiddlePanelBase', () => {
       },
     };
     mocks.copyContext
-      .mockResolvedValueOnce({ ok: false, reason: 'generation-failed' })
+      .mockResolvedValueOnce({ ok: false, reason: 'generation-failed', retryable: true })
       .mockResolvedValueOnce({ ok: true });
     render(<FileExplorerMiddlePanelBase />);
     const props = mocks.previewProps.current;
@@ -351,7 +325,7 @@ describe('FileExplorerMiddlePanelBase', () => {
         await reportActionsInput.loadMultipleFileContents([selectedFileKey]);
         return { ok: true } as const;
       } catch {
-        return { ok: false, reason: 'generation-failed' } as const;
+        return { ok: false, reason: 'generation-failed', retryable: true } as const;
       }
     });
     render(<FileExplorerMiddlePanelBase />);
@@ -375,7 +349,11 @@ describe('FileExplorerMiddlePanelBase', () => {
   });
 
   it('labels a download delivery failure and retry control precisely', async () => {
-    mocks.downloadContext.mockResolvedValueOnce({ ok: false, reason: 'action-failed' });
+    mocks.downloadContext.mockResolvedValueOnce({
+      ok: false,
+      reason: 'action-failed',
+      retryable: true,
+    });
     render(<FileExplorerMiddlePanelBase />);
     const props = mocks.previewProps.current;
     if (!props) {
@@ -391,7 +369,9 @@ describe('FileExplorerMiddlePanelBase', () => {
   });
 
   it('labels download failure accurately and fences its retry after selection changes', async () => {
-    let settleDownload: ((outcome: { ok: false; reason: 'action-failed' }) => void) | undefined;
+    let settleDownload:
+      | ((outcome: { ok: false; reason: 'action-failed'; retryable: true }) => void)
+      | undefined;
     mocks.downloadContext.mockImplementationOnce(
       async () =>
         new Promise((resolve) => {
@@ -412,11 +392,13 @@ describe('FileExplorerMiddlePanelBase', () => {
     mocks.selectedFilePaths = new Set(['other-root|@|src/other.ts']);
     view.rerender(<FileExplorerMiddlePanelBase />);
     await act(async () => {
-      settleDownload?.({ ok: false, reason: 'action-failed' });
+      settleDownload?.({ ok: false, reason: 'action-failed', retryable: true });
       await Promise.resolve();
     });
 
-    expect(screen.queryByRole('alert', { name: 'Context download failed' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('alert', { name: 'Context download failed' })
+    ).not.toBeInTheDocument();
     expect(mocks.downloadContext).toHaveBeenCalledExactlyOnceWith(exportOptions);
   });
 });

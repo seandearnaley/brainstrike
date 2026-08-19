@@ -71,26 +71,6 @@ export const FileExplorerMiddlePanelBase = () => {
   );
 
   const { selectedFilePaths, setSelectedFilesFromList } = useSelectionManager();
-  const {
-    failure: previewContentFailure,
-    invalidate: invalidatePreviewContentFailure,
-    loadFileContents: loadPreviewFileContents,
-    retry: retryPreviewContent,
-    runSelectionOperation,
-  } = usePreviewContentFailure({ loadMultipleFileContents, selectedFilePaths });
-  // Phase 6 cross-root: the preview shows the EFFECTIVE UNION of every active
-  // root's selection. Writing the remaining set back (file removal / undo) must
-  // re-partition per root via setSelectedFilesFromList — the raw
-  // core.handleSelectionChange funnels ALL roots' keys into the focused root's
-  // top-level set, mis-attributing non-focused-root keys on the next focus
-  // switch. In the single-root case this reduces to the same focused-root write.
-  const handlePreviewSelectionChange = useCallback(
-    (next: Set<string>) => {
-      invalidatePreviewContentFailure();
-      setSelectedFilesFromList([...next]);
-    },
-    [invalidatePreviewContentFailure, setSelectedFilesFromList]
-  );
   // Multi-root (Phase 6): resolve a RootId to its display name so the context
   // snapshot can label same-relative-path files from different roots.
   const rootDescriptors = useFileExplorerStoreSelector((s) => s.rootDescriptors);
@@ -157,7 +137,10 @@ export const FileExplorerMiddlePanelBase = () => {
     folderSummaryThreshold,
     includeFilters,
     includeProjectTree,
-    loadMultipleFileContents: loadPreviewFileContents,
+    // Report generation owns its nested content reads. Passing the raw loader
+    // prevents a missing-content read from replacing the outer copy/download
+    // failure with a generic preview-only retry.
+    loadMultipleFileContents,
     projectTreeUsesViewFilters,
     rootDirectoryHandle,
     selectedFiles: selectedFilePaths,
@@ -166,6 +149,31 @@ export const FileExplorerMiddlePanelBase = () => {
   });
   const handleDownloadContext = reportActions.handleDownloadContext;
   const handleCopyContext = reportActions.handleCopyContext;
+  const {
+    failure: previewContentFailure,
+    invalidate: invalidatePreviewContentFailure,
+    loadPreviewFileContents,
+    retry: retryPreviewContent,
+    runContextExport,
+  } = usePreviewContentFailure({
+    handleCopyContext,
+    handleDownloadContext,
+    loadMultipleFileContents,
+    selectedFilePaths,
+  });
+  // Phase 6 cross-root: the preview shows the EFFECTIVE UNION of every active
+  // root's selection. Writing the remaining set back (file removal / undo) must
+  // re-partition per root via setSelectedFilesFromList — the raw
+  // core.handleSelectionChange funnels ALL roots' keys into the focused root's
+  // top-level set, mis-attributing non-focused-root keys on the next focus
+  // switch. In the single-root case this reduces to the same focused-root write.
+  const handlePreviewSelectionChange = useCallback(
+    (next: Set<string>) => {
+      invalidatePreviewContentFailure();
+      setSelectedFilesFromList([...next]);
+    },
+    [invalidatePreviewContentFailure, setSelectedFilesFromList]
+  );
 
   const projectTreeResult = useMemo(
     () =>
@@ -247,19 +255,16 @@ export const FileExplorerMiddlePanelBase = () => {
 
   const handleDownloadContextFromPanel = useCallback(
     (options: ContextExportOptions) => {
-      runSelectionOperation(
-        () => handleDownloadContext(options),
-        'Preview context download failed'
-      );
+      runContextExport('download', options);
     },
-    [handleDownloadContext, runSelectionOperation]
+    [runContextExport]
   );
 
   const handleCopyContextFromPanel = useCallback(
     (options: ContextExportOptions) => {
-      runSelectionOperation(() => handleCopyContext(options), 'Preview context copy failed');
+      runContextExport('copy', options);
     },
-    [handleCopyContext, runSelectionOperation]
+    [runContextExport]
   );
 
   return (

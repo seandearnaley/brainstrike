@@ -21,6 +21,23 @@ const clipboard = createClipboardService();
 
 type ContextGenerator<O> = (options?: O) => Promise<string>;
 
+export type ContextExportOutcome =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: 'root-unavailable';
+      readonly retryable: false;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: 'action-failed' | 'generation-failed';
+      readonly retryable: true;
+    };
+
+type ContextGenerationOutcome =
+  | { readonly context: string; readonly ok: true }
+  | Exclude<ContextExportOutcome, { readonly ok: true }>;
+
 interface UseReportManagerProps<A = unknown, O = unknown> {
   generateContextWithContent?: ContextGenerator<O>;
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
@@ -34,8 +51,8 @@ interface UseReportManagerProps<A = unknown, O = unknown> {
 }
 
 interface UseReportManagerResult<O = unknown> {
-  handleCopyContext: (options?: O) => Promise<void>;
-  handleDownloadContext: (options?: O) => Promise<void>;
+  handleCopyContext: (options?: O) => Promise<ContextExportOutcome>;
+  handleDownloadContext: (options?: O) => Promise<ContextExportOutcome>;
 }
 
 const DEFAULT_CONTEXT_FILENAME = FileExplorerStrings.fileNames.context;
@@ -93,14 +110,14 @@ export const useReportManager = <A = unknown, O = unknown>({
   toast,
 }: UseReportManagerProps<A, O>): UseReportManagerResult<O> => {
   const handleGenerateContext = useCallback(
-    async (options?: O) => {
+    async (options?: O): Promise<ContextGenerationOutcome> => {
       if (!rootDirectoryHandle) {
         toast({
           description: FileExplorerStrings.error.noRootDirectory,
           title: FileExplorerStrings.error.title,
           variant: 'destructive',
         });
-        return null;
+        return { ok: false, reason: 'root-unavailable', retryable: false };
       }
 
       try {
@@ -108,7 +125,10 @@ export const useReportManager = <A = unknown, O = unknown>({
           throw new Error('No context generator provided');
         }
         const context = await generateContextWithContent(options);
-        return context;
+        if (typeof context !== 'string') {
+          throw new Error('Context generator returned a non-string result');
+        }
+        return { context, ok: true };
       } catch (error) {
         logError('Error generating context:', error);
         toast({
@@ -116,7 +136,7 @@ export const useReportManager = <A = unknown, O = unknown>({
           title: FileExplorerStrings.error.title,
           variant: 'destructive',
         });
-        return null;
+        return { ok: false, reason: 'generation-failed', retryable: true };
       }
     },
     [generateContextWithContent, rootDirectoryHandle, toast]
@@ -128,7 +148,7 @@ export const useReportManager = <A = unknown, O = unknown>({
       action: (context: string) => Promise<void>,
       successMessage: string,
       errorMessage: string
-    ): Promise<void> => {
+    ): Promise<ContextExportOutcome> => {
       const contextToast = toast({
         description: FileExplorerStrings.prompts.waitForContext,
         duration: Number.POSITIVE_INFINITY,
@@ -136,18 +156,19 @@ export const useReportManager = <A = unknown, O = unknown>({
       });
 
       try {
-        const context = await handleGenerateContext(options);
-        if (!context) {
+        const generation = await handleGenerateContext(options);
+        if (!generation.ok) {
           contextToast?.dismiss?.();
-          return;
+          return generation;
         }
 
-        await action(context);
+        await action(generation.context);
         contextToast?.dismiss?.();
         toast({
           description: successMessage,
           title: FileExplorerStrings.success.title,
         });
+        return { ok: true };
       } catch (error) {
         contextToast?.dismiss?.();
         toast({
@@ -155,13 +176,14 @@ export const useReportManager = <A = unknown, O = unknown>({
           title: FileExplorerStrings.error.title,
           variant: 'destructive',
         });
+        return { ok: false, reason: 'action-failed', retryable: true };
       }
     },
     [handleGenerateContext, toast]
   );
 
   const handleDownloadContext = useCallback(
-    async (options?: O): Promise<void> =>
+    async (options?: O): Promise<ContextExportOutcome> =>
       executeWithToast(
         options,
         async (context) => {
@@ -171,13 +193,13 @@ export const useReportManager = <A = unknown, O = unknown>({
           });
         },
         FileExplorerStrings.success.contextDownloaded,
-        FileExplorerStrings.error.contextGenerationFailed
+        FileExplorerStrings.error.contextDownloadFailed
       ),
     [executeWithToast, rootDirectoryHandle]
   );
 
   const handleCopyContext = useCallback(
-    async (options?: O): Promise<void> =>
+    async (options?: O): Promise<ContextExportOutcome> =>
       executeWithToast(
         options,
         async (context) => {

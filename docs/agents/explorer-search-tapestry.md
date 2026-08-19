@@ -805,12 +805,18 @@ fallback.
   exactly its open composite keys, so the durable projection is bounded by the
   tab store's hard maximum of 20. Single close, bulk close, external hydration,
   oldest-tab eviction, unmount, and factory reset all retire their keys
-  immediately. An unowned report/preview failure is still returned through the
-  rejected logical request, then pruned when its active read releases; the
-  middle panel captures that rejection into an accessible alert owned by the
-  exact selection snapshot, with an explicit retry of the failed keys.
-  Selection change hides the retired failure, and internal error text is logged
-  rather than rendered. There is no arbitrary eviction that could hide an
+  immediately. Direct preview reads and context export are separate UI
+  ownership domains. A direct preview rejection becomes a selection-scoped
+  accessible alert whose retry reloads those exact keys. Copy/download keep the
+  report manager's success/destructive toasts but also return a typed outcome;
+  the middle panel owns a failed export as the exact action plus a deep snapshot
+  of its range/tree options and retries the WHOLE action, not only its nested
+  missing-content load. Report generation receives the raw background loader,
+  so a nested content read cannot supersede the outer action epoch or replace
+  its accurately labelled copy/download failure with a preview-only retry.
+  Root-unavailable outcomes are explicit and non-retryable. Selection change
+  fences the retired action, and internal error text is logged rather than
+  rendered. There is no arbitrary eviction that could hide an
   active tab's terminal error. Every
   physical reload group and deduped active read settles before the
   public logical request rejects with the single error or an aggregate; a later
@@ -820,7 +826,7 @@ fallback.
   and renders `FileContentErrorScreen` (an accessible terminal `alert`) instead
   of the indefinite pending spinner. The automatic active-tab loader stops at
   that per-key error boundary instead of entering a fail/render/retry loop; a
-  user-visible Retry button calls `reloadFileContents([compositeKey])`, which
+  user-visible Retry button calls `reloadFileContents([compositeKey], 'interactive')`, which
   clears only that key and starts a fresh read. The screen shows the selected
   file path plus a bounded safe error category, never a raw internal message.
   A later canonical refresh can also clear only the affected key and retry it. Content
