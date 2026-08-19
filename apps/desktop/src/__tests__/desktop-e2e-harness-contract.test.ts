@@ -14,6 +14,28 @@ function readEmbeddingMemoryHelpersSource(): string {
   return readFileSync(join(process.cwd(), 'e2e/embedding-worker-renderer.shared.ts'), 'utf8');
 }
 
+function readWindowRoleSource(): string {
+  return readFileSync(join(process.cwd(), 'src/window-role.ts'), 'utf8');
+}
+
+function extractDesktopWindowRoles(source: string): string[] {
+  const unionMatch = source.match(/export type DesktopWindowRole =([^;]+);/);
+  if (!unionMatch?.[1]) {
+    throw new Error('Could not find the DesktopWindowRole union in src/window-role.ts');
+  }
+  const roles = [...unionMatch[1].matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
+  if (roles.length < 4 || roles.some((role) => role.length === 0)) {
+    throw new Error(
+      `DesktopWindowRole extraction looks broken (got ${JSON.stringify(roles)}); fix the parser before trusting this contract.`
+    );
+  }
+  return roles;
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
 describe('desktop E2E harness contract', () => {
   it('keeps dev-server launches in Electron test mode', () => {
     const source = readElectronHelpersSource();
@@ -36,6 +58,30 @@ describe('desktop E2E harness contract', () => {
       'Renderer garbage collection is unavailable in the desktop E2E runtime.'
     );
     expect(memoryHelpersSource).not.toContain('globalWindow.gc?.()');
+  });
+
+  it('keeps the E2E window-mode classifiers in lockstep with DesktopWindowRole', () => {
+    // This PR class exists because DesktopWindowRole gained 'llm-host' and the
+    // two serialized classifier closures in embedding-worker-renderer.shared.ts
+    // (readDesktopProcessSnapshot and readTrackedRuntimeWorkingSetMB) kept
+    // silently bucketing it as 'visible-ui'. Both closures run inside
+    // electronApp.evaluate and cannot share a module-scope helper, so each
+    // union member must appear in BOTH hand-maintained blocks.
+    const memoryHelpersSource = readEmbeddingMemoryHelpersSource();
+    const roles = extractDesktopWindowRoles(readWindowRoleSource());
+
+    expect(roles).toContain('visible-ui');
+    for (const role of roles) {
+      if (role === 'visible-ui') {
+        // The visible window is the one mode-less window; both classifiers
+        // must derive it via the null fallback, once each.
+        expect(countOccurrences(memoryHelpersSource, "mode ?? 'visible-ui'")).toBe(2);
+        continue;
+      }
+      expect(countOccurrences(memoryHelpersSource, `mode === '${role}'`)).toBeGreaterThanOrEqual(2);
+    }
+    // Both classifier blocks must throw on an unknown mode, never coerce.
+    expect(countOccurrences(memoryHelpersSource, 'Unknown desktop window mode')).toBe(2);
   });
 
   it('removes isolated Electron user-data directories during fixture teardown', () => {

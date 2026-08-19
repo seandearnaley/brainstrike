@@ -80,6 +80,23 @@ tautologically `0.0` — the heap ceilings could never bind. The flag is pinned
 by `desktop-e2e-harness-contract.test.ts`; the pre-flag calibration tables
 (2026-08-11 dispatches `31458099061`/`31458469270`/`31459112520` and the
 2026-08-19 head-`07bc230ae` local runs) all showed that dead `0.0` signature.
+The flag makes EVERY heap ceiling in the desktop memory suite live at once,
+not just the recalibrated tables below. The remaining now-live ceilings were
+sampled once locally on 2026-08-19 with comfortable margins: the large-backfill
+`retainedGrowthMB < 60` measured `-48.5`/`-48.6`/`-49.1` across three runs, the
+20k diagnostic's host-heap growth measured `9.9` MB (limit 120) and main-heap
+growth `12.9` MB (limit 80), and the repeated-backfill idle host-heap drift
+measured `0.0` MB (limit 40 — a genuine post-GC steady state, not the dead
+signature: host heap readings vary at 0.1 MB granularity across the same run).
+If a nightly desktop-e2e heap ceiling starts failing after this flag landed,
+diagnose it first as calibration of a newly live instrument, not necessarily a
+product regression.
+
+The tables below are LOCAL-HOST samples (macOS arm64 dev machine), not
+ubuntu-runner CI dispatches like the superseded 2026-08-11 table — do not
+compare their absolute values against CI numbers. A confirming
+`memory-baseline` workflow dispatch in the CI environment accompanies the
+flag change (see the PR for the run link).
 
 The 50k collection and 50k file-list ceilings are calibrated, not inherited
 from the older Collection Browser measurement window. On 2026-08-19, three
@@ -100,8 +117,9 @@ measurement window, or process-memory source.
 
 BST-438's database live-query limits are calibrated independently from those
 50k-list scenarios because its primary signal is forced-GC collection of actual
-result-array identities. On 2026-08-19, three sequential local regression runs
-with precise memory info (head `d4d1af0f2` plus the flag change) produced:
+result-array identities. On 2026-08-19, three sequential local (macOS arm64)
+regression runs with precise memory info (head `d4d1af0f2` plus the flag
+change) produced:
 
 | Scenario | Visible heap growth (MB) | Visible working-set growth (MB) | Collected / tracked generations |
 | --- | --- | --- | --- |
