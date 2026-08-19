@@ -886,7 +886,7 @@ describe('workspace tabs — file tab operations', () => {
       'folderA|@|src/new.ts'
     );
     expect(loadFileContent).toHaveBeenCalledTimes(1);
-    expect(loadFileContent).toHaveBeenCalledWith('folderA|@|src/new.ts');
+    expect(loadFileContent).toHaveBeenCalledWith('folderA|@|src/new.ts', 'interactive');
   });
 
   it('renders permission-required restoration status without auto-loading content', async () => {

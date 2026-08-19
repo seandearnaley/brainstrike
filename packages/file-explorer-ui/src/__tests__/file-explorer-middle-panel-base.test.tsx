@@ -204,10 +204,10 @@ describe('FileExplorerMiddlePanelBase', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(mocks.loadMultipleFileContents).toHaveBeenCalledWith([
-      selectedFileKey,
-      'root::src/b.ts',
-    ]);
+    expect(mocks.loadMultipleFileContents).toHaveBeenCalledWith(
+      [selectedFileKey, 'root::src/b.ts'],
+      'background'
+    );
 
     const undoSnapshot = new Set([selectedFileKey]);
     const onUndo = vi.fn();
