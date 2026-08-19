@@ -13,7 +13,6 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/storage": "workspace:*",
-    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/token-cache": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",

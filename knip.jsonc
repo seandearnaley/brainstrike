@@ -52,6 +52,13 @@
         "src/config/server.ts"
       ],
       "ignoreDependencies": [
+        // PGlite is the app's database engine. It is reached ONLY through
+        // vite.config.mts — `optimizeDeps.include` prebundles it and a resolve
+        // alias swaps its nodefs build for the OPFS one — never through an
+        // import in src/. Those are bare strings in a config object, so no knip
+        // config can attribute them: same class as the prebundles below.
+        "@electric-sql/pglite",
+        "@electric-sql/pglite-pgvector",
         "@fontsource-variable/geist", // Imported via CSS @import in globals.css
         "@fontsource-variable/geist-mono", // Imported via CSS @import in globals.css
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/app/globals.css (knip does not parse CSS)
@@ -106,6 +113,13 @@
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
         "@tailwindcss/typography", // Loaded via Tailwind v4 `@plugin` directive in src/renderer/styles.css (knip does not parse CSS)
         "xvfb-maybe", // Script binary in test:e2e* (invoked through scripts/run-env.mjs, which knip cannot resolve) + desktop-e2e.yml
+        // Loaded through an INDIRECTED require in
+        // scripts/start-agent-devtools-session.mjs: `initializeWindowsJob(platform,
+        // load = require)` then `load('@brainstrike/windows-job-native')`. knip
+        // resolves literal import/require specifiers only, never a require passed
+        // as a parameter — and that file sits under the root `scripts/**/*` ignore
+        // regardless. Same class as xvfb-maybe above.
+        "@brainstrike/windows-job-native",
         "@fontsource-variable/geist", // Imported via CSS @import in renderer/styles.css
         "@fontsource-variable/geist-mono", // Imported via CSS @import in renderer/styles.css
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
@@ -142,6 +156,12 @@
         "**/__tests__/**",
         "**/*.test.{ts,tsx}",
         "**/*.stories.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        // See packages/db: consumed as the relative source path
+        // `../config/src/vitest-browser.ts` from vitest.config.mts, which knip
+        // resolves to a file rather than to the package name.
+        "@brainstrike/config"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -272,9 +292,37 @@
     "packages/storage": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // See packages/db: consumed as the relative source path
+        // `../config/src/vitest-browser.ts` from vitest.config.mts, which knip
+        // resolves to a file rather than to the package name.
+        "@brainstrike/config"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/embedding-worker": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // See packages/db: consumed as the relative source path
+        // `../config/src/vitest-browser.ts` from vitest.config.mts, which knip
+        // resolves to a file rather than to the package name.
+        "@brainstrike/config"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    // Native node-gyp addons. Their only consumer of `node-addon-api` is
+    // binding.gyp — `<!@(node -p "require('node-addon-api').include")` — and knip
+    // does not parse gyp files, so no entry/project glob can reach it.
+    "packages/secure-fs-native": {
+      "ignoreDependencies": ["node-addon-api"]
+    },
+    "packages/windows-job-native": {
+      "ignoreDependencies": ["node-addon-api"]
     },
     "packages/app-state": {
       "project": ["src/**/*.{ts,tsx}"],
@@ -366,7 +414,13 @@
         "stryker.config.js" // Mutation testing config
       ],
       "ignoreDependencies": [
-        "esbuild" // Pulled indirectly by vite-plugin-wasm / vitest tooling in this workspace
+        "esbuild", // Pulled indirectly by vite-plugin-wasm / vitest tooling in this workspace
+        // Consumed by vitest.config.mts as `../config/src/vitest-browser.ts` — a
+        // RELATIVE path into the sibling workspace's SOURCE, deliberately, so the
+        // test lane needs no built dist of @brainstrike/config. knip resolves that
+        // to a file, not to the package name, so it cannot credit the declaration.
+        // The declaration still states the real workspace dependency; do not drop it.
+        "@brainstrike/config"
       ],
       "typescript": {
         "config": "tsconfig.json"
