@@ -2879,6 +2879,73 @@ describe('useFileTree (lazy loading version)', () => {
       expect(result.current.__internalMaterializeSubtree?.(beta.path)?.loadState).toBe('loaded');
     });
 
+    it('continues a restoration serially when a newer bulk operation supersedes its worker slot', async () => {
+      mockAdapter.setMockFileSystem(createExpandAllMockFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: ({ children }: { children: ReactNode }) =>
+          FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter }),
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const alpha = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'alpha'
+      );
+      const beta = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'beta'
+      );
+      const gamma = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'gamma'
+      );
+      if (
+        alpha?.type !== 'directory' ||
+        beta?.type !== 'directory' ||
+        gamma?.type !== 'directory'
+      ) {
+        throw new Error('Expected three directories before overlapping restorations');
+      }
+
+      const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
+      const physicalReadPaths: string[] = [];
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(
+        async (directoryHandle, onBatch, options) => {
+          physicalReadPaths.push(directoryHandle.path);
+          return originalReadDirectoryStreaming(directoryHandle, onBatch, options);
+        }
+      );
+      const firstWorkerResult = createDeferred<{
+        expandedPaths: string[];
+        loadedCount: number;
+        patches: AccumulatedFileTreePatchMessage[];
+      }>();
+      let workerCallCount = 0;
+      mockWorkerPort.loadPaths.mockImplementation(() => {
+        workerCallCount += 1;
+        if (workerCallCount === 1) {
+          return firstWorkerResult.promise;
+        }
+        firstWorkerResult.reject(new Error('Operation aborted by new request'));
+        return Promise.resolve({ expandedPaths: [], loadedCount: 0, patches: [] });
+      });
+
+      let firstRestoration = Promise.resolve();
+      act(() => {
+        firstRestoration = result.current.loadSpecificPaths([alpha.path, beta.path]);
+      });
+      await waitFor(() => expect(mockWorkerPort.loadPaths).toHaveBeenCalledOnce());
+
+      let secondRestoration = Promise.resolve();
+      act(() => {
+        secondRestoration = result.current.loadSpecificPaths([beta.path, gamma.path]);
+      });
+      await act(async () => {
+        await Promise.all([firstRestoration, secondRestoration]);
+      });
+
+      expect(physicalReadPaths).toContain(alpha.path);
+      expect(result.current.__internalMaterializeSubtree?.(alpha.path)?.loadState).toBe('loaded');
+    });
+
     it('retries an errored directory when a later watcher event proves it changed', async () => {
       mockAdapter.setMockFileSystem(createNestedMockFileSystem());
       const handle = await mockAdapter.requestDirectoryAccess();

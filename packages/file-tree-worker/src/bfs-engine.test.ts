@@ -353,6 +353,34 @@ describe('BFSEngine', () => {
       });
     });
 
+    it('drops a late correlated load result after abort and an authoritative tree update', async () => {
+      engine.setTree([createDirectoryNode({ loadState: 'unloaded', path: '/root/dir' })], 'root');
+
+      const staleLoad = engine.loadPaths(['/root/dir'], 31);
+      await vi.waitFor(() => {
+        expect(messages.some((message) => message.type === 'requestLoad')).toBe(true);
+      });
+      const request = messages.find((message) => message.type === 'requestLoad');
+      if (request?.type !== 'requestLoad') {
+        throw new Error('expected a correlated directory request');
+      }
+
+      engine.abort();
+      await staleLoad;
+      const freshChildren = [createFileNode({ path: '/root/dir/fresh.txt' })];
+      engine.applyDirectoryChildrenUpdate('/root/dir', freshChildren, 'loaded');
+      messages = [];
+
+      engine.handleLoadResult(
+        '/root/dir',
+        [createFileNode({ path: '/root/dir/stale.txt' })],
+        request.payload.requestId
+      );
+
+      expect(engine.getTree()[0]?.children).toEqual(freshChildren);
+      expect(messages).toEqual([]);
+    });
+
     it('should maintain the path index without a full rebuild after directory loads', () => {
       const tree = [
         createDirectoryNode({
