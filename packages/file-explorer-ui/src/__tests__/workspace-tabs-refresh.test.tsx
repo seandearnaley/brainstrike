@@ -100,8 +100,11 @@ async function configureFileExplorer(fileContents: Record<string, string>) {
 async function configureRejectedFileExplorer(
   compositeKey: string,
   loadError: Error
-): Promise<{ readonly reloadFileContents: ReturnType<typeof vi.fn> }> {
-  const loadFileContent = vi.fn().mockResolvedValue(undefined);
+): Promise<{
+  readonly loadFileContent: ReturnType<typeof vi.fn>;
+  readonly reloadFileContents: ReturnType<typeof vi.fn>;
+}> {
+  const loadFileContent = vi.fn().mockRejectedValue(loadError);
   const loadingFiles = new Set<string>();
   const reloadFileContents = vi.fn();
   const fileExplorerModule = await import('../shell/use-file-explorer-context');
@@ -147,7 +150,7 @@ async function configureRejectedFileExplorer(
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>;
   });
-  return { reloadFileContents };
+  return { loadFileContent, reloadFileContents };
 }
 
 describe('workspace tabs open-file refresh', () => {
@@ -364,7 +367,10 @@ describe('workspace tabs open-file refresh', () => {
     const tab = fileTab(compositeKey, 'src/rejected.ts');
     const loadError = new Error('read worker rejected');
     await configureTabs([tab]);
-    const { reloadFileContents } = await configureRejectedFileExplorer(compositeKey, loadError);
+    const { loadFileContent, reloadFileContents } = await configureRejectedFileExplorer(
+      compositeKey,
+      loadError
+    );
     useWorkspaceTabSelectionStore.getState().selectFile(tab.id);
     useFileTabPaneStore.getState().hydratePanes({
       [compositeKey]: { expandedPaths: [], open: false, widthPct: 30 },
@@ -395,6 +401,7 @@ describe('workspace tabs open-file refresh', () => {
     expect(alert).toHaveTextContent('Brainstrike could not load this file.');
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
     expect(screen.queryByText('Restoring…')).not.toBeInTheDocument();
+    expect(loadFileContent).not.toHaveBeenCalled();
   });
 
   it('stops reloading after the workspace tabs provider unmounts', async () => {
