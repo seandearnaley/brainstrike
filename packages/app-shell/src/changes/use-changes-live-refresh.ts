@@ -40,8 +40,11 @@ export interface GitScopeRefreshRegistration {
   readonly worktreePath: string;
 }
 
-function normalizePath(path: string): string {
+export function normalizeRefreshPath(path: string): string {
   const withSlashes = path.replaceAll('\\', '/');
+  if (/^[A-Za-z]:\/+$/u.test(withSlashes)) {
+    return `${withSlashes.slice(0, 2)}/`;
+  }
   if (/^\/+$/u.test(withSlashes)) {
     return '/';
   }
@@ -57,28 +60,29 @@ function isWindowsPath(path: string): boolean {
 }
 
 function isPathContained(basePath: string, targetPath: string): boolean {
-  const normalizedBase = normalizePath(basePath);
-  const normalizedTarget = normalizePath(targetPath);
+  const normalizedBase = normalizeRefreshPath(basePath);
+  const normalizedTarget = normalizeRefreshPath(targetPath);
   const [base, target] = isWindowsPath(normalizedBase)
     ? [normalizedBase.toLowerCase(), normalizedTarget.toLowerCase()]
     : [normalizedBase, normalizedTarget];
   if (base.length === 0 || target.length === 0) {
     return false;
   }
-  if (base === '/') {
-    return target.startsWith('/');
+  if (base === '/' || /^[a-z]:\/$/u.test(base)) {
+    return target.startsWith(base);
   }
   return target === base || target.startsWith(`${base}/`);
 }
 
 function resolveChangePath(root: FileExplorerRefreshRootDetail, changePath: string): string {
-  const normalizedChangePath = normalizePath(changePath);
+  const normalizedChangePath = normalizeRefreshPath(changePath);
   if (isAbsolutePathLike(normalizedChangePath)) {
     return normalizedChangePath;
   }
-  const normalizedRootPath = normalizePath(root.rootPath);
+  const normalizedRootPath = normalizeRefreshPath(root.rootPath);
   const relativePath = normalizedChangePath.replace(/^\.\//u, '').replace(/^\/+/u, '');
-  return normalizePath(`${normalizedRootPath}/${relativePath}`);
+  const separator = normalizedRootPath.endsWith('/') ? '' : '/';
+  return normalizeRefreshPath(`${normalizedRootPath}${separator}${relativePath}`);
 }
 
 function rootRefreshAffectsRegistration(
@@ -90,6 +94,17 @@ function rootRefreshAffectsRegistration(
     return false;
   }
   if (scope === 'full') {
+    return true;
+  }
+  const pathsShareVocabulary =
+    isPathContained(root.rootPath, registration.worktreePath) ||
+    isPathContained(registration.worktreePath, root.rootPath);
+  if (!pathsShareVocabulary) {
+    // `rootId` is the durable authority. Desktop watcher paths are re-rooted
+    // onto the user-facing handle path while inventory worktrees can be
+    // realpath'd; when those vocabularies cannot be related lexically, path
+    // filtering would silently miss the repository. Refresh every registered
+    // repository in this durable root instead (safe extra work, never stale).
     return true;
   }
   return root.changes.some((change) => {

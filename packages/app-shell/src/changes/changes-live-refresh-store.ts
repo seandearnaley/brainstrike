@@ -20,11 +20,12 @@ import { create } from 'zustand';
  *
  * The wire `generation` is a per-main-process monotonic send counter;
  * `ingestInvalidation` drops stale/duplicate deliveries so a redundant IPC
- * replay can never double-refetch. A short repository-local cross-source
- * coalescer also prevents one operation observed by BOTH watchers from
- * bumping the repository nonce twice; the git-metadata event still advances
- * `anyInvalidationNonce`, so inventory stays correct. Snapshot-sourced
- * changesets (`agent-run` / `run-range`) never read this store.
+ * replay can never double-refetch. Repository view evidence from both sources
+ * enters one bounded trailing batch: nothing is discarded, and a refetch
+ * lands after the latest signal in the batch. The git-metadata event still
+ * advances `anyInvalidationNonce` immediately, so inventory stays correct.
+ * Snapshot-sourced changesets (`agent-run` / `run-range`) never read this
+ * store.
  */
 export interface ChangesLiveRefreshState {
   /** Bumped on every accepted GIT-METADATA event. `useGitInventory`'s refetch input. */
@@ -41,8 +42,8 @@ export interface ChangesLiveRefreshState {
   readonly ingestWorkingTreeRefresh: (affectedRepositoryRoots: readonly string[]) => void;
   /** Highest wire generation accepted so far (0 = none). */
   readonly lastEventGeneration: number;
-  /** Per-repositoryRoot observable refresh nonces. */
-  readonly nonceByRepositoryRoot: Readonly<Record<string, number>>;
+  /** Git-metadata refresh nonces keyed only by wire `repositoryRoot`. */
+  readonly metadataNonceByRepositoryRoot: Readonly<Record<string, number>>;
   /**
    * Factory-reset entry point (AGENTS.md invariant). Also restarts the wire
    * guard, so a main process re-numbering from 1 is not dropped.
@@ -50,143 +51,169 @@ export interface ChangesLiveRefreshState {
   readonly reset: () => void;
   /** Accepted events the service could not map to a repositoryRoot. */
   readonly unmappedInvalidationNonce: number;
+  /** Renderer working-tree refresh nonces keyed by the registered presentation string. */
+  readonly workingTreeNonceByRepositoryRoot: Readonly<Record<string, number>>;
 }
 
 const INITIAL_STATE = {
   anyInvalidationNonce: 0,
   lastEventGeneration: 0,
-  nonceByRepositoryRoot: {},
+  metadataNonceByRepositoryRoot: {},
   unmappedInvalidationNonce: 0,
+  workingTreeNonceByRepositoryRoot: {},
 } as const;
 
-type RepositoryRefreshSource = 'git-metadata' | 'working-tree';
-
-interface RecentRepositoryRefresh {
-  readonly at: number;
-  readonly source: RepositoryRefreshSource;
+interface PendingRepositoryRefreshBatch {
+  firstQueuedAt: number;
+  metadataCount: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  workingTreeCount: number;
 }
 
 /**
  * Both upstream watchers use a 300ms trailing debounce. Matching that window
- * covers the maximum one-debounce scheduling skew while one-to-one marker
- * consumption below prevents a signal cluster from swallowing a third edit.
+ * lets their deliveries join one renderer batch; the max wait guarantees a
+ * continuously busy repository still publishes view evidence once per second.
  */
-export const CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS = 300;
+export const REPOSITORY_REFRESH_BATCH_MS = 300;
+export const REPOSITORY_REFRESH_MAX_WAIT_MS = 1000;
 
-const recentRefreshByRepositoryRoot = new Map<string, RecentRepositoryRefresh>();
+export const useChangesLiveRefreshStore = create<ChangesLiveRefreshState>((set) => {
+  const pendingByRepositoryRoot = new Map<string, PendingRepositoryRefreshBatch>();
 
-function pruneExpiredRecentRefreshes(now: number): void {
-  for (const [repositoryRoot, recent] of recentRefreshByRepositoryRoot) {
-    const age = now - recent.at;
-    if (age < 0 || age > CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS) {
-      recentRefreshByRepositoryRoot.delete(repositoryRoot);
+  const flushRepository = (repositoryRoot: string): void => {
+    const pending = pendingByRepositoryRoot.get(repositoryRoot);
+    if (!pending) {
+      return;
     }
-  }
-}
-
-function shouldBumpRepository(
-  repositoryRoot: string,
-  source: RepositoryRefreshSource,
-  now: number
-): boolean {
-  // Temporal dedupe state is not session history. Keep it proportional to
-  // repositories active inside the current coalescing window; the durable
-  // nonce map above remains the only session-lived repository record.
-  pruneExpiredRecentRefreshes(now);
-  const recent = recentRefreshByRepositoryRoot.get(repositoryRoot);
-  if (recent && recent.source !== source) {
-    const elapsed = now - recent.at;
-    if (elapsed >= 0 && elapsed <= CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS) {
-      // Consume exactly one opposite-source partner. Do not replace the marker:
-      // file → git → file must expose the third (distinct) working-tree event.
-      recentRefreshByRepositoryRoot.delete(repositoryRoot);
-      return false;
-    }
-  }
-  recentRefreshByRepositoryRoot.set(repositoryRoot, { at: now, source });
-  return true;
-}
-
-function withKnownRepositoryRoots(
-  current: Readonly<Record<string, number>>,
-  knownRepositoryRoots: readonly string[],
-  initialNonce: number
-): Readonly<Record<string, number>> {
-  let next: Record<string, number> | null = null;
-  for (const repositoryRoot of knownRepositoryRoots) {
-    if (current[repositoryRoot] !== undefined || next?.[repositoryRoot] !== undefined) {
-      continue;
-    }
-    next ??= { ...current };
-    next[repositoryRoot] = initialNonce;
-  }
-  return next ?? current;
-}
-
-export const useChangesLiveRefreshStore = create<ChangesLiveRefreshState>((set) => ({
-  ...INITIAL_STATE,
-  ingestInvalidation: (event) =>
+    pendingByRepositoryRoot.delete(repositoryRoot);
     set((state) => {
-      if (event.generation <= state.lastEventGeneration) {
-        return {};
+      const updates: {
+        metadataNonceByRepositoryRoot?: ChangesLiveRefreshState['metadataNonceByRepositoryRoot'];
+        workingTreeNonceByRepositoryRoot?: ChangesLiveRefreshState['workingTreeNonceByRepositoryRoot'];
+      } = {};
+      if (pending.metadataCount > 0) {
+        const currentMetadataNonce = state.metadataNonceByRepositoryRoot[repositoryRoot];
+        if (currentMetadataNonce === undefined) {
+          throw new Error(
+            `changes-live-refresh-metadata-baseline-missing: repository "${repositoryRoot}"`
+          );
+        }
+        updates.metadataNonceByRepositoryRoot = {
+          ...state.metadataNonceByRepositoryRoot,
+          [repositoryRoot]: currentMetadataNonce + pending.metadataCount,
+        };
       }
-      const repositoryRoots = event.repositoryRoot === null ? [] : [event.repositoryRoot];
-      const knownNonces = withKnownRepositoryRoots(state.nonceByRepositoryRoot, repositoryRoots, 0);
-      const shouldBump =
-        event.repositoryRoot !== null &&
-        shouldBumpRepository(event.repositoryRoot, 'git-metadata', Date.now());
-      return {
-        anyInvalidationNonce: state.anyInvalidationNonce + 1,
-        lastEventGeneration: event.generation,
-        ...(event.repositoryRoot === null
-          ? { unmappedInvalidationNonce: state.unmappedInvalidationNonce + 1 }
-          : {
-              nonceByRepositoryRoot: {
-                ...knownNonces,
-                [event.repositoryRoot]:
-                  (knownNonces[event.repositoryRoot] ?? 0) + (shouldBump ? 1 : 0),
-              },
-            }),
-      };
-    }),
-  ingestWorkingTreeRefresh: (affectedRepositoryRoots) =>
-    set((state) => {
-      const affected = new Set(affectedRepositoryRoots);
-      // Before this root becomes a precise working-tree key, its selector
-      // follows `anyInvalidationNonce`. Preserve that observable baseline so
-      // registration cannot jump backwards and spuriously refetch a sibling.
-      const knownNonces = withKnownRepositoryRoots(
-        state.nonceByRepositoryRoot,
-        [...affected],
-        state.anyInvalidationNonce
-      );
-      if (affected.size === 0) {
-        return knownNonces === state.nonceByRepositoryRoot
-          ? {}
-          : { nonceByRepositoryRoot: knownNonces };
+      if (pending.workingTreeCount > 0) {
+        updates.workingTreeNonceByRepositoryRoot = {
+          ...state.workingTreeNonceByRepositoryRoot,
+          [repositoryRoot]:
+            (state.workingTreeNonceByRepositoryRoot[repositoryRoot] ?? 0) +
+            pending.workingTreeCount,
+        };
       }
-      const now = Date.now();
-      const nextNonces = { ...knownNonces };
-      for (const repositoryRoot of affected) {
-        if (shouldBumpRepository(repositoryRoot, 'working-tree', now)) {
-          nextNonces[repositoryRoot] = (nextNonces[repositoryRoot] ?? 0) + 1;
+      return updates;
+    });
+  };
+
+  const queueRepositoryRefresh = (
+    repositoryRoot: string,
+    source: 'git-metadata' | 'working-tree'
+  ): void => {
+    const now = Date.now();
+    const existing = pendingByRepositoryRoot.get(repositoryRoot);
+    const pending =
+      existing ??
+      ({
+        firstQueuedAt: now,
+        metadataCount: 0,
+        timer: null,
+        workingTreeCount: 0,
+      } satisfies PendingRepositoryRefreshBatch);
+    if (existing) {
+      if (existing.timer !== null) {
+        clearTimeout(existing.timer);
+      }
+      if (now < existing.firstQueuedAt) {
+        existing.firstQueuedAt = now;
+      }
+    }
+    if (source === 'git-metadata') {
+      pending.metadataCount += 1;
+    } else {
+      pending.workingTreeCount += 1;
+    }
+    const elapsed = Math.max(0, now - pending.firstQueuedAt);
+    const delay = Math.min(
+      REPOSITORY_REFRESH_BATCH_MS,
+      Math.max(0, REPOSITORY_REFRESH_MAX_WAIT_MS - elapsed)
+    );
+    pending.timer = setTimeout(() => flushRepository(repositoryRoot), delay);
+    pendingByRepositoryRoot.set(repositoryRoot, pending);
+  };
+
+  return {
+    ...INITIAL_STATE,
+    ingestInvalidation: (event) => {
+      let mappedRepositoryRoot: string | null = null;
+      set((state) => {
+        if (event.generation <= state.lastEventGeneration) {
+          return {};
+        }
+        mappedRepositoryRoot = event.repositoryRoot;
+        const acceptedEventState = {
+          anyInvalidationNonce: state.anyInvalidationNonce + 1,
+          lastEventGeneration: event.generation,
+        };
+        if (event.repositoryRoot === null) {
+          return {
+            ...acceptedEventState,
+            unmappedInvalidationNonce: state.unmappedInvalidationNonce + 1,
+          };
+        }
+        if (state.metadataNonceByRepositoryRoot[event.repositoryRoot] !== undefined) {
+          return acceptedEventState;
+        }
+        // Mark only the WIRE string metadata-known, at its old unknown-key
+        // observable baseline. Known selectors add the unmapped nonce back,
+        // so exclude it here; the queued mapped evidence then produces exactly
+        // one repository notification.
+        return {
+          ...acceptedEventState,
+          metadataNonceByRepositoryRoot: {
+            ...state.metadataNonceByRepositoryRoot,
+            [event.repositoryRoot]: state.anyInvalidationNonce - state.unmappedInvalidationNonce,
+          },
+        };
+      });
+      if (mappedRepositoryRoot !== null) {
+        queueRepositoryRefresh(mappedRepositoryRoot, 'git-metadata');
+      }
+    },
+    ingestWorkingTreeRefresh: (affectedRepositoryRoots) => {
+      for (const repositoryRoot of new Set(affectedRepositoryRoots)) {
+        queueRepositoryRefresh(repositoryRoot, 'working-tree');
+      }
+    },
+    reset: () => {
+      for (const pending of pendingByRepositoryRoot.values()) {
+        if (pending.timer !== null) {
+          clearTimeout(pending.timer);
         }
       }
-      return { nonceByRepositoryRoot: nextNonces };
-    }),
-  reset: () => {
-    recentRefreshByRepositoryRoot.clear();
-    set(INITIAL_STATE);
-  },
-}));
+      pendingByRepositoryRoot.clear();
+      set(INITIAL_STATE);
+    },
+  };
+});
 
 /**
  * The refetch nonce for one repository's `git-scope` changeset views.
  *
- * A repositoryRoot that has appeared in at least one mapped event is a KNOWN
- * key: its nonce is its repository-local refresh sequence plus every unmapped
- * event (see the store doc comment for why unmapped events count for every
- * repo).
+ * A repositoryRoot that has appeared in at least one mapped METADATA event is
+ * a metadata-known key. Renderer working-tree keys are deliberately separate:
+ * observing `/presentation/repo` locally must not stop a later canonical wire
+ * event for `/real/repo` from reaching that unknown metadata consumer.
  *
  * A repositoryRoot the store has NEVER seen follows `anyInvalidationNonce`
  * instead — deliberately conservative (PR #2288 review). Event keys carry the
@@ -203,13 +230,17 @@ export const useChangesLiveRefreshStore = create<ChangesLiveRefreshState>((set) 
 export function selectGitScopeRefreshNonce(
   state: Pick<
     ChangesLiveRefreshState,
-    'anyInvalidationNonce' | 'nonceByRepositoryRoot' | 'unmappedInvalidationNonce'
+    | 'anyInvalidationNonce'
+    | 'metadataNonceByRepositoryRoot'
+    | 'unmappedInvalidationNonce'
+    | 'workingTreeNonceByRepositoryRoot'
   >,
   repositoryRoot: string
 ): number {
-  const ownNonce = state.nonceByRepositoryRoot[repositoryRoot];
-  if (ownNonce === undefined) {
-    return state.anyInvalidationNonce;
-  }
-  return ownNonce + state.unmappedInvalidationNonce;
+  const metadataNonce = state.metadataNonceByRepositoryRoot[repositoryRoot];
+  const metadataRefreshNonce =
+    metadataNonce === undefined
+      ? state.anyInvalidationNonce
+      : metadataNonce + state.unmappedInvalidationNonce;
+  return metadataRefreshNonce + (state.workingTreeNonceByRepositoryRoot[repositoryRoot] ?? 0);
 }

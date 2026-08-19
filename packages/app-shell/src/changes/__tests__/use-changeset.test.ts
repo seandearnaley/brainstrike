@@ -1,3 +1,4 @@
+import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
 import type {
   Changeset,
   ChangesetView,
@@ -5,11 +6,13 @@ import type {
   GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
-import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes-bridge';
-import { useChangesLiveRefreshStore } from '../changes-live-refresh-store';
+import {
+  REPOSITORY_REFRESH_BATCH_MS,
+  useChangesLiveRefreshStore,
+} from '../changes-live-refresh-store';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useRewindStore } from '../rewind-store';
 import { RESOLVE_VIEW_TIMEOUT_MS, useChangeset } from '../use-changeset';
@@ -46,11 +49,11 @@ function stubBridge(
 }
 
 afterEach(() => {
-  vi.useRealTimers();
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   useRewindStore.getState().reset();
   useChangesNavigationStore.getState().reset();
   useChangesLiveRefreshStore.getState().reset();
+  vi.useRealTimers();
 });
 
 describe('useChangeset', () => {
@@ -222,16 +225,27 @@ describe('useChangeset', () => {
     });
 
     it('re-resolves a git-scope changeset on a canonical working-tree refresh for its root, but not another root', async () => {
+      vi.useFakeTimers();
+      const pendingResolves: Array<(result: GitResult<ChangesetView>) => void> = [];
       const resolveView = vi.fn(
-        async (): Promise<GitResult<ChangesetView>> => ({
-          ok: true,
-          value: viewFixture({ changeset: GIT_CHANGESET }),
-        })
+        () =>
+          new Promise<GitResult<ChangesetView>>((resolve) => {
+            pendingResolves.push(resolve);
+          })
       );
       stubBridgeWithInvalidations(resolveView);
 
-      renderHook(() => useChangeset('root-1', GIT_CHANGESET));
-      await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
+      const { unmount } = renderHook(() => useChangeset('root-1', GIT_CHANGESET));
+      expect(resolveView).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        pendingResolves[0]?.({
+          ok: true,
+          value: viewFixture({ changeset: GIT_CHANGESET }),
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
 
       await act(async () => {
         window.dispatchEvent(
@@ -247,9 +261,18 @@ describe('useChangeset', () => {
             source: 'watcher',
           })
         );
+        await vi.advanceTimersByTimeAsync(REPOSITORY_REFRESH_BATCH_MS);
+      });
+      expect(resolveView).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        pendingResolves[1]?.({
+          ok: true,
+          value: viewFixture({ changeset: GIT_CHANGESET }),
+        });
+        await Promise.resolve();
+        await Promise.resolve();
         await Promise.resolve();
       });
-      await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(2));
 
       act(() => {
         window.dispatchEvent(
@@ -267,6 +290,7 @@ describe('useChangeset', () => {
         );
       });
       expect(resolveView).toHaveBeenCalledTimes(2);
+      unmount();
     });
   });
 

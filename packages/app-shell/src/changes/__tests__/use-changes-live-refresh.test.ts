@@ -1,13 +1,17 @@
-import { createLogger } from '@brainstrike/logging';
 import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
+import { createLogger } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge, ChangesInvalidationEvent } from '../changes-bridge';
 import {
-  CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS,
+  REPOSITORY_REFRESH_BATCH_MS,
+  REPOSITORY_REFRESH_MAX_WAIT_MS,
   selectGitScopeRefreshNonce,
   useChangesLiveRefreshStore,
 } from '../changes-live-refresh-store';
-import { acquireChangesLiveRefreshSubscription } from '../use-changes-live-refresh';
+import {
+  acquireChangesLiveRefreshSubscription,
+  normalizeRefreshPath,
+} from '../use-changes-live-refresh';
 
 function stubBridge(onInvalidated: ChangesBridge['onInvalidated']): {
   readonly listeners: ((event: ChangesInvalidationEvent) => void)[];
@@ -27,9 +31,9 @@ function stubBridge(onInvalidated: ChangesBridge['onInvalidated']): {
 }
 
 afterEach(() => {
-  vi.useRealTimers();
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   useChangesLiveRefreshStore.getState().reset();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -143,6 +147,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
   });
 
   it('keeps full refreshes root-scoped and honors the canonical manual all-roots broadcast', () => {
+    vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));
     const releaseA = acquireChangesLiveRefreshSubscription({
       repositoryRoot: '/repo-a',
@@ -163,6 +168,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
           source: 'watcher',
         })
       );
+      vi.runAllTimers();
       let state = useChangesLiveRefreshStore.getState();
       expect(selectGitScopeRefreshNonce(state, '/repo-a')).toBe(1);
       expect(selectGitScopeRefreshNonce(state, '/repo-b')).toBe(0);
@@ -170,6 +176,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       window.dispatchEvent(
         createFileExplorerRefreshEvent({ roots: [], scope: 'full', source: 'manual' })
       );
+      vi.runAllTimers();
       state = useChangesLiveRefreshStore.getState();
       expect(selectGitScopeRefreshNonce(state, '/repo-a')).toBe(2);
       expect(selectGitScopeRefreshNonce(state, '/repo-b')).toBe(1);
@@ -180,7 +187,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     }
   });
 
-  it('coalesces nearby working-tree and git-metadata signals into one repository refetch while still invalidating inventory', () => {
+  it('batches nearby working-tree and git-metadata evidence into one repository notification while still invalidating inventory', () => {
     vi.useFakeTimers();
     const stub = stubBridge(
       vi.fn((listener: (event: ChangesInvalidationEvent) => void) => {
@@ -217,13 +224,13 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
 
       const state = useChangesLiveRefreshStore.getState();
       expect(state.anyInvalidationNonce).toBe(1);
-      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(2);
     } finally {
       release();
     }
   });
 
-  it('coalesces at the upstream debounce boundary exactly once, then preserves a third working-tree edit', () => {
+  it('batches at the upstream debounce boundary without discarding a third working-tree edit', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     const stub = stubBridge(
@@ -251,7 +258,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
 
     try {
       window.dispatchEvent(workingTreeEvent);
-      vi.advanceTimersByTime(CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS);
+      vi.setSystemTime(REPOSITORY_REFRESH_BATCH_MS);
       stub.listeners[0]?.({
         generation: 1,
         gitCommonDir: '/repo/.git',
@@ -260,23 +267,25 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
 
       let state = useChangesLiveRefreshStore.getState();
       expect(state.anyInvalidationNonce).toBe(1);
-      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(0);
 
-      // The cross-source pair consumed its marker. A third signal is a new
-      // working-tree edit, even at the same timestamp, and must stay visible.
+      // A third signal is distinct evidence. It joins the same trailing batch
+      // and is all visible in the one post-latest-signal notification.
       window.dispatchEvent(workingTreeEvent);
+      vi.runAllTimers();
       state = useChangesLiveRefreshStore.getState();
-      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(2);
+      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(3);
 
-      vi.advanceTimersByTime(CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS + 1);
+      vi.setSystemTime(REPOSITORY_REFRESH_BATCH_MS + REPOSITORY_REFRESH_MAX_WAIT_MS + 1);
       stub.listeners[0]?.({
         generation: 2,
         gitCommonDir: '/repo/.git',
         repositoryRoot: '/repo',
       });
+      vi.runAllTimers();
       state = useChangesLiveRefreshStore.getState();
       expect(state.anyInvalidationNonce).toBe(2);
-      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(3);
+      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(4);
     } finally {
       release();
     }
@@ -308,5 +317,188 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     expect(onInvalidated).toHaveBeenCalledTimes(2);
     releaseB();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails open within the durable root when presentation and canonical path vocabularies cannot intersect lexically', () => {
+    vi.useFakeTimers();
+    stubBridge(vi.fn(() => () => {}));
+    const release = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/real/workspace/repo',
+      rootId: 'root-1',
+      worktreePath: '/real/workspace/repo',
+    });
+
+    try {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [
+                {
+                  kind: 'file',
+                  path: '/presentation/workspace/repo/src/live.ts',
+                  type: 'modified',
+                },
+              ],
+              rootId: 'root-1',
+              rootPath: '/presentation/workspace/repo',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+      vi.runAllTimers();
+
+      expect(
+        selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/real/workspace/repo')
+      ).toBe(1);
+    } finally {
+      release();
+    }
+  });
+
+  it('keeps working-tree keys separate from metadata-known keys so a later canonical event refreshes a presentation-path consumer', () => {
+    vi.useFakeTimers();
+    const stub = stubBridge(
+      vi.fn((listener: (event: ChangesInvalidationEvent) => void) => {
+        stub.listeners.push(listener);
+        return () => {};
+      })
+    );
+    const release = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/presentation/repo',
+      rootId: 'root-1',
+      worktreePath: '/presentation/repo',
+    });
+
+    try {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: '/presentation/repo/file.ts', type: 'modified' }],
+              rootId: 'root-1',
+              rootPath: '/presentation/repo',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+      vi.runAllTimers();
+      expect(
+        selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/presentation/repo')
+      ).toBe(1);
+
+      vi.advanceTimersByTime(1001);
+      stub.listeners[0]?.({
+        generation: 1,
+        gitCommonDir: '/real/repo/.git',
+        repositoryRoot: '/real/repo',
+      });
+      expect(
+        selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/presentation/repo')
+      ).toBe(2);
+    } finally {
+      release();
+    }
+  });
+
+  it('losslessly batches working-tree, metadata, then working-tree evidence into one trailing repository notification', () => {
+    vi.useFakeTimers();
+    const stub = stubBridge(
+      vi.fn((listener: (event: ChangesInvalidationEvent) => void) => {
+        stub.listeners.push(listener);
+        return () => {};
+      })
+    );
+    const release = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/repo',
+      rootId: 'root-1',
+      worktreePath: '/repo',
+    });
+    const refreshEvent = createFileExplorerRefreshEvent({
+      roots: [
+        {
+          changes: [{ kind: 'file', path: '/repo/file.ts', type: 'modified' }],
+          rootId: 'root-1',
+          rootPath: '/repo',
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+    let previous = selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/repo');
+    const observed: number[] = [];
+    const unsubscribe = useChangesLiveRefreshStore.subscribe((state) => {
+      const next = selectGitScopeRefreshNonce(state, '/repo');
+      if (next !== previous) {
+        observed.push(next);
+        previous = next;
+      }
+    });
+
+    try {
+      window.dispatchEvent(refreshEvent);
+      stub.listeners[0]?.({
+        generation: 1,
+        gitCommonDir: '/repo/.git',
+        repositoryRoot: '/repo',
+      });
+      window.dispatchEvent(refreshEvent);
+      vi.runAllTimers();
+
+      expect(selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/repo')).toBe(3);
+      expect(observed).toEqual([3]);
+    } finally {
+      unsubscribe();
+      release();
+    }
+  });
+
+  it('flushes a continuously re-armed repository batch at the 1s starvation bound', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    stubBridge(vi.fn(() => () => {}));
+    const release = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/repo',
+      rootId: 'root-1',
+      worktreePath: '/repo',
+    });
+    const refreshEvent = createFileExplorerRefreshEvent({
+      roots: [
+        {
+          changes: [{ kind: 'file', path: '/repo/file.ts', type: 'modified' }],
+          rootId: 'root-1',
+          rootPath: '/repo',
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    try {
+      window.dispatchEvent(refreshEvent);
+      const rearmStep = REPOSITORY_REFRESH_BATCH_MS - 1;
+      for (let index = 0; index < 3; index += 1) {
+        vi.advanceTimersByTime(rearmStep);
+        window.dispatchEvent(refreshEvent);
+      }
+      expect(selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/repo')).toBe(0);
+
+      const remainingBeforeMaxWait = REPOSITORY_REFRESH_MAX_WAIT_MS - rearmStep * 3;
+      vi.advanceTimersByTime(remainingBeforeMaxWait - 1);
+      expect(selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/repo')).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/repo')).toBe(4);
+    } finally {
+      release();
+    }
+  });
+
+  it('preserves a Windows drive root during renderer path normalization', () => {
+    expect(normalizeRefreshPath('C:\\')).toBe('C:/');
+    expect(normalizeRefreshPath('C:/')).toBe('C:/');
   });
 });

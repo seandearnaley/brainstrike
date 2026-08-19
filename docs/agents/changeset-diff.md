@@ -414,10 +414,16 @@ polling). Every mounted `git-scope` `useChangeset` registers its
 `{ rootId, repositoryRoot, worktreePath }`. An incremental explorer event
 maps only registrations in the named durable root whose worktree intersects a
 reported changed path (descendant content OR an ancestor that can replace the
-worktree); a root-scoped full event maps every registration in that root, and
-the canonical manual-full empty-roots broadcast maps all mounted
-registrations. A `Set` dedupes multiple worktrees/scopes of one repository.
-Unregistered/snapshot changesets are never guessed into the result.
+worktree). `rootId` is authoritative over path presentation: watcher paths are
+re-rooted to the user-facing handle while inventory worktrees can be realpath'd,
+so if the named root and registered worktree have no lexical containment in
+either direction, the mapper FAILS OPEN to that registration rather than
+silently missing it. Comparable paths still filter nested sibling repositories
+precisely. Renderer normalization preserves Windows drive roots (`C:\\` →
+`C:/`). A root-scoped full event maps every registration in that root, and the
+canonical manual-full empty-roots broadcast maps all mounted registrations. A
+`Set` dedupes multiple worktrees/scopes of one repository. Unregistered /
+snapshot changesets are never guessed into the result.
 
 Both sources feed `changes-live-refresh-store.ts` (wire-generation guard drops
 stale/duplicate bridge deliveries; the store is registered in factory reset).
@@ -427,17 +433,31 @@ map still counts for every repo, conservatively). A working-tree event bumps
 ONLY mapped repository-view nonces — never `anyInvalidationNonce` — so
 `useGitInventory` continues to refetch only on accepted git-metadata events and
 a deferred instance remains unloaded until its existing explicit load gate has
-been crossed. When one filesystem operation reaches both upstream 300ms
-debouncers, the store's 300ms cross-source window consumes exactly one
-opposite-source partner per repository: the repository nonce bumps once, while
-the git-metadata half still advances inventory. The marker is deleted on that
-pair, so file → git → file preserves the third, distinct edit. There is no
-additional timer/throttle; every ingestion prunes temporal markers older than
-the window, so this dedupe scratch map cannot grow with every repository seen
-over a long session. The wire event's canonical repository spelling is NOT
-pre-registered from renderer scope strings: the git panel may carry a symlink
-spelling, and `selectGitScopeRefreshNonce`'s existing unknown-key conservative
-guard must remain able to cover that vocabulary divergence. Snapshot
+been crossed.
+
+Repository view evidence is LOSSLESS and split by identity vocabulary:
+`metadataNonceByRepositoryRoot` contains only wire keys, while
+`workingTreeNonceByRepositoryRoot` contains renderer registration keys;
+`selectGitScopeRefreshNonce` combines them. A local `/presentation/repo` event
+therefore cannot mark that string metadata-known and mask a later canonical
+`/real/repo` wire event — the existing unknown-key conservative guard remains
+intact. Alias strings may cause an extra refresh; without an operation id that
+is the only defensible choice, and evidence is never suppressed on time alone.
+When a wire string first becomes metadata-known, its stored baseline is
+`anyInvalidationNonce - unmappedInvalidationNonce`: the known selector adds the
+unmapped count back, preserving the prior unknown value until the queued mapped
+evidence publishes exactly once.
+
+For the same repository string, both sources enter ONE 300ms trailing batch
+(`REPOSITORY_REFRESH_BATCH_MS`). Every signal increments its source count, but
+the store publishes them in one state update after the latest signal, so
+file → git → file produces one final
+notification carrying all three increments rather than discarding either file
+event. `anyInvalidationNonce` still advances immediately for every accepted
+metadata event, independently refreshing inventory. A 1000ms max wait
+(`REPOSITORY_REFRESH_MAX_WAIT_MS`) flushes continuous churn instead of allowing
+trailing re-arms to starve the view. The pending map deletes on flush and
+factory reset clears every timer, so temporal batch state is bounded. Snapshot
 changesets (`agent-run`/`run-range`) never read these nonces.
 
 Paired renderer tests:
