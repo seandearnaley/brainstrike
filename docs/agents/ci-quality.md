@@ -95,8 +95,17 @@ product regression.
 The tables below are LOCAL-HOST samples (macOS arm64 dev machine), not
 ubuntu-runner CI dispatches like the superseded 2026-08-11 table — do not
 compare their absolute values against CI numbers. A confirming
-`memory-baseline` workflow dispatch in the CI environment accompanies the
-flag change (see the PR for the run link).
+`memory-baseline` dispatch in the CI environment (run `32274868755`, the first
+CI execution of the BST-438 tests) measured live heap growth of `1.8` MB in
+both live-query scenarios — the 16 MB heap ceilings hold in CI too. That same
+dispatch recalibrated the switching test's alive-generation identity bound
+from a local-only 6 to 8 (CI held 7 alive with 58/65 collected and zero
+drops), and exposed a PRE-EXISTING CI failure unrelated to the flag: since the
+Electron 43.4 provisioning window (first seen 2026-08-15, run `31903107189`),
+CI runners get no WebGPU adapter, device detection refuses to auto-select
+WASM, and the large-backfill error path emits a WebGPU-refusal message that
+`embedding-worker-renderer.memory.desktop.test.ts` does not expect — that
+breakage needs its own fix, not a memory-suite change.
 
 The 50k collection and 50k file-list ceilings are calibrated, not inherited
 from the older Collection Browser measurement window. On 2026-08-19, three
