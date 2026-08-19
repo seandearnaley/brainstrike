@@ -603,13 +603,49 @@ describe('createFileTreeWorkerPort', () => {
     await expect(pending).rejects.toThrow('global worker failure');
   });
 
-  it('removes listeners and terminates the worker', () => {
+  it('settles active work before removing listeners and terminating the worker', async () => {
     const worker = new MockWorker();
     const port = createFileTreeWorkerPort(worker as unknown as Worker);
     const onProgress = vi.fn();
+    const readGate = createDeferred<BatchLoadResult[]>();
+    const requestStarted = createDeferred<void>();
+    let requestSignal: AbortSignal | undefined;
+    let operationSettlement:
+      | { status: 'pending' }
+      | { status: 'fulfilled' }
+      | { error: unknown; status: 'rejected' } = { status: 'pending' };
+
     port.onProgress(onProgress);
+    port.onRequestLoad(async (_requestId, _paths, signal) => {
+      requestSignal = signal;
+      requestStarted.resolve();
+      return readGate.promise;
+    });
+
+    const activeOperation = port.loadPaths(['/root/a']);
+    void activeOperation.then(
+      () => {
+        operationSettlement = { status: 'fulfilled' };
+      },
+      (error: unknown) => {
+        operationSettlement = { error, status: 'rejected' };
+      }
+    );
+    worker.emit({
+      operationId: 1,
+      payload: { paths: ['/root/a'], requestId: 'req-terminate' },
+      type: 'requestLoad',
+    });
+    await requestStarted.promise;
 
     port.terminate();
+    await flushMicrotasks();
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(operationSettlement).toEqual({
+      error: expect.objectContaining({ message: 'File tree worker port terminated' }),
+      status: 'rejected',
+    });
     expect(worker.terminated).toBe(true);
 
     worker.emit({
@@ -618,5 +654,19 @@ describe('createFileTreeWorkerPort', () => {
       type: 'progress',
     });
     expect(onProgress).not.toHaveBeenCalled();
+
+    readGate.resolve([
+      {
+        children: [createDirectoryNode('/root/a/late')],
+        path: '/root/a',
+      },
+    ]);
+    await flushMicrotasks();
+    expect(worker.postedMessages).not.toContainEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({ requestId: 'req-terminate' }),
+        type: 'loadResult',
+      })
+    );
   });
 });
