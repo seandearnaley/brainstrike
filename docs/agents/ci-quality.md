@@ -565,8 +565,9 @@ pnpm exec playwright test e2e/performance/embedding-model-switch-memory.test.ts 
 | 3 | 277,832,659 | 44,398,290 | 44,446,542 | 44,446,634 | +92 | 0 |
 
 The later production hardening at `7d2ba303d` validates the cache clock before
-eviction or loader allocation; it changes only the rejected invalid-clock path.
-An exact-branch rerun at `2a75942da` recorded baseline total 278,085,035, warm
+eviction or loader allocation. It leaves the valid switching allocation,
+disposal, and structural-memory behavior unchanged. An exact-branch rerun at
+`2a75942da` recorded baseline total 278,085,035, warm
 worker 44,397,896, window A 44,446,108, window B 44,446,628 (+520), and zero
 worker attribution after teardown, confirming the valid switching path retained
 the same structural signal.
