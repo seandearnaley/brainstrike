@@ -17,6 +17,7 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import { useOptionalFileTreeContext } from '../tree/file-tree-provider';
 import {
+  type FileTreeDirectorySnapshot,
   type FileTreeRefreshResult,
   type LoadingProgressState,
   useFileTree,
@@ -118,7 +119,7 @@ interface UseFileExplorerReturn {
   /** Load content for multiple files at once (batch loading for report generation) */
   loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
   /** Refresh a specific directory */
-  refreshDirectory: (path: string) => Promise<void>;
+  refreshDirectory: (path: string) => Promise<FileTreeDirectorySnapshot | null>;
   refreshFileExplorer: () => Promise<FileTreeRefreshResult>;
   /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
   registerRestoredHandles: (handles: readonly DirectoryHandle[]) => Promise<void>;

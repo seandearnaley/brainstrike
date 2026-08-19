@@ -52,14 +52,17 @@ import {
 } from '../shell/file-explorer-refresh-event';
 import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { getNormalizedNode } from '../utils/normalized-file-tree';
-import type { FileTreeRefreshResult } from './use-lazy-file-tree';
+import type { FileTreeDirectorySnapshot, FileTreeRefreshResult } from './use-lazy-file-tree';
 
 const logger = createLogger('FileTreeRefreshEvents');
 
 export interface UseFileTreeRefreshEventsParams {
   /** Reads the provider's CURRENT normalized tree (loaded-state lookups). */
   getNormalizedTree: () => NormalizedFileTreeState | null;
-  refreshDirectory: (path: string) => Promise<void>;
+  reconcileSelectionWithDirectorySnapshots: (
+    snapshots: readonly FileTreeDirectorySnapshot[]
+  ) => void;
+  refreshDirectory: (path: string) => Promise<FileTreeDirectorySnapshot | null>;
   refreshTree: () => Promise<FileTreeRefreshResult>;
   /** Durable RootId (UUID) when known; null for legacy path-identified roots. */
   rootId: string | null;
@@ -152,14 +155,22 @@ async function handleWatcherIncrementalRefresh(
   if (refreshRoot) {
     await current.refreshTree();
   }
-  for (const parent of parentsToRefresh) {
-    // Re-check after a root reload — it may have reset this directory to
-    // unloaded, in which case expand re-enumerates it anyway.
-    const tree = current.getNormalizedTree();
-    if (!(tree && getNormalizedNode(tree, parent)?.loadState === 'loaded')) {
-      continue;
-    }
-    await current.refreshDirectory(parent);
+  const snapshotResults = await Promise.all(
+    Array.from(parentsToRefresh, async (parent) => {
+      // Re-check after a root reload — it may have reset this directory to
+      // unloaded, in which case expand re-enumerates it anyway.
+      const tree = current.getNormalizedTree();
+      if (!(tree && getNormalizedNode(tree, parent)?.loadState === 'loaded')) {
+        return null;
+      }
+      return current.refreshDirectory(parent);
+    })
+  );
+  const snapshots = snapshotResults.filter(
+    (snapshot): snapshot is FileTreeDirectorySnapshot => snapshot !== null
+  );
+  if (snapshots.length > 0) {
+    current.reconcileSelectionWithDirectorySnapshots(snapshots);
   }
 }
 
@@ -187,6 +198,7 @@ async function handleWatcherOverflowRefresh(
 
 export function useFileTreeRefreshEvents({
   getNormalizedTree,
+  reconcileSelectionWithDirectorySnapshots,
   refreshDirectory,
   refreshTree,
   rootId,
@@ -197,6 +209,7 @@ export function useFileTreeRefreshEvents({
   // churn of the tree callbacks (they are recreated every render).
   const paramsRef = useRef({
     getNormalizedTree,
+    reconcileSelectionWithDirectorySnapshots,
     refreshDirectory,
     refreshTree,
     rootId,
@@ -205,6 +218,7 @@ export function useFileTreeRefreshEvents({
   });
   paramsRef.current = {
     getNormalizedTree,
+    reconcileSelectionWithDirectorySnapshots,
     refreshDirectory,
     refreshTree,
     rootId,

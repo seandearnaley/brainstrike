@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import type { FileExplorerState, SelectionQueryDescriptor } from '@brainstrike/types';
+import type { FileExplorerState, IFileNode, SelectionQueryDescriptor } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import {
@@ -14,6 +14,10 @@ import {
   getForeignSelectionCount,
 } from '../utils/file-explorer-utils';
 import { resolveQuerySelection } from '../utils/query-selection-manifest';
+import {
+  type DirectorySelectionSnapshot,
+  getVanishedSelectionPaths,
+} from './file-selection-reconciliation.js';
 
 const logger = createLogger('FileSelectionActions');
 
@@ -60,10 +64,58 @@ export interface FileSelectionActions {
   ) => Promise<ChunkedSelectionResult>;
   addSelectedFile: (folderId: string | null, path: string) => void;
   clearSelectedFiles: () => void;
+  /**
+   * Reconcile one authoritative directory listing against the selection.
+   * Surviving direct files and descendants of surviving directories remain
+   * selected; keys beneath a child that no longer exists are removed.
+   */
+  reconcileSelectionWithDirectorySnapshot: (
+    folderId: string,
+    directoryPath: string,
+    entries: readonly Pick<IFileNode, 'path' | 'type'>[]
+  ) => void;
+  reconcileSelectionWithDirectorySnapshots: (
+    folderId: string,
+    snapshots: readonly DirectorySelectionSnapshot[]
+  ) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeSelectedFile: (folderId: string | null, path: string) => void;
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
   toggleSelectedFile: (folderId: string | null, path: string) => void;
+}
+
+function reconcileDirectorySnapshots(
+  state: FileExplorerState,
+  folderId: string,
+  snapshots: readonly DirectorySelectionSnapshot[]
+): Partial<FileExplorerState> {
+  if (snapshots.length === 0) {
+    return {};
+  }
+  const vanishedPaths = getVanishedSelectionPaths(state, folderId, snapshots);
+  if (vanishedPaths.length === 0) {
+    return {};
+  }
+  if (isForeignFolderMutation(state, folderId)) {
+    return applyForeignExplicitMutation(state, folderId, [], vanishedPaths).changes;
+  }
+  if (state.selectionModel.mode === 'query') {
+    return applyQuerySelectionMutation({
+      additions: [],
+      folderId,
+      removals: vanishedPaths,
+      state,
+    });
+  }
+  const nextSelection = new Set(state.selectedFilePaths);
+  for (const path of vanishedPaths) {
+    nextSelection.delete(encodeFileSelection(folderId, path));
+  }
+  return {
+    selectedFilePaths: nextSelection,
+    selectionModel: resolveSelectionModelAfterExplicitMutation(state.selectionModel, nextSelection),
+    selectionVersion: state.selectionVersion + 1,
+  };
 }
 
 /** Schedule work during browser idle time with error handling. */
@@ -763,6 +815,12 @@ export const createFileSelectionActions = (
           : createExplicitSelectionModel(new Set<string>()),
       selectionVersion: state.selectionVersion + 1,
     }));
+  },
+  reconcileSelectionWithDirectorySnapshot: (folderId, directoryPath, entries) => {
+    set((state) => reconcileDirectorySnapshots(state, folderId, [{ directoryPath, entries }]));
+  },
+  reconcileSelectionWithDirectorySnapshots: (folderId, snapshots) => {
+    set((state) => reconcileDirectorySnapshots(state, folderId, snapshots));
   },
 
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => {

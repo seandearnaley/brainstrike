@@ -16,7 +16,7 @@ import {
   type UseFileTreeRefreshEventsParams,
   useFileTreeRefreshEvents,
 } from '../use-file-tree-refresh-events';
-import type { FileTreeRefreshResult } from '../use-lazy-file-tree';
+import type { FileTreeDirectorySnapshot, FileTreeRefreshResult } from '../use-lazy-file-tree';
 
 const ROOT_PATH = '/workspace';
 const ROOT_ID = 'root-uuid-1';
@@ -53,18 +53,28 @@ async function dispatchRefresh(
 
 describe('useFileTreeRefreshEvents', () => {
   let normalizedTree: NormalizedFileTreeState;
-  let refreshDirectory: ReturnType<typeof vi.fn<(path: string) => Promise<void>>>;
+  let reconcileSelectionWithDirectorySnapshots: ReturnType<
+    typeof vi.fn<(snapshots: readonly FileTreeDirectorySnapshot[]) => void>
+  >;
+  let refreshDirectory: ReturnType<
+    typeof vi.fn<(path: string) => Promise<FileTreeDirectorySnapshot | null>>
+  >;
   let refreshTree: ReturnType<typeof vi.fn<() => Promise<FileTreeRefreshResult>>>;
   let params: UseFileTreeRefreshEventsParams;
 
   beforeEach(() => {
     normalizedTree = buildNormalizedTree();
-    refreshDirectory = vi.fn<(path: string) => Promise<void>>().mockResolvedValue(undefined);
+    reconcileSelectionWithDirectorySnapshots =
+      vi.fn<(snapshots: readonly FileTreeDirectorySnapshot[]) => void>();
+    refreshDirectory = vi
+      .fn<(path: string) => Promise<FileTreeDirectorySnapshot | null>>()
+      .mockImplementation(async (path) => ({ directoryPath: path, entries: [] }));
     refreshTree = vi
       .fn<() => Promise<FileTreeRefreshResult>>()
       .mockResolvedValue({ status: 'completed' });
     params = {
       getNormalizedTree: () => normalizedTree,
+      reconcileSelectionWithDirectorySnapshots,
       refreshDirectory,
       refreshTree,
       rootId: ROOT_ID,
@@ -110,7 +120,36 @@ describe('useFileTreeRefreshEvents', () => {
     });
 
     expect(refreshDirectory).toHaveBeenCalledExactlyOnceWith(`${ROOT_PATH}/src`);
+    expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
     expect(refreshTree).not.toHaveBeenCalled();
+  });
+
+  it('publishes all refreshed directory snapshots as one reconciliation batch', async () => {
+    normalizedTree = createNormalizedFileTreeState([
+      directoryNode(`${ROOT_PATH}/src`, 'loaded'),
+      directoryNode(`${ROOT_PATH}/test`, 'loaded'),
+    ]);
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [
+            { kind: 'file', path: `${ROOT_PATH}/src/gone.ts`, type: 'removed' },
+            { kind: 'file', path: `${ROOT_PATH}/test/gone.test.ts`, type: 'removed' },
+          ],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledExactlyOnceWith([
+      { directoryPath: `${ROOT_PATH}/src`, entries: [] },
+      { directoryPath: `${ROOT_PATH}/test`, entries: [] },
+    ]);
   });
 
   it('skips changes whose parent directory is not loaded in the tree', async () => {

@@ -171,6 +171,11 @@ export interface LazyFileTreeState {
 
 export type FileTreeRefreshResult = { status: 'cancelled' } | { status: 'completed' };
 
+export interface FileTreeDirectorySnapshot {
+  directoryPath: string;
+  entries: readonly IFileNode[];
+}
+
 export type RootLoadOutcome =
   | FileTreeRefreshResult
   | { error: Error; status: 'failed' }
@@ -238,7 +243,7 @@ export interface UseLazyFileTreeReturn {
   /** Check if a directory needs loading */
   needsLoading: (node: IFileNode) => boolean;
   /** Force refresh a directory (reload its children) */
-  refreshDirectory: (path: string) => Promise<void>;
+  refreshDirectory: (path: string) => Promise<FileTreeDirectorySnapshot | null>;
   /** Refresh the entire tree from root */
   refreshTree: () => Promise<FileTreeRefreshResult>;
   /** Loading progress for select all (if available) */
@@ -293,6 +298,9 @@ export interface UseLazyFileTreeOptions {
    */
   onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
 
+  /** Called only after a forced root refresh commits a complete root listing. */
+  onRootRefreshSnapshot?: (directoryPath: string, entries: readonly IFileNode[]) => void;
+
   /**
    * Durable RootId UUID for this root (storage v5).
    * When provided, nodes are stamped with this value as their `rootFolderId`
@@ -330,7 +338,7 @@ export function useLazyFileTree(
   rootDirectoryHandle: DirectoryHandle | null,
   options: UseLazyFileTreeOptions = {}
 ): UseLazyFileTreeReturn {
-  const { filterTreeFn, onNodesIndexed, rootId } = options;
+  const { filterTreeFn, onNodesIndexed, onRootRefreshSnapshot, rootId } = options;
   const { fileSystemAdapter } = useAdapters();
   const rootDirectoryPath = rootDirectoryHandle?.path ?? null;
   // A legacy mounted handle may lack its own rootId; `rootId` is the
@@ -343,6 +351,10 @@ export function useLazyFileTree(
   // Ref for callback to avoid stale closures
   const onNodesIndexedRef = useRef(onNodesIndexed);
   onNodesIndexedRef.current = onNodesIndexed;
+  const onRootRefreshSnapshotRef = useRef(onRootRefreshSnapshot);
+  useEffect(() => {
+    onRootRefreshSnapshotRef.current = onRootRefreshSnapshot;
+  }, [onRootRefreshSnapshot]);
 
   // Core state
   const [state, setState] = useState<LazyFileTreeState>({
@@ -777,6 +789,9 @@ export function useLazyFileTree(
           resolvedRootFolderId
         );
         syncNormalizedTree(children);
+        if (force) {
+          onRootRefreshSnapshotRef.current?.(rootPath, children);
+        }
         committedRootIdentityRef.current = rootIdentity;
         lastAppliedRootLoadRef.current = rootLoadRequest.request;
         notifyRootNodesIndexed(children, onNodesIndexedRef);
@@ -1206,9 +1221,9 @@ export function useLazyFileTree(
    * Force refresh a specific directory
    */
   const refreshDirectory = useCallback(
-    async (path: string) => {
+    async (path: string): Promise<FileTreeDirectorySnapshot | null> => {
       if (!fileSystemAdapter) {
-        return;
+        return null;
       }
 
       // Reset to unloaded state first
@@ -1225,6 +1240,15 @@ export function useLazyFileTree(
       if (node && node.type === 'directory') {
         await loadChildren(path);
       }
+      const refreshedNode = materializeNormalizedSubtree(normalizedTreeRef.current, path);
+      if (
+        refreshedNode?.type !== 'directory' ||
+        refreshedNode.loadState !== 'loaded' ||
+        !refreshedNode.children
+      ) {
+        return null;
+      }
+      return { directoryPath: path, entries: refreshedNode.children };
     },
     [commitNormalizedTree, fileSystemAdapter, loadChildren]
   );

@@ -1,0 +1,155 @@
+import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { resolveQuerySelection } from '../utils/query-selection-manifest.js';
+
+export interface DirectorySelectionSnapshot {
+  directoryPath: string;
+  entries: readonly Pick<IFileNode, 'path' | 'type'>[];
+}
+
+function normalizePath(path: string, caseInsensitive: boolean): string {
+  const normalized = path.replace(/\\/gu, '/');
+  const withoutTrailingSlash =
+    normalized.length > 1 && !/^[A-Za-z]:\/$/u.test(normalized)
+      ? normalized.replace(/\/+$/u, '')
+      : normalized;
+  return caseInsensitive ? withoutTrailingSlash.toLowerCase() : withoutTrailingSlash;
+}
+
+function isCaseInsensitivePath(path: string): boolean {
+  const normalized = path.replace(/\\/gu, '/');
+  return /^[A-Za-z]:\//u.test(normalized) || normalized.startsWith('//');
+}
+
+function getDirectChildPath(selectedPath: string, directoryPath: string): string | null {
+  if (selectedPath === directoryPath) {
+    return null;
+  }
+  const prefix = directoryPath === '/' ? '/' : `${directoryPath}/`;
+  if (!selectedPath.startsWith(prefix)) {
+    return null;
+  }
+  const remainder = selectedPath.slice(prefix.length);
+  if (!remainder) {
+    return null;
+  }
+  const separatorIndex = remainder.indexOf('/');
+  const childName = separatorIndex === -1 ? remainder : remainder.slice(0, separatorIndex);
+  return directoryPath === '/' ? `/${childName}` : `${directoryPath}/${childName}`;
+}
+
+function getExplicitPaths(compositeKeys: ReadonlySet<string>, folderId: string): string[] {
+  const prefix = `${folderId}|@|`;
+  const paths: string[] = [];
+  for (const key of compositeKeys) {
+    if (key.startsWith(prefix)) {
+      paths.push(key.slice(prefix.length));
+    }
+  }
+  return paths;
+}
+
+function getQueryPaths(state: FileExplorerState, folderId: string): string[] {
+  const descriptor = state.selectionModel.queryDescriptor;
+  if (!descriptor || descriptor.folderId !== folderId) {
+    return [];
+  }
+  const manifest = state.querySelectionManifest;
+  if (
+    manifest?.status === 'ready' &&
+    manifest.fingerprint === descriptor.manifestFingerprint &&
+    manifest.snapshotId === descriptor.manifestSnapshotId
+  ) {
+    return resolveQuerySelection(descriptor, manifest).filePaths;
+  }
+  const paths = new Set(state.selectionModel.materializedPaths ?? []);
+  for (const path of descriptor.excludedPaths) {
+    paths.delete(path);
+  }
+  for (const path of descriptor.includedPaths) {
+    paths.add(path);
+  }
+  return Array.from(paths);
+}
+
+function getSelectedPaths(state: FileExplorerState, folderId: string): string[] {
+  const isForeignRoot = state.currentFolderId !== null && state.currentFolderId !== folderId;
+  if (state.selectionModel.mode === 'query' && !isForeignRoot) {
+    return getQueryPaths(state, folderId);
+  }
+  const keys = isForeignRoot
+    ? (state.folderStates[folderId]?.selectedFilePaths ?? new Set<string>())
+    : state.selectedFilePaths;
+  return getExplicitPaths(keys, folderId);
+}
+
+function parentPath(path: string): string | null {
+  const separatorIndex = path.lastIndexOf('/');
+  if (separatorIndex < 0) {
+    return null;
+  }
+  if (separatorIndex === 0) {
+    return '/';
+  }
+  if (separatorIndex === 2 && /^[a-z]:\//u.test(path)) {
+    return path.slice(0, 3);
+  }
+  return path.slice(0, separatorIndex);
+}
+
+type SnapshotIndex = ReadonlyMap<string, ReadonlyMap<string, 'directory' | 'file'>>;
+
+function buildSnapshotIndex(
+  snapshots: readonly DirectorySelectionSnapshot[],
+  caseInsensitive: boolean
+): SnapshotIndex {
+  const index = new Map<string, ReadonlyMap<string, 'directory' | 'file'>>();
+  for (const snapshot of snapshots) {
+    if (snapshot.entries.some((entry) => entry.type === 'loadMore' || entry.type === 'truncated')) {
+      continue;
+    }
+    const entries = new Map<string, 'directory' | 'file'>();
+    for (const entry of snapshot.entries) {
+      if (entry.type === 'directory' || entry.type === 'file') {
+        entries.set(normalizePath(entry.path, caseInsensitive), entry.type);
+      }
+    }
+    index.set(normalizePath(snapshot.directoryPath, caseInsensitive), entries);
+  }
+  return index;
+}
+
+function isDisprovenByNearestSnapshot(selectedPath: string, snapshots: SnapshotIndex): boolean {
+  let candidateDirectory = parentPath(selectedPath);
+  while (candidateDirectory) {
+    const entries = snapshots.get(candidateDirectory);
+    if (entries) {
+      const directChildPath = getDirectChildPath(selectedPath, candidateDirectory);
+      const entryType = directChildPath ? entries.get(directChildPath) : undefined;
+      return !entryType || (entryType === 'file' && selectedPath !== directChildPath);
+    }
+    const parent = parentPath(candidateDirectory);
+    if (parent === candidateDirectory) {
+      return false;
+    }
+    candidateDirectory = parent;
+  }
+  return false;
+}
+
+export function getVanishedSelectionPaths(
+  state: FileExplorerState,
+  folderId: string,
+  snapshots: readonly DirectorySelectionSnapshot[]
+): string[] {
+  const caseInsensitive = snapshots.some((snapshot) =>
+    isCaseInsensitivePath(snapshot.directoryPath)
+  );
+  const snapshotIndex = buildSnapshotIndex(snapshots, caseInsensitive);
+  const vanishedPaths: string[] = [];
+  for (const originalPath of getSelectedPaths(state, folderId)) {
+    if (isDisprovenByNearestSnapshot(normalizePath(originalPath, caseInsensitive), snapshotIndex)) {
+      vanishedPaths.push(originalPath);
+    }
+  }
+  return vanishedPaths;
+}

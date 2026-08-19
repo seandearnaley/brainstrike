@@ -195,6 +195,26 @@ export function FileTreeProvider({
   // as IFileNode.rootFolderId (both resolved via the same getRootFolderId lookup).
   const currentRootPath = rootDirectoryHandle?.path ?? null;
   const currentRootIndexKey = rootId ?? currentRootPath;
+  const reconcileSelectionWithDirectorySnapshot = useCallback(
+    (directoryPath: string, entries: readonly IFileNode[]): void => {
+      if (!currentRootIndexKey) {
+        return;
+      }
+      store
+        .getState()
+        .reconcileSelectionWithDirectorySnapshot(currentRootIndexKey, directoryPath, entries);
+    },
+    [currentRootIndexKey, store]
+  );
+  const reconcileSelectionWithDirectorySnapshots = useCallback(
+    (snapshots: readonly { directoryPath: string; entries: readonly IFileNode[] }[]): void => {
+      if (!currentRootIndexKey || snapshots.length === 0) {
+        return;
+      }
+      store.getState().reconcileSelectionWithDirectorySnapshots(currentRootIndexKey, snapshots);
+    },
+    [currentRootIndexKey, store]
+  );
 
   // Refcounted folder registration replaces clear-on-identity-change: the
   // effect cleanup releases the OLD key (clearing its entries only when this
@@ -229,9 +249,10 @@ export function FileTreeProvider({
   const options = useMemo(() => {
     const base: {
       onNodesIndexed: typeof onNodesIndexed;
+      onRootRefreshSnapshot: typeof reconcileSelectionWithDirectorySnapshot;
       filterTreeFn?: typeof filterTreeFn;
       rootId?: string;
-    } = { onNodesIndexed };
+    } = { onNodesIndexed, onRootRefreshSnapshot: reconcileSelectionWithDirectorySnapshot };
     if (filterTreeFn) {
       base.filterTreeFn = filterTreeFn;
     }
@@ -239,7 +260,7 @@ export function FileTreeProvider({
       base.rootId = rootId;
     }
     return base;
-  }, [onNodesIndexed, filterTreeFn, rootId]);
+  }, [onNodesIndexed, reconcileSelectionWithDirectorySnapshot, filterTreeFn, rootId]);
 
   const fileTreeState = useFileTree(rootDirectoryHandle, options);
   // Storage v5: restoration uses rootId (UUID) when available so
@@ -281,6 +302,7 @@ export function FileTreeProvider({
     fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef;
   useFileTreeRefreshEvents({
     getNormalizedTree: () => refreshEventsNormalizedTreeRef.current,
+    reconcileSelectionWithDirectorySnapshots,
     refreshDirectory: fileTreeState.refreshDirectory,
     refreshTree: fileTreeState.refreshTree,
     rootId: rootId ?? null,

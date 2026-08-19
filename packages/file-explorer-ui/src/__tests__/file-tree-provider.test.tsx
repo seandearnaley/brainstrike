@@ -18,6 +18,8 @@ const {
   clearMock,
   getHandleMock,
   getNodeMock,
+  reconcileSelectionWithDirectorySnapshotMock,
+  reconcileSelectionWithDirectorySnapshotsMock,
   setExpandedPathsMock,
   storeMock,
   useExpandSelectedFileParentDirectoriesMock,
@@ -29,6 +31,8 @@ const {
   clearMock: vi.fn(),
   getHandleMock: vi.fn(),
   getNodeMock: vi.fn(),
+  reconcileSelectionWithDirectorySnapshotMock: vi.fn(),
+  reconcileSelectionWithDirectorySnapshotsMock: vi.fn(),
   setExpandedPathsMock: vi.fn(),
   storeMock: vi.fn(),
   useExpandedPathRestorationMock: vi.fn(),
@@ -106,6 +110,12 @@ function Consumer(): ReactNode {
 describe('FileTreeProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.assign(storeMock, {
+      getState: () => ({
+        reconcileSelectionWithDirectorySnapshot: reconcileSelectionWithDirectorySnapshotMock,
+        reconcileSelectionWithDirectorySnapshots: reconcileSelectionWithDirectorySnapshotsMock,
+      }),
+    });
     getNodeMock.mockReturnValue(undefined);
     getHandleMock.mockReturnValue(undefined);
     useFileTreeMock.mockReturnValue({
@@ -236,6 +246,38 @@ describe('FileTreeProvider', () => {
     );
     expect(useExpandedPathRestorationMock).toHaveBeenCalledWith(
       expect.objectContaining({ currentRootFolderId: ROOT_UUID })
+    );
+  });
+
+  it('reconciles selection from the authoritative directory snapshot using durable root identity', () => {
+    const rootId = 'd4e516c5-e91e-4b1d-89ed-cb01cbfec159';
+    render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={rootId}>
+        <Consumer />
+      </FileTreeProvider>
+    );
+    const options = useFileTreeMock.mock.calls[0]?.[1];
+    const entries = [
+      {
+        children: undefined,
+        depth: 0,
+        handle: {} as FileSystemFileHandle,
+        name: 'keep.ts',
+        path: '/workspace/keep.ts',
+        rootFolderId: rootId,
+        selectionState: 'unchecked' as const,
+        type: 'file' as const,
+      },
+    ];
+
+    act(() => {
+      options?.onRootRefreshSnapshot?.('/workspace', entries);
+    });
+
+    expect(reconcileSelectionWithDirectorySnapshotMock).toHaveBeenCalledWith(
+      rootId,
+      '/workspace',
+      entries
     );
   });
 

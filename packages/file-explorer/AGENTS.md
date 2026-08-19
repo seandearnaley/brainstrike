@@ -71,6 +71,9 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
   * `addSelectedFile(folderId, path)` / `removeSelectedFile` / `toggleSelectedFile`
   * `setSelectedFiles(Set<string>)` (keeps only valid composite keys)
   * `addMultipleSelectedFiles(folderId, paths[])` / `removeMultipleSelectedFiles(folderId, paths[])`
+  * `reconcileSelectionWithDirectorySnapshot(s)` consumes complete, root-scoped
+    directory listings after refresh; it removes only selections disproven by
+    those listings and preserves query mode through exclusion overrides.
     All enforce `maxSelectionCount` and **trim** if the limit is reduced.
   * Encode/decode composite keys through `@brainstrike/file-explorer/selection`.
     Malformed keys throw; callers must not guess or silently coerce them.

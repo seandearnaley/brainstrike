@@ -769,6 +769,24 @@ fallback.
   registry), so it ignores the event it just caused; every nested forest
   RootSection provider reacts — that is what makes the toolbar Refresh reach
   every forest root, including the focused root's VISIBLE section.
+- **Selection follows authoritative directory replacement (BST-1166).** The
+  file-explorer store remains the selection source of truth; filtered display
+  rows and the virtualized tree never rewrite it. A forced root refresh emits
+  its complete root listing, while watcher-driven loaded-directory refreshes
+  return complete per-directory snapshots. `FileTreeProvider` reconciles those
+  snapshots through the durable root id: selected direct files absent from a
+  refreshed directory are removed, as are selected descendants beneath a
+  removed child directory; direct files and descendants of a surviving child
+  directory remain selected. Query-backed selection stays in query mode and
+  records a vanished manifest path as an exclusion instead of degrading to an
+  explicit set. A `loadMore`/`truncated` pseudo-row makes that directory
+  snapshot non-authoritative, so it cannot remove selection. Ordinary expand,
+  restoration, and expand-all enumeration never trigger reconciliation. All
+  loaded-directory snapshots from one watcher batch publish through one store
+  update; the reducer indexes snapshots once and walks only the bounded
+  selection paths and their ancestors, never the full or filtered tree. Pinned
+  by `file-selection-reconciliation.test.ts`,
+  `use-file-tree-refresh-events.test.tsx`, and `file-tree-provider.test.tsx`.
 - **Narrow toolbar geometry.** The Explorer panel's 180px minimum width leaves
   a 76px right grid track. Below 236px, Refresh, View Filters **and Expand All /
   Collapse All** move into one 24px compact-actions menu beside the 24px Select

@@ -1,5 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { createNewFolderState } from '../../utils/file-explorer-utils';
 import { createFileSelectionActions } from '../file-selection-actions';
 import { consoleSpy, createMockState, mockSet } from './file-selection-actions-test-support';
 
@@ -42,8 +43,15 @@ describe('file-selection refresh reconciliation', () => {
     const keepKey = `${folderId}|@|/workspace/src/keep.ts`;
     const vanishedKey = `${folderId}|@|/workspace/src/vanished.ts`;
     const nestedKey = `${folderId}|@|/workspace/src/nested/keep.ts`;
-    const siblingRootKey = `other-root|@|/other/selected.ts`;
-    const initialSelection = new Set([keepKey, vanishedKey, nestedKey, siblingRootKey]);
+    const removedDirectoryKey = `${folderId}|@|/workspace/src/removed/deep/vanished.ts`;
+    const siblingRootKey = 'other-root|@|/other/selected.ts';
+    const initialSelection = new Set([
+      keepKey,
+      vanishedKey,
+      nestedKey,
+      removedDirectoryKey,
+      siblingRootKey,
+    ]);
     const state = installStateUpdater(
       createMockState({
         currentFolderId: folderId,
@@ -95,15 +103,12 @@ describe('file-selection refresh reconciliation', () => {
         selectionModel: {
           explicitPaths: new Set<string>(),
           materializedAt: '2026-08-19T00:00:00.000Z',
-          materializedPaths: new Set([
-            '/workspace/src/keep.ts',
-            '/workspace/src/vanished.ts',
-          ]),
+          materializedPaths: new Set(['/workspace/src/keep.ts', '/workspace/src/vanished.ts']),
           mode: 'query',
           queryDescriptor: {
             coveredDirectoryPaths: ['/workspace/src'],
-            excludeFilters: [],
             excludedPaths: [],
+            excludeFilters: [],
             folderId,
             includedPaths: [],
             includeFilters: ['**/*.ts'],
@@ -138,5 +143,102 @@ describe('file-selection refresh reconciliation', () => {
       '/workspace/src/vanished.ts',
     ]);
     expect(reconciled.selectionVersion).toBe(3);
+  });
+
+  it('batches multiple refreshed directories into one selection-state publication', () => {
+    const folderId = 'root-id';
+    const initialSelection = new Set([
+      `${folderId}|@|/workspace/src/gone.ts`,
+      `${folderId}|@|/workspace/test/gone.test.ts`,
+      `${folderId}|@|/workspace/keep.ts`,
+    ]);
+    const state = installStateUpdater(
+      createMockState({
+        currentFolderId: folderId,
+        selectedFilePaths: initialSelection,
+        selectionModel: {
+          explicitPaths: initialSelection,
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
+          queryDescriptor: null,
+        },
+        selectionVersion: 8,
+      })
+    );
+    const actions = createFileSelectionActions(state.set, state.getState);
+
+    actions.reconcileSelectionWithDirectorySnapshots(folderId, [
+      { directoryPath: '/workspace/src', entries: [] },
+      { directoryPath: '/workspace/test', entries: [] },
+    ]);
+
+    expect(mockSet).toHaveBeenCalledOnce();
+    expect(state.getState().selectedFilePaths).toEqual(
+      new Set([`${folderId}|@|/workspace/keep.ts`])
+    );
+    expect(state.getState().selectionVersion).toBe(9);
+  });
+
+  it('reconciles a foreign explicit root without disturbing the focused query selection', () => {
+    const foreignRoot = 'foreign-root';
+    const foreignKey = `${foreignRoot}|@|/foreign/gone.ts`;
+    const foreignState = {
+      ...createNewFolderState(),
+      selectedFilePaths: new Set([foreignKey]),
+      selectionModel: {
+        explicitPaths: new Set([foreignKey]),
+        materializedAt: null,
+        materializedPaths: null,
+        mode: 'explicit' as const,
+        queryDescriptor: null,
+      },
+    };
+    const state = installStateUpdater(
+      createMockState({
+        activeRootIds: ['focused-root', foreignRoot],
+        currentFolderId: 'focused-root',
+        folderStates: { [foreignRoot]: foreignState },
+        querySelectionManifest: {
+          directoryCounts: new Map(),
+          errorMessage: null,
+          filePaths: [],
+          fingerprint: 'focused-query',
+          pathSet: new Set(),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: '2026-08-19T00:00:00.000Z',
+          materializedPaths: new Set<string>(),
+          mode: 'query',
+          queryDescriptor: {
+            coveredDirectoryPaths: ['/focused'],
+            excludedPaths: [],
+            excludeFilters: [],
+            folderId: 'focused-root',
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
+            manifestFingerprint: 'focused-query',
+            manifestSnapshotId: 'snapshot-1',
+            rootPath: '/focused',
+            totalSelectedCount: 0,
+            useRegex: false,
+          },
+        },
+      })
+    );
+
+    createFileSelectionActions(state.set, state.getState).reconcileSelectionWithDirectorySnapshot(
+      foreignRoot,
+      '/foreign',
+      []
+    );
+
+    expect(state.getState().folderStates[foreignRoot]?.selectedFilePaths).toEqual(new Set());
+    expect(state.getState().selectionModel.mode).toBe('query');
+    expect(state.getState().selectionModel.queryDescriptor?.folderId).toBe('focused-root');
   });
 });
