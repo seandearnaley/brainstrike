@@ -111,7 +111,11 @@ presentation/canonical path belongs to that same mount, and only then confines
 the requested file. Duplicate presentation aliases or a symlink/junction
 retarget therefore cannot make insertion order choose authority. Malformed
 path/root/rootId assertions execute inside the durable denial logger and emit
-exactly one bounded diagnostic record. The legacy
+exactly one bounded diagnostic record. Renderer-controlled requested paths are
+projected before entering that logger: control and line-separator characters
+use visible Unicode escapes, the field is capped at 256 UTF-16 code units, and
+truncation ends with `…[truncated]`; non-string input projects to the empty
+string. The legacy
 `fs:readFileByPath` channel remains a separate generic mounted-path API and is
 never a fallback for the scoped capability.
 

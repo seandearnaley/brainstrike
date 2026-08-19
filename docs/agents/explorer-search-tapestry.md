@@ -787,8 +787,12 @@ fallback.
   tab Retry pass `interactive`; preview/report loads and canonical
   `FILE_EXPLORER_REFRESH_EVENT` reloads pass `background`. Every dependent
   reload group carries that original intent even when twenty groups each contain
-  one key. Interactive work takes the next free lane ahead of queued background
-  work; FIFO is preserved within each class, and after TWO consecutive
+  one key. Singleton background work remains background. If a tab open/Retry
+  requests a key already queued inside a background ticket, the scheduler
+  extracts only that key into an interactive ticket; unrelated bulk keys never
+  hitchhike, the original logical request waits for both pieces, and the file is
+  read only once. Interactive work takes the next free lane ahead of queued
+  background work; FIFO is preserved within each class, and after TWO consecutive
   interactive dispatches while background work waits, one background batch runs
   before another interactive batch. Active work is never preempted.
   `FileContentWorker` accepts an optional `AbortSignal`, but the shared
