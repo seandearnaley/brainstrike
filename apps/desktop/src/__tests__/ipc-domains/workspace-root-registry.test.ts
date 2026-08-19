@@ -163,6 +163,87 @@ describe('WorkspaceRootRegistry', () => {
     }
   });
 
+  it('binds a scoped absolute read to rootId when duplicate presentation paths retarget', async () => {
+    const sharedPresentationPath = '/workspace-link';
+    const rootA = secureRoot('/canonical/target-a');
+    const rootB = secureRoot('/canonical/target-b');
+    vi.mocked(rootA.readFile).mockResolvedValue({
+      content: Buffer.from('target-a'),
+      status: 'ok',
+    });
+    vi.mocked(rootB.readFile).mockResolvedValue({
+      content: Buffer.from('target-b'),
+      status: 'ok',
+    });
+    storage = createStorage({
+      rootsList: JSON.stringify([
+        { addedAt: 1, path: sharedPresentationPath, rootId: 'root-a' },
+        { addedAt: 2, path: sharedPresentationPath, rootId: 'root-b' },
+      ]),
+    });
+    let mountCount = 0;
+    const registry = createRegistry({
+      createSecureRoot: async () => {
+        mountCount += 1;
+        return mountCount === 1 ? rootA : rootB;
+      },
+      resolveReadPath: async (requestedPath, canonicalRoot) =>
+        path.join(canonicalRoot, path.basename(requestedPath)),
+    });
+    await registry.restoreRoots();
+    const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
+      requestedPath: unknown,
+      claimedRootPath: unknown,
+      claimedRootId: unknown
+    ) => Promise<string>;
+
+    await expect(
+      readScoped(`${sharedPresentationPath}/file.txt`, sharedPresentationPath, 'root-b')
+    ).resolves.toBe('target-b');
+    expect(rootA.readFile).not.toHaveBeenCalled();
+    expect(rootB.readFile).toHaveBeenCalledWith('file.txt', expect.any(Number));
+    await expect(
+      readScoped(`${sharedPresentationPath}/file.txt`, '/canonical/target-a', 'root-b')
+    ).rejects.toThrow('does not match the mounted workspace root');
+    await expect(
+      readScoped(`${sharedPresentationPath}/file.txt`, sharedPresentationPath, undefined)
+    ).rejects.toThrow('durable rootId');
+  });
+
+  it('logs malformed scoped authority exactly once without expanding non-string diagnostics', async () => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceRootRegistry' &&
+        record.level === LogLevel.WARN &&
+        record.message === 'Workspace read denied'
+      ) {
+        captured.push(record);
+      }
+    });
+    try {
+      const registry = createRegistry();
+      const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
+        requestedPath: unknown,
+        claimedRootPath: unknown,
+        claimedRootId: unknown
+      ) => Promise<string>;
+
+      await expect(
+        readScoped({ secret: 'must-not-be-logged' }, '/workspace', 'root-a')
+      ).rejects.toThrow('Requested file path must be a non-empty native absolute path.');
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.args[1]).toMatchObject({
+        operation: 'readFileByAbsolutePath',
+        requestedPath: '',
+      });
+      expect(JSON.stringify(captured)).not.toContain('must-not-be-logged');
+    } finally {
+      removeListener();
+    }
+  });
+
   it('fails visibly instead of treating malformed persistence as zero roots', async () => {
     storage = createStorage({ rootsList: '{broken' });
     const registry = createRegistry();

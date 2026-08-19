@@ -1043,6 +1043,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(mockWorker).toHaveBeenCalledWith(
       [
         expect.objectContaining({
+          absoluteRootId: rootId,
           absoluteRootPath: '/workspace/root',
           compositeKey,
           path: '/workspace/root/src/restored.ts',

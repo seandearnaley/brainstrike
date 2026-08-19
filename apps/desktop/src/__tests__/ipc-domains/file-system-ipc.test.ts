@@ -1,5 +1,10 @@
 import path from 'node:path';
-import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
+import {
+  AccessError,
+  type DirectoryHandle,
+  type FileHandle,
+  type RootDescriptor,
+} from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
@@ -341,8 +346,8 @@ describe('file system IPC domain', () => {
         platform: 'electron',
       });
 
-    await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
-    await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
+    const rootA = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as RootDescriptor;
+    const rootB = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as RootDescriptor;
     assignWindowRole(
       {
         once: vi.fn(),
@@ -355,16 +360,23 @@ describe('file system IPC domain', () => {
     const readScoped = handlers.get('fs:readFileByAbsolutePath');
     expect(readScoped).toBeDefined();
     await expect(
-      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath)
+      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, rootB.rootId)
     ).resolves.toBe('file content');
     await expect(
-      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootAPath)
+      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootAPath, rootA.rootId)
     ).rejects.toThrow('outside the selected workspace root');
+    await expect(
+      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, rootA.rootId)
+    ).rejects.toThrow('does not match the mounted workspace root');
+    await expect(
+      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, undefined)
+    ).rejects.toThrow('durable rootId');
     await expect(
       readScoped?.(
         { sender: { id: visibleSenderId + 1 } } as IpcMainInvokeEvent,
         path.join(rootBPath, 'readme.md'),
-        rootBPath
+        rootBPath,
+        rootB.rootId
       )
     ).rejects.toThrow('requires sender role visible-ui');
     expect(fileSystem.readFileByPath).not.toHaveBeenCalled();

@@ -165,14 +165,16 @@ describe('ElectronRendererFileSystemAdapter', () => {
     it('carries the claimed mounted root through the scoped bridge API', async () => {
       const absolutePath = '/Users/test/project/file.txt';
       const rootPath = '/Users/test/project';
+      const rootId = 'root-project';
       mockElectronAPI.fileSystem.readFileByAbsolutePath.mockResolvedValue('absolute content');
 
-      await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath)).resolves.toBe(
+      await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath, rootId)).resolves.toBe(
         'absolute content'
       );
       expect(mockElectronAPI.fileSystem.readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
         absolutePath,
-        rootPath
+        rootPath,
+        rootId
       );
       expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
     });
@@ -188,12 +190,21 @@ describe('ElectronRendererFileSystemAdapter', () => {
       async ({ absolutePath, rootPath }) => {
         mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue('unsafe-content');
 
-        await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath)).rejects.toThrow(
+        await expect(
+          adapter.readFileByAbsolutePath(absolutePath, rootPath, 'root-project')
+        ).rejects.toThrow(
           'absolute path'
         );
         expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
       }
     );
+
+    it('rejects missing durable root identity before invoking the bridge', async () => {
+      await expect(
+        adapter.readFileByAbsolutePath('/workspace/file.txt', '/workspace', '')
+      ).rejects.toThrow('durable rootId');
+      expect(mockElectronAPI.fileSystem.readFileByAbsolutePath).not.toHaveBeenCalled();
+    });
   });
 
   describe('addRoot', () => {
