@@ -71,8 +71,16 @@ function buildDirectoryHandle(
   node: IFileNode,
   parentRootId: DirectoryHandle['rootId']
 ): DirectoryHandle {
-  const nodeHandle = node.handle as Partial<DirectoryHandle> | undefined;
-  const rootId = nodeHandle?.rootId ?? parentRootId;
+  // IFileNode.handle is a required field (never optional in the type), so a
+  // directory node without one is a malformed input, not a legitimate shape
+  // to tolerate — silently defaulting `platform` via detectPlatform(undefined)
+  // would produce a plausible-but-wrong handle instead of surfacing the bug.
+  // Per NO SILENT FALLBACKS: throw loudly instead of degrading quietly.
+  if (node.handle === undefined) {
+    throw new Error(`Directory node is missing its native handle: ${node.path}`);
+  }
+  const nodeHandle = node.handle as Partial<DirectoryHandle>;
+  const rootId = nodeHandle.rootId ?? parentRootId;
   return {
     _internal: node.handle,
     kind: 'directory',

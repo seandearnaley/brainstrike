@@ -25,12 +25,15 @@ export async function processDirectoryEntry(
 ): Promise<IFileNode> {
   const finalPath = getFinalPath(directoryHandle, entry, relativePath);
 
+  const entryHandle = entry.handle as Partial<DirectoryHandle> | undefined;
+  const rootId = entryHandle?.rootId ?? directoryHandle.rootId;
   const dirHandle: DirectoryHandle = {
     _internal: entry.handle,
     kind: 'directory',
     name: entry.name,
     path: finalPath,
     platform: directoryHandle.platform,
+    ...(rootId === undefined ? {} : { rootId }),
   };
 
   const children = await readTree(dirHandle, rootHandle, relativePath, false, abortSignal);

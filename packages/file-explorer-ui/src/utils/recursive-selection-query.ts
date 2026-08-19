@@ -257,12 +257,13 @@ function consumeNodes(args: {
   return false;
 }
 
-async function readDirectoryChildrenWithBudget(
-  adapter: FileSystemAdapter,
-  node: IFileNode,
-  parentRootId: DirectoryHandle['rootId'],
-  abortSignal?: AbortSignal
-): Promise<IFileNode[]> {
+async function readDirectoryChildrenWithBudget(args: {
+  abortSignal: AbortSignal | undefined;
+  adapter: FileSystemAdapter;
+  node: IFileNode;
+  parentRootId: DirectoryHandle['rootId'];
+}): Promise<IFileNode[]> {
+  const { abortSignal, adapter, node, parentRootId } = args;
   const timer = createTimer();
   const children = await loadDirectoryChildren(adapter, node, {
     ...(abortSignal ? { abortSignal } : {}),
@@ -273,15 +274,21 @@ async function readDirectoryChildrenWithBudget(
   return children;
 }
 
-async function scanDirectory(
-  adapter: FileSystemAdapter,
-  node: IFileNode,
-  parentRootId: DirectoryHandle['rootId'],
-  filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined,
-  abortSignal: AbortSignal | undefined,
-  recordDirectoryUpdate: (update: RecursiveSelectionDirectoryUpdate) => void
-): Promise<IFileNode[]> {
-  const children = await readDirectoryChildrenWithBudget(adapter, node, parentRootId, abortSignal);
+async function scanDirectory(args: {
+  abortSignal: AbortSignal | undefined;
+  adapter: FileSystemAdapter;
+  filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
+  node: IFileNode;
+  parentRootId: DirectoryHandle['rootId'];
+  recordDirectoryUpdate: (update: RecursiveSelectionDirectoryUpdate) => void;
+}): Promise<IFileNode[]> {
+  const { abortSignal, adapter, filterTreeFn, node, parentRootId, recordDirectoryUpdate } = args;
+  const children = await readDirectoryChildrenWithBudget({
+    abortSignal,
+    adapter,
+    node,
+    parentRootId,
+  });
   // Record BEFORE filtering: hydration wants the raw listing.
   recordDirectoryUpdate({ children, path: node.path });
   return applyOptionalFilter(children, filterTreeFn);
@@ -452,14 +459,14 @@ async function scanUnloadedDirectories(args: {
       }
       directoryTraversalState.scannedDirectoryPaths.add(node.path);
       state.currentPath = node.path;
-      const children = await scanDirectory(
-        fileSystemAdapter,
+      const children = await scanDirectory({
+        abortSignal,
+        adapter: fileSystemAdapter,
+        filterTreeFn,
         node,
         parentRootId,
-        filterTreeFn,
-        abortSignal,
-        (update) => state.directoryUpdates.push(update)
-      );
+        recordDirectoryUpdate: (update) => state.directoryUpdates.push(update),
+      });
       state.directoriesReadFromAdapter++;
       state.directoriesCompleted++;
       const stopped = consumeNodes({
@@ -722,14 +729,14 @@ function createScanBatch(args: {
     }
 
     activeTaskCount += 1;
-    const task = scanDirectory(
-      fileSystemAdapter,
+    const task = scanDirectory({
+      abortSignal: scanAbortController.signal,
+      adapter: fileSystemAdapter,
+      filterTreeFn,
       node,
       parentRootId,
-      filterTreeFn,
-      scanAbortController.signal,
-      recordDirectoryUpdate
-    )
+      recordDirectoryUpdate,
+    })
       .then((children) => {
         resultQueue.push({
           children,
