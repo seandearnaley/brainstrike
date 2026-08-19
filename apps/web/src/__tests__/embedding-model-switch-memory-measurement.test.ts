@@ -7,6 +7,44 @@ import {
 const PROBE_URL = 'http://localhost/assets/embedding-model-switch-memory-probe.worker-test.js';
 
 describe('BST-369 worker memory attribution', () => {
+  it.each([
+    {
+      error: 'measureUserAgentSpecificMemory returned a malformed measurement.',
+      name: 'a non-object measurement',
+      value: null,
+    },
+    {
+      error: 'measureUserAgentSpecificMemory returned invalid total bytes.',
+      name: 'invalid total bytes',
+      value: { breakdown: [], bytes: Number.NaN },
+    },
+    {
+      error: 'measureUserAgentSpecificMemory returned a malformed breakdown entry.',
+      name: 'a non-object breakdown entry',
+      value: { breakdown: [null], bytes: 0 },
+    },
+    {
+      error: 'measureUserAgentSpecificMemory returned invalid breakdown bytes.',
+      name: 'invalid breakdown bytes',
+      value: { breakdown: [{ attribution: [], bytes: -1 }], bytes: 0 },
+    },
+    {
+      error: 'measureUserAgentSpecificMemory returned malformed attribution.',
+      name: 'an attribution without a URL',
+      value: {
+        breakdown: [
+          {
+            attribution: [{ scope: 'DedicatedWorkerGlobalScope' }],
+            bytes: 0,
+          },
+        ],
+        bytes: 0,
+      },
+    },
+  ])('rejects $name', ({ error, value }) => {
+    expect(() => readMemoryMeasurement(value)).toThrow(error);
+  });
+
   it('counts entries attributed exclusively to the probe worker', () => {
     const measurement = readMemoryMeasurement({
       breakdown: [

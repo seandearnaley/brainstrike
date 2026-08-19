@@ -21,6 +21,17 @@ function runtimeOverride(): {
   };
 }
 
+function installBootstrap(takeRuntime: () => unknown): void {
+  Object.defineProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY, {
+    configurable: true,
+    value: {
+      automation: EMBEDDING_WORKER_TEST_RUNTIME_AUTOMATION,
+      marker: EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_MARKER,
+      takeRuntime,
+    },
+  });
+}
+
 describe('embedding worker test runtime bootstrap', () => {
   afterEach(() => {
     Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY);
@@ -62,6 +73,40 @@ describe('embedding worker test runtime bootstrap', () => {
     expect(() => consumeEmbeddingWorkerTestRuntimeOverride()).toThrow(
       'Embedding worker test runtime bootstrap is malformed.'
     );
+  });
+
+  it.each([
+    { name: 'a non-object override', override: null },
+    {
+      name: 'a disabled GPU-class proxy',
+      override: { runtime: {}, webGpuClassProxy: false },
+    },
+    {
+      name: 'a non-object runtime',
+      override: { runtime: null, webGpuClassProxy: true },
+    },
+  ])('rejects $name after consuming the one-shot bootstrap', ({ override }) => {
+    installBootstrap(() => override);
+
+    expect(() => consumeEmbeddingWorkerTestRuntimeOverride()).toThrow(
+      'Embedding worker test runtime override is malformed.'
+    );
+    expect(Reflect.has(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY)).toBe(false);
+  });
+
+  it('fails before constructing a runtime when the bootstrap cannot be consumed', () => {
+    const takeRuntime = vi.fn(runtimeOverride);
+    installBootstrap(takeRuntime);
+    const deleteProperty = vi.spyOn(Reflect, 'deleteProperty').mockReturnValue(false);
+
+    try {
+      expect(() => consumeEmbeddingWorkerTestRuntimeOverride()).toThrow(
+        'Embedding worker test runtime bootstrap could not be consumed.'
+      );
+      expect(takeRuntime).not.toHaveBeenCalled();
+    } finally {
+      deleteProperty.mockRestore();
+    }
   });
 
   it('does not leave a retryable override when runtime construction throws', () => {

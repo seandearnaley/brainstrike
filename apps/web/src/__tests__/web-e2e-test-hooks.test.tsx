@@ -135,6 +135,38 @@ describe('WebE2ETestHooks', () => {
     ).toBeUndefined();
   });
 
+  it('rechecks webdriver and init attestation when a captured probe hook runs', async () => {
+    setWebDriver(true);
+    usePGliteDatabaseMock.mockReturnValue({
+      query: vi.fn(),
+      syncToFs: vi.fn(),
+    } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe).toBeTypeOf(
+        'function'
+      );
+    });
+    const runProbe = window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe;
+    if (!runProbe) {
+      throw new Error('Expected the model-switch probe hook to be installed.');
+    }
+
+    setWebDriver(false);
+    await expect(runProbe()).rejects.toThrow(
+      'Embedding model-switch memory probe is restricted to webdriver automation.'
+    );
+
+    setWebDriver(true);
+    Reflect.deleteProperty(window, '__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
+    await expect(runProbe()).rejects.toThrow(
+      'Embedding model-switch memory probe requires the explicit init-script flag.'
+    );
+    expect(runEmbeddingModelSwitchMemoryProbeMock).not.toHaveBeenCalled();
+  });
+
   it('exposes model state and durable sync helpers for webdriver tests', async () => {
     setWebDriver(true);
     const query = vi

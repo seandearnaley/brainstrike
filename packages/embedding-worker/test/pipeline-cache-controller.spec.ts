@@ -22,6 +22,42 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 describe('embedding pipeline cache controller', () => {
+  it('rejects invalid identity and load metadata before invoking the loader', async () => {
+    const load = vi.fn(async () => ({ dispose: vi.fn() }));
+
+    expect(() =>
+      createEmbeddingPipelineCacheController({
+        load,
+        publishDiagnostic: vi.fn(),
+        workerInstanceId: '',
+      })
+    ).toThrow('Embedding pipeline cache requires a worker instance identity.');
+
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'validation-worker',
+    });
+    await expect(
+      controller.load({
+        device: 'wasm',
+        dtype: 'q4',
+        estimatedModelBytes: WASM_MODEL_BYTES,
+        model: '',
+      })
+    ).rejects.toThrow('Embedding pipeline cache requires a non-empty model identifier.');
+    await expect(
+      controller.load({
+        device: 'wasm',
+        dtype: 'q4',
+        estimatedModelBytes: 0,
+        model: 'invalid-bytes',
+      })
+    ).rejects.toThrow('Embedding pipeline cache model bytes must be a positive safe integer.');
+    expect(load).not.toHaveBeenCalled();
+    await controller.close();
+  });
+
   it('keeps repeated WASM and GPU-class model switches within their resident limits', async () => {
     const diagnostics: EmbedWorkerPipelineCacheDiagnostic[] = [];
     const disposedCacheKeys: string[] = [];
@@ -293,6 +329,52 @@ describe('embedding pipeline cache controller', () => {
     }
   });
 
+  it('preserves a resident-disposal failure when close races the pending replacement', async () => {
+    const disposalStarted = createDeferred<void>();
+    const releaseDisposal = createDeferred<void>();
+    const disposalError = new Error('resident release failed during close');
+    const controller = createEmbeddingPipelineCacheController({
+      load: vi.fn(async (model: string) => ({
+        dispose: async (): Promise<void> => {
+          if (model === 'wasm-a') {
+            disposalStarted.resolve();
+            await releaseDisposal.promise;
+            throw disposalError;
+          }
+        },
+      })),
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'replacement-close-race-worker',
+    });
+    const loadWasm = async (model: string): Promise<void> => {
+      await controller.load({
+        device: 'wasm',
+        dtype: 'q4',
+        estimatedModelBytes: WASM_MODEL_BYTES,
+        model,
+      });
+    };
+
+    await loadWasm('wasm-a');
+    await loadWasm('wasm-b');
+    await loadWasm('wasm-c');
+    const replacement = loadWasm('wasm-d');
+    let close: Promise<void> | null = null;
+
+    try {
+      await disposalStarted.promise;
+      close = controller.close();
+      const replacementFailure = expect(replacement).rejects.toBe(disposalError);
+      const closeFailure = expect(close).rejects.toBe(disposalError);
+
+      releaseDisposal.resolve();
+      await Promise.all([replacementFailure, closeFailure]);
+    } finally {
+      releaseDisposal.resolve();
+      await Promise.allSettled([replacement, ...(close ? [close] : [])]);
+    }
+  });
+
   it('keeps concurrent distinct replacements physically bounded', async () => {
     const releaseA = createDeferred<void>();
     const releaseB = createDeferred<void>();
@@ -532,5 +614,43 @@ describe('embedding pipeline cache controller', () => {
       reason: 'device-lost',
     });
     await expect(controller.close()).rejects.toBe(disposalError);
+  });
+
+  it('preserves multiple disposal failures in one aggregate close error', async () => {
+    const firstError = new Error('first physical release failed');
+    const secondError = new Error('second physical release failed');
+    const controller = createEmbeddingPipelineCacheController({
+      load: vi.fn(async (model: string) => ({
+        dispose: async (): Promise<void> => {
+          throw model === 'wasm-a' ? firstError : secondError;
+        },
+      })),
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'aggregate-disposal-worker',
+    });
+
+    await controller.load({
+      device: 'wasm',
+      dtype: 'q4',
+      estimatedModelBytes: WASM_MODEL_BYTES,
+      model: 'wasm-a',
+    });
+    await controller.load({
+      device: 'wasm',
+      dtype: 'q4',
+      estimatedModelBytes: WASM_MODEL_BYTES,
+      model: 'wasm-b',
+    });
+
+    let closeError: unknown;
+    try {
+      await controller.close();
+    } catch (error) {
+      closeError = error;
+    }
+    if (!(closeError instanceof AggregateError)) {
+      throw new Error('Expected close to preserve both disposal failures in an AggregateError.');
+    }
+    expect(closeError.errors).toEqual([firstError, secondError]);
   });
 });

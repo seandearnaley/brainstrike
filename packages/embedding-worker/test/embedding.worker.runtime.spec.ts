@@ -11,7 +11,9 @@ import type {
   EmbedWorkerSuccess,
 } from '../src';
 import {
+  EMBEDDING_WORKER_TEST_RUNTIME_AUTOMATION,
   EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY,
+  EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_MARKER,
   EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY,
 } from '../src/test-runtime-bootstrap';
 
@@ -152,6 +154,63 @@ describe('embedding worker runtime', () => {
     }
     assertion();
   };
+
+  function installTestRuntime(runtime: Record<string, unknown>): void {
+    Object.defineProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_KEY, {
+      configurable: true,
+      value: {
+        automation: EMBEDDING_WORKER_TEST_RUNTIME_AUTOMATION,
+        marker: EMBEDDING_WORKER_TEST_RUNTIME_BOOTSTRAP_MARKER,
+        takeRuntime: () => ({ runtime, webGpuClassProxy: true }),
+      },
+    });
+  }
+
+  describe('webdriver test runtime validation', () => {
+    it('boots the production worker from a valid fixed runtime without importing Transformers', async () => {
+      transformersImportState.error = new Error('Transformers import must remain unused');
+      installTestRuntime({
+        env: { allowRemoteModels: false },
+        pipeline: vi.fn(),
+        tensorConstructor: MockTensor,
+      });
+
+      await expect(import('../src/embedding.worker')).resolves.toBeDefined();
+      expect(registeredHandlers.runEmbedding).toBeTypeOf('function');
+    });
+
+    it.each([
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing environment',
+        runtime: { pipeline: vi.fn(), tensorConstructor: MockTensor },
+      },
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing pipeline loader',
+        runtime: { env: { allowRemoteModels: false }, tensorConstructor: MockTensor },
+      },
+      {
+        error: 'Embedding worker test runtime is missing env, pipeline, or Tensor.',
+        name: 'a missing Tensor constructor',
+        runtime: { env: { allowRemoteModels: false }, pipeline: vi.fn() },
+      },
+      {
+        error: 'Embedding worker test runtime must disable remote models.',
+        name: 'remote model loading',
+        runtime: {
+          env: { allowRemoteModels: true },
+          pipeline: vi.fn(),
+          tensorConstructor: MockTensor,
+        },
+      },
+    ])('rejects $name before registering the worker', async ({ error, runtime }) => {
+      installTestRuntime(runtime);
+
+      await expect(import('../src/embedding.worker')).rejects.toThrow(error);
+      expect(registeredHandlers.runEmbedding).toBeUndefined();
+    });
+  });
 
   describe('global error handlers', () => {
     it('sets up onerror handler in worker context', async () => {
