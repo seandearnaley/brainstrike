@@ -7,7 +7,7 @@
  * JSDoc for the filtering contract.
  */
 import type { IFileNode } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileExplorerRefreshEvent } from '../../shell/file-explorer-refresh-event';
 import type { NormalizedFileTreeState } from '../../utils/normalized-file-tree';
@@ -150,6 +150,51 @@ describe('useFileTreeRefreshEvents', () => {
       { directoryPath: `${ROOT_PATH}/src`, entries: [] },
       { directoryPath: `${ROOT_PATH}/test`, entries: [] },
     ]);
+  });
+
+  it('refreshes authoritative directories sequentially before one reconciliation publication', async () => {
+    normalizedTree = createNormalizedFileTreeState([
+      directoryNode(`${ROOT_PATH}/src`, 'loaded'),
+      directoryNode(`${ROOT_PATH}/test`, 'loaded'),
+    ]);
+    let releaseFirstRefresh: (() => void) | null = null;
+    const firstRefreshGate = new Promise<void>((resolve) => {
+      releaseFirstRefresh = resolve;
+    });
+    refreshDirectory.mockImplementation(async (path) => {
+      if (path === `${ROOT_PATH}/src`) {
+        await firstRefreshGate;
+      }
+      return { directoryPath: path, entries: [] };
+    });
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [
+            { kind: 'file', path: `${ROOT_PATH}/src/gone.ts`, type: 'removed' },
+            { kind: 'file', path: `${ROOT_PATH}/test/gone.test.ts`, type: 'removed' },
+          ],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
+    expect(refreshDirectory).toHaveBeenLastCalledWith(`${ROOT_PATH}/src`);
+    expect(reconcileSelectionWithDirectorySnapshots).not.toHaveBeenCalled();
+
+    act(() => {
+      releaseFirstRefresh?.();
+    });
+    await waitFor(() => {
+      expect(refreshDirectory).toHaveBeenCalledTimes(2);
+      expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
+    });
   });
 
   it('skips changes whose parent directory is not loaded in the tree', async () => {

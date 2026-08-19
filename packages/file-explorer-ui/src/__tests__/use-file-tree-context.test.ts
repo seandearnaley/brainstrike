@@ -762,6 +762,45 @@ describe('useFileTree (lazy loading version)', () => {
       }
     );
 
+    it('routes a same-path rootId switch refresh snapshot only to the new root owner', async () => {
+      mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const firstSnapshot = vi.fn();
+      const secondSnapshot = vi.fn();
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result, rerender } = renderHook(
+        ({ onRootRefreshSnapshot, rootId }) =>
+          useFileTree(handle, { onRootRefreshSnapshot, rootId }),
+        {
+          initialProps: {
+            onRootRefreshSnapshot: firstSnapshot,
+            rootId: 'first-root-id',
+          },
+          wrapper: TestWrapper,
+        }
+      );
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(firstSnapshot).not.toHaveBeenCalled();
+      let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
+        status: 'cancelled',
+      });
+      act(() => {
+        rerender({
+          onRootRefreshSnapshot: secondSnapshot,
+          rootId: 'second-root-id',
+        });
+        refreshPromise = result.current.refreshTree();
+      });
+      await act(async () => {
+        await refreshPromise;
+      });
+
+      expect(firstSnapshot).not.toHaveBeenCalled();
+      expect(secondSnapshot).toHaveBeenCalledExactlyOnceWith(handle.path, expect.any(Array));
+    });
+
     it('settles an atomic root switch and permits retry when worker reset throws', async () => {
       mockAdapter.setMockFileSystem(MockFileSystemAdapter.createSimpleFileSystem());
       const firstHandle = await mockAdapter.requestDirectoryAccess();

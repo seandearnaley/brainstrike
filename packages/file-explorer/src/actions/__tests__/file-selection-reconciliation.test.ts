@@ -241,4 +241,165 @@ describe('file-selection refresh reconciliation', () => {
     expect(state.getState().selectionModel.mode).toBe('query');
     expect(state.getState().selectionModel.queryDescriptor?.folderId).toBe('focused-root');
   });
+
+  it('preserves an explicit selection that survives a Windows drive-root snapshot', () => {
+    const folderId = 'root-id';
+    const path = 'C:\\keep.ts';
+    const key = `${folderId}|@|${path}`;
+    const selection = new Set([key]);
+    const state = installStateUpdater(
+      createMockState({
+        currentFolderId: folderId,
+        selectedFilePaths: selection,
+        selectionModel: {
+          explicitPaths: selection,
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
+          queryDescriptor: null,
+        },
+        selectionVersion: 3,
+      })
+    );
+
+    createFileSelectionActions(state.set, state.getState).reconcileSelectionWithDirectorySnapshot(
+      folderId,
+      'C:\\',
+      [{ path, type: 'file' }]
+    );
+
+    expect(state.getState().selectedFilePaths).toEqual(selection);
+    expect(state.getState().selectionVersion).toBe(3);
+  });
+
+  it('preserves a query selection that survives a Windows drive-root snapshot', () => {
+    const folderId = 'root-id';
+    const path = 'C:\\keep.ts';
+    const state = installStateUpdater(
+      createMockState({
+        currentFolderId: folderId,
+        querySelectionManifest: {
+          directoryCounts: new Map(),
+          errorMessage: null,
+          filePaths: [path],
+          fingerprint: 'windows-query',
+          pathSet: new Set([path]),
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+        },
+        selectionModel: {
+          explicitPaths: new Set<string>(),
+          materializedAt: '2026-08-19T00:00:00.000Z',
+          materializedPaths: new Set([path]),
+          mode: 'query',
+          queryDescriptor: {
+            coveredDirectoryPaths: ['C:\\'],
+            excludedPaths: [],
+            excludeFilters: [],
+            folderId,
+            includedPaths: [],
+            includeFilters: ['**/*.ts'],
+            kind: 'recursive-select-all',
+            manifestFingerprint: 'windows-query',
+            manifestSnapshotId: 'snapshot-1',
+            rootPath: 'C:\\',
+            totalSelectedCount: 1,
+            useRegex: false,
+          },
+        },
+        selectionVersion: 5,
+      })
+    );
+
+    createFileSelectionActions(state.set, state.getState).reconcileSelectionWithDirectorySnapshot(
+      folderId,
+      'C:\\',
+      [{ path, type: 'file' }]
+    );
+
+    expect(state.getState().selectionModel.queryDescriptor).toMatchObject({
+      excludedPaths: [],
+      totalSelectedCount: 1,
+    });
+    expect(state.getState().selectionVersion).toBe(5);
+  });
+
+  it.each([
+    ['ancestor first', ['ancestor', 'child']],
+    ['child first', ['child', 'ancestor']],
+  ] as const)(
+    'lets an authoritative ancestor disprove a stale child snapshot when ordered %s',
+    (_label, order) => {
+      const folderId = 'root-id';
+      const path = '/workspace/src/keep.ts';
+      const key = `${folderId}|@|${path}`;
+      const selection = new Set([key]);
+      const state = installStateUpdater(
+        createMockState({
+          currentFolderId: folderId,
+          selectedFilePaths: selection,
+          selectionModel: {
+            explicitPaths: selection,
+            materializedAt: null,
+            materializedPaths: null,
+            mode: 'explicit',
+            queryDescriptor: null,
+          },
+        })
+      );
+      const snapshots = {
+        ancestor: { directoryPath: '/workspace', entries: [] },
+        child: {
+          directoryPath: '/workspace/src',
+          entries: [{ path, type: 'file' as const }],
+        },
+      };
+
+      createFileSelectionActions(
+        state.set,
+        state.getState
+      ).reconcileSelectionWithDirectorySnapshots(
+        folderId,
+        order.map((snapshot) => snapshots[snapshot])
+      );
+
+      expect(state.getState().selectedFilePaths).toEqual(new Set());
+    }
+  );
+
+  it('does not let a partial ancestor snapshot disprove a complete child snapshot', () => {
+    const folderId = 'root-id';
+    const path = '/workspace/src/keep.ts';
+    const key = `${folderId}|@|${path}`;
+    const selection = new Set([key]);
+    const state = installStateUpdater(
+      createMockState({
+        currentFolderId: folderId,
+        selectedFilePaths: selection,
+        selectionModel: {
+          explicitPaths: selection,
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
+          queryDescriptor: null,
+        },
+      })
+    );
+
+    createFileSelectionActions(state.set, state.getState).reconcileSelectionWithDirectorySnapshots(
+      folderId,
+      [
+        {
+          directoryPath: '/workspace',
+          entries: [{ path: '/workspace/…more', type: 'truncated' }],
+        },
+        {
+          directoryPath: '/workspace/src',
+          entries: [{ path, type: 'file' }],
+        },
+      ]
+    );
+
+    expect(state.getState().selectedFilePaths).toEqual(selection);
+  });
 });
