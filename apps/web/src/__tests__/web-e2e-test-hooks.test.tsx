@@ -4,6 +4,7 @@ import { WebE2ETestHooks } from '../web-e2e-test-hooks';
 
 const usePGliteDatabaseMock = vi.hoisted(() => vi.fn());
 const getEmbeddingQueueMock = vi.hoisted(() => vi.fn());
+const runEmbeddingModelSwitchMemoryProbeMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: usePGliteDatabaseMock,
@@ -14,6 +15,9 @@ vi.mock('@brainstrike/db/react', () => ({
 
 vi.mock('../create-embedding-queue', () => ({
   getEmbeddingQueue: getEmbeddingQueueMock,
+}));
+vi.mock('../embedding-model-switch-memory-probe', () => ({
+  runEmbeddingModelSwitchMemoryProbe: runEmbeddingModelSwitchMemoryProbeMock,
 }));
 
 interface TestDbHandle {
@@ -31,6 +35,21 @@ describe('WebE2ETestHooks', () => {
   beforeEach(() => {
     Reflect.deleteProperty(window, '__brainstrikeWebE2ETestHooks__');
     usePGliteDatabaseMock.mockReset();
+    runEmbeddingModelSwitchMemoryProbeMock.mockReset();
+    runEmbeddingModelSwitchMemoryProbeMock.mockResolvedValue({
+      afterTeardown: { estimatedGpuBytes: 0, estimatedHeapBytes: 0, residentCount: 0 },
+      beforeTeardown: {
+        estimatedGpuBytes: 16,
+        estimatedHeapBytes: 24,
+        memoryEstimateUnavailableCount: 0,
+        residentCount: 4,
+      },
+      disposedModels: ['wasm-b'],
+      firstGpuEvictedModel: 'gpu-a',
+      firstWasmEvictedModel: 'wasm-b',
+      health: { failureCount: 0, lastFailure: null },
+      residentLimitEvictionCount: 1,
+    });
     vi.restoreAllMocks();
   });
 
@@ -52,6 +71,7 @@ describe('WebE2ETestHooks', () => {
       readFileRowCounts: vi.fn(),
       readModelEnabled: vi.fn(),
       readResetRowCounts: vi.fn(),
+      runEmbeddingModelSwitchMemoryProbe: vi.fn(),
       seedFileRowsOnly: vi.fn(),
       seedResetProbeRows: vi.fn(),
       syncDatabase: vi.fn(),
@@ -81,6 +101,7 @@ describe('WebE2ETestHooks', () => {
       readFileRowCounts: vi.fn(),
       readModelEnabled: vi.fn(),
       readResetRowCounts: vi.fn(),
+      runEmbeddingModelSwitchMemoryProbe: vi.fn(),
       seedFileRowsOnly: vi.fn(),
       seedResetProbeRows: vi.fn(),
       syncDatabase: vi.fn(),
@@ -185,6 +206,12 @@ describe('WebE2ETestHooks', () => {
       fallbackApplied: false,
       finite: true,
     });
+    await expect(
+      window.__brainstrikeWebE2ETestHooks__?.runEmbeddingModelSwitchMemoryProbe()
+    ).resolves.toMatchObject({
+      firstGpuEvictedModel: 'gpu-a',
+      firstWasmEvictedModel: 'wasm-b',
+    });
     await window.__brainstrikeWebE2ETestHooks__?.syncDatabase();
 
     expect(query).toHaveBeenCalledWith(
@@ -227,6 +254,7 @@ describe('WebE2ETestHooks', () => {
       texts: ['Brainstrike production CSP qualification'],
       truncateDim: 384,
     });
+    expect(runEmbeddingModelSwitchMemoryProbeMock).toHaveBeenCalledTimes(1);
     expect(syncToFs).toHaveBeenCalledTimes(1);
 
     unmount();

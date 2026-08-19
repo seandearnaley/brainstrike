@@ -32,7 +32,7 @@ const stripErroneousSourcemaps: Plugin = {
 export default defineConfig({
   clean: false,
   dts: false,
-  entry: ['src/index.ts', 'src/embedding.worker.ts'],
+  entry: ['src/index.ts', 'src/embedding.worker.ts', 'src/pipeline-cache-controller.ts'],
   esbuildPlugins: [stripErroneousSourcemaps],
   external: ['onnxruntime-node', 'sharp', 'worker_threads', 'os', 'child_process'],
   format: ['esm', 'cjs'],

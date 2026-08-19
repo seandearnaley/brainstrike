@@ -86,4 +86,20 @@ describe('performance benchmark measurement contracts', () => {
     expect(validation).not.toContain('waitForTimeout(');
     expect(validation).not.toContain('__renderCounter');
   });
+
+  it('runs the embedding model-switch regression through the typed webdriver hook', async () => {
+    const source = await readFile(
+      path.join(process.cwd(), 'e2e/performance/embedding-model-switch-memory.test.ts'),
+      'utf8'
+    );
+
+    expect(source).toContain('hooks.runEmbeddingModelSwitchMemoryProbe()');
+    expect(source).toContain('expect(modelRequests).toEqual([])');
+    expect(source).toContain('residentLimitEvictionCount).toBe(18)');
+    expect(source).toContain("firstWasmEvictedModel).toBe('wasm-b')");
+    expect(source).toContain("firstGpuEvictedModel).toBe('gpu-a')");
+    expect(source).not.toContain('Record<string, unknown>');
+    expect(source).not.toContain('as ModelSwitchMemoryProbeResult');
+    expect(source).not.toContain('waitForTimeout(');
+  });
 });

@@ -1,5 +1,7 @@
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useEffect } from 'react';
+import { runEmbeddingModelSwitchMemoryProbe } from './embedding-model-switch-memory-probe';
+import type { WebE2EEmbeddingModelSwitchMemoryProbeResult } from './embedding-model-switch-memory-probe-contract';
 import { qualifyLocalEmbedding } from './qualify-local-embedding';
 
 interface ModelEnabledRow {
@@ -110,6 +112,7 @@ export interface WebE2ETestHooks {
   readonly readFileRowCounts: () => Promise<WebE2EFileRowCounts>;
   readonly readModelEnabled: (modelId: string) => Promise<boolean | null>;
   readonly readResetRowCounts: () => Promise<WebE2EResetRowCounts>;
+  readonly runEmbeddingModelSwitchMemoryProbe: () => Promise<WebE2EEmbeddingModelSwitchMemoryProbeResult>;
   /**
    * Seeds ONLY `file_records` + `file_chunks` — deliberately does NOT create
    * `mastra_workflow_snapshot` (contrast `seedResetProbeRows`). Used to prove
@@ -333,6 +336,7 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
           workflowSnapshots: await countOf('mastra_workflow_snapshot'),
         };
       },
+      runEmbeddingModelSwitchMemoryProbe,
       seedFileRowsOnly: async (): Promise<void> => {
         if (typeof db.transaction !== 'function') {
           throw new Error('Web E2E database handle does not expose transactions');

@@ -5,6 +5,9 @@ import type {
   EmbedWorkerPipelineCacheEntryDiagnostic,
 } from '@brainstrike/indexing-contract';
 
+export type { EmbedWorkerPipelineCacheDiagnostic } from '@brainstrike/indexing-contract';
+export { assertEmbedWorkerPipelineCacheDiagnostic } from '@brainstrike/indexing-contract';
+
 export const MAX_GPU_PIPELINES = 1;
 export const MAX_WASM_PIPELINES = 3;
 

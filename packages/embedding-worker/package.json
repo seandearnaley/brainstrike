@@ -31,6 +31,11 @@
       "import": "./dist/embedding.worker.js",
       "require": "./dist/embedding.worker.cjs"
     },
+    "./pipeline-cache-controller": {
+      "types": "./dist/pipeline-cache-controller.d.ts",
+      "import": "./dist/pipeline-cache-controller.js",
+      "require": "./dist/pipeline-cache-controller.cjs"
+    },
     "./vite": {
       "types": "./src/vite.ts",
       "import": "./src/vite.ts"

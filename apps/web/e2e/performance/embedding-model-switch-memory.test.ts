@@ -4,28 +4,6 @@ import { waitForAppLoad } from '../utils/layout-helpers';
 const WASM_MODEL_BYTES = 8 * 1024 * 1024;
 const GPU_MODEL_BYTES = 16 * 1024 * 1024;
 
-interface ModelSwitchMemoryProbeResult {
-  readonly afterTeardown: {
-    readonly estimatedGpuBytes: number;
-    readonly estimatedHeapBytes: number;
-    readonly residentCount: number;
-  };
-  readonly beforeTeardown: {
-    readonly estimatedGpuBytes: number;
-    readonly estimatedHeapBytes: number;
-    readonly memoryEstimateUnavailableCount: number;
-    readonly residentCount: number;
-  };
-  readonly disposedModels: readonly string[];
-  readonly firstGpuEvictedModel: string;
-  readonly firstWasmEvictedModel: string;
-  readonly health: {
-    readonly failureCount: number;
-    readonly lastFailure: string | null;
-  };
-  readonly residentLimitEvictionCount: number;
-}
-
 test.describe('Embedding model-switch memory regression', () => {
   test('keeps WASM and GPU-class pipeline residency bounded without model downloads', async ({
     page,
@@ -41,20 +19,12 @@ test.describe('Embedding model-switch memory regression', () => {
     await page.goto('/');
     await waitForAppLoad(page);
 
-    const result = await page.evaluate(async (): Promise<ModelSwitchMemoryProbeResult> => {
-      const hooks = (
-        window as typeof window & {
-          __brainstrikeWebE2ETestHooks__?: Record<string, unknown>;
-        }
-      ).__brainstrikeWebE2ETestHooks__;
+    const result = await page.evaluate(async () => {
+      const hooks = window.__brainstrikeWebE2ETestHooks__;
       if (!hooks) {
         throw new Error('Web E2E hooks are not installed');
       }
-      const runProbe = hooks['runEmbeddingModelSwitchMemoryProbe'];
-      if (typeof runProbe !== 'function') {
-        throw new Error('Web E2E embedding model-switch memory probe is not installed');
-      }
-      return (await runProbe()) as ModelSwitchMemoryProbeResult;
+      return await hooks.runEmbeddingModelSwitchMemoryProbe();
     });
 
     expect(modelRequests).toEqual([]);
