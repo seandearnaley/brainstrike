@@ -1,6 +1,6 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { AdaptersProvider, INACCESSIBLE_CONTENT_PREFIX } from '@brainstrike/file-explorer-hooks';
 import {
   DEFAULT_MAX_FILE_SIZE,
   MockFileSystemAdapter,
@@ -10,7 +10,7 @@ import {
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
-import type { IFileNode } from '@brainstrike/types';
+import { BINARY_CONTENT_MESSAGE, type IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils';
 import type {
   FileContentReadResult,
@@ -256,7 +256,9 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
       rerender();
     });
 
-    expect(result.current.fileContents[compositeKey]).toBe('Error accessing file');
+    expect(result.current.fileContents[compositeKey]).toBe(
+      `${INACCESSIBLE_CONTENT_PREFIX} - Error accessing file`
+    );
     expect(result.current.error).toBeNull();
   });
 
@@ -273,7 +275,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     vi.mocked(createFileContentWorker).mockReturnValue(
       vi.fn().mockResolvedValue({
         [compositeKey]: {
-          message: 'Binary file - preview not available',
+          message: BINARY_CONTENT_MESSAGE,
           status: 'inaccessible',
         },
       })
@@ -287,7 +289,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
       rerender();
     });
 
-    expect(result.current.fileContents[compositeKey]).toBe('Binary file - preview not available');
+    expect(result.current.fileContents[compositeKey]).toBe(BINARY_CONTENT_MESSAGE);
   });
 
   it('updates loadingFiles for concurrent loads', async () => {
