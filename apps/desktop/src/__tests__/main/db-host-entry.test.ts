@@ -256,6 +256,80 @@ describe('db-host-entry', () => {
     );
   });
 
+  it('reports the host live-query count before and after terminal teardown', async () => {
+    const unsubscribe = vi.fn(async () => undefined);
+    const liveQuery = vi.fn(async () => ({
+      initialResults: { rows: [] },
+      refresh: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe,
+    }));
+    dbMainMocks.getDatabase.mockResolvedValue({
+      live: { query: liveQuery },
+      query: vi.fn(async () => ({ rows: [] })),
+    });
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'live-start-request',
+        kind: 'request',
+        request: { kind: 'live:start', payload: { params: [], query: 'SELECT 1' } },
+      },
+    });
+    await flushMicrotasks();
+
+    const startResponse = parentPort.postMessage.mock.calls.find(
+      ([message]) =>
+        typeof message === 'object' &&
+        message !== null &&
+        (message as { id?: string }).id === 'live-start-request'
+    )?.[0] as { result?: { liveId?: string } } | undefined;
+    const liveId = startResponse?.result?.liveId;
+    expect(liveId).toEqual(expect.any(String));
+
+    listeners[0]?.({
+      data: {
+        id: 'active-diagnostics-request',
+        kind: 'request',
+        request: { kind: 'diagnostics' },
+      },
+    });
+    await flushMicrotasks();
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      id: 'active-diagnostics-request',
+      kind: 'response',
+      ok: true,
+      result: { activeLiveQueryCount: 1, hasDatabaseHandle: true },
+    });
+
+    listeners[0]?.({
+      data: {
+        id: 'live-stop-request',
+        kind: 'request',
+        request: { kind: 'live:stop', liveId },
+      },
+    });
+    await flushMicrotasks();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+
+    listeners[0]?.({
+      data: {
+        id: 'released-diagnostics-request',
+        kind: 'request',
+        request: { kind: 'diagnostics' },
+      },
+    });
+    await flushMicrotasks();
+    expect(parentPort.postMessage).toHaveBeenCalledWith({
+      id: 'released-diagnostics-request',
+      kind: 'response',
+      ok: true,
+      result: { activeLiveQueryCount: 0, hasDatabaseHandle: true },
+    });
+  });
+
   it('keeps the active transaction fenced after a commit failure until rollback runs', async () => {
     const exec = vi
       .fn()

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface PostedMessage {
   readonly id: string;
@@ -343,6 +343,7 @@ describe('DbHostManager', () => {
     const diagnosticsMessage = latestProcess().messages.at(-1);
     expect(diagnosticsMessage?.request.kind).toBe('diagnostics');
     latestProcess().reply(diagnosticsMessage as PostedMessage, {
+      activeLiveQueryCount: 7,
       dataDir: '/mock/pgdata',
       hasDatabaseHandle: true,
     });
@@ -351,7 +352,51 @@ describe('DbHostManager', () => {
       dataDir: '/mock/pgdata',
       hasDatabaseHandle: true,
     });
+    expect(await diagnosticsPromise).not.toHaveProperty('activeLiveQueryCount');
     expect(forkMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports and releases test-only manager and host live-query ownership', async () => {
+    const { createDbHostManager } = await import('../../db-host-manager');
+    const manager = createDbHostManager({ entryPath: '/mock/db-host-entry.js' });
+    const databasePromise = manager.getDatabase();
+    latestProcess().reply(latestProcess().messages.at(-1) as PostedMessage, { initialized: true });
+    const database = await databasePromise;
+
+    const livePromise = database.live.query({ query: 'SELECT 1' });
+    const liveStartMessage = latestProcess().messages.at(-1);
+    latestProcess().reply(liveStartMessage as PostedMessage, {
+      initialResults: { rows: [] },
+      liveId: 'live-memory-test',
+    });
+    const liveQuery = await livePromise;
+
+    const activeDiagnosticsPromise = manager.getLiveQueryDiagnosticsForTests();
+    const activeDiagnosticsMessage = latestProcess().messages.at(-1);
+    expect(activeDiagnosticsMessage?.request.kind).toBe('diagnostics');
+    latestProcess().reply(activeDiagnosticsMessage as PostedMessage, {
+      activeLiveQueryCount: 1,
+    });
+    await expect(activeDiagnosticsPromise).resolves.toEqual({
+      hostLiveQueryCount: 1,
+      managerLiveQueryCount: 1,
+    });
+
+    const unsubscribePromise = liveQuery.unsubscribe();
+    const stopMessage = latestProcess().messages.at(-1);
+    expect(stopMessage?.request.kind).toBe('live:stop');
+    latestProcess().reply(stopMessage as PostedMessage, { stopped: true });
+    await unsubscribePromise;
+
+    const releasedDiagnosticsPromise = manager.getLiveQueryDiagnosticsForTests();
+    const releasedDiagnosticsMessage = latestProcess().messages.at(-1);
+    latestProcess().reply(releasedDiagnosticsMessage as PostedMessage, {
+      activeLiveQueryCount: 0,
+    });
+    await expect(releasedDiagnosticsPromise).resolves.toEqual({
+      hostLiveQueryCount: 0,
+      managerLiveQueryCount: 0,
+    });
   });
 
   it('closes and clears the default utility DB host manager singleton', async () => {

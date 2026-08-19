@@ -10,12 +10,28 @@ function readElectronFixtureSource(): string {
   return readFileSync(join(process.cwd(), 'e2e/fixtures/electron-fixture.ts'), 'utf8');
 }
 
+function readEmbeddingMemoryHelpersSource(): string {
+  return readFileSync(join(process.cwd(), 'e2e/embedding-worker-renderer.shared.ts'), 'utf8');
+}
+
 describe('desktop E2E harness contract', () => {
   it('keeps dev-server launches in Electron test mode', () => {
     const source = readElectronHelpersSource();
 
     expect(source).toContain("'--test-mode'");
     expect(source).not.toContain("launchMode === 'test-built' ? ['--test-mode'] : []");
+  });
+
+  it('exposes renderer GC and fails loudly when the memory harness cannot collect', () => {
+    const launcherSource = readElectronHelpersSource();
+    const memoryHelpersSource = readEmbeddingMemoryHelpersSource();
+
+    expect(launcherSource).toContain("'--js-flags=--expose-gc'");
+    expect(memoryHelpersSource).toContain("typeof globalWindow.gc !== 'function'");
+    expect(memoryHelpersSource).toContain(
+      'Renderer garbage collection is unavailable in the desktop E2E runtime.'
+    );
+    expect(memoryHelpersSource).not.toContain('globalWindow.gc?.()');
   });
 
   it('removes isolated Electron user-data directories during fixture teardown', () => {

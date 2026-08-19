@@ -81,6 +81,17 @@ interface PGliteLiveQuerySurface {
   };
 }
 
+interface E2eDbLiveQueryDiagnostics {
+  readonly hostLiveQueryCount: number;
+  readonly ipcLiveQueryCount: number;
+  readonly managerLiveQueryCount: number;
+}
+
+const E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY = '__brainstrike_e2e_db_live_query_diagnostics__' as const;
+type E2eDbLiveQueryDiagnosticsGlobal = Partial<
+  Record<typeof E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY, () => Promise<E2eDbLiveQueryDiagnostics>>
+>;
+
 /**
  * Derived from the reset-table registry (BST-992): the registry owns the SET
  * every table-enumerating reset path clears; this file owns desktop's order
@@ -111,6 +122,14 @@ const DESTRUCTIVE_SCHEMA_SQL_PATTERN =
 let nextLiveSubscriptionId = 1;
 let isBackgrounded = false;
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isE2eTestMode(): boolean {
+  return (
+    process.argv.includes('--test-mode') ||
+    process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
+    process.env['NODE_ENV'] === 'test'
+  );
+}
 
 async function cleanupLiveSubscriptionsForOwner(
   webContentsId: number,
@@ -446,6 +465,20 @@ export function registerDatabaseIpcHandlers(
   options?: RegisterDatabaseIpcHandlersOptions
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const e2eGlobal = globalThis as typeof globalThis & E2eDbLiveQueryDiagnosticsGlobal;
+  const e2eLiveQueryDiagnostics = isE2eTestMode()
+    ? async (): Promise<E2eDbLiveQueryDiagnostics> => {
+        const { getDbHostManager } = await import('../db-host-manager');
+        const diagnostics = await getDbHostManager().getLiveQueryDiagnosticsForTests();
+        return {
+          ...diagnostics,
+          ipcLiveQueryCount: liveSubscriptions.size,
+        };
+      }
+    : null;
+  if (e2eLiveQueryDiagnostics) {
+    e2eGlobal[E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY] = e2eLiveQueryDiagnostics;
+  }
   const recover = async (context: string): Promise<void> => {
     // Stop renderer-owned reactive handles before the DB host is torn down.
     // This prevents their refresh timers from retaining the old database and
@@ -893,5 +926,8 @@ export function registerDatabaseIpcHandlers(
   return () => {
     registry.unregisterAll();
     void cleanupAllLiveSubscriptions();
+    if (e2eGlobal[E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY] === e2eLiveQueryDiagnostics) {
+      delete e2eGlobal[E2E_DB_LIVE_QUERY_DIAGNOSTICS_KEY];
+    }
   };
 }

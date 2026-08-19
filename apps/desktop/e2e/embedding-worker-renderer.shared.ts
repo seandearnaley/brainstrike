@@ -1062,7 +1062,10 @@ export function extractStructuredLogString(
 export async function forceRendererGarbageCollection(page: Page): Promise<void> {
   await page.evaluate(() => {
     const globalWindow = window as Window & { gc?: () => void };
-    globalWindow.gc?.();
+    if (typeof globalWindow.gc !== 'function') {
+      throw new Error('Renderer garbage collection is unavailable in the desktop E2E runtime.');
+    }
+    globalWindow.gc();
   });
   await page.waitForTimeout(500);
 }

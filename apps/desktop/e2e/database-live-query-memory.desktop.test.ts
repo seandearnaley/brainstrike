@@ -74,13 +74,16 @@ async function getRemoteLiveQueryDiagnostics(
   app: ElectronApplication
 ): Promise<RemoteLiveQueryDiagnostics> {
   return await app.evaluate<RemoteLiveQueryDiagnostics>(async () => {
+    const diagnosticsKey = '__brainstrike_e2e_db_live_query_diagnostics__' as const;
     const diagnostics = (
-      globalThis as typeof globalThis & {
-        __brainstrike_e2e_db_live_query_diagnostics__?: () =>
-          | Promise<RemoteLiveQueryDiagnostics>
-          | RemoteLiveQueryDiagnostics;
-      }
-    ).__brainstrike_e2e_db_live_query_diagnostics__;
+      globalThis as typeof globalThis &
+        Partial<
+          Record<
+            typeof diagnosticsKey,
+            () => Promise<RemoteLiveQueryDiagnostics> | RemoteLiveQueryDiagnostics
+          >
+        >
+    )[diagnosticsKey];
     if (!diagnostics) {
       throw new Error('Remote live-query diagnostics are unavailable outside desktop test mode.');
     }

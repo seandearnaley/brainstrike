@@ -1,6 +1,8 @@
+import { databaseQueryTelemetry } from '@brainstrike/db';
 import { useEffect } from 'react';
 import { readImportActivitySnapshot } from '../import-activity-snapshot';
 import type { EnhancedImportProgress } from '../types';
+import type { DatabaseDemoCacheDiagnostics } from '../use-database-demo-data';
 
 type DatabaseDemoImportProgress = EnhancedImportProgress;
 
@@ -30,11 +32,20 @@ interface DatabaseDemoImportTestSnapshot {
   selectedFileCount: number;
 }
 
+interface DatabaseDemoMemoryTestSnapshot {
+  activeCollectionId: string | null;
+  activeLiveSubscriptions: number;
+  cache: DatabaseDemoCacheDiagnostics;
+  liveUpdateCount: number;
+  recordIds: string[];
+}
+
 declare global {
   interface Window {
     __brainstrikeDatabaseDemoTestHooks__?:
       | {
           getImportSnapshot: () => DatabaseDemoImportTestSnapshot;
+          getMemorySnapshot: () => DatabaseDemoMemoryTestSnapshot;
         }
       | undefined;
     desktopLifecycle?:
@@ -47,13 +58,17 @@ declare global {
 
 interface UseDatabaseDemoTestHookOptions {
   readonly activeCollectionId: string | null;
+  readonly getCacheDiagnostics: () => DatabaseDemoCacheDiagnostics;
   /** App-wide import activity, not this panel's own (it runs no imports). */
   readonly isImporting: boolean;
   readonly recordCount: number;
   readonly recordCurrentPage: number;
+  readonly recordIds: readonly string[];
   readonly recordPageSize: number;
   readonly recordTotalRecords: number;
 }
+
+const MAX_TEST_RECORD_IDS = 100;
 
 function projectProgress(
   progress: DatabaseDemoImportProgress | null
@@ -81,10 +96,12 @@ function projectProgress(
 
 export function useDatabaseDemoTestHook({
   activeCollectionId,
+  getCacheDiagnostics,
   isImporting,
   recordCount,
   recordCurrentPage,
   recordPageSize,
+  recordIds,
   recordTotalRecords,
 }: UseDatabaseDemoTestHookOptions): void {
   useEffect(() => {
@@ -110,6 +127,16 @@ export function useDatabaseDemoTestHook({
           selectedFileCount: importActivity.selectedFileCount,
         };
       },
+      getMemorySnapshot: () => {
+        const telemetry = databaseQueryTelemetry.snapshot();
+        return {
+          activeCollectionId,
+          activeLiveSubscriptions: telemetry.activeLiveSubscriptions,
+          cache: getCacheDiagnostics(),
+          liveUpdateCount: telemetry.liveUpdateCount,
+          recordIds: recordIds.slice(0, MAX_TEST_RECORD_IDS),
+        };
+      },
     };
 
     return () => {
@@ -117,10 +144,12 @@ export function useDatabaseDemoTestHook({
     };
   }, [
     activeCollectionId,
+    getCacheDiagnostics,
     isImporting,
     recordCount,
     recordCurrentPage,
     recordPageSize,
+    recordIds,
     recordTotalRecords,
   ]);
 }

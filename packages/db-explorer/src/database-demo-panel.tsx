@@ -13,7 +13,7 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { useToast } from '@brainstrike/ui';
 import { useEmbeddingControls } from '@brainstrike/vector-management';
 import { Database } from 'lucide-react';
-import { type ReactElement, type ReactNode, useState } from 'react';
+import { type ReactElement, type ReactNode, useMemo, useState } from 'react';
 import { ClearDatabaseDialog } from './components/clear-database-dialog';
 import { CollectionDebugDrawer } from './components/collection-debug-drawer';
 import { CreateCollectionDialog } from './components/create-collection-dialog';
@@ -189,6 +189,7 @@ export function DatabaseDemoPanel({
   const {
     collectionCounts,
     collectionCountsStatus,
+    getTestCacheDiagnostics,
     records,
     refreshing,
     loadRecords,
@@ -198,6 +199,7 @@ export function DatabaseDemoPanel({
   } = data;
   const activeCollectionCounts = collectionCounts;
   const activeCollectionCountsPending = collectionCountsStatus === 'pending';
+  const testRecordIds = useMemo(() => records.map((record) => record.id), [records]);
   useDatabaseDemoPagination({
     activeCollectionId,
     totalPages: recordPagination.totalPages,
@@ -217,9 +219,11 @@ export function DatabaseDemoPanel({
   // explorer's selection bar), not from a duplicate service mounted here.
   useDatabaseDemoTestHook({
     activeCollectionId,
+    getCacheDiagnostics: getTestCacheDiagnostics,
     isImporting: isImportActive,
     recordCount: records.length,
     recordCurrentPage: recordPagination.currentPage,
+    recordIds: testRecordIds,
     recordPageSize: recordPagination.pageSize,
     recordTotalRecords: recordPagination.totalRecords,
   });
