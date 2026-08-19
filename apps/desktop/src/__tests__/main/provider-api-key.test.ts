@@ -1,3 +1,4 @@
+import { matchSecretReadError } from '@brainstrike/assistant-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const logger = vi.hoisted(() => ({
@@ -533,5 +534,78 @@ describe('provider-api-key AWS auth precedence (BST-1353)', () => {
     // The listing's verdict and the request path's verdict must never differ,
     // or the badge would name a mode the next run does not use.
     await expect(readProviderCredential('bedrock')).resolves.toMatchObject({ mode: 'bearer' });
+  });
+
+  it('NO SILENT FALLBACK: an unreadable stored credential SURFACES instead of activating the env chain', async () => {
+    // PR #2529 review, finding 1. The store read failing is NOT the same as
+    // "nothing stored": the unreadable entry may be a stored BEARER, which
+    // OUTRANKS the env chain. The resolver cannot know which, so signing with
+    // an ambient AWS identity here would silently authenticate as somebody
+    // the user never chose. Surface the failure; let Settings repair it.
+    const { SecretReadError } = await import('../../secrets');
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    mockGetSecretsService.mockReturnValue({
+      getCredential: vi.fn().mockRejectedValue(new SecretReadError('decrypt_failed', 'bedrock')),
+      listProviders: vi.fn().mockResolvedValue(['bedrock']),
+    });
+
+    let thrown: unknown;
+    try {
+      await readProviderCredential('bedrock');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(SecretReadError);
+    // The failure must stay CLASSIFIABLE, because that structural match is
+    // exactly what the HTTP layer turns into the `api_key_unreadable` 400
+    // (packages/assistant-service/src/secret-errors.ts) and what Settings
+    // renders as repair guidance.
+    expect(matchSecretReadError(thrown)).toMatchObject({
+      code: 'decrypt_failed',
+      provider: 'bedrock',
+    });
+  });
+
+  it('inspectProviderKeys AGREES: an unreadable stored credential is NOT relabelled as an env chain', async () => {
+    // Same finding, listing side. `applyEnvChainSources` runs after the store
+    // read, so without this it would stamp `profile_chain` onto a provider
+    // whose stored credential could not be read — announcing a mode the next
+    // request now refuses to use, next to a read failure for the same row.
+    const { SecretReadError } = await import('../../secrets');
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    mockGetSecretsService.mockReturnValue({
+      getCredential: vi.fn().mockRejectedValue(new SecretReadError('decrypt_failed', 'bedrock')),
+      listProviders: vi.fn().mockResolvedValue(['bedrock']),
+    });
+
+    await expect(inspectProviderKeys()).resolves.toEqual({
+      configuredProviders: [],
+      readFailures: [{ code: 'decrypt_failed', message: expect.any(String), provider: 'bedrock' }],
+    });
+  });
+
+  it('an ENV BEARER still short-circuits ahead of an unreadable store (rung 1 never reads it)', async () => {
+    // The healthy precedence must not regress: env is authoritative, so the
+    // store is never even consulted and there is no failure to surface.
+    const { SecretReadError } = await import('../../secrets');
+    process.env['AWS_REGION'] = 'us-east-1';
+    process.env['AWS_PROFILE'] = 'acme-dev';
+    process.env['AWS_BEARER_TOKEN_BEDROCK'] = 'env-bearer';
+    const getCredential = vi
+      .fn()
+      .mockRejectedValue(new SecretReadError('decrypt_failed', 'bedrock'));
+    mockGetSecretsService.mockReturnValue({
+      getCredential,
+      listProviders: vi.fn().mockResolvedValue(['bedrock']),
+    });
+
+    await expect(readProviderCredential('bedrock')).resolves.toMatchObject({
+      key: 'env-bearer',
+      source: 'env',
+      type: 'api_key',
+    });
+    expect(getCredential).not.toHaveBeenCalled();
   });
 });

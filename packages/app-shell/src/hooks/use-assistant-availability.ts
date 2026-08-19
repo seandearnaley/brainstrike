@@ -305,8 +305,13 @@ export async function fetchAssistantStatusState({
     return { message: startupFailure, state: 'error' };
   }
 
-  const url = await resolveAssistantStatusUrl();
-  const authHeaders = await resolveAssistantAuthHeaders();
+  // Independent resolutions, so they overlap — the same shape
+  // use-provider-verification and use-steer-active-run already use. The
+  // startup-failure read above stays sequential: it short-circuits.
+  const [url, authHeaders] = await Promise.all([
+    resolveAssistantStatusUrl(),
+    resolveAssistantAuthHeaders(),
+  ]);
   const response = await fetchImpl(url, {
     headers: { accept: 'application/json', ...authHeaders },
     signal,
@@ -436,6 +441,19 @@ function parseAssistantDeprecatedEnvVars(
   if (!Array.isArray(value)) {
     throw new Error('Invalid assistant deprecated env var report list');
   }
+  // One Set per provider, built lazily and shared across entries: reports
+  // frequently name the same provider more than once, and a plain `.includes`
+  // rescanned that provider's deprecated-name array on every entry.
+  const deprecatedNames = new Map<SupportedProvider, ReadonlySet<string>>();
+  const deprecatedNamesFor = (provider: SupportedProvider): ReadonlySet<string> => {
+    const cached = deprecatedNames.get(provider);
+    if (cached) {
+      return cached;
+    }
+    const names = new Set(providerDeprecatedEnvKeys(provider));
+    deprecatedNames.set(provider, names);
+    return names;
+  };
   return value.map((entry: unknown) => {
     if (!(entry && typeof entry === 'object' && !Array.isArray(entry))) {
       throw new Error('Invalid assistant deprecated env var report');
@@ -453,7 +471,7 @@ function parseAssistantDeprecatedEnvVars(
       // Registry cross-check (review 10a): the reported name must actually be
       // a deprecated name for that provider — same discipline the key-source
       // parser applies to providerEnvKeys.
-      !providerDeprecatedEnvKeys(provider).includes(envVar) ||
+      !deprecatedNamesFor(provider).has(envVar) ||
       typeof replacement !== 'string' ||
       replacement.trim().length === 0
     ) {
@@ -612,11 +630,13 @@ function validateProviderStatusConsistency({
   ) {
     throw new Error('Assistant hosted provider is missing its key source');
   }
+  // Loop-invariant, so it is built once rather than rescanned per source.
+  const providerSet = providers ? new Set(providers) : undefined;
   for (const source of providerKeySources ?? []) {
     if (failedProviders.has(source.provider)) {
       throw new Error('Assistant provider cannot be both configured and unreadable');
     }
-    if (providers && !providers.includes(source.provider)) {
+    if (providerSet && !providerSet.has(source.provider)) {
       throw new Error('Assistant provider key source is missing from providers');
     }
   }

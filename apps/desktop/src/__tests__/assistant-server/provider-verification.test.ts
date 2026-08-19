@@ -18,6 +18,7 @@ function okResponse(body: unknown = { data: [] }): Response {
 }
 
 interface ServiceOverrides {
+  readonly env?: Record<string, string | undefined>;
   readonly failureTtlMs?: number;
   readonly fetchImpl?: MockedFunction<typeof fetch>;
   readonly findProvider?: (id: string) => { authType: 'api_key' | 'aws' | 'none' } | undefined;
@@ -36,6 +37,7 @@ interface ServiceOverrides {
 function createService(overrides: ServiceOverrides = {}) {
   const fetchImpl = overrides.fetchImpl ?? vi.fn<typeof fetch>().mockResolvedValue(okResponse());
   const service = createProviderVerificationService({
+    ...(overrides.env ? { env: overrides.env } : {}),
     fetchImpl,
     now: overrides.now ?? (() => 1_000_000),
     readCredential:
@@ -412,6 +414,67 @@ describe('ProviderVerificationService aws probes', () => {
       expect(verifyAwsCredentialChain).toHaveBeenCalledWith(undefined, {
         timeoutMs: expect.any(Number),
       });
+    });
+  });
+
+  /**
+   * PR #2529 review, finding 3. An environment variable cannot express the
+   * aws credential union, so a Bedrock bearer supplied via
+   * BRAINSTRIKE_BEDROCK_API_KEY / AWS_BEARER_TOKEN_BEDROCK arrives here as an
+   * `api_key` credential — and so does every legacy bare-string key stored
+   * under bedrock. The REQUEST path already projects that shape to aws bearer
+   * auth using AWS_REGION, so the probe must agree; rejecting it reported
+   * `verification_unsupported` for a credential real turns use successfully.
+   */
+  describe('aws bearer supplied as an api_key credential', () => {
+    const envBearerOverrides = (
+      fetchImpl: MockedFunction<typeof fetch>,
+      env: Record<string, string | undefined>
+    ): ServiceOverrides => ({
+      env,
+      fetchImpl,
+      findProvider: (id) => (id === 'bedrock' ? { authType: 'aws' } : undefined),
+      readCredential: () => Promise.resolve(apiKeyCredential('env-bedrock-bearer')),
+    });
+
+    it('probes the bearer path using AWS_REGION, matching the request projection', async () => {
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+      const { service } = createService(envBearerOverrides(fetchImpl, { AWS_REGION: 'eu-west-1' }));
+
+      await expect(service.verify('bedrock')).resolves.toMatchObject({
+        result: { status: 'verified' },
+      });
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'https://bedrock.eu-west-1.amazonaws.com/foundation-models',
+        expect.objectContaining({
+          headers: expect.objectContaining({ authorization: 'Bearer env-bedrock-bearer' }),
+        })
+      );
+    });
+
+    it('says the REGION is missing when AWS_REGION is unset, not that the credential is unsupported', async () => {
+      // NO SILENT FALLBACK and no misdiagnosis: there is no default region
+      // (BST-1350), so the actionable answer is "configure a region" — the
+      // same thing the factory tells the request path.
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+      const { service } = createService(envBearerOverrides(fetchImpl, {}));
+
+      await expect(service.verify('bedrock')).rejects.toThrow(/AWS region/i);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('still rejects a credential type that is neither aws nor api_key', async () => {
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+      const { service } = createService({
+        env: { AWS_REGION: 'us-east-1' },
+        fetchImpl,
+        findProvider: () => ({ authType: 'aws' }),
+        readCredential: () =>
+          Promise.resolve({ access: 'a', expires: 1, refresh: 'r', type: 'oauth' }),
+      });
+
+      await expect(service.verify('bedrock')).rejects.toThrow(/AWS credential/i);
+      expect(fetchImpl).not.toHaveBeenCalled();
     });
   });
 });

@@ -304,6 +304,43 @@ describe('provider auth engine — start', () => {
     await expect(engine.cancel(PROVIDER)).resolves.toEqual({ state: 'disconnected' });
   });
 
+  it('cancel DURING loopback-server startup settles and frees the provider (PR #2529 finding 2)', async () => {
+    // The window between `start` and the server finishing its bind used to
+    // swallow cancellation entirely: the abort listener was attached after the
+    // await, so an already-fired signal never reached it and engine.cancel()
+    // stayed blocked on the flow until the 5-minute callback timeout.
+    const loopback = makeFakeLoopback();
+    const openExternal = vi.fn(async () => undefined);
+    let releaseStartup: (() => void) | undefined;
+    const startedUp = new Promise<void>((resolve) => {
+      releaseStartup = resolve;
+    });
+    const engine = createProviderAuthEngine({
+      fetchFn: vi.fn() as unknown as typeof fetch,
+      getDescriptor: () => makeDescriptor(),
+      openExternal,
+      secrets: makeFakeSecrets(),
+      startLoopbackServerFn: async () => {
+        await startedUp;
+        return loopback.handle;
+      },
+    });
+
+    // `start` cannot resolve yet — its first status transition is announced
+    // after the browser opens — so hold the promise and cancel underneath it.
+    const started = engine.start(PROVIDER);
+    const cancelled = engine.cancel(PROVIDER);
+    releaseStartup?.();
+
+    await expect(cancelled).resolves.toEqual({ state: 'disconnected' });
+    await expect(started).resolves.toEqual({ state: 'disconnected' });
+    expect(openExternal).not.toHaveBeenCalled();
+    // activeFlows must be clear: a fresh start cannot report flow_already_active
+    // (the startup gate is already released, so this one binds immediately).
+    await expect(engine.start(PROVIDER)).resolves.toEqual({ state: 'awaiting_browser' });
+    await engine.cancel(PROVIDER);
+  });
+
   it('surfaces a failed token exchange as a sticky error until disconnect', async () => {
     const loopback = makeFakeLoopback();
     const { engine } = makeEngine({

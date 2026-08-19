@@ -5,7 +5,7 @@ import type {
 } from '@brainstrike/assistant-contract';
 import type { SecretsService } from '../secrets';
 import { pollDeviceFlow, startDeviceFlow } from './device-flow';
-import { ProviderAuthFlowError } from './errors';
+import { ProviderAuthFlowCancelledError, ProviderAuthFlowError } from './errors';
 import { guardedFetch } from './fetch-guards';
 import { type LoopbackServerHandle, startLoopbackServer } from './loopback-server';
 import { computeS256Challenge, createPkceVerifier, createState } from './pkce';
@@ -229,6 +229,21 @@ export async function runLoopbackOAuthFlow(
     providerLabel: descriptor.providerId,
     ...(deps.loopbackTimeoutMs === undefined ? {} : { timeoutMs: deps.loopbackTimeoutMs }),
   });
+
+  // Cancellation can RACE the startup (PR #2529 review, finding 2). Binding
+  // the socket is asynchronous, so the user may have cancelled while
+  // `startServer` was still pending — and `addEventListener('abort', …)` on an
+  // ALREADY-fired signal never invokes the handler. Without this check the
+  // flow went on to open the browser and then sat on the callback wait, with
+  // `engine.cancel()` blocked behind it until the 5-minute timeout.
+  //
+  // Checked AFTER the await rather than before it so the freshly bound socket
+  // is torn down instead of leaked; the thrown error is the same one the
+  // listener path produces, so the engine maps it to `disconnected` either way.
+  if (deps.cancelSignal?.aborted) {
+    await handle.close();
+    throw new ProviderAuthFlowCancelledError();
+  }
 
   const onAbort = () => {
     handle.cancel();
