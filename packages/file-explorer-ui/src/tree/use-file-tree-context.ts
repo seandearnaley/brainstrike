@@ -87,7 +87,11 @@ export interface CancellableFileTreeHook {
   /** Set of paths currently loading their children (for UI feedback) */
   loadingPaths: Set<string>;
   loadingProgress: LoadingProgressState;
-  /** Load specific paths using worker (for restoration) */
+  /**
+   * Load specific paths for restoration. Non-abort worker, patch, and serial
+   * read failures update the visible tree error and reject; callers must
+   * handle the rejection so a failed restoration remains retryable.
+   */
   loadSpecificPaths: (
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void

@@ -1,5 +1,5 @@
 import { type FileExplorerState, type IFileNode, isPseudoFileNodeType } from '@brainstrike/types';
-import { decodeFileSelection } from '../selection.js';
+import { getSelectedPathsForFolder } from '../selection.js';
 import { resolveQuerySelection } from '../utils/query-selection-manifest.js';
 
 export interface DirectorySelectionSnapshot {
@@ -38,17 +38,6 @@ function getDirectChildPath(selectedPath: string, directoryPath: string): string
   return `${prefix}${childName}`;
 }
 
-function getExplicitPaths(compositeKeys: ReadonlySet<string>, folderId: string): string[] {
-  const paths: string[] = [];
-  for (const key of compositeKeys) {
-    const decoded = decodeFileSelection(key);
-    if (decoded.folderId === folderId) {
-      paths.push(decoded.path);
-    }
-  }
-  return paths;
-}
-
 function getQueryPaths(state: FileExplorerState, folderId: string): string[] {
   const descriptor = state.selectionModel.queryDescriptor;
   if (!descriptor || descriptor.folderId !== folderId) {
@@ -85,7 +74,7 @@ export function getSelectionProjectionPaths(state: FileExplorerState, folderId: 
   const keys = isForeignRoot
     ? (state.folderStates[folderId]?.selectedFilePaths ?? new Set<string>())
     : state.selectedFilePaths;
-  return getExplicitPaths(keys, folderId);
+  return Array.from(getSelectedPathsForFolder(keys, folderId));
 }
 
 function isPathWithinRoot(path: string, rootPath: string): boolean {
@@ -126,17 +115,15 @@ export function getSelectionAncestorDirectories(
 ): string[] {
   const caseInsensitive = isCaseInsensitivePath(rootPath);
   const comparisonRootPath = normalizePath(rootPath, caseInsensitive);
-  const useBackslashPresentation = rootPath.includes('\\') && !rootPath.includes('/');
   const ancestorsByComparisonPath = new Map<string, { comparisonPath: string; path: string }>();
 
   for (const selectedPath of getSelectionProjectionPaths(state, folderId)) {
-    const normalizedSelectedPath = normalizePath(selectedPath, false);
     const comparisonSelectedPath = normalizePath(selectedPath, caseInsensitive);
     if (!isPathWithinRoot(comparisonSelectedPath, comparisonRootPath)) {
       continue;
     }
 
-    let candidatePath = parentPath(normalizedSelectedPath);
+    let candidatePath = presentationParentPath(selectedPath);
     while (candidatePath) {
       const comparisonPath = normalizePath(candidatePath, caseInsensitive);
       if (comparisonPath === comparisonRootPath) {
@@ -145,22 +132,38 @@ export function getSelectionAncestorDirectories(
       if (!isPathWithinRoot(comparisonPath, comparisonRootPath)) {
         break;
       }
-      const presentationPath = useBackslashPresentation
-        ? candidatePath.replace(/\//gu, '\\')
-        : candidatePath;
       if (!ancestorsByComparisonPath.has(comparisonPath)) {
         ancestorsByComparisonPath.set(comparisonPath, {
           comparisonPath,
-          path: presentationPath,
+          path: candidatePath,
         });
       }
-      candidatePath = parentPath(candidatePath);
+      candidatePath = presentationParentPath(candidatePath);
     }
   }
 
   return Array.from(ancestorsByComparisonPath.values())
     .sort(compareAncestorDirectories)
     .map((entry) => entry.path);
+}
+
+/**
+ * Strip one segment without rewriting separator presentation. Selection paths
+ * are also normalized-tree keys, so converting their ancestors to the root's
+ * preferred separator can make an O(1) lookup miss a real directory.
+ */
+function presentationParentPath(path: string): string | null {
+  const separatorIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  if (separatorIndex < 0) {
+    return null;
+  }
+  if (separatorIndex === 0) {
+    return path.slice(0, 1);
+  }
+  if (separatorIndex === 2 && /^[A-Za-z]:[\\/]$/u.test(path.slice(0, 3))) {
+    return path.slice(0, 3);
+  }
+  return path.slice(0, separatorIndex);
 }
 
 function parentPath(path: string): string | null {
@@ -209,6 +212,8 @@ function isDisprovenByAuthoritativeSnapshots(
     if (entries) {
       const directChildPath = getDirectChildPath(selectedPath, candidateDirectory);
       const entryType = directChildPath ? entries.get(directChildPath) : undefined;
+      // Selection contains files only. An authoritative direct directory hit
+      // therefore proves that the previously selected file was retyped.
       const isReplacedByFile = entryType === 'file' && selectedPath !== directChildPath;
       const isReplacedByDirectory = entryType === 'directory' && selectedPath === directChildPath;
       if (!entryType || isReplacedByFile || isReplacedByDirectory) {

@@ -184,7 +184,7 @@ describe('file-selection-utils', () => {
     });
 
     it('should handle empty selection set', () => {
-      const selectedPaths = new Set<string>();
+      const selectedPaths: ReadonlySet<string> = new Set<string>();
       const result = getSelectedPathsForFolder(selectedPaths, folderId);
       expect(result).toEqual(new Set());
     });

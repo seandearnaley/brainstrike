@@ -78,16 +78,23 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
     those listings and preserves query mode through exclusion overrides. When
     a query manifest is unavailable, only the exact cached materialized
     projection may be reconciled; never infer missing manifest membership.
+    Selection is files-only: an authoritative same-path directory proves a
+    selected file was retyped and removes it.
   * `getSelectionAncestorDirectories(state, folderId, rootPath)` derives the
     unique parent-first directory boundaries needed after a shallow root
     refresh by walking selected paths and ancestors only, never the file tree.
-    It is a pure derivation and enforces no selection cap.
+    It preserves each selected path's exact slash/backslash presentation so
+    the result remains an exact normalized-tree key; normalization is only for
+    containment, case comparison, dedupe, and ordering. It is a pure derivation
+    and enforces no selection cap.
   * `getSelectionProjectionPaths(state, folderId)` is the canonical effective
     projection reader: focused query roots resolve manifest/overrides, while
     foreign roots read their explicit folder snapshot. Refresh fencing must
     reuse it rather than infer projection changes from `selectionVersion`.
   * Encode/decode composite keys through `@brainstrike/file-explorer/selection`.
     Malformed keys throw; callers must not guess or silently coerce them.
+    `getSelectedPathsForFolder` is the canonical folder-scoped strict decoder
+    used by reconciliation and accepts read-only selection sets.
 * **Directory expansion**
 
   * `toggleDirectoryExpansion(path)` (collapsing a parent removes its descendants)

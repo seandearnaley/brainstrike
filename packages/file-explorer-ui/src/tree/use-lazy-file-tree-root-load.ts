@@ -267,7 +267,13 @@ export function hasCommittedRootIdentityChanged(
   return committedIdentity !== null && committedIdentity !== nextIdentity;
 }
 
-export function createLoadRootPendingState(currentState: LazyFileTreeState): LazyFileTreeState {
+export function createLoadRootPendingState(
+  currentState: LazyFileTreeState,
+  publishPending = true
+): LazyFileTreeState {
+  if (!publishPending) {
+    return currentState;
+  }
   if (
     currentState.isInitialLoading &&
     currentState.error === null &&

@@ -796,7 +796,13 @@ fallback.
   derived from the bounded selection projection (at most selected paths times
   their ancestor depth), while live I/O remains bounded to five. Direct manual
   refreshes and refresh events run through one lossless queue per provider, so
-  they cannot publish overlapping snapshots. Each provider owns a monotonic,
+  they cannot publish overlapping snapshots. Consecutive full requests are
+  losslessly bounded to the active physical refresh plus at most one trailing
+  authoritative refresh: requests that arrive before a pending refresh starts
+  join it and receive its exact outcome, while the pending slot clears when I/O
+  starts so a later mutation retains one trailing read. Incremental events are
+  FIFO mutation boundaries and always break full-request coalescing; they are
+  never reordered or dropped. Each provider owns a monotonic,
   root-scoped effective-projection revision. At each fence read it resolves the
   canonical selected path set through `getSelectionProjectionPaths` and advances
   only when that set or root identity actually changes. Query-manifest updates,
@@ -819,7 +825,11 @@ fallback.
   completed/cancelled outcome. Watcher changes retry `error`
   directories and retain invalidations
   for `loading` directories by forcing a fresh read instead of joining the
-  pre-event request; genuinely `unloaded` directories still wait for expansion.
+  pre-event request. Genuinely `unloaded` nonselected directories still wait
+  for expansion, but an exact changed parent that is also a selected-path
+  ancestor is re-enumerated even while collapsed/unloaded so a removal can
+  disprove stale selected descendants. This intersection is bounded to event
+  parents; it never sweeps every selected directory.
   A shallow root replacement
   cannot prove nested membership merely because its top-level directory
   survives, so every successful watcher/full or manual/full root refresh
@@ -828,7 +838,10 @@ fallback.
   and publishes their snapshots as one bounded batch. The outer provider's
   direct toolbar refresh uses that same orchestration before it ignores the
   manual/full fan-out event; nested forest providers perform it while handling
-  the event. Mixed root+directory watcher batches likewise force-refresh a
+  the event. Ancestor derivation preserves each selected path's exact mixed,
+  drive, or UNC separator presentation for normalized-tree lookup and uses a
+  normalized identity only for containment, dedupe, and ordering. Mixed
+  root+directory watcher batches likewise force-refresh a
   surviving directory even when the shallow root reload reset it to `unloaded`,
   while removed or file-retyped paths skip. The reducer indexes snapshots once
   and walks only the bounded selection paths and their ancestors, never the full
@@ -888,7 +901,17 @@ fallback.
   folder/path components throw instead of becoming ghost selections. The
   persistence validator salvages canonical keys, drops malformed entries, and
   raises the existing redacted discard notice before strict merge, while a
-  direct merge of unvalidated keys fails visibly.
+  direct merge of unvalidated keys fails visibly. Selection is files-only: a
+  direct authoritative directory hit at a selected path is a stale
+  file-to-directory retype and removes that selection. An ordinary
+  joined/already-applied root load does not publish initial-loading state or
+  clear active child loading paths; only a genuine initial load or a
+  forced/fresh root boundary publishes root-pending state.
+  `loadSpecificPaths` rejects every non-abort worker, patch-rehydration, or
+  serial directory-read failure after publishing the visible tree error.
+  Restoration callers consume that rejection and keep the failed key
+  retryable; abort semantics remain cancellation rather than a visible tree
+  error.
   Pinned by `file-selection-reconciliation.test.ts`,
   `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`,
   `use-file-tree-worker.test.tsx`, `port.test.ts`, `bfs-engine.test.ts`, and

@@ -16,8 +16,10 @@
  *   parent directories; parents currently LOADED, LOADING, or ERROR in the
  *   normalized tree are re-enumerated (`refreshDirectory`), deduped per
  *   dispatch. Loading retains the post-I/O invalidation, error gets a
- *   watcher-proven retry, and genuinely unloaded directories are skipped —
- *   they re-enumerate on expand anyway. Root-level
+ *   watcher-proven retry, and genuinely unloaded nonselected directories are
+ *   skipped — they re-enumerate on expand anyway. An unloaded exact changed
+ *   parent that contains selected descendants is the bounded exception: it is
+ *   re-enumerated so removal evidence cannot leave a ghost selection. Root-level
  *   membership changes reload the root via `refreshTree()` (the root is not a
  *   node), and that reload is AWAITED before any per-directory refresh so the
  *   root replacement can never clobber a concurrent child update. Pure
@@ -33,6 +35,10 @@
  *   re-enumerates an overflow directly, so the authority (outer) provider must
  *   react too — a single-root workspace has no forest RootSection and would
  *   otherwise never reload on overflow.
+ * - Consecutive direct/manual/watcher full requests share at most one pending
+ *   physical refresh. Once the active read begins, later requests retain one
+ *   trailing authoritative read; incremental events split coalescing groups.
+ *   Every direct caller receives the exact shared result.
  *
  * Root matching is durable-id-first: when this provider has a RootId (UUID),
  * only the event entry with that exact rootId matches — the path fallback is
@@ -64,6 +70,13 @@ type RefreshLifecycleGuard = () => boolean;
 const isAlwaysActive: RefreshLifecycleGuard = () => true;
 interface RefreshQueueRef {
   current: Promise<void>;
+}
+interface PendingFullRefresh {
+  key: string;
+  result: Promise<FileTreeRefreshResult>;
+}
+interface PendingFullRefreshRef {
+  current: PendingFullRefresh | null;
 }
 
 export interface UseFileTreeRefreshEventsParams {
@@ -127,6 +140,8 @@ function matchesRoot(
 }
 
 interface StructuralRefreshTargets {
+  /** Every non-root structural parent named by the event, loaded or not. */
+  changedParents: ReadonlySet<string>;
   /** Authoritative/loading/error parent directories to re-enumerate, deduped. */
   parentsToRefresh: ReadonlySet<string>;
   /** True when a root-level membership change requires a root reload. */
@@ -139,6 +154,7 @@ function collectStructuralRefreshTargets(
   normalizedTree: NormalizedFileTreeState | null
 ): StructuralRefreshTargets {
   let refreshRoot = false;
+  const changedParents = new Set<string>();
   const parentsToRefresh = new Set<string>();
 
   for (const change of changes) {
@@ -151,13 +167,79 @@ function collectStructuralRefreshTargets(
       refreshRoot = true;
       continue;
     }
+    changedParents.add(parent);
     const loadState = normalizedTree ? getNormalizedNode(normalizedTree, parent)?.loadState : null;
     if (loadState === 'loaded' || loadState === 'loading' || loadState === 'error') {
       parentsToRefresh.add(parent);
     }
   }
 
-  return { parentsToRefresh, refreshRoot };
+  return { changedParents, parentsToRefresh, refreshRoot };
+}
+
+function normalizePathForComparison(path: string, caseInsensitive: boolean): string {
+  const normalized = path.replace(/\\/gu, '/');
+  const withoutTrailingSlash =
+    normalized.length > 1 && !/^[A-Za-z]:\/$/u.test(normalized)
+      ? normalized.replace(/\/+$/u, '')
+      : normalized;
+  return caseInsensitive ? withoutTrailingSlash.toLowerCase() : withoutTrailingSlash;
+}
+
+function usesCaseInsensitivePaths(rootPath: string): boolean {
+  const normalizedRootPath = rootPath.replace(/\\/gu, '/');
+  return /^[A-Za-z]:\//u.test(normalizedRootPath) || normalizedRootPath.startsWith('//');
+}
+
+/**
+ * Intersect exact changed parents with selected-path ancestors. This preserves
+ * the unloaded-directory fast path for unselected changes while making a
+ * collapsed selected parent authoritative enough to disprove stale files.
+ */
+function getChangedSelectedParentPaths(
+  current: UseFileTreeRefreshEventsParams,
+  changedParents: ReadonlySet<string>,
+  rootPath: string,
+  normalizedTree: NormalizedFileTreeState | null
+): string[] {
+  if (!(normalizedTree && changedParents.size > 0)) {
+    return [];
+  }
+  const caseInsensitive = usesCaseInsensitivePaths(rootPath);
+  const selectedAncestorsByComparisonPath = new Map<string, string[]>();
+  for (const ancestorPath of current.getSelectionAncestorDirectories()) {
+    const comparisonPath = normalizePathForComparison(ancestorPath, caseInsensitive);
+    const presentations = selectedAncestorsByComparisonPath.get(comparisonPath);
+    if (presentations) {
+      presentations.push(ancestorPath);
+    } else {
+      selectedAncestorsByComparisonPath.set(comparisonPath, [ancestorPath]);
+    }
+  }
+
+  const selectedChangedParents: string[] = [];
+  let missingSelectedParentCount = 0;
+  for (const changedParent of changedParents) {
+    const comparisonPath = normalizePathForComparison(changedParent, caseInsensitive);
+    const selectedPresentations = selectedAncestorsByComparisonPath.get(comparisonPath);
+    if (!selectedPresentations) {
+      continue;
+    }
+    const treePath = [...selectedPresentations, changedParent].find(
+      (candidatePath) => getNormalizedNode(normalizedTree, candidatePath)?.type === 'directory'
+    );
+    if (treePath) {
+      selectedChangedParents.push(treePath);
+    } else {
+      missingSelectedParentCount += 1;
+    }
+  }
+  if (missingSelectedParentCount > 0) {
+    logger.warn('Selected changed parents were absent from the normalized tree', {
+      missingParentCount: missingSelectedParentCount,
+    });
+  }
+  return selectedChangedParents;
 }
 
 function directoryPathDepth(path: string): number {
@@ -201,6 +283,46 @@ function enqueueRefreshWork<TResult>(
     () => undefined
   );
   return result;
+}
+
+function enqueueOrdinaryRefreshWork<TResult>(
+  queueRef: RefreshQueueRef,
+  pendingFullRefreshRef: PendingFullRefreshRef,
+  work: () => Promise<TResult>
+): Promise<TResult> {
+  // An incremental event is a mutation boundary. Full refreshes on either
+  // side must remain distinct and in FIFO order.
+  pendingFullRefreshRef.current = null;
+  return enqueueRefreshWork(queueRef, work);
+}
+
+function enqueueCoalescedFullRefresh(
+  queueRef: RefreshQueueRef,
+  pendingFullRefreshRef: PendingFullRefreshRef,
+  key: string,
+  work: () => Promise<FileTreeRefreshResult>
+): Promise<FileTreeRefreshResult> {
+  const pending = pendingFullRefreshRef.current;
+  if (pending?.key === key) {
+    return pending.result;
+  }
+
+  let record: PendingFullRefresh | null = null;
+  const result = enqueueRefreshWork(queueRef, async () => {
+    if (record && pendingFullRefreshRef.current === record) {
+      // Once physical I/O begins, a later full signal may represent a later
+      // mutation and therefore owns one trailing authoritative refresh.
+      pendingFullRefreshRef.current = null;
+    }
+    return work();
+  });
+  record = { key, result };
+  pendingFullRefreshRef.current = record;
+  return result;
+}
+
+function createFullRefreshKey(rootId: string | null, rootPath: string | null): string {
+  return JSON.stringify([rootId, rootPath]);
 }
 
 async function refreshAuthoritativeDirectories(
@@ -308,10 +430,11 @@ async function handleWatcherIncrementalRefresh(
     return;
   }
 
-  const { parentsToRefresh, refreshRoot } = collectStructuralRefreshTargets(
+  const normalizedTree = current.getNormalizedTree();
+  const { changedParents, parentsToRefresh, refreshRoot } = collectStructuralRefreshTargets(
     rootDetail.changes,
     rootPath,
-    current.getNormalizedTree()
+    normalizedTree
   );
 
   // Sequence root before directories: a concurrent root replacement could
@@ -321,33 +444,17 @@ async function handleWatcherIncrementalRefresh(
     await refreshRootAndDirectories(current, Array.from(parentsToRefresh), isActive);
     return;
   }
-  await refreshAuthoritativeDirectories(current, Array.from(parentsToRefresh), isActive);
-}
-
-/**
- * OVERFLOW recovery (watcher + full): the watcher may have missed events for
- * the named root(s), so the incremental stream is untrustworthy — fully
- * re-enumerate this provider's root when named. Deliberately NOT gated by
- * `skipManualFullEvents` (see hook JSDoc: nothing refreshes an overflow
- * directly, so the outer authority provider must react too).
- */
-async function handleWatcherOverflowRefresh(
-  detail: FileExplorerRefreshEvent['detail'],
-  current: UseFileTreeRefreshEventsParams,
-  effectiveRootId: string,
-  rootPath: string,
-  isActive: RefreshLifecycleGuard
-): Promise<void> {
-  if (!isActive()) {
-    return;
-  }
-  const overflowsThisRoot = detail.roots.some((root) =>
-    matchesRoot(root, effectiveRootId, current.rootId, rootPath)
+  const selectedChangedParents = getChangedSelectedParentPaths(
+    current,
+    changedParents,
+    rootPath,
+    normalizedTree
   );
-  if (!overflowsThisRoot) {
-    return;
-  }
-  await refreshRootAndDirectories(current, [], isActive);
+  await refreshAuthoritativeDirectories(
+    current,
+    [...parentsToRefresh, ...selectedChangedParents],
+    isActive
+  );
 }
 
 async function runRefreshWork(
@@ -379,19 +486,6 @@ async function processRefreshEventDetail(
   }
   const effectiveRootId = current.rootId ?? currentRootPath;
 
-  if (detail.source === 'manual' && detail.scope === 'full') {
-    if (current.skipManualFullEvents) {
-      return;
-    }
-    await runRefreshWork(
-      async () => {
-        await refreshRootAndDirectories(current, [], isActive);
-      },
-      'Manual full tree refresh failed',
-      currentRootPath
-    );
-    return;
-  }
   if (detail.source === 'watcher' && detail.scope === 'incremental') {
     await runRefreshWork(
       () =>
@@ -405,16 +499,20 @@ async function processRefreshEventDetail(
       'Watcher-driven tree refresh failed',
       currentRootPath
     );
-    return;
   }
-  if (detail.source === 'watcher' && detail.scope === 'full') {
-    await runRefreshWork(
-      () =>
-        handleWatcherOverflowRefresh(detail, current, effectiveRootId, currentRootPath, isActive),
-      'Watcher overflow tree refresh failed',
-      currentRootPath
-    );
-  }
+}
+
+function reportFullRefreshFailure(
+  result: Promise<FileTreeRefreshResult>,
+  warningMessage: string,
+  rootPath: string
+): void {
+  void result.catch((error: unknown) => {
+    logger.warn(warningMessage, {
+      error: error instanceof Error ? error.message : String(error),
+      rootPath,
+    });
+  });
 }
 
 export function useFileTreeRefreshEvents({
@@ -431,7 +529,11 @@ export function useFileTreeRefreshEvents({
   const [refreshQueueRef] = useState<RefreshQueueRef>(() => ({
     current: Promise.resolve(),
   }));
+  const [pendingFullRefreshRef] = useState<PendingFullRefreshRef>(() => ({ current: null }));
   const [lifecycleEpochRef] = useState<{ current: number }>(() => ({ current: 0 }));
+  const getCurrentRootIdentity = useEventCallback((): string =>
+    createFullRefreshKey(rootId, rootPath)
+  );
 
   // Commit-phase latest-value dispatcher: queued events execute against the
   // provider identity that is current when their turn begins. A same-path
@@ -459,22 +561,59 @@ export function useFileTreeRefreshEvents({
     }
   );
 
+  const enqueueCurrentFullRefresh = useEventCallback(
+    (isActive: RefreshLifecycleGuard): Promise<FileTreeRefreshResult> => {
+      const current: SelectionAwareRootRefreshParams = {
+        getNormalizedTree,
+        getSelectionAncestorDirectories,
+        getSelectionProjectionRevision,
+        reconcileSelectionWithDirectorySnapshots,
+        refreshDirectory,
+        refreshTree,
+      };
+      const key = createFullRefreshKey(rootId, rootPath);
+      const isCurrentAndActive = (): boolean => isActive() && getCurrentRootIdentity() === key;
+      return enqueueCoalescedFullRefresh(refreshQueueRef, pendingFullRefreshRef, key, () =>
+        refreshTreeWithSelectionRevalidation(current, isCurrentAndActive)
+      );
+    }
+  );
+
+  const enqueueFullRefreshEvent = useEventCallback(
+    (detail: FileExplorerRefreshEvent['detail'], isActive: RefreshLifecycleGuard): boolean => {
+      if (!(isActive() && rootPath)) {
+        return false;
+      }
+      const effectiveRootId = rootId ?? rootPath;
+      const isManualFull = detail.source === 'manual' && detail.scope === 'full';
+      const isWatcherFull = detail.source === 'watcher' && detail.scope === 'full';
+      if (isManualFull && skipManualFullEvents) {
+        return false;
+      }
+      if (
+        isWatcherFull &&
+        !detail.roots.some((root) => matchesRoot(root, effectiveRootId, rootId, rootPath))
+      ) {
+        return false;
+      }
+      if (!(isManualFull || isWatcherFull)) {
+        return false;
+      }
+
+      const result = enqueueCurrentFullRefresh(isActive);
+      reportFullRefreshFailure(
+        result,
+        isManualFull ? 'Manual full tree refresh failed' : 'Watcher overflow tree refresh failed',
+        rootPath
+      );
+      return true;
+    }
+  );
+
   const refreshTreeWithSelection = useEventCallback((): Promise<FileTreeRefreshResult> => {
     const lifecycleEpoch = lifecycleEpochRef.current;
     const isActive = (): boolean => lifecycleEpochRef.current === lifecycleEpoch;
-    return enqueueRefreshWork(refreshQueueRef, () =>
-      refreshTreeWithSelectionRevalidation(
-        {
-          getNormalizedTree,
-          getSelectionAncestorDirectories,
-          getSelectionProjectionRevision,
-          reconcileSelectionWithDirectorySnapshots,
-          refreshDirectory,
-          refreshTree,
-        },
-        isActive
-      )
-    );
+    return enqueueCurrentFullRefresh(isActive);
   });
 
   useEffect(() => {
@@ -483,13 +622,19 @@ export function useFileTreeRefreshEvents({
     const isActive = (): boolean => lifecycleEpochRef.current === lifecycleEpoch;
     const handleRefreshEvent = (event: Event): void => {
       const { detail } = event as FileExplorerRefreshEvent;
-      void enqueueRefreshWork(refreshQueueRef, () => processRefreshEvent(detail, isActive)).catch(
-        (error: unknown) => {
-          logger.warn('Unexpected file tree refresh queue failure', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      );
+      if (enqueueFullRefreshEvent(detail, isActive)) {
+        return;
+      }
+      if (detail.source !== 'watcher' || detail.scope !== 'incremental') {
+        return;
+      }
+      void enqueueOrdinaryRefreshWork(refreshQueueRef, pendingFullRefreshRef, () =>
+        processRefreshEvent(detail, isActive)
+      ).catch((error: unknown) => {
+        logger.warn('Unexpected file tree refresh queue failure', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     };
 
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefreshEvent);
@@ -498,8 +643,15 @@ export function useFileTreeRefreshEvents({
       if (lifecycleEpochRef.current === lifecycleEpoch) {
         lifecycleEpochRef.current = lifecycleEpoch + 1;
       }
+      pendingFullRefreshRef.current = null;
     };
-  }, [lifecycleEpochRef, processRefreshEvent, refreshQueueRef]);
+  }, [
+    enqueueFullRefreshEvent,
+    lifecycleEpochRef,
+    pendingFullRefreshRef,
+    processRefreshEvent,
+    refreshQueueRef,
+  ]);
 
   return refreshTreeWithSelection;
 }

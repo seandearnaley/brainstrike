@@ -212,6 +212,11 @@ async function loadSpecificPathsSerial(args: {
 
     await loadChildrenRef.current(path);
 
+    const loadedNode = getNormalizedNode(normalizedTreeRef.current, path);
+    if (loadedNode?.type === 'directory' && loadedNode.loadState === 'error') {
+      throw new Error(loadedNode.loadError ?? `Failed to restore directory: ${path}`);
+    }
+
     onProgress?.(index + 1, total, path);
   }
 }
@@ -289,7 +294,11 @@ export interface UseLazyFileTreeReturn {
   loadingPaths: Set<string>;
   /** Load root directory contents */
   loadRoot: () => Promise<RootLoadOutcome>;
-  /** Load specific paths using worker (for restoration) */
+  /**
+   * Load specific paths for restoration. Non-abort worker, patch, and serial
+   * read failures update the visible tree error and reject; callers must
+   * handle the rejection so a failed restoration remains retryable.
+   */
   loadSpecificPaths: (
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
@@ -818,7 +827,12 @@ export function useLazyFileTree(
       // Publish loading before a possible forced-boundary await. Ordinary
       // initial loads must not expose a transient false-idle frame, and a
       // forced load waiting out another provider remains visibly in progress.
-      setState(createLoadRootPendingState);
+      setState((currentState) =>
+        createLoadRootPendingState(
+          currentState,
+          lastAppliedRootLoadRef.current === null || force || forceFreshBoundary
+        )
+      );
       let rootConsumerController: AbortController | null = null;
       try {
         await enforceForcedRootLoadBoundary({

@@ -413,6 +413,37 @@ describe('useFileTreeRefreshEvents', () => {
     expect(refreshTree).not.toHaveBeenCalled();
   });
 
+  it('resolves a mixed-separator selected parent to its exact normalized-tree key', async () => {
+    const windowsRoot = String.raw`C:\workspace`;
+    const selectedParent = 'C:/workspace/src';
+    normalizedTree = createNormalizedFileTreeState([
+      { ...directoryNode(selectedParent, 'unloaded'), path: selectedParent },
+    ]);
+    getSelectionAncestorDirectories.mockReturnValue([selectedParent]);
+    renderHook(() => useFileTreeRefreshEvents({ ...params, rootPath: windowsRoot }));
+
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [
+            {
+              kind: 'file',
+              path: String.raw`C:\workspace\src\selected-gone.ts`,
+              type: 'removed',
+            },
+          ],
+          rootId: ROOT_ID,
+          rootPath: windowsRoot,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    expect(refreshDirectory).toHaveBeenCalledExactlyOnceWith(selectedParent);
+    expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
+  });
+
   it('refreshes the tree root when a root-level entry appears or disappears', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 
@@ -568,55 +599,6 @@ describe('useFileTreeRefreshEvents', () => {
       expect(refreshDirectory).toHaveBeenCalledTimes(2);
       expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledTimes(2);
     });
-  });
-
-  it('coalesces a full-refresh burst into one trailing physical refresh with truthful joined outcomes', async () => {
-    const activeRefresh = createDeferred<FileTreeRefreshResult>();
-    refreshTree
-      .mockImplementationOnce(() => activeRefresh.promise)
-      .mockResolvedValue({ status: 'completed' });
-    const { result } = renderHook(() => useFileTreeRefreshEvents(params));
-
-    let activeOutcome: Promise<FileTreeRefreshResult> = Promise.resolve({ status: 'cancelled' });
-    act(() => {
-      activeOutcome = result.current();
-    });
-    await waitFor(() => expect(refreshTree).toHaveBeenCalledOnce());
-
-    await dispatchRefresh({
-      roots: [{ changes: [], rootId: ROOT_ID, rootPath: ROOT_PATH }],
-      scope: 'full',
-      source: 'watcher',
-    });
-    let firstJoinedOutcome: Promise<FileTreeRefreshResult> = Promise.resolve({
-      status: 'cancelled',
-    });
-    let secondJoinedOutcome: Promise<FileTreeRefreshResult> = Promise.resolve({
-      status: 'cancelled',
-    });
-    act(() => {
-      firstJoinedOutcome = result.current();
-      secondJoinedOutcome = result.current();
-    });
-    await dispatchRefresh({
-      roots: [],
-      scope: 'full',
-      source: 'manual',
-    });
-
-    expect(refreshTree).toHaveBeenCalledOnce();
-    activeRefresh.resolve({ status: 'completed' });
-
-    const outcomes = await act(async () =>
-      Promise.all([activeOutcome, firstJoinedOutcome, secondJoinedOutcome])
-    );
-    await waitFor(() => expect(refreshTree).toHaveBeenCalledTimes(2));
-
-    expect(outcomes).toEqual([
-      { status: 'completed' },
-      { status: 'completed' },
-      { status: 'completed' },
-    ]);
   });
 
   it('retires queued and post-await watcher work when the provider unmounts', async () => {

@@ -51,7 +51,7 @@ export function isPathSelectedInFolder(
  * Gets all selected paths for a specific folder
  */
 export function getSelectedPathsForFolder(
-  selectedPaths: Set<string>,
+  selectedPaths: ReadonlySet<string>,
   folderId: string
 ): Set<string> {
   const paths = new Set<string>();
