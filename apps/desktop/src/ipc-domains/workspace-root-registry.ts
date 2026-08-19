@@ -5,6 +5,7 @@ import {
   type DirectoryHandle,
   type FileHandle,
   type IFileNode,
+  isDurableRootId,
 } from '@brainstrike/file-system';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
@@ -405,27 +406,48 @@ export class WorkspaceRootRegistry {
     );
   }
 
-  readFileByAbsolutePath(requestedPath: unknown, claimedRootPath: unknown): Promise<string> {
-    assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
-    assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
-    return this.withReadDenialLogging('readFileByAbsolutePath', requestedPath, undefined, () =>
-      this.readFileByAbsolutePathUnlogged(requestedPath, claimedRootPath)
-    );
+  readFileByAbsolutePath(
+    requestedPath: unknown,
+    claimedRootPath: unknown,
+    claimedRootId: unknown
+  ): Promise<string> {
+    const diagnosticPath = typeof requestedPath === 'string' ? requestedPath : '';
+    return this.withReadDenialLogging('readFileByAbsolutePath', diagnosticPath, undefined, () => {
+      assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
+      assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
+      if (!isDurableRootId(claimedRootId)) {
+        throw new AccessError(
+          'Claimed workspace root identity must be a durable rootId.',
+          diagnosticPath,
+          'read'
+        );
+      }
+      return this.readFileByAbsolutePathUnlogged(requestedPath, claimedRootPath, claimedRootId);
+    });
   }
 
   private async readFileByAbsolutePathUnlogged(
     requestedPath: string,
-    claimedRootPath: string
+    claimedRootPath: string,
+    claimedRootId: string
   ): Promise<string> {
     await this.mutationTail;
     this.assertActive();
-    const mounted = [...this.mounted.values()].find(
-      (candidate) =>
-        pathsEqual(candidate.presentationPath, claimedRootPath) ||
-        pathsEqual(candidate.canonicalPath, claimedRootPath)
-    );
+    const mounted = this.mounted.get(claimedRootId);
     if (!mounted) {
-      throw new AccessError('Claimed workspace root is not mounted.', claimedRootPath, 'read');
+      throw new AccessError('Claimed workspace rootId is not mounted.', requestedPath, 'read');
+    }
+    if (
+      !(
+        pathsEqual(mounted.presentationPath, claimedRootPath) ||
+        pathsEqual(mounted.canonicalPath, claimedRootPath)
+      )
+    ) {
+      throw new AccessError(
+        'Claimed workspace root path does not match the mounted workspace rootId.',
+        requestedPath,
+        'read'
+      );
     }
     const resolved = await resolveReadAgainstMountedRoot(
       requestedPath,

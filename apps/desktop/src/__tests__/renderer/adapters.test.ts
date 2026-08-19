@@ -192,9 +192,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
 
         await expect(
           adapter.readFileByAbsolutePath(absolutePath, rootPath, 'root-project')
-        ).rejects.toThrow(
-          'absolute path'
-        );
+        ).rejects.toThrow('absolute path');
         expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
       }
     );

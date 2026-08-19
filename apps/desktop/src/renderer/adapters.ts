@@ -2,6 +2,7 @@ import {
   type DirectoryHandle,
   type FileHandle,
   type FileSystemAdapter,
+  isDurableRootId,
   isFullyQualifiedFileSystemPath,
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
@@ -218,12 +219,20 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
   /**
    * Explicit absolute-path capability. The renderer confines the path to
-   * `rootPath`; main independently authorizes it against the mounted registry.
+   * `rootPath`; main exact-binds `rootId` and that path against the mounted
+   * registry before authorizing the file.
    */
-  async readFileByAbsolutePath(absolutePath: string, rootPath: string): Promise<string> {
+  async readFileByAbsolutePath(
+    absolutePath: string,
+    rootPath: string,
+    rootId: string
+  ): Promise<string> {
     assertExplicitAbsoluteReadPath(rootPath, 'Mounted root path');
     assertExplicitAbsoluteReadPath(absolutePath, 'Requested file path');
-    return requireElectronAPI().fileSystem.readFileByAbsolutePath(absolutePath, rootPath);
+    if (!isDurableRootId(rootId)) {
+      throw new Error('Mounted root identity must be a durable rootId');
+    }
+    return requireElectronAPI().fileSystem.readFileByAbsolutePath(absolutePath, rootPath, rootId);
   }
 
   async exists(path: string): Promise<boolean> {

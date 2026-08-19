@@ -82,7 +82,11 @@ function attachAbsolutePathRead(
 ): void {
   (
     adapter as unknown as {
-      readFileByAbsolutePath: (absolutePath: string, rootPath: string) => Promise<string>;
+      readFileByAbsolutePath: (
+        absolutePath: string,
+        rootPath: string,
+        rootId: string
+      ) => Promise<string>;
     }
   ).readFileByAbsolutePath = (absolutePath) => readFileByPath(absolutePath);
 }
@@ -860,7 +864,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(mockWorker).not.toHaveBeenCalled();
     expect(readFileByPathSpy).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toBe(
-      buildInaccessibleContent('direct read path is unavailable or outside the mounted root')
+      buildInaccessibleContent('direct read root identity is unavailable')
     );
   });
 
@@ -900,7 +904,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(mockWorker).not.toHaveBeenCalled();
     expect(readFileByPathSpy).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toBe(
-      buildInaccessibleContent('direct read path is unavailable or outside the mounted root')
+      buildInaccessibleContent('direct read root identity is unavailable')
     );
   });
 
@@ -917,7 +921,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     ).readFileByPath = readFileByPathSpy;
     attachAbsolutePathRead(adapter, readFileByPathSpy);
 
-    const rootFolderId = '/workspace/root';
+    const rootFolderId = '22222222-0000-4000-8000-000000000022';
     const compositeKey = encodeFileSelection(rootFolderId, 'src/dynamic.ts');
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId });
 
@@ -946,6 +950,15 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     const wrapper = createWrapper(adapter);
     const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
+    act(() => {
+      result.current.store.getState().setActiveRoots([
+        {
+          displayName: 'root',
+          path: '/workspace/root',
+          rootId: rootFolderId,
+        },
+      ]);
+    });
 
     await act(async () => {
       const loadPromise = result.current.handleFileContentLoading([compositeKey], 'background');
@@ -956,6 +969,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(mockWorker).toHaveBeenCalledWith(
       [
         expect.objectContaining({
+          absoluteRootId: rootFolderId,
           absoluteRootPath: '/workspace/root',
           compositeKey,
           path: '/workspace/root/src/dynamic.ts',
@@ -1096,7 +1110,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(readFileByPathSpy).not.toHaveBeenCalled();
     expect(mockWorker).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toBe(
-      buildInaccessibleContent('direct read path is unavailable or outside the mounted root')
+      buildInaccessibleContent('direct read root identity is unavailable')
     );
     vi.useRealTimers();
   });

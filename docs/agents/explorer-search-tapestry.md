@@ -843,24 +843,29 @@ fallback.
   files/directories therefore replace the tab with its loading boundary and
   then a visible read-failure result, never the pre-delete content. Listener
   cleanup is provider-scoped. Absolute handleless reads are gated ONLY by the
-  explicit `readFileByAbsolutePath(absolutePath, mountedRootPath)` adapter
+  explicit `readFileByAbsolutePath(absolutePath, mountedRootPath, rootId)` adapter
   method. On desktop that adapter uses the distinct visible-UI-only
-  `fs:readFileByAbsolutePath` IPC channel, which carries BOTH values; main
-  exact-matches the claimed presentation/canonical root against the live root
-  registry before authorizing the requested path. A path under mounted root B
-  therefore cannot be read while claiming mounted root A. `readFileByPath` is
+  `fs:readFileByAbsolutePath` IPC channel, which carries all THREE values. Main
+  exact-maps RootId, verifies the claimed presentation/canonical path belongs to
+  that SAME live mount, then authorizes the requested path. Duplicate
+  presentation aliases and symlink/junction retargets never select the first
+  path match. A path under mounted root B therefore cannot be read while
+  claiming mounted root A or A's durable identity. Legacy path-shaped composite
+  keys without an exact root descriptor fail visibly instead of falling back to
+  path-only lookup. `readFileByPath` is
   adapter-defined—the real web adapter implements
   it for root-relative browser-handle resolution—so its presence is never
   treated as desktop/native authority. Web missing/lazy nodes therefore retain
   their cached-handle and permission route even when their root descriptor is a
   non-absolute folder name. Every explicit request is rejected at both the
-  worker and adapter boundary unless its mounted root and requested file are
-  non-empty fully qualified paths. Native reads use the canonical path returned
+  worker and adapter boundary unless its durable RootId is non-empty and its
+  mounted root and requested file are non-empty fully qualified paths. Native
+  reads use the canonical path returned
   by root validation rather than re-reading the original alias. A
   direct-path-capable adapter completes this read
   even when refresh has produced an empty tree (including deletion of the last
   open file); it never returns fulfilled while leaving the tab pending. Direct
-  worker requests carry the mounted root and never fall back to generic
+  worker requests carry the mounted root and RootId and never fall back to generic
   `readFileByPath` if that explicit capability disappears. Path resolution
   preserves POSIX `/`, Windows drive roots such as `C:\`, and UNC share roots.
   Relative paths reject empty, control, `.` and `..` segments.

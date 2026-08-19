@@ -639,17 +639,19 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
   it('forwards the explicit absolute-path read capability only when the base has it', async () => {
     const base = createBaseAdapter();
     const readFileByAbsolutePath = vi.fn(
-      async (absolutePath: string, rootPath: string) => `${rootPath}:${absolutePath}`
+      async (absolutePath: string, rootPath: string, rootId: string) =>
+        `${rootId}:${rootPath}:${absolutePath}`
     );
     base.readFileByAbsolutePath = readFileByAbsolutePath;
     const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
 
     await expect(
-      adapter.readFileByAbsolutePath?.('/workspace/file.txt', '/workspace')
-    ).resolves.toBe('/workspace:/workspace/file.txt');
+      adapter.readFileByAbsolutePath?.('/workspace/file.txt', '/workspace', 'native-root')
+    ).resolves.toBe('native-root:/workspace:/workspace/file.txt');
     expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
       '/workspace/file.txt',
-      '/workspace'
+      '/workspace',
+      'native-root'
     );
   });
 

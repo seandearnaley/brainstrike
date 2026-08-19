@@ -686,11 +686,12 @@ if (shouldExposeBridge('electronAPI')) {
         const result = await ipcRenderer.invoke(FILE_SYSTEM_READ_FILE_CHANNEL, handle);
         return unwrapFileReadResult(result);
       },
-      readFileByAbsolutePath: async (absolutePath: string, rootPath: string) => {
+      readFileByAbsolutePath: async (absolutePath: string, rootPath: string, rootId: string) => {
         const result = await ipcRenderer.invoke(
           FILE_SYSTEM_READ_FILE_BY_ABSOLUTE_PATH_CHANNEL,
           absolutePath,
-          rootPath
+          rootPath,
+          rootId
         );
         return unwrapFileReadResult(result);
       },

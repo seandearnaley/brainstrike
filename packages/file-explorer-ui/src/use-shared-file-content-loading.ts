@@ -284,12 +284,8 @@ async function handleMissingFileNode(args: {
   compositeKey: string;
   handleCache: CachedHandleLookup | null;
   nodeCacheRef: React.RefObject<Map<string, Map<string, IFileNode>>>;
-  /**
-   * Absolute root path for direct-path reads. Storage v5 folderIds are RootId
-   * UUIDs, so the caller resolves the path from the root descriptor registry;
-   * legacy keys carried the root path AS the id and pass it through unchanged.
-   */
-  rootPathForDirectRead: string;
+  /** Exact durable registry authority for a direct-path read. */
+  directReadAuthority: { readonly rootId: string; readonly rootPath: string } | null;
   setFileContent: (key: string, content: string) => void;
   loadingPathsRef: React.RefObject<Set<string>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -302,7 +298,7 @@ async function handleMissingFileNode(args: {
     compositeKey,
     handleCache,
     nodeCacheRef,
-    rootPathForDirectRead,
+    directReadAuthority,
     setFileContent,
     loadingPathsRef,
     setLoadingFiles,
@@ -310,14 +306,28 @@ async function handleMissingFileNode(args: {
   } = args;
 
   if (supportsDirectPathRead(fileSystemAdapter)) {
-    const directReadPath = resolveDirectReadPath(rootPathForDirectRead, path);
+    if (!directReadAuthority) {
+      logger.warn('Rejected direct file read without durable mounted-root authority');
+      setFileContent(
+        compositeKey,
+        buildInaccessibleContent('direct read root identity is unavailable')
+      );
+      return null;
+    }
+    const directReadPath = resolveDirectReadPath(directReadAuthority.rootPath, path);
     if (directReadPath) {
       markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
-      return { absoluteRootPath: rootPathForDirectRead, compositeKey, path: directReadPath };
+      return {
+        absoluteRootId: directReadAuthority.rootId,
+        absoluteRootPath: directReadAuthority.rootPath,
+        compositeKey,
+        path: directReadPath,
+      };
     }
     logger.warn('Rejected unavailable direct file read path', {
       hasAbsoluteRootPath:
-        rootPathForDirectRead.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(rootPathForDirectRead),
+        directReadAuthority.rootPath.startsWith('/') ||
+        /^[A-Za-z]:[\\/]/u.test(directReadAuthority.rootPath),
     });
     setFileContent(
       compositeKey,
@@ -467,12 +477,17 @@ async function prepareFileReadRequest(
   const handleCache = getHandleCache(fileSystemAdapter);
 
   if (!fileNode) {
-    // Storage v5: folderId is a RootId UUID — resolve the root's absolute
-    // path from the descriptor registry so desktop direct-path reads still
-    // work (restored tabs depend on this before the lazy tree materializes).
-    const rootPathForDirectRead = store.getState().rootDescriptors[folderId]?.path ?? folderId;
+    // Storage v5: folderId must exact-match a durable descriptor. A legacy
+    // path-shaped folderId is not sufficient authority and never falls back to
+    // path-only registry lookup (duplicate presentation aliases are ambiguous).
+    const rootDescriptor = store.getState().rootDescriptors[folderId];
+    const directReadAuthority =
+      rootDescriptor?.rootId === folderId
+        ? { rootId: rootDescriptor.rootId, rootPath: rootDescriptor.path }
+        : null;
     return handleMissingFileNode({
       compositeKey,
+      directReadAuthority,
       fileSystemAdapter,
       fileTree,
       folderId,
@@ -480,7 +495,6 @@ async function prepareFileReadRequest(
       loadingPathsRef,
       nodeCacheRef,
       path,
-      rootPathForDirectRead,
       setFileContent,
       setLoadingFiles,
     });

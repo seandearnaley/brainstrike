@@ -4,6 +4,7 @@ import {
   formatFileSize,
   getFileSizeConfig,
   getFileTooLargeMessage,
+  isDurableRootId,
   isFullyQualifiedFileSystemPath,
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
@@ -17,6 +18,8 @@ import {
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 
 export interface FileReadRequest {
+  /** Durable identity required with `absoluteRootPath`. */
+  absoluteRootId?: string;
   /** Mounted native root required when `handle` is absent for an absolute read. */
   absoluteRootPath?: string;
   compositeKey: string;
@@ -70,19 +73,26 @@ async function readRequestContent(
   if (request.handle) {
     return fileSystemAdapter.readFile(request.handle);
   }
-  if (request.absoluteRootPath !== undefined) {
+  if (request.absoluteRootPath !== undefined || request.absoluteRootId !== undefined) {
     if (
       !(
+        isDurableRootId(request.absoluteRootId) &&
         isFullyQualifiedFileSystemPath(request.absoluteRootPath) &&
         isFullyQualifiedFileSystemPath(request.path)
       )
     ) {
-      throw new Error('Absolute path reads require non-empty fully qualified root and file paths');
+      throw new Error(
+        'Absolute path reads require durable root identity and non-empty fully qualified root and file paths'
+      );
     }
     if (!fileSystemAdapter.readFileByAbsolutePath) {
       throw new Error('Absolute path read capability is unavailable');
     }
-    return fileSystemAdapter.readFileByAbsolutePath(request.path, request.absoluteRootPath);
+    return fileSystemAdapter.readFileByAbsolutePath(
+      request.path,
+      request.absoluteRootPath,
+      request.absoluteRootId
+    );
   }
   if (!fileSystemAdapter.readFileByPath) {
     throw new Error('No handle or path-read capability is available');

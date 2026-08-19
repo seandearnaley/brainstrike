@@ -519,10 +519,10 @@ export function registerFileSystemIpcHandlers({
     'files',
     DESKTOP_IPC_CHANNELS.files.readFileByAbsolutePath,
     { roles: ['visible-ui'] },
-    async (_event, absolutePath: unknown, claimedRootPath: unknown) => {
+    async (_event, absolutePath: unknown, claimedRootPath: unknown, claimedRootId: unknown) => {
       const diagnosticPath = typeof absolutePath === 'string' ? absolutePath : '';
       try {
-        return await roots.readFileByAbsolutePath(absolutePath, claimedRootPath);
+        return await roots.readFileByAbsolutePath(absolutePath, claimedRootPath, claimedRootId);
       } catch (error) {
         const payload = toFileReadErrorPayload(error, diagnosticPath);
         if (payload) {

@@ -62,19 +62,28 @@ function createWrapper(adapter: MockFileSystemAdapter) {
 describe('useSharedFileContentLoading reload ordering', () => {
   it('replaces cached open-tab bytes with a terminal missing result when refresh leaves an empty tree', async () => {
     const adapter = new MockFileSystemAdapter();
-    const compositeKey = encodeFileSelection('/workspace', '/workspace/only-open-file.txt');
+    const rootId = '33333333-0000-4000-8000-000000000033';
+    const compositeKey = encodeFileSelection(rootId, '/workspace/only-open-file.txt');
     const readFileByPath = vi
       .fn<(path: string) => Promise<string>>()
       .mockRejectedValue(new Error('ENOENT: file was deleted'));
     (
       adapter as unknown as {
-        readFileByAbsolutePath: (absolutePath: string, rootPath: string) => Promise<string>;
+        readFileByAbsolutePath: (
+          absolutePath: string,
+          rootPath: string,
+          rootId: string
+        ) => Promise<string>;
         readFileByPath: typeof readFileByPath;
       }
     ).readFileByPath = readFileByPath;
     (
       adapter as unknown as {
-        readFileByAbsolutePath: (absolutePath: string, rootPath: string) => Promise<string>;
+        readFileByAbsolutePath: (
+          absolutePath: string,
+          rootPath: string,
+          rootId: string
+        ) => Promise<string>;
       }
     ).readFileByAbsolutePath = (absolutePath) => readFileByPath(absolutePath);
     const worker = vi.fn(
@@ -114,6 +123,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
       { wrapper }
     );
     act(() => {
+      result.current.store
+        .getState()
+        .setActiveRoots([{ displayName: 'workspace', path: '/workspace', rootId }]);
       result.current.store.getState().setFileContent(compositeKey, 'cached before deletion');
     });
 
@@ -124,6 +136,7 @@ describe('useSharedFileContentLoading reload ordering', () => {
     expect(worker).toHaveBeenCalledWith(
       [
         expect.objectContaining({
+          absoluteRootId: rootId,
           absoluteRootPath: '/workspace',
           compositeKey,
           path: '/workspace/only-open-file.txt',

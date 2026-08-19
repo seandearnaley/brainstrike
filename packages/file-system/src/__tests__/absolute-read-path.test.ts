@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isFullyQualifiedFileSystemPath } from '../absolute-read-path.js';
+import { isDurableRootId, isFullyQualifiedFileSystemPath } from '../absolute-read-path.js';
 
 describe('isFullyQualifiedFileSystemPath', () => {
   it.each([
@@ -25,4 +25,18 @@ describe('isFullyQualifiedFileSystemPath', () => {
   ])('rejects incomplete or nonabsolute path %s', (value) => {
     expect(isFullyQualifiedFileSystemPath(value)).toBe(false);
   });
+});
+
+describe('isDurableRootId', () => {
+  it('accepts non-empty durable identities without imposing a UUID migration', () => {
+    expect(isDurableRootId('root-a')).toBe(true);
+    expect(isDurableRootId('11111111-0000-4000-8000-000000000011')).toBe(true);
+  });
+
+  it.each(['', '   ', 'root\nsecret', null, undefined])(
+    'rejects malformed durable root identity %s',
+    (value) => {
+      expect(isDurableRootId(value)).toBe(false);
+    }
+  );
 });

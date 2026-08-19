@@ -219,7 +219,11 @@ export interface ElectronFileSystemAPI {
    * Read an absolute path through the exact mounted root claimed by the
    * renderer. Main rejects cross-root claims even when both roots are mounted.
    */
-  readFileByAbsolutePath: (absolutePath: string, rootPath: string) => Promise<string>;
+  readFileByAbsolutePath: (
+    absolutePath: string,
+    rootPath: string,
+    rootId: string
+  ) => Promise<string>;
   /**
    * Read by absolute path within a currently mounted root. Useful for loading
    * persisted file tabs before the file tree is available.

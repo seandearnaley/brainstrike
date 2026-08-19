@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils';
-import { isFullyQualifiedFileSystemPath } from '../absolute-read-path.js';
+import { isDurableRootId, isFullyQualifiedFileSystemPath } from '../absolute-read-path.js';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors.js';
 import {
   createMetadataCache,
@@ -587,9 +587,19 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   }
 
   /** Explicit root-confined native-path capability for handleless readers. */
-  async readFileByAbsolutePath(absolutePath: string, rootPath: string): Promise<string> {
+  async readFileByAbsolutePath(
+    absolutePath: string,
+    rootPath: string,
+    rootId: string
+  ): Promise<string> {
     assertNativeAbsoluteReadPath(rootPath, 'Mounted root path');
     assertNativeAbsoluteReadPath(absolutePath, 'Requested file path');
+    if (!isDurableRootId(rootId)) {
+      throw new AccessError('Mounted root identity must be a durable rootId.', '', 'read');
+    }
+    // This non-registry adapter has no mount table: rootPath remains its native
+    // confinement authority. rootId is validated for contract parity, never
+    // reinterpreted as a path and never used to fall back to an unscoped read.
     return this.readFileByPath(absolutePath, rootPath);
   }
 

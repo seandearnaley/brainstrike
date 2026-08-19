@@ -35,3 +35,8 @@ export function isFullyQualifiedFileSystemPath(value: unknown): value is string 
   }
   return value.startsWith('/');
 }
+
+/** Browser-safe shape check for durable root authority carried over scoped reads. */
+export function isDurableRootId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !hasAsciiControlCharacter(value);
+}

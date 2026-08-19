@@ -105,8 +105,13 @@ standing rules follow:
 
 The handleless native file-read channel `fs:readFileByAbsolutePath` is also
 visible-UI-only. Its typed payload carries both the requested absolute path and
-the exact claimed mounted-root path; main resolves that root identity in the
-live `WorkspaceRootRegistry` and rejects cross-root claims. The legacy
+the exact claimed mounted-root path plus its durable RootId. Main resolves the
+RootId FIRST in the live `WorkspaceRootRegistry`, verifies the claimed
+presentation/canonical path belongs to that same mount, and only then confines
+the requested file. Duplicate presentation aliases or a symlink/junction
+retarget therefore cannot make insertion order choose authority. Malformed
+path/root/rootId assertions execute inside the durable denial logger and emit
+exactly one bounded diagnostic record. The legacy
 `fs:readFileByPath` channel remains a separate generic mounted-path API and is
 never a fallback for the scoped capability.
 

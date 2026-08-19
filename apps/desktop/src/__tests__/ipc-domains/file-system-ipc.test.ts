@@ -1,12 +1,8 @@
 import path from 'node:path';
-import {
-  AccessError,
-  type DirectoryHandle,
-  type FileHandle,
-  type RootDescriptor,
-} from '@brainstrike/file-system';
+import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import type { RootDescriptor } from '@brainstrike/types';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
