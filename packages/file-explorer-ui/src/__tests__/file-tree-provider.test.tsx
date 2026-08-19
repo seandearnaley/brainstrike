@@ -1,5 +1,11 @@
 import '@testing-library/jest-dom/vitest';
-import type { IFileNode } from '@brainstrike/types';
+import type {
+  FileExplorerState,
+  FolderState,
+  IFileNode,
+  QuerySelectionManifest,
+  SelectionModel,
+} from '@brainstrike/types';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -109,6 +115,41 @@ function createDeferred<T>(): {
     resolve = promiseResolve;
   });
   return { promise, resolve };
+}
+
+function createManifest(filePaths: string[]): QuerySelectionManifest {
+  return {
+    directoryCounts: new Map([['/workspace/src', filePaths.length]]),
+    errorMessage: null,
+    filePaths,
+    fingerprint: 'stable-fingerprint',
+    pathSet: new Set(filePaths),
+    snapshotId: 'stable-snapshot',
+    status: 'ready',
+  };
+}
+
+function createQuerySelectionModel(rootId: string): SelectionModel {
+  return {
+    explicitPaths: new Set<string>(),
+    materializedAt: null,
+    materializedPaths: null,
+    mode: 'query',
+    queryDescriptor: {
+      coveredDirectoryPaths: ['/workspace/src'],
+      excludedPaths: [],
+      excludeFilters: [],
+      folderId: rootId,
+      includedPaths: [],
+      includeFilters: ['**/*.ts'],
+      kind: 'recursive-select-all',
+      manifestFingerprint: 'stable-fingerprint',
+      manifestSnapshotId: 'stable-snapshot',
+      rootPath: null,
+      totalSelectedCount: 1,
+      useRegex: false,
+    },
+  };
 }
 
 function Consumer(): ReactNode {
@@ -587,6 +628,192 @@ describe('FileTreeProvider', () => {
     expect(watcherStartedBeforeManualSettled).toBe(false);
     expect(reconcileSelectionWithDirectorySnapshotsMock).toHaveBeenCalledOnce();
     expect(selectedNewFile).toBe(true);
+  });
+
+  it('returns cancelled when the direct refresh authority unmounts during its root read', async () => {
+    const rawRefreshGate = createDeferred<FileTreeRefreshResult>();
+    const rawRefreshTree = vi.fn(() => rawRefreshGate.promise);
+    const baseFileTreeState = useFileTreeMock();
+    useFileTreeMock.mockClear();
+    useFileTreeMock.mockReturnValue({
+      ...baseFileTreeState,
+      refreshTree: rawRefreshTree,
+    });
+    let refreshFromContext: ReturnType<typeof useFileTreeContext>['refreshTree'] | null = null;
+    function RefreshProbe(): null {
+      refreshFromContext = useFileTreeContext().refreshTree;
+      return null;
+    }
+    const { unmount } = render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle}>
+        <RefreshProbe />
+      </FileTreeProvider>
+    );
+
+    let refreshResult = Promise.resolve<FileTreeRefreshResult>({ status: 'completed' });
+    act(() => {
+      refreshResult = refreshFromContext?.() ?? refreshResult;
+    });
+    await waitFor(() => expect(rawRefreshTree).toHaveBeenCalledOnce());
+    unmount();
+    rawRefreshGate.resolve({ status: 'completed' });
+
+    await expect(refreshResult).resolves.toEqual({ status: 'cancelled' });
+  });
+
+  it('discards a gated snapshot when query manifest paths change without selectionVersion', async () => {
+    const rootId = 'query-root-id';
+    const srcPath = `${rootHandle.path}/src`;
+    const srcNode: IFileNode = {
+      children: [],
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      isVisible: true,
+      loadState: 'loaded',
+      name: 'src',
+      path: srcPath,
+      rootFolderId: rootId,
+      selectionState: 'unchecked',
+      type: 'directory',
+    };
+    const normalizedTreeRef = { current: createNormalizedFileTreeState([srcNode]) };
+    const refreshGate = createDeferred<void>();
+    const refreshDirectory = vi.fn(async (path: string) => {
+      await refreshGate.promise;
+      return { directoryPath: path, entries: [] };
+    });
+    let state = {
+      currentFolderId: rootId,
+      folderStates: {},
+      querySelectionManifest: createManifest([`${srcPath}/old.ts`]),
+      reconcileSelectionWithDirectorySnapshot: reconcileSelectionWithDirectorySnapshotMock,
+      reconcileSelectionWithDirectorySnapshots: reconcileSelectionWithDirectorySnapshotsMock,
+      selectedFilePaths: new Set<string>(),
+      selectionModel: createQuerySelectionModel(rootId),
+      selectionVersion: 0,
+    } as unknown as FileExplorerState;
+    Object.assign(storeMock, { getState: () => state });
+    const baseFileTreeState = useFileTreeMock();
+    useFileTreeMock.mockClear();
+    useFileTreeMock.mockReturnValue({
+      ...baseFileTreeState,
+      __internalNormalizedTreeRef: normalizedTreeRef,
+      refreshDirectory,
+      refreshTree: vi.fn().mockResolvedValue({ status: 'completed' as const }),
+    });
+    render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={rootId}>
+        <Consumer />
+      </FileTreeProvider>
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: `${srcPath}/gone.ts`, type: 'removed' }],
+              rootId,
+              rootPath: rootHandle.path,
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
+    state = {
+      ...state,
+      querySelectionManifest: createManifest([`${srcPath}/new.ts`]),
+    };
+    refreshGate.resolve();
+    await act(async () => Promise.resolve());
+
+    expect(reconcileSelectionWithDirectorySnapshotsMock).not.toHaveBeenCalled();
+  });
+
+  it('discards a gated snapshot when its foreign-root selection changes', async () => {
+    const rootId = 'foreign-root-id';
+    const srcPath = `${rootHandle.path}/src`;
+    const srcNode: IFileNode = {
+      children: [],
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      isVisible: true,
+      loadState: 'loaded',
+      name: 'src',
+      path: srcPath,
+      rootFolderId: rootId,
+      selectionState: 'unchecked',
+      type: 'directory',
+    };
+    const normalizedTreeRef = { current: createNormalizedFileTreeState([srcNode]) };
+    const refreshGate = createDeferred<void>();
+    const refreshDirectory = vi.fn(async (path: string) => {
+      await refreshGate.promise;
+      return { directoryPath: path, entries: [] };
+    });
+    const createForeignFolderState = (path: string): FolderState =>
+      ({
+        selectedFilePaths: new Set([`${rootId}|@|${path}`]),
+        selectionModel: {
+          explicitPaths: new Set([`${rootId}|@|${path}`]),
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
+          queryDescriptor: null,
+        },
+      }) as FolderState;
+    let state = {
+      currentFolderId: 'focused-root-id',
+      folderStates: { [rootId]: createForeignFolderState(`${srcPath}/old.ts`) },
+      querySelectionManifest: null,
+      reconcileSelectionWithDirectorySnapshot: reconcileSelectionWithDirectorySnapshotMock,
+      reconcileSelectionWithDirectorySnapshots: reconcileSelectionWithDirectorySnapshotsMock,
+      selectedFilePaths: new Set<string>(),
+      selectionModel: createQuerySelectionModel('focused-root-id'),
+      selectionVersion: 0,
+    } as unknown as FileExplorerState;
+    Object.assign(storeMock, { getState: () => state });
+    const baseFileTreeState = useFileTreeMock();
+    useFileTreeMock.mockClear();
+    useFileTreeMock.mockReturnValue({
+      ...baseFileTreeState,
+      __internalNormalizedTreeRef: normalizedTreeRef,
+      refreshDirectory,
+      refreshTree: vi.fn().mockResolvedValue({ status: 'completed' as const }),
+    });
+    render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={rootId}>
+        <Consumer />
+      </FileTreeProvider>
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: `${srcPath}/gone.ts`, type: 'removed' }],
+              rootId,
+              rootPath: rootHandle.path,
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
+    state = {
+      ...state,
+      folderStates: { [rootId]: createForeignFolderState(`${srcPath}/new.ts`) },
+    };
+    refreshGate.resolve();
+    await act(async () => Promise.resolve());
+
+    expect(reconcileSelectionWithDirectorySnapshotsMock).not.toHaveBeenCalled();
   });
 
   it('keeps FileTreeContext value identity stable across re-renders when deps are unchanged', () => {

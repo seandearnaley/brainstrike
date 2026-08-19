@@ -21,6 +21,17 @@ import type { FileTreeDirectorySnapshot, FileTreeRefreshResult } from '../use-la
 const ROOT_PATH = '/workspace';
 const ROOT_ID = 'root-uuid-1';
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 function directoryNode(path: string, loadState: 'loaded' | 'unloaded'): IFileNode {
   return {
     children: [],
@@ -278,17 +289,17 @@ describe('useFileTreeRefreshEvents', () => {
       ...shallowPaths.slice(1).map((path) => directoryNode(path, 'loaded')),
     ]);
     getSelectionAncestorDirectories.mockReturnValue([...shallowPaths, deepPath]);
-    let releaseShallowReads: (() => void) | undefined;
-    const shallowReadGate = new Promise<void>((resolve) => {
-      releaseShallowReads = resolve;
-    });
+    const firstFiveGates = shallowPaths.slice(0, 5).map(() => createDeferred<void>());
     let activeShallowReads = 0;
     let maxActiveShallowReads = 0;
     refreshDirectory.mockImplementation(async (path) => {
       if (shallowPaths.includes(path)) {
         activeShallowReads += 1;
         maxActiveShallowReads = Math.max(maxActiveShallowReads, activeShallowReads);
-        await shallowReadGate;
+        const firstWaveIndex = shallowPaths.slice(0, 5).indexOf(path);
+        if (firstWaveIndex >= 0) {
+          await firstFiveGates[firstWaveIndex]?.promise;
+        }
         activeShallowReads -= 1;
       }
       return { directoryPath: path, entries: [] };
@@ -296,17 +307,20 @@ describe('useFileTreeRefreshEvents', () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 
     await dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
-    await waitFor(() => expect(refreshDirectory).toHaveBeenCalled());
-    await act(async () => Promise.resolve());
-    const callsBeforeRelease = refreshDirectory.mock.calls.length;
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(5));
 
-    act(() => {
-      releaseShallowReads?.();
-    });
+    firstFiveGates[1]?.resolve();
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(6));
+
+    expect(refreshDirectory.mock.calls[5]?.[0]).toBe(shallowPaths[5]);
+    expect(refreshDirectory).not.toHaveBeenCalledWith(deepPath);
+    expect(maxActiveShallowReads).toBe(5);
+
+    for (const gate of firstFiveGates) {
+      gate.resolve();
+    }
     await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(7));
 
-    expect(callsBeforeRelease).toBe(5);
-    expect(maxActiveShallowReads).toBe(5);
     expect(refreshDirectory.mock.calls.at(-1)?.[0]).toBe(deepPath);
     expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
   });
