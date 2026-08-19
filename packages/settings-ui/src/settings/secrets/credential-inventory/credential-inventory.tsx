@@ -2,30 +2,27 @@ import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
   createStoredKeyFingerprint,
   type DeprecatedEnvVarReport,
-  isAllowedProviderKeySourceEnvVar,
   type ProviderAuthMode,
   type ProviderCredential,
   type ProviderKeySource,
   parseProviderKeySources,
 } from '@brainstrike/assistant-contract';
-import {
-  listProviders,
-  providerAuthType,
-  providerEnvKeys,
-  type SupportedProvider,
-} from '@brainstrike/assistant-contract/provider-metadata';
-import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { Table, TableBody, TableHead, TableHeader, TableRow, useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { CredentialLoadError } from '../credential-load-error';
+// Parsing rules are shared with the Provider Hub page so the two readers of
+// the same listing cannot disagree about what it means (BST-1358).
+import {
+  invalidCredentialStatus,
+  isAllowedProviderEnvVar,
+  allowedProviderKeyIds as listAllowedProviderKeyIds,
+} from '../credential-source-rules';
 import type { CredentialSourceState } from '../provider-key-types';
-import { getSecretsCapability, TAVILY_SECRET_PROVIDER } from '../provider-key-types';
+import { getSecretsCapability } from '../provider-key-types';
 import { useCredentialMutations } from '../use-credential-mutations';
 import { CredentialRow } from './credential-row';
 import { type CredentialSlot, listCredentialSlots } from './credential-slots';
-
-/** Canonical list — never re-spelled here (BST-1363 review). */
-const TAVILY_ENV_KEY_SET = new Set<string>(TAVILY_ENV_KEYS);
 
 // Frozen module constants back the prop defaults so a caller omitting them
 // gets the SAME reference every render — otherwise each render would allocate
@@ -33,26 +30,6 @@ const TAVILY_ENV_KEY_SET = new Set<string>(TAVILY_ENV_KEYS);
 const EMPTY_DEPRECATED_ENV_VARS: readonly DeprecatedEnvVarReport[] = Object.freeze([]);
 const EMPTY_STATUS_PROVIDER_KEY_SOURCES: readonly ProviderKeySource<SupportedProvider>[] =
   Object.freeze([]);
-
-function invalidCredentialStatus(): Error {
-  return new Error('The desktop returned invalid credential status metadata.');
-}
-
-function isAllowedProviderEnvVar(provider: string, envVar: string): boolean {
-  if (provider === TAVILY_SECRET_PROVIDER) {
-    return TAVILY_ENV_KEY_SET.has(envVar);
-  }
-  const supported = provider as SupportedProvider;
-  // BST-1353: an aws-authType provider may report a chain ACTIVATION name
-  // (AWS_PROFILE / AWS_ACCESS_KEY_ID) as its source. Those are configuration,
-  // not credentials, so they are absent from the registry — the shared rule
-  // admits them so this parser and the app-shell one cannot drift.
-  return isAllowedProviderKeySourceEnvVar(
-    envVar,
-    providerEnvKeys(supported),
-    providerAuthType(supported) === 'aws'
-  );
-}
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -255,14 +232,7 @@ export function CredentialInventory({
   // the UNFILTERED registry plus Tavily, independent of slot filtering —
   // matching assistant-preferences-store's CONFIGURED_KEY_PROVIDER_IDS so the
   // two strict consumers of the shared parser cannot drift.
-  const allowedProviderKeyIds = useMemo(
-    () =>
-      new Set<string>([
-        ...listProviders().map((definition) => definition.id),
-        TAVILY_SECRET_PROVIDER,
-      ]),
-    []
-  );
+  const allowedProviderKeyIds = useMemo(() => listAllowedProviderKeyIds(), []);
 
   const [state, dispatch] = useReducer(inventoryReducer, {
     busySlotIds: new Set<string>(),

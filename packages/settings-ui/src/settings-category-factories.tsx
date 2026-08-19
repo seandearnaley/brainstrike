@@ -1,6 +1,5 @@
 import { ThemeSettings } from '@brainstrike/ui';
 import { Bot, Cpu, Palette, Search, Settings, ShieldCheck, Sigma, Webhook } from 'lucide-react';
-import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
@@ -72,32 +71,6 @@ export function createFactoryResetSettingsCategory(
     id: 'factory-reset',
     keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
     title: 'Factory Reset',
-  };
-}
-
-export function createModelRegistrySettingsCategory(options: {
-  assistantMemoryBackendAvailable: boolean;
-}): SettingsCategory {
-  return {
-    content: (
-      <ModelSelectionPage
-        assistantMemoryBackendAvailable={options.assistantMemoryBackendAvailable}
-      />
-    ),
-    description: 'Choose chat and embedding models, manage downloads, and configure providers.',
-    icon: Settings,
-    id: 'models',
-    keywords: [
-      'models',
-      'providers',
-      'llm',
-      'embedding',
-      'openai',
-      'anthropic',
-      'google',
-      'download',
-    ],
-    title: 'Models & Providers',
   };
 }
 

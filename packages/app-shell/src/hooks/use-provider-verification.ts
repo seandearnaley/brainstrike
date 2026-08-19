@@ -1,7 +1,30 @@
-import type { ProviderVerificationLookup } from '@brainstrike/assistant-contract';
+import type {
+  ProviderVerificationLookup,
+  ProviderVerificationSnapshot,
+} from '@brainstrike/assistant-contract';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchProviderVerification } from '../provider-verification-client';
 import { resolveAssistantAuthHeaders, resolveAssistantBaseUrl } from './use-assistant-availability';
+
+/**
+ * Run one verification probe, resolving the assistant transport first.
+ *
+ * A plain async FUNCTION, deliberately: settings-ui owns the Provider Hub's
+ * probe UI but cannot import this package (app-shell depends on settings-ui,
+ * so the reverse would close a cycle). Handing it a hook would break the rules
+ * of hooks at the wiring site — a hook may not be passed as a value — whereas
+ * a function is just data. The React state around it lives in the component
+ * that renders it (`use-provider-verification-state` in settings-ui).
+ */
+export function verifyProviderCredential(
+  providerId: string,
+  signal: AbortSignal
+): Promise<ProviderVerificationSnapshot> {
+  return Promise.all([resolveAssistantBaseUrl(), resolveAssistantAuthHeaders()]).then(
+    ([baseUrl, authHeaders]) =>
+      fetchProviderVerification({ authHeaders, baseUrl, providerId, signal })
+  );
+}
 
 const MAX_VISIBLE_ERROR_CHARS = 300;
 

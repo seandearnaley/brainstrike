@@ -219,7 +219,7 @@ describe('Desktop SettingsPageContent', () => {
     expect(await within(nav).findByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
   });
 
-  it('renders LLM credentials form fields in Models & Providers', async () => {
+  it('renders the Provider Hub, not a separate API Keys category', async () => {
     render(
       <ThemeProvider storageAdapter={themeStorageAdapter}>
         <TooltipProvider>
@@ -228,12 +228,16 @@ describe('Desktop SettingsPageContent', () => {
       </ThemeProvider>
     );
 
-    const modelsButton = await screen.findByRole('button', { name: /Models & Providers/i });
-    fireEvent.click(modelsButton);
+    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
+    // BST-1358 replaced "API Keys" + "Models & Providers" with one surface.
+    expect(within(nav).queryByRole('button', { name: /^API Keys$/i })).not.toBeInTheDocument();
 
-    expect(await screen.findByText(/Provider API Keys/i)).toBeInTheDocument();
-    expect(screen.getByLabelText('Provider')).toBeInTheDocument();
-    expect(screen.getByLabelText('API Key')).toBeInTheDocument();
+    fireEvent.click(await within(nav).findByRole('button', { name: /^Providers$/i }));
+
+    expect(await screen.findByTestId('providers-settings')).toBeInTheDocument();
+    // Cards are grouped by provider runtime, exactly as the model picker groups.
+    expect(await screen.findByTestId('provider-card-openai')).toBeInTheDocument();
+    expect(screen.getByTestId('provider-group-hosted')).toBeInTheDocument();
   });
 });
 vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {
