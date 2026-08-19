@@ -167,10 +167,12 @@ function describe(
     );
   }
   return (
-    `[BST-1328] NEITHER @parcel/watcher's '${backend}' backend NOR Node's fs.watch delivered ` +
-    `any event within ${timeoutMs}ms of repeated writes. This is NOT the known FSEvents host ` +
-    'fault (libuv keeps working under that one) — the test filesystem itself is not delivering ' +
-    'events. Check sandboxing, TMPDIR permissions, or a full filesystem.'
+    `[BST-1328] NO filesystem events were delivered within ${timeoutMs}ms of repeated writes — ` +
+    `neither by @parcel/watcher's '${backend}' backend nor by Node's fs.watch (libuv). The host ` +
+    'is not delivering events at all, so nothing here implicates brainstrike watcher code. ' +
+    'On macOS both mechanisms ride the SAME FSEventStream subsystem, so this is the degraded ' +
+    'form of the known host fault rather than a separate one; on other platforms it would ' +
+    'instead point at a sandboxed or permission-restricted TMPDIR.'
   );
 }
 
@@ -215,49 +217,59 @@ export async function probeWatcherLiveness(
   };
 }
 
-let cachedProbe: Promise<WatcherLivenessResult> | null = null;
-
-/**
- * Per-process memoized {@link probeWatcherLiveness}. Watcher liveness is a
- * property of the host, so re-probing per test file only adds wall-clock cost.
- * Memoizing the PROMISE also collapses concurrent callers into one probe.
- */
-export function probeWatcherLivenessOnce(
-  options: WatcherLivenessProbeOptions = {}
-): Promise<WatcherLivenessResult> {
-  cachedProbe ??= probeWatcherLiveness(options);
-  return cachedProbe;
-}
-
-/** Test seam: forget the memoized verdict. */
-export function resetWatcherLivenessCache(): void {
-  cachedProbe = null;
-}
-
 /** Minimal structural view of vitest's TestContext, so this module stays test-framework-free. */
 export interface SkippableTestContext {
   skip: (note?: string) => void;
 }
 
 /**
- * Skip the current test ONLY when the host's platform watcher layer is proven
- * dead while libuv still works — the BST-1328 signature.
+ * Attribute a watcher-test failure to the platform or to this repo, by probing
+ * liveness AT THE MOMENT OF FAILURE, then either skipping or rethrowing.
  *
- * This is deliberately narrow. It is not a blanket "watchers are flaky" escape
- * hatch: a healthy host never reaches it, and the `native-dead-control-dead`
- * case (a broken harness rather than a broken host) is left to FAIL. The reason
- * is printed to stderr as well as attached to the skip, because a skip nobody
- * reads is the same as a silent pass.
+ * WHY POST-HOC RATHER THAN PRE-FLIGHT
+ * -----------------------------------
+ * A pre-flight gate cannot decide this correctly, because the fault is
+ * INTERMITTENT rather than steady. Measured on the BST-1328 host while building
+ * this: a pre-flight probe reported `alive`, the first test then passed, and the
+ * platform went silent for the very next test in the SAME process — so the gate
+ * had already made its (now stale) decision. Probing at the moment the event
+ * failed to arrive asks the question at the only time the answer is meaningful.
+ *
+ * The decision turns on ONE fact: did a RAW `@parcel/watcher` subscription — no
+ * brainstrike code in the path beyond backend selection — deliver anything?
+ *
+ * - raw binding silent → SKIP. Our wrapper cannot be blamed for events the
+ *   binding beneath it never produced, so the test has nothing to say. Both
+ *   silent verdicts qualify: on macOS libuv's `fs.watch` rides the same
+ *   FSEventStream subsystem, so "libuv also silent" is a MORE degraded host,
+ *   not a different diagnosis.
+ * - raw binding delivered → RETHROW with the verdict appended. The platform was
+ *   working while our watcher missed the event: positive evidence the failure is
+ *   OURS, which is exactly the discrimination a bare timeout never provided.
+ *
+ * This never widens a deadline and never silently swallows a regression: it runs
+ * only on the failure path, and the un-skippable oracle in
+ * `parcel-binding.integration.test.ts` still fails loudly on the same host, so a
+ * dead platform can never present as a green run.
  */
-export function skipWhenHostWatcherDead(
+export async function attributeWatcherFailure(
   ctx: SkippableTestContext,
-  result: WatcherLivenessResult
-): void {
-  if (result.verdict !== 'native-dead-control-alive') {
-    return;
+  error: unknown,
+  options: WatcherLivenessProbeOptions = {}
+): Promise<never> {
+  const result = await probeWatcherLiveness(options);
+  const original = error instanceof Error ? error.message : String(error);
+
+  if (!result.nativeDelivered) {
+    const note = `SKIPPED — host watcher layer is dead. ${result.detail} Original failure: ${original}`;
+    // biome-ignore lint/suspicious/noConsole: a skip must be visible in the log, not only in the summary.
+    console.warn(`\n${note}\n`);
+    ctx.skip(note);
   }
-  const note = `SKIPPED — host watcher layer is dead. ${result.detail}`;
-  // biome-ignore lint/suspicious/noConsole: a skip must be visible in the log, not just in the summary.
-  console.warn(`\n${note}\n`);
-  ctx.skip(note);
+
+  if (error instanceof Error) {
+    error.message = `${original}\n\n[BST-1328 attribution] ${result.detail}`;
+    throw error;
+  }
+  throw new Error(`${original}\n\n[BST-1328 attribution] ${result.detail}`);
 }
