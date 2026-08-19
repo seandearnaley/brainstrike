@@ -331,6 +331,17 @@ test.describe('Database live-query memory', () => {
     activeWindow = await showDatabaseDemoPanel(activeWindow);
     const preWarmMemoryDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
     const preWarmRemoteDiagnostics = await getRemoteLiveQueryDiagnostics(electronApp.app);
+    // Reload idempotence: the main process reaps an owner's live subscriptions
+    // on 'did-navigate', so a second reload + panel mount must reproduce every
+    // main-side ownership count exactly — reloads may not accrete orphans. The
+    // renderer count gates the sample so it cannot pass on the transient
+    // window before the fresh page has re-registered its own subscriptions.
+    await reloadRendererInTest(activeWindow, 'database-live-query-reload-reap-idempotence');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+    await expectLiveQueryOwnership(electronApp.app, activeWindow, {
+      ...preWarmRemoteDiagnostics,
+      rendererLiveQueryCount: preWarmMemoryDiagnostics.activeLiveSubscriptions,
+    });
     const expectedActiveOwnership = addActiveCollectionLiveQueryOwnership(
       preWarmRemoteDiagnostics,
       preWarmMemoryDiagnostics.activeLiveSubscriptions

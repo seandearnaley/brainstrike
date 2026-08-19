@@ -109,8 +109,21 @@ type RegisteredBareDeleted<T extends ResetTable> = T;
 type BareDeletedTable = RegisteredBareDeleted<'file_chunks' | 'file_records'>;
 type OptionalRelationTable = Exclude<ResetTable, BareDeletedTable>;
 
+/**
+ * The lifecycle surface the live-query owner reaper needs from a WebContents.
+ * `on`/`removeListener` attach and detach the teardown listeners; `id` keys the
+ * subscription records.
+ */
+type LiveSubscriptionOwner = Pick<Electron.WebContents, 'id' | 'on' | 'removeListener'>;
+
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
-const liveSubscriptionOwnerListeners = new Set<number>();
+// WeakSet/WeakMap — never strongly retain a WebContents (mirrors fs-watch's
+// reaperAttachedOwners / ownerLifecycleGenerations in file-system-watch-ipc.ts).
+const liveSubscriptionReaperAttachedOwners = new WeakSet<LiveSubscriptionOwner>();
+// Invalidates a db:live-query:start whose createLiveQueryHandle await straddles
+// a reap: the finished handle belongs to a dead renderer context and must be
+// torn down instead of registered.
+const liveSubscriptionOwnerGenerations = new WeakMap<LiveSubscriptionOwner, number>();
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
@@ -131,13 +144,11 @@ function isE2eTestMode(): boolean {
   );
 }
 
-async function cleanupLiveSubscriptionsForOwner(
-  webContentsId: number,
-  options?: { releaseOwnerRegistration?: boolean }
-): Promise<void> {
-  if (options?.releaseOwnerRegistration) {
-    liveSubscriptionOwnerListeners.delete(webContentsId);
-  }
+function liveSubscriptionOwnerGeneration(owner: LiveSubscriptionOwner): number {
+  return liveSubscriptionOwnerGenerations.get(owner) ?? 0;
+}
+
+async function cleanupLiveSubscriptionsForOwner(webContentsId: number): Promise<void> {
   const ownedSubscriptionIds = Array.from(liveSubscriptions.values())
     .filter((subscription) => subscription.webContentsId === webContentsId)
     .map((subscription) => subscription.id);
@@ -147,7 +158,7 @@ async function cleanupLiveSubscriptionsForOwner(
 
 async function cleanupDisposedLiveSubscriptionOwner(
   webContentsId: number,
-  reason: 'missing-owner' | 'disposed-frame-send'
+  reason: 'missing-owner' | 'disposed-frame-send' | 'owner-teardown'
 ): Promise<void> {
   logger.debug('Cleaning up live subscriptions for unavailable renderer owner', {
     reason,
@@ -164,7 +175,7 @@ async function cleanupDisposedLiveSubscriptionOwner(
 
 function scheduleDisposedLiveSubscriptionOwnerCleanup(
   webContentsId: number,
-  reason: 'missing-owner' | 'disposed-frame-send'
+  reason: 'missing-owner' | 'disposed-frame-send' | 'owner-teardown'
 ): void {
   void cleanupDisposedLiveSubscriptionOwner(webContentsId, reason).catch((error) => {
     logger.error('Failed to clean up live subscriptions for unavailable renderer owner', {
@@ -441,7 +452,6 @@ async function cleanupAllLiveSubscriptions(): Promise<void> {
     await Promise.allSettled(ids.map((id) => cleanupLiveSubscription(id)));
   }
   liveSubscriptions.clear();
-  liveSubscriptionOwnerListeners.clear();
   nextLiveSubscriptionId = 1;
   isBackgrounded = false;
 }
@@ -450,15 +460,44 @@ export async function cleanupDesktopLiveSubscriptionsForShutdown(): Promise<void
   await cleanupAllLiveSubscriptions();
 }
 
-function registerLiveSubscriptionOwner(sender: Pick<Electron.WebContents, 'id' | 'once'>): void {
-  if (liveSubscriptionOwnerListeners.has(sender.id)) {
+/**
+ * Reap every live-query subscription this renderer owns when its context goes
+ * away. Mirrors the fs-watch owner reaper (`attachOwnerReaper` in
+ * file-system-watch-ipc.ts) and covers all three teardown shapes: window
+ * closed ('destroyed'), renderer crash ('render-process-gone' — the
+ * WebContents survives), and main-frame reload/navigation ('did-navigate' —
+ * the old page's hooks are gone). A 'destroyed'-only hook leaks reload
+ * orphans: the WebContents survives Cmd+R and crash-recovery reloads, so every
+ * old-page subscription keeps being computed by PGlite, serialized over IPC,
+ * and dropped by the new page's id filter — unbounded growth until window
+ * close.
+ *
+ * Because 'did-navigate' fires while the WebContents SURVIVES, `reap` removes
+ * ALL three listeners when any one fires — otherwise the siblings of the fired
+ * event linger and the next db:live-query:start re-attaches a fresh set,
+ * piling listeners up on one WebContents. Listeners are re-attached on the
+ * next db:live-query:start after a reap. Any firing also bumps the owner
+ * generation so a start whose createLiveQueryHandle await straddled the reap
+ * can detect it and discard the fresh handle instead of registering an orphan.
+ */
+function attachLiveSubscriptionOwnerReaper(owner: LiveSubscriptionOwner): void {
+  if (liveSubscriptionReaperAttachedOwners.has(owner)) {
     return;
   }
-
-  liveSubscriptionOwnerListeners.add(sender.id);
-  sender.once('destroyed', () => {
-    void cleanupLiveSubscriptionsForOwner(sender.id, { releaseOwnerRegistration: true });
-  });
+  liveSubscriptionReaperAttachedOwners.add(owner);
+  const reap = (): void => {
+    liveSubscriptionOwnerGenerations.set(owner, liveSubscriptionOwnerGeneration(owner) + 1);
+    liveSubscriptionReaperAttachedOwners.delete(owner);
+    // Remove ALL teardown listeners — a fired 'did-navigate' leaves the
+    // WebContents alive, so its siblings would otherwise linger and pile up.
+    owner.removeListener('destroyed', reap);
+    owner.removeListener('render-process-gone', reap);
+    owner.removeListener('did-navigate', reap);
+    scheduleDisposedLiveSubscriptionOwnerCleanup(owner.id, 'owner-teardown');
+  };
+  owner.on('destroyed', reap);
+  owner.on('render-process-gone', reap);
+  owner.on('did-navigate', reap);
 }
 
 export function registerDatabaseIpcHandlers(
@@ -578,28 +617,48 @@ export function registerDatabaseIpcHandlers(
       event: IpcMainInvokeEvent,
       payload: LiveQueryPayload,
       workOptions?: DatabaseWorkOptions
-    ) =>
-      runScheduledDatabaseWork(event, options, workOptions, 'db:live-query:start', async () =>
-        withCorruptionRecovery(async () => {
-          const { getDatabase } = await import('../db-main');
-          const db = await getDatabase();
+    ) => {
+      const sender = event.sender;
+      // Read the generation and attach the reaper BEFORE any await — a reload
+      // or crash landing while this start is queued or while
+      // createLiveQueryHandle is in flight must still be observable.
+      const ownerGeneration = liveSubscriptionOwnerGeneration(sender);
+      attachLiveSubscriptionOwnerReaper(sender);
+      return runScheduledDatabaseWork(
+        event,
+        options,
+        workOptions,
+        'db:live-query:start',
+        async () =>
+          withCorruptionRecovery(async () => {
+            const { getDatabase } = await import('../db-main');
+            const db = await getDatabase();
 
-          const handle = await createLiveQueryHandle(getLiveQuerySurface(db), payload);
-          const mode: 'query' | 'incremental' =
-            payload?.mode === 'incremental' ? 'incremental' : 'query';
+            const handle = await createLiveQueryHandle(getLiveQuerySurface(db), payload);
+            if (liveSubscriptionOwnerGeneration(sender) !== ownerGeneration) {
+              // The requesting renderer context was reaped mid-setup: this
+              // handle already belongs to a dead page. Registering it would
+              // create a permanent orphan the reap (which already ran) cannot
+              // see, so tear it down and surface the teardown visibly.
+              await handle.unsubscribe();
+              throw new Error(
+                'db:live-query:start: the requesting renderer context changed during setup.'
+              );
+            }
+            const mode: 'query' | 'incremental' =
+              payload?.mode === 'incremental' ? 'incremental' : 'query';
 
-          const id = nextLiveSubscriptionId++;
-          const sender = event.sender;
-          const listener = (results: LiveQueryResults<unknown>) =>
-            sendLiveQueryUpdateToSender(sender, id, results);
+            const id = nextLiveSubscriptionId++;
+            const listener = (results: LiveQueryResults<unknown>) =>
+              sendLiveQueryUpdateToSender(sender, id, results);
 
-          handle.subscribe(listener);
-          liveSubscriptions.set(id, { handle, id, listener, mode, webContentsId: sender.id });
-          registerLiveSubscriptionOwner(sender);
+            handle.subscribe(listener);
+            liveSubscriptions.set(id, { handle, id, listener, mode, webContentsId: sender.id });
 
-          return { id, initialResults: handle.initialResults };
-        }, 'db:live-query:start')
-      )
+            return { id, initialResults: handle.initialResults };
+          }, 'db:live-query:start')
+      );
+    }
   );
 
   registry.registerInvoke(

@@ -86,9 +86,20 @@ not return a fabricated zero.
 
 The visible renderer telemetry count is realm-local, while the IPC, manager,
 and host diagnostics aggregate their process-wide ownership maps across
-renderer owners. The E2E fixture also reloads the visible renderer without
-destroying its `WebContents`, so their absolute pre-warm counts can legitimately
-differ and remain diagnostic only. The regression captures each layer before
+renderer owners. Reloading the visible renderer preserves its `WebContents`,
+so main-process ownership must be reaped by the live-query owner reaper, not
+only on `'destroyed'`: `db:live-query:start` attaches teardown listeners for
+all three shapes (`'destroyed'`, `'render-process-gone'`, `'did-navigate'`),
+and any firing removes all three listeners, bumps a per-owner generation, and
+cleans up every subscription that owner holds — mirroring the fs-watch owner
+reaper (`attachOwnerReaper` in `file-system-watch-ipc.ts`). A start whose
+`createLiveQueryHandle` await straddles a reap observes the generation change
+and tears its fresh handle down instead of registering an orphan. Reloads are
+therefore idempotent for the main-side counts: the mutation regression
+performs a second reload + panel mount after the pre-warm capture and requires
+all three main-side counts to return to the pre-warm values exactly, gated on
+the renderer-local count so the transient window before the fresh page
+re-registers cannot pass. The regression then captures each layer before
 selecting a collection and asserts the same exact **+5** delta thereafter: the
 three database-demo queries (`file-records`, total, and collection counts) plus
 the active-set queue-count and coverage queries mounted by
