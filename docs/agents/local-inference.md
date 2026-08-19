@@ -144,6 +144,61 @@ Embedding runtime telemetry (BST-402):
   into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
   entries to heap memory. Missing registry metadata remains explicitly unavailable; it
   is never presented as a measured browser-memory value.
+- Pipeline-cache residency policy has one implementation:
+  `packages/embedding-worker/src/pipeline-cache-controller.ts`. The production worker
+  injects the real Transformers.js loader; the controller owns the 1-WebGPU/3-WASM
+  limits, LRU/idle eviction, disposal, and diagnostic snapshots. A miss reserves its
+  logical cache slot synchronously. Request and cache-clock validation finish before any
+  eviction or loader call, so a rejected request cannot orphan a physical allocation. The
+  replacement loader cannot allocate until the evicted resource's possibly asynchronous
+  `.dispose()` completes. Concurrent misses
+  therefore remain deduplicated and physically bounded. Pending entries are reservations,
+  never resident-limit or idle-timeout eviction victims: if every device-class slot is
+  pending, a distinct miss fails immediately with a request-scoped load-failure diagnostic
+  and can be retried once capacity becomes available. This prevents a pending caller from
+  receiving a resource that a concurrent miss already disposed. A resident-limit disposal
+  rejection blocks the pending replacement and emits its request-scoped load-failure
+  diagnostic. Every disposer rejection latches the controller against future loads, remains
+  visible to `wait` and `close`, and asks workerpool to replace the failed worker through its
+  managed lifetime-error channel. A direct worker has no such channel, so an idle disposer
+  failure is re-reported immediately through the owner-visible uncaught-worker-error path;
+  the streaming client then fails and retires that worker. BST-369's deterministic
+  browser proof now routes ordinary queue tasks through a private
+  `createBrowserEmbeddingQueue` (`minWorkers = maxWorkers = 1`), workerpool's
+  `runEmbedding` RPC, and the actual `embedding.worker.ts` module. A wrapper installs a
+  one-shot, fixed synthetic Transformers runtime before dynamically importing that
+  production worker. Its allowlisted pipelines retain page-touched 8 MiB WASM or 16 MiB
+  GPU-class `Uint8Array` stores until the production controller awaits their deliberately
+  asynchronous `.dispose()` method. The physical ledger sums each live allocation's actual
+  `store.byteLength`, not declared model metadata. Every cross-origin HTTP(S) request and
+  the same-origin `/api/hf/` proxy are aborted and asserted absent; malformed, duplicate,
+  or late runtime bootstrap attempts throw rather than falling back.
+- The probe is lazy: normal app startup does not import its page module or worker. The
+  native page `navigator.webdriver === true` signal plus an explicit pre-bootstrap init
+  flag control exposure. Chromium's `WorkerNavigator` does not expose `webdriver`, so the
+  worker uses the wrapper's fixed one-shot attestation as defense in depth rather than
+  claiming a second native webdriver signal. Inputs, model IDs, sizes, and switch counts
+  are fixed and bounded; the external hook accepts no arguments.
+- BST-369's physical assertion is intentionally scoped. It proves browser-worker JS
+  backing-store residency and reclamation for both WASM and a **logical GPU-class proxy**;
+  it does not claim to measure GPU VRAM or real model inference. The test also asserts the
+  production telemetry estimate (three WASM plus one GPU-class resident), 23 transferred
+  result buffers, 18 exact resident-limit disposals, no runtime failure telemetry, and
+  telemetry-source removal on queue teardown.
+- Browser memory sampling uses only cross-origin-isolated
+  `performance.measureUserAgentSpecificMemory()`. The performance project pins Chromium
+  with `ForceEagerMeasureMemory`; missing capability, malformed totals, missing dedicated
+  worker attribution, mixed page/worker attribution that cannot isolate the probe, or
+  surviving attribution after teardown all fail. Two animation
+  frames separate `Worker.terminate()` from the final sample because invoking Chromium's
+  API in the termination task can remain pending before the agent teardown commits.
+  There is no `performance.memory` fallback. Paired tests:
+  `test-runtime-bootstrap.spec.ts`, `pipeline-cache-controller.spec.ts`,
+  `pipeline-cache.spec.ts`,
+  `pipeline-cache-controller.browser.test.ts`,
+  `embedding-model-switch-memory-probe-contract.test.ts`,
+  `apps/web/src/__tests__/web-e2e-test-hooks.test.tsx`, and
+  `apps/web/e2e/performance/embedding-model-switch-memory.test.ts`.
 - `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser
   workerpool own source-scoped, in-memory telemetry records. The workerpool records the
   unique buffers transferred with each completed result and forwards pipeline-cache
@@ -225,6 +280,50 @@ Embedding runtime telemetry (BST-402):
 - This telemetry is intentionally session-only and must not be persisted. A future
   persistence or export path requires the diagnostics privacy and factory-reset contracts
   to be revisited explicitly.
+
+Streaming embedding payload-memory proof (BST-372):
+- No contemporaneous pre-streaming process-memory capture exists, so the comparison boundary
+  is a controlled replay of the exact source implementations. At parent commit
+  `13541685dc1586efea302440041965efd807440a`, `runBatches` appended every output vector to
+  one request-wide array and `processEmbeddings` transferred those buffers only after all
+  batches completed. Uniform Float32 output therefore retained
+  `totalInputs * dimensions * 4` payload bytes until request completion, in addition to
+  model/runtime/input/transient memory. Streaming landed in
+  `f983a0ed0ee0fc3581060f61c2f6fcb8bfed9d32`: `streamEmbeddings` transferred one batch and
+  awaited the matching request-and-index acknowledgement before starting the next batch. That
+  revision predates the `transferBytes` event field; the current runtime additionally reports
+  the exact unique-buffer byte count there. Its transport-output retention bound is therefore
+  `batchSize * dimensions * 4` bytes for uniform Float32 vectors. This is a payload bound, not a
+  claim about total renderer RSS or heap.
+- `embedding.worker.runtime.spec.ts` exercises the live maximum supported dimension across
+  eight protocol batches. Before each acknowledgement, the test
+  requires exactly one inference batch and one posted batch, eight current/peak vectors in
+  flight, and an exact transfer-list byte sum. The message mock is cleared before each
+  acknowledgement so the harness does not retain prior vector payloads. Removing the
+  `await waitForBatchAck(...)` gate makes all eight inference batches start before the first
+  acknowledgement and fails the assertion (`8` observed versus `1` allowed), proving the
+  backpressure check has teeth.
+- The normal unit suite also discovers `bst-372-current-retention.spec.ts`, which launches a
+  fresh `--expose-gc` process against current production code. It observes physical
+  `ArrayBuffer` retention across 4,096 maximum-dimension inputs and 512 acknowledged batches;
+  the peak delta must remain at or below 512,000 bytes rather than the 32,768,000-byte request
+  payload. The verified head measured 256,000 bytes. A temporary request-wide accumulator
+  mutation raised the delta to 32,896,000 bytes and failed that bound, independently of the
+  worker's self-reported in-flight telemetry.
+- `docs/bench-embedding-streaming-memory-2026-08.md` records the reproducible A/B harness,
+  environment, fail-closed runner, artifact hashes, source-blob verification, and every raw
+  process result. The runner binds each variant to its exact revision plus the executed
+  `embedding.worker.ts` and `shared.ts` blobs; the archived harness re-verifies those sources
+  before import and derives result metadata from the binding. Five fresh processes per revision
+  used the same deterministic 4,096-input, batch-8, 2,000-dimension fixture and produced exactly
+  32,768,000 payload bytes. Pre-stream peak RSS growth was 34.781–35.250 MiB (35.047
+  MiB median); streaming growth was 0.875–1.266 MiB (1.219 MiB median), an observed median
+  difference of 33.828 MiB. This isolates idealized sender-side retention under prompt
+  collection. It omits receiver lifetime and is not a conservative bound or a claim about total
+  Electron RSS with a real model loaded.
+- `apps/desktop/e2e/embedding-worker-renderer.memory.desktop.test.ts` remains the
+  application-level proof for bounded heap/RSS across large and repeated real-host runs. Its
+  model-backed measurements are complementary, not a historical pre-streaming baseline.
 
 ---
 

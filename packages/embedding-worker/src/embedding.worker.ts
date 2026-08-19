@@ -10,6 +10,10 @@ import type {
   Tensor as TransformersTensor,
 } from '@huggingface/transformers';
 import { Transfer, worker, workerEmit } from 'workerpool';
+import {
+  createEmbeddingPipelineCacheController,
+  type PipelineCacheDiagnosticSink,
+} from './pipeline-cache-controller';
 import type {
   EmbeddingDevice,
   EmbeddingDeviceHint,
@@ -19,7 +23,6 @@ import type {
   EmbedWorkerError,
   EmbedWorkerLifetimeError,
   EmbedWorkerPipelineCacheDiagnostic,
-  EmbedWorkerPipelineCacheEntryDiagnostic,
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
@@ -34,6 +37,7 @@ import {
   truncateVector,
   vectorsFromPipelineOutput,
 } from './shared';
+import { consumeEmbeddingWorkerTestRuntimeOverride } from './test-runtime-bootstrap';
 
 function resolveEmbeddingWorkerInstanceId(): string {
   const workerName = (globalThis as typeof globalThis & { readonly name?: unknown }).name;
@@ -248,18 +252,6 @@ function disposeFeatureExtractorBestEffort(extractor: FeatureExtractor): void {
   }
 }
 
-interface PipelineCacheEntry {
-  readonly cacheKey: string;
-  /** Monotonic timestamp (via `now()`) — reserved for future diagnostics. */
-  readonly createdAt: number;
-  readonly device: EmbeddingDevice;
-  readonly dtype: EmbeddingDType;
-  estimatedModelBytes: number | null;
-  lastUsedAt: number;
-  readonly model: string;
-  readonly pipeline: Promise<FeatureExtractor>;
-}
-
 interface TransformersRuntime {
   readonly env: {
     allowRemoteModels?: boolean;
@@ -276,6 +268,25 @@ interface TransformersRuntime {
   readonly tensorConstructor: unknown;
 }
 
+function assertTransformersRuntime(value: unknown): TransformersRuntime {
+  if (!(typeof value === 'object' && value !== null && !Array.isArray(value))) {
+    throw new Error('Embedding worker test runtime must be an object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  const env = candidate['env'];
+  if (
+    !(typeof env === 'object' && env !== null && !Array.isArray(env)) ||
+    typeof candidate['pipeline'] !== 'function' ||
+    typeof candidate['tensorConstructor'] !== 'function'
+  ) {
+    throw new Error('Embedding worker test runtime is missing env, pipeline, or Tensor.');
+  }
+  if ((env as Record<string, unknown>)['allowRemoteModels'] !== false) {
+    throw new Error('Embedding worker test runtime must disable remote models.');
+  }
+  return value as TransformersRuntime;
+}
+
 /**
  * Model context window reference (for documentation).
  *
@@ -290,8 +301,11 @@ interface TransformersRuntime {
  * - Jina models: 8192 tokens
  */
 
-const pipelines = new Map<string, PipelineCacheEntry>();
-let transformersRuntimePromise: Promise<TransformersRuntime> | null = null;
+const testRuntimeOverride = consumeEmbeddingWorkerTestRuntimeOverride();
+const webGpuClassProxyEnabled = testRuntimeOverride?.webGpuClassProxy === true;
+let transformersRuntimePromise: Promise<TransformersRuntime> | null = testRuntimeOverride
+  ? Promise.resolve(assertTransformersRuntime(testRuntimeOverride.runtime))
+  : null;
 
 async function getTransformersRuntime(): Promise<TransformersRuntime> {
   if (transformersRuntimePromise !== null) {
@@ -360,13 +374,6 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
 
 const GPU_KEEPALIVE_INTERVAL_MS = 15_000;
 
-const now = (): number => (typeof performance === 'undefined' ? Date.now() : performance.now());
-
-const MAX_GPU_PIPELINES = 1;
-const MAX_WASM_PIPELINES = 3;
-const PIPELINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-const IDLE_SWEEP_INTERVAL_MS = 30_000;
-
 // Minimal WebGPU type surface used by the keep-alive / device-loss system.
 // The full @webgpu/types package is not in this project's deps; these cover
 // only the members we actually touch.
@@ -409,161 +416,9 @@ let deviceLossWatcherAttached = false;
 /** Counter for diagnostic logging of keep-alive ticks. */
 let keepAliveTickCount = 0;
 
-/** Handle for the idle-sweep interval. */
-let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const batchAckWaiters = new Map<string, () => void>();
 
-type PipelineCacheDiagnosticReason = NonNullable<EmbedWorkerPipelineCacheDiagnostic['reason']>;
-type PipelineCacheDisposedReason = Extract<PipelineCacheDiagnosticReason, 'manual-dispose'>;
-type PipelineCacheEvictedReason = Extract<
-  PipelineCacheDiagnosticReason,
-  'device-lost' | 'idle-timeout' | 'resident-limit'
->;
-
-type PipelineCacheDiagnosticSink = (event: EmbedWorkerPipelineCacheDiagnostic) => void;
-
-interface PipelineCacheDiagnosticOptionsBase {
-  readonly entry?: PipelineCacheEntry;
-  readonly id?: string;
-  readonly sink?: PipelineCacheDiagnosticSink;
-}
-
-type PipelineCacheDiagnosticOptions = PipelineCacheDiagnosticOptionsBase &
-  (
-    | {
-        readonly event: 'hit' | 'loaded';
-        readonly reason?: never;
-      }
-    | {
-        readonly event: 'disposed';
-        readonly reason: 'manual-dispose';
-      }
-    | {
-        readonly event: 'evicted';
-        readonly reason: 'device-lost' | 'idle-timeout' | 'resident-limit';
-      }
-    | {
-        readonly event: 'invalidated';
-        readonly reason: 'device-lost';
-      }
-    | {
-        readonly event: 'load-failed';
-        readonly reason: 'load-failure';
-      }
-  );
-
-type PipelineCacheDisposalDiagnosticOptions = PipelineCacheDiagnosticOptionsBase &
-  (
-    | {
-        readonly event?: 'disposed';
-        readonly reason?: PipelineCacheDisposedReason;
-      }
-    | {
-        readonly event: 'evicted';
-        readonly reason: PipelineCacheEvictedReason;
-      }
-  );
-
-function resolvePipelineMemory(
-  entry: PipelineCacheEntry
-): EmbedWorkerPipelineCacheEntryDiagnostic['memory'] {
-  if (entry.estimatedModelBytes === null) {
-    return {
-      gpuBytes: null,
-      heapBytes: null,
-      reason: 'model-size-unknown',
-    };
-  }
-  if (entry.device === 'webgpu') {
-    return {
-      gpuBytes: entry.estimatedModelBytes,
-      heapBytes: 0,
-      reason: 'model-size-estimate',
-    };
-  }
-  return {
-    gpuBytes: 0,
-    heapBytes: entry.estimatedModelBytes,
-    reason: 'model-size-estimate',
-  };
-}
-
-function toPipelineCacheEntryDiagnostic(
-  entry: PipelineCacheEntry,
-  timestamp: number
-): EmbedWorkerPipelineCacheEntryDiagnostic {
-  return {
-    cacheKey: entry.cacheKey,
-    createdAt: entry.createdAt,
-    device: entry.device,
-    dtype: entry.dtype,
-    lastUsedAt: entry.lastUsedAt,
-    memory: resolvePipelineMemory(entry),
-    model: entry.model,
-    residencyMs: Math.max(0, timestamp - entry.createdAt),
-  };
-}
-
-function buildPipelineCacheEntryDiagnostics(
-  timestamp: number
-): EmbedWorkerPipelineCacheEntryDiagnostic[] {
-  return [...pipelines.values()].map((entry) => toPipelineCacheEntryDiagnostic(entry, timestamp));
-}
-
-function shouldIncludePipelineCacheEntries(
-  event: EmbedWorkerPipelineCacheDiagnostic['event']
-): boolean {
-  return event !== 'hit';
-}
-
-function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): void {
-  const timestamp = now();
-  const entryDiagnostic =
-    options.entry === undefined
-      ? undefined
-      : toPipelineCacheEntryDiagnostic(options.entry, timestamp);
-  const baseEvent = {
-    cacheSize: pipelines.size,
-    diagnostic: 'pipeline-cache' as const,
-    emittedAt: timestamp,
-    type: 'diagnostic' as const,
-    workerInstanceId: embeddingWorkerInstanceId,
-    ...(shouldIncludePipelineCacheEntries(options.event)
-      ? { entries: buildPipelineCacheEntryDiagnostics(timestamp) }
-      : {}),
-    ...(entryDiagnostic === undefined ? {} : { entry: entryDiagnostic }),
-    ...(options.id === undefined ? {} : { id: options.id }),
-  };
-  let event: EmbedWorkerPipelineCacheDiagnostic;
-  switch (options.event) {
-    case 'hit':
-      event = { ...baseEvent, event: 'hit' };
-      break;
-    case 'loaded':
-      event = { ...baseEvent, event: 'loaded' };
-      break;
-    case 'disposed':
-      event = { ...baseEvent, event: 'disposed', reason: options.reason };
-      break;
-    case 'evicted':
-      event = { ...baseEvent, event: 'evicted', reason: options.reason };
-      break;
-    case 'invalidated':
-      event = { ...baseEvent, event: 'invalidated', reason: options.reason };
-      break;
-    case 'load-failed':
-      event = { ...baseEvent, event: 'load-failed', reason: options.reason };
-      break;
-    default: {
-      const exhaustive: never = options;
-      throw new Error(`Unhandled pipeline cache diagnostic event: ${String(exhaustive)}`);
-    }
-  }
-
-  if (options.sink) {
-    options.sink(event);
-    return;
-  }
+function publishPipelineCacheDiagnostic(event: EmbedWorkerPipelineCacheDiagnostic): void {
   if (event.id === undefined) {
     if (workerpoolTelemetryChannel) {
       workerpoolTelemetryChannel.postMessage(event);
@@ -576,6 +431,43 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
   }
   workerEmit(event);
 }
+
+const pipelineCacheController = createEmbeddingPipelineCacheController<FeatureExtractor>({
+  isIdleSweepAllowed: () => !isInferenceActive,
+  load: createFeatureExtractor,
+  onDisposed: ({ cacheKey }) => {
+    debugLog('Disposed cached pipeline', { cacheKey });
+  },
+  onDisposeFailed: ({ cacheKey, error, reason }) => {
+    const cause = error instanceof Error ? error.message : String(error);
+    const message = `Embedding pipeline disposal failed for ${cacheKey} (${reason}).`;
+    errorLog(message, { cause });
+    if (workerpoolTelemetryChannel) {
+      workerpoolTelemetryChannel.postMessage({
+        cause,
+        message,
+        type: 'worker-lifetime-error',
+        workerInstanceId: embeddingWorkerInstanceId,
+      } satisfies EmbedWorkerLifetimeError);
+      return;
+    }
+    reportError(new Error(message, { cause: error }));
+  },
+  onLoadFailed: ({ device, dtype, error, model }) => {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    debugLog('Pipeline load failed', { device, dtype, error: errorMessage, model, stack });
+  },
+  onModelSizeEstimateMismatch: ({ cachedBytes, cacheKey, requestedBytes }) => {
+    warnLog(
+      'Embedding model size metadata changed for a cached pipeline; keeping the original estimate',
+      { cachedBytes, cacheKey, requestedBytes }
+    );
+  },
+  onResidencyChanged: updateKeepAliveState,
+  publishDiagnostic: publishPipelineCacheDiagnostic,
+  workerInstanceId: embeddingWorkerInstanceId,
+});
 
 function buildAckKey(id: string, batchIndex: number): string {
   return `${id}:${batchIndex}`;
@@ -695,143 +587,16 @@ function stopKeepAlive(): void {
  * requires workerpool to restart this worker (which it does automatically
  * when minWorkers >= 1).
  */
-async function disposePipeline(
-  key: string,
-  diagnostics: PipelineCacheDisposalDiagnosticOptions = {}
-): Promise<void> {
-  const entry = pipelines.get(key);
-  if (!entry) {
-    return;
-  }
-  // Delete from cache FIRST to prevent concurrent access during async dispose
-  pipelines.delete(key);
-  // The diagnostic means the entry left the reusable cache; actual resource disposal happens
-  // after any pending pipeline load resolves below.
-  if (diagnostics.event === 'evicted') {
-    emitPipelineCacheDiagnostic({
-      entry,
-      event: 'evicted',
-      ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-      reason: diagnostics.reason,
-      ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-    });
-  } else {
-    emitPipelineCacheDiagnostic({
-      entry,
-      event: 'disposed',
-      ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-      reason: diagnostics.reason ?? 'manual-dispose',
-      ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-    });
-  }
-  try {
-    const p = await entry.pipeline;
-    if (typeof p.dispose === 'function') {
-      p.dispose();
-    }
-  } catch {
-    // Pipeline load may have failed — nothing to dispose
-  }
-  debugLog('Disposed cached pipeline', { cacheKey: key });
-  updateKeepAliveState();
-  if (pipelines.size === 0) {
-    stopIdleSweep();
-  }
-}
-
 function invalidateWebGpuPipelines(): void {
-  const keysToDispose: string[] = [];
-  for (const [key, entry] of pipelines) {
-    if (entry.device === 'webgpu') {
-      keysToDispose.push(key);
-    }
-  }
-  for (const key of keysToDispose) {
-    // Device-loss invalidation is global worker telemetry, not scoped to any active stream sink.
-    void disposePipeline(key, { event: 'evicted', reason: 'device-lost' });
-  }
-  debugLog('Invalidated cached WebGPU pipelines', { count: keysToDispose.length });
-  emitPipelineCacheDiagnostic({
-    event: 'invalidated',
-    reason: 'device-lost',
-  });
-}
-
-function evictLruByDevice(
-  device: EmbeddingDevice,
-  maxResident: number,
-  diagnostics: {
-    readonly id?: string;
-    readonly sink?: PipelineCacheDiagnosticSink;
-  } = {}
-): void {
-  const entries: PipelineCacheEntry[] = [];
-  for (const entry of pipelines.values()) {
-    if (entry.device === device) {
-      entries.push(entry);
-    }
-  }
-  if (entries.length < maxResident) {
-    return;
-  }
-  // Sort oldest-first by lastUsedAt
-  entries.sort((a, b) => a.lastUsedAt - b.lastUsedAt);
-  const evictCount = entries.length - maxResident + 1;
-  for (let i = 0; i < evictCount; i++) {
-    const victim = entries[i];
-    if (victim) {
-      void disposePipeline(victim.cacheKey, {
-        event: 'evicted',
-        ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-        reason: 'resident-limit',
-        ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-      });
-    }
-  }
-}
-
-function sweepIdlePipelines(): void {
-  if (isInferenceActive) {
-    return;
-  }
-  const cutoff = now() - PIPELINE_IDLE_TIMEOUT_MS;
-  const keysToEvict: string[] = [];
-  for (const [key, entry] of pipelines) {
-    if (entry.lastUsedAt < cutoff) {
-      keysToEvict.push(key);
-    }
-  }
-  for (const key of keysToEvict) {
-    void disposePipeline(key, { event: 'evicted', reason: 'idle-timeout' });
-  }
-  if (keysToEvict.length > 0) {
-    updateKeepAliveState();
-  }
-}
-
-function startIdleSweep(): void {
-  if (idleSweepTimer !== null) {
-    return;
-  }
-  idleSweepTimer = setInterval(sweepIdlePipelines, IDLE_SWEEP_INTERVAL_MS);
-}
-
-function stopIdleSweep(): void {
-  if (idleSweepTimer !== null) {
-    clearInterval(idleSweepTimer);
-    idleSweepTimer = null;
-  }
+  const residentGpuCount = pipelineCacheController
+    .getResidentEntries()
+    .filter((entry) => entry.device === 'webgpu').length;
+  pipelineCacheController.invalidateWebGpuPipelines();
+  debugLog('Invalidated cached WebGPU pipelines', { count: residentGpuCount });
 }
 
 function updateKeepAliveState(): void {
-  let hasGpu = false;
-  for (const entry of pipelines.values()) {
-    if (entry.device === 'webgpu') {
-      hasGpu = true;
-      break;
-    }
-  }
-  if (!hasGpu) {
+  if (!pipelineCacheController.hasResidentDevice('webgpu')) {
     stopKeepAlive();
   }
 }
@@ -913,8 +678,9 @@ async function initWebGpuDeviceGuard(): Promise<void> {
 
 function hasWebGPU(): boolean {
   return (
-    typeof navigator !== 'undefined' &&
-    typeof (navigator as Navigator & { gpu?: unknown }).gpu !== 'undefined'
+    webGpuClassProxyEnabled ||
+    (typeof navigator !== 'undefined' &&
+      typeof (navigator as Navigator & { gpu?: unknown }).gpu !== 'undefined')
   );
 }
 
@@ -953,40 +719,6 @@ async function createFeatureExtractor(
   return result as FeatureExtractor;
 }
 
-function handlePipelineLoadFailure(
-  cacheKey: string,
-  entry: PipelineCacheEntry | undefined,
-  model: string,
-  device: EmbeddingDevice,
-  dtype: EmbeddingDType,
-  diagnostics: {
-    readonly id?: string;
-    readonly sink?: PipelineCacheDiagnosticSink;
-  },
-  error: unknown
-): void {
-  if (entry !== undefined && pipelines.get(cacheKey) === entry) {
-    pipelines.delete(cacheKey);
-  }
-  emitPipelineCacheDiagnostic({
-    ...(entry === undefined ? {} : { entry }),
-    event: 'load-failed',
-    ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-    reason: 'load-failure',
-    ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-  });
-
-  const errorMsg = error instanceof Error ? error.message : String(error);
-  const errorStack = error instanceof Error ? error.stack : undefined;
-  debugLog('Pipeline load failed', {
-    device,
-    dtype,
-    error: errorMsg,
-    model,
-    stack: errorStack,
-  });
-}
-
 async function loadPipeline(
   model: string,
   device: EmbeddingDevice,
@@ -997,71 +729,14 @@ async function loadPipeline(
     readonly sink?: PipelineCacheDiagnosticSink;
   } = {}
 ): Promise<FeatureExtractor> {
-  const cacheKey = `${model}|${device}|${dtype}`;
-  const existing = pipelines.get(cacheKey);
-  if (existing !== undefined) {
-    if (
-      estimatedModelBytes !== null &&
-      existing.estimatedModelBytes !== null &&
-      existing.estimatedModelBytes !== estimatedModelBytes
-    ) {
-      warnLog(
-        'Embedding model size metadata changed for a cached pipeline; keeping the original estimate',
-        {
-          cachedBytes: existing.estimatedModelBytes,
-          cacheKey,
-          requestedBytes: estimatedModelBytes,
-        }
-      );
-    }
-    existing.lastUsedAt = now();
-    emitPipelineCacheDiagnostic({
-      entry: existing,
-      event: 'hit',
-      ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-      ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-    });
-    return existing.pipeline;
-  }
-
   debugLog('Loading pipeline', { device, dtype, model });
-
-  const rawLoader = createFeatureExtractor(model, device, dtype);
-
-  const maxResident = device === 'webgpu' ? MAX_GPU_PIPELINES : MAX_WASM_PIPELINES;
-  evictLruByDevice(device, maxResident, diagnostics);
-
-  const timestamp = now();
-  const entry: PipelineCacheEntry = {
-    cacheKey,
-    createdAt: timestamp,
+  return pipelineCacheController.load({
     device,
+    diagnostics,
     dtype,
     estimatedModelBytes,
-    lastUsedAt: timestamp,
     model,
-    pipeline: rawLoader.then(
-      (extractor) => {
-        if (pipelines.get(cacheKey) === entry) {
-          emitPipelineCacheDiagnostic({
-            entry,
-            event: 'loaded',
-            ...(diagnostics.id === undefined ? {} : { id: diagnostics.id }),
-            ...(diagnostics.sink === undefined ? {} : { sink: diagnostics.sink }),
-          });
-        }
-        return extractor;
-      },
-      (error: unknown) => {
-        handlePipelineLoadFailure(cacheKey, entry, model, device, dtype, diagnostics, error);
-        throw error;
-      }
-    ),
-  };
-  pipelines.set(cacheKey, entry);
-  startIdleSweep();
-
-  return entry.pipeline;
+  });
 }
 
 function assertValidDimension(payload: EmbedWorkerRequest, requestedDimension: number): void {

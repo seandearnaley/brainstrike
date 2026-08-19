@@ -44,10 +44,11 @@ required reference before they write the summary.
 
 Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
 scheduled workflow exactly. `memory-baseline` skips the unrelated broad
-regression job and runs only the desktop embedding memory spec with no
-max-failure truncation. Use the narrow mode for controlled, sequential
-same-head memory calibration runs; it is evidence collection, not a way to
-replace or route required PR checks.
+regression job and runs only the desktop embedding-worker and database
+live-query memory specs with one worker, no retries, and no max-failure
+truncation. Use the narrow mode for controlled, sequential same-head memory
+calibration runs; it is evidence collection, not a way to replace or route
+required PR checks.
 
 ### Desktop Electron provisioning (BST-563)
 
@@ -87,6 +88,29 @@ failing a material full-collection hydration. Calibration evidence is in
 workflow runs `31458099061`, `31458469270`, and `31459112520`; replace this
 table and re-run three sequential same-head samples when changing the fixture,
 measurement window, or process-memory source.
+
+BST-438's database live-query limits are calibrated independently from those
+50k-list scenarios because its primary signal is forced-GC collection of actual
+result-array identities. On 2026-08-19, three sequential local regression runs
+at exact executable head `07bc230ae756382a51e4c8346b917617954b1af7`
+produced:
+
+| Scenario | Visible heap growth (MB) | Visible working-set growth (MB) | Collected / tracked generations |
+| --- | --- | --- | --- |
+| 100 alternating committed mutations | `0.0`, `0.0`, `0.0` | `-34.2`, `-31.8`, `-31.5` | `100/101`, `100/101`, `100/101` |
+| 10 A/B/C switch cycles plus final insert/delete | `0.0`, `0.0`, `0.0` | `12.6`, `13.2`, `13.8` | `60/65`, `60/65`, `60/65` |
+
+An earlier three-run threshold-selection sample at implementation head
+`32cd1a46afd97971ceca9d8e96a11abc82b469f0` observed switching working-set
+growth of `13.0`, `29.4`, and `11.7` MB, so the 48 MB switch ceiling retains
+18.6 MB of headroom over the worst of all six samples. The mutation working-set
+ceiling remains 32 MB and both heap ceilings remain the positive 16 MB floor.
+Every final-head run also held the exact renderer/IPC/manager/host ownership
+delta, exact one- or three-entry cache cardinalities, zero dropped WeakRef
+observations, removal of all named superseded generations, and a live current
+generation. Re-run three sequential exact-head samples when changing the
+fixture, switch/mutation count, forced-GC window, cache policy, or process-memory
+source.
 
 The AI Tools settings specs are deliberately part of both required PR smoke
 lanes. Their tool category/loading-tier assertions follow the shared assistant
@@ -276,8 +300,9 @@ This is an admission delay, not CI routing. It uses no labels and never selects
 a reduced test plan. The latest quiet PR head always runs the full graph,
 including all five stable required contexts (`Static`, `Unit`, `Build`,
 `Web E2E`, `Desktop E2E`) plus both native jobs and the non-required
-`Browser tests` lane (BST-994 — Vitest browser-mode suites for db/ui/storage
-in the pinned Playwright container; expensive enough that it keeps the same
+`Browser tests` lane (BST-994 — Vitest browser-mode suites for
+db/ui/storage/assistant-ui/embedding-worker in the pinned Playwright container;
+expensive enough that it keeps the same
 quiet-head gate, and `quiet-head-admission-contract.test.mjs` verifies it).
 Web and desktop E2E retain their `build` dependency. Push and
 `workflow_dispatch` events are admitted immediately, so their behavior is
@@ -522,6 +547,55 @@ were local-dev constants x a flat 2.0 multiplier with no CI-derived floors):
   surface, or its scope cannot be measured.
 - A calibrated-lane breach is a REAL signal: file it as a regression ticket
   with the measured values, do not bump the floor to silence it.
+
+BST-369 adds a worker-memory **structural bound**, not a locally invented CI
+latency floor. On runtime-calibration head `156c0b052`, this command ran three
+repetitions sequentially against one built app and one configured Chromium version:
+
+```bash
+cd apps/web
+pnpm exec playwright test e2e/performance/embedding-model-switch-memory.test.ts \
+  --project=performance --workers=1 --retries=0 --repeat-each=3
+```
+
+| Run | Baseline total | Warm worker | Window A worker | Window B worker | B - A | After worker |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 278,926,311 | 44,397,878 | 44,446,090 | 44,446,626 | +536 | 0 |
+| 2 | 277,774,586 | 44,398,290 | 44,446,558 | 44,446,634 | +76 | 0 |
+| 3 | 277,832,659 | 44,398,290 | 44,446,542 | 44,446,634 | +92 | 0 |
+
+The later production hardening at `7d2ba303d` validates the cache clock before
+eviction or loader allocation. It leaves the valid switching allocation,
+disposal, and structural-memory behavior unchanged. An exact-branch rerun at
+`2a75942da` recorded baseline total 278,085,035, warm
+worker 44,397,896, window A 44,446,108, window B 44,446,628 (+520), and zero
+worker attribution after teardown, confirming the valid switching path retained
+the same structural signal.
+
+Two reversible, uncommitted mutations proved the browser assertion's teeth. Doubling each
+allocated backing store failed at the warm barrier with 80 MiB physically live against the
+40 MiB cap. Skipping the asynchronous-disposal prerequisite failed with five resources and
+56 MiB live before the delayed GPU-class victim release completed. Both mutations were
+restored before the three-run table above.
+
+The three local repetitions qualify the measurement signal; they do not set a
+CI floor. The 4 MiB later-window ceiling is instead a structural bound: half
+the smallest retained 8 MiB synthetic model store, so a single leaked store
+cannot hide inside it while JIT/runtime bookkeeping has implementation-level
+headroom. If the pinned CI environment first breaches, use the controlled
+same-SHA dispatch procedure above before changing any budget.
+
+The web unit-coverage census exact-excludes only the browser page probe and its
+wrapper worker. Those modules require a production Vite worker bundle,
+cross-origin isolation, workerpool, and Chromium's
+`measureUserAgentSpecificMemory()`; their executable owner is the scheduled and
+dispatchable `performance.yml` Playwright project above. The paired
+`performance-benchmark-contract.vitest.ts` test pins the exact two exclusions,
+the webdriver-gated lazy hook, the page-probe-to-worker-to-production-worker
+route, and the scheduled workflow selection. The platform-neutral memory
+measurement and worker-message validation modules remain in unit coverage, and
+the web L98/F85/B73/S89 thresholds are unchanged. Do not broaden this exception
+or replace it with a wildcard.
 
 ### Primary Linux x64 jobs run on Ubicloud (BST-765)
 
@@ -1366,7 +1440,11 @@ gets a validated narrow prefix. Package vitest configs spread it (config-local
 mocks/dedicated helpers go BEFORE the spread — vitest `resolve.alias` is
 first-match). `@brainstrike/agent` is excluded (Mastra/Node deps): consumers use
 `createAgentBrowserSafeAliasEntries`. `@brainstrike/workers` has no `src/` dir:
-consumers alias its subpaths explicitly.
+consumers alias its subpaths explicitly. Prebuilt `*.worker` exports are also
+skipped by the shared registry. When a test graph imports one as executable
+source, it needs a narrow config-local override: web Vitest maps
+`@brainstrike/embedding-worker/worker` to `src/embedding.worker.ts` before the
+shared spread, and its integration config inherits that base alias verbatim.
 
 The guard EXECUTES each discovered vitest config (base + integration + mutation +
 models, and each inline project — projects do NOT inherit top-level
@@ -1381,11 +1459,12 @@ are checked), then simulates vitest's first-match alias resolution: the winning
 entry must point at an existing non-dist source path, and an unaliased
 specifier must not resolve to `dist` via the dep's `exports` map. So dist-pin
 overrides, imported-but-unspread registries, per-dependency gaps, bare mutation
-configs, and transitive src-graph gaps all FAIL. Because the guard imports the
-configs under plain node ESM, config-relative imports need explicit extensions
-(e.g. `../config/src/vitest-browser.ts`). Legitimate built-artifact consumers
-go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with a reason string (NO silent
-fallback). This was the R3 enabler for dropping `test.dependsOn: ["^build"]` —
+configs, and transitive src-graph gaps all FAIL. The guard loads configs through
+Vite's `loadConfigFromFile`, so app configs with Vite-supported extensionless
+imports are inspected under the same loader semantics as their test lanes.
+Legitimate built-artifact consumers go in `WORKSPACE_SRC_ALIAS_ALLOWLIST` with
+a reason string (NO silent fallback). This was the R3 enabler for dropping
+`test.dependsOn: ["^build"]` —
 DONE in Series B4: `test`/`test:integration`/`test:coverage` now
 `dependsOn: ["topo"]`, a synthetic no-op **transit node** (`topo`,
 `dependsOn: ["^topo"]`) that carries the upstream SOURCE-hash cascade WITHOUT
@@ -1446,17 +1525,17 @@ closed by aliasing instead: apps/web gained the missing root aliases
 indexing-contract, storage); apps/desktop now spreads this same
 `workspaceSrcAliases` registry (array-form alias, locals first) plus an
 agent-root→src alias mirroring web (the registry deliberately excludes agent).
-NOTE: this guard only checks `packages/*` — the app configs are outside its
-scope, so app alias gaps surface as loud clean-state resolution failures, not
-guard findings. Desktop's agent-client-loader tests pin the loader's
-FALLBACK_PROVIDERS against the agent SOURCE via `vi.importActual` (raw require
-in the loader bypasses vitest aliases and needs dist, absent by default
-post-B4 — so CI exercises the FALLBACK path). FALLBACK_PROVIDERS is therefore
-an explicit tuple in registry DECLARATION order with compile-time
-exhaustiveness pins against the FALLBACK_ENV_KEYS Record (PR #2513 review);
-do not derive it from `Object.keys` of the Biome-sorted Record — that changes
-the order only in the dist-absent state CI runs in. See the Series B
-turbo-monorepo architecture review.
+The guard checks both `packages/*` and `apps/*` (the default entrypoint passes
+`appsRoot`), so app alias gaps fail the same source-resolution contract instead
+of depending on a clean-state resolution crash. Desktop's agent-client-loader
+tests pin the loader's FALLBACK_PROVIDERS against the agent SOURCE via
+`vi.importActual` — no hand-maintained duplicate (raw require in the loader
+bypasses vitest aliases and needs dist, absent by default post-B4, so CI
+exercises the FALLBACK path). FALLBACK_PROVIDERS is therefore an explicit tuple
+in registry DECLARATION order with compile-time exhaustiveness pins against the
+FALLBACK_ENV_KEYS Record (PR #2513 review); do NOT derive it from `Object.keys`
+of the Biome-sorted Record — that changes the order only in the dist-absent
+state CI runs in. See the Series B turbo-monorepo architecture review.
 
 Desktop main-process unit tests share observable Electron controls in
 `apps/desktop/src/__tests__/helpers/electron-main-test-harness.ts`. The harness

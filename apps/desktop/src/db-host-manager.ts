@@ -5,7 +5,9 @@ import { app, type UtilityProcess, utilityProcess } from 'electron';
 import type {
   DbHostDiagnosticsResult,
   DbHostInitResult,
+  DbHostLiveQueryDiagnostics,
   DbHostLiveStartResult,
+  DbHostManagerDiagnosticsResult,
   DbHostQueryResult,
   DbHostRequest,
   DbHostRequestEnvelope,
@@ -107,7 +109,8 @@ export interface DbHostManager {
   readonly applyManagedCacheBatch: (payload: unknown) => Promise<void>;
   readonly close: () => Promise<void>;
   readonly getDatabase: () => Promise<RemoteDbClient>;
-  readonly getDiagnostics: () => Promise<DbHostDiagnosticsResult>;
+  readonly getDiagnostics: () => Promise<DbHostManagerDiagnosticsResult>;
+  readonly getLiveQueryDiagnosticsForTests: () => Promise<DbHostLiveQueryDiagnostics>;
   readonly insertChunksAndEnqueueEmbeddingJobs: (payload: unknown) => Promise<void>;
   readonly invalidateManagedCacheEntriesByIdentity: (payload: unknown) => Promise<unknown>;
   readonly reset: () => Promise<void>;
@@ -416,11 +419,30 @@ class DefaultDbHostManager implements DbHostManager {
     }
   }
 
-  async getDiagnostics(): Promise<DbHostDiagnosticsResult> {
+  async getDiagnostics(): Promise<DbHostManagerDiagnosticsResult> {
+    const result = await this.send<DbHostDiagnosticsResult>({ kind: 'diagnostics' });
+    const { activeLiveQueryCount, ...databaseDiagnostics } = result;
+    void activeLiveQueryCount;
+    return {
+      ...databaseDiagnostics,
+      hostPid: this.#host?.pid ?? null,
+    };
+  }
+
+  async getLiveQueryDiagnosticsForTests(): Promise<DbHostLiveQueryDiagnostics> {
+    if (
+      !(
+        process.argv.includes('--test-mode') ||
+        process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
+        process.env['NODE_ENV'] === 'test'
+      )
+    ) {
+      throw new Error('DB host live-query diagnostics are available only in test mode.');
+    }
     const result = await this.send<DbHostDiagnosticsResult>({ kind: 'diagnostics' });
     return {
-      ...result,
-      hostPid: this.#host?.pid ?? null,
+      hostLiveQueryCount: result.activeLiveQueryCount,
+      managerLiveQueryCount: this.#liveQueries.size,
     };
   }
 
