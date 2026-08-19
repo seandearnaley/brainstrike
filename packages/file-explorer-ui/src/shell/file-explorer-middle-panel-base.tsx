@@ -2,13 +2,16 @@ import { generateProjectTreeTextResult } from '@brainstrike/file-explorer/projec
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
-import { Button, useUndoableAction } from '@brainstrike/ui';
-import { AlertCircle } from 'lucide-react';
+import { useUndoableAction } from '@brainstrike/ui';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { useTextTokenCount } from '../indexing/use-text-token-count';
 import { useTokenCounting } from '../indexing/use-token-counting';
+import {
+  PreviewContentFailureAlert,
+  usePreviewContentFailure,
+} from '../preview/preview-content-failure';
 import { PreviewPanel } from '../preview/preview-panel';
 import { usePreviewPanelReportActions } from '../preview/use-preview-panel-report-actions';
 import { buildFileNodeCache } from '../utils/file-node-cache';
@@ -21,11 +24,6 @@ import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
 const logger = createLogger('FileExplorerMiddlePanelBase');
-
-interface PreviewContentFailure {
-  readonly compositeKeys: readonly string[];
-  readonly selectionSnapshot: ReadonlySet<string>;
-}
 
 export const FileExplorerMiddlePanelBase = () => {
   const {
@@ -73,30 +71,13 @@ export const FileExplorerMiddlePanelBase = () => {
   );
 
   const { selectedFilePaths, setSelectedFilesFromList } = useSelectionManager();
-  const [previewContentFailure, setPreviewContentFailure] = useState<PreviewContentFailure | null>(
-    null
-  );
-  const previewLoadRequestIdRef = useRef(0);
-  const visiblePreviewContentFailure =
-    previewContentFailure?.selectionSnapshot === selectedFilePaths ? previewContentFailure : null;
-  const loadPreviewFileContents = useCallback(
-    async (compositeKeys: string[]): Promise<void> => {
-      const requestId = previewLoadRequestIdRef.current + 1;
-      previewLoadRequestIdRef.current = requestId;
-      const selectionSnapshot = selectedFilePaths;
-      const uniqueKeys = [...new Set(compositeKeys)];
-      setPreviewContentFailure(null);
-      try {
-        await loadMultipleFileContents(uniqueKeys);
-      } catch (error) {
-        if (previewLoadRequestIdRef.current === requestId) {
-          setPreviewContentFailure({ compositeKeys: uniqueKeys, selectionSnapshot });
-        }
-        throw error;
-      }
-    },
-    [loadMultipleFileContents, selectedFilePaths]
-  );
+  const {
+    failure: previewContentFailure,
+    invalidate: invalidatePreviewContentFailure,
+    loadFileContents: loadPreviewFileContents,
+    retry: retryPreviewContent,
+    runSelectionOperation,
+  } = usePreviewContentFailure({ loadMultipleFileContents, selectedFilePaths });
   // Phase 6 cross-root: the preview shows the EFFECTIVE UNION of every active
   // root's selection. Writing the remaining set back (file removal / undo) must
   // re-partition per root via setSelectedFilesFromList — the raw
@@ -105,11 +86,10 @@ export const FileExplorerMiddlePanelBase = () => {
   // switch. In the single-root case this reduces to the same focused-root write.
   const handlePreviewSelectionChange = useCallback(
     (next: Set<string>) => {
-      previewLoadRequestIdRef.current += 1;
-      setPreviewContentFailure(null);
+      invalidatePreviewContentFailure();
       setSelectedFilesFromList([...next]);
     },
-    [setSelectedFilesFromList]
+    [invalidatePreviewContentFailure, setSelectedFilesFromList]
   );
   // Multi-root (Phase 6): resolve a RootId to its display name so the context
   // snapshot can label same-relative-path files from different roots.
@@ -267,87 +247,30 @@ export const FileExplorerMiddlePanelBase = () => {
 
   const handleDownloadContextFromPanel = useCallback(
     (options: ContextExportOptions) => {
-      const requestId = previewLoadRequestIdRef.current + 1;
-      previewLoadRequestIdRef.current = requestId;
-      const selectionSnapshot = selectedFilePaths;
-      setPreviewContentFailure(null);
-      void handleDownloadContext(options).catch((error: unknown) => {
-        if (previewLoadRequestIdRef.current === requestId) {
-          setPreviewContentFailure({
-            compositeKeys: [...selectionSnapshot],
-            selectionSnapshot,
-          });
-        }
-        logger.error('Preview context download failed', {
-          errorName: error instanceof Error ? error.name : 'UnknownError',
-          fileCount: selectionSnapshot.size,
-        });
-      });
+      runSelectionOperation(
+        () => handleDownloadContext(options),
+        'Preview context download failed'
+      );
     },
-    [handleDownloadContext, selectedFilePaths]
+    [handleDownloadContext, runSelectionOperation]
   );
 
   const handleCopyContextFromPanel = useCallback(
     (options: ContextExportOptions) => {
-      const requestId = previewLoadRequestIdRef.current + 1;
-      previewLoadRequestIdRef.current = requestId;
-      const selectionSnapshot = selectedFilePaths;
-      setPreviewContentFailure(null);
-      void handleCopyContext(options).catch((error: unknown) => {
-        if (previewLoadRequestIdRef.current === requestId) {
-          setPreviewContentFailure({
-            compositeKeys: [...selectionSnapshot],
-            selectionSnapshot,
-          });
-        }
-        logger.error('Preview context copy failed', {
-          errorName: error instanceof Error ? error.name : 'UnknownError',
-          fileCount: selectionSnapshot.size,
-        });
-      });
+      runSelectionOperation(() => handleCopyContext(options), 'Preview context copy failed');
     },
-    [handleCopyContext, selectedFilePaths]
+    [handleCopyContext, runSelectionOperation]
   );
-
-  const handleRetryPreviewContent = useCallback(() => {
-    if (!visiblePreviewContentFailure) {
-      return;
-    }
-    void loadPreviewFileContents([...visiblePreviewContentFailure.compositeKeys]).catch(
-      (error: unknown) => {
-        logger.error('Preview file-content retry failed', {
-          errorName: error instanceof Error ? error.name : 'UnknownError',
-          fileCount: visiblePreviewContentFailure.compositeKeys.length,
-        });
-      }
-    );
-  }, [loadPreviewFileContents, visiblePreviewContentFailure]);
 
   return (
     <FileExplorerErrorBoundary>
       <div className="flex h-full flex-col overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden">
-          {visiblePreviewContentFailure ? (
-            <div
-              aria-labelledby="preview-content-error-title"
-              className="m-3 flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3"
-              role="alert"
-            >
-              <AlertCircle aria-hidden="true" className="h-5 w-5 shrink-0 text-destructive" />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-sm" id="preview-content-error-title">
-                  Preview content unavailable
-                </p>
-                <p className="text-muted-foreground text-xs">
-                  {visiblePreviewContentFailure.compositeKeys.length === 1
-                    ? '1 selected file could not be loaded.'
-                    : `${visiblePreviewContentFailure.compositeKeys.length} selected files could not be loaded.`}
-                </p>
-              </div>
-              <Button onClick={handleRetryPreviewContent} size="sm" type="button" variant="outline">
-                Retry preview content
-              </Button>
-            </div>
+          {previewContentFailure ? (
+            <PreviewContentFailureAlert
+              failure={previewContentFailure}
+              onRetry={retryPreviewContent}
+            />
           ) : null}
           <div className="flex-1 overflow-hidden bg-card/50">
             <PreviewPanel
