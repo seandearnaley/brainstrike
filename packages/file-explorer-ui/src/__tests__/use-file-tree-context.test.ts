@@ -2395,7 +2395,7 @@ describe('useFileTree (lazy loading version)', () => {
       expect(result.current.loadingPaths.has(parentDir.path)).toBe(false);
     });
 
-    it('refreshes a loaded directory with the latest adapter children', async () => {
+    it('refreshes a loaded directory without recursive subtree materialization', async () => {
       const nestedFS = createNestedMockFileSystem();
       mockAdapter.setMockFileSystem(nestedFS);
 
@@ -2441,9 +2441,16 @@ describe('useFileTree (lazy loading version)', () => {
         },
       });
 
-      await act(async () => {
-        await result.current.refreshDirectory(parentDir.path);
-      });
+      const materializeSubtreeSpy = vi.spyOn(normalizedFileTree, 'materializeNormalizedSubtree');
+      try {
+        await act(async () => {
+          await result.current.refreshDirectory(parentDir.path);
+        });
+
+        expect(materializeSubtreeSpy).not.toHaveBeenCalled();
+      } finally {
+        materializeSubtreeSpy.mockRestore();
+      }
 
       const refreshedParent = result.current.fileTree.find((node) => node.path === parentDir.path);
       expect(refreshedParent?.type).toBe('directory');

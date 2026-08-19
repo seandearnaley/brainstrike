@@ -627,4 +627,32 @@ describe('file-selection refresh reconciliation', () => {
 
     expect(state.getState().selectedFilePaths).toEqual(selection);
   });
+
+  it('drops a selected file replaced by a same-path directory', () => {
+    const folderId = 'root-id';
+    const path = '/workspace/src/replaced.ts';
+    const key = `${folderId}|@|${path}`;
+    const selection = new Set([key]);
+    const state = installStateUpdater(
+      createMockState({
+        currentFolderId: folderId,
+        selectedFilePaths: selection,
+        selectionModel: {
+          explicitPaths: selection,
+          materializedAt: null,
+          materializedPaths: null,
+          mode: 'explicit',
+          queryDescriptor: null,
+        },
+      })
+    );
+
+    createFileSelectionActions(state.set, state.getState).reconcileSelectionWithDirectorySnapshot(
+      folderId,
+      '/workspace/src',
+      [{ path, type: 'directory' }]
+    );
+
+    expect(state.getState().selectedFilePaths).toEqual(new Set());
+  });
 });

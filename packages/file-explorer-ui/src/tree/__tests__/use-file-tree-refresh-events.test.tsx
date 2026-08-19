@@ -265,6 +265,87 @@ describe('useFileTreeRefreshEvents', () => {
     });
   });
 
+  it('bounds same-depth refresh concurrency while completing every path parent-first', async () => {
+    const shallowPaths = Array.from({ length: 6 }, (_, index) => `${ROOT_PATH}/dir-${index}`);
+    const deepPath = `${shallowPaths[0]}/nested`;
+    const deepNode = directoryNode(deepPath, 'loaded');
+    normalizedTree = createNormalizedFileTreeState([
+      { ...directoryNode(shallowPaths[0] ?? '', 'loaded'), children: [deepNode] },
+      ...shallowPaths.slice(1).map((path) => directoryNode(path, 'loaded')),
+    ]);
+    getSelectionAncestorDirectories.mockReturnValue([...shallowPaths, deepPath]);
+    let releaseShallowReads: (() => void) | undefined;
+    const shallowReadGate = new Promise<void>((resolve) => {
+      releaseShallowReads = resolve;
+    });
+    let activeShallowReads = 0;
+    let maxActiveShallowReads = 0;
+    refreshDirectory.mockImplementation(async (path) => {
+      if (shallowPaths.includes(path)) {
+        activeShallowReads += 1;
+        maxActiveShallowReads = Math.max(maxActiveShallowReads, activeShallowReads);
+        await shallowReadGate;
+        activeShallowReads -= 1;
+      }
+      return { directoryPath: path, entries: [] };
+    });
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({ roots: [], scope: 'full', source: 'manual' });
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalled());
+    await act(async () => Promise.resolve());
+    const callsBeforeRelease = refreshDirectory.mock.calls.length;
+
+    act(() => {
+      releaseShallowReads?.();
+    });
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(7));
+
+    expect(callsBeforeRelease).toBe(5);
+    expect(maxActiveShallowReads).toBe(5);
+    expect(refreshDirectory.mock.calls.at(-1)?.[0]).toBe(deepPath);
+    expect(reconcileSelectionWithDirectorySnapshots).toHaveBeenCalledOnce();
+  });
+
+  it('does not reconcile snapshots after the selection version changes during their read', async () => {
+    const srcPath = `${ROOT_PATH}/src`;
+    let selectionVersion = 4;
+    let releaseRefresh: (() => void) | undefined;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    refreshDirectory.mockImplementation(async (path) => {
+      await refreshGate;
+      return { directoryPath: path, entries: [] };
+    });
+    renderHook(() =>
+      useFileTreeRefreshEvents({
+        ...params,
+        getSelectionVersion: () => selectionVersion,
+      } as UseFileTreeRefreshEventsParams)
+    );
+
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [{ kind: 'file', path: `${srcPath}/gone.ts`, type: 'removed' }],
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
+    selectionVersion += 1;
+    act(() => {
+      releaseRefresh?.();
+    });
+    await act(async () => Promise.resolve());
+
+    expect(reconcileSelectionWithDirectorySnapshots).not.toHaveBeenCalled();
+  });
+
   it('skips changes whose parent directory is not loaded in the tree', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 

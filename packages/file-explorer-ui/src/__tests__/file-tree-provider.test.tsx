@@ -12,6 +12,7 @@ import {
   useOptionalFileTreeIndexContext,
   useOptionalFileTreeNormalizedContext,
 } from '../tree/file-tree-provider';
+import type { FileTreeRefreshResult } from '../tree/use-lazy-file-tree';
 import { createNormalizedFileTreeState } from '../utils/normalized-file-tree';
 
 const {
@@ -476,6 +477,117 @@ describe('FileTreeProvider', () => {
       { directoryPath: srcPath, entries: [nestedNode] },
       { directoryPath: nestedPath, entries: [] },
     ]);
+  });
+
+  it('serializes direct manual refresh with watcher refresh before exposing a new selection', async () => {
+    const rootId = 'd4e516c5-e91e-4b1d-89ed-cb01cbfec159';
+    const srcPath = `${rootHandle.path}/src`;
+    const newFilePath = `${srcPath}/new.ts`;
+    const srcNode: IFileNode = {
+      children: [],
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      isVisible: true,
+      loadState: 'loaded',
+      name: 'src',
+      path: srcPath,
+      rootFolderId: rootId,
+      selectionState: 'unchecked',
+      type: 'directory',
+    };
+    const newFile: IFileNode = {
+      depth: 1,
+      handle: {} as FileSystemFileHandle,
+      isVisible: true,
+      name: 'new.ts',
+      path: newFilePath,
+      rootFolderId: rootId,
+      selectionState: 'checked',
+      type: 'file',
+    };
+    const normalizedTreeRef = {
+      current: createNormalizedFileTreeState([srcNode]),
+    };
+    const manualReadGate = createDeferred<void>();
+    let selectedNewFile = false;
+    let selectionVersion = 0;
+    const refreshDirectory = vi.fn(async (path: string) => {
+      if (refreshDirectory.mock.calls.length === 1) {
+        await manualReadGate.promise;
+        return { directoryPath: path, entries: [] };
+      }
+      selectedNewFile = true;
+      selectionVersion += 1;
+      return { directoryPath: path, entries: [newFile] };
+    });
+    reconcileSelectionWithDirectorySnapshotsMock.mockImplementation(
+      (_folderId: string, snapshots: readonly { entries: readonly IFileNode[] }[]) => {
+        if (selectedNewFile && !snapshots.some(({ entries }) => entries.includes(newFile))) {
+          selectedNewFile = false;
+        }
+      }
+    );
+    Object.assign(storeMock, {
+      getState: () => ({
+        reconcileSelectionWithDirectorySnapshot: reconcileSelectionWithDirectorySnapshotMock,
+        reconcileSelectionWithDirectorySnapshots: reconcileSelectionWithDirectorySnapshotsMock,
+        selectionVersion,
+      }),
+    });
+    const baseFileTreeState = useFileTreeMock();
+    useFileTreeMock.mockClear();
+    useFileTreeMock.mockReturnValue({
+      ...baseFileTreeState,
+      __internalNormalizedTreeRef: normalizedTreeRef,
+      refreshDirectory,
+      refreshTree: vi.fn().mockResolvedValue({ status: 'completed' as const }),
+    });
+    getSelectionAncestorDirectoriesMock.mockReturnValue([srcPath]);
+    let refreshFromContext: ReturnType<typeof useFileTreeContext>['refreshTree'] | null = null;
+    function RefreshProbe(): null {
+      refreshFromContext = useFileTreeContext().refreshTree;
+      return null;
+    }
+    render(
+      <FileTreeProvider rootDirectoryHandle={rootHandle} rootId={rootId}>
+        <RefreshProbe />
+      </FileTreeProvider>
+    );
+
+    let manualRefresh: Promise<FileTreeRefreshResult> = Promise.resolve({ status: 'completed' });
+    act(() => {
+      manualRefresh = refreshFromContext?.() ?? manualRefresh;
+    });
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledOnce());
+    await act(async () => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: newFilePath, type: 'added' }],
+              rootId,
+              rootPath: rootHandle.path,
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+    await act(async () => Promise.resolve());
+    const watcherStartedBeforeManualSettled = refreshDirectory.mock.calls.length > 1;
+
+    manualReadGate.resolve();
+    await act(async () => {
+      await manualRefresh;
+    });
+    await waitFor(() => expect(refreshDirectory).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(reconcileSelectionWithDirectorySnapshotsMock).toHaveBeenCalledTimes(2)
+    );
+
+    expect(watcherStartedBeforeManualSettled).toBe(false);
+    expect(selectedNewFile).toBe(true);
   });
 
   it('keeps FileTreeContext value identity stable across re-renders when deps are unchanged', () => {
