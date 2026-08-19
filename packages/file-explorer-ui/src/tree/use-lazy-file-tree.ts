@@ -336,6 +336,7 @@ export function useLazyFileTree(
   const { filterTreeFn, onNodesIndexed, rootId } = options;
   const { fileSystemAdapter } = useAdapters();
   const rootDirectoryPath = rootDirectoryHandle?.path ?? null;
+  const rootHandleRootId = rootDirectoryHandle?.rootId;
 
   // Ref for callback to avoid stale closures
   const onNodesIndexedRef = useRef(onNodesIndexed);
@@ -667,6 +668,7 @@ export function useLazyFileTree(
       materializeNormalizedSubtree(normalizedTreeRef.current, path),
     onDirectoriesLoaded: handleScannedDirectoriesLoaded,
     onError: handleWorkerError,
+    ...(rootHandleRootId === undefined ? {} : { parentRootId: rootHandleRootId }),
     ...filterTreeOption,
   };
 
@@ -676,6 +678,7 @@ export function useLazyFileTree(
     getCurrentTree: () => materializeNormalizedFileTree(normalizedTreeRef.current),
     onError: handleWorkerError,
     onTreeUpdate: handleTreeUpdate,
+    ...(rootHandleRootId === undefined ? {} : { parentRootId: rootHandleRootId }),
     ...filterTreeOption,
   };
 
@@ -965,6 +968,7 @@ export function useLazyFileTree(
             },
             {
               abortSignal: abortController.signal,
+              parentRootId: rootHandleRootId,
               sortFileNodes,
             }
           );
@@ -972,6 +976,7 @@ export function useLazyFileTree(
           // Fallback to non-streaming
           const children = await loadDirectoryChildren(adapter, node, {
             abortSignal: abortController.signal,
+            parentRootId: rootHandleRootId,
             sortFileNodes,
           });
           if (!abortController.signal.aborted) {
@@ -989,7 +994,7 @@ export function useLazyFileTree(
         handleLoadError(path, errorMsg, abortController);
       }
     },
-    [handleLoadSuccess, handleLoadError, handleLoadAborted]
+    [handleLoadSuccess, handleLoadError, handleLoadAborted, rootHandleRootId]
   );
 
   /**

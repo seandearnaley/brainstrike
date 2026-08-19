@@ -28,6 +28,8 @@ export interface LazyLoadOptions {
   abortSignal?: AbortSignal;
   /** Whether to include file metadata (size, lastModified) */
   includeMetadata?: boolean;
+  /** Durable root identity inherited when a raw child handle is unstamped. */
+  parentRootId?: DirectoryHandle['rootId'];
   /**
    * Override the rootFolderId stamped on loaded nodes.
    * Since storage v5 this is the durable RootId UUID; when absent the
@@ -65,15 +67,19 @@ function detectPlatform(handle: unknown): 'web' | 'electron' {
 /**
  * Build a DirectoryHandle from an IFileNode
  */
-function buildDirectoryHandle(node: IFileNode): DirectoryHandle {
-  const nodeHandle = node.handle as Partial<DirectoryHandle>;
+function buildDirectoryHandle(
+  node: IFileNode,
+  parentRootId: DirectoryHandle['rootId']
+): DirectoryHandle {
+  const nodeHandle = node.handle as Partial<DirectoryHandle> | undefined;
+  const rootId = nodeHandle?.rootId ?? parentRootId;
   return {
     _internal: node.handle,
     kind: 'directory',
     name: node.name,
     path: node.path,
     platform: detectPlatform(node.handle),
-    ...(nodeHandle.rootId === undefined ? {} : { rootId: nodeHandle.rootId }),
+    ...(rootId === undefined ? {} : { rootId }),
   };
 }
 
@@ -174,7 +180,7 @@ export async function loadDirectoryChildren(
   abortSignal?.throwIfAborted();
 
   // Build DirectoryHandle from the node
-  const handle = buildDirectoryHandle(parentNode);
+  const handle = buildDirectoryHandle(parentNode, options.parentRootId);
 
   // Read immediate children only
   let children: IFileNode[];
@@ -334,7 +340,7 @@ export async function loadDirectoryChildrenStreaming(
 
   abortSignal?.throwIfAborted();
 
-  const handle = buildDirectoryHandle(parentNode);
+  const handle = buildDirectoryHandle(parentNode, options.parentRootId);
   const depth = parentNode.depth + 1;
   const rootFolderId = parentNode.rootFolderId;
 

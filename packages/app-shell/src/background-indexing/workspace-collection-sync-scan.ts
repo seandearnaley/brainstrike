@@ -278,13 +278,14 @@ function isRootSelfPath(path: string, rootPath: string): boolean {
 
 function toDirectoryHandle(node: IFileNode, rootHandle: RootDirectoryHandle): RootDirectoryHandle {
   const nodeHandle = node.handle as Partial<RootDirectoryHandle>;
+  const rootId = nodeHandle.rootId ?? rootHandle.rootId;
   return {
     kind: 'directory',
     name: node.name,
     path: node.path,
     platform: nodeHandle.platform ?? rootHandle.platform,
     ...(nodeHandle._internal === undefined ? {} : { _internal: nodeHandle._internal }),
-    ...(nodeHandle.rootId === undefined ? {} : { rootId: nodeHandle.rootId }),
+    ...(rootId === undefined ? {} : { rootId }),
   };
 }
 

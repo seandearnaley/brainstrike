@@ -164,6 +164,7 @@ export interface UseRecursiveFolderSelectOptions {
    */
   onDirectoriesLoaded?: (updates: readonly RecursiveSelectionDirectoryUpdate[]) => void;
   onError?: (error: Error) => void;
+  parentRootId?: string;
 }
 
 export interface SelectionResult {
@@ -206,6 +207,7 @@ export function useRecursiveFolderSelect(
     getSubtreeByPath,
     onDirectoriesLoaded,
     onError,
+    parentRootId,
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
@@ -338,6 +340,7 @@ export function useRecursiveFolderSelect(
               },
             }));
           },
+          parentRootId,
           useRegex,
         });
 
@@ -442,6 +445,7 @@ export function useRecursiveFolderSelect(
       internalFilterTreeFn,
       onDirectoriesLoaded,
       onError,
+      parentRootId,
       quickFilter,
       setQuerySelection,
       showToast,

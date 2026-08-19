@@ -62,6 +62,7 @@ async function loadSingleDirectory(
   path: string,
   rootPath: string,
   rootFolderId: string,
+  parentRootId: DirectoryHandle['rootId'],
   handleMap: Map<string, FileSystemHandle>,
   fileSystemAdapter: FileSystemAdapter,
   abortSignal: AbortSignal
@@ -76,6 +77,7 @@ async function loadSingleDirectory(
   try {
     const children = await loadDirectoryChildren(fileSystemAdapter, node, {
       abortSignal,
+      parentRootId,
       sortFileNodes,
     });
 
@@ -203,7 +205,8 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
         const abortController = new AbortController();
 
         // Get root info for building nodes
-        const rootPath = rootHandleRef.current?.path;
+        const rootHandle = rootHandleRef.current;
+        const rootPath = rootHandle?.path;
         if (!rootPath) {
           return paths.map((path) => ({
             error: 'Root directory handle is missing its canonical path',
@@ -225,6 +228,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
                 path,
                 rootPath,
                 rootFolderId,
+                rootHandle.rootId,
                 handleMapRef.current,
                 fileSystemAdapter,
                 abortController.signal

@@ -296,6 +296,48 @@ describe('lazy-tree-loader', () => {
       );
     });
 
+    it('inherits the parent rootId when a child directory handle is unstamped', async () => {
+      const adapter = createMockAdapter();
+      const rootHandle = createDirectoryHandle({ rootId: 'outer-root-id' });
+      const parentNode = createDirectoryNode({
+        handle: {} as FileSystemDirectoryHandle,
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'folder-state-id',
+      });
+
+      await loadDirectoryChildren(adapter, parentNode, {
+        parentRootId: rootHandle.rootId,
+      });
+
+      expect(adapter.readDirectory).toHaveBeenCalledWith(
+        expect.objectContaining({ rootId: 'outer-root-id' }),
+        expect.any(Object)
+      );
+    });
+
+    it('does not throw when the node handle is undefined', async () => {
+      const adapter = createMockAdapter();
+      const rootHandle = createDirectoryHandle({ rootId: 'outer-root-id' });
+      const parentNode = createDirectoryNode({
+        handle: undefined as unknown as IFileNode['handle'],
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'folder-state-id',
+      });
+
+      await expect(
+        loadDirectoryChildren(adapter, parentNode, {
+          parentRootId: rootHandle.rootId,
+        })
+      ).resolves.toEqual([]);
+
+      expect(adapter.readDirectory).toHaveBeenCalledWith(
+        expect.objectContaining({ rootId: 'outer-root-id' }),
+        expect.any(Object)
+      );
+    });
+
     it('throws for non-directory parent', async () => {
       const adapter = createMockAdapter([]);
       const fileNode = createFileNode();
@@ -535,6 +577,32 @@ describe('lazy-tree-loader', () => {
       expect(batches).toHaveLength(2);
       expect(batches[0]!.done).toBe(false);
       expect(batches[1]!.done).toBe(true);
+    });
+
+    it('inherits the parent rootId without throwing when the node handle is undefined', async () => {
+      const adapter = createMockAdapter();
+      const rootHandle = createDirectoryHandle({ rootId: 'outer-root-id' });
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
+        onBatch([], { done: true, total: 0 });
+      });
+      const parentNode = createDirectoryNode({
+        handle: undefined as unknown as IFileNode['handle'],
+        name: 'parent',
+        path: '/root/parent',
+        rootFolderId: 'folder-state-id',
+      });
+
+      await expect(
+        loadDirectoryChildrenStreaming(adapter, parentNode, vi.fn(), {
+          parentRootId: rootHandle.rootId,
+        })
+      ).resolves.toBeUndefined();
+
+      expect(adapter.readDirectoryStreaming).toHaveBeenCalledWith(
+        expect.objectContaining({ rootId: 'outer-root-id' }),
+        expect.any(Function),
+        expect.any(Object)
+      );
     });
 
     it('throws for non-directory parent', async () => {

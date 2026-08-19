@@ -136,6 +136,48 @@ describe('readFullFileTree', () => {
     });
   });
 
+  it('preserves a durable rootId stamped on a child handle during recursive traversal', async () => {
+    const stampedChildHandle = Object.assign(mockDirectory('child'), {
+      rootId: 'stamped-child-root-id',
+    });
+    const adapter = new BrowserHandleTestAdapter(
+      mockDirectory('root', [['child', stampedChildHandle]])
+    );
+    const readDirectory = vi.spyOn(adapter, 'readDirectory');
+    const rootHandle = await adapter.requestDirectoryAccess();
+
+    await readFullFileTree(adapter, rootHandle);
+
+    expect(readDirectory).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        path: '/child',
+        rootId: 'stamped-child-root-id',
+      })
+    );
+  });
+
+  it('inherits the durable rootId when a web child handle is unstamped', async () => {
+    const adapter = new BrowserHandleTestAdapter(
+      mockDirectory('root', [['child', mockDirectory('child')]])
+    );
+    const readDirectory = vi.spyOn(adapter, 'readDirectory');
+    const rootHandle: DirectoryHandle = {
+      ...(await adapter.requestDirectoryAccess()),
+      rootId: 'outer-root-id',
+    };
+
+    await readFullFileTree(adapter, rootHandle);
+
+    expect(readDirectory).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        path: '/child',
+        rootId: 'outer-root-id',
+      })
+    );
+  });
+
   // Test Scenario 2: Circular Reference (Symbolic Link)
   it('should handle circular references (symbolic links)', async () => {
     const dirA = mockDirectory('a');

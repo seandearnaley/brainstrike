@@ -289,6 +289,28 @@ describe('walkDirectoryParallel', () => {
     );
   });
 
+  it('inherits the parent rootId when a child directory handle is unstamped', async () => {
+    const stampedRootHandle: DirectoryHandle = {
+      ...rootHandle,
+      rootId: 'outer-root-id',
+    };
+    const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
+      if (handle.path === '/workspace/root') {
+        return [createDirectoryEntry('nested-root', '/workspace/root/nested-root')];
+      }
+      return [];
+    });
+
+    await walkDirectoryParallel(createFileSystemAdapter(readDirectory), stampedRootHandle);
+
+    expect(readDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/workspace/root/nested-root',
+        rootId: 'outer-root-id',
+      })
+    );
+  });
+
   it('uses canonical entry handle paths for web child directory reads while preserving relative node paths', async () => {
     const webRootHandle: DirectoryHandle = {
       _internal: undefined,
