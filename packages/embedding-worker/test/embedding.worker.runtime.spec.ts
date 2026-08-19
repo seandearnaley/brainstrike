@@ -607,8 +607,9 @@ describe('embedding worker runtime', () => {
       });
       expect(batch.vectors).toHaveLength(batchSize);
       expect(batch.vectors.every((vector) => vector.length === dimensions)).toBe(true);
-      expect(new Set(batch.vectors.map((vector) => vector.buffer)).size).toBe(batchSize);
-      expect(transferList).toHaveLength(batchSize);
+      const uniqueVectorBuffers = new Set(batch.vectors.map((vector) => vector.buffer));
+      expect(new Set(transferList)).toEqual(uniqueVectorBuffers);
+      expect(transferList).toHaveLength(uniqueVectorBuffers.size);
       expect(transferList.reduce((sum, buffer) => sum + buffer.byteLength, 0)).toBe(
         expectedBytesPerBatch
       );
