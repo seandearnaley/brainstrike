@@ -41,7 +41,11 @@ import {
   type WorkspaceIndexingQosPolicy,
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { createLogger } from '@brainstrike/logging';
-import type { DirectoryHandle, FileSystemChange } from '@brainstrike/types';
+import {
+  type DirectoryHandle,
+  FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT,
+  type FileSystemChange,
+} from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
   getBackgroundWorkArbiterSnapshot,
@@ -984,6 +988,18 @@ function isFileSystemChange(value: unknown): value is FileSystemChange {
   );
 }
 
+function isFilteredChangeBoundary(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.includes('\\')) {
+    return false;
+  }
+  if (value.startsWith('/') || /^[A-Za-z]:\//u.test(value)) {
+    return false;
+  }
+  return value
+    .split('/')
+    .every((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
+}
+
 function isWorkspaceRefreshDetail(value: unknown): value is FileExplorerRefreshEventDetail {
   if (!(value && typeof value === 'object')) {
     return false;
@@ -1009,11 +1025,21 @@ function isWorkspaceRefreshDetail(value: unknown): value is FileExplorerRefreshE
       return false;
     }
     const rootCandidate = root as Record<string, unknown>;
+    const boundaries = rootCandidate['filteredChangeBoundaries'];
+    const boundaryOverflow = rootCandidate['filteredChangeBoundariesOverflow'];
+    const hasValidFilteredEvidence =
+      boundaries === undefined
+        ? boundaryOverflow === undefined
+        : Array.isArray(boundaries) &&
+          boundaries.length > 0 &&
+          boundaries.length <= FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT &&
+          boundaries.every(isFilteredChangeBoundary) &&
+          (boundaryOverflow === undefined || boundaryOverflow === true);
     return (
       typeof rootCandidate['rootId'] === 'string' &&
       rootCandidate['rootId'].length > 0 &&
       typeof rootCandidate['rootPath'] === 'string' &&
-      (rootCandidate['omittedChanges'] === undefined || rootCandidate['omittedChanges'] === true) &&
+      hasValidFilteredEvidence &&
       Array.isArray(rootCandidate['changes']) &&
       rootCandidate['changes'].every(isFileSystemChange)
     );
@@ -1048,9 +1074,9 @@ function parseRefreshSyncScope(event: Event): TriggerSyncScope | null {
   }
   const rootsWithDetailedChanges = event.detail.roots.filter((root) => root.changes.length > 0);
   if (rootsWithDetailedChanges.length === 0) {
-    // `omittedChanges` is coarse working-tree evidence for Git views, not an
-    // overflow. No detailed path reached the indexer, so there is no indexing
-    // work and no justification for the no-matching-root full-recovery path.
+    // Filtered-boundary metadata is working-tree evidence for Git views, not
+    // watcher record loss. No detailed path reached the indexer, so there is
+    // no indexing work and no justification for full-recovery work.
     return null;
   }
   return {

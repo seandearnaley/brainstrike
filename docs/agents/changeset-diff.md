@@ -425,30 +425,45 @@ canonical manual-full empty-roots broadcast maps all mounted registrations. A
 `Set` dedupes multiple worktrees/scopes of one repository. Unregistered /
 snapshot changesets are never guessed into the result.
 
-The watcher source preserves default-filtered activity (BST-1180 review) only
-for the concrete MAIN-owned Explorer `fs:watch` subscription, which explicitly
-sets `reportDefaultFilteredChanges:true`; the option is not renderer/wire input.
-Generic Parcel/Electron watchers remain default-false and retain
-`DEFAULT_IGNORE_PATTERNS` natively, so Notes Vault keeps its prior callback/load
-behavior. The Explorer opt-in keeps `.git` plus hard `.claude/worktrees` native,
-then its JS guard withholds other default-filtered detailed paths from
-Explorer/indexing and adds `omittedChanges:true` to the existing batched root
-entry. Changes treats
-that marker as coarse evidence for every mounted Git registration in the named
-durable root; it is not overflow and cannot trigger a tree/index full scan.
+The watcher source preserves a bounded subset of default-filtered activity
+(BST-1180 review) only for the concrete MAIN-owned Explorer `fs:watch`
+subscription, which explicitly sets `reportDefaultFilteredChanges:true`; the
+option is not renderer/wire input. Generic Parcel/Electron watchers remain
+default-false and retain every `DEFAULT_IGNORE_PATTERNS` entry natively, so
+Notes Vault keeps its prior callback/load behavior. The Explorer opt-in keeps
+`.git`, `node_modules`, `.pnpm-store`, `.next`, `.turbo`, plus hard
+`.claude/worktrees` native-suppressed. Recursively broadening those
+high-cardinality dependency/cache trees can exhaust native watcher resources;
+lossless support for a force-tracked file inside one requires a separate,
+bounded Git-aware tracked-path watcher architecture. This pipeline does not
+poll or silently claim freshness for that unsupported case.
+
+For the reportable `dist`, `build`, and `.DS_Store` defaults, the JS guard
+matches only segments in the event path RELATIVE to the watched root (an
+ancestor named `build`/`node_modules` never filters the whole root), withholds
+the detailed record from Explorer/indexing, and emits the first matched
+root-relative boundary. Each 150ms producer batch dedupes at most 64 distinct
+boundaries; the 300ms/1s renderer aggregate reapplies the same cap. More
+boundaries set explicit `filteredChangeBoundariesOverflow:true` rather than
+growing memory or silently dropping evidence. Changes maps retained boundaries
+only to intersecting mounted Git registrations in the named durable root;
+explicit boundary overflow fails open to every registration in that root. A
+detailed path and boundary affecting the same repo still enqueue one repository
+refresh, and the existing trailing/max-wait store coalesces nearby metadata
+evidence without discarding mutation counts. Boundary metadata is not watcher
+record loss and cannot trigger a tree/index full scan. Per-batch work remains
+one Git view refresh per affected repository, not one refresh per raw file.
 Custom Explorer exclude filters are display-only and therefore keep their
-normal detailed path. The `.claude/worktrees` hard native exclusion remains the
-documented run-5189 exception and intentionally produces neither signal. The
-Explorer subscription also keeps `.git` natively ignored: it is not a tracked
-working-tree path, and the private git-metadata watcher already owns its
-interesting HEAD/index/refs evidence without forwarding objects churn.
+normal detailed path. The hard/native exclusions intentionally produce neither
+signal.
 The opt-in rejects every explicit `ignorePatterns` override (including `[]`),
 so git inventory's existing `ignorePatterns: []` subscription stays marker-free
 and no ambiguous configuration silently changes ownership.
 
 Path work is bounded before scanning a watcher batch: registration paths are
-normalized once at registration, event root paths once per root, and change
-paths lazily once then cached for equivalent consumers. Registrations with the
+normalized once at registration, event root paths once per root, and detailed
+change/boundary paths lazily once then cached for equivalent consumers.
+Registrations with the
 same normalized `(rootId, worktreePath, repositoryRoot)` are grouped, so the
 Changes surface and Git panel do not rescan thousands of changes twice. Once a
 repository root is affected, later worktree groups for that same raw key are

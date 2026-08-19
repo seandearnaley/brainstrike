@@ -14,3 +14,4 @@ export type {
   WatcherHealthState,
   WatcherHealthTransition,
 } from '@brainstrike/types';
+export { FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT } from '@brainstrike/types';

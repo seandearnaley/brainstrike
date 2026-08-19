@@ -63,8 +63,13 @@ function ensureSharedWatchSubscription(
     if (!callback) {
       return;
     }
-    if (event.omittedChanges === true) {
-      callback(event.changes, { omittedChanges: true });
+    if (event.filteredChangeBoundaries && event.filteredChangeBoundaries.length > 0) {
+      callback(event.changes, {
+        filteredChangeBoundaries: event.filteredChangeBoundaries,
+        ...(event.filteredChangeBoundariesOverflow === true
+          ? { filteredChangeBoundariesOverflow: true }
+          : {}),
+      });
     } else if (event.changes.length > 0) {
       callback(event.changes);
     }

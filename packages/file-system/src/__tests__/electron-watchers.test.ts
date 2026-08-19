@@ -8,7 +8,7 @@ import {
   FS_WATCH_BATCH_WINDOW_MS,
   FS_WATCH_MAX_BATCH_SIZE,
 } from '../adapters/electron-watchers.js';
-import type { FileSystemChange } from '../types.js';
+import { FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT, type FileSystemChange } from '../types.js';
 
 function change(pathSuffix: number): FileSystemChange {
   return { kind: 'file', path: `/root/f${pathSuffix}.txt`, type: 'added' };
@@ -82,10 +82,7 @@ describe('createFileSystemChangeBatcher', () => {
   });
 
   it('dedupes filtered boundaries while retaining their root-relative identity', () => {
-    const batcher = createFileSystemChangeBatcher(collect) as unknown as {
-      dispose: () => void;
-      markFilteredChangeBoundary: (boundary: string) => void;
-    };
+    const batcher = createFileSystemChangeBatcher(collect);
     batcher.markFilteredChangeBoundary('packages/app/dist');
     batcher.markFilteredChangeBoundary('packages/app/dist');
     batcher.markFilteredChangeBoundary('packages/docs/build');
@@ -101,12 +98,10 @@ describe('createFileSystemChangeBatcher', () => {
     batcher.dispose();
   });
 
-  it('caps filtered boundaries at 64 and reports overflow explicitly', () => {
-    const batcher = createFileSystemChangeBatcher(collect) as unknown as {
-      dispose: () => void;
-      markFilteredChangeBoundary: (boundary: string) => void;
-    };
-    for (let index = 0; index < 65; index += 1) {
+  it('caps filtered boundaries at the typed limit and reports overflow explicitly', () => {
+    const batcher = createFileSystemChangeBatcher(collect);
+    expect(FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT).toBe(64);
+    for (let index = 0; index <= FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT; index += 1) {
       batcher.markFilteredChangeBoundary(`repo-${index}/dist`);
     }
 
@@ -115,10 +110,25 @@ describe('createFileSystemChangeBatcher', () => {
     expect(batches).toEqual([[]]);
     expect(metadataBatches).toEqual([
       {
-        filteredChangeBoundaries: Array.from({ length: 64 }, (_, index) => `repo-${index}/dist`),
+        filteredChangeBoundaries: Array.from(
+          { length: FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT },
+          (_, index) => `repo-${index}/dist`
+        ),
         filteredChangeBoundariesOverflow: true,
       },
     ]);
     batcher.dispose();
   });
+
+  it.each(['', '/dist', 'C:/dist', '../dist', 'packages//dist', 'packages\\dist'])(
+    'rejects malformed filtered boundary %j instead of silently widening it',
+    (boundary) => {
+      const batcher = createFileSystemChangeBatcher(collect);
+      expect(() => batcher.markFilteredChangeBoundary(boundary)).toThrow(
+        /normalized root-relative path/u
+      );
+      batcher.dispose();
+      expect(batches).toEqual([]);
+    }
+  );
 });

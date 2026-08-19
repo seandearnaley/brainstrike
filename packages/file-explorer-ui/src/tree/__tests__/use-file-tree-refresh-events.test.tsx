@@ -371,7 +371,7 @@ describe('useFileTreeRefreshEvents', () => {
       roots: [
         {
           changes: [],
-          omittedChanges: true,
+          filteredChangeBoundaries: ['packages/app/dist'],
           rootId: ROOT_ID,
           rootPath: ROOT_PATH,
         },

@@ -1288,7 +1288,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
-  it('does not turn an omitted-only working-tree marker into an indexing scan', async () => {
+  it('does not turn filtered-boundary working-tree evidence into an indexing scan', async () => {
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
 
     try {
@@ -1308,7 +1308,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
               roots: [
                 {
                   changes: [],
-                  omittedChanges: true,
+                  filteredChangeBoundaries: ['packages/app/dist'],
                   rootId: 'root-id-1',
                   rootPath: '/workspace/root',
                 },

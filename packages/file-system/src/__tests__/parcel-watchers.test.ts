@@ -204,6 +204,28 @@ describe('startParcelWatch', () => {
     }
   );
 
+  it('keeps a high-cardinality subtree silent even beneath a reportable boundary', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(
+      makeHandle(root),
+      collect,
+      withDefaultFilteredReporting({
+        loadModule: () => Promise.resolve(fake.module),
+      })
+    );
+
+    const ignoredDirectory = join(root, 'dist', 'node_modules');
+    await mkdir(ignoredDirectory, { recursive: true });
+    const ignoredFile = join(ignoredDirectory, 'tracked.js');
+    await writeFile(ignoredFile, 'changed');
+    fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(batches).toEqual([]);
+    expect(batchMetadata).toEqual([]);
+    stop();
+  });
+
   it.each(['dist', 'build'])(
     'reports a root-relative %s boundary only after the explicit opt-in',
     async (directoryName) => {

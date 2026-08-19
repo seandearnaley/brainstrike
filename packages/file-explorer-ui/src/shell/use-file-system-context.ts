@@ -16,7 +16,10 @@ import type {
   FileSystemWatchSignal,
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
-import type { FileSystemChange } from '@brainstrike/types';
+import {
+  FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT,
+  type FileSystemChange,
+} from '@brainstrike/types';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
 import { INJECT_ROOT_HANDLE_EVENT, type InjectRootHandleDetail } from '../inject-root-handle-event';
@@ -404,7 +407,8 @@ export function useFileSystemInstance() {
         rootId: string;
         rootPath: string;
         changes: FileSystemChange[];
-        omittedChanges: boolean;
+        filteredChangeBoundaries: Set<string>;
+        filteredChangeBoundariesOverflow: boolean;
       }
     >
   >(new Map());
@@ -457,7 +461,12 @@ export function useFileSystemInstance() {
     prunePendingRefreshRoots(new Set(watcherRootMetadataRef.current.keys()));
     const roots = Array.from(pendingRefreshRootsRef.current.values()).map((root) => ({
       changes: root.changes,
-      ...(root.omittedChanges ? { omittedChanges: true as const } : {}),
+      ...(root.filteredChangeBoundaries.size > 0
+        ? { filteredChangeBoundaries: [...root.filteredChangeBoundaries] }
+        : {}),
+      ...(root.filteredChangeBoundariesOverflow
+        ? { filteredChangeBoundariesOverflow: true as const }
+        : {}),
       rootId: root.rootId,
       rootPath: root.rootPath,
     }));
@@ -484,23 +493,41 @@ export function useFileSystemInstance() {
       if (!watcherRoot) {
         return;
       }
-      const omittedChanges = metadata?.omittedChanges === true;
-      if (changes.length === 0 && !omittedChanges) {
+      const filteredChangeBoundaries = metadata?.filteredChangeBoundaries ?? [];
+      const hasFilteredEvidence =
+        filteredChangeBoundaries.length > 0 || metadata?.filteredChangeBoundariesOverflow === true;
+      if (changes.length === 0 && !hasFilteredEvidence) {
         return;
       }
 
       const pendingRoots = pendingRefreshRootsRef.current;
-      const pendingRoot = pendingRoots.get(rootId);
+      let pendingRoot = pendingRoots.get(rootId);
       if (pendingRoot) {
         pendingRoot.changes.push(...changes);
-        pendingRoot.omittedChanges ||= omittedChanges;
       } else {
-        pendingRoots.set(rootId, {
+        pendingRoot = {
           changes: [...changes],
-          omittedChanges,
+          filteredChangeBoundaries: new Set(),
+          filteredChangeBoundariesOverflow: false,
           rootId,
           rootPath: watcherRoot.rootPath,
-        });
+        };
+        pendingRoots.set(rootId, pendingRoot);
+      }
+      if (metadata?.filteredChangeBoundariesOverflow === true) {
+        pendingRoot.filteredChangeBoundariesOverflow = true;
+      }
+      for (const boundary of filteredChangeBoundaries) {
+        if (pendingRoot.filteredChangeBoundaries.has(boundary)) {
+          continue;
+        }
+        if (
+          pendingRoot.filteredChangeBoundaries.size >= FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT
+        ) {
+          pendingRoot.filteredChangeBoundariesOverflow = true;
+          continue;
+        }
+        pendingRoot.filteredChangeBoundaries.add(boundary);
       }
 
       const now = Date.now();

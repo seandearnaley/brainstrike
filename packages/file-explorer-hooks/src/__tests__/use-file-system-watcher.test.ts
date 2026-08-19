@@ -129,10 +129,10 @@ describe('useFileSystemWatcher', () => {
       useFileSystemWatcher({ adapter, onChanges, roots: [{ handle, rootId: 'root-a' }] })
     );
 
-    const metadata = {
+    const metadata: FileSystemWatchBatchMetadata = {
       filteredChangeBoundaries: ['packages/app/dist'],
       filteredChangeBoundariesOverflow: true,
-    } as unknown as FileSystemWatchBatchMetadata;
+    };
     adapter.watchCalls[0]?.callback([], metadata);
 
     expect(onChanges).toHaveBeenCalledWith('root-a', [], metadata);

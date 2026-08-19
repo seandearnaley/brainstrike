@@ -80,9 +80,10 @@ export interface WatchDirectoryOptions {
   /** Typed watcher health transitions (BST-568 slice 3). */
   onHealth?: (event: WatcherHealthTransition) => void;
   /**
-   * Opt into coarse markers for DEFAULT_IGNORE_PATTERNS. Default false and
-   * mutually exclusive with `ignorePatterns`; only the main fs:watch Explorer
-   * owner enables it.
+   * Opt into bounded root-relative evidence for reportable default filters.
+   * Default false and mutually exclusive with `ignorePatterns`; only the main
+   * fs:watch Explorer owner enables it. High-cardinality defaults remain
+   * native-suppressed.
    */
   reportDefaultFilteredChanges?: boolean;
 }

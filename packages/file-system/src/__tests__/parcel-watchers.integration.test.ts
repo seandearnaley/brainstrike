@@ -133,7 +133,7 @@ describe('startParcelWatch (real binding)', () => {
     expect(batches.flat().length).toBe(deliveredBeforeStop);
   });
 
-  it('summarizes node_modules activity without exposing its detailed path', async (ctx) => {
+  it('summarizes dist activity without exposing its detailed path', async (ctx) => {
     const metadataBatches: Array<FileSystemWatchBatchMetadata | undefined> = [];
     stop = await startParcelWatch(
       makeHandle(root),
@@ -147,8 +147,8 @@ describe('startParcelWatch (real binding)', () => {
     const keptPath = join(root, 'kept.txt');
 
     try {
-      await mkdir(join(root, 'node_modules'));
-      await writeFile(join(root, 'node_modules', 'pkg.js'), 'x');
+      await mkdir(join(root, 'dist'));
+      await writeFile(join(root, 'dist', 'generated.js'), 'x');
       await writeFile(keptPath, 'x');
 
       await vi.waitFor(
@@ -166,8 +166,8 @@ describe('startParcelWatch (real binding)', () => {
     }
 
     const flatPaths = batches.flat().map((change) => change.path);
-    expect(flatPaths.some((changedPath) => changedPath.includes('node_modules'))).toBe(false);
-    expect(metadataBatches).toContainEqual({ omittedChanges: true });
+    expect(flatPaths.some((changedPath) => changedPath.includes('dist'))).toBe(false);
+    expect(metadataBatches).toContainEqual({ filteredChangeBoundaries: ['dist'] });
   });
 });
 

@@ -769,11 +769,11 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       act(() => {
         callback([], {
           filteredChangeBoundaries: firstBoundaries,
-        } as unknown as FileSystemWatchBatchMetadata);
+        });
         callback([visibleChange]);
         callback([], {
           filteredChangeBoundaries: secondBoundaries,
-        } as unknown as FileSystemWatchBatchMetadata);
+        });
         vi.advanceTimersByTime(300);
       });
 

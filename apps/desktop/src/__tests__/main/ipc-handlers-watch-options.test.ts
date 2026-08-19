@@ -51,7 +51,7 @@ describe('Explorer watcher composition', () => {
     vi.clearAllMocks();
   });
 
-  it('enables coarse default-filtered reporting only in the main fs:watch owner', () => {
+  it('enables bounded default-filter reporting only in the main fs:watch owner', () => {
     const stop = vi.fn();
     const watchDirectory = vi.fn(() => stop);
     const fileSystem = { watchDirectory } as unknown as ElectronFileSystemAdapter;

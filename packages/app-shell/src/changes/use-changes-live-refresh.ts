@@ -51,6 +51,7 @@ interface NormalizedRefreshRoot {
     change: FileExplorerRefreshRootDetail['changes'][number]
   ) => string;
   readonly normalizedRootPath: string;
+  readonly normalizeFilteredBoundary: (boundary: string) => string;
 }
 
 interface RegistrationGroup {
@@ -109,6 +110,7 @@ function resolveChangePath(normalizedRootPath: string, changePath: string): stri
 function normalizeRefreshRoot(root: FileExplorerRefreshRootDetail): NormalizedRefreshRoot {
   const normalizedRootPath = normalizeRefreshPathForComparison(root.rootPath);
   const normalizedChangePaths = new Map<FileExplorerRefreshRootDetail['changes'][number], string>();
+  const normalizedFilteredBoundaries = new Map<string, string>();
   return {
     detail: root,
     normalizeChangePath: (change) => {
@@ -121,6 +123,15 @@ function normalizeRefreshRoot(root: FileExplorerRefreshRootDetail): NormalizedRe
       return normalized;
     },
     normalizedRootPath,
+    normalizeFilteredBoundary: (boundary) => {
+      const cached = normalizedFilteredBoundaries.get(boundary);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const normalized = resolveChangePath(normalizedRootPath, boundary);
+      normalizedFilteredBoundaries.set(boundary, normalized);
+      return normalized;
+    },
   };
 }
 
@@ -132,10 +143,10 @@ function rootRefreshAffectsRegistrationGroup(
   if (scope === 'full') {
     return true;
   }
-  if (root.detail.omittedChanges === true) {
-    // The detailed paths were deliberately filtered upstream. RootId is the
-    // only lossless authority left, so every mounted Git scope in this root is
-    // refreshed; this is NOT watcher overflow and never drives a tree/index scan.
+  if (root.detail.filteredChangeBoundariesOverflow === true) {
+    // Boundary evidence exceeded the typed finite cap. RootId remains the
+    // lossless authority, so fail open only across mounted Git scopes in this
+    // durable root. This is NOT watcher record loss and drives no tree/index scan.
     return true;
   }
   const pathsShareVocabulary =
@@ -149,15 +160,19 @@ function rootRefreshAffectsRegistrationGroup(
     // repository in this durable root instead (safe extra work, never stale).
     return true;
   }
-  for (const change of root.detail.changes) {
-    const changedPath = root.normalizeChangePath(change);
+  const intersectsRegistration = (changedPath: string): boolean =>
     // A changed descendant edits repository content. A changed ancestor can
     // add/remove/replace the worktree directory itself, so it also intersects
     // the repository and must refresh it.
-    if (
-      isNormalizedPathContained(registration.normalizedWorktreePath, changedPath) ||
-      isNormalizedPathContained(changedPath, registration.normalizedWorktreePath)
-    ) {
+    isNormalizedPathContained(registration.normalizedWorktreePath, changedPath) ||
+    isNormalizedPathContained(changedPath, registration.normalizedWorktreePath);
+  for (const change of root.detail.changes) {
+    if (intersectsRegistration(root.normalizeChangePath(change))) {
+      return true;
+    }
+  }
+  for (const boundary of root.detail.filteredChangeBoundaries ?? []) {
+    if (intersectsRegistration(root.normalizeFilteredBoundary(boundary))) {
       return true;
     }
   }

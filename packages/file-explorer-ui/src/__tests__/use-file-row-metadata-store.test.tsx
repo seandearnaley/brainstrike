@@ -302,7 +302,7 @@ describe('useFileRowMetadataStore', () => {
     invalidateAllSpy.mockClear();
     const omittedRoot = {
       changes: [],
-      omittedChanges: true,
+      filteredChangeBoundaries: ['packages/app/dist'],
       rootId: ROOT,
       rootPath: '/workspace/root',
     } as const;

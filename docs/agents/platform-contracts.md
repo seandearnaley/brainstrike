@@ -717,11 +717,16 @@ indexed state only.
   Electron `WatchDirectoryOptions` also expose
   `reportDefaultFilteredChanges`, default `false`. With that option false,
   `DEFAULT_IGNORE_PATTERNS` retain their pre-BST-1180 native globs and the
-  callback receives no coarse marker. Only `ipc-handlers.ts`'s MAIN-owned
-  Explorer `fs:watch` dependency passes `true`; this removes working-tree-capable
-  defaults from that subscription's native globs, keeps `.git` plus the hard
-  `.claude/worktrees` exclusion native, and lets the JS guard emit one bounded
-  `omittedChanges:true` marker without exposing detailed Explorer changes.
+  callback receives no filtered-boundary evidence. Only `ipc-handlers.ts`'s
+  MAIN-owned Explorer `fs:watch` dependency passes `true`; this broadens only
+  `dist`, `build`, and `.DS_Store` while keeping `.git`, `node_modules`,
+  `.pnpm-store`, `.next`, `.turbo`, plus the hard `.claude/worktrees`
+  exclusion native. The JS guard emits root-relative boundaries without
+  exposing detailed Explorer changes. Both watcher and renderer batching cap
+  retained boundaries at 64 and surface explicit overflow. Tracked files in
+  the retained high-cardinality trees require a future bounded Git-aware
+  tracked-path watcher; this option must not broaden the recursive watcher or
+  claim silent coverage.
   Notes Vault stays explicitly false. Git inventory keeps its explicit
   `ignorePatterns: []` and is marker-free. Reporting true plus ANY explicit
   override (including `[]`) throws before watcher setup — the configuration is

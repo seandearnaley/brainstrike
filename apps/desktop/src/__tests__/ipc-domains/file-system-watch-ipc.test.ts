@@ -422,7 +422,7 @@ describe('file-system watch IPC domain', () => {
 
     harness.fireAllChanges([], {
       filteredChangeBoundaries: ['packages/app/dist'],
-    } as unknown as FileSystemWatchBatchMetadata);
+    });
 
     expect(owner.watchEvents).toEqual([
       {

@@ -3,11 +3,11 @@
  *
  * Watching runs in the MAIN process (@parcel/watcher via
  * `@brainstrike/file-system/electron`, injected by ipc-handlers.ts) and pushes
- * batched `FileSystemChange[]` payloads plus the optional coarse
- * `omittedChanges` marker to the OWNING renderer only — the same ownership /
- * reaper model as the notes-vault watch channels. The renderer never receives
- * Node watcher objects; it holds an opaque `watchId` and a one-way push
- * subscription (see `ElectronRendererFileSystemAdapter.watchDirectory`).
+ * batched `FileSystemChange[]` payloads plus optional bounded filtered-boundary
+ * evidence to the OWNING renderer only — the same ownership / reaper model as
+ * the notes-vault watch channels. The renderer never receives Node watcher
+ * objects; it holds an opaque `watchId` and a one-way push subscription (see
+ * `ElectronRendererFileSystemAdapter.watchDirectory`).
  */
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
@@ -28,7 +28,8 @@ const logger = createLogger('FileSystemWatchIpc');
 
 export interface FileSystemWatchEventPayload {
   changes: FileSystemChange[];
-  omittedChanges?: true;
+  filteredChangeBoundaries?: readonly string[];
+  filteredChangeBoundariesOverflow?: true;
   watchId: string;
 }
 
@@ -227,7 +228,14 @@ function makeChangeSink(
     for (const watchId of entry.watchIds) {
       const payload: FileSystemWatchEventPayload = {
         changes,
-        ...(metadata?.omittedChanges === true ? { omittedChanges: true } : {}),
+        ...(metadata
+          ? {
+              filteredChangeBoundaries: [...metadata.filteredChangeBoundaries],
+              ...(metadata.filteredChangeBoundariesOverflow === true
+                ? { filteredChangeBoundariesOverflow: true as const }
+                : {}),
+            }
+          : {}),
         watchId,
       };
       owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);

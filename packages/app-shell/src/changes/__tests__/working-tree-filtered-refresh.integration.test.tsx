@@ -13,13 +13,15 @@ import {
   type FileSystemWatchSignal,
   MockFileSystemAdapter,
 } from '@brainstrike/file-system';
+import {
+  type ParcelWatcherModule,
+  startParcelWatch,
+} from '@brainstrike/file-system/testing/parcel-producer';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { FileSystemChange, RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ParcelWatcherModule } from '../../../../file-system/src/adapters/parcel-backend.js';
-import { startParcelWatch } from '../../../../file-system/src/adapters/parcel-watchers.js';
 import {
   selectGitScopeRefreshNonce,
   useChangesLiveRefreshStore,
@@ -128,7 +130,7 @@ async function mountWatcherFixture(): Promise<MountedWatcherFixture> {
 
   const handle: DirectoryHandle = {
     kind: 'directory',
-    name: 'tracked-filter-fixture',
+    name: 'filtered-output-fixture',
     path: root,
     platform: 'electron',
     rootId: ROOT_ID,

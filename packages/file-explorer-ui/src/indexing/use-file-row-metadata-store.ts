@@ -30,8 +30,7 @@
  *    therefore forces a pass at least once per max-wait window. An operational
  *    transition and Explorer-relevant FILE_EXPLORER_REFRESH_EVENT reconcile
  *    immediately — both are one-shot and user-visible. A watcher event whose
- *    only evidence was default-filtered for Git freshness is deliberately a
- *    no-op here.
+ *    only evidence was a filtered Git boundary is deliberately a no-op here.
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';

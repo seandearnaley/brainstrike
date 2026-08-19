@@ -1,4 +1,7 @@
-import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
+import {
+  createFileExplorerRefreshEvent,
+  type FileExplorerRefreshEventDetail,
+} from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge, ChangesInvalidationEvent } from '../changes-bridge';
@@ -146,59 +149,6 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     }
   });
 
-  it('maps an omitted-change marker to every registered repository in only the named durable root', () => {
-    vi.useFakeTimers();
-    stubBridge(vi.fn(() => () => {}));
-    const releaseA = acquireChangesLiveRefreshSubscription({
-      repositoryRoot: '/workspace/repo-a',
-      rootId: 'root-1',
-      worktreePath: '/workspace/repo-a',
-    });
-    const releaseB = acquireChangesLiveRefreshSubscription({
-      repositoryRoot: '/workspace/repo-b',
-      rootId: 'root-1',
-      worktreePath: '/workspace/repo-b',
-    });
-    const releaseOtherRoot = acquireChangesLiveRefreshSubscription({
-      repositoryRoot: '/other/repo',
-      rootId: 'root-2',
-      worktreePath: '/other/repo',
-    });
-
-    try {
-      const omittedRoot = {
-        changes: [
-          {
-            kind: 'file' as const,
-            path: '/workspace/repo-a/src/also-visible.ts',
-            type: 'modified' as const,
-          },
-        ],
-        omittedChanges: true,
-        rootId: 'root-1',
-        rootPath: '/workspace',
-      } as const;
-      window.dispatchEvent(
-        createFileExplorerRefreshEvent({
-          roots: [omittedRoot],
-          scope: 'incremental',
-          source: 'watcher',
-        })
-      );
-      vi.runAllTimers();
-
-      const state = useChangesLiveRefreshStore.getState();
-      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-a')).toBe(1);
-      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-b')).toBe(1);
-      expect(selectGitScopeRefreshNonce(state, '/other/repo')).toBe(0);
-      expect(state.anyInvalidationNonce).toBe(0);
-    } finally {
-      releaseA();
-      releaseB();
-      releaseOtherRoot();
-    }
-  });
-
   it('maps filtered-boundary evidence only to intersecting repositories in the named root', () => {
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));
@@ -222,7 +172,13 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       const detail = {
         roots: [
           {
-            changes: [],
+            changes: [
+              {
+                kind: 'file',
+                path: '/workspace/repo-a/src/also-visible.ts',
+                type: 'modified',
+              },
+            ],
             filteredChangeBoundaries: ['repo-a/dist'],
             rootId: 'root-1',
             rootPath: '/workspace',
@@ -230,7 +186,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
         ],
         scope: 'incremental',
         source: 'watcher',
-      } as unknown as Parameters<typeof createFileExplorerRefreshEvent>[0];
+      } satisfies FileExplorerRefreshEventDetail;
       window.dispatchEvent(createFileExplorerRefreshEvent(detail));
       vi.runAllTimers();
 
@@ -281,7 +237,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
         ],
         scope: 'incremental',
         source: 'watcher',
-      } as unknown as Parameters<typeof createFileExplorerRefreshEvent>[0];
+      } satisfies FileExplorerRefreshEventDetail;
       window.dispatchEvent(createFileExplorerRefreshEvent(detail));
       vi.runAllTimers();
 
