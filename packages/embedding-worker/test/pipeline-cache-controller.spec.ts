@@ -459,7 +459,19 @@ describe('embedding pipeline cache controller', () => {
       const resource = { dispose };
       pendingLoad.resolve(resource);
       await expect(load).resolves.toBe(resource);
+
+      const readyAt = clock;
+      clock = readyAt + 1;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(controller.getResidentEntries()).toMatchObject([
+        { cacheKey: 'slow-pending-model|wasm|q4', lastUsedAt: readyAt },
+      ]);
       expect(dispose).not.toHaveBeenCalled();
+
+      clock = readyAt + 5 * 60 * 1000 + 1;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(controller.getResidentEntries()).toEqual([]);
+      expect(dispose).toHaveBeenCalledOnce();
     } finally {
       pendingLoad.resolve({ dispose });
       await Promise.allSettled([load]);
