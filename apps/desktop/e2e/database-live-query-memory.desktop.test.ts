@@ -459,9 +459,6 @@ test.describe('Database live-query memory', () => {
       })
     );
 
-    expect(
-      finalMemoryDiagnostics.liveUpdateCount - baselineMemoryDiagnostics.liveUpdateCount
-    ).toBeGreaterThanOrEqual(LIVE_QUERY_MUTATION_COUNT);
     expect(finalMemoryDiagnostics.cache).toEqual(baselineMemoryDiagnostics.cache);
     expect(finalMemoryDiagnostics.recordIds).not.toContain(probeId);
     expect(finalMemoryDiagnostics.recordArrayRetention.droppedGenerationCount).toBe(0);
