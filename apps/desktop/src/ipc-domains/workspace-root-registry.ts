@@ -19,6 +19,7 @@ import {
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 import { isFileNotFoundError } from '../file-read-errors';
+import { projectReadDenialDiagnostic } from './read-denial-diagnostic';
 import {
   assertNativeAbsoluteReadPath,
   isContained,
@@ -31,46 +32,8 @@ import {
 const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 const MAX_DIRECTORY_ENTRIES = 10_000;
-const MAX_READ_DENIAL_DIAGNOSTIC_PATH_LENGTH = 256;
-const READ_DENIAL_TRUNCATION_MARKER = '…[truncated]';
 const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
 const logger = createLogger('WorkspaceRootRegistry');
-const UNSAFE_LOG_CHARACTER = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
-
-function projectReadDenialDiagnosticPath(value: unknown): string {
-  if (typeof value !== 'string') {
-    return '';
-  }
-  const fragments: string[] = [];
-  let projectedLength = 0;
-  for (const character of value) {
-    const codePoint = character.codePointAt(0);
-    if (codePoint === undefined) {
-      throw new Error('Failed to project a workspace read diagnostic character');
-    }
-    const fragment = UNSAFE_LOG_CHARACTER.test(character)
-      ? codePoint <= 0xff_ff
-        ? `\\u${codePoint.toString(16).padStart(4, '0')}`
-        : `\\u{${codePoint.toString(16)}}`
-      : character;
-    fragments.push(fragment);
-    projectedLength += fragment.length;
-    if (projectedLength <= MAX_READ_DENIAL_DIAGNOSTIC_PATH_LENGTH) {
-      continue;
-    }
-    const prefixLimit =
-      MAX_READ_DENIAL_DIAGNOSTIC_PATH_LENGTH - READ_DENIAL_TRUNCATION_MARKER.length;
-    while (projectedLength > prefixLimit) {
-      const removed = fragments.pop();
-      if (removed === undefined) {
-        throw new Error('Failed to bound a workspace read diagnostic path');
-      }
-      projectedLength -= removed.length;
-    }
-    return `${fragments.join('')}${READ_DENIAL_TRUNCATION_MARKER}`;
-  }
-  return fragments.join('');
-}
 
 interface SecureWorkspaceDirEntry {
   readonly isDirectory: boolean;
@@ -405,8 +368,10 @@ export class WorkspaceRootRegistry {
   }
 
   readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
-    const diagnosticPath = projectReadDenialDiagnosticPath(handle.path);
-    return this.withReadDenialLogging('readDirectory', diagnosticPath, handle.rootId, () =>
+    const diagnosticPath = projectReadDenialDiagnostic(handle.path);
+    const diagnosticRootId =
+      handle.rootId === undefined ? undefined : projectReadDenialDiagnostic(handle.rootId);
+    return this.withReadDenialLogging('readDirectory', diagnosticPath, diagnosticRootId, () =>
       this.readDirectoryUnlogged(handle)
     );
   }
@@ -440,8 +405,9 @@ export class WorkspaceRootRegistry {
   readFile(request: FileHandle | string): Promise<string> {
     const requestedPath = typeof request === 'string' ? request : request.path;
     const rootId = typeof request === 'string' ? undefined : request.rootId;
-    const diagnosticPath = projectReadDenialDiagnosticPath(requestedPath);
-    return this.withReadDenialLogging('readFile', diagnosticPath, rootId, () =>
+    const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
+    const diagnosticRootId = rootId === undefined ? undefined : projectReadDenialDiagnostic(rootId);
+    return this.withReadDenialLogging('readFile', diagnosticPath, diagnosticRootId, () =>
       this.readFileUnlogged(requestedPath, rootId)
     );
   }
@@ -451,7 +417,7 @@ export class WorkspaceRootRegistry {
     claimedRootPath: unknown,
     claimedRootId: unknown
   ): Promise<string> {
-    const diagnosticPath = projectReadDenialDiagnosticPath(requestedPath);
+    const diagnosticPath = projectReadDenialDiagnostic(requestedPath);
     return this.withReadDenialLogging('readFileByAbsolutePath', diagnosticPath, undefined, () => {
       assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
       assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
