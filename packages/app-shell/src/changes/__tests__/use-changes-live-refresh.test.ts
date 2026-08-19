@@ -3,6 +3,7 @@ import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/sh
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge, ChangesInvalidationEvent } from '../changes-bridge';
 import {
+  CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS,
   selectGitScopeRefreshNonce,
   useChangesLiveRefreshStore,
 } from '../changes-live-refresh-store';
@@ -97,6 +98,19 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     });
 
     try {
+      // Give unknown-key selectors a non-zero conservative baseline. The
+      // working-tree signal must advance A from that baseline without moving
+      // inventory or B, and without permanently making B a "known" key (its
+      // future canonical/symlink metadata guard remains intact).
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/workspace/repo-c/.git',
+        repositoryRoot: '/workspace/repo-c',
+      });
+      expect(
+        selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/workspace/repo-b')
+      ).toBe(1);
+
       window.dispatchEvent(
         createFileExplorerRefreshEvent({
           roots: [
@@ -119,9 +133,47 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       vi.runAllTimers();
 
       const state = useChangesLiveRefreshStore.getState();
+      expect(state.anyInvalidationNonce).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-a')).toBe(2);
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-b')).toBe(1);
+    } finally {
+      releaseA();
+      releaseB();
+    }
+  });
+
+  it('keeps full refreshes root-scoped and honors the canonical manual all-roots broadcast', () => {
+    stubBridge(vi.fn(() => () => {}));
+    const releaseA = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/repo-a',
+      rootId: 'root-a',
+      worktreePath: '/repo-a',
+    });
+    const releaseB = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/repo-b',
+      rootId: 'root-b',
+      worktreePath: '/repo-b',
+    });
+
+    try {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [{ changes: [], rootId: 'root-a', rootPath: '/repo-a' }],
+          scope: 'full',
+          source: 'watcher',
+        })
+      );
+      let state = useChangesLiveRefreshStore.getState();
+      expect(selectGitScopeRefreshNonce(state, '/repo-a')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/repo-b')).toBe(0);
+
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({ roots: [], scope: 'full', source: 'manual' })
+      );
+      state = useChangesLiveRefreshStore.getState();
+      expect(selectGitScopeRefreshNonce(state, '/repo-a')).toBe(2);
+      expect(selectGitScopeRefreshNonce(state, '/repo-b')).toBe(1);
       expect(state.anyInvalidationNonce).toBe(0);
-      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-a')).toBe(1);
-      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-b')).toBe(0);
     } finally {
       releaseA();
       releaseB();
@@ -166,6 +218,65 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       const state = useChangesLiveRefreshStore.getState();
       expect(state.anyInvalidationNonce).toBe(1);
       expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(1);
+    } finally {
+      release();
+    }
+  });
+
+  it('coalesces at the upstream debounce boundary exactly once, then preserves a third working-tree edit', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const stub = stubBridge(
+      vi.fn((listener: (event: ChangesInvalidationEvent) => void) => {
+        stub.listeners.push(listener);
+        return () => {};
+      })
+    );
+    const release = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/repo',
+      rootId: 'root-1',
+      worktreePath: '/repo',
+    });
+    const workingTreeEvent = createFileExplorerRefreshEvent({
+      roots: [
+        {
+          changes: [{ kind: 'file', path: '/repo/file.ts', type: 'modified' }],
+          rootId: 'root-1',
+          rootPath: '/repo',
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    try {
+      window.dispatchEvent(workingTreeEvent);
+      vi.advanceTimersByTime(CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS);
+      stub.listeners[0]?.({
+        generation: 1,
+        gitCommonDir: '/repo/.git',
+        repositoryRoot: '/repo',
+      });
+
+      let state = useChangesLiveRefreshStore.getState();
+      expect(state.anyInvalidationNonce).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(1);
+
+      // The cross-source pair consumed its marker. A third signal is a new
+      // working-tree edit, even at the same timestamp, and must stay visible.
+      window.dispatchEvent(workingTreeEvent);
+      state = useChangesLiveRefreshStore.getState();
+      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(2);
+
+      vi.advanceTimersByTime(CROSS_SOURCE_REPOSITORY_REFRESH_COALESCE_MS + 1);
+      stub.listeners[0]?.({
+        generation: 2,
+        gitCommonDir: '/repo/.git',
+        repositoryRoot: '/repo',
+      });
+      state = useChangesLiveRefreshStore.getState();
+      expect(state.anyInvalidationNonce).toBe(2);
+      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(3);
     } finally {
       release();
     }

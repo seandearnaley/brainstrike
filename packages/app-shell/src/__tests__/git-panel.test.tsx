@@ -34,6 +34,7 @@ const mockRoot: {
 };
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  FILE_EXPLORER_REFRESH_EVENT: 'brainstrike:file-explorer-refreshed',
   useFileSystem: () => ({
     rootDirectoryHandle: mockRoot.handle,
     rootIdByPath: new Map<string, string>(),

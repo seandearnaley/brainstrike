@@ -5,6 +5,7 @@ import type {
   GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
+import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes-bridge';
@@ -218,6 +219,54 @@ describe('useChangeset', () => {
         pushed.emit({ generation: 2, gitCommonDir: '/mystery/.git', repositoryRoot: null });
       });
       expect(resolveView).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-resolves a git-scope changeset on a canonical working-tree refresh for its root, but not another root', async () => {
+      const resolveView = vi.fn(
+        async (): Promise<GitResult<ChangesetView>> => ({
+          ok: true,
+          value: viewFixture({ changeset: GIT_CHANGESET }),
+        })
+      );
+      stubBridgeWithInvalidations(resolveView);
+
+      renderHook(() => useChangeset('root-1', GIT_CHANGESET));
+      await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        window.dispatchEvent(
+          createFileExplorerRefreshEvent({
+            roots: [
+              {
+                changes: [{ kind: 'file', path: '/repo-a/src/live.ts', type: 'modified' }],
+                rootId: 'root-1',
+                rootPath: '/repo-a',
+              },
+            ],
+            scope: 'incremental',
+            source: 'watcher',
+          })
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(2));
+
+      act(() => {
+        window.dispatchEvent(
+          createFileExplorerRefreshEvent({
+            roots: [
+              {
+                changes: [{ kind: 'file', path: '/other-repo/src/unrelated.ts', type: 'modified' }],
+                rootId: 'root-2',
+                rootPath: '/other-repo',
+              },
+            ],
+            scope: 'incremental',
+            source: 'watcher',
+          })
+        );
+      });
+      expect(resolveView).toHaveBeenCalledTimes(2);
     });
   });
 

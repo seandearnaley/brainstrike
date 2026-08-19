@@ -407,18 +407,46 @@ via `GitInventoryServiceDeps.onInvalidate` (the service resolves
 Electron-free; main.ts owns the `BrowserWindow.getAllWindows()` send and
 the monotonic `generation` counter — wiring pinned by
 `scripts/__tests__/git-inventory-main-wiring-contract.test.mjs`). Renderer
-side: `use-changes-live-refresh.ts` holds ONE refcounted
-`bridge.onInvalidated` subscription feeding
-`changes-live-refresh-store.ts` (wire-generation guard drops
-stale/duplicate deliveries; registered in factory reset). `useGitInventory`
-refetches on ANY accepted event (a deferred instance only once a load has
-been requested); `useChangeset` re-resolves a `git-scope` changeset only on
-ITS OWN repository's nonce (`selectGitScopeRefreshNonce`; an event the
-service could not map counts for every repo, conservatively) — snapshot
-changesets (`agent-run`/`run-range`) never refetch on git activity. The
-watcher's 300ms/2000ms debounce is the only batching; the store adds no
-extra throttle. The "agent-run changesets refresh on `onRunFinished`" acceptance
-criterion, by contrast, is STILL not wired to the real UI today:
+side: `use-changes-live-refresh.ts` holds ONE refcounted live-refresh owner:
+one `bridge.onInvalidated` subscription plus one listener on the canonical
+renderer `FILE_EXPLORER_REFRESH_EVENT` (BST-1180 — no new IPC/channel and no
+polling). Every mounted `git-scope` `useChangeset` registers its
+`{ rootId, repositoryRoot, worktreePath }`. An incremental explorer event
+maps only registrations in the named durable root whose worktree intersects a
+reported changed path (descendant content OR an ancestor that can replace the
+worktree); a root-scoped full event maps every registration in that root, and
+the canonical manual-full empty-roots broadcast maps all mounted
+registrations. A `Set` dedupes multiple worktrees/scopes of one repository.
+Unregistered/snapshot changesets are never guessed into the result.
+
+Both sources feed `changes-live-refresh-store.ts` (wire-generation guard drops
+stale/duplicate bridge deliveries; the store is registered in factory reset).
+`useChangeset` re-resolves a `git-scope` changeset only on ITS OWN repository's
+nonce (`selectGitScopeRefreshNonce`; a git-metadata event the service could not
+map still counts for every repo, conservatively). A working-tree event bumps
+ONLY mapped repository-view nonces — never `anyInvalidationNonce` — so
+`useGitInventory` continues to refetch only on accepted git-metadata events and
+a deferred instance remains unloaded until its existing explicit load gate has
+been crossed. When one filesystem operation reaches both upstream 300ms
+debouncers, the store's 300ms cross-source window consumes exactly one
+opposite-source partner per repository: the repository nonce bumps once, while
+the git-metadata half still advances inventory. The marker is deleted on that
+pair, so file → git → file preserves the third, distinct edit. There is no
+additional timer/throttle; every ingestion prunes temporal markers older than
+the window, so this dedupe scratch map cannot grow with every repository seen
+over a long session. The wire event's canonical repository spelling is NOT
+pre-registered from renderer scope strings: the git panel may carry a symlink
+spelling, and `selectGitScopeRefreshNonce`'s existing unknown-key conservative
+guard must remain able to cover that vocabulary divergence. Snapshot
+changesets (`agent-run`/`run-range`) never read these nonces.
+
+Paired renderer tests:
+`packages/app-shell/src/changes/__tests__/use-changes-live-refresh.test.ts`,
+`changes-live-refresh-store.test.ts`, `use-changeset.test.ts`, and
+`use-git-inventory.test.ts`.
+
+The "agent-run changesets refresh on `onRunFinished`" acceptance criterion, by
+contrast, is STILL not wired to the real UI today:
 `assistant-ui-panel-wrapper.tsx` does call `useChangeset(mainRootId,
 null).refresh` from `handleRunFinished`/`handleRunFailed`, but its own
 comment states the changeset is "hardcoded null" pending a real selection
