@@ -1,0 +1,32 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // vitest.config.mts loads ../test-utils/vitest-lost-file-reporter.mjs (the
+      // BST-1221 lost-test-file reporter) by RELATIVE path rather than by the
+      // `@brainstrike/test-utils` specifier, because declaring that dependency
+      // makes turbo's graph cyclic — @brainstrike/test-utils itself depends on
+      // @brainstrike/types (`Cyclic dependency detected: @brainstrike/test-utils#build,
+      // @brainstrike/types#build`).
+      //
+      // That leaves a CROSS-PACKAGE file outside this package's input hash, so
+      // an edit to the reporter would replay a stale cached green here — the
+      // exact gap scripts/verify-config-load-hash-coverage.mjs flags (it failed
+      // on this during development). $TURBO_DEFAULT$ keeps the normal inputs;
+      // the extra entry folds the reporter into the hash. Mirrors
+      // packages/app-shell/turbo.json, the precedent that guard names.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/test-utils/vitest-lost-file-reporter.mjs"
+      ]
+    },
+    "test:coverage": {
+      // Same cross-package input as `test`: the coverage lane loads the same
+      // vitest.config.mts and therefore the same reporter file.
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/test-utils/vitest-lost-file-reporter.mjs"
+      ]
+    }
+  }
+}

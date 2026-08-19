@@ -37,6 +37,7 @@
       "types": "./dist/vitest.base.d.ts",
       "default": "./vitest.base.mjs"
     },
+    "./vitest-lost-file-reporter": "./vitest-lost-file-reporter.mjs",
     "./workspace-src-aliases": "./workspace-src-aliases.mjs",
     "./electron": {
       "types": "./dist/index.d.ts",

@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
@@ -35,6 +36,7 @@ export default defineConfig({
     globals: true,
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
+    reporters: ['default', new LostTestFileReporter()],
     // Hook-free: applies TEST_TIMEOUT_MULTIPLIER to @testing-library/dom's
     // waitFor/findBy budget and nothing else (BST-1299). This lane opts out
     // of the shared vitest.setup (which registers beforeEach/afterEach
