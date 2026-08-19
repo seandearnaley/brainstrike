@@ -135,6 +135,129 @@ it('runs queued interactive reads before bulk work while bounding bulk starvatio
   });
 });
 
+it('promotes only a queued matching background key without duplicating its physical read', async () => {
+  const adapter = new MockFileSystemAdapter();
+  const storage = new MemoryStorageAdapter();
+  const nodesByName = Object.fromEntries(
+    [
+      'active-a',
+      'active-b',
+      'earlier-background',
+      'target',
+      'hitchhiker',
+      'interactive-1',
+      'interactive-2',
+    ].map((name) => [
+      name,
+      createFileNode({ path: `/${name}.txt`, rootFolderId: 'root-same-key-promotion' }),
+    ])
+  );
+  const keyFor = (name: string): string => {
+    const node = nodesByName[name];
+    if (!node) {
+      throw new Error(`Missing test node ${name}`);
+    }
+    return encodeFileSelection('root-same-key-promotion', node.path);
+  };
+  const nodes = Object.values(nodesByName);
+  const activeA = keyFor('active-a');
+  const activeB = keyFor('active-b');
+  const earlierBackground = keyFor('earlier-background');
+  const target = keyFor('target');
+  const hitchhiker = keyFor('hitchhiker');
+  const interactive1 = keyFor('interactive-1');
+  const interactive2 = keyFor('interactive-2');
+  const pendingReads: PendingWorkerRead[] = [];
+  const worker = createPendingWorker(pendingReads);
+  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+  function Wrapper({ children }: { readonly children: ReactNode }) {
+    return (
+      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
+        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      </AdaptersProvider>
+    );
+  }
+  const { result } = renderHook(() => useSharedFileContentLoading(nodes), { wrapper: Wrapper });
+  const loads: Promise<void>[] = [];
+  let targetBackground = Promise.resolve();
+  let interactiveTarget = Promise.resolve();
+  let targetBackgroundSettled = false;
+  let interactiveTargetSettled = false;
+  act(() => {
+    loads.push(result.current.handleFileContentLoading([activeA], 'background'));
+    loads.push(result.current.handleFileContentLoading([activeB], 'background'));
+    loads.push(result.current.handleFileContentLoading([earlierBackground], 'background'));
+    targetBackground = result.current.handleFileContentLoading([target, hitchhiker], 'background');
+    loads.push(targetBackground);
+    interactiveTarget = result.current.handleFileContentLoading([target], 'interactive');
+    loads.push(interactiveTarget);
+    loads.push(result.current.handleFileContentLoading([interactive1], 'interactive'));
+    loads.push(result.current.handleFileContentLoading([interactive2], 'interactive'));
+  });
+  void targetBackground.then(() => {
+    targetBackgroundSettled = true;
+  });
+  void interactiveTarget.then(() => {
+    interactiveTargetSettled = true;
+  });
+
+  await waitFor(() => expect(pendingReads).toHaveLength(2));
+  expect(pendingReads[0]?.requests.map((request) => request.compositeKey)).toEqual([activeA]);
+  expect(pendingReads[1]?.requests.map((request) => request.compositeKey)).toEqual([activeB]);
+
+  await act(async () => {
+    pendingReads[0]?.complete('active a');
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(3));
+  expect(pendingReads[2]?.requests.map((request) => request.compositeKey)).toEqual([target]);
+
+  await act(async () => {
+    pendingReads[1]?.complete('active b');
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(4));
+  expect(pendingReads[3]?.requests.map((request) => request.compositeKey)).toEqual([interactive1]);
+
+  await act(async () => {
+    pendingReads[2]?.complete('promoted target');
+    await interactiveTarget;
+  });
+  expect(interactiveTargetSettled).toBe(true);
+  expect(targetBackgroundSettled).toBe(false);
+  await waitFor(() => expect(pendingReads).toHaveLength(5));
+  expect(pendingReads[4]?.requests.map((request) => request.compositeKey)).toEqual([
+    earlierBackground,
+  ]);
+
+  await act(async () => {
+    pendingReads[3]?.complete('interactive one');
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(6));
+  expect(pendingReads[5]?.requests.map((request) => request.compositeKey)).toEqual([interactive2]);
+
+  await act(async () => {
+    pendingReads[4]?.complete('earlier background');
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(pendingReads).toHaveLength(7));
+  expect(pendingReads[6]?.requests.map((request) => request.compositeKey)).toEqual([hitchhiker]);
+
+  await act(async () => {
+    pendingReads[5]?.complete('interactive two');
+    pendingReads[6]?.complete('hitchhiker');
+    await Promise.all(loads);
+  });
+  expect(targetBackgroundSettled).toBe(true);
+  const physicallyReadKeys = pendingReads.flatMap((read) =>
+    read.requests.map((request) => request.compositeKey)
+  );
+  expect(physicallyReadKeys.filter((key) => key === target)).toHaveLength(1);
+});
+
 it('preserves background intent across twenty singleton reload groups ahead of real interactive work', async () => {
   const adapter = new MockFileSystemAdapter();
   const storage = new MemoryStorageAdapter();
