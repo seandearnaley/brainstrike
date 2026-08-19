@@ -1,5 +1,5 @@
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useCallback, useLayoutEffect, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -107,6 +107,7 @@ async function configureRejectedFileExplorer(
   const loadFileContent = vi.fn().mockRejectedValue(loadError);
   const loadingFiles = new Set<string>();
   const reloadFileContents = vi.fn();
+  let reloadAttempt = 0;
   const fileExplorerModule = await import('../shell/use-file-explorer-context');
   vi.mocked(fileExplorerModule.useFileExplorer).mockImplementation(() => {
     const [fileContents, setFileContents] = useState<Record<string, string>>({
@@ -117,6 +118,7 @@ async function configureRejectedFileExplorer(
     );
     const rejectLoad = useCallback(
       async (compositeKeys: readonly string[]): Promise<void> => {
+        reloadAttempt += 1;
         setFileContents((previous) => {
           const next = { ...previous };
           for (const key of compositeKeys) {
@@ -127,13 +129,26 @@ async function configureRejectedFileExplorer(
         setFileContentErrors((previous) => {
           const next = new Map(previous);
           for (const key of compositeKeys) {
-            next.set(key, loadError);
+            next.delete(key);
           }
           return next;
         });
-        throw loadError;
+        if (reloadAttempt === 1) {
+          setFileContentErrors((previous) => {
+            const next = new Map(previous);
+            for (const key of compositeKeys) {
+              next.set(key, loadError);
+            }
+            return next;
+          });
+          throw loadError;
+        }
+        setFileContents((previous) => ({
+          ...previous,
+          [compositeKey]: 'fresh content after retry',
+        }));
       },
-      [loadError]
+      [loadError, compositeKey]
     );
     reloadFileContents.mockImplementation(rejectLoad);
     return {
@@ -399,6 +414,12 @@ describe('workspace tabs open-file refresh', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveAccessibleName('File content unavailable');
     expect(alert).toHaveTextContent('Brainstrike could not load this file.');
+    expect(alert).toHaveTextContent('src/rejected.ts');
+    expect(alert).toHaveTextContent('The file read failed.');
+    expect(alert).not.toHaveTextContent('read worker rejected');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry file content' }));
+    await waitFor(() => expect(reloadFileContents).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
     expect(screen.queryByText('Restoring…')).not.toBeInTheDocument();
     expect(loadFileContent).not.toHaveBeenCalled();
