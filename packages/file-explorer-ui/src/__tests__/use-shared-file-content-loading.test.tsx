@@ -1,6 +1,10 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { AdaptersProvider, INACCESSIBLE_CONTENT_PREFIX } from '@brainstrike/file-explorer-hooks';
+import {
+  AdaptersProvider,
+  buildInaccessibleContent,
+  INACCESSIBLE_CONTENT_PREFIX,
+} from '@brainstrike/file-explorer-hooks';
 import {
   DEFAULT_MAX_FILE_SIZE,
   MockFileSystemAdapter,
@@ -433,7 +437,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     });
 
     expect(result.current.fileContents[compositeKey]).toMatch('File too large');
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
   });
 
   it('respects configured max file size when pre-checking known sizes', async () => {
@@ -618,7 +622,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(handleCache.getFileHandle).toHaveBeenCalledWith('root1', '/locked.txt');
     expect(cachedHandle.queryPermission).toHaveBeenCalledWith({ mode: 'read' });
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toMatch('permission required: /locked.txt');
   });
 
@@ -655,7 +659,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(handleCache.getFileHandle).toHaveBeenCalledWith('root1', '/missing-locked.txt');
     expect(cachedHandle.queryPermission).toHaveBeenCalledWith({ mode: 'read' });
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toMatch(
       'permission required: /missing-locked.txt'
     );
@@ -680,7 +684,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
       rerender();
     });
 
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toBe('Not a file: /folder');
   });
 
@@ -752,7 +756,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('defers direct-path reads until the tree is initialized', async () => {
+  it('surfaces a terminal result when an empty tree has no mounted direct-read root', async () => {
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
       .fn()
@@ -764,8 +768,6 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     ).readFileByPath = readFileByPathSpy;
 
     const compositeKey = encodeFileSelection('root1', '/deferred.txt');
-    const fileNode = createFileNode({ path: '/deferred.txt', rootFolderId: 'root1' });
-
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
     const mockWorker = vi.fn().mockResolvedValue({
       [compositeKey]: { content: 'deferred-content', status: 'accessible' },
@@ -773,13 +775,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
-    const { result, rerender } = renderHook(
-      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
-      {
-        initialProps: { tree: [] as IFileNode[] },
-        wrapper,
-      }
-    );
+    const { result } = renderHook(() => useTestHook([]), { wrapper });
 
     await act(async () => {
       await result.current.handleFileContentLoading([compositeKey]);
@@ -787,21 +783,12 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(mockWorker).not.toHaveBeenCalled();
     expect(readFileByPathSpy).not.toHaveBeenCalled();
-    expect(result.current.fileContents[compositeKey]).toBeUndefined();
-
-    await act(async () => {
-      rerender({ tree: [fileNode] });
-      await Promise.resolve();
-    });
-
-    expect(mockWorker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey })],
-      expect.any(Function)
+    expect(result.current.fileContents[compositeKey]).toBe(
+      buildInaccessibleContent('direct read path is unavailable or outside the mounted root')
     );
-    expect(result.current.fileContents[compositeKey]).toBe('deferred-content');
   });
 
-  it('defers restored Electron tab loads until the file enters the tree', async () => {
+  it('does not leave a restored Electron tab pending when direct root identity is unavailable', async () => {
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
       .fn()
@@ -813,7 +800,6 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     ).readFileByPath = readFileByPathSpy;
 
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });
-    const fileNode = createFileNode({ path: '/restored.txt', rootFolderId: 'root1' });
     const compositeKey = encodeFileSelection('root1', '/restored.txt');
 
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
@@ -828,33 +814,17 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
-    const { result, rerender } = renderHook(
-      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
-      {
-        initialProps: { tree: [otherNode] },
-        wrapper,
-      }
-    );
+    const { result } = renderHook(() => useTestHook([otherNode]), { wrapper });
 
     await act(async () => {
       await result.current.handleFileContentLoading([compositeKey]);
     });
 
-    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(readFileByPathSpy).not.toHaveBeenCalled();
-    expect(result.current.fileContents[compositeKey]).toBeUndefined();
-
-    await act(async () => {
-      rerender({ tree: [otherNode, fileNode] });
-      await Promise.resolve();
-    });
-
-    expect(mockWorker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey })],
-      expect.any(Function)
+    expect(result.current.fileContents[compositeKey]).toBe(
+      buildInaccessibleContent('direct read path is unavailable or outside the mounted root')
     );
-    expect(readFileByPathSpy).not.toHaveBeenCalled();
-    expect(result.current.fileContents[compositeKey]).toBe('restored-content');
   });
 
   it('reads selected absolute-root files by path when lazy tree children are not indexed yet', async () => {
@@ -1022,13 +992,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
-    const { result, rerender } = renderHook(
-      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
-      {
-        initialProps: { tree: [fileNode] },
-        wrapper,
-      }
-    );
+    const { result } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
     await act(async () => {
       const loadPromise = result.current.handleFileContentLoading([compositeKey]);
@@ -1036,27 +1000,10 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
       await loadPromise;
     });
 
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const nextTree = Array.from({ length: attempt + 2 }, (_, index) =>
-        createFileNode({ path: `/other-${index}.txt`, rootFolderId: 'root1' })
-      );
-
-      await act(async () => {
-        rerender({ tree: nextTree });
-        vi.advanceTimersByTime(100);
-        await Promise.resolve();
-      });
-    }
-
-    await act(async () => {
-      vi.runOnlyPendingTimers();
-      await Promise.resolve();
-    });
-
     expect(readFileByPathSpy).not.toHaveBeenCalled();
-    expect(mockWorker).toHaveBeenLastCalledWith([], expect.any(Function));
+    expect(mockWorker).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toBe(
-      'File not found in file tree: /missing.txt'
+      buildInaccessibleContent('direct read path is unavailable or outside the mounted root')
     );
     vi.useRealTimers();
   });
