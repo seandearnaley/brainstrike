@@ -255,6 +255,48 @@ describe('ElectronFileSystemAdapter', () => {
     ).rejects.toBeInstanceOf(AccessError);
   });
 
+  it.each([
+    { absolutePath: () => path.join(tempDir, 'absolute.txt'), rootPath: 'mounted-root' },
+    { absolutePath: 'absolute.txt', rootPath: () => tempDir },
+    { absolutePath: () => path.join(tempDir, 'absolute.txt'), rootPath: '' },
+    { absolutePath: () => path.join(tempDir, 'absolute.txt'), rootPath: '   ' },
+  ])(
+    'rejects malformed explicit absolute read authority %# before legacy path handling',
+    async ({ absolutePath: absolutePathValue, rootPath: rootPathValue }) => {
+      const absolutePath =
+        typeof absolutePathValue === 'function' ? absolutePathValue() : absolutePathValue;
+      const rootPath = typeof rootPathValue === 'function' ? rootPathValue() : rootPathValue;
+      fs.writeFileSync(path.join(tempDir, 'absolute.txt'), 'absolute content');
+      const legacyRead = vi.spyOn(adapter, 'readFileByPath');
+
+      await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath)).rejects.toBeInstanceOf(
+        AccessError
+      );
+      expect(legacyRead).not.toHaveBeenCalled();
+    }
+  );
+
+  it('reads the canonical path returned by validation instead of the original alias', async () => {
+    const requestedPath = path.join(tempDir, 'requested.txt');
+    const canonicalPath = path.join(tempDir, 'canonical.txt');
+    const originalRealpath = fsPromises.realpath.bind(fsPromises);
+    vi.spyOn(fsPromises, 'realpath').mockImplementation(async (candidate) => {
+      if (candidate === requestedPath) {
+        return canonicalPath;
+      }
+      return originalRealpath(candidate);
+    });
+    const stat = vi.spyOn(fsPromises, 'stat').mockResolvedValue({ size: 17 } as fs.Stats);
+    const readFile = vi.spyOn(fsPromises, 'readFile').mockResolvedValue('canonical content');
+
+    await expect(adapter.readFileByAbsolutePath(requestedPath, tempDir)).resolves.toBe(
+      'canonical content'
+    );
+
+    expect(stat).toHaveBeenCalledExactlyOnceWith(canonicalPath);
+    expect(readFile).toHaveBeenCalledExactlyOnceWith(canonicalPath, 'utf-8');
+  });
+
   it('should throw AccessError when readdir fails', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({

@@ -122,6 +122,44 @@ describe('file-content-worker', () => {
     expect(readFileByPath).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { absoluteRootPath: '', path: '/workspace/file.txt' },
+    { absoluteRootPath: '   ', path: '/workspace/file.txt' },
+    { absoluteRootPath: 'workspace', path: '/workspace/file.txt' },
+    { absoluteRootPath: '\\workspace', path: '/workspace/file.txt' },
+    { absoluteRootPath: '/workspace', path: 'file.txt' },
+    { absoluteRootPath: '/workspace', path: '\\file.txt' },
+  ])(
+    'rejects malformed explicit read authority root=$absoluteRootPath path=$path',
+    async ({ absoluteRootPath, path }) => {
+      const readFileByAbsolutePath = vi.fn(async () => 'unsafe-content');
+      const readFileByPath = vi.fn(async () => 'unsafe-fallback-content');
+      const adapter = {
+        exists: vi.fn(),
+        readDirectory: vi.fn(),
+        readFile: vi.fn(),
+        readFileByAbsolutePath,
+        readFileByPath,
+        requestDirectoryAccess: vi.fn(),
+      } as unknown as FileSystemAdapter;
+      const request = {
+        absoluteRootPath,
+        compositeKey: 'root|@|malformed-file.txt',
+        path,
+      };
+
+      const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+      const results = await worker([request]);
+
+      expect(results[request.compositeKey]).toEqual({
+        message: 'Error accessing file',
+        status: 'inaccessible',
+      });
+      expect(readFileByAbsolutePath).not.toHaveBeenCalled();
+      expect(readFileByPath).not.toHaveBeenCalled();
+    }
+  );
+
   it('does not fall back to adapter-defined path reads for an absolute request', async () => {
     const readFileByPath = vi.fn(async () => 'unsafe-fallback-content');
     const adapter = {
