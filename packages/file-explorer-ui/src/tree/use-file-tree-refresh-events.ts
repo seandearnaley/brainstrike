@@ -13,9 +13,11 @@
  *   forest root, including the focused root's VISIBLE section.
  * - `source: 'watcher'` + `scope: 'incremental'` → structural changes
  *   (added/removed) belonging to THIS provider's root are mapped to their
- *   parent directories; only parents currently LOADED in the normalized tree
- *   are re-enumerated (`refreshDirectory`), deduped per dispatch. Unloaded
- *   directories are skipped — they re-enumerate on expand anyway. Root-level
+ *   parent directories; parents currently LOADED, LOADING, or ERROR in the
+ *   normalized tree are re-enumerated (`refreshDirectory`), deduped per
+ *   dispatch. Loading retains the post-I/O invalidation, error gets a
+ *   watcher-proven retry, and genuinely unloaded directories are skipped —
+ *   they re-enumerate on expand anyway. Root-level
  *   membership changes reload the root via `refreshTree()` (the root is not a
  *   node), and that reload is AWAITED before any per-directory refresh so the
  *   root replacement can never clobber a concurrent child update. Pure
@@ -115,7 +117,7 @@ function matchesRoot(
 }
 
 interface StructuralRefreshTargets {
-  /** Loaded parent directories to re-enumerate, deduped. */
+  /** Authoritative/loading/error parent directories to re-enumerate, deduped. */
   parentsToRefresh: ReadonlySet<string>;
   /** True when a root-level membership change requires a root reload. */
   refreshRoot: boolean;
@@ -139,7 +141,8 @@ function collectStructuralRefreshTargets(
       refreshRoot = true;
       continue;
     }
-    if (normalizedTree && getNormalizedNode(normalizedTree, parent)?.loadState === 'loaded') {
+    const loadState = normalizedTree ? getNormalizedNode(normalizedTree, parent)?.loadState : null;
+    if (loadState === 'loaded' || loadState === 'loading' || loadState === 'error') {
       parentsToRefresh.add(parent);
     }
   }

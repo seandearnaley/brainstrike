@@ -788,10 +788,14 @@ fallback.
   Ordinary expand, restoration, and expand-all enumeration never trigger
   reconciliation. Watcher directories refresh sequentially against the shared
   normalized tree, then all complete snapshots from the batch publish through
-  one store update. Separate refresh events run through one lossless queue per
-  provider; a failed job is surfaced and consumed so later events still run,
-  and a second event for a directory already loading waits for a fresh read
-  instead of joining and losing its invalidation. A shallow root replacement
+  one store update bound to the root identity that started the batch; a
+  same-path root-id switch during a later directory read can never retarget
+  already-completed snapshots. Separate refresh events run through one lossless
+  queue per provider; a failed job is surfaced and consumed so later events
+  still run. Watcher changes retry `error` directories and retain invalidations
+  for `loading` directories by forcing a fresh read instead of joining the
+  pre-event request; genuinely `unloaded` directories still wait for expansion.
+  A shallow root replacement
   cannot prove nested membership merely because its top-level directory
   survives, so every successful watcher/full or manual/full root refresh
   derives the current selection's unique ancestor directories from the core
@@ -810,11 +814,17 @@ fallback.
   by that refresh, and forced directory snapshots capture both committed root
   identity and generation before I/O; a late callback or directory read after a
   same-path root-id switch therefore returns no snapshot for the new root. A
-  forced directory refresh also retires any older expansion/restoration read
-  for that path and owns a token-checked in-flight entry, so it cannot join a
-  pre-mutation listing or have that listing erase its registry entry. Structural
-  changes directly beneath a Windows drive root retain the `C:/` or `C:\\`
-  parent boundary and therefore trigger the required root refresh.
+  forced directory refresh also retires any older renderer or worker-backed
+  expansion/restoration read for that path, removes buffered pre-event evidence,
+  commits outside renderer expand-all batching, and owns a token-checked
+  in-flight entry, so it cannot join a pre-mutation listing or have that listing
+  erase its registry entry. A forced root refresh retires the same provider's
+  active root/child/bulk consumers and waits for any still-live shared root read
+  that crossed the invalidation boundary before starting fresh physical I/O;
+  the shared registry deletes only identity-matching settled entries and remains
+  bounded to live requests. Structural changes directly beneath a Windows drive
+  root retain the `C:/` or `C:\\` parent boundary and therefore trigger the
+  required root refresh.
   Pinned by `file-selection-reconciliation.test.ts`,
   `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`, and
   `file-tree-provider.test.tsx`.

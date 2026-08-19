@@ -1412,13 +1412,10 @@ describe('useFileTree (lazy loading version)', () => {
       let refreshPromise: Promise<FileTreeRefreshResult> = Promise.resolve({
         status: 'cancelled',
       });
-      act(() => {
-        refreshPromise = result.current.refreshTree();
-      });
-
-      firstReadGate.resolve();
       let refreshOutcome: FileTreeRefreshResult = { status: 'cancelled' };
       await act(async () => {
+        refreshPromise = result.current.refreshTree();
+        firstReadGate.resolve();
         refreshOutcome = await refreshPromise;
         await Promise.allSettled(readDirectoryStreamingSpy.mock.results.map((call) => call.value));
       });
@@ -1482,12 +1479,9 @@ describe('useFileTree (lazy loading version)', () => {
         },
       });
       let invalidatedRefresh = Promise.resolve<FileTreeRefreshResult>({ status: 'cancelled' });
-      act(() => {
-        invalidatedRefresh = invalidatedProvider.result.current.refreshTree();
-      });
-
-      staleReadGate.resolve();
       await act(async () => {
+        invalidatedRefresh = invalidatedProvider.result.current.refreshTree();
+        staleReadGate.resolve();
         await Promise.all([staleRefresh, invalidatedRefresh]);
         await Promise.allSettled(readDirectoryStreamingSpy.mock.results.map((call) => call.value));
       });
@@ -2660,7 +2654,7 @@ describe('useFileTree (lazy loading version)', () => {
                 children: [
                   {
                     depth: staleChild.depth,
-                    loadState: staleChild.loadState,
+                    loadState: staleChild.loadState ?? 'unloaded',
                     name: staleChild.name,
                     path: staleChild.path,
                     rootFolderId: staleChild.rootFolderId,

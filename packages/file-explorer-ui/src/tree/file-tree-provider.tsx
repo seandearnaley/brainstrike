@@ -207,20 +207,24 @@ export function FileTreeProvider({
         .reconcileSelectionWithDirectorySnapshot(snapshotRootId, directoryPath, entries);
     }
   );
-  const reconcileSelectionWithDirectorySnapshots = useEventCallback(
+  // Bind the batch owner at the render/event boundary. A sequential refresh
+  // can span multiple awaits; using a latest-value callback here would route
+  // already-completed root-A snapshots into root B after a same-path switch.
+  const reconcileSelectionWithDirectorySnapshots = useCallback(
     (snapshots: readonly { directoryPath: string; entries: readonly IFileNode[] }[]): void => {
       if (!currentRootIndexKey || snapshots.length === 0) {
         return;
       }
       store.getState().reconcileSelectionWithDirectorySnapshots(currentRootIndexKey, snapshots);
-    }
+    },
+    [currentRootIndexKey, store]
   );
-  const getCurrentSelectionAncestorDirectories = useEventCallback((): readonly string[] => {
+  const getCurrentSelectionAncestorDirectories = useCallback((): readonly string[] => {
     if (!(currentRootIndexKey && currentRootPath)) {
       return [];
     }
     return getSelectionAncestorDirectories(store.getState(), currentRootIndexKey, currentRootPath);
-  });
+  }, [currentRootIndexKey, currentRootPath, store]);
 
   // Refcounted folder registration replaces clear-on-identity-change: the
   // effect cleanup releases the OLD key (clearing its entries only when this
