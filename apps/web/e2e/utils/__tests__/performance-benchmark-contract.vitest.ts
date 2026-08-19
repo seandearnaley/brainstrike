@@ -5,6 +5,80 @@ import { describe, expect, it } from 'vitest';
 const benchmarkSource = async (): Promise<string> =>
   await readFile(path.join(process.cwd(), 'e2e/performance/benchmarks.test.ts'), 'utf8');
 
+const MODEL_SWITCH_SOURCE_FILES = [
+  'src/embedding-model-switch-memory-probe.ts',
+  'src/embedding-model-switch-memory-probe.worker.ts',
+  'src/embedding-model-switch-memory-measurement.ts',
+  'src/embedding-model-switch-memory-probe-contract.ts',
+] as const;
+const EXPECTED_MODEL_SWITCH_COVERAGE_EXCLUSIONS = MODEL_SWITCH_SOURCE_FILES.slice(0, 2);
+
+function githubExpression(expression: string): string {
+  return ['$', `{{ ${expression} }}`].join('');
+}
+
+const PERFORMANCE_PROJECT_FALLBACK = `PERF_PROJECT: ${githubExpression(
+  "github.event.inputs.project || 'performance'"
+)}`;
+const EMPTY_PERFORMANCE_GREP_FALLBACK = `PERF_GREP: ${githubExpression(
+  "github.event.inputs.grep || ''"
+)}`;
+
+function assertModelSwitchCoverageOwnership(vitestConfig: string): void {
+  const coverageExcludeBlock =
+    /coverage:\s*\{[\s\S]*?exclude:\s*\[([\s\S]*?)\][\s\S]*?include:/u.exec(vitestConfig)?.[1];
+  if (coverageExcludeBlock === undefined) {
+    throw new Error('Web coverage exclude block not found.');
+  }
+  const exclusionPatterns = [...coverageExcludeBlock.matchAll(/['"]([^'"]+)['"]/gu)].map(
+    (match) => {
+      const pattern = match[1];
+      if (pattern === undefined) {
+        throw new Error('Web coverage exclusion parser produced an empty capture.');
+      }
+      return pattern;
+    }
+  );
+  const excludedModelSwitchFiles = MODEL_SWITCH_SOURCE_FILES.filter((sourceFile) =>
+    exclusionPatterns.some((pattern) => path.matchesGlob(sourceFile, pattern))
+  );
+  if (
+    excludedModelSwitchFiles.length !== EXPECTED_MODEL_SWITCH_COVERAGE_EXCLUSIONS.length ||
+    excludedModelSwitchFiles.some(
+      (sourceFile, index) => sourceFile !== EXPECTED_MODEL_SWITCH_COVERAGE_EXCLUSIONS[index]
+    )
+  ) {
+    throw new Error(
+      `Web coverage must exclude exactly the two browser-only BST-369 runtime files; received ${JSON.stringify(excludedModelSwitchFiles)}.`
+    );
+  }
+}
+
+function assertScheduledPerformanceOwner(performanceWorkflow: string): void {
+  if (!performanceWorkflow.includes("on:\n  schedule:\n    - cron: '")) {
+    throw new Error('BST-369 coverage ownership requires the scheduled performance workflow.');
+  }
+  const performanceStep = /- name: Run performance tests[\s\S]*?- name: Upload blob report/u.exec(
+    performanceWorkflow
+  )?.[0];
+  if (performanceStep === undefined) {
+    throw new Error('BST-369 coverage ownership requires the performance test step.');
+  }
+  if (!performanceStep.includes(PERFORMANCE_PROJECT_FALLBACK)) {
+    throw new Error('Scheduled performance runs must select the performance project.');
+  }
+  if (!performanceStep.includes(EMPTY_PERFORMANCE_GREP_FALLBACK)) {
+    throw new Error('Scheduled performance runs must default to an empty grep.');
+  }
+  if (
+    !/if \[ -n "\$PERF_GREP" \]; then[\s\S]*?pnpm exec playwright test --project="\$PERF_PROJECT" -g "\$PERF_GREP"[\s\S]*?else\s+pnpm exec playwright test --project="\$PERF_PROJECT"\s+fi/u.test(
+      performanceStep
+    )
+  ) {
+    throw new Error('Scheduled performance runs must retain the unfiltered project fallback.');
+  }
+}
+
 describe('performance benchmark measurement contracts', () => {
   it('measures file selection at the browser interaction-to-paint boundary', async () => {
     const source = await benchmarkSource();
@@ -159,18 +233,50 @@ describe('performance benchmark measurement contracts', () => {
     expect(playwrightConfig).toContain('ForceEagerMeasureMemory');
     expect(playwrightConfig).toContain("testMatch: '**/performance/*.test.ts'");
     expect(performanceWorkflow).toContain("default: 'performance'");
-    expect(performanceWorkflow).toContain('pnpm exec playwright test --project="$PERF_PROJECT"');
+    assertModelSwitchCoverageOwnership(vitestConfig);
+    assertScheduledPerformanceOwner(performanceWorkflow);
+  });
 
-    const coverageExcludeBlock =
-      /coverage:\s*\{[\s\S]*?exclude:\s*\[([\s\S]*?)\][\s\S]*?include:/u.exec(vitestConfig)?.[1];
-    expect(coverageExcludeBlock, 'web coverage exclude block not found').toBeDefined();
-    const modelSwitchExclusions = [
-      ...(coverageExcludeBlock?.matchAll(/['"](src\/embedding-model-switch-memory-[^'"]+)['"]/gu) ??
-        []),
-    ].map((match) => match[1]);
-    expect(modelSwitchExclusions).toEqual([
-      'src/embedding-model-switch-memory-probe.ts',
-      'src/embedding-model-switch-memory-probe.worker.ts',
+  it('fails closed when coverage broadens or the scheduled owner narrows', async () => {
+    const [vitestConfig, performanceWorkflow] = await Promise.all([
+      readFile(path.join(process.cwd(), 'vitest.config.mts'), 'utf8'),
+      readFile(path.join(process.cwd(), '../../.github/workflows/performance.yml'), 'utf8'),
     ]);
+
+    expect(() =>
+      assertModelSwitchCoverageOwnership(
+        vitestConfig.replace("'src/embedding-model-switch-memory-probe.ts'", "'src/**'")
+      )
+    ).toThrow('must exclude exactly the two browser-only BST-369 runtime files');
+
+    expect(() =>
+      assertScheduledPerformanceOwner(
+        performanceWorkflow.replace('  schedule:\n', '  disabled-schedule:\n')
+      )
+    ).toThrow('requires the scheduled performance workflow');
+    expect(() =>
+      assertScheduledPerformanceOwner(
+        performanceWorkflow.replace(
+          PERFORMANCE_PROJECT_FALLBACK,
+          `PERF_PROJECT: ${githubExpression("github.event.inputs.project || 'functional'")}`
+        )
+      )
+    ).toThrow('must select the performance project');
+    expect(() =>
+      assertScheduledPerformanceOwner(
+        performanceWorkflow.replace(
+          EMPTY_PERFORMANCE_GREP_FALLBACK,
+          `PERF_GREP: ${githubExpression("github.event.inputs.grep || 'smoke'")}`
+        )
+      )
+    ).toThrow('must default to an empty grep');
+    expect(() =>
+      assertScheduledPerformanceOwner(
+        performanceWorkflow.replace(
+          'pnpm exec playwright test --project="$PERF_PROJECT"\n          fi',
+          'pnpm exec playwright test --project="$PERF_PROJECT" -g "forced"\n          fi'
+        )
+      )
+    ).toThrow('must retain the unfiltered project fallback');
   });
 });
