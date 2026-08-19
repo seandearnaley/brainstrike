@@ -1288,6 +1288,47 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('does not turn an omitted-only working-tree marker into an indexing scan', async () => {
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledOnce());
+      syncSpy.mockClear();
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:file-explorer-refreshed', {
+            detail: {
+              roots: [
+                {
+                  changes: [],
+                  omittedChanges: true,
+                  rootId: 'root-id-1',
+                  rootPath: '/workspace/root',
+                },
+              ],
+              scope: 'incremental',
+              source: 'watcher',
+            },
+          })
+        );
+      });
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+      expect(syncSpy).not.toHaveBeenCalled();
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('passes a path-mapped adapter identity for a legacy unstamped handle', async () => {
     const legacyRoot = {
       kind: 'directory',

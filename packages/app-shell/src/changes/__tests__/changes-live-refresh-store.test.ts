@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   selectGitScopeRefreshNonce,
@@ -13,6 +14,30 @@ describe('useChangesLiveRefreshStore (BST-1161)', () => {
   afterEach(() => {
     useChangesLiveRefreshStore.getState().reset();
     vi.useRealTimers();
+  });
+
+  it('logs a missing metadata baseline without an ownerless timer throw or losing working-tree evidence', () => {
+    const errorSpy = vi
+      .spyOn(createLogger('ChangesLiveRefreshStore'), 'error')
+      .mockImplementation(() => undefined);
+
+    useChangesLiveRefreshStore.getState().ingestInvalidation({
+      generation: 1,
+      gitCommonDir: '/repo/.git',
+      repositoryRoot: '/repo',
+    });
+    useChangesLiveRefreshStore.getState().ingestWorkingTreeRefresh(['/repo']);
+    useChangesLiveRefreshStore.setState({ metadataNonceByRepositoryRoot: {} });
+
+    expect(() => vi.runAllTimers()).not.toThrow();
+    expect(errorSpy).toHaveBeenCalledWith(
+      'changes live-refresh metadata baseline missing; retaining conservative unknown-key coverage',
+      { repositoryRoot: '/repo' }
+    );
+    const state = useChangesLiveRefreshStore.getState();
+    expect(state.anyInvalidationNonce).toBe(1);
+    expect(state.workingTreeNonceByRepositoryRoot['/repo']).toBe(1);
+    expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(2);
   });
 
   it('bumps the any-invalidation nonce and ONLY the invalidated repo nonce on a mapped event', () => {

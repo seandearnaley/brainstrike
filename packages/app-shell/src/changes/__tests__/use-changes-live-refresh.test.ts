@@ -146,6 +146,98 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     }
   });
 
+  it('maps an omitted-change marker to every registered repository in only the named durable root', () => {
+    vi.useFakeTimers();
+    stubBridge(vi.fn(() => () => {}));
+    const releaseA = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo-a',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo-a',
+    });
+    const releaseB = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo-b',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo-b',
+    });
+    const releaseOtherRoot = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/other/repo',
+      rootId: 'root-2',
+      worktreePath: '/other/repo',
+    });
+
+    try {
+      const omittedRoot = {
+        changes: [],
+        omittedChanges: true,
+        rootId: 'root-1',
+        rootPath: '/workspace',
+      } as const;
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [omittedRoot],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+      vi.runAllTimers();
+
+      const state = useChangesLiveRefreshStore.getState();
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-a')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-b')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/other/repo')).toBe(0);
+      expect(state.anyInvalidationNonce).toBe(0);
+    } finally {
+      releaseA();
+      releaseB();
+      releaseOtherRoot();
+    }
+  });
+
+  it('normalizes each changed path once when equivalent registrations share one repository scan', () => {
+    vi.useFakeTimers();
+    stubBridge(vi.fn(() => () => {}));
+    const releaseChangesSurface = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo',
+    });
+    const releaseGitPanel = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo/',
+    });
+    let pathReads = 0;
+    const changes = Array.from({ length: 128 }, (_, index) => ({
+      kind: 'file' as const,
+      get path(): string {
+        pathReads += 1;
+        return index === 127
+          ? '/workspace/repo/src/changed.ts'
+          : `/workspace/sibling/generated-${index}.ts`;
+      },
+      type: 'modified' as const,
+    }));
+
+    try {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [{ changes, rootId: 'root-1', rootPath: '/workspace' }],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+      vi.runAllTimers();
+
+      expect(pathReads).toBe(changes.length);
+      expect(
+        selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/workspace/repo')
+      ).toBe(1);
+    } finally {
+      releaseChangesSurface();
+      releaseGitPanel();
+    }
+  });
+
   it('keeps full refreshes root-scoped and honors the canonical manual all-roots broadcast', () => {
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));

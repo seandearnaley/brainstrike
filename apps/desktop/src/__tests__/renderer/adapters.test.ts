@@ -637,7 +637,9 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
   ];
 
   let adapter: ElectronRendererFileSystemAdapter;
-  let pushEvent: ((event: { changes: typeof sampleChanges; watchId: string }) => void) | null;
+  let pushEvent:
+    | ((event: { changes: typeof sampleChanges; omittedChanges?: true; watchId: string }) => void)
+    | null;
   let unsubscribe: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -647,7 +649,11 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
     pushEvent = null;
     unsubscribe = vi.fn();
     mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(((
-      callback: (event: { changes: typeof sampleChanges; watchId: string }) => void
+      callback: (event: {
+        changes: typeof sampleChanges;
+        omittedChanges?: true;
+        watchId: string;
+      }) => void
     ) => {
       pushEvent = callback;
       return unsubscribe;
@@ -665,6 +671,18 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
 
     pushEvent?.({ changes: sampleChanges, watchId: 'watch-1' });
     expect(onChanges).toHaveBeenCalledWith(sampleChanges);
+  });
+
+  it('forwards an omitted-only marker through the existing shared watch callback', async () => {
+    const onChanges = vi.fn();
+
+    adapter.watchDirectory(handle, onChanges);
+    await vi.waitFor(() => {
+      expect(pushEvent).not.toBeNull();
+    });
+
+    pushEvent?.({ changes: [], omittedChanges: true, watchId: 'watch-1' });
+    expect(onChanges).toHaveBeenCalledWith([], { omittedChanges: true });
   });
 
   it('ignores change events stamped with a different watchId', async () => {

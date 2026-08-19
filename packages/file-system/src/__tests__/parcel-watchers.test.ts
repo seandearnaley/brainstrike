@@ -94,13 +94,16 @@ async function waitForBatch(batches: FileSystemChange[][], minBatches = 1): Prom
 describe('startParcelWatch', () => {
   let root = '';
   let batches: FileSystemChange[][] = [];
-  const collect = (changes: FileSystemChange[]) => {
+  let batchMetadata: Array<{ omittedChanges: boolean } | undefined> = [];
+  const collect = (changes: FileSystemChange[], metadata?: { omittedChanges: boolean }) => {
     batches.push(changes);
+    batchMetadata.push(metadata);
   };
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'bst568-engine-'));
     batches = [];
+    batchMetadata = [];
   });
 
   afterEach(async () => {
@@ -129,6 +132,46 @@ describe('startParcelWatch', () => {
       ...DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`]),
       ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
     ]);
+    stop();
+  });
+
+  it('reports default-filtered activity without exposing it as an Explorer change (BST-1180)', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+    });
+
+    const ignoredDirectory = join(root, 'node_modules');
+    await mkdir(ignoredDirectory);
+    const ignoredFile = join(ignoredDirectory, 'tracked.js');
+    await writeFile(ignoredFile, 'changed');
+    fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+    await waitForBatch(batches);
+    expect(batches).toEqual([[]]);
+    expect(batchMetadata).toEqual([{ omittedChanges: true }]);
+    stop();
+  });
+
+  it('coalesces mixed visible and default-filtered activity into one annotated batch (BST-1180)', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+    });
+
+    const ignoredDirectory = join(root, 'dist');
+    await mkdir(ignoredDirectory);
+    const ignoredFile = join(ignoredDirectory, 'tracked.js');
+    const visibleFile = join(root, 'source.ts');
+    await Promise.all([writeFile(ignoredFile, 'changed'), writeFile(visibleFile, 'changed')]);
+    fake.emit([
+      { path: ignoredFile, type: 'update' },
+      { path: visibleFile, type: 'update' },
+    ]);
+
+    await waitForBatch(batches);
+    expect(batches).toEqual([[{ kind: 'file', path: visibleFile, type: 'modified' }]]);
+    expect(batchMetadata).toEqual([{ omittedChanges: true }]);
     stop();
   });
 

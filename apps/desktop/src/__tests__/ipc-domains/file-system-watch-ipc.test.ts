@@ -177,7 +177,7 @@ function invokeEventFor(owner: FakeWebContents): IpcMainInvokeEvent {
 
 interface WatchHarness {
   /** Fire every live fake watcher with the given changes. */
-  fireAllChanges: (changes: FileSystemChange[]) => void;
+  fireAllChanges: (changes: FileSystemChange[], metadata?: { omittedChanges: boolean }) => void;
   /** Fire a health transition on the most recent watcher's health callback. */
   fireLatestHealth: (transition: WatcherHealthTransition) => void;
   startedPaths: string[];
@@ -217,9 +217,14 @@ function createWatchHarness(): WatchHarness {
   const liveCallbacks = new Set<(changes: FileSystemChange[]) => void>();
   const healthCallbacks: Array<(transition: WatcherHealthTransition) => void> = [];
   return {
-    fireAllChanges: (changes) => {
+    fireAllChanges: (changes, metadata) => {
       for (const callback of Array.from(liveCallbacks)) {
-        callback(changes);
+        (
+          callback as (
+            nextChanges: FileSystemChange[],
+            nextMetadata?: { omittedChanges: boolean }
+          ) => void
+        )(changes, metadata);
       }
     },
     fireLatestHealth: (transition) => {
@@ -407,6 +412,16 @@ describe('file-system watch IPC domain', () => {
 
     expect(ownerA.watchEvents).toEqual([{ changes: SAMPLE_CHANGES, watchId: watchA }]);
     expect(ownerB.watchEvents).toEqual([{ changes: SAMPLE_CHANGES, watchId: watchB }]);
+  });
+
+  it('pushes omitted-only activity over the existing owner-scoped watch event', async () => {
+    const owner = new FakeWebContents(1);
+    const dir = await makeDir();
+    const { watchId } = await invokeWatch(owner, dir);
+
+    harness.fireAllChanges([], { omittedChanges: true });
+
+    expect(owner.watchEvents).toEqual([{ changes: [], omittedChanges: true, watchId }]);
   });
 
   it('rejects a non-directory path instead of silently watching nothing', async () => {
