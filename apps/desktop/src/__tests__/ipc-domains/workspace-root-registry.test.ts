@@ -299,6 +299,64 @@ describe('WorkspaceRootRegistry', () => {
     }
   });
 
+  it.each([
+    {
+      name: 'directory',
+      read: (registry: WorkspaceRootRegistry, rootId: string) =>
+        registry.readDirectory({
+          kind: 'directory',
+          name: 'workspace',
+          path: '/workspace',
+          platform: 'electron',
+          rootId,
+        }),
+    },
+    {
+      name: 'file',
+      read: (registry: WorkspaceRootRegistry, rootId: string) =>
+        registry.readFile({
+          kind: 'file',
+          name: 'file.txt',
+          path: '/workspace/file.txt',
+          platform: 'electron',
+          rootId,
+        }),
+    },
+  ])('bounds renderer-controlled rootId on denied $name reads', async ({ read }) => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceRootRegistry' &&
+        record.level === LogLevel.WARN &&
+        record.message === 'Workspace read denied'
+      ) {
+        captured.push(record);
+      }
+    });
+    const rawTail = 'RAW_ROOT_ID_TAIL_MUST_NOT_APPEAR';
+    const rootId = `renderer\nroot-${'r'.repeat(2_000_000)}${rawTail}`;
+    try {
+      await expect(read(createRegistry(), rootId)).rejects.toThrow();
+
+      expect(captured).toHaveLength(1);
+      const diagnosticFields = captured[0]?.args[1];
+      if (!(diagnosticFields && typeof diagnosticFields === 'object')) {
+        throw new Error('Missing denial diagnostic fields');
+      }
+      const diagnosticRootId = (diagnosticFields as { rootId?: unknown }).rootId;
+      if (typeof diagnosticRootId !== 'string') {
+        throw new Error('Missing denial diagnostic rootId');
+      }
+      expect(diagnosticRootId.length).toBeLessThanOrEqual(256);
+      expect(diagnosticRootId).toContain('\\u000a');
+      expect(diagnosticRootId).toContain('[truncated]');
+      expect(diagnosticRootId).not.toContain(rawTail);
+      expect(diagnosticRootId).not.toMatch(/[\n\r\t]/u);
+    } finally {
+      removeListener();
+    }
+  });
+
   it('fails visibly instead of treating malformed persistence as zero roots', async () => {
     storage = createStorage({ rootsList: '{broken' });
     const registry = createRegistry();
