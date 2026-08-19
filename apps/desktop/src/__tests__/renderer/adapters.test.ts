@@ -161,6 +161,21 @@ describe('ElectronRendererFileSystemAdapter', () => {
     });
   });
 
+  describe('readFileByAbsolutePath', () => {
+    it('advertises the explicit capability through the mounted-root API', async () => {
+      const absolutePath = '/Users/test/project/file.txt';
+      const rootPath = '/Users/test/project';
+      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue('absolute content');
+
+      await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath)).resolves.toBe(
+        'absolute content'
+      );
+      expect(mockElectronAPI.fileSystem.readFileByPath).toHaveBeenCalledExactlyOnceWith(
+        absolutePath
+      );
+    });
+  });
+
   describe('addRoot', () => {
     it('should call electronAPI.fileSystem.addRoot and return the descriptor', async () => {
       const mockDescriptor = {

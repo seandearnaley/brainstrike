@@ -636,6 +636,23 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(getHandleCache).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards the explicit absolute-path read capability only when the base has it', async () => {
+    const base = createBaseAdapter();
+    const readFileByAbsolutePath = vi.fn(
+      async (absolutePath: string, rootPath: string) => `${rootPath}:${absolutePath}`
+    );
+    base.readFileByAbsolutePath = readFileByAbsolutePath;
+    const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+
+    await expect(
+      adapter.readFileByAbsolutePath?.('/workspace/file.txt', '/workspace')
+    ).resolves.toBe('/workspace:/workspace/file.txt');
+    expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+      '/workspace/file.txt',
+      '/workspace'
+    );
+  });
+
   describe('addInlineFixtureRoot (multi-root harness)', () => {
     const SECOND_FIXTURE: FixtureDefinition = {
       name: 'second-root',

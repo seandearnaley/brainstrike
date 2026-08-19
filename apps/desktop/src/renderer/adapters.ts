@@ -204,6 +204,14 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     return requireElectronAPI().fileSystem.readFileByPath(absolutePath);
   }
 
+  /**
+   * Explicit absolute-path capability. The renderer confines the path to
+   * `rootPath`; main independently authorizes it against the mounted registry.
+   */
+  async readFileByAbsolutePath(absolutePath: string, _rootPath: string): Promise<string> {
+    return requireElectronAPI().fileSystem.readFileByPath(absolutePath);
+  }
+
   async exists(path: string): Promise<boolean> {
     return requireElectronAPI().fileSystem.exists(path);
   }

@@ -68,9 +68,15 @@ describe('useSharedFileContentLoading reload ordering', () => {
       .mockRejectedValue(new Error('ENOENT: file was deleted'));
     (
       adapter as unknown as {
+        readFileByAbsolutePath: (absolutePath: string, rootPath: string) => Promise<string>;
         readFileByPath: typeof readFileByPath;
       }
     ).readFileByPath = readFileByPath;
+    (
+      adapter as unknown as {
+        readFileByAbsolutePath: (absolutePath: string, rootPath: string) => Promise<string>;
+      }
+    ).readFileByAbsolutePath = (absolutePath) => readFileByPath(absolutePath);
     const worker = vi.fn(
       async (
         requests: FileReadRequest[],
@@ -116,7 +122,13 @@ describe('useSharedFileContentLoading reload ordering', () => {
     });
 
     expect(worker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey, path: '/workspace/only-open-file.txt' })],
+      [
+        expect.objectContaining({
+          absoluteRootPath: '/workspace',
+          compositeKey,
+          path: '/workspace/only-open-file.txt',
+        }),
+      ],
       expect.any(Function)
     );
     expect(readFileByPath).toHaveBeenCalledExactlyOnceWith('/workspace/only-open-file.txt');

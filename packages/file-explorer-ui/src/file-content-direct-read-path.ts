@@ -1,7 +1,7 @@
-/** Whether an adapter can read an absolute path without a materialized tree. */
+/** Whether an adapter explicitly authorizes native absolute reads without a tree handle. */
 export function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
-  const adapter = fileSystemAdapter as { readFileByPath?: unknown };
-  return typeof adapter.readFileByPath === 'function';
+  const adapter = fileSystemAdapter as { readFileByAbsolutePath?: unknown };
+  return typeof adapter.readFileByAbsolutePath === 'function';
 }
 
 function normalizePathSeparators(value: string): string {

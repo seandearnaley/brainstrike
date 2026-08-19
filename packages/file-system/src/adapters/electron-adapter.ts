@@ -571,6 +571,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     }
   }
 
+  /** Explicit root-confined native-path capability for handleless readers. */
+  async readFileByAbsolutePath(absolutePath: string, rootPath: string): Promise<string> {
+    return this.readFileByPath(absolutePath, rootPath);
+  }
+
   /**
    * Watch a directory and emit high-level change events through the
    * @parcel/watcher service (BST-568 slice 4: the only engine on every

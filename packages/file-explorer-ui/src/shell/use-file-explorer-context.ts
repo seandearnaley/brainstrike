@@ -75,8 +75,8 @@ interface UseFileExplorerReturn {
   /** Cancel the current select all operation */
   cancelSelectAll: () => void;
   /**
-   * Whether files can be loaded without a file tree (Electron with readFileByPath).
-   * When true, tab content loading can proceed even before the tree is loaded.
+   * Whether the adapter explicitly supports mounted-root-confined absolute
+   * reads. When true, tab content loading can proceed before the tree loads.
    */
   canLoadWithoutTree: boolean;
   clearFileContents: (compositeKeys: string[]) => void;

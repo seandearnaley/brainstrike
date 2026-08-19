@@ -820,11 +820,19 @@ fallback.
   identity and is NEVER substituted for durable read authority. Removed
   files/directories therefore replace the tab with its loading boundary and
   then a visible read-failure result, never the pre-delete content. Listener
-  cleanup is provider-scoped. A direct-path-capable adapter completes this read
+  cleanup is provider-scoped. Absolute handleless reads are gated ONLY by the
+  explicit `readFileByAbsolutePath(absolutePath, mountedRootPath)` adapter
+  method. `readFileByPath` is adapter-defined—the real web adapter implements
+  it for root-relative browser-handle resolution—so its presence is never
+  treated as desktop/native authority. Web missing/lazy nodes therefore retain
+  their cached-handle and permission route even when their root descriptor is a
+  non-absolute folder name. A direct-path-capable adapter completes this read
   even when refresh has produced an empty tree (including deletion of the last
   open file); it never returns fulfilled while leaving the tab pending. Direct
-  path resolution preserves POSIX `/`, Windows drive roots such as `C:\`, and
-  UNC share roots. Relative paths reject empty, control, `.` and `..` segments.
+  worker requests carry the mounted root and never fall back to generic
+  `readFileByPath` if that explicit capability disappears. Path resolution
+  preserves POSIX `/`, Windows drive roots such as `C:\`, and UNC share roots.
+  Relative paths reject empty, control, `.` and `..` segments.
   Absolute paths are accepted only when contained by the selected root, using
   POSIX case-sensitive and Windows drive/UNC case-insensitive semantics; an
   outside absolute path is rejected visibly rather than reinterpreted as a
@@ -1111,6 +1119,8 @@ fallback.
   Open-tab content refresh is pinned by
   `packages/file-explorer-ui/src/__tests__/workspace-tabs-refresh.test.tsx`
   (incremental/full/deleted/multi-root/Windows/commit-phase freshness/cleanup) and
+  `packages/file-explorer-ui/src/__tests__/use-shared-file-content-loading.test.tsx`
+  (web cached-handle routing versus explicit native absolute-path authority),
   `packages/file-explorer-ui/src/__tests__/use-shared-file-content-reload.test.tsx`
   (same-hook and cross-hook stale suppression, ready/dependent/rejected batch
   scheduling, reset/replacement lifecycle isolation, per-key preparation and
@@ -1120,7 +1130,8 @@ fallback.
   `packages/file-explorer-ui/src/__tests__/workspace-tabs-error-lifecycle.test.tsx`
   (single/bulk close, twenty-tab eviction, and reset pruning),
   `packages/file-explorer-ui/src/__tests__/file-content-direct-read-path.test.ts`
-  (POSIX/drive/UNC root preservation and strict containment),
+  (explicit capability routing plus POSIX/drive/UNC root preservation and
+  strict containment),
   `packages/file-explorer-ui/src/__tests__/file-explorer-provider.test.tsx`
   (live factory-reset content/cache clearing), plus
   `packages/file-explorer/src/__tests__/file-content-actions.test.ts`

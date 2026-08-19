@@ -94,6 +94,59 @@ describe('file-content-worker', () => {
     expect(readFileByPath).not.toHaveBeenCalled();
   });
 
+  it('uses the explicit root-confined capability for an absolute path request', async () => {
+    const readFileByAbsolutePath = vi.fn(async () => 'from-absolute-path');
+    const readFileByPath = vi.fn(async () => 'from-adapter-path');
+    const adapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      readFileByAbsolutePath,
+      readFileByPath,
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+    const request = {
+      absoluteRootPath: '/workspace',
+      compositeKey: 'root|@|/workspace/file.txt',
+      path: '/workspace/file.txt',
+    };
+
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const results = await worker([request]);
+
+    expect(displayResult(results[request.compositeKey])).toBe('from-absolute-path');
+    expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+      '/workspace/file.txt',
+      '/workspace'
+    );
+    expect(readFileByPath).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to adapter-defined path reads for an absolute request', async () => {
+    const readFileByPath = vi.fn(async () => 'unsafe-fallback-content');
+    const adapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      readFileByPath,
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+    const request = {
+      absoluteRootPath: '/workspace',
+      compositeKey: 'root|@|/workspace/file.txt',
+      path: '/workspace/file.txt',
+    };
+
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const results = await worker([request]);
+
+    expect(results[request.compositeKey]).toEqual({
+      message: 'Error accessing file',
+      status: 'inaccessible',
+    });
+    expect(readFileByPath).not.toHaveBeenCalled();
+  });
+
   it('skips known oversized files before adapter reads are attempted', async () => {
     const adapter = new MockFileSystemAdapter();
     const readSpy = vi.spyOn(adapter, 'readFile');

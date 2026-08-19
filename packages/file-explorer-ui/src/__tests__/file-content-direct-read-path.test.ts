@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { resolveDirectReadPath } from '../file-content-direct-read-path';
+import { resolveDirectReadPath, supportsDirectPathRead } from '../file-content-direct-read-path';
+
+describe('supportsDirectPathRead', () => {
+  it('requires the explicit absolute-path capability', () => {
+    expect(
+      supportsDirectPathRead({
+        readFileByPath: async () => 'web-relative-content',
+      })
+    ).toBe(false);
+    expect(
+      supportsDirectPathRead({
+        readFileByAbsolutePath: async () => 'native-content',
+        readFileByPath: async () => 'legacy-content',
+      })
+    ).toBe(true);
+  });
+});
 
 describe('resolveDirectReadPath', () => {
   it.each([

@@ -312,7 +312,7 @@ async function handleMissingFileNode(args: {
     const directReadPath = resolveDirectReadPath(rootPathForDirectRead, path);
     if (directReadPath) {
       markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
-      return { compositeKey, path: directReadPath };
+      return { absoluteRootPath: rootPathForDirectRead, compositeKey, path: directReadPath };
     }
     logger.warn('Rejected unavailable direct file read path', {
       hasAbsoluteRootPath:
@@ -783,7 +783,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const fileContents = useFileExplorerStoreSelector((state) => state.fileContents);
 
   return {
-    /** True if files can be loaded without a file tree (Electron with readFileByPath) */
+    /** True if an explicit root-confined absolute-path capability can bypass the tree. */
     canLoadWithoutTree,
     error,
     fileContentErrors,

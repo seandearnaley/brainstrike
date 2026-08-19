@@ -76,6 +76,17 @@ function attachHandleCache(adapter: MockFileSystemAdapter, handleCache: TestHand
   ).getHandleCache = () => handleCache;
 }
 
+function attachAbsolutePathRead(
+  adapter: MockFileSystemAdapter,
+  readFileByPath: (absolutePath: string) => Promise<string>
+): void {
+  (
+    adapter as unknown as {
+      readFileByAbsolutePath: (absolutePath: string, rootPath: string) => Promise<string>;
+    }
+  ).readFileByAbsolutePath = (absolutePath) => readFileByPath(absolutePath);
+}
+
 describe('useSharedFileContentLoading - caching', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -823,13 +834,14 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
   it('surfaces a terminal result when an empty tree has no mounted direct-read root', async () => {
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
-      .fn()
-      .mockResolvedValue('deferred-content') as unknown as MockFileSystemAdapter['readFile'];
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('deferred-content');
     (
       adapter as unknown as {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const compositeKey = encodeFileSelection('root1', '/deferred.txt');
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
@@ -855,13 +867,14 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
   it('does not leave a restored Electron tab pending when direct root identity is unavailable', async () => {
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
-      .fn()
-      .mockResolvedValue('should-not-be-used') as unknown as MockFileSystemAdapter['readFile'];
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('should-not-be-used');
     (
       adapter as unknown as {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });
     const compositeKey = encodeFileSelection('root1', '/restored.txt');
@@ -902,6 +915,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const rootFolderId = '/workspace/root';
     const compositeKey = encodeFileSelection(rootFolderId, 'src/dynamic.ts');
@@ -940,7 +954,13 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     });
 
     expect(mockWorker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey, path: '/workspace/root/src/dynamic.ts' })],
+      [
+        expect.objectContaining({
+          absoluteRootPath: '/workspace/root',
+          compositeKey,
+          path: '/workspace/root/src/dynamic.ts',
+        }),
+      ],
       expect.any(Function)
     );
     expect(readFileByPathSpy).toHaveBeenCalledWith('/workspace/root/src/dynamic.ts');
@@ -970,6 +990,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const rootId = '11111111-0000-4000-8000-000000000011';
     const compositeKey = encodeFileSelection(rootId, '/workspace/root/src/restored.ts');
@@ -1020,7 +1041,13 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     }
 
     expect(mockWorker).toHaveBeenCalledWith(
-      [expect.objectContaining({ compositeKey, path: '/workspace/root/src/restored.ts' })],
+      [
+        expect.objectContaining({
+          absoluteRootPath: '/workspace/root',
+          compositeKey,
+          path: '/workspace/root/src/restored.ts',
+        }),
+      ],
       expect.any(Function)
     );
     expect(readFileByPathSpy).toHaveBeenCalledWith('/workspace/root/src/restored.ts');
@@ -1040,13 +1067,14 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.useFakeTimers();
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
-      .fn()
-      .mockResolvedValue('should-not-be-used') as unknown as MockFileSystemAdapter['readFile'];
+      .fn<(path: string) => Promise<string>>()
+      .mockResolvedValue('should-not-be-used');
     (
       adapter as unknown as {
         readFileByPath: typeof readFileByPathSpy;
       }
     ).readFileByPath = readFileByPathSpy;
+    attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const compositeKey = encodeFileSelection('root1', '/missing.txt');
     const fileNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });

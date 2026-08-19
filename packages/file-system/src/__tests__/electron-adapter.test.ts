@@ -243,6 +243,18 @@ describe('ElectronFileSystemAdapter', () => {
     expect(content).toBe('hello');
   });
 
+  it('reads an absolute path only within the supplied mounted root', async () => {
+    const filePath = path.join(tempDir, 'absolute.txt');
+    fs.writeFileSync(filePath, 'absolute content');
+
+    await expect(adapter.readFileByAbsolutePath(filePath, tempDir)).resolves.toBe(
+      'absolute content'
+    );
+    await expect(
+      adapter.readFileByAbsolutePath(path.join(tempDir, '..', 'outside.txt'), tempDir)
+    ).rejects.toBeInstanceOf(AccessError);
+  });
+
   it('should throw AccessError when readdir fails', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({

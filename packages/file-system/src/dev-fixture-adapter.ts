@@ -313,6 +313,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const originalReadDirectory = adapter.readDirectory.bind(adapter);
   const originalReadFile = adapter.readFile.bind(adapter);
   const originalExists = adapter.exists.bind(adapter);
+  const originalReadFileByAbsolutePath = adapter.readFileByAbsolutePath?.bind(adapter);
   const originalReadFileByPath = (
     adapter as { readFileByPath?: ((path: string) => Promise<string>) | undefined }
   ).readFileByPath?.bind(adapter);
@@ -538,6 +539,9 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
   decorated.readFile = readFile;
   decorated.exists = exists;
+  if (originalReadFileByAbsolutePath) {
+    decorated.readFileByAbsolutePath = originalReadFileByAbsolutePath;
+  }
   if (originalReadFileByPath) {
     (
       decorated as T & {
