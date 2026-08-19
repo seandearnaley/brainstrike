@@ -273,4 +273,88 @@ describe('workspace collection scoped traversal', () => {
       expect.any(Object)
     );
   });
+
+  it('stamps the raw web child handle as _internal on rebuilt directory handles', async () => {
+    // On web, adapter.readDirectory returns child nodes whose `handle` IS the
+    // raw FileSystemDirectoryHandle (no `_internal`, no `platform`). The
+    // web adapter can only read a rebuilt handle whose `_internal` is that raw
+    // handle; without it, scoped scans throw AccessError below the root.
+    const rawNestedWebHandle = {
+      entries: () => undefined,
+      kind: 'directory',
+      name: 'nested',
+    };
+    const rootHandle: DirectoryHandle = {
+      _internal: { entries: () => undefined, kind: 'directory', name: 'workspace' },
+      kind: 'directory',
+      name: 'workspace',
+      path: 'workspace',
+      platform: 'web',
+    };
+    const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
+      if (handle.path === rootHandle.path) {
+        return [
+          {
+            children: [],
+            depth: 0,
+            handle: rawNestedWebHandle as unknown as IFileNode['handle'],
+            name: 'nested',
+            path: 'workspace/nested',
+            rootFolderId: 'workspace',
+            selectionState: 'unchecked',
+            type: 'directory',
+          },
+        ];
+      }
+      return [];
+    });
+    const fileSystemAdapter = {
+      exists: vi.fn(),
+      readDirectory,
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+
+    await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: rootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'root-1',
+        rootPath: rootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => []),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: rootHandle,
+        scope: {
+          changes: [
+            {
+              kind: 'directory',
+              path: 'nested',
+              type: 'modified',
+            },
+          ],
+          mode: 'paths',
+        },
+      },
+    });
+
+    expect(readDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _internal: rawNestedWebHandle,
+        path: 'workspace/nested',
+        platform: 'web',
+      }),
+      expect.any(Object)
+    );
+  });
 });

@@ -280,11 +280,14 @@ function toDirectoryHandle(node: IFileNode, rootHandle: RootDirectoryHandle): Ro
   const nodeHandle = node.handle as Partial<RootDirectoryHandle>;
   const rootId = nodeHandle.rootId ?? rootHandle.rootId;
   return {
+    // On web, the child node's handle IS the raw FileSystemDirectoryHandle
+    // (no _internal on it) and must become the rebuilt handle's _internal —
+    // the web adapter can only read directories through it.
+    _internal: nodeHandle._internal ?? node.handle,
     kind: 'directory',
     name: node.name,
     path: node.path,
     platform: nodeHandle.platform ?? rootHandle.platform,
-    ...(nodeHandle._internal === undefined ? {} : { _internal: nodeHandle._internal }),
     ...(rootId === undefined ? {} : { rootId }),
   };
 }
