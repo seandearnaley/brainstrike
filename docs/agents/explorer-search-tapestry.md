@@ -805,8 +805,11 @@ fallback.
   no-ops do not advance it. A directory batch discards its entire stale snapshot
   set if that revision changes before publication; it never reconciles an older
   snapshot against a newer selection. A same-path root-id switch during a later
-  directory read can never retarget already-completed snapshots. A failed job
-  is surfaced and consumed so later events still run. Every queued job carries
+  directory read can never retarget already-completed snapshots. A failed peer
+  stops new pool assignments, while every already-started peer drains before
+  the first error rejects the job; the provider queue therefore cannot advance
+  into overlapping late tree commits. The failed job is surfaced and consumed
+  so later events still run. Every queued job carries
   the provider effect's lifecycle epoch;
   cleanup invalidates that epoch, so retired jobs stop before new I/O and an
   in-flight job discards all snapshots after its next await instead of

@@ -38,6 +38,7 @@ export async function runWithConcurrency<T, R>(
 
   const results = new Array<R>(items.length);
   let failed = false;
+  let firstError: unknown;
   let nextIndex = 0;
   const workerCount = Math.min(concurrency, items.length);
 
@@ -56,12 +57,18 @@ export async function runWithConcurrency<T, R>(
         try {
           results[index] = await fn(item);
         } catch (error) {
-          failed = true;
-          throw error;
+          if (!failed) {
+            failed = true;
+            firstError = error;
+          }
         }
       }
     })
   );
+
+  if (failed) {
+    throw firstError;
+  }
 
   return results;
 }
