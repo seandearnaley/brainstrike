@@ -168,4 +168,58 @@ describe('useExpandedPathRestoration lifecycle', () => {
       unmount();
     }
   );
+
+  it('starts a changed root only after the older physical success settles', async () => {
+    let resolveFirstAttempt: (() => void) | undefined;
+    const loadSpecificPaths = vi.fn((_paths: string[]): Promise<void> => {
+      if (loadSpecificPaths.mock.calls.length > 1) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        resolveFirstAttempt = resolve;
+      });
+    });
+    const store = {
+      getState: vi.fn(() =>
+        createStoreState({
+          expandedDirectoryPaths: new Set(['/workspace-a/src', '/workspace-b/src']),
+        })
+      ),
+    };
+    const initialProps = {
+      currentRootFolderId: 'root-a',
+      currentRootPath: '/workspace-a',
+      restorationKey: 'root-a:key-a',
+    };
+    const { rerender, result, unmount } = renderHook(
+      (props: typeof initialProps) =>
+        useExpandedPathRestoration({
+          ...props,
+          fileTree: [createDirectoryNode(`${props.currentRootPath}/src`)],
+          isTreeLoading: false,
+          loadSpecificPaths,
+          setExpandedPaths: vi.fn(),
+          store,
+        }),
+      { initialProps }
+    );
+    await waitFor(() => expect(loadSpecificPaths).toHaveBeenCalledTimes(1));
+
+    rerender({
+      currentRootFolderId: 'root-b',
+      currentRootPath: '/workspace-b',
+      restorationKey: 'root-b:key-a',
+    });
+    expect(loadSpecificPaths).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirstAttempt?.();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(loadSpecificPaths).toHaveBeenCalledTimes(2));
+    expect(loadSpecificPaths.mock.calls[1]?.[0]).toEqual(['/workspace-b/src']);
+    await waitFor(() => expect(result.current.isRestorationSettled).toBe(true));
+    unmount();
+  });
 });

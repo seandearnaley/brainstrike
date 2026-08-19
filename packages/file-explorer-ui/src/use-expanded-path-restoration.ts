@@ -2,6 +2,7 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { getPathDepth } from '@brainstrike/file-tree-worker';
 import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { isAbortError } from '@brainstrike/utils/error-utils';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { isPathWithinRoot, normalizePathForRootScope } from './utils/root-scoped-paths';
@@ -428,7 +429,7 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
     sortedPaths,
     store,
   } = args;
-  let restorationCompleted = false;
+  let outcome: 'cancelled' | 'failed' | 'retired' | 'succeeded' = 'retired';
 
   try {
     await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
@@ -472,35 +473,52 @@ async function restoreExpandedPaths(args: RestoreExpandedPathsArgs): Promise<voi
       folderId: currentRootFolderId,
       totalPaths: sortedPaths.length,
     });
-    restorationCompleted = true;
+    outcome = 'succeeded';
   } catch (error) {
-    logger.warn('Failed to restore expanded directories', { error });
+    if (isAbortError(error)) {
+      outcome = 'cancelled';
+      logger.debug('Automatic expanded-directory restoration was cancelled', {
+        folderId: currentRootFolderId,
+      });
+    } else {
+      outcome = 'failed';
+      logger.warn('Failed to restore expanded directories', { error });
+    }
   } finally {
     const ownedLock = restorationLocks.get(currentRootFolderId);
-    if (
+    const ownsLock =
       ownedLock?.ownerToken === restorationOwnerToken &&
       ownedLock.restorationKey === restorationKey &&
-      ownedLock.runToken === restorationRunToken
-    ) {
-      if (restorationCompleted) {
-        ownedLock.failed = false;
-        ownedLock.inProgress = false;
+      ownedLock.runToken === restorationRunToken;
+    if (ownsLock) {
+      if (outcome === 'cancelled' || outcome === 'retired') {
+        restorationLocks.delete(currentRootFolderId);
       } else {
-        ownedLock.failed = true;
+        ownedLock.failed = outcome === 'failed';
         ownedLock.inProgress = false;
+        ownedLock.runToken = null;
       }
-      ownedLock.runToken = null;
     }
     // Clear this instance's in-progress tracker so a subsequent root-switch
     // can proceed once this restore completes.
-    if (instanceInProgressFolderIdRef.current === currentRootFolderId) {
+    const ownsInstanceAttempt = instanceInProgressFolderIdRef.current === currentRootFolderId;
+    if (ownsInstanceAttempt) {
       instanceInProgressFolderIdRef.current = null;
+      setIsRestoringExpandedPaths(false);
+      setRestorationProgress(null);
     }
-    setIsRestoringExpandedPaths(false);
-    setRestorationProgress(null);
-    if (restorationCompleted && currentRootFolderIdRef.current === currentRootFolderId) {
+    if (
+      outcome === 'succeeded' &&
+      ownsLock &&
+      currentRootFolderIdRef.current === currentRootFolderId
+    ) {
       setSettledFolderId(currentRootFolderId);
       setSettledRestorationKey(restorationKey);
+    }
+    // Physical settlement is the ordering boundary for retry and root/key
+    // rollover. Wake the effect for every attempt still owned by this hook;
+    // the lock outcome decides whether it retries, remains failed, or settles.
+    if (ownsInstanceAttempt) {
       setRestorationCompletionVersion((version) => version + 1);
     }
   }

@@ -879,12 +879,17 @@ fallback.
   serial replay. Restoration locks carry provider-owner identity: owner
   unmount deletes even an in-flight entry, late finalizers touch only their
   exact entry, and only a successful physical load plus expansion commit marks
-  the restoration key complete. A visible non-abort failure records one failed
-  automatic attempt for that provider/root/key, so loading-state transitions
-  cannot hammer a permanently unreadable directory; unmount or a new root/key
-  releases the owner-scoped record and is the explicit retry boundary. Stale or
-  terminated runs likewise remain retryable without releasing another
-  provider's lock. The signal
+  the restoration key complete. Abort cancellation is a retryable retirement:
+  it neither warning-logs nor records a failed automatic attempt, and the same
+  provider/root/key can retry after the physical promise settles. Every physical
+  settlement still owned by the hook advances its local completion version, so
+  a root or restoration-key change that waited behind older I/O resumes after
+  that exact rejection/settlement boundary. A visible non-abort failure records
+  one failed automatic attempt for that provider/root/key; the completion wake
+  does not mark it successful or spin on loading-state transitions. Unmount or a
+  new root/key releases the owner-scoped record and is the explicit retry
+  boundary. Stale or terminated runs likewise remain retryable without
+  releasing another provider's lock. The signal
   fences the handle-map publication after directory I/O, and the port
   suppresses any result/error that settles after its request was retired. As a
   second ordering defense, the
