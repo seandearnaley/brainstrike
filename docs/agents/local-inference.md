@@ -153,8 +153,10 @@ Embedding runtime telemetry (BST-402):
   therefore remain deduplicated and physically bounded. A resident-limit disposal rejection
   blocks the pending replacement and emits its request-scoped load-failure diagnostic. Every
   disposer rejection latches the controller against future loads, remains visible to `wait`
-  and `close`, and asks workerpool to replace the failed worker through its lifetime-error
-  channel when that managed channel exists. BST-369's deterministic
+  and `close`, and asks workerpool to replace the failed worker through its managed
+  lifetime-error channel. A direct worker has no such channel, so an idle disposer failure
+  is re-reported immediately through the owner-visible uncaught-worker-error path; the
+  streaming client then fails and retires that worker. BST-369's deterministic
   browser proof now routes ordinary queue tasks through a private
   `createBrowserEmbeddingQueue` (`minWorkers = maxWorkers = 1`), workerpool's
   `runEmbedding` RPC, and the actual `embedding.worker.ts` module. A wrapper installs a

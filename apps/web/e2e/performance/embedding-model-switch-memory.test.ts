@@ -91,6 +91,7 @@ test.describe('Embedding model-switch memory regression', () => {
       })}`
     );
 
+    expect(browserErrors).toEqual([]);
     expect(crossOriginRequests).toEqual([]);
     expect(modelProxyRequests).toEqual([]);
     expect(result.beforeTeardown).toEqual({
