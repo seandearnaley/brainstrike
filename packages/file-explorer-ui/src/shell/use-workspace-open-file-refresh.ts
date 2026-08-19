@@ -1,8 +1,9 @@
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange } from '@brainstrike/types';
 import { normalizeFilePathForFolder } from '@brainstrike/utils/relative-file-path';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import type { FileTab } from '../hooks/use-tab-manager';
 import { normalizePathForRootScope } from '../utils/root-scoped-paths';
 import {
@@ -153,36 +154,29 @@ export function useWorkspaceOpenFileRefresh({
   reloadFileContents,
   tabs,
 }: UseWorkspaceOpenFileRefreshParams): void {
-  const paramsRef = useRef({ reloadFileContents, tabs });
-
-  useEffect(() => {
-    paramsRef.current = { reloadFileContents, tabs };
-  }, [reloadFileContents, tabs]);
-
-  useEffect(() => {
-    const handleRefresh = (event: Event): void => {
-      const { detail } = event as FileExplorerRefreshEvent;
-      const current = paramsRef.current;
-      const plan = planOpenFileRefresh(current.tabs, detail);
-      if (plan.invalidCompositeKeys.length > 0) {
-        logger.warn('Skipping malformed open-file composite keys during refresh', {
-          count: plan.invalidCompositeKeys.length,
-        });
-      }
-      if (plan.keysToReload.length === 0) {
-        return;
-      }
-      current.reloadFileContents(plan.keysToReload).catch((error: unknown) => {
-        logger.error('Failed to reload open file content after workspace refresh', {
-          error: error instanceof Error ? error.message : String(error),
-          fileCount: plan.keysToReload.length,
-        });
+  const handleRefresh = useEventCallback((event: Event): void => {
+    const { detail } = event as FileExplorerRefreshEvent;
+    const plan = planOpenFileRefresh(tabs, detail);
+    if (plan.invalidCompositeKeys.length > 0) {
+      logger.warn('Skipping malformed open-file composite keys during refresh', {
+        count: plan.invalidCompositeKeys.length,
       });
-    };
+    }
+    if (plan.keysToReload.length === 0) {
+      return;
+    }
+    reloadFileContents(plan.keysToReload).catch((error: unknown) => {
+      logger.error('Failed to reload open file content after workspace refresh', {
+        error: error instanceof Error ? error.message : String(error),
+        fileCount: plan.keysToReload.length,
+      });
+    });
+  });
 
+  useEffect(() => {
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     return () => {
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);
     };
-  }, []);
+  }, [handleRefresh]);
 }

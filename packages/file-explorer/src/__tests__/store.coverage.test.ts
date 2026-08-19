@@ -54,7 +54,7 @@ describe('store coverage', () => {
     const existingStore = Object.assign(vi.fn(), {
       getState: vi.fn(),
       setState: vi.fn(),
-      [STORE_BRAND]: 1,
+      [STORE_BRAND]: 2,
     });
     (globalThis as Record<string, unknown>)[STORE_KEY] = existingStore;
 
@@ -63,12 +63,12 @@ describe('store coverage', () => {
     expect(mod.useFileExplorerStore).toBe(existingStore);
   });
 
-  it('replaces an invalid cached singleton that is missing the branded api', async () => {
-    const invalidStore = {
+  it('replaces a previous cache-lifetime branded singleton', async () => {
+    const invalidStore = Object.assign(vi.fn(), {
       getState: vi.fn(),
       setState: vi.fn(),
-      [STORE_BRAND]: 99,
-    };
+      [STORE_BRAND]: 1,
+    });
     (globalThis as Record<string, unknown>)[STORE_KEY] = invalidStore;
 
     const mod = await import('../store');

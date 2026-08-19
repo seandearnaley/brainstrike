@@ -2,7 +2,7 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
-import { createFileContentActions } from '../actions/file-content-actions';
+import { createFileContentActions, createFileContentCache } from '../actions/file-content-actions';
 
 // Combine action return type for typing
 
@@ -67,7 +67,11 @@ function createTestStore() {
     toggleSelectedFile: vi.fn(),
   }));
 
-  const actions = createFileContentActions(store.setState, store.getState);
+  const actions = createFileContentActions(
+    store.setState,
+    store.getState,
+    createFileContentCache()
+  );
   store.setState((state) => ({
     ...state,
     ...actions,
@@ -81,8 +85,7 @@ describe('file-content-actions', () => {
 
   beforeEach(() => {
     store = createTestStore();
-    // The file-content cache is a module-level singleton shared across
-    // stores; reset it so tests don't depend on execution order.
+    // Reset the store-owned cache alongside its volatile state.
     store.getState().clearAllFileContents();
   });
 

@@ -747,20 +747,32 @@ fallback.
   path-identified composite keys, with the shared Windows drive/UNC
   case-insensitive path semantics. Same relative paths in different durable
   roots never cross-refresh. Malformed persisted keys are warn-logged by count,
-  never echoed with their root/path.
+  never echoed with their root/path. The window listener is stable, while its
+  tabs/reload callback are synchronized in the commit phase through the shared
+  `useEventCallback`; watcher/IPC events arriving after commit but before
+  passive effects therefore never route through the previous render.
 
   A matching event calls the shared content loader's `reloadFileContents`:
   cached bytes are evicted synchronously before any await, then re-read. The
   generation/active-read authority is owned ONCE by `FileExplorerProvider` and
   shared by every `useSharedFileContentLoading` instance beneath it — hook-local
   authority is invalid because all those hooks commit into the same provider
-  store/cache. Each key carries a monotonic in-memory generation while the
+  store/cache. The LRU is constructed once per Zustand store (never at module
+  scope), and provider replacement creates the store/cache and authority in
+  one memoized lifecycle. A retired provider read can finish only into its
+  retired store/cache; it cannot repopulate content consumed by the replacement
+  provider. Per-store clears, eviction, stats, and full reset act on that same
+  scoped cache. Each key carries a monotonic in-memory generation while the
   reload is active, so an older read resolving in a sibling hook after a second
-  disk change cannot republish stale bytes. A superseded reload waits for the
-  active reads, filters to keys whose generation is still current, and submits
-  all ready keys through ONE worker batch (never one queue per key). Active-load
-  entries and settled latest generations are removed, so close/reopen churn
-  does not create an unbounded key registry. Rebuilt worker `FileHandle`s carry
+  disk change cannot republish stale bytes. Refresh partitions keys before its
+  first await: immediately-ready keys start in ONE batch, while dependent keys
+  are grouped by the identity of their preceding promise. Each group filters
+  superseded generations and starts as soon as only its own predecessor
+  settles, so one slow/hung read cannot blank and starve unrelated tabs. A
+  rejected obsolete read is diagnosed by count (never path), then that group
+  still performs its fresh replacement. Each completed group clears its own
+  generation; active-load entries are identity-cleaned on settlement, so
+  close/reopen churn does not create an unbounded key registry. Rebuilt worker `FileHandle`s carry
   `fileNode.handle.rootId` when present; `rootFolderId` remains selection/cache
   identity and is NEVER substituted for durable read authority. Removed
   files/directories therefore replace the tab with its loading boundary and
@@ -1044,9 +1056,12 @@ fallback.
   `packages/file-system/src/__tests__/electron-watchers.test.ts`.
   Open-tab content refresh is pinned by
   `packages/file-explorer-ui/src/__tests__/workspace-tabs-refresh.test.tsx`
-  (incremental/full/deleted/multi-root/Windows/cleanup) and
+  (incremental/full/deleted/multi-root/Windows/commit-phase freshness/cleanup) and
   `packages/file-explorer-ui/src/__tests__/use-shared-file-content-reload.test.tsx`
-  (same-hook and cross-hook stale suppression, one-batch multi-key reload, and
-  nested-handle RootId forwarding).
+  (same-hook and cross-hook stale suppression, ready/dependent/rejected batch
+  scheduling, provider replacement isolation, and nested-handle RootId
+  forwarding), plus
+  `packages/file-explorer/src/__tests__/file-content-actions.test.ts`
+  (store-scoped cache/reset lifecycle).
 
 When changing this flow, update this section and the paired tests.

@@ -8,7 +8,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla'; // Use vanilla store for testing actions
 import { createDirectoryExpansionActions } from '../actions/directory-expansion-actions';
-import { createFileContentActions } from '../actions/file-content-actions';
+import { createFileContentActions, createFileContentCache } from '../actions/file-content-actions';
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
@@ -109,7 +109,8 @@ describe('useFileExplorerStore Actions Integration', () => {
     const settingsActions = createSettingsActions(zustandStore.setState, zustandStore.getState);
     const fileContentActions = createFileContentActions(
       zustandStore.setState,
-      zustandStore.getState
+      zustandStore.getState,
+      createFileContentCache()
     );
 
     // Combine actions and add them to the store's state for the test setup

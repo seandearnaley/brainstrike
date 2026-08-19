@@ -108,7 +108,7 @@ export default function Explorer() {
 
 * `useSharedFileContentLoading` batches `FileReadRequest`s to a worker created by `@brainstrike/workers/file-content-worker` with concurrency derived from `navigator.hardwareConcurrency`.
 * Per-file results stream back; we keep a `loadingFiles` set and write content into the store.
-* Load generations and active-read promises are owned once by `FileExplorerProvider`, not by each `useSharedFileContentLoading` hook. Every loader under one provider must consult that shared authority before committing content, because the file-content store/cache is shared. Refresh waits for older reads, filters superseded generations, and sends all ready keys through one worker batch.
+* Load generations and active-read promises are owned once by `FileExplorerProvider`, not by each `useSharedFileContentLoading` hook. Every loader under one provider must consult that shared authority before committing content, because the file-content store/cache is shared. The underlying LRU is itself store-owned; provider replacement creates a new store/cache and authority atomically. Refresh starts idle keys immediately in one batch, groups dependent keys by the exact preceding promise, and starts each group independently when that promise settles (including rejection) after filtering superseded generations.
 * Rebuilt `FileHandle`s forward `fileNode.handle.rootId` as the durable read authority when present. `rootFolderId` remains selection/cache identity and must never be substituted for `rootId`.
 * “Binary file” and “not accessible” markers are **string content** (UI treats them specially). Don’t change those strings without updating tests/UI.
 

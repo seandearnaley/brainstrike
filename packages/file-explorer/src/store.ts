@@ -17,7 +17,7 @@ import { persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createActiveRootActions } from './actions/active-root-actions';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
-import { createFileContentActions } from './actions/file-content-actions';
+import { createFileContentActions, createFileContentCache } from './actions/file-content-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';
 import { createFolderStateActions } from './actions/folder-state-actions';
 import { createSelectionModelActions } from './actions/selection-model-actions';
@@ -29,6 +29,10 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
   set,
   get
 ) => {
+  // The volatile LRU is part of this store's runtime state. Creating it inside
+  // the StateCreator invocation gives every bound/vanilla store one cache and
+  // prevents retired providers from mutating a replacement store's reads.
+  const fileContentCache = createFileContentCache();
   const initialData = {
     // Initial state properties from DEFAULT_STATE
     ...DEFAULT_STATE,
@@ -55,7 +59,7 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createFileSelectionActions(set, get),
     ...createDirectoryExpansionActions(set, get),
     ...createSettingsActions(set, get),
-    ...createFileContentActions(set, get),
+    ...createFileContentActions(set, get, fileContentCache),
     ...createSelectionModelActions(set),
     ...createActiveRootActions(set, get),
     clearQuickFilter: () => {
@@ -143,7 +147,7 @@ if (typeof localStorage === 'undefined') {
 
 const STORE_KEY = '__brainstrike_file_explorer_store__' as const;
 const STORE_BRAND = '__brainstrike_store_brand__';
-const STORE_VERSION = 1 as const;
+const STORE_VERSION = 2 as const;
 const g = globalThis as unknown as Record<string, unknown>;
 // Derive from createFileExplorerStore (which applies the persist middleware) so the
 // exported store type carries the persist mutator augmentation (e.g. `.persist`).

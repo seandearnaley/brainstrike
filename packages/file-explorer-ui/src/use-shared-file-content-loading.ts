@@ -16,6 +16,7 @@ import type {
   FileReadRequest,
 } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { runFileContentReloadGroups } from './file-content-reload-scheduler';
 import {
   useFileContentLoadAuthority,
   useFileExplorerStoreContext,
@@ -912,32 +913,14 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       // the shared cache sees a loading boundary instead of stale disk bytes.
       store.getState().clearFileContents(uniqueKeys);
 
-      const precedingLoads = new Set(
-        uniqueKeys.flatMap((key) => {
-          const activeLoad = loadAuthority.getActiveLoad(key);
-          return activeLoad ? [activeLoad] : [];
-        })
-      );
-      try {
-        await Promise.all(precedingLoads);
-        const readyKeys = uniqueKeys.filter((key) => {
-          const requestedGeneration = requestedGenerations.get(key);
-          return (
-            requestedGeneration !== undefined &&
-            loadAuthority.isCurrentGeneration(key, requestedGeneration)
-          );
-        });
-        if (readyKeys.length > 0) {
-          await handleFileContentLoading(readyKeys);
-        }
-      } finally {
-        // Once the latest reload (and every older load it awaited) has
-        // settled, generation zero is safe again. Superseded reloads leave
-        // the newer generation intact.
-        for (const key of uniqueKeys) {
-          loadAuthority.clearGeneration(key, requestedGenerations.get(key));
-        }
-      }
+      await runFileContentReloadGroups({
+        clearGeneration: loadAuthority.clearGeneration,
+        compositeKeys: uniqueKeys,
+        getActiveLoad: loadAuthority.getActiveLoad,
+        isCurrentGeneration: loadAuthority.isCurrentGeneration,
+        reload: handleFileContentLoading,
+        requestedGenerations,
+      });
     },
     [handleFileContentLoading, loadAuthority, store]
   );
