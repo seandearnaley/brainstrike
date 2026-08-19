@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
@@ -22,5 +23,6 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'src/**/*.test.tsx', 'src/**/*.spec.tsx'],
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',
+    reporters: ['default', new LostTestFileReporter()],
   },
 });

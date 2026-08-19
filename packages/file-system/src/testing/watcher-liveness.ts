@@ -13,11 +13,16 @@
 // The consequence for tests is that every watcher test on such a host fails as
 // an undifferentiated timeout, which is indistinguishable from "our watcher /
 // invalidation logic is broken". This probe makes that distinction mechanical:
-// it exercises the native backend and, only when that fails, a `fs.watch`
-// CONTROL in the same conditions. Native-dead + control-alive is the signature
-// of the known host fault; both dead means the harness itself (tmpdir,
-// sandbox, permissions) cannot deliver events, which is NOT that fault and must
-// never be quietly tolerated.
+// it exercises a RAW native subscription — no brainstrike code in the path
+// beyond backend selection — and, only when that fails, a `fs.watch` CONTROL in
+// the same conditions.
+//
+// The load-bearing fact is whether the raw binding delivered: if it did not,
+// nothing above it can be blamed. The control then grades HOW degraded the host
+// is. Note that on macOS libuv's `fs.watch` rides the same FSEventStream
+// subsystem, so "control also silent" is a worse host, not a different
+// diagnosis — measured on this host, the control alternated between delivering
+// and not across runs minutes apart.
 //
 // DESIGN NOTES
 // ------------
@@ -48,11 +53,12 @@ import {
  * - `alive` — the native backend delivered. Watcher tests are meaningful; any
  *   subsequent failure is OUR bug.
  * - `native-dead-control-alive` — the native backend delivered nothing while
- *   `fs.watch` did. This is the BST-1328 host fault: the platform layer is
- *   dead, so watcher tests cannot say anything about our code.
- * - `native-dead-control-dead` — nothing delivered at all. NOT the known host
- *   fault (libuv would still work under it); the harness or filesystem itself
- *   is not delivering events. Must fail loudly, never be skipped past.
+ *   `fs.watch` did. The BST-1328 host fault: the platform layer under our
+ *   watcher is dead, so watcher tests cannot say anything about our code.
+ * - `native-dead-control-dead` — nothing delivered at all. On macOS this is the
+ *   MORE degraded form of the same fault (libuv shares FSEventStream there);
+ *   elsewhere it would suggest a sandboxed or permission-restricted TMPDIR.
+ *   Either way the platform, not this repo, is what failed to deliver.
  */
 export type WatcherLivenessVerdict =
   | 'alive'
