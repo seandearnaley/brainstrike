@@ -7,6 +7,11 @@ import { FileExplorerMiddlePanelBase } from '../shell/file-explorer-middle-panel
 
 const mocks = vi.hoisted(() => {
   const previewProps = { current: null as ComponentProps<typeof PreviewPanel> | null };
+  const reportActionsInput = {
+    current: null as null | {
+      loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
+    },
+  };
   const storeState = {
     excludeFilters: ['dist/**'],
     folderSummaryThreshold: 25,
@@ -22,6 +27,7 @@ const mocks = vi.hoisted(() => {
     performUndoableAction: vi.fn(),
     persistFileExplorerStateImmediately: vi.fn(async () => {}),
     previewProps,
+    reportActionsInput,
     selectedFilePaths: new Set<string>(),
     setFolderSummaryThreshold: vi.fn(),
     setIncludeProjectTree: vi.fn(),
@@ -36,6 +42,9 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 vi.mock('@brainstrike/ui', () => ({
+  Button: ({ children, ...props }: ComponentProps<'button'>) => (
+    <button {...props}>{children}</button>
+  ),
   useUndoableAction: () => ({ performUndoableAction: mocks.performUndoableAction }),
 }));
 
@@ -52,10 +61,15 @@ vi.mock('../indexing/use-text-token-count', () => ({
 }));
 
 vi.mock('../preview/use-preview-panel-report-actions', () => ({
-  usePreviewPanelReportActions: () => ({
-    handleCopyContext: mocks.copyContext,
-    handleDownloadContext: mocks.downloadContext,
-  }),
+  usePreviewPanelReportActions: (input: {
+    loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
+  }) => {
+    mocks.reportActionsInput.current = input;
+    return {
+      handleCopyContext: mocks.copyContext,
+      handleDownloadContext: mocks.downloadContext,
+    };
+  },
 }));
 
 vi.mock('../preview/preview-panel', () => ({
@@ -134,6 +148,7 @@ describe('FileExplorerMiddlePanelBase', () => {
     mocks.performUndoableAction.mockClear();
     mocks.persistFileExplorerStateImmediately.mockClear();
     mocks.previewProps.current = null;
+    mocks.reportActionsInput.current = null;
     mocks.selectedFilePaths = new Set([selectedFileKey, 'not-a-selection']);
     mocks.setFolderSummaryThreshold.mockClear();
     mocks.setIncludeProjectTree.mockClear();
@@ -249,16 +264,17 @@ describe('FileExplorerMiddlePanelBase', () => {
   });
 
   it('surfaces report-loading rejection and clears it when the selection changes', async () => {
-    mocks.copyContext.mockRejectedValueOnce(new Error('report loader details'));
+    mocks.loadMultipleFileContents.mockRejectedValueOnce(new Error('report loader details'));
     const view = render(<FileExplorerMiddlePanelBase />);
-    const props = mocks.previewProps.current;
-    if (!props) {
-      throw new Error('PreviewPanel props were not captured');
+    const reportActionsInput = mocks.reportActionsInput.current;
+    if (!reportActionsInput) {
+      throw new Error('Report action input was not captured');
     }
 
-    props.onCopyContext?.({
-      projectTreeUsesViewFilters: false,
-      selectedLineRangesByFile: {},
+    await act(async () => {
+      await expect(reportActionsInput.loadMultipleFileContents([selectedFileKey])).rejects.toThrow(
+        'report loader details'
+      );
     });
     expect(
       await screen.findByRole('alert', { name: 'Preview content unavailable' })

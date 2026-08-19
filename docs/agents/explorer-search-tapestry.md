@@ -802,8 +802,12 @@ fallback.
   tab store's hard maximum of 20. Single close, bulk close, external hydration,
   oldest-tab eviction, unmount, and factory reset all retire their keys
   immediately. An unowned report/preview failure is still returned through the
-  rejected logical request, then pruned when its active read releases; there is
-  no arbitrary eviction that could hide an active tab's terminal error. Every
+  rejected logical request, then pruned when its active read releases; the
+  middle panel captures that rejection into an accessible alert owned by the
+  exact selection snapshot, with an explicit retry of the failed keys.
+  Selection change hides the retired failure, and internal error text is logged
+  rather than rendered. There is no arbitrary eviction that could hide an
+  active tab's terminal error. Every
   physical reload group and deduped active read settles before the
   public logical request rejects with the single error or an aggregate; a later
   successful queued group cannot erase an earlier sibling's failure. A logical
