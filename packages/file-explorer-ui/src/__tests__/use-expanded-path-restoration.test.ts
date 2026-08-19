@@ -129,7 +129,7 @@ describe('useExpandedPathRestoration', () => {
     remountedProvider.unmount();
   });
 
-  it('keeps a non-abort restoration failure retryable until a physical retry settles', async () => {
+  it('does not spin on a permanent restoration failure and retries after remount', async () => {
     const loadSpecificPaths = vi
       .fn<(paths: string[]) => Promise<void>>()
       .mockRejectedValueOnce(new Error('restoration read failed'))
@@ -155,10 +155,17 @@ describe('useExpandedPathRestoration', () => {
         })
       );
 
-    const provider = renderRestoration();
+    const firstProvider = renderRestoration();
+    await waitFor(() => expect(firstProvider.result.current.isRestoringExpandedPaths).toBe(false));
+    expect(loadSpecificPaths).toHaveBeenCalledTimes(1);
+    expect(firstProvider.result.current.isRestorationSettled).toBe(false);
+
+    firstProvider.unmount();
+
+    const remountedProvider = renderRestoration();
     await waitFor(() => expect(loadSpecificPaths).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(provider.result.current.isRestorationSettled).toBe(true));
-    provider.unmount();
+    await waitFor(() => expect(remountedProvider.result.current.isRestorationSettled).toBe(true));
+    remountedProvider.unmount();
   });
 
   it('restores persisted expanded directories after the root folder is available', async () => {
