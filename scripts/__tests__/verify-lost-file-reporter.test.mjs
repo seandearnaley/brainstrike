@@ -12,17 +12,22 @@ import { fileURLToPath } from 'node:url';
 import {
   findConfigsMissingReporter,
   findVitestConfigs,
+  loadExemptPackageNames,
   main,
 } from '../verify-lost-file-reporter.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** A miniature workspace: `<root>/packages/<name>/vitest.config.mts`. */
+/** A miniature workspace: `<root>/packages/<name>/{package.json,vitest.config.mts}`. */
 function makeWorkspace(configsByPackage) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'bst1221-reporter-guard-'));
   for (const [packageName, contents] of Object.entries(configsByPackage)) {
     const dir = path.join(root, 'packages', packageName);
     mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ name: `@brainstrike/${packageName}` })
+    );
     writeFileSync(path.join(dir, 'vitest.config.mts'), contents);
   }
   return root;
@@ -47,9 +52,30 @@ test('flags a config that does not register the reporter', () => {
 
 test('accepts a workspace where every config registers the reporter', () => {
   const root = makeWorkspace({ a: WITH_REPORTER, b: WITH_REPORTER });
-  const configs = findVitestConfigs(root);
 
-  assert.deepEqual(findConfigsMissingReporter(root, configs), []);
+  assert.deepEqual(findConfigsMissingReporter(root, findVitestConfigs(root)), []);
+});
+
+test('an exempt package may omit the reporter; a non-exempt one may not', () => {
+  const root = makeWorkspace({ bad: WITHOUT_REPORTER, exempt: WITHOUT_REPORTER });
+  const exempt = new Set(['@brainstrike/exempt']);
+
+  assert.deepEqual(findConfigsMissingReporter(root, findVitestConfigs(root), exempt), [
+    'packages/bad/vitest.config.mts',
+  ]);
+});
+
+test('the exemption set is the tooling domain, read from the real contract', () => {
+  const exempt = loadExemptPackageNames(REPO_ROOT);
+
+  // Non-empty, and scoped to tooling — a drifting map that emptied this would
+  // make the exemption silently vanish rather than silently widen.
+  assert.ok(exempt.size > 0, 'tooling domain must classify at least one package');
+  assert.ok(exempt.has('@brainstrike/config'));
+  assert.ok(
+    !exempt.has('@brainstrike/embeddings'),
+    'WASM-heavy lanes must never be exempt — they are the ones this reporter exists for.'
+  );
 });
 
 test('refuses an empty root rather than reporting a vacuous pass', async () => {
@@ -62,9 +88,9 @@ test('refuses an empty root rather than reporting a vacuous pass', async () => {
   );
 });
 
-test('MONEY TEST: the real repo registers the reporter in every vitest config', async () => {
+test('MONEY TEST: the real repo registers the reporter in every non-exempt vitest config', () => {
   const configs = findVitestConfigs(REPO_ROOT);
-  const missing = findConfigsMissingReporter(REPO_ROOT, configs);
+  const missing = findConfigsMissingReporter(REPO_ROOT, configs, loadExemptPackageNames(REPO_ROOT));
 
   assert.deepEqual(
     missing,

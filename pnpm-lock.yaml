@@ -1660,9 +1660,6 @@ importers:
 
   packages/config:
     devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -2666,9 +2663,6 @@ importers:
 
   packages/platform-utils:
     devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3

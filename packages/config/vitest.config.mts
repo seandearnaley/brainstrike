@@ -1,4 +1,3 @@
-import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -7,6 +6,5 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     globals: true,
     include: ['__tests__/**/*.test.{ts,tsx}'],
-    reporters: ['default', new LostTestFileReporter()],
   },
 });
