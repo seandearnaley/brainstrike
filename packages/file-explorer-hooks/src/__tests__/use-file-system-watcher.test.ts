@@ -122,16 +122,20 @@ describe('useFileSystemWatcher', () => {
     expect(adapter.watchCalls[1]!.handle).toBe(handleB);
   });
 
-  it('forwards omitted-change metadata with the durable root id', () => {
+  it('forwards filtered-boundary metadata with the durable root id', () => {
     const adapter = makeAdapter();
     const handle = makeHandle('root-a');
     renderHook(() =>
       useFileSystemWatcher({ adapter, onChanges, roots: [{ handle, rootId: 'root-a' }] })
     );
 
-    adapter.watchCalls[0]?.callback([], { omittedChanges: true });
+    const metadata = {
+      filteredChangeBoundaries: ['packages/app/dist'],
+      filteredChangeBoundariesOverflow: true,
+    } as unknown as FileSystemWatchBatchMetadata;
+    adapter.watchCalls[0]?.callback([], metadata);
 
-    expect(onChanges).toHaveBeenCalledWith('root-a', [], { omittedChanges: true });
+    expect(onChanges).toHaveBeenCalledWith('root-a', [], metadata);
   });
 
   it('when a root is added, starts a new watcher without restarting existing ones', () => {

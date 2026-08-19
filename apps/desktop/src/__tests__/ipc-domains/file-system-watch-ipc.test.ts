@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   WatcherHealthEvent,
   WatcherHealthTransition,
 } from '@brainstrike/types';
@@ -177,7 +178,7 @@ function invokeEventFor(owner: FakeWebContents): IpcMainInvokeEvent {
 
 interface WatchHarness {
   /** Fire every live fake watcher with the given changes. */
-  fireAllChanges: (changes: FileSystemChange[], metadata?: { omittedChanges: boolean }) => void;
+  fireAllChanges: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void;
   /** Fire a health transition on the most recent watcher's health callback. */
   fireLatestHealth: (transition: WatcherHealthTransition) => void;
   startedPaths: string[];
@@ -222,7 +223,7 @@ function createWatchHarness(): WatchHarness {
         (
           callback as (
             nextChanges: FileSystemChange[],
-            nextMetadata?: { omittedChanges: boolean }
+            nextMetadata?: FileSystemWatchBatchMetadata
           ) => void
         )(changes, metadata);
       }
@@ -414,14 +415,22 @@ describe('file-system watch IPC domain', () => {
     expect(ownerB.watchEvents).toEqual([{ changes: SAMPLE_CHANGES, watchId: watchB }]);
   });
 
-  it('pushes omitted-only activity over the existing owner-scoped watch event', async () => {
+  it('pushes bounded filtered-boundary evidence over the existing owner-scoped watch event', async () => {
     const owner = new FakeWebContents(1);
     const dir = await makeDir();
     const { watchId } = await invokeWatch(owner, dir);
 
-    harness.fireAllChanges([], { omittedChanges: true });
+    harness.fireAllChanges([], {
+      filteredChangeBoundaries: ['packages/app/dist'],
+    } as unknown as FileSystemWatchBatchMetadata);
 
-    expect(owner.watchEvents).toEqual([{ changes: [], omittedChanges: true, watchId }]);
+    expect(owner.watchEvents).toEqual([
+      {
+        changes: [],
+        filteredChangeBoundaries: ['packages/app/dist'],
+        watchId,
+      },
+    ]);
   });
 
   it('rejects a non-directory path instead of silently watching nothing', async () => {

@@ -716,7 +716,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     }
   });
 
-  it('OR-merges omitted activity with visible changes into one root batch', async () => {
+  it('merges filtered boundaries with visible changes under one explicit cap', async () => {
     const refreshCapture = captureFileExplorerRefreshEvents();
     let capturedCallback:
       | ((changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void)
@@ -763,11 +763,17 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
         path: '/filtered-omitted-root/src/visible.ts',
         type: 'modified',
       };
+      const firstBoundaries = Array.from({ length: 40 }, (_, index) => `repo-${index}/dist`);
+      const secondBoundaries = Array.from({ length: 40 }, (_, index) => `repo-${index + 32}/build`);
 
       act(() => {
-        callback([], { omittedChanges: true });
+        callback([], {
+          filteredChangeBoundaries: firstBoundaries,
+        } as unknown as FileSystemWatchBatchMetadata);
         callback([visibleChange]);
-        callback([], { omittedChanges: true });
+        callback([], {
+          filteredChangeBoundaries: secondBoundaries,
+        } as unknown as FileSystemWatchBatchMetadata);
         vi.advanceTimersByTime(300);
       });
 
@@ -776,7 +782,8 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
         roots: [
           {
             changes: [visibleChange],
-            omittedChanges: true,
+            filteredChangeBoundaries: [...firstBoundaries, ...secondBoundaries.slice(0, 24)],
+            filteredChangeBoundariesOverflow: true,
             rootId: expect.any(String),
             rootPath: '/filtered-omitted-root',
           },

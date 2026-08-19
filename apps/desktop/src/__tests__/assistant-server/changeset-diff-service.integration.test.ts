@@ -67,6 +67,33 @@ async function view(repo: string, scope: GitScope) {
 }
 
 describe('changeset git-scope — uncommitted', () => {
+  it('lists modified force-tracked dist and build outputs despite ignore rules', async () => {
+    const repo = await makeRepo();
+    await fsPromises.mkdir(path.join(repo, 'dist'), { recursive: true });
+    await fsPromises.mkdir(path.join(repo, 'build'), { recursive: true });
+    await writeFile(repo, '.gitignore', 'dist/\nbuild/\n');
+    await writeFile(repo, 'dist/committed.js', 'dist-before\n');
+    await writeFile(repo, 'build/committed.js', 'build-before\n');
+    await execFileAsync('git', ['add', '.gitignore'], { cwd: repo });
+    await execFileAsync('git', ['add', '--force', 'dist/committed.js', 'build/committed.js'], {
+      cwd: repo,
+    });
+    await execFileAsync('git', ['commit', '-qm', 'tracked outputs'], { cwd: repo });
+
+    await writeFile(repo, 'dist/committed.js', 'dist-after\n');
+    await writeFile(repo, 'build/committed.js', 'build-after\n');
+
+    const result = await view(repo, { kind: 'uncommitted' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.files.map((file) => file.path).sort()).toEqual([
+      'build/committed.js',
+      'dist/committed.js',
+    ]);
+  });
+
   it('lists a staged change, an unstaged change, and an untracked file together', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'staged.txt', 'a\n');

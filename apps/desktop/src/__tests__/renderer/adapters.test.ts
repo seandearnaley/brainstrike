@@ -638,7 +638,12 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
 
   let adapter: ElectronRendererFileSystemAdapter;
   let pushEvent:
-    | ((event: { changes: typeof sampleChanges; omittedChanges?: true; watchId: string }) => void)
+    | ((event: {
+        changes: typeof sampleChanges;
+        filteredChangeBoundaries?: readonly string[];
+        filteredChangeBoundariesOverflow?: true;
+        watchId: string;
+      }) => void)
     | null;
   let unsubscribe: ReturnType<typeof vi.fn>;
 
@@ -651,7 +656,8 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
     mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(((
       callback: (event: {
         changes: typeof sampleChanges;
-        omittedChanges?: true;
+        filteredChangeBoundaries?: readonly string[];
+        filteredChangeBoundariesOverflow?: true;
         watchId: string;
       }) => void
     ) => {
@@ -673,7 +679,7 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
     expect(onChanges).toHaveBeenCalledWith(sampleChanges);
   });
 
-  it('forwards an omitted-only marker through the existing shared watch callback', async () => {
+  it('forwards filtered-boundary evidence through the existing shared watch callback', async () => {
     const onChanges = vi.fn();
 
     adapter.watchDirectory(handle, onChanges);
@@ -681,8 +687,16 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
       expect(pushEvent).not.toBeNull();
     });
 
-    pushEvent?.({ changes: [], omittedChanges: true, watchId: 'watch-1' });
-    expect(onChanges).toHaveBeenCalledWith([], { omittedChanges: true });
+    pushEvent?.({
+      changes: [],
+      filteredChangeBoundaries: ['packages/app/dist'],
+      filteredChangeBoundariesOverflow: true,
+      watchId: 'watch-1',
+    });
+    expect(onChanges).toHaveBeenCalledWith([], {
+      filteredChangeBoundaries: ['packages/app/dist'],
+      filteredChangeBoundariesOverflow: true,
+    });
   });
 
   it('ignores change events stamped with a different watchId', async () => {

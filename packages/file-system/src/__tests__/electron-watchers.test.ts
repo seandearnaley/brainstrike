@@ -16,13 +16,16 @@ function change(pathSuffix: number): FileSystemChange {
 
 describe('createFileSystemChangeBatcher', () => {
   let batches: FileSystemChange[][] = [];
-  const collect = (changes: FileSystemChange[]) => {
+  let metadataBatches: unknown[] = [];
+  const collect = (changes: FileSystemChange[], metadata?: unknown) => {
     batches.push(changes);
+    metadataBatches.push(metadata);
   };
 
   beforeEach(() => {
     vi.useFakeTimers();
     batches = [];
+    metadataBatches = [];
   });
 
   afterEach(() => {
@@ -76,5 +79,46 @@ describe('createFileSystemChangeBatcher', () => {
     const batcher = createFileSystemChangeBatcher(collect);
     batcher.dispose();
     expect(batches).toEqual([]);
+  });
+
+  it('dedupes filtered boundaries while retaining their root-relative identity', () => {
+    const batcher = createFileSystemChangeBatcher(collect) as unknown as {
+      dispose: () => void;
+      markFilteredChangeBoundary: (boundary: string) => void;
+    };
+    batcher.markFilteredChangeBoundary('packages/app/dist');
+    batcher.markFilteredChangeBoundary('packages/app/dist');
+    batcher.markFilteredChangeBoundary('packages/docs/build');
+
+    vi.advanceTimersByTime(FS_WATCH_BATCH_WINDOW_MS);
+
+    expect(batches).toEqual([[]]);
+    expect(metadataBatches).toEqual([
+      {
+        filteredChangeBoundaries: ['packages/app/dist', 'packages/docs/build'],
+      },
+    ]);
+    batcher.dispose();
+  });
+
+  it('caps filtered boundaries at 64 and reports overflow explicitly', () => {
+    const batcher = createFileSystemChangeBatcher(collect) as unknown as {
+      dispose: () => void;
+      markFilteredChangeBoundary: (boundary: string) => void;
+    };
+    for (let index = 0; index < 65; index += 1) {
+      batcher.markFilteredChangeBoundary(`repo-${index}/dist`);
+    }
+
+    vi.advanceTimersByTime(FS_WATCH_BATCH_WINDOW_MS);
+
+    expect(batches).toEqual([[]]);
+    expect(metadataBatches).toEqual([
+      {
+        filteredChangeBoundaries: Array.from({ length: 64 }, (_, index) => `repo-${index}/dist`),
+        filteredChangeBoundariesOverflow: true,
+      },
+    ]);
+    batcher.dispose();
   });
 });

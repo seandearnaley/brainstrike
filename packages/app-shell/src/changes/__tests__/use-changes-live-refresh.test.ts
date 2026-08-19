@@ -199,6 +199,104 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     }
   });
 
+  it('maps filtered-boundary evidence only to intersecting repositories in the named root', () => {
+    vi.useFakeTimers();
+    stubBridge(vi.fn(() => () => {}));
+    const releaseA = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo-a',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo-a',
+    });
+    const releaseB = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo-b',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo-b',
+    });
+    const releaseOtherRoot = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/other/repo',
+      rootId: 'root-2',
+      worktreePath: '/other/repo',
+    });
+
+    try {
+      const detail = {
+        roots: [
+          {
+            changes: [],
+            filteredChangeBoundaries: ['repo-a/dist'],
+            rootId: 'root-1',
+            rootPath: '/workspace',
+          },
+        ],
+        scope: 'incremental',
+        source: 'watcher',
+      } as unknown as Parameters<typeof createFileExplorerRefreshEvent>[0];
+      window.dispatchEvent(createFileExplorerRefreshEvent(detail));
+      vi.runAllTimers();
+
+      const state = useChangesLiveRefreshStore.getState();
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-a')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-b')).toBe(0);
+      expect(selectGitScopeRefreshNonce(state, '/other/repo')).toBe(0);
+      expect(state.anyInvalidationNonce).toBe(0);
+    } finally {
+      releaseA();
+      releaseB();
+      releaseOtherRoot();
+    }
+  });
+
+  it('fails open within only the named root when filtered-boundary evidence overflows', () => {
+    vi.useFakeTimers();
+    stubBridge(vi.fn(() => () => {}));
+    const releaseA = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo-a',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo-a',
+    });
+    const releaseB = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo-b',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo-b',
+    });
+    const releaseOtherRoot = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/other/repo',
+      rootId: 'root-2',
+      worktreePath: '/other/repo',
+    });
+
+    try {
+      const detail = {
+        roots: [
+          {
+            changes: [],
+            filteredChangeBoundaries: Array.from(
+              { length: 64 },
+              (_, index) => `unknown-${index}/dist`
+            ),
+            filteredChangeBoundariesOverflow: true,
+            rootId: 'root-1',
+            rootPath: '/workspace',
+          },
+        ],
+        scope: 'incremental',
+        source: 'watcher',
+      } as unknown as Parameters<typeof createFileExplorerRefreshEvent>[0];
+      window.dispatchEvent(createFileExplorerRefreshEvent(detail));
+      vi.runAllTimers();
+
+      const state = useChangesLiveRefreshStore.getState();
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-a')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-b')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/other/repo')).toBe(0);
+      expect(state.anyInvalidationNonce).toBe(0);
+    } finally {
+      releaseA();
+      releaseB();
+      releaseOtherRoot();
+    }
+  });
+
   it('normalizes each changed path once when equivalent registrations share one repository scan', () => {
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));

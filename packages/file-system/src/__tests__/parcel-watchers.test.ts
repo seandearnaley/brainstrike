@@ -103,8 +103,8 @@ async function waitForBatch(batches: FileSystemChange[][], minBatches = 1): Prom
 describe('startParcelWatch', () => {
   let root = '';
   let batches: FileSystemChange[][] = [];
-  let batchMetadata: Array<{ omittedChanges: boolean } | undefined> = [];
-  const collect = (changes: FileSystemChange[], metadata?: { omittedChanges: boolean }) => {
+  let batchMetadata: unknown[] = [];
+  const collect: Parameters<typeof startParcelWatch>[1] = (changes, metadata) => {
     batches.push(changes);
     batchMetadata.push(metadata);
   };
@@ -134,7 +134,7 @@ describe('startParcelWatch', () => {
     stop();
   });
 
-  it('broadens native ignores only for the named filtered-reporting opt-in', async () => {
+  it('broadens only bounded output defaults while retaining high-cardinality native ignores', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(
       makeHandle(root),
@@ -146,6 +146,14 @@ describe('startParcelWatch', () => {
     expect(fake.lastSubscribeArgs.ignore).toEqual([
       '**/.git',
       '**/.git/**',
+      '**/node_modules',
+      '**/node_modules/**',
+      '**/.pnpm-store',
+      '**/.pnpm-store/**',
+      '**/.next',
+      '**/.next/**',
+      '**/.turbo',
+      '**/.turbo/**',
       ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
     ]);
     stop();
@@ -169,7 +177,61 @@ describe('startParcelWatch', () => {
     stop();
   });
 
-  it('reports default-filtered activity only after the explicit opt-in', async () => {
+  it.each(['node_modules', '.pnpm-store', '.next', '.turbo'])(
+    'keeps high-cardinality %s activity silent after the explicit opt-in',
+    async (directoryName) => {
+      const fake = createFakeBinding();
+      const stop = await startParcelWatch(
+        makeHandle(root),
+        collect,
+        withDefaultFilteredReporting({
+          loadModule: () => Promise.resolve(fake.module),
+        })
+      );
+
+      const ignoredDirectory = join(root, directoryName);
+      await mkdir(ignoredDirectory);
+      const ignoredFile = join(ignoredDirectory, 'tracked.js');
+      await writeFile(ignoredFile, 'changed');
+      // The fake binding deliberately bypasses Parcel's native ignore so this
+      // also proves the JS guard cannot accidentally disclose a marker.
+      fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(batches).toEqual([]);
+      expect(batchMetadata).toEqual([]);
+      stop();
+    }
+  );
+
+  it.each(['dist', 'build'])(
+    'reports a root-relative %s boundary only after the explicit opt-in',
+    async (directoryName) => {
+      const fake = createFakeBinding();
+      const stop = await startParcelWatch(
+        makeHandle(root),
+        collect,
+        withDefaultFilteredReporting({
+          loadModule: () => Promise.resolve(fake.module),
+        })
+      );
+
+      const ignoredDirectory = join(root, 'packages', 'app', directoryName);
+      await mkdir(ignoredDirectory, { recursive: true });
+      const ignoredFile = join(ignoredDirectory, 'tracked.js');
+      await writeFile(ignoredFile, 'changed');
+      fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+      await waitForBatch(batches);
+      expect(batches).toEqual([[]]);
+      expect(batchMetadata).toEqual([
+        { filteredChangeBoundaries: [`packages/app/${directoryName}`] },
+      ]);
+      stop();
+    }
+  );
+
+  it('reports a root-relative .DS_Store boundary after the explicit opt-in', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(
       makeHandle(root),
@@ -179,15 +241,63 @@ describe('startParcelWatch', () => {
       })
     );
 
-    const ignoredDirectory = join(root, 'node_modules');
-    await mkdir(ignoredDirectory);
-    const ignoredFile = join(ignoredDirectory, 'tracked.js');
+    const ignoredDirectory = join(root, 'packages', 'app');
+    await mkdir(ignoredDirectory, { recursive: true });
+    const ignoredFile = join(ignoredDirectory, '.DS_Store');
     await writeFile(ignoredFile, 'changed');
     fake.emit([{ path: ignoredFile, type: 'update' }]);
 
     await waitForBatch(batches);
     expect(batches).toEqual([[]]);
-    expect(batchMetadata).toEqual([{ omittedChanges: true }]);
+    expect(batchMetadata).toEqual([{ filteredChangeBoundaries: ['packages/app/.DS_Store'] }]);
+    stop();
+  });
+
+  it.each(['build', 'dist', 'node_modules'])(
+    'does not filter every event when the watched root has an ancestor named %s',
+    async (ancestorName) => {
+      const watchedRoot = join(root, ancestorName, 'workspace');
+      await mkdir(watchedRoot, { recursive: true });
+      const fake = createFakeBinding();
+      const stop = await startParcelWatch(
+        makeHandle(watchedRoot),
+        collect,
+        withDefaultFilteredReporting({
+          loadModule: () => Promise.resolve(fake.module),
+        })
+      );
+
+      const visibleFile = join(watchedRoot, 'src.ts');
+      await writeFile(visibleFile, 'changed');
+      fake.emit([{ path: visibleFile, type: 'update' }]);
+
+      await waitForBatch(batches);
+      expect(batches).toEqual([[{ kind: 'file', path: visibleFile, type: 'modified' }]]);
+      expect(batchMetadata).toEqual([undefined]);
+      stop();
+    }
+  );
+
+  it('matches only a nested default boundary for a root under mixed default-filter ancestors', async () => {
+    const watchedRoot = join(root, 'build', 'node_modules', 'workspace');
+    const nestedBoundary = join(watchedRoot, 'src', 'dist');
+    await mkdir(nestedBoundary, { recursive: true });
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(
+      makeHandle(watchedRoot),
+      collect,
+      withDefaultFilteredReporting({
+        loadModule: () => Promise.resolve(fake.module),
+      })
+    );
+
+    const filteredFile = join(nestedBoundary, 'asset.js');
+    await writeFile(filteredFile, 'changed');
+    fake.emit([{ path: filteredFile, type: 'update' }]);
+
+    await waitForBatch(batches);
+    expect(batches).toEqual([[]]);
+    expect(batchMetadata).toEqual([{ filteredChangeBoundaries: ['src/dist'] }]);
     stop();
   });
 
@@ -213,7 +323,7 @@ describe('startParcelWatch', () => {
 
     await waitForBatch(batches);
     expect(batches).toEqual([[{ kind: 'file', path: visibleFile, type: 'modified' }]]);
-    expect(batchMetadata).toEqual([{ omittedChanges: true }]);
+    expect(batchMetadata).toEqual([{ filteredChangeBoundaries: ['dist'] }]);
     stop();
   });
 

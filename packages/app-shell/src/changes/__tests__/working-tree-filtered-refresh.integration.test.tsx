@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import {
   FileExplorerProvider,
@@ -28,7 +26,6 @@ import {
 } from '../changes-live-refresh-store';
 import { acquireChangesLiveRefreshSubscription } from '../use-changes-live-refresh';
 
-const execFileAsync = promisify(execFile);
 const ROOT_ID = 'bst-1180-filtered-root';
 
 interface ParcelEvent {
@@ -121,19 +118,13 @@ interface MountedWatcherFixture {
 async function mountWatcherFixture(): Promise<MountedWatcherFixture> {
   const root = await mkdtemp(join(tmpdir(), 'bst-1180-filtered-refresh-'));
   await Promise.all([
-    mkdir(join(root, 'node_modules'), { recursive: true }),
+    mkdir(join(root, 'dist'), { recursive: true }),
     mkdir(join(root, 'custom-hidden'), { recursive: true }),
   ]);
   await Promise.all([
-    writeFile(join(root, 'node_modules', 'tracked.js'), 'before\n'),
-    writeFile(join(root, 'custom-hidden', 'tracked.ts'), 'before\n'),
+    writeFile(join(root, 'dist', 'generated.js'), 'before\n'),
+    writeFile(join(root, 'custom-hidden', 'source.ts'), 'before\n'),
   ]);
-  await execFileAsync('git', ['init', '--quiet'], { cwd: root });
-  await execFileAsync(
-    'git',
-    ['add', '--force', 'node_modules/tracked.js', 'custom-hidden/tracked.ts'],
-    { cwd: root }
-  );
 
   const handle: DirectoryHandle = {
     kind: 'directory',
@@ -183,7 +174,7 @@ async function disposeWatcherFixture(fixture: MountedWatcherFixture): Promise<vo
   await rm(fixture.root, { force: true, recursive: true });
 }
 
-describe('tracked filtered working-tree refresh (real Parcel producer to Changes consumer)', () => {
+describe('filtered working-tree evidence (real Parcel producer to Changes consumer)', () => {
   beforeEach(() => {
     useChangesLiveRefreshStore.getState().reset();
   });
@@ -192,13 +183,11 @@ describe('tracked filtered working-tree refresh (real Parcel producer to Changes
     useChangesLiveRefreshStore.getState().reset();
   });
 
-  it('refreshes a Git scope when a tracked default-excluded file changes', async () => {
+  it('refreshes a Git scope when a bounded default-filtered output changes', async () => {
     const fixture = await mountWatcherFixture();
     try {
-      await appendFile(join(fixture.root, 'node_modules', 'tracked.js'), 'after\n');
-      fixture.adapter.emit([
-        { path: join(fixture.root, 'node_modules', 'tracked.js'), type: 'update' },
-      ]);
+      await appendFile(join(fixture.root, 'dist', 'generated.js'), 'after\n');
+      fixture.adapter.emit([{ path: join(fixture.root, 'dist', 'generated.js'), type: 'update' }]);
 
       await waitFor(
         () => {
@@ -214,15 +203,15 @@ describe('tracked filtered working-tree refresh (real Parcel producer to Changes
     }
   });
 
-  it('refreshes a Git scope when a tracked custom display-excluded file changes', async () => {
+  it('refreshes a Git scope when a custom display-excluded file changes', async () => {
     const fixture = await mountWatcherFixture();
     try {
       act(() => {
         fixture.store.setState({ excludeFilters: ['custom-hidden/**'] });
       });
-      await appendFile(join(fixture.root, 'custom-hidden', 'tracked.ts'), 'after\n');
+      await appendFile(join(fixture.root, 'custom-hidden', 'source.ts'), 'after\n');
       fixture.adapter.emit([
-        { path: join(fixture.root, 'custom-hidden', 'tracked.ts'), type: 'update' },
+        { path: join(fixture.root, 'custom-hidden', 'source.ts'), type: 'update' },
       ]);
 
       await waitFor(
