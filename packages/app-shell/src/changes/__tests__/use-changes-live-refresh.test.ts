@@ -1,7 +1,11 @@
 import { createLogger } from '@brainstrike/logging';
+import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge, ChangesInvalidationEvent } from '../changes-bridge';
-import { useChangesLiveRefreshStore } from '../changes-live-refresh-store';
+import {
+  selectGitScopeRefreshNonce,
+  useChangesLiveRefreshStore,
+} from '../changes-live-refresh-store';
 import { acquireChangesLiveRefreshSubscription } from '../use-changes-live-refresh';
 
 function stubBridge(onInvalidated: ChangesBridge['onInvalidated']): {
@@ -22,6 +26,7 @@ function stubBridge(onInvalidated: ChangesBridge['onInvalidated']): {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   useChangesLiveRefreshStore.getState().reset();
   vi.restoreAllMocks();
@@ -74,6 +79,96 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     stub.listeners[0]?.({ generation: 1, gitCommonDir: '/r/.git', repositoryRoot: '/r' });
     expect(useChangesLiveRefreshStore.getState().anyInvalidationNonce).toBe(1);
     release();
+  });
+
+  it('maps a working-tree refresh to only the repository whose worktree contains the changed path, without invalidating inventory', () => {
+    vi.useFakeTimers();
+    stubBridge(vi.fn(() => () => {}));
+
+    const releaseA = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo-a',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo-a',
+    });
+    const releaseB = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/workspace/repo-b',
+      rootId: 'root-1',
+      worktreePath: '/workspace/repo-b',
+    });
+
+    try {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [
+                {
+                  kind: 'file',
+                  path: '/workspace/repo-a/src/changed.ts',
+                  type: 'modified',
+                },
+              ],
+              rootId: 'root-1',
+              rootPath: '/workspace',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+      vi.runAllTimers();
+
+      const state = useChangesLiveRefreshStore.getState();
+      expect(state.anyInvalidationNonce).toBe(0);
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-a')).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/workspace/repo-b')).toBe(0);
+    } finally {
+      releaseA();
+      releaseB();
+    }
+  });
+
+  it('coalesces nearby working-tree and git-metadata signals into one repository refetch while still invalidating inventory', () => {
+    vi.useFakeTimers();
+    const stub = stubBridge(
+      vi.fn((listener: (event: ChangesInvalidationEvent) => void) => {
+        stub.listeners.push(listener);
+        return () => {};
+      })
+    );
+    const release = acquireChangesLiveRefreshSubscription({
+      repositoryRoot: '/repo',
+      rootId: 'root-1',
+      worktreePath: '/repo',
+    });
+
+    try {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: '/repo/file.ts', type: 'modified' }],
+              rootId: 'root-1',
+              rootPath: '/repo',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+      stub.listeners[0]?.({
+        generation: 1,
+        gitCommonDir: '/repo/.git',
+        repositoryRoot: '/repo',
+      });
+      vi.runAllTimers();
+
+      const state = useChangesLiveRefreshStore.getState();
+      expect(state.anyInvalidationNonce).toBe(1);
+      expect(selectGitScopeRefreshNonce(state, '/repo')).toBe(1);
+    } finally {
+      release();
+    }
   });
 
   it('a THROWING bridge subscribe is logged and does not wedge the channel: after every holder releases, the next acquire retries', () => {
