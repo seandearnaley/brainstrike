@@ -549,7 +549,7 @@ were local-dev constants x a flat 2.0 multiplier with no CI-derived floors):
   with the measured values, do not bump the floor to silence it.
 
 BST-369 adds a worker-memory **structural bound**, not a locally invented CI
-latency floor. On final rebased code head `156c0b052`, this command ran three
+latency floor. On runtime-calibration head `156c0b052`, this command ran three
 repetitions sequentially against one built app and one configured Chromium version:
 
 ```bash
@@ -563,6 +563,13 @@ pnpm exec playwright test e2e/performance/embedding-model-switch-memory.test.ts 
 | 1 | 278,926,311 | 44,397,878 | 44,446,090 | 44,446,626 | +536 | 0 |
 | 2 | 277,774,586 | 44,398,290 | 44,446,558 | 44,446,634 | +76 | 0 |
 | 3 | 277,832,659 | 44,398,290 | 44,446,542 | 44,446,634 | +92 | 0 |
+
+The later production hardening at `7d2ba303d` validates the cache clock before
+eviction or loader allocation; it changes only the rejected invalid-clock path.
+An exact-branch rerun at `2a75942da` recorded baseline total 278,085,035, warm
+worker 44,397,896, window A 44,446,108, window B 44,446,628 (+520), and zero
+worker attribution after teardown, confirming the valid switching path retained
+the same structural signal.
 
 Two reversible, uncommitted mutations proved the browser assertion's teeth. Doubling each
 allocated backing store failed at the warm barrier with 80 MiB physically live against the
