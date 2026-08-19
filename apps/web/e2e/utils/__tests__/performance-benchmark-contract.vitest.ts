@@ -87,20 +87,43 @@ describe('performance benchmark measurement contracts', () => {
     expect(validation).not.toContain('__renderCounter');
   });
 
-  it('runs the embedding model-switch regression through the typed webdriver hook', async () => {
-    const source = await readFile(
-      path.join(process.cwd(), 'e2e/performance/embedding-model-switch-memory.test.ts'),
-      'utf8'
-    );
+  it('routes the embedding model-switch regression through the production worker', async () => {
+    const [e2eSource, hookSource, probeSource, workerSource, playwrightConfig] = await Promise.all([
+      readFile(
+        path.join(process.cwd(), 'e2e/performance/embedding-model-switch-memory.test.ts'),
+        'utf8'
+      ),
+      readFile(path.join(process.cwd(), 'src/web-e2e-test-hooks.tsx'), 'utf8'),
+      readFile(path.join(process.cwd(), 'src/embedding-model-switch-memory-probe.ts'), 'utf8'),
+      readFile(
+        path.join(process.cwd(), 'src/embedding-model-switch-memory-probe.worker.ts'),
+        'utf8'
+      ),
+      readFile(path.join(process.cwd(), 'playwright.config.mts'), 'utf8'),
+    ]);
 
-    expect(source).toContain('hooks.runEmbeddingModelSwitchMemoryProbe()');
-    expect(source).toContain('expect(modelRequests).toEqual([])');
-    expect(source).toContain('residentLimitEvictionCount).toBe(18)');
-    expect(source).toContain('disposedModels).toHaveLength(22)');
-    expect(source).toContain("firstWasmEvictedModel).toBe('wasm-b')");
-    expect(source).toContain("firstGpuEvictedModel).toBe('gpu-a')");
-    expect(source).not.toContain('Record<string, unknown>');
-    expect(source).not.toContain('as ModelSwitchMemoryProbeResult');
-    expect(source).not.toContain('waitForTimeout(');
+    expect(e2eSource).toContain('__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__');
+    expect(e2eSource).toContain('page.addInitScript');
+    expect(e2eSource).toContain('page.route');
+    expect(e2eSource).toContain('hooks.runEmbeddingModelSwitchMemoryProbe()');
+    expect(e2eSource).toContain('expect(modelRequests).toEqual([])');
+    expect(e2eSource).toContain('residentLimitEvictionCount).toBe(18)');
+    expect(e2eSource).not.toContain('waitForTimeout(');
+
+    expect(hookSource).not.toContain(
+      "import { runEmbeddingModelSwitchMemoryProbe } from './embedding-model-switch-memory-probe'"
+    );
+    expect(hookSource).toContain("await import('./embedding-model-switch-memory-probe')");
+
+    expect(probeSource).toContain('createBrowserEmbeddingQueue');
+    expect(probeSource).toContain('maxWorkers: 1');
+    expect(probeSource).toContain('minWorkers: 1');
+    expect(probeSource).toContain('measureUserAgentSpecificMemory');
+    expect(probeSource).not.toContain('new Worker(');
+
+    expect(workerSource).toContain("await import('@brainstrike/embedding-worker/worker')");
+    expect(workerSource).not.toContain('createEmbeddingPipelineCacheController');
+
+    expect(playwrightConfig).toContain('ForceEagerMeasureMemory');
   });
 });
