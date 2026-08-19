@@ -316,6 +316,7 @@ describe('state-serialization', () => {
             tokenBudget: Number.POSITIVE_INFINITY,
           },
         },
+        selectedFilePaths: [],
         tokenBudget: Number.NaN,
       } as unknown as SerializedState;
 
@@ -352,7 +353,7 @@ describe('state-serialization', () => {
         lastActiveTab: 'preview',
         maxSelectionCount: 50,
         quickFilter: 'test',
-        selectedFilePaths: ['sel'],
+        selectedFilePaths: ['f1|@|sel'],
         tokenBudget: 200,
         useRegex: false,
       };
@@ -361,7 +362,7 @@ describe('state-serialization', () => {
 
       // Should still merge correctly
       expect(result.currentFolderId).toBe('f1');
-      expect(result.selectedFilePaths).toEqual(new Set(['sel']));
+      expect(result.selectedFilePaths).toEqual(new Set(['f1|@|sel']));
       expect(result.lastActiveTab).toBe('preview');
     });
 
@@ -539,7 +540,7 @@ describe('state-serialization', () => {
       expect(result.isFilterChipsVisible).toBe(true);
     });
 
-    it('should coerce non-array selectedFilePaths to empty array', () => {
+    it('should reject a non-array selectedFilePaths collection', () => {
       const current = buildState();
       const persisted = {
         currentFolderId: null,
@@ -559,14 +560,12 @@ describe('state-serialization', () => {
         useRegex: false,
       } as SerializedState;
 
-      const result = mergeState(persisted, current, false);
-
-      expect(result.selectedFilePaths).toEqual(new Set());
-      expect(result.expandedDirectoryPaths).toEqual(new Set());
-      expect(result.folderAccessOrder).toEqual([]);
+      expect(() => mergeState(persisted, current, false)).toThrow(
+        'Invalid persisted selection key collection'
+      );
     });
 
-    it('should filter non-string items from arrays', () => {
+    it('should filter non-string items from non-selection arrays', () => {
       const current = buildState();
       const persisted = {
         currentFolderId: null,
@@ -581,15 +580,24 @@ describe('state-serialization', () => {
         lastActiveTab: 'files',
         maxSelectionCount: 50,
         quickFilter: '',
-        selectedFilePaths: ['file1', undefined, 'file2'] as unknown as string[],
+        selectedFilePaths: ['root|@|file1', 'root|@|file2'],
         tokenBudget: 100,
         useRegex: false,
       } as SerializedState;
 
       const result = mergeState(persisted, current, false);
 
-      expect(result.selectedFilePaths).toEqual(new Set(['file1', 'file2']));
+      expect(result.selectedFilePaths).toEqual(new Set(['root|@|file1', 'root|@|file2']));
       expect(result.folderAccessOrder).toEqual(['valid', 'also-valid']);
+    });
+
+    it('should reject non-string items from selection arrays', () => {
+      const persisted = serializeState(buildState());
+      persisted.selectedFilePaths = ['root|@|file1', undefined] as unknown as string[];
+
+      expect(() => mergeState(persisted, buildState(), false)).toThrow(
+        'Invalid composite key format'
+      );
     });
 
     it('should coerce non-number tokenBudget in folderState to fallback', () => {
@@ -679,7 +687,7 @@ describe('state-serialization', () => {
         quickFilter: '',
         selectedFilePaths: [],
         selectionModel: {
-          explicitPaths: ['a', 'b'],
+          explicitPaths: ['root|@|a', 'root|@|b'],
           materializedAt: '2024-01-01',
           materializedPaths: ['m1'],
           mode: 'rules',
@@ -693,7 +701,7 @@ describe('state-serialization', () => {
       const result = mergeState(persisted, current, false);
 
       expect(result.selectionModel.mode).toBe('explicit');
-      expect(result.selectionModel.explicitPaths).toEqual(new Set(['a', 'b']));
+      expect(result.selectionModel.explicitPaths).toEqual(new Set(['root|@|a', 'root|@|b']));
       // The rules-era materialized cache is query-mode-only display data; the
       // migrated explicit model converges clean rather than re-persisting it.
       expect(result.selectionModel.materializedPaths).toBeNull();
@@ -823,7 +831,10 @@ describe('state-serialization', () => {
 
     it('truncates oversized persisted string arrays during deserialize', () => {
       const current = buildState();
-      const oversizedPaths = Array.from({ length: 50_100 }, (_, index) => `src/file-${index}.ts`);
+      const oversizedPaths = Array.from(
+        { length: 50_100 },
+        (_, index) => `folder1|@|src/file-${index}.ts`
+      );
       const persisted = {
         currentFolderId: 'folder1',
         devInlineFixtureEnabled: false,
@@ -906,7 +917,7 @@ describe('state-serialization', () => {
         quickFilter: '',
         selectedFilePaths: [],
         selectionModel: {
-          explicitPaths: ['x'],
+          explicitPaths: ['root|@|x'],
           materializedAt: null,
           materializedPaths: null,
           mode: 'explicit',
@@ -985,7 +996,7 @@ describe('state-serialization', () => {
         lastActiveTab: 'files',
         maxSelectionCount: 50,
         quickFilter: '',
-        selectedFilePaths: ['top-level-sel'], // Has selections
+        selectedFilePaths: ['folder-1|@|top-level-sel'], // Has selections
         tokenBudget: 100,
         useRegex: false,
       };
@@ -994,7 +1005,7 @@ describe('state-serialization', () => {
 
       // Should use top-level selections for the current folder
       expect(result.folderStates['folder-1']?.selectedFilePaths).toEqual(
-        new Set(['top-level-sel'])
+        new Set(['folder-1|@|top-level-sel'])
       );
       expect(result.folderStates['folder-1']?.expandedDirectoryPaths).toEqual(
         new Set(['top-level-exp'])
@@ -1019,7 +1030,7 @@ describe('state-serialization', () => {
             lastAccessed: 0,
             lastActiveTab: 'files',
             maxSelectionCount: 50,
-            selectedFilePaths: ['folder-sel'], // Has its own selections
+            selectedFilePaths: ['folder-1|@|folder-sel'], // Has its own selections
             tokenBudget: 100,
             useRegex: false,
           },
@@ -1030,7 +1041,7 @@ describe('state-serialization', () => {
         lastActiveTab: 'files',
         maxSelectionCount: 50,
         quickFilter: '',
-        selectedFilePaths: ['top-level-sel'],
+        selectedFilePaths: ['folder-1|@|top-level-sel'],
         tokenBudget: 100,
         useRegex: false,
       };
@@ -1038,7 +1049,9 @@ describe('state-serialization', () => {
       const result = mergeState(persisted, current, false);
 
       // Should use folder-level selections (not top-level) since folder has its own
-      expect(result.folderStates['folder-1']?.selectedFilePaths).toEqual(new Set(['folder-sel']));
+      expect(result.folderStates['folder-1']?.selectedFilePaths).toEqual(
+        new Set(['folder-1|@|folder-sel'])
+      );
     });
 
     it('should not use top-level selections for non-current folders', () => {
@@ -1059,7 +1072,7 @@ describe('state-serialization', () => {
             lastAccessed: 0,
             lastActiveTab: 'files',
             maxSelectionCount: 50,
-            selectedFilePaths: ['f1-sel'],
+            selectedFilePaths: ['folder-1|@|f1-sel'],
             tokenBudget: 100,
             useRegex: false,
           },
@@ -1083,7 +1096,7 @@ describe('state-serialization', () => {
         lastActiveTab: 'files',
         maxSelectionCount: 50,
         quickFilter: '',
-        selectedFilePaths: ['top-level-sel'],
+        selectedFilePaths: ['folder-1|@|top-level-sel'],
         tokenBudget: 100,
         useRegex: false,
       };

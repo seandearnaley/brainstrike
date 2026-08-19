@@ -6,7 +6,7 @@ import {
   DEFAULT_SELECTION_CHUNK_SIZE,
   IDLE_CALLBACK_TIMEOUT_MS,
 } from '../constants/selection-constants';
-import { encodeFileSelection } from '../selection.js';
+import { decodeFileSelection, encodeFileSelection } from '../selection.js';
 import type { GetState, SetState } from '../types/store-types';
 import {
   createNewFolderState,
@@ -952,18 +952,12 @@ export const createFileSelectionActions = (
     });
   },
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => {
-    // Ensure all files in the set are properly encoded composite keys
-    const validatedFiles = new Set<string>();
+    // Validate the whole input before publishing it. A malformed key is state
+    // corruption, not an entry callers may silently drop.
     for (const file of selectedFiles) {
-      const separatorIndex = file.indexOf('|@|');
-      const hasSingleSeparator = separatorIndex === file.lastIndexOf('|@|');
-      const hasFolderId = separatorIndex > 0;
-      const hasPath = separatorIndex >= 0 && separatorIndex < file.length - 3;
-
-      if (hasSingleSeparator && hasFolderId && hasPath) {
-        validatedFiles.add(file);
-      }
+      decodeFileSelection(file);
     }
+    const validatedFiles = new Set(selectedFiles);
     set((state) => ({
       querySelectionManifest: null,
       selectedFilePaths: validatedFiles,

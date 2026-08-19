@@ -1,4 +1,5 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { decodeFileSelection } from '../selection.js';
 import { resolveQuerySelection } from '../utils/query-selection-manifest.js';
 
 export interface DirectorySelectionSnapshot {
@@ -38,11 +39,11 @@ function getDirectChildPath(selectedPath: string, directoryPath: string): string
 }
 
 function getExplicitPaths(compositeKeys: ReadonlySet<string>, folderId: string): string[] {
-  const prefix = `${folderId}|@|`;
   const paths: string[] = [];
   for (const key of compositeKeys) {
-    if (key.startsWith(prefix)) {
-      paths.push(key.slice(prefix.length));
+    const decoded = decodeFileSelection(key);
+    if (decoded.folderId === folderId) {
+      paths.push(decoded.path);
     }
   }
   return paths;

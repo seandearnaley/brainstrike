@@ -176,10 +176,11 @@ describe('file-selection-utils', () => {
       expect(result).toEqual(new Set());
     });
 
-    it('should skip invalid composite keys', () => {
+    it('should reject invalid composite keys', () => {
       const selectedPaths = new Set([`${folderId}${separator}valid.txt`, 'invalid-key']);
-      const result = getSelectedPathsForFolder(selectedPaths, folderId);
-      expect(result).toEqual(new Set(['valid.txt']));
+      expect(() => getSelectedPathsForFolder(selectedPaths, folderId)).toThrow(
+        'Invalid composite key format'
+      );
     });
 
     it('should handle empty selection set', () => {

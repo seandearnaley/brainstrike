@@ -860,7 +860,12 @@ fallback.
   the shared registry deletes only identity-matching settled entries and remains
   bounded to live requests. Structural changes directly beneath a Windows drive
   root retain the `C:/` or `C:\\` parent boundary and therefore trigger the
-  required root refresh.
+  required root refresh. Explicit selection reconciliation decodes every key
+  through the canonical strict selection codec; missing separators and empty
+  folder/path components throw instead of becoming ghost selections. The
+  persistence validator salvages canonical keys, drops malformed entries, and
+  raises the existing redacted discard notice before strict merge, while a
+  direct merge of unvalidated keys fails visibly.
   Pinned by `file-selection-reconciliation.test.ts`,
   `use-file-tree-refresh-events.test.tsx`, `use-file-tree-context.test.ts`,
   `use-file-tree-worker.test.tsx`, `port.test.ts`, `bfs-engine.test.ts`, and
