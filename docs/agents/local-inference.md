@@ -150,10 +150,11 @@ Embedding runtime telemetry (BST-402):
   limits, LRU/idle eviction, disposal, and diagnostic snapshots. A miss reserves its
   logical cache slot synchronously, but the replacement loader cannot allocate until the
   evicted resource's possibly asynchronous `.dispose()` completes. Concurrent misses
-  therefore remain deduplicated and physically bounded. A disposal rejection blocks the
-  replacement, latches the controller against future loads, remains visible to `wait` and
-  `close`, emits request-scoped load-failure diagnostics, and asks workerpool to replace the
-  failed worker through its lifetime-error channel. BST-369's deterministic
+  therefore remain deduplicated and physically bounded. A resident-limit disposal rejection
+  blocks the pending replacement and emits its request-scoped load-failure diagnostic. Every
+  disposer rejection latches the controller against future loads, remains visible to `wait`
+  and `close`, and asks workerpool to replace the failed worker through its lifetime-error
+  channel when that managed channel exists. BST-369's deterministic
   browser proof now routes ordinary queue tasks through a private
   `createBrowserEmbeddingQueue` (`minWorkers = maxWorkers = 1`), workerpool's
   `runEmbedding` RPC, and the actual `embedding.worker.ts` module. A wrapper installs a
