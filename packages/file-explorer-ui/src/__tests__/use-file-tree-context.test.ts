@@ -2550,6 +2550,143 @@ describe('useFileTree (lazy loading version)', () => {
       });
     });
 
+    it('retires an older worker restoration before publishing watcher-fresh children', async () => {
+      mockAdapter.setMockFileSystem(createNestedMockFileSystem());
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const rootId = 'watcher-root-id';
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(
+        () => {
+          const tree = useFileTree(handle, { rootId });
+          useFileTreeRefreshEvents({
+            getNormalizedTree: () => tree.__internalNormalizedTreeRef?.current ?? null,
+            getSelectionAncestorDirectories: () => [],
+            reconcileSelectionWithDirectorySnapshots: () => {},
+            refreshDirectory: tree.refreshDirectory,
+            refreshTree: tree.refreshTree,
+            rootId,
+            rootPath: handle.path,
+            skipManualFullEvents: false,
+          });
+          return tree;
+        },
+        { wrapper: TestWrapper }
+      );
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      if (parentDir?.type !== 'directory') {
+        throw new Error('Expected parent directory before the worker restoration race');
+      }
+      await act(async () => {
+        await result.current.loadChildren(parentDir.path);
+      });
+      const loadedParent = result.current.__internalMaterializeSubtree?.(parentDir.path);
+      const staleChild = loadedParent?.children?.find(
+        (node) => node.type === 'directory' && node.name === 'child'
+      );
+      if (staleChild?.type !== 'directory') {
+        throw new Error('Expected a rehydratable stale worker child');
+      }
+
+      const staleWorkerResult = createDeferred<{
+        expandedPaths: string[];
+        loadedCount: number;
+        patches: AccumulatedFileTreePatchMessage[];
+      }>();
+      mockWorkerPort.loadPaths.mockReturnValueOnce(staleWorkerResult.promise);
+      mockWorkerPort.abort.mockImplementationOnce(() => {
+        staleWorkerResult.reject(new DOMException('Operation aborted', 'AbortError'));
+      });
+      let restoration = Promise.resolve();
+      act(() => {
+        restoration = result.current.loadSpecificPaths([parentDir.path, staleChild.path]);
+      });
+      await waitFor(() => expect(mockWorkerPort.loadPaths).toHaveBeenCalledOnce());
+
+      mockAdapter.setMockFileSystem({
+        parent: {
+          children: {
+            'fresh-after-worker.ts': {
+              content: 'fresh',
+              name: 'fresh-after-worker.ts',
+              type: 'file' as const,
+            },
+          },
+          name: 'parent',
+          type: 'directory' as const,
+        },
+      });
+      await act(async () => {
+        window.dispatchEvent(
+          createFileExplorerRefreshEvent({
+            roots: [
+              {
+                changes: [
+                  {
+                    kind: 'file',
+                    path: `${parentDir.path}/fresh-after-worker.ts`,
+                    type: 'added',
+                  },
+                ],
+                rootId,
+                rootPath: handle.path,
+              },
+            ],
+            scope: 'incremental',
+            source: 'watcher',
+          })
+        );
+      });
+      await waitFor(() => {
+        expect(
+          result.current
+            .__internalMaterializeSubtree?.(parentDir.path)
+            ?.children?.map((child) => child.name)
+        ).toEqual(['fresh-after-worker.ts']);
+      });
+
+      const workerWasRetired = mockWorkerPort.abort.mock.calls.length > 0;
+      if (!workerWasRetired) {
+        staleWorkerResult.resolve({
+          expandedPaths: [parentDir.path, staleChild.path],
+          loadedCount: 2,
+          patches: [
+            {
+              payload: {
+                children: [
+                  {
+                    depth: staleChild.depth,
+                    loadState: staleChild.loadState,
+                    name: staleChild.name,
+                    path: staleChild.path,
+                    rootFolderId: staleChild.rootFolderId,
+                    type: 'directory',
+                  },
+                ],
+                loadState: 'loaded',
+                path: parentDir.path,
+              },
+              type: 'childrenLoaded',
+            },
+          ],
+        });
+      }
+      await act(async () => {
+        await restoration;
+      });
+
+      expect(workerWasRetired).toBe(true);
+      expect(
+        result.current
+          .__internalMaterializeSubtree?.(parentDir.path)
+          ?.children?.map((child) => child.name)
+      ).toEqual(['fresh-after-worker.ts']);
+    });
+
     it('retries an errored directory when a later watcher event proves it changed', async () => {
       mockAdapter.setMockFileSystem(createNestedMockFileSystem());
       const handle = await mockAdapter.requestDirectoryAccess();
