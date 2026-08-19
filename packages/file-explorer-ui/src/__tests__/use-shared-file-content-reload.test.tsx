@@ -1,6 +1,6 @@
 import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { AdaptersProvider, buildInaccessibleContent } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
@@ -60,6 +60,72 @@ function createWrapper(adapter: MockFileSystemAdapter) {
 }
 
 describe('useSharedFileContentLoading reload ordering', () => {
+  it('replaces cached open-tab bytes with a terminal missing result when refresh leaves an empty tree', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const compositeKey = encodeFileSelection('/workspace', '/workspace/only-open-file.txt');
+    const readFileByPath = vi
+      .fn<(path: string) => Promise<string>>()
+      .mockRejectedValue(new Error('ENOENT: file was deleted'));
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPath;
+      }
+    ).readFileByPath = readFileByPath;
+    const worker = vi.fn(
+      async (
+        requests: FileReadRequest[],
+        onProgress?: (event: { key: string; loaded: number; total: number }) => void
+      ): Promise<Record<string, FileContentReadResult>> => {
+        const request = requests[0];
+        if (!request) {
+          return {};
+        }
+        try {
+          await readFileByPath(request.path);
+          return {
+            [request.compositeKey]: { content: 'unexpected content', status: 'accessible' },
+          };
+        } catch {
+          onProgress?.({ key: request.compositeKey, loaded: 1, total: 1 });
+          return {
+            [request.compositeKey]: {
+              message: 'ENOENT: file was deleted',
+              status: 'inaccessible',
+            },
+          };
+        }
+      }
+    );
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(worker);
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(
+      () => {
+        const store = useFileExplorerStoreContext();
+        return { loader: useSharedFileContentLoading([]), store };
+      },
+      { wrapper }
+    );
+    act(() => {
+      result.current.store.getState().setFileContent(compositeKey, 'cached before deletion');
+    });
+
+    await act(async () => {
+      await result.current.loader.reloadFileContents([compositeKey]);
+    });
+
+    expect(worker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey, path: '/workspace/only-open-file.txt' })],
+      expect.any(Function)
+    );
+    expect(readFileByPath).toHaveBeenCalledExactlyOnceWith('/workspace/only-open-file.txt');
+    expect(result.current.loader.fileContents[compositeKey]).toBe(
+      buildInaccessibleContent('ENOENT: file was deleted')
+    );
+    expect(result.current.loader.loadingFiles.has(compositeKey)).toBe(false);
+  });
+
   it('never republishes an older in-flight result after a refresh invalidation', async () => {
     const adapter = new MockFileSystemAdapter();
     const fileNode = createFileNode({ path: '/file.txt', rootFolderId: 'root-a' });
