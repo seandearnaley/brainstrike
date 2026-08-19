@@ -1927,6 +1927,24 @@ describe('useFileTree (lazy loading version)', () => {
       expect(mockWorkerPort.loadPaths).toHaveBeenCalledWith(['parent', 'parent/child']);
     });
 
+    it('rejects an unsuccessful worker restoration instead of reporting success', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      mockWorkerPort.loadPaths.mockRejectedValueOnce(new Error('File tree worker port terminated'));
+
+      await expect(result.current.loadSpecificPaths(['parent', 'parent/child'])).rejects.toThrow(
+        'File tree worker port terminated'
+      );
+    });
+
     it('skips restoration requests while expand-all is in progress', async () => {
       const mockFS = createExpandAllMockFileSystem();
       mockAdapter.setMockFileSystem(mockFS);
