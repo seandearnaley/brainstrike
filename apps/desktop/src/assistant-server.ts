@@ -1,11 +1,18 @@
 import http from 'node:http';
-import { assistantDataStreamSessions, type RuntimeData } from '@brainstrike/agent';
+import {
+  type AwsCredentialIdentityProvider,
+  assistantDataStreamSessions,
+  createAwsCredentialChain,
+  type RuntimeData,
+  resolveAwsCredentialChain,
+} from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import {
   respondAssistantRejection,
   respondJson,
   respondNotFound,
 } from '@brainstrike/assistant-service/http';
+import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
 import { runAssistantTurn } from '@brainstrike/assistant-service/run-turn';
 import {
@@ -55,7 +62,10 @@ import {
   getDesktopMastraMemory,
 } from './assistant-server/mastra-memory';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
-import { resolveProviderApiKey } from './assistant-server/provider-credentials';
+import {
+  resolveProviderApiKey,
+  resolveProviderCredential,
+} from './assistant-server/provider-credentials';
 import { injectReferencedFilesContext } from './assistant-server/referenced-files-context';
 import { registerRequestAbort } from './assistant-server/request-abort';
 import { resolveRequestPersonas } from './assistant-server/request-personas';
@@ -71,6 +81,7 @@ import {
 } from './assistant-server/run-persistence';
 import { handleRunStatusRequest } from './assistant-server/run-status-endpoint';
 import { recordDesktopContinuationRunTreatment } from './assistant-server/run-treatment-persistence';
+import { respondToSecretReadError } from './assistant-server/secret-error-responses';
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
 import type { AssistantServerOptions } from './assistant-server/server-options';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
@@ -85,6 +96,7 @@ import {
   handleAssistantStatus,
   handleOpenRouterModelMetadata,
   handleSuspendedRunsRequest,
+  handleVerifyProviderRequest,
 } from './assistant-server/status-endpoints';
 import {
   handleAssistantResumeRequest,
@@ -104,6 +116,7 @@ import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-re
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
+import { getSubscriptionFetchFactory } from './provider-auth/provider-auth-runtime';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
@@ -341,6 +354,11 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (route === 'verify-provider') {
+    await handleVerifyProviderRequest(req, res, options);
+    return;
+  }
+
   if (route === 'suspended-runs') {
     await handleSuspendedRunsRequest(req, res, options);
     return;
@@ -393,15 +411,120 @@ async function resolveSnapshotWorkspaceRoots(
   return getWorkspaceRoots(enriched).map((root) => ({ path: root.path, rootId: root.rootId }));
 }
 
+/**
+ * BST-1352: the factory auth input derives from the TYPED credential the
+ * request resolved and travels as a direct parameter (runAssistantTurn →
+ * initializeAgentStream → stream options) — never on runtimeData /
+ * RequestContext (toJSON drops functions). Preparation GUARANTEES the
+ * provider string on prepared runtime data (withTrustedAssistantMessageId
+ * stamps it), so its absence is a wiring bug asserted loudly — never coerced
+ * to an empty provider name.
+ */
+async function deriveAssistantTurnAuthInput(
+  runtimeData: RuntimeData,
+  credential: Parameters<typeof providerAuthInputFromCredential>[1]
+): Promise<ReturnType<typeof providerAuthInputFromCredential>> {
+  const provider = runtimeData.provider;
+  if (typeof provider !== 'string' || provider.length === 0) {
+    throw new Error(
+      'Prepared assistant runtime data is missing its provider; request preparation must stamp it.'
+    );
+  }
+  // BST-1353 + PR #2525 finding 2: the chain is RESOLVED HERE, before the
+  // provider reaches the AI SDK, because the SDK replaces any rejection from
+  // `credentialProvider` with a plain Error — a lazily-throwing chain would
+  // lose its typed code and awsAuthMode context on the way to the run-error
+  // envelope. Resolving in this async scope keeps the typed error intact.
+  //
+  // Still per-request: this runs once per turn, so a mid-session
+  // `aws sso login` is picked up on the next message.
+  const awsCredentialChain =
+    credential?.type === 'aws' && credential.mode === 'profile_chain'
+      ? await preresolveAwsChain(credential.profile)
+      : createAwsCredentialChain;
+
+  // The closure is desktop-main-only: it never crosses IPC and is never
+  // serialized (RequestContext.toJSON drops functions).
+  //
+  // BST-1356: the subscription-fetch capability is the interactive-only gate
+  // for `oauth_subscription` providers (legal gate BST-1351, constraint 4).
+  // It is `undefined` in any process that never initialized the provider-auth
+  // runtime, and the projection's oauth arm REJECTS the credential when it is
+  // absent — so headless/web fail closed rather than degrade.
+  const oauthSubscriptionFetch = getSubscriptionFetchFactory();
+  return providerAuthInputFromCredential(provider, credential, {
+    awsCredentialChain,
+    ...(oauthSubscriptionFetch === undefined ? {} : { oauthSubscriptionFetch }),
+  });
+}
+
+/**
+ * Resolve the chain once and present it as the projection's sync capability.
+ * A failure throws the TYPED chain error out of this async scope — which is
+ * the entire point (see finding 2 above).
+ */
+async function preresolveAwsChain(
+  profile: string | undefined
+): Promise<() => AwsCredentialIdentityProvider> {
+  const resolved = await resolveAwsCredentialChain(profile);
+  return () => resolved;
+}
+
+/**
+ * Derivation runs inside the handled scope (BST-1352 review finding 8): an
+ * UnsupportedCredentialTypeError is SecretReadError-shaped, so it maps to the
+ * same classified api_key_unreadable 400 as every other secret failure
+ * instead of escaping as an unhandled throw. `ok: false` means the response
+ * was already written.
+ */
+async function deriveAuthInputOrRespond(
+  res: http.ServerResponse,
+  runtimeData: RuntimeData,
+  credential: Parameters<typeof providerAuthInputFromCredential>[1]
+): Promise<
+  { ok: true; authInput: Awaited<ReturnType<typeof deriveAssistantTurnAuthInput>> } | { ok: false }
+> {
+  try {
+    return { authInput: await deriveAssistantTurnAuthInput(runtimeData, credential), ok: true };
+  } catch (error) {
+    if (respondToSecretReadError(res, error)) {
+      return { ok: false };
+    }
+    // A typed chain failure (mastra_agent_runtime_init_failed) is NOT
+    // secret-read-shaped, so it deliberately falls through to the caller's
+    // run-error handling with its code and actionable detail intact.
+    throw error;
+  }
+}
+
+/** W7 T2 gate extracted for the cognitive-complexity budget: a controller
+ * exists only for a persisted run (runId + threadId) with snapshot deps. */
+function resolveTurnBoundariesForRun(
+  options: AssistantServerOptions,
+  runId: string | undefined,
+  threadId: string | undefined
+): ReturnType<typeof createTurnBoundaryController> | null {
+  if (!(options.snapshots && runId && threadId)) {
+    return null;
+  }
+  return createTurnBoundaryController({
+    resolveDatabase: resolveEditCheckpointDatabase,
+    snapshots: options.snapshots,
+  });
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   options: AssistantServerOptions
 ): Promise<void> {
   const prepared = await prepareAssistantPostRequest({
+    // BST-1353: desktop main is the ONLY host that can resolve local AWS
+    // profiles, so it is the only one that supplies the chain builder.
+    awsCredentialChain: createAwsCredentialChain,
     logger,
     readBody: () => readRequestBody(req, { maxBodyBytes: assistantRequestBodyLimitBytes }),
-    resolveProviderApiKey,
+    resolveProviderCredential,
   });
   if (!prepared.ok) {
     respondAssistantRejection(res, prepared.rejection);
@@ -409,12 +532,18 @@ async function handleAssistantPost(
   }
   const {
     assistantMessageId,
+    credential,
     messages,
     runtimeData,
     apiKey,
     toolApprovalAction,
     toolResumeAction,
   } = prepared.request;
+  const derivedAuthInput = await deriveAuthInputOrRespond(res, runtimeData, credential);
+  if (!derivedAuthInput.ok) {
+    return;
+  }
+  const { authInput } = derivedAuthInput;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -428,13 +557,7 @@ async function handleAssistantPost(
   // W7 T2 (BST-1164): shadow-git turn boundaries on the run-persistence seam.
   // Only a persisted run (runId + threadId) with the snapshot deps wired
   // participates; snapshot bookkeeping NEVER blocks or fails the run.
-  const turnBoundaries =
-    options.snapshots && runId && threadId
-      ? createTurnBoundaryController({
-          resolveDatabase: resolveEditCheckpointDatabase,
-          snapshots: options.snapshots,
-        })
-      : null;
+  const turnBoundaries = resolveTurnBoundariesForRun(options, runId, threadId);
   const legPause: LegPauseState = { paused: false };
   if (turnBoundaries && runId && threadId) {
     try {
@@ -501,10 +624,12 @@ async function handleAssistantPost(
     const turn = await runAssistantTurn({
       apiKey,
       assistantMessageId,
+      authInput,
       executionSignal: executionAbortController.signal,
       initializeStream: async (core) => {
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
+          authInput: core.authInput,
           capabilities: desktopAgentStreamCapabilities,
           compactionOverlayLookup,
           getDatabase,

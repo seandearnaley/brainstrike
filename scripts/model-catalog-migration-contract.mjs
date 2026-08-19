@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import { parseTypeScriptSource } from './provider-registry-ast-helpers.mjs';
 
 const MIGRATION_EXPORT_PATTERN =
   /export\s+const\s+(migration\d{3}[A-Za-z0-9_]*)\s*:\s*Migration\s*=/;
@@ -52,10 +53,6 @@ function getPropertyNameText(name) {
     return name.text;
   }
   return null;
-}
-
-function parseTypeScriptSource(source, fileName) {
-  return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
 
 function findConstObjectLiteral(source, constName, fileName) {

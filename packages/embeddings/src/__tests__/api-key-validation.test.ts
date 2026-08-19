@@ -104,6 +104,40 @@ describe('api-key-validation', () => {
       expect(result.available).toBe(true);
     });
 
+    it('surfaces a rename hint when only a deprecated env name is set (BST-1361 review 3)', async () => {
+      vi.stubEnv('OPENAI_API_KEY_V2', 'legacy-secret');
+
+      const result = await checkApiKeyAvailability('openai::text-embedding-3-small');
+
+      expect(result.available).toBe(false);
+      if (!result.available) {
+        expect(result.message).toContain('OPENAI_API_KEY_V2');
+        expect(result.message).toContain('rename');
+        expect(result.message).toContain('OPENAI_API_KEY');
+        expect(result.message).not.toContain('legacy-secret');
+      }
+    });
+
+    it('surfaces a rename hint for a VITE_-prefixed deprecated name (BST-1361 review 3)', async () => {
+      vi.stubEnv('VITE_GOOGLE_API_KEY', 'legacy-secret');
+
+      const result = await checkApiKeyAvailability('google::gemini-embedding-001');
+
+      expect(result.available).toBe(false);
+      if (!result.available) {
+        expect(result.message).toContain('VITE_GOOGLE_API_KEY');
+        expect(result.message).toContain('VITE_GOOGLE_GENERATIVE_AI_API_KEY');
+      }
+    });
+
+    it('never authenticates from a deprecated name, prefixed or not', async () => {
+      vi.stubEnv('OPENAI_API_KEY_V2', 'legacy');
+      vi.stubEnv('VITE_AI_OPENAI_API_KEY', 'legacy');
+
+      const result = await checkApiKeyAvailability('openai::text-embedding-3-small');
+      expect(result.available).toBe(false);
+    });
+
     it('returns available for ollama without requiring an API key', async () => {
       const result = await checkApiKeyAvailability('ollama::nomic-embed-text');
       expect(result.available).toBe(true);

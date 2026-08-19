@@ -18,6 +18,7 @@ export type AssistantRoute =
   | 'run-status'
   | 'steer'
   | 'suspended-runs'
+  | 'verify-provider'
   | 'not-found';
 export interface AssistantRequestPayload {
   assistantMessageId?: string;

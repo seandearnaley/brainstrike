@@ -448,7 +448,7 @@ describe('chat route schema', () => {
   it('returns 503 when assistant provider key is missing', async () => {
     process.env['OPENAI_API_KEY'] = '';
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = '';
-    process.env['BS_OPENAI_API_KEY'] = '';
+    process.env['GOOGLE_GENERATIVE_AI_API_KEY'] = '';
 
     const body = {
       messages: [{ id: 'm1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],

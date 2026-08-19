@@ -71,6 +71,30 @@ beforeEach(() => {
 });
 
 describe('runAssistantTurn', () => {
+  it('threads the auth input to the stream initializer as a DIRECT parameter (BST-1352)', async () => {
+    // Never via RuntimeData: RequestContext.toJSON drops functions, so a
+    // custom_fetch closure riding runtimeData would vanish silently.
+    const authInput = {
+      apiKey: 'dummy',
+      fetch: (() => Promise.reject(new Error('unused'))) as typeof globalThis.fetch,
+      kind: 'custom_fetch' as const,
+    };
+    const initializeStream = vi.fn(
+      async (_params: { runtimeData: Record<string, unknown> }): Promise<AgentStreamResult> => ({
+        ok: true,
+        stream: emptyStream(),
+      })
+    );
+    const { params } = baseParams({ authInput, initializeStream });
+
+    const result = await runAssistantTurn(params as never);
+
+    expect(result.ok).toBe(true);
+    expect(initializeStream).toHaveBeenCalledWith(expect.objectContaining({ authInput }));
+    const initArgs = initializeStream.mock.calls[0]?.[0];
+    expect(initArgs?.runtimeData['authInput']).toBeUndefined();
+  });
+
   it('records a failed run row and passes the failure through verbatim when init fails with a runId', async () => {
     const failure: AgentStreamResult = {
       ok: false,

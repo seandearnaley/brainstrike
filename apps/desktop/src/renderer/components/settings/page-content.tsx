@@ -4,9 +4,10 @@ import {
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
-import { useAssistantAvailability } from '@brainstrike/app-shell';
+import { useAssistantAvailability, verifyProviderCredential } from '@brainstrike/app-shell';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
+import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
@@ -14,7 +15,7 @@ import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/inde
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
-import { createApiKeysSettingsCategory } from '@brainstrike/settings-ui/settings/secrets/api-keys-settings-category';
+import { createProvidersSettingsCategory } from '@brainstrike/settings-ui/settings/providers/providers-settings-category';
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
 import { createSelfImprovementSignalSettingsCategory } from '@brainstrike/settings-ui/settings/system/self-improvement-signal-settings-category';
 import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/system/skills-settings-category';
@@ -119,17 +120,42 @@ export default function SettingsPageContent() {
     }
     return tokenCache.isOperational && tokenCache.countingMode === 'accurate';
   }, [tokenCache]);
+  // Shell reveal is injected, not reached for: settings-ui stays platform
+  // agnostic and simply renders no Open-folder affordance when the desktop
+  // bridge is absent or malformed (resolvePlatformBridge returns null).
+  // The `{ ok, error }` result is normalized exactly as
+  // context-action-registry does, so a failed reveal can be shown rather than
+  // vanishing.
+  const revealEnvFile = useMemo(() => {
+    const bridge = resolvePlatformBridge();
+    if (!bridge) {
+      return;
+    }
+    return async (absolutePath: string) => {
+      const result = await bridge.showItemInFolder(absolutePath);
+      return result.ok ? { ok: true } : { error: result.error ?? 'Reveal failed', ok: false };
+    };
+  }, []);
   const apiKeyStatus = useMemo(() => {
+    // Every non-loading availability state may carry deprecated-env rename
+    // reports (BST-1361); the Credential Inventory renders them per row.
+    const deprecated =
+      assistantAvailability.state !== 'loading' &&
+      assistantAvailability.deprecatedEnvVars &&
+      assistantAvailability.deprecatedEnvVars.length > 0
+        ? { statusDeprecatedEnvVars: assistantAvailability.deprecatedEnvVars }
+        : {};
     if (assistantAvailability.state === 'enabled') {
       return {
+        ...deprecated,
         statusProviderKeySources: assistantAvailability.providerKeySources ?? [],
       };
     }
     if (assistantAvailability.state === 'error') {
       const failures = assistantAvailability.envFileFailures?.map(({ message }) => message) ?? [];
-      return failures.length > 0 ? { statusError: failures.join(' ') } : {};
+      return failures.length > 0 ? { ...deprecated, statusError: failures.join(' ') } : deprecated;
     }
-    return {};
+    return deprecated;
   }, [assistantAvailability]);
   const assistantProviderKeySources =
     assistantAvailability.state === 'enabled'
@@ -327,7 +353,11 @@ export default function SettingsPageContent() {
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
-      createApiKeysSettingsCategory(apiKeyStatus),
+      createProvidersSettingsCategory({
+        ...apiKeyStatus,
+        ...(revealEnvFile ? { onRevealPath: revealEnvFile } : {}),
+        verifyProvider: verifyProviderCredential,
+      }),
       {
         content: (
           <ModelSelectionPage
@@ -337,11 +367,12 @@ export default function SettingsPageContent() {
               : {})}
           />
         ),
-        description: 'Choose chat and embedding models, manage downloads, and configure providers.',
+        description:
+          'Browse every catalogued model, manage local downloads, and set the model cache directory.',
         icon: Layers,
         id: 'embedding-models',
-        keywords: ['embeddings', 'models', 'providers', 'vector', 'llm', 'download'],
-        title: 'Models & Providers',
+        keywords: ['embeddings', 'models', 'catalog', 'vector', 'llm', 'download', 'cache'],
+        title: 'Model Catalog',
       },
       {
         content: <DesktopLoggingSettings />,
@@ -379,6 +410,7 @@ export default function SettingsPageContent() {
     assistantProviderKeySources,
     devInlineFixtureEnabled,
     hookReviewRoots,
+    revealEnvFile,
     setDevInlineFixtureEnabled,
     toolOperations,
   ]);

@@ -13,7 +13,10 @@
  * runs after the caller has resolved the language model.
  */
 import { resolveToolDiscoveryAdapter } from '@brainstrike/assistant-contract';
-import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
+import {
+  findProviderDefinition,
+  resolveTokenMeasurementCapability,
+} from '@brainstrike/assistant-contract/provider-registry';
 import { buildNativeToolRiskMap } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import type { MastraDBMessage, ToolsInput } from '@mastra/core/agent';
@@ -25,6 +28,7 @@ import {
 import type { McpConfig } from '../../mcp/config';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { applyProviderNativeWebSearch } from '../../providers/native-web-search';
+import type { ProviderAuthInput } from '../../providers/provider-auth-input';
 import { createAssistantSkillTools } from '../../skills/skill-tools';
 import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
@@ -255,7 +259,12 @@ function assertCatalogMetaToolNamesAvailable(params: {
 }
 
 function isHostedProviderRuntime(provider: ResolvedRuntimeConfiguration['provider']): boolean {
-  return !['local', 'ollama', 'lmstudio'].includes(provider);
+  // Registry-derived (BST-1349) with FAIL-OPEN polarity (PR #2513 review,
+  // finding 4): only the known local runtimes opt out of the hosted path, so
+  // an unknown id or a future runtime value keeps the pre-BST-1349 hosted
+  // default. Guarded lookup: an out-of-registry id must not TypeError.
+  const runtime = findProviderDefinition(provider)?.runtime;
+  return runtime !== 'local' && runtime !== 'browser';
 }
 
 export async function prepareHostedToolDiscovery(params: {
@@ -373,7 +382,12 @@ export function createToolHistoryFilter(
 }
 
 export interface RuntimeToolMapParams {
-  apiKey: string | undefined;
+  /**
+   * The run's resolved ProviderAuthInput (BST-1352): consumed by the
+   * provider-native web-search swap so its second SDK client is built through
+   * the same auth seam as the chat model (never from a bare key).
+   */
+  auth: ProviderAuthInput | undefined;
   getDelegationToolNames: (() => readonly string[]) | undefined;
   hasStorage: boolean;
   hookRunner: AgentHookRunner | undefined;
@@ -488,8 +502,8 @@ export async function composeRuntimeToolMap(
   // and cannot be approval-gated). Guarded to supported providers, so every other
   // caller/path is unchanged (see native-web-search.ts).
   const finalTools = applyProviderNativeWebSearch({
-    apiKey: params.apiKey,
     askTools,
+    auth: params.auth,
     logger,
     preserveExecuteBackedWebSearch: params.preserveExecuteBackedWebSearch,
     provider: params.provider,

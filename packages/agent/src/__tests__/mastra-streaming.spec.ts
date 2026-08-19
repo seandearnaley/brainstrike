@@ -1972,12 +1972,7 @@ describe('mastra streaming integration', () => {
 });
 
 describe('resolveRuntimeConfiguration', () => {
-  const openAiEnvKeys = [
-    'OPENAI_API_KEY',
-    'AI_OPENAI_API_KEY',
-    'OPENAI_API_KEY_V1',
-    'OPENAI_API_KEY_V2',
-  ] as const;
+  const openAiEnvKeys = ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'] as const;
 
   const originalEnv: Partial<Record<(typeof openAiEnvKeys)[number], string | undefined>> = {};
 

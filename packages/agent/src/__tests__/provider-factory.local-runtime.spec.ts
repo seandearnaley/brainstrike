@@ -75,7 +75,7 @@ describe('provider-factory local-runtime endpoint overrides', () => {
   it('prefers explicit apiKey argument over runtime-option apiToken', async () => {
     const { createProvider } = await import('../providers/provider-factory');
 
-    const model = createProvider('lmstudio', 'from-arg', 'qwen2.5', {
+    const model = createProvider('lmstudio', { apiKey: 'from-arg', kind: 'api_key' }, 'qwen2.5', {
       providerOptions: {
         lmstudio: { apiToken: 'from-runtime' },
       },
@@ -149,7 +149,9 @@ describe('provider-factory local-runtime endpoint overrides', () => {
   it('rejects LM Studio explicit apiKey containing NUL bytes', async () => {
     const { createProvider } = await import('../providers/provider-factory');
 
-    expect(() => createProvider('lmstudio', 'tok\0evil', 'qwen2.5')).toThrow(/CR\/LF\/NUL/);
+    expect(() =>
+      createProvider('lmstudio', { apiKey: 'tok\0evil', kind: 'api_key' }, 'qwen2.5')
+    ).toThrow(/CR\/LF\/NUL/);
     expect(capturedOpenAiCalls).toHaveLength(0);
   });
 });

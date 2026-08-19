@@ -25,10 +25,19 @@ import {
   readToolResumeRunConfigAction,
   resolveAutoObservationalMemoryModelTarget,
 } from '@brainstrike/agent/hosted-web';
+import {
+  getProviderDefinition,
+  isSupportedProvider,
+  providerAuthType,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantPostRejection } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { resolveRequestedProvider } from './memory-model-targets.js';
-import type { ProviderApiKeyReader } from './ports.js';
+import type { ProviderCredentialReader, ResolvedProviderCredential } from './ports.js';
+import {
+  type ProviderAuthProjectionOptions,
+  providerAuthInputFromCredential,
+} from './provider-credential-projection.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
 import type { AssistantRequestPayload, AssistantUiMessage } from './types.js';
 
@@ -67,6 +76,14 @@ class InvalidEnabledNativeToolIdsError extends Error {
 interface PreparedAssistantPostRequest {
   apiKey: string;
   assistantMessageId?: string;
+  /**
+   * The typed credential the request resolved (BST-1352). In the current
+   * pipeline this is always an `api_key` credential when present — a stored
+   * non-api_key credential rejects the request before preparation succeeds.
+   * Hosts derive the factory `ProviderAuthInput` from it (see ports'
+   * `providerAuthInputFromCredential`).
+   */
+  credential?: ResolvedProviderCredential;
   messages: AgentMessage[];
   runtimeData: RuntimeData;
   toolApprovalAction?: AssistantToolApprovalAction;
@@ -77,11 +94,25 @@ interface PreparedAssistantPostRequest {
  * Injected provider-credential reader, now owned by ./ports (BST-972 B2).
  * Re-exported under the historical name; desktop's structurally identical
  * AgentStreamProviderApiKeyReader unifies onto the ports type when
- * agent-stream-init moves (B4a/B4b).
+ * agent-stream-init moves (B4a/B4b). Since BST-1352 the string reader is the
+ * MIGRATION shim (ports' createProviderApiKeyReader); preparation itself
+ * consumes the typed {@link ProviderCredentialReader}.
  */
 export type { ProviderApiKeyReader as PreparationProviderApiKeyReader } from './ports.js';
 
 export interface PrepareAssistantPostRequestParams {
+  /**
+   * AWS credential-chain capability (BST-1353), forwarded verbatim to the
+   * shared projection. Preparation must classify a stored `profile_chain`
+   * credential exactly as the host that will later CONSUME it does: desktop
+   * supplies the chain builder here so preparation accepts the credential
+   * (keyless — a chain has no bearer string), while Hosted Web omits it so
+   * the credential rejects at preparation with the same
+   * `api_key_unreadable` 400 the consumer would produce. Omitting it on
+   * desktop would reject every profile-chain request before the stream ever
+   * started.
+   */
+  readonly awsCredentialChain?: ProviderAuthProjectionOptions['awsCredentialChain'];
   /**
    * Optional trust-boundary hook (BST-1030): runs on the parsed envelope
    * AFTER parseAssistantRequestPayloadText and BEFORE tool-action extraction
@@ -112,7 +143,13 @@ export interface PrepareAssistantPostRequestParams {
    * the transport.
    */
   readonly readBody: () => Promise<string>;
-  readonly resolveProviderApiKey: ProviderApiKeyReader;
+  /**
+   * Typed credential reader (BST-1352). Desktop passes provider-credentials'
+   * `resolveProviderCredential`; Hosted Web wraps its env-only config lookup
+   * into `api_key` credentials (`kind: 'api_key'` only — no typed-credential
+   * resolution on web).
+   */
+  readonly resolveProviderCredential: ProviderCredentialReader;
 }
 
 /**
@@ -130,26 +167,64 @@ function reject(rejection: AssistantPostRejection): PrepareAssistantPostRequestR
 }
 
 /**
- * Absorbs the previous resolveProviderApiKeyOrRespond: a classified
- * secret-read failure becomes the same 400 payload; anything else still
- * propagates loudly. The in-browser 'local' runtime never needs a key.
+ * Absorbs the previous resolveApiKeyOrReject (itself the previous
+ * resolveProviderApiKeyOrRespond): a classified secret-read failure becomes
+ * the same 400 payload; anything else still propagates loudly. Keyless-ness
+ * is registry-derived (`authType: 'none'`, PR #2513 review finding 3): the
+ * in-browser runtime (registry `runtime: 'browser'`) has no credential
+ * surface at all and skips the read; the local servers still read their
+ * OPTIONAL bearer token, but a classified read failure proceeds keyless with
+ * a visible warn instead of a 400 — the token is optional, so an unreadable
+ * keychain entry must not block the run.
+ *
+ * BST-1352: consumes the TYPED reader. The credential-type narrow is the ONE
+ * shared projection (`providerAuthInputFromCredential`, BST-1350): a
+ * credential it can project yields the bearer key surface (api_key keys, and
+ * bedrock aws-bearer keys whose region rides the exposed credential); a
+ * credential it cannot project throws the SecretReadError-shaped typed error
+ * into the classification below — the EXACT `api_key_unreadable` 400 (or the
+ * keyless warn) the old string reader's `getKey` throw produced. The
+ * credential is never stringified.
  */
-async function resolveApiKeyOrReject(
+async function resolveCredentialOrReject(
   provider: SupportedProvider,
-  resolveProviderApiKey: ProviderApiKeyReader
+  resolveProviderCredential: ProviderCredentialReader,
+  logger: ScopedLogger,
+  projectionOptions: ProviderAuthProjectionOptions | undefined
 ): Promise<
-  | { readonly apiKey: string | undefined; readonly rejection?: undefined }
-  | { readonly apiKey?: undefined; readonly rejection: AssistantPostRejection }
+  | {
+      readonly apiKey: string | undefined;
+      readonly credential?: ResolvedProviderCredential;
+      readonly rejection?: undefined;
+    }
+  | {
+      readonly apiKey?: undefined;
+      readonly credential?: undefined;
+      readonly rejection: AssistantPostRejection;
+    }
 > {
-  if (provider === 'local') {
+  const keyless = providerAuthType(provider) === 'none';
+  if (keyless && getProviderDefinition(provider).runtime === 'browser') {
     return { apiKey: '' };
   }
   try {
-    return { apiKey: await resolveProviderApiKey(provider) };
+    const credential = await resolveProviderCredential(provider);
+    if (credential === undefined) {
+      return { apiKey: undefined };
+    }
+    const authInput = providerAuthInputFromCredential(provider, credential, projectionOptions);
+    return { apiKey: authInput?.apiKey, credential };
   } catch (error) {
     const payload = getSecretReadErrorPayload(error);
     if (!payload) {
       throw error;
+    }
+    if (keyless) {
+      logger.warn('Optional local-runtime token is unreadable; proceeding keyless', {
+        code: payload.code,
+        provider,
+      });
+      return { apiKey: '' };
     }
     return { rejection: { payload, status: 400 } };
   }
@@ -251,7 +326,7 @@ function rejectToolContinuationInputError(
 export async function prepareAssistantPostRequest(
   params: PrepareAssistantPostRequestParams
 ): Promise<PrepareAssistantPostRequestResult> {
-  const { filterPayload, logger, readBody, resolveProviderApiKey } = params;
+  const { awsCredentialChain, filterPayload, logger, readBody, resolveProviderCredential } = params;
   let rawMessages: AssistantUiMessage[];
   let data: RuntimeData | undefined;
   let assistantMessageId: string | undefined;
@@ -303,17 +378,30 @@ export async function prepareAssistantPostRequest(
     });
   }
 
-  // Providers that never require a bearer token: the in-browser Gemma runtime
-  // and the two local servers (Ollama/LM Studio). Local servers accept an
-  // optional token when the user has stored one via the secrets bridge, but
-  // the absence of a token is not an error — most setups don't have auth.
-  const providerAllowsMissingAuth =
-    provider === 'local' || provider === 'ollama' || provider === 'lmstudio';
-  const resolved = await resolveApiKeyOrReject(provider, resolveProviderApiKey);
+  // Providers that never require a bearer token — the registry's
+  // `authType: 'none'` set (in-browser Gemma plus the local servers,
+  // BST-1349), never a hand list. Local servers accept an optional token when
+  // the user has stored one via the secrets bridge, but the absence of a
+  // token is not an error — most setups don't have auth.
+  const keylessProvider = providerAuthType(provider) === 'none';
+  const resolved = await resolveCredentialOrReject(
+    provider,
+    resolveProviderCredential,
+    logger,
+    awsCredentialChain === undefined ? undefined : { awsCredentialChain }
+  );
   if (resolved.rejection) {
     return reject(resolved.rejection);
   }
-  const { apiKey } = resolved;
+  const { apiKey, credential } = resolved;
+  // BST-1353: an AWS profile-chain credential is CONFIGURED but carries no
+  // bearer string — the credentials live in the user's AWS setup. It is the
+  // second legitimate way to have no `apiKey`, alongside keyless providers.
+  // Reaching this point means the projection already ACCEPTED the credential
+  // (a host without the chain capability rejected it above), so this can
+  // never wave through an unusable credential.
+  const providerAllowsMissingAuth =
+    keylessProvider || (credential?.type === 'aws' && credential.mode === 'profile_chain');
 
   const runtimeData: RuntimeData = resolveServerAutoObservationalMemory(
     hydrateRuntimeDataWithLocalRuntimeToken(
@@ -349,6 +437,7 @@ export async function prepareAssistantPostRequest(
     request: {
       apiKey: apiKey ?? '',
       ...(assistantMessageId ? { assistantMessageId } : {}),
+      ...(credential ? { credential } : {}),
       messages,
       runtimeData,
       ...(toolApprovalAction ? { toolApprovalAction } : {}),
@@ -528,10 +617,13 @@ export function hydrateRuntimeDataWithLocalRuntimeToken(
   provider: string,
   fetchedApiKey: string | undefined
 ): RuntimeData {
-  // Only local-runtime providers need their `apiToken` injected into
+  // Only local-runtime providers (registry `runtime: 'local'` — the
+  // Ollama/LM Studio servers) need their `apiToken` injected into
   // providerOptions so the OpenAI-compat factory can forward it as a bearer
   // header. Hosted providers receive the key through the top-level `apiKey`.
-  if (!((provider === 'ollama' || provider === 'lmstudio') && fetchedApiKey)) {
+  const isLocalRuntimeServer =
+    isSupportedProvider(provider) && getProviderDefinition(provider).runtime === 'local';
+  if (!(isLocalRuntimeServer && fetchedApiKey)) {
     return runtimeData;
   }
 

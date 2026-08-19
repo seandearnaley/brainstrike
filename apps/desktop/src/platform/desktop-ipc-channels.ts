@@ -167,6 +167,15 @@ export const DESKTOP_IPC_CHANNELS = {
     layoutSave: 'layout:save',
     settingsClearAll: 'settings:clearAll',
   },
+  // Provider OAuth engine (BST-1355). Renderer-visible surface is STATUS
+  // ONLY — token material never crosses these channels (legal gate BST-1351
+  // constraint 3; pinned by provider-auth-ipc tests).
+  providerAuth: {
+    cancel: 'provider-auth:cancel',
+    disconnect: 'provider-auth:disconnect',
+    start: 'provider-auth:start',
+    status: 'provider-auth:status',
+  },
   quickOpen: {
     // One-way main→renderer push: the app menu's Cmd+P accelerator triggers
     // this on the FOCUSED window so the renderer opens the ⌘P quick-open finder.
@@ -184,10 +193,18 @@ export const DESKTOP_IPC_CHANNELS = {
   secrets: {
     clearAll: 'secrets:clearAll',
     delete: 'secrets:delete',
+    // Read-only env bootstrap projection (BST-1363). Reports which .env files
+    // loaded, how many variables applied, line-precise parse failures, and the
+    // NAMES of allow-listed variables currently set — never a value.
+    envBootstrap: 'secrets:envBootstrap',
     get: 'secrets:get',
+    // Typed credential channels (BST-1348): separate channels rather than
+    // versioned payloads on save/get.
+    getCredential: 'secrets:getCredential',
     list: 'secrets:list',
     listStored: 'secrets:listStored',
     save: 'secrets:save',
+    saveCredential: 'secrets:saveCredential',
   },
   shell: {
     openExternal: 'shell:open-external',

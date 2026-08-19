@@ -1,12 +1,20 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  listProviders,
+  providerDeprecatedEnvKeys,
+  providerEnvKeys,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  CREDENTIAL_ENV_FILE_VARIABLE_NAMES,
   createCredentialIsolatedChildEnvironment,
   type LoadDesktopEnvironmentOptions,
   loadDesktopEnvironment,
+  NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES,
+  SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES,
+  SUPPORTED_ENV_FILE_VARIABLE_NAMES,
 } from '../../desktop-env';
 import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 
@@ -44,7 +52,10 @@ afterEach(() => {
 describe('createCredentialIsolatedChildEnvironment', () => {
   it('removes every registered credential name case-insensitively and preserves ordinary values', () => {
     const credentialNames = [
-      ...listProviders().flatMap((definition) => [...providerEnvKeys(definition.id)]),
+      ...listProviders().flatMap((definition) => [
+        ...providerEnvKeys(definition.id),
+        ...providerDeprecatedEnvKeys(definition.id),
+      ]),
       ...TAVILY_ENV_KEYS,
     ];
     const source: NodeJS.ProcessEnv = Object.fromEntries(
@@ -64,9 +75,122 @@ describe('createCredentialIsolatedChildEnvironment', () => {
       PATH: '/usr/bin',
     });
   });
+
+  it('scrubs both Bedrock bearer names (registry-derived, pinned by name — BST-1350)', () => {
+    // Explicit pin on top of the derived loop above: the two Bedrock env
+    // names are credential-shaped and must never reach children.
+    const result = createCredentialIsolatedChildEnvironment({
+      AWS_BEARER_TOKEN_BEDROCK: 'bearer-secret',
+      BRAINSTRIKE_BEDROCK_API_KEY: 'override-secret',
+      PATH: '/usr/bin',
+    });
+    expect(result).toEqual({ PATH: '/usr/bin' });
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_BEARER_TOKEN_BEDROCK')).toBe(true);
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('BRAINSTRIKE_BEDROCK_API_KEY')).toBe(true);
+  });
+
+  it('keeps AWS_REGION and AWS_PROFILE for children — configuration, not secrets (BST-1350/1353)', () => {
+    const result = createCredentialIsolatedChildEnvironment({
+      AWS_BEARER_TOKEN_BEDROCK: 'bearer-secret',
+      AWS_PROFILE: 'acme-dev',
+      AWS_REGION: 'us-east-1',
+      PATH: '/usr/bin',
+    });
+    // AWS_PROFILE NAMES a profile; the credentials it points at live in the
+    // user's AWS config and never pass through this process env, so scrubbing
+    // the name would break `aws` CLI children while protecting nothing.
+    expect(result).toEqual({
+      AWS_PROFILE: 'acme-dev',
+      AWS_REGION: 'us-east-1',
+      PATH: '/usr/bin',
+    });
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_REGION')).toBe(false);
+    expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has('AWS_PROFILE')).toBe(false);
+    // The non-credential set stays deliberately tiny — extend it only with a
+    // ruling, never casually.
+    expect([...NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES].sort()).toEqual([
+      'AWS_PROFILE',
+      'AWS_REGION',
+    ]);
+  });
+
+  it('SECURITY: AWS static keys never reach a child environment (PR #2525 review, finding 1)', () => {
+    // THE OUTCOME, not set membership. The scrub is a DENY-LIST: any name
+    // absent from the scrubbed set passes through VERBATIM to
+    // repository-controlled children (execute-command-tool, the hook
+    // executor). Since BST-1353 documents shell-set AWS static keys as a
+    // supported way to activate the credential chain, leaving them out of the
+    // deny-list was a live credential-leak path — "in neither set" is NOT the
+    // same as "protected".
+    const child = createCredentialIsolatedChildEnvironment({
+      AWS_ACCESS_KEY_ID: 'AKIALEAK',
+      AWS_PROFILE: 'acme-dev',
+      AWS_REGION: 'us-east-1',
+      AWS_SECRET_ACCESS_KEY: 'leaked-secret',
+      AWS_SESSION_TOKEN: 'leaked-session',
+      PATH: '/usr/bin',
+    });
+
+    expect(child['AWS_ACCESS_KEY_ID']).toBeUndefined();
+    expect(child['AWS_SECRET_ACCESS_KEY']).toBeUndefined();
+    expect(child['AWS_SESSION_TOKEN']).toBeUndefined();
+    expect(Object.values(child)).not.toContain('leaked-secret');
+    expect(Object.values(child)).not.toContain('leaked-session');
+    // The two NON-secret names still pass through: a child may legitimately
+    // need the region, and AWS_PROFILE only NAMES a profile.
+    expect(child['AWS_REGION']).toBe('us-east-1');
+    expect(child['AWS_PROFILE']).toBe('acme-dev');
+    expect(child['PATH']).toBe('/usr/bin');
+  });
+
+  it('SECURITY: AWS static keys are SCRUBBED but never `.env`-file loadable', () => {
+    // The two roles are now separate constants (SCRUBBED ⊇ ENV_FILE). Adding
+    // these names to the scrub must NOT make them settable from a `.env`
+    // file — that would hand a userData file write a new credential channel.
+    for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN']) {
+      expect(SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES.has(name)).toBe(true);
+      expect(CREDENTIAL_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+      expect(NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+      expect(SUPPORTED_ENV_FILE_VARIABLE_NAMES.has(name)).toBe(false);
+    }
+  });
+
+  it('SECURITY: the scrubbed set is a SUPERSET of the env-file credential set', () => {
+    // A name that a `.env` file may set is by definition credential-shaped
+    // enough to scrub; the reverse need not hold.
+    for (const name of CREDENTIAL_ENV_FILE_VARIABLE_NAMES) {
+      expect(SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES.has(name)).toBe(true);
+    }
+  });
+
+  it('SECURITY: the non-credential set contains ONLY non-secret configuration', () => {
+    // A tripwire on the whole set rather than on the names BST-1353 happened
+    // to add: anything that looks like a secret must never land here.
+    for (const name of NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES) {
+      expect(name).not.toMatch(/KEY|SECRET|TOKEN|PASSWORD/);
+    }
+  });
 });
 
 describe('loadDesktopEnvironment', () => {
+  it('accepts AWS_REGION from env files as a supported non-credential name (BST-1350)', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      ['AWS_BEARER_TOKEN_BEDROCK=bearer', 'AWS_REGION=us-east-1'].join('\n')
+    );
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    expect(result.failures).toEqual([]);
+    expect(result.appliedVariableCount).toBe(2);
+    expect(env).toMatchObject({
+      AWS_BEARER_TOKEN_BEDROCK: 'bearer',
+      AWS_REGION: 'us-east-1',
+    });
+  });
+
   it('applies existing env > .env.local > .env precedence in development', () => {
     const layout = createEnvironmentLayout();
     fs.writeFileSync(
@@ -87,6 +211,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 3,
+      deprecatedVariableNames: ['GOOGLE_API_KEY'],
       failures: [],
       loadedFiles: ['dev-local', 'dev'],
       skipped: false,
@@ -111,6 +236,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 1,
+      deprecatedVariableNames: [],
       failures: [],
       loadedFiles: ['user-data'],
       skipped: false,
@@ -172,6 +298,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures: [],
       loadedFiles: [],
       skipped: false,
@@ -187,6 +314,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures: [],
       loadedFiles: [],
       skipped: false,
@@ -212,19 +340,21 @@ describe('loadDesktopEnvironment', () => {
       {
         code: 'env_file_invalid',
         file: 'dev',
-        message: 'Desktop environment file "dev" is invalid at line 2: expected "=".',
+        message: 'Desktop environment file ".env" is invalid at line 2: expected "=".',
       },
     ]);
     expect(env).toEqual({});
     expect(JSON.stringify(result)).not.toContain('secret');
   });
 
-  it('accepts every environment name the provider registry declares', () => {
+  it('accepts every environment name the provider registry declares, deprecated included', () => {
     const layout = createEnvironmentLayout();
     const registryNames = listProviders().flatMap((definition) => [
       ...providerEnvKeys(definition.id),
+      ...providerDeprecatedEnvKeys(definition.id),
     ]);
     expect(registryNames).toContain('BS_OPENAI_API_KEY');
+    expect(registryNames).toContain('BRAINSTRIKE_ANTHROPIC_API_KEY');
     fs.writeFileSync(
       path.join(layout.appRoot, '.env'),
       registryNames.map((name) => `${name}=value`).join('\n')
@@ -235,6 +365,38 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result.failures).toEqual([]);
     expect(Object.keys(env).sort()).toEqual([...new Set(registryNames)].sort());
+  });
+
+  it('loads a file containing a deprecated name and reports the name (BST-1361)', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(
+      path.join(layout.appRoot, '.env'),
+      ['OPENAI_API_KEY_V2=legacy-secret', 'ANTHROPIC_API_KEY=current'].join('\n')
+    );
+    const env: NodeJS.ProcessEnv = {};
+
+    const result = load(layout, { env });
+
+    // The file is NOT rejected: a deprecated name parses fine.
+    expect(result.failures).toEqual([]);
+    expect(result.loadedFiles).toEqual(['dev']);
+    expect(result.appliedVariableCount).toBe(2);
+    expect(result.deprecatedVariableNames).toEqual(['OPENAI_API_KEY_V2']);
+    // Names only — the value must never ride the load result.
+    expect(JSON.stringify(result)).not.toContain('legacy-secret');
+    expect(env['OPENAI_API_KEY_V2']).toBe('legacy-secret');
+  });
+
+  it('reports deprecated names present in files even when the process env already wins', () => {
+    const layout = createEnvironmentLayout();
+    fs.writeFileSync(path.join(layout.appRoot, '.env'), 'GOOGLE_API_KEY=file-value');
+    const env: NodeJS.ProcessEnv = { GOOGLE_API_KEY: 'inherited' };
+
+    const result = load(layout, { env });
+
+    expect(result.appliedVariableCount).toBe(0);
+    expect(result.deprecatedVariableNames).toEqual(['GOOGLE_API_KEY']);
+    expect(env['GOOGLE_API_KEY']).toBe('inherited');
   });
 
   it('rejects unsupported variables atomically instead of mutating the process environment', () => {
@@ -249,12 +411,13 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures: [
         {
           code: 'env_file_invalid',
           file: 'dev',
           message:
-            'Desktop environment file "dev" is invalid at line 2: unsupported variable name.',
+            'Desktop environment file ".env" is invalid at line 2: unsupported variable name.',
         },
       ],
       loadedFiles: [],
@@ -282,7 +445,7 @@ describe('loadDesktopEnvironment', () => {
           code: 'env_file_invalid',
           file: 'dev',
           message:
-            'Desktop environment file "dev" is invalid at line 2: unsupported variable name.',
+            'Desktop environment file ".env" is invalid at line 2: unsupported variable name.',
         },
       ]);
       expect(env).toEqual({});
@@ -306,7 +469,7 @@ describe('loadDesktopEnvironment', () => {
       {
         code: 'env_file_invalid',
         file: 'dev',
-        message: 'Desktop environment file "dev" is invalid at line 1: boundary whitespace.',
+        message: 'Desktop environment file ".env" is invalid at line 1: boundary whitespace.',
       },
     ]);
     expect(env).toEqual({});
@@ -323,7 +486,7 @@ describe('loadDesktopEnvironment', () => {
       {
         code: 'env_file_invalid',
         file: 'dev-local',
-        message: 'Desktop environment file "dev-local" is invalid at line 1: unterminated quote.',
+        message: 'Desktop environment file ".env.local" is invalid at line 1: unterminated quote.',
       },
     ]);
     expect(JSON.stringify(result)).not.toContain('super-secret-value');
@@ -340,7 +503,7 @@ describe('loadDesktopEnvironment', () => {
       {
         code: 'env_file_unreadable',
         file: 'dev-local',
-        message: 'Desktop environment file "dev-local" could not be read.',
+        message: 'Desktop environment file ".env.local" could not be read.',
       },
     ]);
     expect(JSON.stringify(result)).not.toContain(unreadablePath);
@@ -368,6 +531,7 @@ describe('loadDesktopEnvironment', () => {
 
     expect(result).toEqual({
       appliedVariableCount: 0,
+      deprecatedVariableNames: [],
       failures: [],
       loadedFiles: [],
       skipped: true,

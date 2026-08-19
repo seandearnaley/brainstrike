@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
@@ -139,5 +140,6 @@ export default defineConfig({
         },
       },
     ],
+    reporters: ['default', new LostTestFileReporter()],
   },
 });

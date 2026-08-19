@@ -13,9 +13,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import {
+  assertNoPlatformSkips,
+  attributeWatcherFailure,
+} from '@brainstrike/file-system/testing/watcher-liveness';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import type { DirectoryHandle, WatcherHealthState } from '@brainstrike/types';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createGitInventoryWatchers,
   type WatchGitCommonDir,
@@ -257,9 +261,35 @@ async function expectLinkedWorktreeCommitInvalidates(stallSubscribeMs: number): 
   }
 }
 
+/**
+ * BST-1328 attribution. These tests assert OUR invalidation rule THROUGH the OS
+ * watcher, so they are only meaningful while that layer actually delivers. On a
+ * host where it has gone silent they failed as
+ * `expected [] to include '/private/var/…'` after the full 10s wait — an
+ * "events were LOST" signature that reads like a bug in
+ * `git-inventory-watcher.ts` when it is nothing of the sort.
+ *
+ * The probe runs on the FAILURE PATH ONLY, and at the moment of failure — not
+ * as a pre-flight gate. The fault is intermittent rather than steady: measured
+ * on this host, a pre-flight probe reported `alive`, the first test passed, and
+ * the platform then went silent for the second test in the SAME process. Only a
+ * probe taken when the event failed to arrive answers the right question.
+ *
+ * It is narrow by construction: it steps aside ONLY when the native backend is
+ * silent while libuv still delivers in the same process (proven, not assumed),
+ * prints the reason to stderr, and is never reached on a healthy host or in CI
+ * (Linux/inotify). A host where NOTHING delivers is deliberately NOT skipped —
+ * that is a broken harness, not the known platform fault, and must fail. When
+ * the probe finds the platform ALIVE, the failure is rethrown with that verdict
+ * attached: positive evidence that the bug is ours.
+ */
 describe('createGitInventoryWatchers (real repo, real @parcel/watcher)', () => {
-  it('invalidates the repo common dir when a commit lands in a LINKED WORKTREE', async () => {
-    await expectLinkedWorktreeCommitInvalidates(0);
+  it('invalidates the repo common dir when a commit lands in a LINKED WORKTREE', async (ctx) => {
+    try {
+      await expectLinkedWorktreeCommitInvalidates(0);
+    } catch (error) {
+      await attributeWatcherFailure(ctx, error);
+    }
   });
 
   /**
@@ -270,7 +300,16 @@ describe('createGitInventoryWatchers (real repo, real @parcel/watcher)', () => {
    * still yields a correct invalidation when the native subscribe is genuinely
    * slow, i.e. the real CI condition, rather than only when it is fast.
    */
-  it('invalidates even when the native subscribe is slow to come up', async () => {
-    await expectLinkedWorktreeCommitInvalidates(400);
+  it('invalidates even when the native subscribe is slow to come up', async (ctx) => {
+    try {
+      await expectLinkedWorktreeCommitInvalidates(400);
+    } catch (error) {
+      await attributeWatcherFailure(ctx, error);
+    }
   });
+});
+
+// A run that skipped its subject is not a pass — see assertNoPlatformSkips.
+afterAll(() => {
+  assertNoPlatformSkips();
 });

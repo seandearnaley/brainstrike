@@ -48,10 +48,12 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
     __assistantAvailabilityOverride?: { state: 'enabled' };
     fetch: typeof fetch;
     localStorage?: Storage;
-    secrets?: {
-      list?: () => Promise<string[]>;
-      [key: string]: unknown;
-    };
+  };
+  // Scoped separately from the Window cast: this page-injected mock feeds a
+  // deliberately simplified string[] `list` result, which must not intersect
+  // with the real SecretsBridge typing on Window['secrets'].
+  const secretsGlobals = globalThis as unknown as {
+    secrets?: { list?: () => Promise<string[]>; [key: string]: unknown };
   };
 
   globals.__assistantMockConfig = payload;
@@ -73,8 +75,8 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
 
   globals.__assistantAvailabilityOverride = { state: 'enabled' };
   globals.dispatchEvent(new Event(assistantAvailabilityOverrideEvent));
-  globals.secrets = {
-    ...globals.secrets,
+  secretsGlobals.secrets = {
+    ...secretsGlobals.secrets,
     list: async () => [payload.provider],
   };
 

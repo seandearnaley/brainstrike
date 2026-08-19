@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   addLogListener,
@@ -65,6 +66,7 @@ import {
 } from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
+import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import {
@@ -107,6 +109,7 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
+import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
@@ -131,6 +134,7 @@ import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { createShellIpcHandlers } from './ipc-shell-handlers';
 import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -148,6 +152,10 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { registerPrivilegedSchemes } from './privileged-schemes';
+import {
+  initializeProviderAuthRuntime,
+  purgeProviderAuthRuntimeState,
+} from './provider-auth/provider-auth-runtime';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -1661,9 +1669,65 @@ if (singleInstanceLockAcquired) {
         logger.error('Desktop environment file rejected', failure);
       }
 
+      // BST-1361: deprecated env names are detected ONCE per launch from this
+      // process's own environment (files were applied by main-bootstrap) and
+      // surfaced through /assistant/status; they never authenticate. Invoked
+      // INSIDE app-ready (review 10i) so a hypothetical registry-authoring
+      // throw surfaces through the normal startup error path instead of a
+      // pre-ready module-evaluation crash.
+      const deprecatedEnvVarReports = detectDeprecatedProviderEnvVars(process.env);
+      if (deprecatedEnvVarReports.length > 0) {
+        // Names only — never values. Logged once per launch (BST-1361).
+        logger.warn('Deprecated provider environment variables are set and will not authenticate', {
+          deprecatedEnvVars: deprecatedEnvVarReports.map(
+            ({ envVar, replacement }) => `${envVar} -> ${replacement}`
+          ),
+        });
+      }
+
       logger.debug('Setting up IPC handlers that require app readiness...');
-      registerSecretsIpcHandlers(createSecretsService(), {
+      // ONE SecretsService instance is shared by the secrets IPC domain and
+      // the provider-auth engine — two ElectronStore instances over the same
+      // file would serve stale reads to each other.
+      const secretsService = createSecretsService();
+      registerSecretsIpcHandlers(secretsService, {
         envFileFailures: desktopEnvLoadResult.failures,
+        // Factory reset must also drop the provider-auth engine's IN-MEMORY
+        // rotated-token overlay (BST-1356); wiping the secrets file alone
+        // would leave it the active credential for the process lifetime.
+        onClearAll: purgeProviderAuthRuntimeState,
+        // Projected per invoke from the RECORDED bootstrap result — loading is
+        // never re-run (initializeDesktopEnvironment throws on double-init).
+        readEnvBootstrapReport: () =>
+          buildDesktopEnvBootstrapReport({
+            appRoot: app.getAppPath(),
+            env: process.env,
+            isPackaged: app.isPackaged,
+            result: desktopEnvLoadResult,
+            userDataPath: app.getPath('userData'),
+          }),
+      });
+      // Provider OAuth engine (BST-1355) + the OpenAI Codex descriptor
+      // (BST-1356). The browser opener is the SAME validated
+      // shell.openExternal path the shell IPC domain uses (allow-listed
+      // protocols; never an embedded webview), and a failed open surfaces as
+      // a typed visible error.
+      //
+      // ONE engine instance is shared with the assistant server's credential
+      // resolution (see provider-auth-runtime): a second engine would carry
+      // its own single-flight map and replay a rotating refresh token.
+      const shellOpenHandlers = createShellIpcHandlers({ shell });
+      registerProviderAuthIpcHandlers({
+        engine: initializeProviderAuthRuntime({
+          appVersion: app.getVersion(),
+          openExternal: async (url) => {
+            const result = await shellOpenHandlers.openExternal(url);
+            if (!result.ok) {
+              throw new Error(result.error ?? 'shell.openExternal failed');
+            }
+          },
+          secrets: secretsService,
+        }),
       });
       registerAgentIpcHandlers();
       unregisterMcpIpcHandlers = registerMcpIpcHandlers();
@@ -1862,6 +1926,7 @@ if (singleInstanceLockAcquired) {
       let assistantStartupError: string | undefined;
       try {
         const { url, stop, authToken } = await startAssistantServer(undefined, {
+          deprecatedEnvVars: deprecatedEnvVarReports,
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,

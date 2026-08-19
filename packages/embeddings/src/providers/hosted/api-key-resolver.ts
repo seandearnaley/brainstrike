@@ -2,38 +2,79 @@ import {
   resolveHostedProviderKey,
   SECRETS_CHANGED_EVENT_NAME,
 } from '@brainstrike/assistant-contract/provider-key-resolution';
+import {
+  providerDeprecatedEnvKeys,
+  providerEnvKeys,
+  providerVendorEnvKey,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import type { HostedProviderType } from '../../provider-types.js';
 
 type HostedProvider = HostedProviderType;
 
 /**
- * Embedding-provider env-var names. This is a deliberately separate table
- * from the contract's LLM `providerEnvKeys` — the provider unions differ
- * (cohere/voyage are embedding-only) — but the RESOLUTION ORDER and error
- * semantics come from the shared core (BST-979): environment sources are
- * authoritative, the secret store is the fallback. Each name is also checked
- * with a `VITE_` prefix for SSR/renderer builds.
+ * Embedding-provider env-var names. Registry-keyed providers derive their
+ * names from the shared provider registry (BST-1361) — no hand-maintained
+ * copy, so `deprecatedEnvKeys` can never authenticate here. Only the local
+ * OpenAI-compatible runtimes (absent from the registry's envKeys because
+ * their optional bearer token is a transport concern, not an authType) keep
+ * local literals. The RESOLUTION ORDER and error semantics come from the
+ * shared core (BST-979): environment sources are authoritative, the secret
+ * store is the fallback. Each name is also checked with a `VITE_` prefix for
+ * SSR/renderer builds.
  */
-const ENV_KEYS: Record<HostedProvider, readonly string[]> = {
-  cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
-  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
+export const HOSTED_PROVIDER_ENV_KEYS: Record<HostedProvider, readonly string[]> = {
+  cohere: providerEnvKeys('cohere'),
+  google: providerEnvKeys('google'),
   lmstudio: ['LMSTUDIO_API_KEY', 'AI_LMSTUDIO_API_KEY'],
   // Optional auth for local OpenAI-compatible runtimes.
   ollama: ['OLLAMA_API_KEY', 'AI_OLLAMA_API_KEY'],
-  openai: [
-    'BRAINSTRIKE_OPENAI_API_KEY',
-    'BS_OPENAI_API_KEY',
-    'OPENAI_API_KEY',
-    'AI_OPENAI_API_KEY',
-    'OPENAI_API_KEY_V1',
-    'OPENAI_API_KEY_V2',
-  ],
-  voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+  openai: providerEnvKeys('openai'),
+  voyage: providerEnvKeys('voyage'),
 };
 
 function envKeyNamesWithViteVariants(provider: HostedProvider): readonly string[] {
-  const names = ENV_KEYS[provider] ?? [];
+  const names = HOSTED_PROVIDER_ENV_KEYS[provider] ?? [];
   return [...names, ...names.map((name) => `VITE_${name}`)];
+}
+
+export interface DeprecatedHostedEnvNameHit {
+  readonly envVar: string;
+  readonly replacement: string;
+}
+
+/**
+ * Deprecated env names (BST-1361) currently SET in this runtime's env
+ * sources for a hosted provider, plain and `VITE_`-prefixed — the same
+ * prefix rule the resolver applies to canonical names, so a renderer/SSR
+ * build that once authenticated via `VITE_GOOGLE_API_KEY` gets rename
+ * guidance instead of a silent death. Detection only: these names NEVER
+ * resolve a key. Names only — values never leave this function.
+ */
+export function detectDeprecatedHostedProviderEnvNames(
+  provider: HostedProvider
+): readonly DeprecatedHostedEnvNameHit[] {
+  const vendorName = providerVendorEnvKey(provider);
+  if (!vendorName) {
+    return [];
+  }
+  const candidates = providerDeprecatedEnvKeys(provider).flatMap((name) => [
+    { envVar: name, replacement: vendorName },
+    { envVar: `VITE_${name}`, replacement: `VITE_${vendorName}` },
+  ]);
+  if (candidates.length === 0) {
+    return [];
+  }
+  const candidateNames = candidates.map(({ envVar }) => envVar);
+  const sources = [
+    snapshotEnvSource(readProcessEnv(), candidateNames),
+    snapshotEnvSource(readImportMetaEnv(), candidateNames),
+  ];
+  return candidates.filter(({ envVar }) =>
+    sources.some((source) => {
+      const value = source?.[envVar];
+      return typeof value === 'string' && value.trim().length > 0;
+    })
+  );
 }
 
 /**

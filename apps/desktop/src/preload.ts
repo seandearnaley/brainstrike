@@ -58,10 +58,17 @@ const RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL = 'runtime:resolveOllamaCapabi
 const RUNTIME_VERIFY_EMBEDDING_DIMENSIONS_CHANNEL = 'runtime:verifyEmbeddingDimensions' as const;
 const SECRETS_CLEAR_ALL_CHANNEL = 'secrets:clearAll' as const;
 const SECRETS_DELETE_CHANNEL = 'secrets:delete' as const;
+const SECRETS_ENV_BOOTSTRAP_CHANNEL = 'secrets:envBootstrap' as const;
 const SECRETS_GET_CHANNEL = 'secrets:get' as const;
+const SECRETS_GET_CREDENTIAL_CHANNEL = 'secrets:getCredential' as const;
 const SECRETS_LIST_CHANNEL = 'secrets:list' as const;
 const SECRETS_LIST_STORED_CHANNEL = 'secrets:listStored' as const;
 const SECRETS_SAVE_CHANNEL = 'secrets:save' as const;
+const SECRETS_SAVE_CREDENTIAL_CHANNEL = 'secrets:saveCredential' as const;
+const PROVIDER_AUTH_CANCEL_CHANNEL = 'provider-auth:cancel' as const;
+const PROVIDER_AUTH_DISCONNECT_CHANNEL = 'provider-auth:disconnect' as const;
+const PROVIDER_AUTH_START_CHANNEL = 'provider-auth:start' as const;
+const PROVIDER_AUTH_STATUS_CHANNEL = 'provider-auth:status' as const;
 const SETTINGS_CLEAR_ALL_CHANNEL = 'settings:clearAll' as const;
 const STORAGE_CLEAR_CHANNEL = 'storage:clear' as const;
 const STORAGE_GET_ALL_KEYS_CHANNEL = 'storage:getAllKeys' as const;
@@ -719,11 +726,35 @@ if (shouldExposeBridge('electronAPI')) {
 contextBridge.exposeInMainWorld('secrets', {
   clearAll: () => ipcRenderer.invoke(SECRETS_CLEAR_ALL_CHANNEL, SECRETS_CLEAR_CONFIRMATION_TOKEN),
   deleteKey: (provider: string) => ipcRenderer.invoke(SECRETS_DELETE_CHANNEL, provider),
+  getCredential: (provider: string) => ipcRenderer.invoke(SECRETS_GET_CREDENTIAL_CHANNEL, provider),
   getKey: (provider: string) => ipcRenderer.invoke(SECRETS_GET_CHANNEL, provider),
   list: () => ipcRenderer.invoke(SECRETS_LIST_CHANNEL),
   listStored: () => ipcRenderer.invoke(SECRETS_LIST_STORED_CHANNEL),
+  saveCredential: (provider: string, credential: unknown) =>
+    ipcRenderer.invoke(SECRETS_SAVE_CREDENTIAL_CHANNEL, provider, credential),
   saveKey: (provider: string, value: string) =>
     ipcRenderer.invoke(SECRETS_SAVE_CHANNEL, provider, value),
+});
+
+// Env bootstrap visibility bridge (BST-1363). Read-only and NAMES-ONLY: the
+// main-process projection reports which .env files loaded, their paths, the
+// line-precise parse failures, and the NAMES of allow-listed variables that
+// are set — never a variable's value. Shape defined ONCE in
+// @brainstrike/assistant-contract env-bootstrap-bridge.ts (EnvBootstrapBridge).
+contextBridge.exposeInMainWorld('envBootstrap', {
+  read: () => ipcRenderer.invoke(SECRETS_ENV_BOOTSTRAP_CHANNEL),
+});
+
+// Provider OAuth bridge (BST-1355). Status-only by contract: every method
+// resolves a token-free ProviderAuthStatus; token material NEVER crosses IPC
+// (legal gate BST-1351 constraint 3). Shape defined ONCE in
+// @brainstrike/assistant-contract provider-auth.ts (ProviderAuthBridge).
+contextBridge.exposeInMainWorld('providerAuth', {
+  cancel: (provider: string) => ipcRenderer.invoke(PROVIDER_AUTH_CANCEL_CHANNEL, provider),
+  disconnect: (provider: string) => ipcRenderer.invoke(PROVIDER_AUTH_DISCONNECT_CHANNEL, provider),
+  start: (provider: string, method?: string) =>
+    ipcRenderer.invoke(PROVIDER_AUTH_START_CHANNEL, provider, method),
+  status: (provider: string) => ipcRenderer.invoke(PROVIDER_AUTH_STATUS_CHANNEL, provider),
 });
 
 // Settings Store API (factory reset support)

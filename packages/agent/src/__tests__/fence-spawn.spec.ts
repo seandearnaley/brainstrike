@@ -338,6 +338,38 @@ describe('buildSandboxEnv', () => {
     }
   });
 
+  it('SECURITY: no AWS_* name is ever allow-listed into the fence (BST-1353)', () => {
+    // Chain resolution is desktop-MAIN-only. The fence denies `~/.aws` on
+    // disk, so admitting an AWS variable on the HOST-ENV channel would reopen
+    // exactly the leak that denial exists to close — and BST-1353's
+    // `AWS_PROFILE` allow-listing is the DESKTOP `.env` boundary, a different
+    // list entirely. This pins the two apart.
+    //
+    // Note the channel under test is `process.env` (what the fence INHERITS),
+    // not the first argument — that one is srt's own output, whose changed
+    // keys are carried over by design.
+    for (const name of INHERITED_ENV_VARS) {
+      expect(name.startsWith('AWS_')).toBe(false);
+    }
+    const planted = {
+      AWS_ACCESS_KEY_ID: 'AKIALEAK',
+      AWS_PROFILE: 'acme-dev',
+      AWS_REGION: 'us-east-1',
+      AWS_SECRET_ACCESS_KEY: 'leaked-secret',
+      AWS_SESSION_TOKEN: 'leaked-session',
+    };
+    Object.assign(process.env, planted);
+    try {
+      const env = buildSandboxEnv({}, undefined);
+      expect(Object.keys(env).filter((name) => name.startsWith('AWS_'))).toEqual([]);
+      expect(Object.values(env)).not.toContain('leaked-secret');
+    } finally {
+      for (const name of Object.keys(planted)) {
+        delete process.env[name];
+      }
+    }
+  });
+
   it('carries over variables srt CHANGED, so a future srt keeps working', () => {
     const env = buildSandboxEnv({ HTTPS_PROXY: 'http://127.0.0.1:9', ...{} }, undefined);
     expect(env['HTTPS_PROXY']).toBe('http://127.0.0.1:9');

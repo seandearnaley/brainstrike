@@ -35,6 +35,10 @@
     "./path-validation": {
       "types": "./dist/path-validation.d.ts",
       "default": "./dist/path-validation.js"
+    },
+    "./testing/watcher-liveness": {
+      "types": "./dist/testing/watcher-liveness.d.ts",
+      "default": "./dist/testing/watcher-liveness.js"
     }
   },
   "main": "./dist/index.js",

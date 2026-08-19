@@ -9,7 +9,6 @@
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
     "lucide-react": "catalog:",
     "zustand": "catalog:"
   },

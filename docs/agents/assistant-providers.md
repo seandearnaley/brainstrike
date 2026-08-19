@@ -81,8 +81,117 @@
     factory. Do not make local-provider behavior depend on an undocumented
     narrow-entrypoint import order.
   - API keys:
-  - Managed via Settings.
+  - Managed via Settings: the Credential Inventory table (BST-1362,
+    `packages/settings-ui/src/settings/secrets/credential-inventory/`) — one
+    always-visible row per credential slot, no provider dropdown. Slots are a
+    SUPERSET of registry providers: every registry entry with `authType`
+    `api_key` or `aws` gets a row (keyless local runtimes keep their own
+    category; `oauth_subscription` providers get their own surface), plus the
+    Tavily web-search key, which deliberately lives outside the LLM registry.
+    Each row shows the canonical VENDOR env name (`providerVendorEnvKey`;
+    Tavily: `TAVILY_API_KEY`), a `Stored` / `Env (VAR)` / muted `Not set`
+    status, and for stored keys the non-secret `…last4` + saved-date
+    fingerprint. Editing is an inline expanded row (Enter saves, Escape
+    cancels via a window-capture listener so the settings dialog stays open;
+    registry `keyNotes`/`keyFormatHint`/`docsUrl` render inside the editor).
+    Env rows are read-only with a lock — the env var is authoritative, so
+    mutation buttons never render inert. The `aws` authType renders a TWO-MODE
+    editor (BST-1353): an "API key" / "AWS profile" switch
+    (`credential-mode-bearer-<slot>` / `credential-mode-profile-<slot>`)
+    chooses between saving `{type:'aws', mode:'bearer', bearerKey, region}`
+    and `{type:'aws', mode:'profile_chain', region, profile?}`. Bearer is the
+    default draft mode — it is the form that works with no local AWS setup at
+    all, so it stays the zero-config starting point. The region is MANDATORY
+    and `isValidAwsRegion`-gated in BOTH modes (a chain interpolates the same
+    request hostname); the profile input
+    (`credential-profile-input-<slot>`) is ALWAYS optional — blank means the
+    chain's own default resolution, a legitimate configuration — and a
+    profile-chain save demands no secret at all. Consequently a profile-chain
+    credential carries NO `…last4` fingerprint: there is no secret to
+    fingerprint, so `buildCredential` skips it entirely rather than calling
+    `createStoredKeyFingerprint` (which throws on an empty string, by design).
+    A profile-chain explainer (`credential-profile-hint-<slot>`) names what
+    the chain resolves and that it is desktop-only. Saves go through
+    the TYPED `saveCredential` bridge exclusively (no `saveKey` fallback — a
+    preload without the typed method fails visibly). Deprecated-env renames
+    from the status probe (BST-1361 `deprecatedEnvVars`) render as an inline
+    amber per-row warning. Rows sort configured-first (Stored, Env, then Not
+    set), registry order within groups. `<CredentialInventory
+    providers={['openai']}/>` is the reusable filtered seam BST-1358
+    consumes. Paired tests:
+    `packages/settings-ui/src/settings/secrets/__tests__/credential-inventory.test.tsx`,
+    desktop e2e `apps/desktop/e2e/secrets-settings.test.ts`.
   - Desktop: encrypted keychain.
+    Stored keychain values are typed provider credentials (BST-1348): the
+    stored value is `JSON.stringify(credential)` of the `ProviderCredential`
+    union (`api_key` | `oauth` | `aws`) declared in
+    `packages/assistant-contract/src/provider-credential.ts`, encrypted exactly
+    like the legacy bare-string keys. EVERY write goes through one path:
+    `saveKey` delegates to `setCredential({ type: 'api_key', key })`, so even
+    string saves store the JSON envelope (a pasted GCP service-account JSON —
+    which carries `"type":"service_account"` — therefore round-trips verbatim
+    instead of tripping tag validation on read). Reads apply the settled
+    legacy mapping forever: a decrypted value that never claims a `type` tag
+    (not JSON, non-object JSON, or a JSON object without a `type` property) IS
+    `{ type: 'api_key', key: <raw string> }` — a defined mapping covering every
+    pre-existing stored key, not a fallback. A value that carries a `type` tag
+    but is unrecognized or fails field validation throws a `SecretReadError`
+    with the `malformed_credential` code — it is never coerced into an api_key,
+    and `MalformedCredentialError` messages are static (no tag or field
+    values). Field rules: an `api_key` key must be non-empty; `aws` splits by
+    mode — `bearer` requires `bearerKey`, `profile_chain` keeps `profile`
+    optional (default chain is legitimate).
+    `SecretsService.getKey` returns `.key` only for `api_key` credentials; any
+    other stored type throws `SecretReadError('credential_type_unsupported')`,
+    so string-only consumers stay inside the existing read-failure contract:
+    the assistant HTTP path returns the structured `api_key_unreadable` 400.
+    Availability inspection (`inspectProviderKeys`) reads TYPED credentials
+    since the BST-1352 review: a VALID stored credential of ANY type marks the
+    provider configured (`providerKeySources` entry with `source: 'stored'`),
+    so the availability verdict and the typed-consumer verdict cannot diverge
+    when wave-3 consumers land; only malformed/unreadable entries surface as
+    per-provider `readFailures` repair entries (the other providers stay
+    listed). `secrets:listStored` id enumeration stays value-blind.
+    `secrets:list` (BST-1362) additionally projects the save-time
+    `{last4, savedAt}` fingerprint onto stored entries: the Credential
+    Inventory writes it into the credential's non-secret `metadata` at save
+    (both `api_key` and `aws` carry an optional string-record `metadata`;
+    `oauth` has none), and only those two keys ever cross the wire — never
+    key material, never other metadata. A fingerprint exists only when BOTH
+    keys are present (the single save path always writes them together); a
+    partial pair is withheld, and an unreadable stored credential still lists
+    as `source: 'stored'` without metadata (its read failure surfaces through
+    the status probe and every actual read path). Wire-shape validation is
+    the ONE shared parser `parseProviderKeySources`
+    (`packages/assistant-contract/src/provider-key-source.ts`, paired test
+    `provider-key-source.test.ts`) used by BOTH strict renderer consumers —
+    the settings Credential Inventory and the assistant-preferences
+    configured-provider probe — so the accepted payload shape cannot drift;
+    malformed fingerprint metadata is a visible parse failure, never guessed
+    at. `credential_type_unsupported`
+    and `malformed_credential` join `decrypt_failed` /
+    `encryption_unavailable` in the shared `SecretReadErrorCode` union; all
+    stay distinct from the `null` "not set" result.
+    Typed consumers use `getCredential` / `setCredential` and the renderer
+    bridge's `saveCredential` / `getCredential` (channels
+    `secrets:saveCredential` / `secrets:getCredential`, same visible-UI-only
+    policy as every secrets channel). Secrets IPC channels never throw domain
+    errors across invoke (Electron drops custom error props): writes resolve
+    `true | { ok: false, error: 'malformed_credential' |
+    'encryption_unavailable' | 'unknown_error' }` and `secrets:getCredential`
+    resolves `{ ok: true, credential | null }` or the serialized failure
+    `{ ok: false, error: SecretReadErrorCode, provider }`. `setCredential`'s
+    guard is the single write validator; handlers only map its errors. The
+    `window.secrets` shape is defined once as `SecretsBridge` in
+    `packages/assistant-contract/src/secrets-bridge.ts` (required-method pin
+    enforced by the preload-runtime contract test; settings-ui consumes the
+    derived `SecretsCapability` view with the typed methods optional).
+    Test-mode Secrets IPC stores the same serialized envelope forms and reads
+    through the same `parseCredentialOrThrow` / `credentialToApiKey` helpers
+    as the production service. The full decision table and its paired tests:
+    `packages/assistant-contract/src/__tests__/provider-credential.test.ts`,
+    `apps/desktop/src/__tests__/secrets.test.ts`, and
+    `apps/desktop/src/__tests__/main/ipc-secrets.test.ts`.
     The secrets bridge is a visible-UI capability. Every secrets IPC operation
     declares and enforces the `visible-ui` sender role in the main-process IPC
     registry before arguments are parsed or keychain code runs. Chunking,
@@ -102,7 +211,9 @@
     even when an existing value is empty. Every candidate file is read and
     validated before any value is applied, so an unreadable or malformed file
     applies nothing and surfaces through both the assistant status probe and
-    Settings. Files may set only the credential names documented in
+    Settings (the Settings surface and its names-only payload rule are
+    specified under "Env bootstrap visibility (BST-1363)" below).
+    Files may set only the credential names documented in
     `apps/desktop/.env.example`; arbitrary process variables are rejected so a
     packaged user-data file cannot alter child-process execution. Assignment
     boundary whitespace is rejected rather than silently trimming a credential
@@ -110,6 +221,72 @@
     `ELECTRON_IS_E2E_TEST=true`, and `--test-mode` disable environment-file
     loading entirely; directly injected launch variables retain their existing
     runtime semantics.
+    Canonical env names (BST-1361): every keyed provider resolves EXACTLY two
+    environment names, in order `BRAINSTRIKE_<PROVIDER>_API_KEY` (app-scoped
+    override, wins) then the vendor-standard name — the full precedence chain
+    is `BRAINSTRIKE_*` > vendor name > stored keychain secret.
+
+    | Provider   | Override                          | Vendor-standard                | Deprecated (never authenticate)                                                    |
+    | ---------- | --------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
+    | openai     | `BRAINSTRIKE_OPENAI_API_KEY`      | `OPENAI_API_KEY`               | `BS_OPENAI_API_KEY`, `AI_OPENAI_API_KEY`, `OPENAI_API_KEY_V1`, `OPENAI_API_KEY_V2` |
+    | anthropic  | `BRAINSTRIKE_ANTHROPIC_API_KEY`   | `ANTHROPIC_API_KEY`            | `AI_ANTHROPIC_API_KEY`                                                              |
+    | google     | `BRAINSTRIKE_GOOGLE_API_KEY`      | `GOOGLE_GENERATIVE_AI_API_KEY` | `GOOGLE_API_KEY`, `AI_GOOGLE_API_KEY`                                               |
+    | openrouter | `BRAINSTRIKE_OPENROUTER_API_KEY`  | `OPENROUTER_API_KEY`           | `AI_OPENROUTER_API_KEY`                                                             |
+    | cohere     | `BRAINSTRIKE_COHERE_API_KEY`      | `COHERE_API_KEY`               | `AI_COHERE_API_KEY`                                                                 |
+    | voyage     | `BRAINSTRIKE_VOYAGE_API_KEY`      | `VOYAGE_API_KEY`               | `AI_VOYAGE_API_KEY`                                                                 |
+    | bedrock    | `BRAINSTRIKE_BEDROCK_API_KEY`     | `AWS_BEARER_TOKEN_BEDROCK`     | —                                                                                   |
+    | tavily     | `BRAINSTRIKE_TAVILY_API_KEY`      | `TAVILY_API_KEY`               | —                                                                                   |
+
+    The registry (`provider-registry.ts` `envKeys` + `deprecatedEnvKeys`) is
+    the single source of truth. Deprecated names obey three invariants, all
+    tested: they stay in the desktop `.env` allow-list forever (an
+    unrecognized name rejects the WHOLE file, so removal would brick existing
+    user files); they stay in the child-env credential scrubber forever (a
+    credential-shaped var must never leak to children); and they are ABSENT
+    from every resolution list, so a deprecated var never authenticates.
+    Scope: the scheme and its deprecation claims cover exactly the seven keyed
+    providers above (bedrock's "key" is a Bedrock API bearer token; see the
+    Amazon Bedrock section for its region rule). The desktop allow-list is a
+    UNION since BST-1350: the registry-derived CREDENTIAL set
+    (`CREDENTIAL_ENV_FILE_VARIABLE_NAMES`, which alone drives the child-env
+    credential scrub) plus the deliberate NON-credential set
+    (`NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES`, today exactly
+    `AWS_REGION` and — since BST-1353 — `AWS_PROFILE`) — both are
+    configuration, not secrets, so children may inherit them while every
+    bearer name is still stripped (desktop-env.test.ts pins both directions).
+    `AWS_PROFILE` NAMES a profile in the user's `~/.aws/config`; the
+    credentials it points AT are secret but live in the user's AWS
+    configuration and never pass through this process env, so scrubbing the
+    name would break `aws` CLI children while protecting nothing.
+    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` are
+    NOT `.env`-loadable (the registry never produces them, and file-loading
+    them would create a new credential channel), but they ARE in
+    `SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES` — the scrub is a DENY-LIST, so an
+    unlisted ambient credential reaches children verbatim (PR #2525 review,
+    finding 1). They can still ACTIVATE the credential chain from the
+    INHERITED process environment, because the file allow-list governs what a
+    `.env` FILE may set, not what the chain may see.
+    Separately, the code-execution FENCE allow-list
+    (`INHERITED_ENV_VARS` in `packages/agent/src/fence/fence-executor.ts`)
+    contains NO `AWS_*` name and must not gain one: chain resolution is
+    desktop-main-only and sandboxed user code has no business signing AWS
+    requests. The local runtimes' optional embeddings bearer tokens
+    (`OLLAMA_API_KEY`/`AI_OLLAMA_API_KEY`, `LMSTUDIO_API_KEY`/
+    `AI_LMSTUDIO_API_KEY`) are separate LIVE transport names outside the
+    registry scheme — not deprecated, not `.env`-file-loadable (they are not
+    allow-listed), resolved only from the launch environment by the
+    embeddings resolver. Consolidating them is flagged for the BST-1362/1358
+    settings work.
+    When set, they surface visibly: desktop main detects them once at startup
+    (`detectDeprecatedProviderEnvVars`), logs a warning, and `/assistant/status`
+    (and the Hosted Web status route) carry
+    `deprecatedEnvVars: [{provider, envVar, replacement}]` — names only, never
+    values (the Credential Inventory renders them as per-row rename
+    warnings, BST-1362). Consumers that cannot
+    import the registry (`packages/indexing-contract`) are pinned by
+    `scripts/__tests__/provider-env-keys-mirror-contract.test.mjs`;
+    `apps/desktop/.env.example` is pinned by
+    `apps/desktop/src/__tests__/main/env-example-contract.test.ts`.
     Chat and model-metadata environment credentials remain authoritative when
     present. A stored-key `SecretReadError` must otherwise propagate as the typed
     `api_key_unreadable` chat/model-metadata failure (or the original typed
@@ -124,9 +301,15 @@
     secret must re-probe assistant status so an unreadable-key error cannot
     remain latched after the credential is repaired.
     Provider-backed memory follows the same authority chain. Observational
-    memory and semantic recall distinguish `disabled`, request-key `resolved`,
-    and `needs_async_resolution` states; the latter performs the env/keychain
-    lookup before constructing Mastra memory. A completed lookup with no key
+    memory and semantic recall distinguish `disabled`, `resolved` (built-in
+    local targets only), and `needs_async_resolution` states; the latter
+    performs the env/keychain lookup before constructing Mastra memory. The
+    old request-key `resolved` fast path for hosted targets is RETIRED
+    (BST-1352 review): RuntimeData no longer carries the request's bearer key
+    (credentials travel only as the direct authInput parameter), so every
+    hosted memory target resolves through the same env/keychain chain the
+    request used — value-identical, and the memory cache absorbs the extra
+    read. A completed lookup with no key
     returns HTTP 400 `memory_credential_missing` with the bounded provider and
     `observational_memory` or `semantic_recall` feature. A `SecretReadError`
     remains `api_key_unreadable`. Renderer memory gates must prefer the matching
@@ -432,14 +615,24 @@
   `GOOGLE_FLASH_THINKING_LEVELS` happens to list all four levels today is a fact
   about what the Flash line offers, not a definition of the type.
 - The provider-options INTERFACES (`OpenAiProviderOptions`,
-  `GoogleProviderOptions`, `AnthropicProviderOptions`, `LocalProviderOptions`,
+  `GoogleProviderOptions`, `AnthropicProviderOptions`, `BedrockProviderOptions`,
+  `LocalProviderOptions`,
   `OpenRouterProviderOptions`) are NOT shared between
   `assistant-contract/runtime-data.ts` and `agent/types.ts`, and that is not
   oversight: the contract's extend `RuntimeJsonObject` (a wire-side
   `Record<string, unknown>`) while the agent's extend `JSONObject` from
   `@ai-sdk/provider`, which is the constraint the SDK actually imposes on
   `providerOptions`. They are structurally parallel, not the same type. Unify
-  them only by resolving that base-type split first.
+  them only by resolving that base-type split first. `BedrockProviderOptions`
+  (BST-1354) follows the same rule and was added to BOTH files in one change.
+  The base-type split shows through in one visible way: the AGENT-side
+  `BedrockReasoningConfig` must be a type ALIAS (with a `biome-ignore` for
+  `useConsistentTypeDefinitions`) because an interface member does not satisfy
+  `JSONObject`'s string index signature — TS2411, the same reason
+  `AnthropicThinkingOptions` is an alias — while the contract-side copy is an
+  ordinary interface under `RuntimeJsonObject`. `BedrockReasoningEffort` is NOT
+  duplicated: like the OpenAI-family vocabulary it is declared once in
+  `@brainstrike/types` and re-exported by both.
 - OpenRouter request options use the native `providerOptions.openrouter`
   namespace. The shared reasoning controls map to
   `{openrouter:{reasoning:{effort,summary},provider:{require_parameters:true}}}`.
@@ -790,6 +983,866 @@ Implementation:
 - packages/app-shell/src/hooks/use-assistant-availability.ts
 
 When changing this flow, update this doc.
+
+### Provider registry auth metadata (BST-1349)
+
+`ProviderDefinition` in
+`packages/assistant-contract/src/provider-registry.ts` carries per-provider
+auth metadata; the registry is the ONLY source for it:
+
+- `authType: 'api_key' | 'oauth_subscription' | 'aws' | 'none'` — REQUIRED on
+  every provider. `'none'` marks the keyless providers (`local`, `ollama`,
+  `lmstudio`); the local servers' optional bearer token is a TRANSPORT concern
+  (`providerOptions.apiToken`, registry `runtime: 'local'`), not an authType.
+  `'aws'` is carried by `bedrock` (BST-1350/BST-1353; ONE authType covers both
+  auth forms — the stored credential's `mode` discriminates bearer from
+  profile chain). `'oauth_subscription'` is carried by `openai-codex`
+  (BST-1356 — ChatGPT-subscription sign-in; see the Codex section below).
+  Keyless-ness DERIVES from `authType === 'none'` and NEVER from "declares no
+  env keys": `openai-codex` declares `envKeys: []` precisely BECAUSE it is
+  interactive OAuth only, and conflating the two would advertise it as usable
+  before the user has connected an account.
+- `docsUrl?` — the provider's "get an API key" page (required in practice for
+  `api_key` providers).
+- `keyFormatHint?` — vendor-documented stable key prefix (e.g. `sk-ant-...`).
+  Omit when the vendor documents no stable format; never guess.
+- `keyNotes?` — provider-specific key guidance rendered verbatim in Settings
+  (e.g. google's Gemini-vs-Vertex note).
+
+What DERIVES from the registry (via `providerAuthType(id)` /
+`getProviderDefinition(id).runtime`; lookups on ids not statically typed
+`ProviderId` use the non-throwing `findProviderDefinition` — an
+out-of-registry id must reach a documented fallback, never a TypeError):
+
+- `packages/agent`: `resolveRuntimeConfiguration` (keyless = `authType
+  'none'`), `PERSONA_PIN_KEYLESS_PROVIDERS`, `isHostedProviderRuntime`
+  (fail-open: only `runtime 'local'|'browser'` opt out of the hosted path),
+  the dynamic local-model tool budget, and `createLanguageModelProvider`'s
+  key requirement.
+- `packages/assistant-service`: `providerAllowsMissingAuth`,
+  `resolveCredentialOrReject` (BST-1352 name of the former
+  `resolveApiKeyOrReject`; a keyless provider's OPTIONAL token read failure
+  proceeds keyless with a warn, never a 400), local-runtime token hydration.
+- `packages/assistant-contract`: `model-reasoning.ts`'s discovered-model
+  answers key off registry `runtime: 'local'`.
+- Settings renders `keyNotes`/`keyFormatHint`/`docsUrl` generically — no
+  `provider === '...'` branches. `PROVIDER_COLOR_MAP` (`packages/ui`) is
+  compile-time exhaustive over `SupportedProvider` (`satisfies`); its hash
+  fallback serves only dynamically discovered runtime ids.
+
+KNOWN remaining hand-sites (deliberate or ticketed — do not silently grow
+this list):
+
+- `packages/app-shell` `LOCAL_RUNTIME_PROVIDER_IDS` and the settings-ui
+  embedding section's local-runtime entries — follow-up in BST-1362/BST-1358
+  (Provider Hub) scope.
+- `packages/embeddings` / `packages/indexing-contract` embedding-provider
+  key tables — BST-1361.
+- `apps/desktop/src/assistant-server/provider-credentials.ts` (~line 48)
+  availability semantics: only `local` is unconditionally available;
+  local-server availability is probed. Deliberate, documented here.
+- Transport/display concerns are NOT authType sites and stay per-provider:
+  the `providerOptions.ollama`/`.lmstudio` namespace stripping, local-runtime
+  factory type unions, and human display labels.
+
+Pinned by
+`packages/assistant-contract/src/__tests__/provider-registry-auth.test.ts`,
+`packages/agent/src/__tests__/runtime-configuration.spec.ts`,
+`packages/agent/src/__tests__/tool-output-limits.spec.ts` (unknown-provider
+fallback), `packages/agent/src/__tests__/tool-pipeline-provider-runtime.spec.ts`,
+the BST-1349 suites in
+`packages/assistant-service/src/__tests__/request.test.ts`, and the
+`satisfies` in `packages/ui/src/model-picker/utils/provider-colors.ts`.
+
+### Provider credential seam (BST-1352)
+
+The credential path is TYPED end to end; the bearer-key string is now a
+projection of it, not the contract. Three layers, each with one owner:
+
+**Reader types** (`packages/assistant-service/src/ports.ts`, re-exported from
+`/request`):
+
+- `ResolvedProviderCredential = ProviderCredential & { source: 'env' | 'stored' }`
+  — the BST-1348 union plus provenance. `source: 'env'` entries are ALWAYS
+  `api_key` (environment variables can only express bearer keys); typed
+  `oauth`/`aws` credentials only arrive `source: 'stored'`.
+- `ProviderCredentialReader` — the typed reader `prepareAssistantPostRequest`
+  consumes (`undefined` = not configured; a secret-read failure THROWS).
+  Desktop passes `resolveProviderCredential`
+  (`apps/desktop/src/assistant-server/provider-credentials.ts`), built on
+  `readProviderCredential` (`apps/desktop/src/provider-api-key.ts`) →
+  `resolveHostedProviderCredential`, the typed generalization of the BST-979
+  env-authoritative core in
+  `packages/assistant-contract/src/provider-key-resolution.ts` (same contract:
+  env order, never throws, `secretReadError` pass-through only when nothing
+  found; `SECRETS_CHANGED_EVENT_NAME` untouched). Hosted Web adapts its
+  env-only config lookup into `api_key` credentials — no typed-credential
+  resolution on web.
+- `ProviderApiKeyReader` (string) is the MIGRATION SHIM, derived only via
+  `createProviderApiKeyReader(typedReader)` in
+  `assistant-service/src/provider-credential-projection.ts` (the projections
+  live there, NOT in ports.ts — ports stays a structural surface):
+  `api_key` → `.key`; any other type throws the SecretReadError-shaped
+  `credential_type_unsupported` failure built from the SHARED
+  `describeSecretReadError` text in assistant-contract (a structured
+  credential is NEVER stringified). The credential-type narrow lives in ONE
+  place per layer: `providerAuthInputFromCredential` here (the shim composes
+  it), and the desktop store's `credentialToApiKey` keeps its own narrow
+  deliberately (store-layer contract, real `SecretReadError` class).
+  COMPLETE string-surface consumer list (the `@deprecated` shim's remaining
+  call sites): persona pin key resolution (stream-init's
+  `resolveProviderApiKey` injection), persistent-memory model targets
+  (`apps/desktop/src/assistant-server/mastra-memory.ts` →
+  `createLanguageModelProvider(provider, apiKey, …)`), and the desktop
+  OpenRouter-metadata/status endpoints (`resolveProviderApiKeyOrRespond`).
+  `ipc-agent.ts` is MIGRATED onto the typed core (`readProviderCredential`,
+  typed degradation included). ACCEPTED LIMITATION: persistent memory and
+  embeddings remain api_key-only until a ticket needs otherwise — Bedrock is
+  excluded from persistent memory by
+  `PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`, and oauth providers will not
+  be memory providers. The request pipeline's credential-type narrow IS the
+  shared projection since BST-1350 (`resolveCredentialOrReject` calls
+  `providerAuthInputFromCredential`): a projectable credential yields its
+  bearer surface (api_key keys, bedrock aws-bearer keys), and a
+  non-projectable one (oauth, aws stored on a non-aws provider, and aws
+  profile_chain on a host that supplies no chain capability) maps onto the
+  SAME `api_key_unreadable` 400 (or the keyless optional-token warn) the old
+  `getKey` throw produced — never `missing_api_key`. Since BST-1353
+  `prepareAssistantPostRequest` takes an optional `awsCredentialChain` and
+  forwards it verbatim to that projection, so PREPARATION classifies a
+  profile_chain credential exactly as the host that will CONSUME it does:
+  desktop supplies the builder and preparation succeeds keyless, Hosted Web
+  omits it and preparation rejects. A profile_chain credential is therefore
+  the SECOND legitimate "no apiKey" case beside keyless (`authType 'none'`)
+  providers — it is configured, it simply carries no bearer string — and it
+  must never fall into `missing_api_key`. Reaching that point means the
+  projection already ACCEPTED the credential, so the keyless path can never
+  wave through an unusable one.
+
+**Factory auth input** (`packages/agent/src/providers/provider-auth-input.ts`):
+`createProvider(provider, auth?: ProviderAuthInput, model?, runtime?)` takes a
+discriminated union instead of a bare key string:
+
+- `{ kind: 'api_key', apiKey }` — the existing flow; behavior-identical to the
+  old string parameter. Every current caller uses this kind.
+- `{ kind: 'custom_fetch', apiKey /* dummy */, fetch }` — threads the injected
+  fetch into the AI SDK `create*` factories (`providerFetchOptions` helper).
+  Consumed by BST-1356. Provider cases whose model config is a Mastra
+  DESCRIPTOR (openrouter/ollama/lmstudio) or the local host client have no
+  fetch seam and throw typed (`bearerApiKeyOnly`) — the fetch is never
+  silently dropped. `wrapAnthropicModelWithPromptCaching` composes with every
+  kind (pinned by `provider-factory.auth-input.spec.ts`). EVERY secondary SDK
+  client shares the seam: the provider-native web-search client
+  (`native-web-search.ts`) is built from the SAME ProviderAuthInput via
+  `providerFetchOptions` — never from a bare key (pinned by
+  `native-web-search.auth-input.spec.ts`; a bare-key client under
+  custom_fetch would send the dummy key to the real API).
+- `{ kind: 'aws', region, apiKey?, credentialProvider? }` — validated (region
+  REQUIRED and format-checked, typed errors `MISSING_AWS_REGION_DETAIL` /
+  `INVALID_AWS_REGION_DETAIL`; plus the BST-1353 EXACTLY-ONE rule below) and
+  consumed ONLY by the `bedrock` case via `requireAwsAuthInput` (BST-1350);
+  every other case throws typed. `credentialProvider` is the SigV4 consumer
+  (BST-1353): it is TYPED, not `unknown`, through the import-free
+  `providers/aws-credential-identity.ts` so this browser-reachable seam keeps
+  ZERO edges — not even type-only — to the Node-only
+  `@aws-sdk/credential-providers`. That declaration's fidelity is
+  compile-checked, not asserted by comment: `createAwsCredentialChain`
+  declares `AwsCredentialIdentityProvider` as its return type while returning
+  the SDK's own `fromNodeProviderChain(...)` result, so drift is a red build
+  at that return statement (the indirection exists because `@smithy/types` is
+  transitive and does not resolve from `packages/agent`). Every switch over
+  the union is exhaustive (compile error on an unhandled kind).
+- **EXACTLY ONE aws credential (BST-1353, widening PR #2522 finding 4).** An
+  `aws` input must carry `apiKey` XOR `credentialProvider`.
+  `assertExactlyOneAwsCredential` enforces it inside
+  `assertValidProviderAuthInput` (before provider dispatch, the same
+  placement the region rules use) AND is RE-asserted in the factory's
+  `bedrock` case, so a DIRECT `createProvider` caller cannot slip past the
+  pre-dispatch validator. Neither form present →
+  `MISSING_AWS_CREDENTIALS_DETAIL`: with both absent the AI SDK falls back to
+  AMBIENT AWS environment credentials, quietly signing with whatever identity
+  is in the process env. Both present → `CONFLICTING_AWS_CREDENTIALS_DETAIL`:
+  the AI SDK prefers `apiKey` over `credentialProvider`, which is precisely
+  why the XOR is ENFORCED rather than relied upon — bearer-vs-chain
+  precedence is decided ONCE at credential resolution
+  (`apps/desktop/src/provider-api-key.ts`), so a doubly-populated input
+  reaching the factory means a resolver bug and is surfaced, not papered
+  over. This constant REPLACES BST-1350's `MISSING_AWS_BEARER_KEY_DETAIL`.
+
+**Threading rule (do not relitigate):** the auth input travels as a DIRECT
+parameter the whole way down — `runAssistantTurn` → `initializeAgentStream` →
+stream options (`toAiSdkStyleStream` / the approval + suspend resume actions)
+→ `MastraAgentRuntimeOptions.authInput` → `resolveRuntimeConfiguration` →
+`instantiateLanguageModel` → `createProvider`. Credentials/auth inputs NEVER
+enter RuntimeData or a Mastra RequestContext: `RequestContext.toJSON` drops
+functions, so a `custom_fetch` closure riding runtime data would vanish
+silently. Since the BST-1352 review, stream-init builds the runtime object
+WITHOUT an apiKey field and the desktop memory path's request-key reuse is
+retired — the only remaining `runtime.apiKey` READ is key-resolver's
+documented legacy surface for DIRECT `streamMastraAgent` callers that never
+pass an authInput. `resolveRuntimeConfiguration` treats a threaded auth
+input as AUTHORITATIVE (no fallback into runtime/env key resolution);
+supplying BOTH `resolved` and a different `authInput` to
+`createMastraAgentRuntime` throws typed (same-reference is the legitimate
+pre-resolved path); `mastra_agent_missing_api_key` code + message are
+unchanged, and `aws` inputs skip the bearer-key requirement. Hosted Web is a
+PROJECTION of the prepared typed credential
+(`providerAuthInputFromCredential` in `web-assistant-stream.ts`) — no string
+re-mint, api_key-only enforcement stays at the web resolution layer.
+
+Pinned by `packages/agent/src/__tests__/provider-factory.auth-input.spec.ts`,
+the BST-1352 blocks in `runtime-configuration.spec.ts`,
+`persona-pinned-model.spec.ts`,
+`packages/assistant-service/src/__tests__/request.test.ts` +
+`run-turn.test.ts`,
+`packages/assistant-contract/src/__tests__/provider-key-resolution.test.ts`,
+and `apps/desktop/src/__tests__/main/provider-credentials.test.ts` +
+`provider-api-key.test.ts`.
+
+### Credential-verification probes (BST-1357)
+
+`apps/desktop/src/assistant-server/provider-verification.ts` (modeled on
+`openrouter-model-metadata.ts`: bounded TTL cache with `live`/`fresh-cache`
+provenance, single-flight per (provider, credential digest), 10s timeout, NO
+retries) runs the cheapest authenticated call that proves a stored
+credential. Only `verified`/`verified_limited` earn the 60s success TTL;
+failure results cache for a separate 3s `failureTtlMs` (click-storm dedup
+only — recovery must be observable on the next deliberate click), and the
+cache timestamp is sampled AFTER the probe resolves so a 10s timeout does not
+pre-burn its own TTL (#2519 review). Exposed as
+`GET /assistant/verify-provider?provider=<id>` beside the OpenRouter metadata
+endpoint (same origin/auth gates); the renderer sends ONLY the provider id —
+credentials resolve main-side via the typed reader. Renderer seam:
+`fetchProviderVerification` + the button-driven `verifyProviderCredential`
+(`packages/app-shell/src/verify-provider-credential.ts`) — a plain async
+FUNCTION, not a hook: settings-ui owns the probe UI but cannot import
+app-shell (that would close a cycle), and a hook may not be passed as a value.
+The React state around it lives in `use-provider-verification-state`
+(`packages/settings-ui`). BST-1378 deleted the original `useProviderVerification`
+hook, which lost its last consumer when BST-1358 moved that lifecycle into
+settings-ui.
+Wire contract: `ProviderVerificationSnapshot` in
+`packages/assistant-contract/src/provider-verification.ts`.
+
+| Provider | Probe |
+| --- | --- |
+| openai | `GET https://api.openai.com/v1/models` (Bearer) |
+| anthropic | `GET https://api.anthropic.com/v1/models` (`x-api-key` + `anthropic-version: 2023-06-01`, the version the repo's `@ai-sdk/anthropic` sends) |
+| google | `GET https://generativelanguage.googleapis.com/v1beta/models` — `x-goog-api-key` HEADER, never the documented `?key=` param (keys must not enter URLs/logs) |
+| openrouter | `GET https://openrouter.ai/api/v1/key` (Bearer); success `detail` uses NUMERIC usage figures only — the payload's `label` is key material |
+| cohere | `GET https://api.cohere.com/v1/models` (Bearer) |
+| voyage | `POST https://api.voyageai.com/v1/embeddings` with a one-token body — Voyage publishes NO model-list GET (verified 2026-08-18), so the documented minimal call is the probe. NOTE: this is a METERED one-token embeddings call, unlike the GET probes |
+| tavily | `GET https://api.tavily.com/usage` (Bearer). Not a chat provider (no registry entry); synthetic api_key target + its own keychain reader |
+| authType `aws` (bearer) | `GET https://bedrock.<region>.amazonaws.com/foundation-models` (Bearer). Keyed by authType + credential shape, so it activates when BST-1350's bedrock provider lands; uses the same shared HTTP classifier as every other probe |
+| authType `aws` (profile_chain) | CHAIN RESOLUTION itself (`verifyAwsCredentialChain`, BST-1353) — NOT an HTTP call. The chain IS the credential, so resolving it is the most direct possible proof, and it answers the question the user actually has ("is my SSO session still good?") before they spend a turn finding out. Injected like `fetchImpl` so tests drive every verdict without a real `~/.aws` |
+| authType `none` | typed `not_applicable`, ZERO network calls and ZERO credential reads — local-runtime liveness is the ipc-runtime probe family's job |
+
+Status semantics (do not blur them; ONE shared HTTP classifier module-wide,
+#2519 review): `verified` = 2xx; `verified_limited` = the credential
+authenticated but the probe could not fully succeed — 403
+(permission-scoped, e.g. an InvokeModel-only bedrock key) or 429 (a VALID
+key that is rate limited / out of quota; OpenAI answers 429
+insufficient_quota on real keys) — both DISTINCT from 401; `invalid` = the
+endpoint rejected the credential (401, or google's documented
+`API_KEY_INVALID` 400); `unreachable` = no auth verdict obtainable (network
+error, timeout, or any HTTP status outside the classified set — 404, 5xx, …)
+— wrong-key vs wifi-down MUST stay distinct; `not_applicable` = nothing to
+probe (authType `none` ONLY — aws profile_chain LEFT this bucket in BST-1353,
+see below). Failure `detail` derives from
+the HTTP status ONLY (bodies can echo request headers); an api_key provider
+WITHOUT a declared probe throws — never a guessed endpoint — and the
+probe-coverage contract test (iterating registry `api_key` providers against
+the probe table, plus tavily) turns "new provider ships unverifiable" into a
+red build.
+
+The profile-chain probe (BST-1353) maps chain outcomes onto those SAME
+semantics without inventing a status: resolved → **`verified_limited`**, NOT
+`verified` (PR #2525 review, finding 5 — chain resolution proves only that
+LOCAL credentials exist and never touches Bedrock, so reporting `verified`
+would silently redefine that status for one provider; the detail reads
+"…profile chain; Bedrock access not exercised", the same rung a 403 earns);
+`sso_expired` or `no_credentials` → `invalid`, because both mean exactly "this
+credential will not authenticate"; an unrecognized SDK failure (`kind:
+'unknown'` — a DNS error during an SSO refresh, say) → `unreachable`,
+preserving "no verdict obtainable". The failure `detail` is the classifier's
+actionable guidance, so an expired session shows the `aws sso login --profile
+<name>` command right in the settings row; it is drawn from a BOUNDED shape
+map and never interpolates the raw SDK message (finding 7).
+
+The chain probe is BOUNDED by the probe's own `requestTimeoutMs` (finding 3):
+resolution is not inherently bounded — `credential_process` can spawn a
+hanging child, an SSO refresh can stall on a black-holed proxy, and IMDS has
+its own long connect timeout — and an unsettled probe would wedge the
+single-flight entry so every later click awaited the same dead promise. A
+timeout settles as `unreachable` and releases the entry. This
+is the ONE probe whose `detail` is not derived from an HTTP status — there is
+no HTTP response, and the text is the agent's own, never a remote body.
+Pinned by
+`apps/desktop/src/__tests__/assistant-server/provider-verification.test.ts`,
+the verify-provider block in `status-endpoints.integration.test.ts`,
+`packages/assistant-contract/src/__tests__/provider-verification.test.ts`,
+and the app-shell client/hook tests.
+
+### Amazon Bedrock (BST-1350 bearer + catalog, BST-1353 AWS credential chain)
+
+Registry entry `bedrock` (`authType: 'aws'`, `runtime: 'hosted'`, LLM-only).
+TWO auth forms, both live, both under the one `aws` authType: a Bedrock API
+key (bearer token, BST-1350) and the AWS default credential chain (SigV4,
+BST-1353 — profiles, SSO, `credential_process`, web-identity/EKS, and
+instance/container roles). The stored credential's `mode`
+(`bearer` | `profile_chain`) discriminates them; exactly one reaches the
+factory per request (see the auth-input EXACTLY-ONE rule above).
+
+- **Auth precedence — FOUR rungs, two orthogonal axes.** Bearer-vs-chain is
+  the PRIMARY axis; env-vs-stored applies WITHIN each mode. The whole table is
+  decided in ONE place, `readProviderCredential`
+  (`apps/desktop/src/provider-api-key.ts`):
+
+  | # | Credential | Source |
+  | --- | --- | --- |
+  | 1 | env bearer — `BRAINSTRIKE_BEDROCK_API_KEY` > `AWS_BEARER_TOKEN_BEDROCK` (AWS's documented bearer variable) | env |
+  | 2 | stored bearer — `{ type:'aws', mode:'bearer', bearerKey, region }` in the keychain | stored |
+  | 3 | env chain — the ENV-CHAIN ACTIVATION RULE below | env |
+  | 4 | stored chain — `{ type:'aws', mode:'profile_chain', region, profile? }` in the keychain | stored |
+
+  **Rung 2 deliberately outranks rung 3 (do not relitigate).** A bearer key is
+  an EXPLICIT, Bedrock-specific credential the user typed into Settings; an
+  AWS environment is AMBIENT and is very often set for unrelated tooling on
+  the same machine. Letting a stray `AWS_PROFILE` silently displace the key
+  the user configured for this app would sign with an identity they never
+  chose for it. `resolveHostedProviderCredential` already decides 1-vs-2, so
+  the only work left in `readProviderCredential` is inserting 3 ahead of a
+  stored chain. An env bearer key pairs with the region from `AWS_REGION`;
+  every stored credential carries its OWN region.
+- **ENV-CHAIN ACTIVATION RULE (BST-1353), stated once in
+  `resolveAwsEnvChainCredential`:** `AWS_REGION` is set AND no bearer
+  credential was resolved AND (`AWS_PROFILE` or `AWS_ACCESS_KEY_ID` is
+  present). Each clause earns its place: a chain credential still needs a
+  region and there is no default (the settled BST-1350 rule), env auth has
+  nowhere else to carry one; "no bearer" is what makes rungs 1-2 beat rung 3;
+  and the activation variable is the ONE gate on the chain — a machine with
+  `~/.aws/config` but no AWS environment at all has NOT asked Brainstrike to
+  sign with ambient credentials. Once activation passes the FULL chain runs
+  (SSO, process creds, instance roles): the gate selects the MODE, it never
+  narrows what the chain may consult — the same "installed unconditionally,
+  like the AWS CLI" philosophy `aws-credential-chain.ts` documents, because
+  gating on `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` would break every
+  credential source the chain exists to serve. The region is deliberately NOT
+  format-checked at activation: a malformed `AWS_REGION` must reach the
+  factory's `INVALID_AWS_REGION_DETAIL` rejection rather than silently read as
+  "Bedrock is not configured" — the same reasoning as the projection's
+  deliberate `region: ''`.
+- **The Credential Inventory's aws editor** (BST-1362
+  `credential-row-editor.tsx`, two-mode since BST-1353) requires the region in
+  BOTH modes, gates Save on the shared `isValidAwsRegion` with an inline
+  invalid-region hint, and writes through the typed `saveCredential` bridge —
+  never a bare `saveKey` string, which would drop the region silently; a
+  store-side `malformed_credential` rejection toasts with the same
+  region-format guidance. Full editor contract in the Credential Inventory
+  bullet above.
+- **Region rule (do not relitigate): a missing region is a typed init
+  failure, never a default.** The ONE enforcement point is the factory
+  validator (`assertValidProviderAuthInput` / `requireAwsAuthInput`, message
+  `MISSING_AWS_REGION_DETAIL`: "Configure an AWS region for Bedrock in
+  Settings…"). The projection deliberately emits `region: ''` when
+  `AWS_REGION` is unset — its only visible-error channel is
+  SecretReadError-shaped, and a missing region is a CONFIG failure, so it
+  rides to the factory's actionable typed error instead of a misclassified
+  secret failure.
+- **Region FORMAT is SECURITY-enforced (PR #2522 review, finding 1).** The
+  region is interpolated into the request hostname
+  (`bedrock-runtime.<region>.amazonaws.com`), so a hostile "region" such as
+  `evil.example.com/` exfiltrates the bearer token and prompt content. The
+  shared `AWS_REGION_PATTERN` / `isValidAwsRegion`
+  (assistant-contract provider-credential.ts) is enforced in BOTH layers:
+  `isAwsCredential` (stored credentials, both modes — a bad region is
+  `malformed_credential`, never coerced) and `assertValidProviderAuthInput`
+  (`INVALID_AWS_REGION_DETAIL`, static text that never echoes the value).
+- **A credential is REQUIRED — exactly one (finding 4, widened by
+  BST-1353).** A region-only aws input throws
+  `MISSING_AWS_CREDENTIALS_DETAIL`; bearer + chain together throws
+  `CONFLICTING_AWS_CREDENTIALS_DETAIL`. Both live in
+  `provider-auth-input.ts` and REPLACE BST-1350's
+  `MISSING_AWS_BEARER_KEY_DETAIL`. The rule exists because with neither form
+  the AI SDK falls back to ambient AWS environment credentials: chain auth is
+  opt-in and EXPLICIT, arriving as a constructed `credentialProvider`, never
+  as an ambient default.
+- **Persona pins STILL cannot target Bedrock cross-provider (finding 5) —
+  BST-1353 does not change this.** `personaProviderApiKeys` carries bearer
+  STRINGS with no region seat (and a chain has no string form at all), so
+  `createPersonaPinnedModelResolver` throws the pin-unresolvable path for any
+  aws-authType pin (skip-with-warn upstream); its message still names
+  BST-1353/BST-1358, and BST-1358 owns the region-carrying pin design.
+  SAME-provider pins work: they reuse the parent's full aws auth input.
+- **Prompt caching is REGISTRY-driven (BST-1354, closing finding 7).** Wrapper
+  selection reads `LlmModelDefinition.promptCaching` (`'anthropic' | 'bedrock'`)
+  through the single seam
+  `packages/agent/src/providers/prompt-caching.ts`; the factory no longer
+  chooses by provider id, and NEITHER the factory nor the wrappers may match on
+  a model-id substring (pinned by `prompt-caching-selection.spec.ts`). Bedrock's
+  catalog is exactly why: Claude and Nova v1 accept Converse `cachePoint`
+  checkpoints, Llama/DeepSeek/Nova 2 Lite do not, and an undeclared route is
+  sent NO breakpoints rather than a guessed dialect. Every first-party
+  Anthropic row declares `'anthropic'`, so that path is unchanged.
+  `wrapBedrockModelWithPromptCaching` places MESSAGE-level
+  `providerOptions.bedrock.cachePoint = {type:'default'}` on the first 2 system
+  plus last 2 non-system messages (OpenCode's policy) — exactly saturating
+  AWS's four-checkpoint ceiling, honoring any pre-existing explicit cachePoint
+  under either the `bedrock` or `amazonBedrock` spelling, and carrying the same
+  two documented Proxy limits as the Anthropic wrapper. Message level (not
+  content-part level) because the SDK reads `message.providerOptions` uniformly
+  for system, user and assistant.
+- **Cache PRICING is no longer Anthropic-first-party-only.** The old
+  provider-registry-pricing pin ("non-Anthropic providers declare no cache
+  rates") is gone; the invariant is now that a cache RATE and a
+  `promptCaching` dialect travel together. Anthropic-on-Bedrock bills the
+  Anthropic multipliers (read 0.1x, write 1.25x of input); Amazon Nova bills
+  read at 0.25x and writes at the ORDINARY input rate, so its
+  `cacheWritePerMTok` is deliberately absent — absence means "no premium",
+  never "unknown".
+- **Reasoning is per-model, by DIALECT (BST-1354).**
+  `LlmModelDefinition.bedrockReasoning` is `'adaptive' | 'budget-tokens' |
+  'max-reasoning-effort'`, and the dialects do not follow vendor lines:
+  newer Claude routes REJECT `thinking.type:'enabled'` and need adaptive
+  (`thinking:{type:'adaptive',display}` plus the effort in its own
+  `output_config.effort`), Claude Haiku 4.5 keeps the legacy
+  `{type:'enabled',budgetTokens}` form, and Amazon Nova takes
+  `{type:'enabled',maxReasoningEffort}` with no token budget at all. The
+  declaration is pinned — and each dialect's wire shape asserted — by
+  `packages/agent/src/__tests__/bedrock-reasoning-dialect-contract.spec.ts`
+  against `getModelCapabilities()` from **`@ai-sdk/anthropic/internal`**. Note
+  the package: that table is the real source of truth and
+  `@ai-sdk/amazon-bedrock` merely imports it, so an **`@ai-sdk/anthropic`**
+  bump can move a Bedrock route between dialects with the Bedrock package
+  untouched — re-check the pin on either upgrade. The pin asserts
+  `isKnownModel` too, because the table DEFAULTS an unrecognized id to
+  `supportsAdaptiveThinking: true`; without that assertion a typo'd or retired
+  registry id would satisfy the adaptive branch having verified nothing. Every
+  Claude-family row is REQUIRED to declare a dialect (absence fails rather than
+  skips), and no non-Anthropic route may claim a Claude-only dialect.
+  Nova v1 (pro/lite/micro) documents caching but NOT reasoning, so those rows
+  declare `promptCaching` with no `bedrockReasoning` — the two capabilities are
+  independent.
+- **Bedrock reasoning DEPTH has its own settings key, `bedrockEffort`.** Not a
+  reuse of `anthropicEffort`: Bedrock exposes no free-form thinking BUDGET, so
+  the Anthropic pair would leave the Thinking toggle writing
+  `anthropicThinkingBudgetTokens` that the Bedrock request builder drops — a
+  switch reading on while nothing is requested. For the same reason
+  `ReasoningControlsAvailability` gained its own `family: 'bedrock'` (effort
+  submenu, no thinking toggle) rather than borrowing the Anthropic family.
+  `BEDROCK_REASONING_EFFORTS` is the per-dialect OFFERED list, deliberately
+  narrower than the type — same offered-vs-membership discipline as
+  `ANTHROPIC_REASONING_EFFORTS`. An effort the selected route does not offer
+  yields NO provider options rather than a request the API would reject.
+- **Visibility (BST-840) projects onto Bedrock through
+  `resolveBedrockReasoningDisplay`** (`reasoning-visibility.ts`), which maps the
+  shared switch to `reasoningConfig.display` (`summarized`/`omitted`, same
+  vocabulary and same provider-side `omitted` default as first-party
+  Anthropic). The SDK honors `display` ONLY for the `adaptive` dialect, so it is
+  attached there alone — mirroring the existing first-party rule that the legacy
+  budget form carries no `display`. That is an ABSENT knob on the other two
+  dialects, not an ignored setting.
+- **`providerOptions.bedrock` is generation-only — no stream-boundary
+  stripping.** Unlike `providerOptions.ollama`/`.lmstudio` (transport config:
+  `baseUrl`/`apiToken`, which would serialize into the request body), the
+  bedrock namespace carries only `reasoningConfig`, which is precisely what
+  Mastra must forward to the SDK. So it is deliberately NOT added to
+  `buildGenerationProviderOptionsOption`'s strip list in `agent-streaming.ts`.
+  If a future Bedrock ticket adds transport-ish fields (endpoint override,
+  credentials), replicate the ollama/lmstudio stripping at that point.
+- **Replayed history is normalized for Converse
+  (`bedrock-message-hygiene.ts`).** A Bedrock-scoped input processor, installed
+  beside the OpenAI compat seams and running after them, drops empty text parts
+  and empty reasoning parts, keeps reasoning that carries
+  `providerOptions.bedrock.signature`/`.redactedData` (the provider's proof that
+  thinking happened), drops messages left with no content, and rewrites
+  tool-call ids outside `[a-zA-Z0-9_-]` to `_`. The id charset is an API-level
+  Converse `toolUseId` constraint rather than a model-family quirk, so it
+  applies to every Bedrock route and is a no-op on already-valid ids; calls and
+  their results rewrite deterministically so pairs stay matched. Like every
+  compat processor it is a TRANSIENT provider-boundary rewrite and never
+  touches durable history.
+- **DB catalog enablement (finding 8).** Migration 100 seeds the provider row
+  and every model row `is_enabled = false` — the same shape as the
+  openrouter seed. Enablement comes from `useBedrockDefaults`
+  (packages/app-shell), which mirrors `useOpenRouterDefaults`: on the first
+  readable bedrock configuration it enables `BEDROCK_RECOMMENDED_MODEL_IDS`
+  (assistant-contract) through the idempotent, user-choice-preserving
+  `initializeProviderModelDefaults`. Keep the two hooks parallel; the panel
+  wrapper consumes them through the ONE composed seam
+  `useProviderModelDefaults` (wrapper composition budget).
+- **Credential projection** (`providerAuthInputFromCredential`): on an
+  aws-auth provider an `api_key` credential (env bearer) and an aws/bearer
+  credential both project to `{ kind: 'aws', region, apiKey }`; an aws
+  credential stored for a NON-aws provider throws the SecretReadError-shaped
+  `credential_type_unsupported`. Since BST-1353 aws/profile_chain projects to
+  `{ kind: 'aws', region, credentialProvider }` — but ONLY when the caller
+  INJECTED an `awsCredentialChain` capability
+  (`ProviderAuthProjectionOptions`). **That injection IS the structural proof
+  that Hosted Web never resolves a chain (do not relitigate):** desktop main
+  passes `createAwsCredentialChain` (in BOTH places — the
+  `prepareAssistantPostRequest` call and `deriveAssistantTurnAuthInput`, so a
+  credential that passed preparation cannot fail to project at turn time);
+  web passes nothing, so the SAME credential throws
+  `credential_type_unsupported` there. It is a capability, not an import,
+  which additionally keeps the Node-only `@aws-sdk/credential-providers` out
+  of the shared assistant-service package entirely — the type is erased at
+  compile time. The unsupported-detail text now names the requirement
+  ("requires the desktop app — it reads your local AWS profiles") instead of
+  pointing at BST-1353. The string SHIM deliberately calls the projection with
+  NO options, so a profile_chain credential still throws on every bearer-only
+  consumer (persona pins, persistent memory, the OpenRouter metadata
+  endpoint): a chain has no bearer string to hand them, and returning
+  `undefined` would read as "not configured".
+- **The chain module** (`packages/agent/src/providers/aws-credential-chain.ts`,
+  NODE-ONLY): `createAwsCredentialChain(profile)` builds the chain object
+  eagerly (no IO) and keeps RESOLUTION lazy inside the returned closure, so
+  each request pays a fresh resolution and picks up an `aws sso login`
+  performed mid-session without an app restart. Resolution being lazy is also
+  why a bad profile fails MID-RUN rather than at model construction —
+  `@ai-sdk/amazon-bedrock` calls the provider when it signs. Raw SDK text is
+  useless to a user, so every rejection is translated at the seam that still
+  knows which profile was searched:
+  `classifyAwsChainFailure` → `{ kind: 'no_credentials' | 'sso_expired' |
+  'unknown', detail }`, wrapped as a typed `mastra_agent_runtime_init_failed`
+  on the request path and returned as DATA by `verifyAwsCredentialChain` on
+  the probe path. `unknown` is a first-class outcome, never quietly folded
+  into the other two (NO SILENT FALLBACKS: a DNS failure during an SSO refresh
+  must not read as "run aws sso login").
+- **Two MEASURED findings drive that classifier — do not "simplify" them
+  back.** An empirical probe against `@aws-sdk/credential-providers` 3.1111.0
+  (bogus HOME + profile dirs; reproduced as the EMPIRICAL block of
+  `aws-credential-chain.spec.ts`, which runs the REAL SDK hermetically with
+  IMDS disabled) established: (1) there is NO distinct expired-SSO error
+  class — every failure, from "no credentials anywhere" to four different SSO
+  variants, is the single class `CredentialsProviderError` — so the
+  discriminator has to be the MESSAGE, and the stable marker across all four
+  SSO variants is the substring `sso login`, UNQUOTED because the
+  legacy-profile variant writes `run aws sso login` without the surrounding
+  quotes that the other three carry; (2) that class is NOT importable here —
+  it is defined in `@smithy/property-provider`, a transitive package that
+  does not resolve from `packages/agent` (verified: `ERR_MODULE_NOT_FOUND`) —
+  so `instanceof` is unavailable and the check is STRUCTURAL, on
+  `error.name`, the same technique `matchSecretReadError` uses across the IPC
+  boundary. The measured failure table lives in the module header; refresh it
+  there if the SDK is bumped.
+- **Which mode is WINNING is VISIBLE (BST-1353).** `ProviderKeySource`
+  (`packages/assistant-contract/src/provider-key-source.ts`) gained an
+  optional `authMode: 'bearer' | 'profile_chain'`, present only on
+  aws-authType providers; `inspectProviderKeys` reports the WINNER (its
+  env-chain pass runs LAST, mirroring rung 3, so the listing's verdict cannot
+  disagree with what `readProviderCredential` resolves on the next request),
+  and `KeySourceBadge` appends "· AWS profile chain". Without it a user with
+  both a stored bearer key and an `AWS_PROFILE` environment has no way to
+  tell which one the next request signs with. `AWS_CHAIN_ACTIVATION_ENV_NAMES`
+  + `isAllowedProviderKeySourceEnvVar` live in the same module as the ONE
+  definition: the chain activation names are NOT registry credential names, so
+  BOTH strict key-source parsers (the contract's `parseProviderKeySources` via
+  the settings Credential Inventory, and the app-shell availability probe)
+  must accept them on aws providers or a working chain would render as
+  "Invalid provider key source". Both parsers were relaxed from exact-key-COUNT
+  checks to allowed-key-SET checks to admit the optional `authMode` — an
+  UNRECOGNIZED key still rejects the whole payload, and a present-but-unknown
+  `authMode` is malformed, never coerced or dropped.
+- **Packaging.** `@aws-sdk/credential-providers` is catalog-pinned at
+  3.1111.0 and added to tsup's `sharedExternal`, so esbuild can never inline
+  it into a browser entry. The chain is exported from the agent ROOT
+  entrypoint ONLY — never `browser-safe`, `client`, or `provider-metadata` —
+  so a renderer import cannot reach it. `provider-auth-input.ts` stays
+  edge-free via the import-free identity module (see the auth-input section).
+- **Model ids are stored UNPREFIXED** (registry + DB catalog, migration
+  100). The cross-region inference-profile prefix (`us.`/`eu.`/`jp.`/`au.`;
+  `global.`/`apac.` pass through if already present) is applied per request
+  by `packages/agent/src/providers/bedrock-model-id.ts`. Since the PR #2522
+  review (finding 2/3) the tables are EXACT profile-id sets derived from
+  models.dev ground truth (dated in the module header) — a prefix is emitted
+  only when models.dev lists that regional profile; otherwise the id is sent
+  verbatim and Bedrock reports the outcome. Never double-prefixes; `us-gov*`
+  excluded; no `apac.` profiles exist today. Refresh procedure lives in the
+  module header.
+- **Exclusions:** no embeddings (`createEmbeddingProvider` throws), not a
+  persistent-memory provider (`PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS`),
+  and NOT in `HOSTED_WEB_ASSISTANT_PROVIDERS` (desktop-only until a web ticket
+  says otherwise). `@ai-sdk/amazon-bedrock` is Node-only: it is imported
+  solely from provider-factory-adjacent modules, never from the browser-safe
+  agent subpaths. Web's exclusion is enforced STRUCTURALLY as well as by that
+  list: no `awsCredentialChain` capability is injected there, so a
+  profile-chain credential cannot resolve on web even if the provider list
+  changed.
+- **Env name classification — THREE sets, and the scrub is a DENY-LIST
+  (PR #2525 review, finding 1 — SECURITY).**
+  `createCredentialIsolatedChildEnvironment` copies every name NOT in the
+  scrub set, so "absent from every set" means "passed through VERBATIM to
+  repository-controlled children" (execute-command-tool, the hook executor),
+  not "protected". Because BST-1353 documents shell-set AWS static keys as a
+  supported way to ACTIVATE the chain, they are routinely present in a real
+  desktop process env — leaving them unlisted was a live credential-leak path.
+  The two roles are therefore separate constants in
+  `apps/desktop/src/desktop-env.ts`:
+  - `CREDENTIAL_ENV_FILE_VARIABLE_NAMES` — registry + Tavily names a `.env`
+    FILE may set.
+  - `SCRUBBED_CREDENTIAL_ENV_VARIABLE_NAMES` — the scrub deny-list: the file
+    set PLUS ambient-only credentials `AWS_ACCESS_KEY_ID`,
+    `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`. INVARIANT: a strict superset
+    of the file set (pinned).
+  - `NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES` — `AWS_REGION` and
+    `AWS_PROFILE`: configuration, file-loadable, deliberately NOT scrubbed (a
+    child may need the region; `AWS_PROFILE` only NAMES a profile). BST-1363
+    renders this set as muted "config" chips, which is the second reason a
+    secret must never land here.
+
+  AWS static keys are scrubbed but remain NOT file-loadable — adding them to
+  the scrub must not hand a `<userData>/.env` write a new credential channel.
+  Tests assert the scrub OUTCOME (child env lacks all three), not set
+  membership, plus a tripwire rejecting any `KEY|SECRET|TOKEN|PASSWORD` name
+  in the non-credential set. The code-execution fence's `INHERITED_ENV_VARS`
+  carries no `AWS_*` name and must not gain one.
+
+Pinned by `packages/agent/src/__tests__/aws-credential-chain.spec.ts` (the
+classifier branches plus the EMPIRICAL real-SDK block that MEASURES the
+failure table),
+`packages/agent/src/__tests__/provider-factory.bedrock.spec.ts` (its BST-1353
+cases cover the profile-chain stream signing SigV4 on a mocked wire, a chain
+rejection surfacing through the stream rather than signing unauthenticated,
+and both EXACTLY-ONE violations) + `bedrock-model-id.spec.ts`, the aws-pin
+cases in `packages/agent/src/mastra/__tests__/persona-pinned-model.spec.ts`,
+the region-format cases in
+`packages/assistant-contract/src/__tests__/provider-credential.test.ts` +
+`bedrock-defaults.test.ts`,
+`packages/assistant-service/src/__tests__/provider-credential-projection.test.ts`
+(the injected-vs-absent chain capability pair IS the desktop/web proof)
++ the BST-1350/BST-1353 blocks in `request.test.ts`,
+`packages/app-shell/src/hooks/use-bedrock-model-defaults.test.tsx`, the aws
+editor cases (save semantics + region-format gate) in
+`packages/settings-ui/.../__tests__/credential-inventory.test.tsx`, and
+the BST-1350 pins in `apps/desktop/src/__tests__/main/desktop-env.test.ts`.
+
+### OpenAI Codex — ChatGPT subscription provider (BST-1356)
+
+The FIRST `oauth_subscription` provider, and the first consumer of the
+BST-1355 engine. Legal gate: `docs/OAUTH_LEGAL_REVIEW_GATE.md` (signed,
+8 binding constraints; the implementation record lives there too).
+
+**Descriptor** — `apps/desktop/src/provider-auth/descriptors/openai-codex.ts`.
+Supplies endpoints/shapes ONLY; the engine owns PKCE, the loopback server, the
+poll loop, the token exchange and refresh. The device flow is NOT RFC 8628
+(JSON bodies, `/api/accounts/deviceauth/{usercode,token}`, 403/404 = keep
+polling, and a poll success returning an authorization code plus a
+SERVER-supplied `code_verifier`), which is expressed through the engine's
+`DeviceFlowResponseAdapter` seam with zero engine changes.
+
+**Model ids are `codex/`-prefixed.** The `models` table's `id` is a GLOBAL
+primary key (migration 015), so a bare `gpt-5.5` catalog row would collide
+with — and on upsert HIJACK — the platform `openai` row of the same id. Every
+multi-route provider namespaces for this reason (`openrouter` uses `openai/…`,
+`bedrock` uses `anthropic.…`). `resolveCodexModelId`
+(`packages/agent/src/providers/codex-model-id.ts`) strips the prefix to the
+bare wire id, mirroring `resolveBedrockModelId`; an UNPREFIXED id THROWS
+rather than passing through.
+
+**Pricing is omitted on every model.** Usage draws on the subscription, not
+metered billing, so the UI renders "cost unavailable". A zero price would
+assert a cost we do not know.
+
+**Runtime path.** The factory case builds the ordinary OpenAI Responses client
+but requires `custom_fetch` auth (`requireCustomFetchAuthInput` — an
+`api_key` input would quietly bill the user's METERED account). All
+authentication lives in the fetch closure
+(`apps/desktop/src/provider-auth/codex-fetch.ts`): strip the SDK's
+authorization header (all three `HeadersInit` shapes), attach the fresh
+subscription bearer, `ChatGPT-Account-Id`, `originator: brainstrike`,
+`session-id` and the honest UA, rewrite onto
+`https://chatgpt.com/backend-api/codex/responses`, and pin `store: false`.
+`maxOutputTokens` is never set, matching the Codex CLI.
+
+**Interactive-desktop-only (gate constraint 4)** is enforced at the
+credential-resolution layer, NOT in UI copy — see `apps/desktop/SECURITY.md`
+for the two-gate description. The short version: the shared projection's oauth
+arm requires an injected `oauthSubscriptionFetch` capability that only the
+interactive desktop assistant-server supplies, and that supplier re-checks per
+resolution that a `visible-ui` window exists.
+
+**ONE engine instance** is shared by the IPC domain and the assistant server
+via `provider-auth-runtime.ts`. This is load-bearing: a second engine would
+carry its own single-flight map and REPLAY a rotating refresh token.
+
+**When changing any of this**, update this section, `apps/desktop/SECURITY.md`,
+and the paired tests under `apps/desktop/src/__tests__/provider-auth/`.
+
+#### Contract for any provider-listing UI (read before rendering a credential card)
+
+`oauth_subscription` providers are **connect/disconnect**, never paste-a-key.
+Do NOT treat "everything except `authType === 'none'`" as key-bearing — that
+predicate is wrong for this auth type and will render a ChatGPT account as an
+API-key text field.
+
+A surface that lists providers MUST branch on `authType`:
+
+| `authType` | Treatment |
+| --- | --- |
+| `'none'` | No credential affordance (local runtimes). |
+| `'api_key'` | Key input / Set / Replace / Remove. |
+| `'aws'` | Key input OR profile-chain selection (BST-1353). |
+| `'oauth_subscription'` | **Connect / Disconnect only.** No key input, no Set/Replace/Remove. Must render the connected account, a device-code alternative, and the personal-use notice (legal gate constraint 4). |
+
+The reference implementation is the Credential Inventory's oauth arm
+(`packages/settings-ui/src/settings/secrets/credential-inventory/credential-oauth-actions.tsx`
+plus `credential-oauth-notice.tsx`); reuse it rather than re-deriving the
+states. Connect affordances are capability-gated on the `window.providerAuth`
+bridge — absent on web, where the row must render read-only rather than
+offering a sign-in that cannot work.
+
+### Provider OAuth engine (BST-1355)
+
+Desktop-main-only, provider-agnostic OAuth engine at
+`apps/desktop/src/provider-auth/` (pkce / loopback-server / device-flow /
+oauth-flow / refresh / descriptor-registry / provider-auth-engine). Bound by
+the SIGNED legal gate `docs/OAUTH_LEGAL_REVIEW_GATE.md` — its 8 constraints
+are acceptance criteria, not guidance. Do not relitigate there-settled
+rulings (e.g. Anthropic subscription OAuth is PERMANENTLY REJECTED).
+
+**Descriptor contract** (`OAuthProviderDescriptor` in
+`packages/assistant-contract/src/provider-auth.ts`): providerId, clientId,
+authorizeUrl, tokenUrl, `redirectPort` + `redirectPath` (loopback client
+registrations pin the EXACT redirect URI — a busy port is a typed visible
+`port_in_use` error naming the port, NEVER a random-port fallback; only test
+fixtures may use port 0), scopes, optional `extraAuthorizeParams`, optional
+`deviceFlow` (`startUrl`/`pollUrl`/`verificationUri` + optional
+`responseAdapter` — the engine owns loop mechanics (interval + safety
+margin, RFC 8628 slow_down backoff, deadline, cancellation) while the
+adapter owns request/response SHAPE only, which is what makes opencode's
+non-standard Codex flow (JSON bodies, 403/404 = keep polling, poll success
+returns an authorization code + server-supplied code_verifier needing a
+standard exchange) expressible with zero engine changes), and optional
+`extractAccountId`. The descriptor REGISTRY
+(`descriptor-registry.ts`) ships EMPTY in BST-1355; **BST-1356 ships the
+first active descriptor (OpenAI Codex)**. Unknown provider = typed
+`unknown_provider`, never a default.
+
+**Status model** (`ProviderAuthStatus`, same file): `disconnected |
+connecting | awaiting_browser | awaiting_device_code {userCode,
+verificationUri} | connected {accountId?} | error {code} |
+reconnect_required`. This union is the ONLY renderer-visible surface —
+token material NEVER crosses IPC (gate constraint 3; pinned by the
+no-token-over-IPC tests in
+`apps/desktop/src/__tests__/provider-auth/provider-auth-ipc.test.ts` and the
+fake-provider integration test). The `provider-auth` IPC domain
+(start/cancel/status/disconnect) registers every channel
+`{ roles: ['visible-ui'] }` via `registerAuthorizedInvoke`
+(interactive-desktop-only, gate constraint 4); the preload exposes
+`window.providerAuth` (`ProviderAuthBridge`), the hidden preload EXCLUDES it
+(contract test), and the credential-resolution layer must call
+`assertInteractiveProviderAuthSender` before resolving an OAuth credential.
+
+**Refresh** (`refresh.ts`): single-flight per provider (concurrent callers
+collapse onto one network call — rotating refresh tokens are never
+replayed), proactive refresh inside a 120s expiry skew, persisted rotation
+(server-omitted refresh_token keeps the old one per RFC 6749 §6), and every
+engine fetch (exchange, device start/poll, refresh) runs under the flow's
+AbortSignal + a 30s per-request timeout (`fetch-guards.ts`).
+`invalid_grant`/revoked = typed `reconnect_required` result + status; the
+stored credential is KEPT (never deleted silently; the user disconnects or
+reconnects explicitly), and nothing ever retry-loops.
+Rotation-then-persist-failure holds the rotated pair IN MEMORY as the active
+credential (session keeps working; status `credential_persist_failed`; a
+later successful persist clears it; restart lands in `reconnect_required`).
+Disconnect bumps a per-provider epoch so an in-flight refresh completing
+afterwards discards its result and persists nothing. A successful exchange
+that returns no refresh_token is the distinct `refresh_token_missing` code
+(scope problem, not a transient failure). Engine-written credentials are
+`{ type: 'oauth', access, refresh, expires, accountId? }` in the BST-1348
+secrets store, so factory reset already wipes them (guarded in
+`apps/desktop/src/__tests__/secrets.test.ts`).
+
+Threat model + loopback hygiene live in `apps/desktop/SECURITY.md`
+("Provider OAuth subscription auth" section). When changing the engine,
+update BOTH docs and the paired tests under
+`apps/desktop/src/__tests__/provider-auth/`.
+
+### Env bootstrap visibility (BST-1363)
+
+Why it exists: env-file bootstrap was invisible. One malformed line makes the
+loader reject the WHOLE file (see the env-file rules above — validation is
+all-or-nothing by design), so every credential in it silently stops applying
+and the app behaves exactly as if the keys were never set. Settings now states
+the outcome instead of leaving the user to guess.
+
+**Payload rule — NAMES ONLY, NEVER VALUES (do not relitigate).** The
+projection carries variable NAMES, file PATHS, counts, and the loader's own
+failure messages. It never carries a variable's value, nor a prefix, hash, or
+length of one. The producer
+(`apps/desktop/src/desktop-env-report.ts`) builds the name lists by
+intersecting the allow-listed NAME sets
+(`CREDENTIAL_ENV_FILE_VARIABLE_NAMES` /
+`NON_CREDENTIAL_SUPPORTED_ENV_FILE_VARIABLE_NAMES`) with mere PRESENCE in the
+process environment — a value is read only to ask "is this non-blank?", so it
+has no path into the payload by construction rather than by a post-hoc scrub.
+`apps/desktop/src/__tests__/desktop-env-report.test.ts` seeds a distinctive
+fake key value and asserts the serialized payload does not contain it. This
+matches the `deprecatedEnvVars` precedent: names only, never values.
+
+Shape and transport: `EnvBootstrapReport` is defined ONCE in
+`packages/assistant-contract/src/env-bootstrap-bridge.ts` (with the
+`ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS` pin the preload-runtime contract test
+enforces). Channel `secrets:envBootstrap` is registered in
+`apps/desktop/src/ipc-secrets.ts` with the same `visible-ui` role policy as
+every other secrets channel; `hidden-preload.ts` does not expose it
+(negatively asserted in `hidden-preload-contract.test.ts`).
+
+Rulings worth keeping:
+
+- The handler reads the RECORDED bootstrap result and re-projects it per
+  invoke. It NEVER re-runs loading — `initializeDesktopEnvironment` throws on
+  double-init, and re-reading files would report a state the running process
+  is not actually in. This is also why the UI states "Changes to environment
+  files apply after restart."
+- Unlike `secrets:list`, this channel deliberately does NOT throw on env-file
+  failures. `secrets:list` throwing is correct (its answer would be wrong);
+  this channel exists precisely to explain that failure, so it must still
+  answer.
+- The section reads ONCE on mount. It deliberately does NOT subscribe to
+  `SECRETS_CHANGED_EVENT_NAME` or window focus: the payload derives from the
+  recorded bootstrap plus the process environment, and neither can change
+  without a restart, so a refresh could only ever re-fetch an identical
+  payload while implying the panel is live. Do not add one back.
+- Deprecation guidance has ONE source. The rename target is
+  `DeprecatedEnvVarReport.replacement` — the VENDOR-standard name, never the
+  `BRAINSTRIKE_*` override — and both the inventory row and the Environment
+  section render it through the single
+  `settings/secrets/deprecated-env-var-message.ts` helper. A second derivation
+  previously advised the override while the row advised the vendor name, with
+  both on screen simultaneously. Do not re-derive it.
+- A name counts as retired based on the REGISTRY
+  (`providerDeprecatedEnvKeys`), not on whether the loader saw it in a file.
+  A retired name exported from the user's shell is just as dead as one spelled
+  in `.env`, so neither may render as a live chip; file provenance only adds a
+  clause to the warning.
+
+File ids (`dev` / `dev-local` / `user-data`) are internal loader vocabulary and
+must never reach the UI. `DESKTOP_ENV_FILE_LABELS` in the contract is the ONE
+map to their real filenames, and the loader itself formats failure messages
+through it — so the same wording reaches Settings, the status probe, and the
+`secrets:list` error.
+
+Surface: `packages/settings-ui/src/settings/secrets/environment/`, rendered
+beneath the Credential Inventory. Read-only — no editor, because the values
+are secrets this surface must never handle. The failure banner reproduces the
+parser's line-precise message verbatim (`… is invalid at line 4: unsupported
+variable name.`) — that text is the feature, so do not re-word it — and states
+the all-or-nothing consequence, since one bad file discards them all.
+Effective variables render as monospace chips, credential chips visually
+distinct from non-credential config chips and cross-linked to their inventory
+row; the chip→row index is built from `listCredentialSlots()` so a chip can
+never target a row that does not exist. The "Open folder" affordance is
+INJECTED by the desktop host from `resolvePlatformBridge()`, and its
+`{ ok, error }` result is surfaced — settings-ui never touches
+`window.platform`, and web omits the section entirely by capability (the
+bridge is absent), never by an `isElectron()` check.
+
+Tavily's env names are NOT in the provider registry (it is a search service,
+not a model provider). The canonical list lives in
+`@brainstrike/assistant-contract/tavily-env-keys` because both desktop and
+settings-ui need it; every local copy that existed instead had drifted.
 
 ---
 

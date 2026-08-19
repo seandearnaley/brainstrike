@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
@@ -107,6 +108,7 @@ export default defineConfig({
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     // Use threads pool with increased parallelization for better CPU utilization
     pool: 'threads',
+    reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     testTimeout: 15_000, // uiComponent timeout (getAdjustedTimeout not available in build context)
   },

@@ -9,36 +9,59 @@ let cachedAgentClient: AgentClientModule | null | undefined;
 let fallbackNotified = false;
 const logger = createLogger('AgentClientLoader');
 
-const FALLBACK_PROVIDERS: readonly SupportedProvider[] = [
+// BST-1361 two-name scheme: BRAINSTRIKE_* override first, vendor name second.
+// Deprecated aliases are deliberately ABSENT — they must never authenticate,
+// in the fallback path included. Pinned against the agent SOURCE by
+// __tests__/main/agent-client-loader.test.ts.
+const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
+  anthropic: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
+  bedrock: ['BRAINSTRIKE_BEDROCK_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK'],
+  cohere: ['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY'],
+  google: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
+  lmstudio: [], // Local runtime provider, auto-discovered on localhost
+  local: [], // Local provider runs in-browser, no API key needed
+  ollama: [], // Local runtime provider, auto-discovered on localhost
+  openai: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
+  // BST-1356: ChatGPT-subscription auth is interactive OAuth only. No
+  // environment variable can authenticate it, by construction (legal gate
+  // constraint 4) — an env key here would be a headless back door.
+  'openai-codex': [],
+  openrouter: ['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
+  voyage: ['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY'],
+};
+
+/**
+ * Registry DECLARATION order — must match `@brainstrike/agent/client`
+ * `listProviders()`: `__tests__/main/agent-client-loader.test.ts` pins the
+ * loader's output against the agent SOURCE, and CI runs with agent's dist
+ * ABSENT, so this fallback list is what that order-sensitive assertion sees
+ * (PR #2513 review, finding 2 — Object.keys of the Biome-sorted Record broke
+ * it). The `satisfies` rejects entries that are not FALLBACK_ENV_KEYS keys.
+ */
+const FALLBACK_PROVIDER_ORDER = [
   'openai',
   'anthropic',
   'google',
   'openrouter',
   'cohere',
   'voyage',
+  'bedrock',
+  'openai-codex',
   'local',
   'ollama',
   'lmstudio',
-];
+] as const satisfies readonly (keyof typeof FALLBACK_ENV_KEYS)[];
 
-const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
-  anthropic: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
-  cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
-  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
-  lmstudio: [], // Local runtime provider, auto-discovered on localhost
-  local: [], // Local provider runs in-browser, no API key needed
-  ollama: [], // Local runtime provider, auto-discovered on localhost
-  openai: [
-    'BRAINSTRIKE_OPENAI_API_KEY',
-    'BS_OPENAI_API_KEY',
-    'OPENAI_API_KEY',
-    'AI_OPENAI_API_KEY',
-    'OPENAI_API_KEY_V1',
-    'OPENAI_API_KEY_V2',
-  ],
-  openrouter: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
-  voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
-};
+// Compile-time pin for the OTHER direction: this annotation collapses to
+// `never` whenever a FALLBACK_ENV_KEYS key (i.e. any SupportedProvider —
+// the Record is exhaustive) is missing from the ordered tuple, so a newly
+// added provider cannot silently skip the fallback list.
+const FALLBACK_PROVIDERS: Exclude<
+  keyof typeof FALLBACK_ENV_KEYS,
+  (typeof FALLBACK_PROVIDER_ORDER)[number]
+> extends never
+  ? readonly SupportedProvider[]
+  : never = FALLBACK_PROVIDER_ORDER;
 
 function tryRequireAgentClient(path: string): AgentClientModule | null {
   try {

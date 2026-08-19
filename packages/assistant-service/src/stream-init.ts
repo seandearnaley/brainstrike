@@ -7,6 +7,7 @@ import type {
   AssistantToolApprovalAction,
   AssistantToolResumeAction,
   McpConfig,
+  ProviderAuthInput,
   RuntimeAssistantMemorySettings,
   RuntimeData,
   ScaledToolResultBudget,
@@ -73,6 +74,13 @@ async function readThreadTaskListForTurn<K extends AgentStreamCapabilityKinds>(
 }
 
 interface InitialStreamMemoryOptions {
+  /**
+   * Provider auth input (BST-1352): rides the STREAM OPTIONS (a direct
+   * parameter into toAiSdkStyleStream / the resume actions), never
+   * RuntimeData — RequestContext.toJSON drops functions, so a custom_fetch
+   * closure on the runtime would vanish silently.
+   */
+  authInput?: ProviderAuthInput;
   memory?: AgentStreamMemoryResult['memory'];
   storage?: AgentStreamMemoryResult['storage'];
   toolOutputArtifactInlineMaxSerializedCharsByToolName?: ReadonlyMap<string, number>;
@@ -172,9 +180,11 @@ export function resolveToolBuildBudget(
 function buildInitialStreamMemoryOptions(
   memoryResult: AgentStreamMemoryResult | undefined,
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
-  webExtractInlineMaxSerializedChars: number
+  webExtractInlineMaxSerializedChars: number,
+  authInput: ProviderAuthInput | undefined
 ): InitialStreamMemoryOptions {
   return {
+    ...(authInput ? { authInput } : {}),
     ...(memoryResult ? { memory: memoryResult.memory, storage: memoryResult.storage } : {}),
     ...(toolOutputArtifactStore
       ? {
@@ -729,7 +739,18 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
  * site would surface only at runtime.
  */
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
+  /**
+   * Legacy resolved-key string, retained on the port for transport parity;
+   * NOT consumed here since the BST-1352 review — auth reaches the stream
+   * exclusively through `authInput` and the runtime carries no apiKey field.
+   */
   readonly apiKey: string | undefined;
+  /**
+   * Provider auth input (BST-1352), threaded as a DIRECT parameter into the
+   * stream options. Never copied onto RuntimeData (RequestContext.toJSON
+   * drops functions — a custom_fetch closure would vanish silently).
+   */
+  readonly authInput?: ProviderAuthInput | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
   /** Trusted host-injected compaction overlay lookup; never client supplied. */
   readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
@@ -764,7 +785,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     logger,
     messages,
     runtimeData: incomingRuntimeData,
-    apiKey,
+    authInput,
     mcpConfig,
     signal,
     runId,
@@ -925,7 +946,9 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       // builder returns null), so no branch is needed here.
       taskList,
       ...(mcpConfig ? { mcpConfig } : {}),
-      ...(apiKey ? { apiKey } : {}),
+      // BST-1352 review: NO bearer key on the runtime — RuntimeData reaches
+      // Mastra RequestContext serialization; credentials travel ONLY as the
+      // direct authInput parameter.
       ...(localLlmHostClient ? { localLlmHostClient } : {}),
       ...(permissionPolicy ? { permissionPolicy } : {}),
       ...(hookRunner ? { hookRunner } : {}),
@@ -988,7 +1011,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       Math.min(
         capabilities.webExtractInlineMaxSerializedChars,
         resolvedToolResultBudget.domainModelResultCharBudget
-      )
+      ),
+      authInput
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/

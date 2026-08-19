@@ -9,6 +9,9 @@ import {
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
 import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
+import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
+import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
+import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
 import { SKILLS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/skills-bridge';
 import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
 import ts from 'typescript';
@@ -308,6 +311,10 @@ describe('preload runtime contract', () => {
       MCP_TOOLS_RESET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsReset,
       MCP_TOOLS_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.mcp.toolsUpdated,
       PARSER_HOST_PARSE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.parserHostParse,
+      PROVIDER_AUTH_CANCEL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.cancel,
+      PROVIDER_AUTH_DISCONNECT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.disconnect,
+      PROVIDER_AUTH_START_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.start,
+      PROVIDER_AUTH_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.providerAuth.status,
       RUNTIME_LIST_MODELS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.listModels,
       RUNTIME_PROBE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.runtime.probe,
       RUNTIME_RESOLVE_OLLAMA_CAPABILITIES_CHANNEL:
@@ -316,10 +323,13 @@ describe('preload runtime contract', () => {
         DESKTOP_PRELOAD_IPC_CHANNELS.runtime.verifyEmbeddingDimensions,
       SECRETS_CLEAR_ALL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.clearAll,
       SECRETS_DELETE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.delete,
+      SECRETS_ENV_BOOTSTRAP_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.envBootstrap,
       SECRETS_GET_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.get,
+      SECRETS_GET_CREDENTIAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.getCredential,
       SECRETS_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.list,
       SECRETS_LIST_STORED_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.listStored,
       SECRETS_SAVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.save,
+      SECRETS_SAVE_CREDENTIAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.secrets.saveCredential,
       SETTINGS_CLEAR_ALL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.settingsClearAll,
       SHELL_OPEN_EXTERNAL_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.shell.openExternal,
       SHELL_OPEN_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.shell.openPath,
@@ -351,9 +361,12 @@ describe('preload runtime contract', () => {
       browser: BROWSER_BRIDGE_REQUIRED_METHODS,
       changes: CHANGES_BRIDGE_REQUIRED_METHODS,
       commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
+      envBootstrap: ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS,
       git: GIT_BRIDGE_REQUIRED_METHODS,
       notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
+      providerAuth: PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS,
+      secrets: SECRETS_BRIDGE_REQUIRED_METHODS,
       skills: SKILLS_BRIDGE_REQUIRED_METHODS,
       terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
       userCommands: USER_COMMANDS_BRIDGE_REQUIRED_METHODS,

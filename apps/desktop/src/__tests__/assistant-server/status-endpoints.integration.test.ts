@@ -33,6 +33,10 @@ const desktopRendererOrigin = new URL(DESKTOP_DEV_RENDERER_URL).origin;
 
 const mockSecretsService = vi.hoisted(() => ({
   deleteKey: vi.fn(),
+  // BST-1352: assistant POST + OpenRouter metadata read the TYPED credential.
+  getCredential: vi.fn((_provider: string) =>
+    Promise.resolve({ key: 'test-api-key', type: 'api_key' as const })
+  ),
   getKey: vi.fn((_provider: string) => Promise.resolve('test-api-key')),
   listProviders: vi.fn(() => Promise.resolve(['openai'])),
   saveKey: vi.fn(),
@@ -97,6 +101,9 @@ vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
 const runRequest = createRunRequest(handleAssistantRequest);
 
 beforeEach(() => {
+  mockSecretsService.getCredential
+    .mockReset()
+    .mockResolvedValue({ key: 'test-api-key', type: 'api_key' });
   mockSecretsService.getKey.mockReset().mockResolvedValue('test-api-key');
   mockSecretsService.listProviders.mockReset().mockResolvedValue(['openai']);
   mockDesktopDatabase.query.mockReset().mockResolvedValue({ rows: [] });
@@ -143,7 +150,8 @@ describe('status endpoint', () => {
   it('reports an unreadable provider key without disabling other providers', async () => {
     const { SecretReadError } = await import('../../secrets');
     mockSecretsService.listProviders.mockResolvedValueOnce(['openrouter']);
-    mockSecretsService.getKey.mockRejectedValueOnce(
+    // BST-1352: availability inspection reads the TYPED credential.
+    mockSecretsService.getCredential.mockRejectedValueOnce(
       new SecretReadError('encryption_unavailable', 'openrouter')
     );
 
@@ -207,6 +215,91 @@ describe('status endpoint', () => {
     expect(mockSecretsService.listProviders).not.toHaveBeenCalled();
   });
 
+  it('reports deprecated env-var renames computed by desktop main (BST-1361)', async () => {
+    mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+    mockSecretsService.getKey.mockResolvedValueOnce('test-key');
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      },
+      {
+        deprecatedEnvVars: [
+          { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+        ],
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      deprecatedEnvVars: [
+        { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+      ],
+      enabled: true,
+      providerKeySources: [{ provider: 'openai', source: 'stored' }],
+      providers: ['openai', 'local'],
+    });
+  });
+
+  it('omits the deprecated env-var field entirely when nothing deprecated is set', async () => {
+    mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+    mockSecretsService.getKey.mockResolvedValueOnce('test-key');
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      },
+      { deprecatedEnvVars: [] }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).not.toHaveProperty('deprecatedEnvVars');
+  });
+
+  it('keeps deprecated env-var reports on the env-file-failure payload (BST-1361 review 5)', async () => {
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/status',
+      },
+      {
+        deprecatedEnvVars: [
+          { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+        ],
+        envFileFailures: [
+          {
+            code: 'env_file_invalid',
+            file: 'dev-local',
+            message: 'Desktop environment file dev-local is invalid at line 2.',
+          },
+        ],
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      deprecatedEnvVars: [
+        { envVar: 'OPENAI_API_KEY_V2', provider: 'openai', replacement: 'OPENAI_API_KEY' },
+      ],
+      enabled: false,
+      envFileFailures: [
+        {
+          code: 'env_file_invalid',
+          file: 'dev-local',
+          message: 'Desktop environment file dev-local is invalid at line 2.',
+        },
+      ],
+      error: 'assistant_configuration_invalid',
+      message: 'Desktop environment configuration is invalid.',
+      providers: [],
+    });
+  });
+
   it('should handle status route with query parameters', async () => {
     const response = await runRequest({
       headers: { origin: desktopRendererOrigin },
@@ -236,7 +329,8 @@ describe('status endpoint', () => {
   it('keeps other providers available when the legacy OpenAI key is unreadable', async () => {
     const { SecretReadError } = await import('../../secrets');
     mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
-    mockSecretsService.getKey.mockRejectedValueOnce(
+    // BST-1352: availability inspection reads the TYPED credential.
+    mockSecretsService.getCredential.mockRejectedValueOnce(
       new SecretReadError('decrypt_failed', 'openai')
     );
 
@@ -273,7 +367,10 @@ describe('status endpoint', () => {
 
 describe('OpenRouter model metadata endpoint', () => {
   it('returns selected OpenRouter model metadata from the bounded service', async () => {
-    mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
+    mockSecretsService.getCredential.mockResolvedValueOnce({
+      key: 'openrouter-key',
+      type: 'api_key',
+    });
     const get = vi.fn().mockResolvedValue({
       freshness: 'live',
       metadata: {
@@ -306,7 +403,7 @@ describe('OpenRouter model metadata endpoint', () => {
 
   it('surfaces an unreadable OpenRouter key without calling the metadata service', async () => {
     const { SecretReadError } = await import('../../secrets');
-    mockSecretsService.getKey.mockRejectedValueOnce(
+    mockSecretsService.getCredential.mockRejectedValueOnce(
       new SecretReadError('decrypt_failed', 'openrouter')
     );
     const get = vi.fn();
@@ -370,7 +467,10 @@ describe('OpenRouter model metadata endpoint', () => {
   });
 
   it('surfaces OpenRouter metadata failures without a static silent fallback', async () => {
-    mockSecretsService.getKey.mockResolvedValueOnce('openrouter-key');
+    mockSecretsService.getCredential.mockResolvedValueOnce({
+      key: 'openrouter-key',
+      type: 'api_key',
+    });
     const get = vi.fn().mockRejectedValue(new Error('OpenRouter Models API returned status 503'));
     const response = await runRequest(
       {
@@ -385,6 +485,164 @@ describe('OpenRouter model metadata endpoint', () => {
     expect(JSON.parse(response.body)).toEqual({
       error: 'openrouter_model_metadata_failed',
       message: 'OpenRouter Models API returned status 503',
+    });
+  });
+});
+
+describe('verify-provider endpoint', () => {
+  it('returns the verification snapshot from the injected service', async () => {
+    const verify = vi.fn().mockResolvedValue({
+      freshness: 'live',
+      result: { checkedAt: '2026-08-18T12:00:00.000Z', status: 'verified' },
+    });
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=openai',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(JSON.parse(response.body)).toEqual({
+      freshness: 'live',
+      result: { checkedAt: '2026-08-18T12:00:00.000Z', status: 'verified' },
+    });
+    expect(verify).toHaveBeenCalledWith('openai');
+  });
+
+  it('rejects a request without a provider query parameter', async () => {
+    const verify = vi.fn();
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'missing_provider',
+      message: 'Provider verification requires a provider query parameter.',
+    });
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown provider id with 400', async () => {
+    const { UnknownVerificationProviderError } = await import(
+      '../../assistant-server/provider-verification'
+    );
+    const verify = vi.fn().mockRejectedValue(new UnknownVerificationProviderError());
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=not-a-provider',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'unknown_provider',
+      message: 'Provider id is not a verifiable provider.',
+    });
+  });
+
+  it('rejects a provider without a configured credential with 400', async () => {
+    const { MissingProviderCredentialError } = await import(
+      '../../assistant-server/provider-verification'
+    );
+    const verify = vi.fn().mockRejectedValue(new MissingProviderCredentialError('anthropic'));
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=anthropic',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'missing_api_key',
+      message: 'No credential configured for provider "anthropic".',
+    });
+  });
+
+  it('surfaces an unreadable stored credential as the classified secret error', async () => {
+    const { SecretReadError } = await import('../../secrets');
+    const verify = vi.fn().mockRejectedValue(new SecretReadError('decrypt_failed', 'openai'));
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=openai',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toMatchObject({
+      code: 'decrypt_failed',
+      error: 'api_key_unreadable',
+      provider: 'openai',
+    });
+  });
+
+  it('never leaks the stored key into the response payload (real service, mocked fetch)', async () => {
+    const { createProviderVerificationService } = await import(
+      '../../assistant-server/provider-verification'
+    );
+    const fakeKey = 'sk-super-secret-endpoint-key';
+    const service = createProviderVerificationService({
+      fetchImpl: vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 })),
+      readCredential: () => Promise.resolve({ key: fakeKey, type: 'api_key' }),
+    });
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=openai',
+      },
+      { providerVerificationService: service }
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      freshness: 'live',
+      result: { status: 'verified' },
+    });
+    expect(response.body).not.toContain(fakeKey);
+  });
+
+  it('reports unexpected verification failures as a bounded 500', async () => {
+    const verify = vi.fn().mockRejectedValue(new Error('probe wiring exploded'));
+
+    const response = await runRequest(
+      {
+        headers: { origin: desktopRendererOrigin },
+        method: 'GET',
+        url: '/assistant/verify-provider?provider=openai',
+      },
+      { providerVerificationService: { verify } }
+    );
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'verify_provider_failed',
+      message: 'probe wiring exploded',
     });
   });
 });

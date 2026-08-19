@@ -341,6 +341,16 @@ declare global {
       reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
     };
     /**
+     * Env bootstrap visibility bridge (BST-1363). Shape defined ONCE in
+     * `@brainstrike/assistant-contract/env-bootstrap-bridge`
+     * (`EnvBootstrapBridge`); the preload-runtime contract test pins the
+     * exposed key set to `ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS`. Read-only
+     * and names-only: variable VALUES never cross this bridge. Absent on web
+     * — the settings section is gated on this bridge existing, never on an
+     * `isElectron()` check.
+     */
+    envBootstrap?: import('@brainstrike/assistant-contract/env-bootstrap-bridge').EnvBootstrapBridge;
+    /**
      * Desktop-only file-export save bridge. Absent on web (no preload) —
      * consumers MUST capability-check `window.fileExports` (which
      * `@brainstrike/utils`'s `downloadBlobFile` does; call sites should go
@@ -556,24 +566,24 @@ declare global {
       }>;
       onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
+    /**
+     * Provider OAuth bridge (BST-1355). Shape defined ONCE in
+     * `@brainstrike/assistant-contract/provider-auth` (`ProviderAuthBridge`);
+     * the preload-runtime contract test pins the exposed key set to
+     * `PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS`. Status-only: token material
+     * never crosses IPC. Absent on web — consumers capability-check it.
+     */
+    providerAuth?: import('@brainstrike/assistant-contract/provider-auth').ProviderAuthBridge;
     quickOpen?: {
       onOpen: (callback: () => void) => () => void;
     };
-    secrets: {
-      saveKey: (
-        provider: string,
-        value: string
-      ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
-      getKey: (provider: string) => Promise<string | null>;
-      deleteKey: (provider: string) => Promise<boolean>;
-      list: () => Promise<
-        import('@brainstrike/assistant-contract').ProviderKeySource<
-          import('@brainstrike/assistant-contract/provider-metadata').SupportedProvider | 'tavily'
-        >[]
-      >;
-      listStored: () => Promise<string[]>;
-      clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
-    };
+    /**
+     * Secure secrets bridge (BST-1348). The shape is defined ONCE in
+     * `@brainstrike/assistant-contract/secrets-bridge` — the preload
+     * implements it and the preload-runtime contract test pins the exposed
+     * key set to `SECRETS_BRIDGE_REQUIRED_METHODS`.
+     */
+    secrets: import('@brainstrike/assistant-contract/secrets-bridge').SecretsBridge;
     /**
      * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
      * consumers MUST capability-check `window.skills`. The Settings → Skills

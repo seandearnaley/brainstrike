@@ -55,6 +55,7 @@ import {
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
 } from './agent-runtime';
+import { buildBedrockMessageHygieneInputProcessor } from './bedrock-message-hygiene';
 import { buildCompactionOverlayInputProcessor } from './compaction-overlay-processor';
 import { buildProviderHistoryCompatInputProcessor } from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
@@ -953,6 +954,12 @@ function buildToolLoopOptions(
   const openAIToolSearchHistoryCompat = buildOpenAIToolSearchHistoryCompatInputProcessor(
     runtimeData?.provider ?? ''
   );
+  // BST-1354: Converse-API shape rules (no empty text/reasoning blocks,
+  // constrained tool-call ids) applied to the REPLAYED prompt only. Runs after
+  // the history-compat rewrites so it also cleans whatever they produced.
+  const bedrockMessageHygiene = buildBedrockMessageHygieneInputProcessor(
+    runtimeData?.provider ?? ''
+  );
   // Mastra's sealed-boundary re-key can leave the same assistant response
   // persisted under two message ids; OpenAI rejects any request that carries
   // an item id twice (BST-1095). Runs LAST among the compat processors so it
@@ -997,6 +1004,7 @@ function buildToolLoopOptions(
     historyCompat,
     openAIToolSearchHistoryCompat,
     openAIDuplicateItemCompat,
+    bedrockMessageHygiene,
     tokenLimiter,
   ].filter((processor): processor is NonNullable<typeof processor> => processor !== undefined);
 
@@ -1750,7 +1758,7 @@ export async function streamMastraAgent(
   assertNoUnsupportedDirectStreamOptions(options);
 
   const runtimeData = options.runtime;
-  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(options, runtimeResolution);
 
   // Per-call approval for `'ask'` tools comes from the PER-TOOL `requireApproval`
@@ -1821,7 +1829,7 @@ export async function streamMastraToolApprovalAction(
   }
 
   const runtimeData = options.runtime;
-  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   let preserveExecuteBackedWebSearch = false;
   if (providerSupportsNativeWebSearch(runtimeResolution.provider)) {
     // The action's optional toolName is display-only and client-controlled. Use
@@ -2042,7 +2050,7 @@ export async function listSuspendedMastraRuns(
     });
   }
 
-  const runtimeResolution = resolveRuntimeConfiguration(options.runtime);
+  const runtimeResolution = resolveRuntimeConfiguration(options.runtime, options.authInput);
   // Listing performs NO inference: build the runtime with an inert model so no
   // provider/model is resolved. This is why the discovery route can pass a
   // keyless provider with no static default (e.g. ollama) without the
@@ -2306,7 +2314,7 @@ export async function streamMastraToolResumeAction(
   }
 
   const runtimeData = options.runtime;
-  const runtimeResolution = resolveRuntimeConfiguration(runtimeData);
+  const runtimeResolution = resolveRuntimeConfiguration(runtimeData, options.authInput);
   const { runtime, sanitizedNameMap } = await initializeMastraRuntime(
     { ...withRuntimeDerivedStreamOptions(options), hydrateToolDiscoveryFromMemory: true },
     runtimeResolution

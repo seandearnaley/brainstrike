@@ -789,6 +789,45 @@ Do not remove these flags to speed the lane up without first re-measuring peak
 RSS against the runner's 16 GB with the turbo `--concurrency=2` co-lane held
 constant.
 
+#### A test file with no verdict fails the lane (BST-1221)
+
+Every package/app `vitest.config.mts` registers `LostTestFileReporter`
+(`packages/test-utils/vitest-lost-file-reporter.mjs`), enforced across the
+workspace by `scripts/verify-lost-file-reporter.mjs` and its paired test. A new
+package's config is a violation until it opts in — the guarantee is per-config
+and would otherwise be lost silently by omission.
+
+**What it defends against.** A worker can die mid-run without unwinding: a V8
+fatal (`Check failed: jit_page_->allocations_.erase(addr)` →
+`ThreadIsolation::UnregisterWasmAllocation` → `V8_Fatal`) or an OOM kill. The
+file that worker held reports nothing. Measured on vitest 4.1.10:
+
+- the lost module IS present at `onTestRunEnd`, with `state() === 'pending'`;
+- the run's own verdict is **`reason: 'passed'`**;
+- the summary reads `Test Files 2 passed (3)` — PASS phrasing whose only tell is
+  a parenthesised total that does not match;
+- the process exits non-zero ONLY via the separate unhandled-errors channel
+  (`[vitest-pool]: Worker exited unexpectedly`).
+
+That last point is why the reporter exists rather than trusting the exit code.
+The non-zero exit is not a property of the results; it is a side effect of an
+error channel that `dangerouslyIgnoreUnhandledErrors: true` switches off.
+Control-tested: with that one flag set, a run that dropped an entire test file
+exits **0** and reads fully green. With the reporter registered the same run
+exits **1** and names the file. `--reporter` on the CLI OVERRIDES config
+`reporters`, so a lane that passes its own `--reporter` (e.g. the nightly
+`--reporter=blob` coverage shards) drops this guard — add the reporter
+explicitly there if that lane ever needs to gate.
+
+**Concurrency tuning is NOT a mitigation for this one.** Unlike BST-1072 above,
+which was memory pressure and was genuinely fixed by serialization, two of the
+observed BST-1221 hits landed in lanes that were ALREADY serialized to a single
+worker — `@brainstrike/embeddings#test:integration` (`--maxWorkers=1
+--no-file-parallelism`, 2026-08-16, red main) and the desktop unit lane (same
+flags, 2026-08-18). Do not "fix" BST-1221 by lowering worker counts; the
+evidence says it is not concurrency-driven. The crash itself remains upstream
+(Node/V8); this reporter only guarantees it can never read as success.
+
 #### Codecov statuses are non-gating (settled 2026-07-26 — do not relitigate)
 
 The ruleset requires exactly five contexts — `Static`, `Unit`, `Build`,
@@ -1486,12 +1525,17 @@ closed by aliasing instead: apps/web gained the missing root aliases
 indexing-contract, storage); apps/desktop now spreads this same
 `workspaceSrcAliases` registry (array-form alias, locals first) plus an
 agent-root→src alias mirroring web (the registry deliberately excludes agent).
-The guard checks both `packages/*` and `apps/*`; app alias gaps therefore fail
-the same source-resolution contract instead of depending on a clean-state
-resolution crash. Desktop's agent-client-loader test keeps a mirror of the
-loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
-bypasses vitest aliases and needs dist, absent by default post-B4). See the
-Series B turbo-monorepo architecture review.
+The guard checks both `packages/*` and `apps/*` (the default entrypoint passes
+`appsRoot`), so app alias gaps fail the same source-resolution contract instead
+of depending on a clean-state resolution crash. Desktop's agent-client-loader
+tests pin the loader's FALLBACK_PROVIDERS against the agent SOURCE via
+`vi.importActual` — no hand-maintained duplicate (raw require in the loader
+bypasses vitest aliases and needs dist, absent by default post-B4, so CI
+exercises the FALLBACK path). FALLBACK_PROVIDERS is therefore an explicit tuple
+in registry DECLARATION order with compile-time exhaustiveness pins against the
+FALLBACK_ENV_KEYS Record (PR #2513 review); do NOT derive it from `Object.keys`
+of the Biome-sorted Record — that changes the order only in the dist-absent
+state CI runs in. See the Series B turbo-monorepo architecture review.
 
 Desktop main-process unit tests share observable Electron controls in
 `apps/desktop/src/__tests__/helpers/electron-main-test-harness.ts`. The harness

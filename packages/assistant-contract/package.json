@@ -4,8 +4,7 @@
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/types": "workspace:*"
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
@@ -74,6 +73,11 @@
       "import": "./dist/context-budget.js",
       "require": "./dist/context-budget.js"
     },
+    "./env-bootstrap-bridge": {
+      "types": "./dist/env-bootstrap-bridge.d.ts",
+      "import": "./dist/env-bootstrap-bridge.js",
+      "require": "./dist/env-bootstrap-bridge.js"
+    },
     "./context-packer": {
       "types": "./dist/context-packer.d.ts",
       "import": "./dist/context-packer.js",
@@ -134,6 +138,16 @@
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
+    "./provider-auth": {
+      "types": "./dist/provider-auth.d.ts",
+      "import": "./dist/provider-auth.js",
+      "require": "./dist/provider-auth.js"
+    },
+    "./secrets-bridge": {
+      "types": "./dist/secrets-bridge.d.ts",
+      "import": "./dist/secrets-bridge.js",
+      "require": "./dist/secrets-bridge.js"
+    },
     "./skills-bridge": {
       "types": "./dist/skills-bridge.d.ts",
       "import": "./dist/skills-bridge.js",
@@ -148,6 +162,11 @@
       "types": "./dist/approval-action-message.d.ts",
       "import": "./dist/approval-action-message.js",
       "require": "./dist/approval-action-message.js"
+    },
+    "./tavily-env-keys": {
+      "types": "./dist/tavily-env-keys.d.ts",
+      "import": "./dist/tavily-env-keys.js",
+      "require": "./dist/tavily-env-keys.js"
     },
     "./tool-approval": {
       "types": "./dist/tool-approval.d.ts",

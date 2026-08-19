@@ -5,6 +5,40 @@ interface ProviderIconProps {
   style?: React.CSSProperties;
 }
 
+/**
+ * Amazon Bedrock (BST-1350): inline SVG per the repo's brand-icon convention
+ * (no lucide brand icons). A neutral layered-stack "bedrock" glyph drawn in
+ * currentColor — pair it with the AWS-orange PROVIDER_COLOR_MAP entry.
+ */
+function BedrockIcon({
+  className,
+  style,
+}: {
+  className?: string | undefined;
+  style?: React.CSSProperties | undefined;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      height="24"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      style={style}
+      viewBox="0 0 24 24"
+      width="24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M12 2 3 7l9 5 9-5-9-5Z" />
+      <path d="m3 12 9 5 9-5" />
+      <path d="m3 17 9 5 9-5" />
+    </svg>
+  );
+}
+
 export function ProviderIcon({
   providerId,
   className,
@@ -28,6 +62,9 @@ export function ProviderIcon({
   if (providerId === 'voyage') {
     return <Bot className={className} style={style} />;
   }
+  if (providerId === 'bedrock') {
+    return <BedrockIcon className={className} style={style} />;
+  }
   return <Bot className={className} style={style} />;
 }
 
@@ -40,6 +77,7 @@ export function getProviderIcon(
     React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   > = {
     anthropic: Brain,
+    bedrock: BedrockIcon,
     cohere: Cpu,
     google: Globe,
     openai: Sparkles,

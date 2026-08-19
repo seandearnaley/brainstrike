@@ -20,6 +20,7 @@ const GET_ROUTES: ReadonlyMap<string, AssistantRoute> = new Map([
   ['/assistant/status', 'status'],
   ['/status', 'status'],
   ['/assistant/openrouter-model', 'openrouter-model'],
+  ['/assistant/verify-provider', 'verify-provider'],
   [ASSISTANT_STREAM_RESUME_PATH, 'resume'],
   ['/assistant/suspended-runs', 'suspended-runs'],
   ['/suspended-runs', 'suspended-runs'],

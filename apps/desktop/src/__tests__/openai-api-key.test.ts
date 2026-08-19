@@ -35,19 +35,29 @@ describe('readOpenAIApiKey', () => {
       expect(result).toBe('test-key-1');
     });
 
-    it('should return API key from BS_OPENAI_API_KEY when BRAINSTRIKE_OPENAI_API_KEY is not set', async () => {
+    it('should return API key from OPENAI_API_KEY when BRAINSTRIKE_OPENAI_API_KEY is not set', async () => {
       Reflect.deleteProperty(process.env, 'BRAINSTRIKE_OPENAI_API_KEY');
-      process.env['BS_OPENAI_API_KEY'] = 'test-key-2';
-      const result = await readOpenAIApiKey();
-      expect(result).toBe('test-key-2');
-    });
-
-    it('should return API key from OPENAI_API_KEY when other env vars are not set', async () => {
-      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_OPENAI_API_KEY');
-      Reflect.deleteProperty(process.env, 'BS_OPENAI_API_KEY');
       process.env['OPENAI_API_KEY'] = 'test-key-3';
       const result = await readOpenAIApiKey();
       expect(result).toBe('test-key-3');
+    });
+
+    it('never resolves a deprecated env name (BST-1361)', async () => {
+      Reflect.deleteProperty(process.env, 'BRAINSTRIKE_OPENAI_API_KEY');
+      Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
+      process.env['BS_OPENAI_API_KEY'] = 'legacy-1';
+      process.env['AI_OPENAI_API_KEY'] = 'legacy-2';
+      process.env['OPENAI_API_KEY_V1'] = 'legacy-3';
+      process.env['OPENAI_API_KEY_V2'] = 'legacy-4';
+
+      const mockSecretsService = {
+        getKey: vi.fn().mockResolvedValue(null),
+        listProviders: vi.fn().mockResolvedValue([]),
+      };
+      vi.mocked(getSecretsService).mockReturnValue(mockSecretsService as never);
+
+      const result = await readOpenAIApiKey();
+      expect(result).toBeUndefined();
     });
 
     it('should trim whitespace from environment variable values', async () => {
@@ -58,21 +68,20 @@ describe('readOpenAIApiKey', () => {
 
     it('should skip empty string environment variables', async () => {
       process.env['BRAINSTRIKE_OPENAI_API_KEY'] = '   ';
-      process.env['BS_OPENAI_API_KEY'] = 'valid-key';
+      process.env['OPENAI_API_KEY'] = 'valid-key';
       const result = await readOpenAIApiKey();
       expect(result).toBe('valid-key');
     });
 
     it('should skip non-string environment variables', async () => {
       process.env['BRAINSTRIKE_OPENAI_API_KEY'] = undefined as unknown as string;
-      process.env['BS_OPENAI_API_KEY'] = 'valid-key';
+      process.env['OPENAI_API_KEY'] = 'valid-key';
       const result = await readOpenAIApiKey();
       expect(result).toBe('valid-key');
     });
 
-    it('should prioritize env vars in order: BRAINSTRIKE_, BS_, then OPENAI_', async () => {
+    it('should prioritize env vars in order: BRAINSTRIKE_, then OPENAI_', async () => {
       process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'priority-1';
-      process.env['BS_OPENAI_API_KEY'] = 'priority-2';
       process.env['OPENAI_API_KEY'] = 'priority-3';
       const result = await readOpenAIApiKey();
       expect(result).toBe('priority-1');
@@ -82,7 +91,6 @@ describe('readOpenAIApiKey', () => {
   describe('secrets service fallback', () => {
     it('should fallback to secrets service when no env vars are set', async () => {
       Reflect.deleteProperty(process.env, 'BRAINSTRIKE_OPENAI_API_KEY');
-      Reflect.deleteProperty(process.env, 'BS_OPENAI_API_KEY');
       Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
 
       const mockGetKey = vi.fn().mockResolvedValue('secret-key');
@@ -99,7 +107,6 @@ describe('readOpenAIApiKey', () => {
 
     it('should return undefined when secrets service returns null', async () => {
       Reflect.deleteProperty(process.env, 'BRAINSTRIKE_OPENAI_API_KEY');
-      Reflect.deleteProperty(process.env, 'BS_OPENAI_API_KEY');
       Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
 
       const mockGetKey = vi.fn().mockResolvedValue(null);
@@ -115,7 +122,6 @@ describe('readOpenAIApiKey', () => {
 
     it('should preserve secrets service failures', async () => {
       Reflect.deleteProperty(process.env, 'BRAINSTRIKE_OPENAI_API_KEY');
-      Reflect.deleteProperty(process.env, 'BS_OPENAI_API_KEY');
       Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
 
       const readError = new Error('Service unavailable');
@@ -162,11 +168,17 @@ describe('readOpenAIApiKey', () => {
 
     it('lists providers from both env and stored secrets', async () => {
       process.env['OPENAI_API_KEY'] = 'env-openai';
-      const mockGetKey = vi
+      // BST-1352: availability inspection reads the TYPED credential; a blank
+      // legacy api_key still reads as "not configured".
+      const mockGetCredential = vi
         .fn()
-        .mockImplementation(async (provider: string) => (provider === 'anthropic' ? 'secret' : ''));
+        .mockImplementation(async (provider: string) =>
+          provider === 'anthropic'
+            ? { key: 'secret', type: 'api_key' }
+            : { key: '', type: 'api_key' }
+        );
       const mockSecretsService = {
-        getKey: mockGetKey,
+        getCredential: mockGetCredential,
         listProviders: vi.fn().mockResolvedValue(['anthropic', 'google']),
       };
       vi.mocked(getSecretsService).mockReturnValue(mockSecretsService as never);

@@ -604,6 +604,20 @@ indexed state only.
   binding, malformed `BRAINSTRIKE_WATCHER_BACKEND`, subscribe timeout, and
   runtime backend failure all throw or surface typed health — never a
   fallback engine, never polling. `legacy` is a removed value that throws.
+- **Silent host death is a real state, and health cannot see it (BST-1328)**:
+  on some macOS hosts FSEventStream delivery stops while `subscribe()` still
+  resolves and health still reports `healthy` — no error, no `overflow`, just
+  nothing. The typed health channel covers the *announced* failures (a dropped
+  -events backend error degrades to a root invalidation, log-once, subscription
+  alive); it cannot cover this one, because nothing is announced. Tests
+  discriminate it with `@brainstrike/file-system/testing/watcher-liveness`,
+  which subscribes a RAW binding in a temp dir, touches a sentinel repeatedly,
+  and only then runs an `fs.watch` control. Rule: **if the raw binding delivered
+  nothing, no code above it can be blamed.** Note libuv's `fs.watch` rides the
+  same FSEventStream subsystem on macOS, so "control also silent" is a more
+  degraded host, not a different diagnosis. Production deliberately has no such
+  canary today; adding one (self-touch a sentinel, expect the event) is the only
+  detection that would catch this class in the field.
 - **Lifecycle invariants**: one native subscription per owning renderer and
   resolved root; 10s subscribe timeout with late-resolution unsubscribe;
   disposers idempotent and safe at any time. Duplicate same-owner/root IPC

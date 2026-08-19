@@ -33,7 +33,6 @@
     "nyc": "^18.0.0",
     "playwright": "catalog:",
     "react-doctor": "0.9.11",
-    "tsup": "catalog:",
     "turbo": "2.10.10",
     "typescript": "catalog:",
     "ultracite": "7.9.2",

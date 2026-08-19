@@ -26,7 +26,13 @@ cleanupUnusedCatalogs: true
 # prune either), and a comment attached to an entry that is itself pruned has no
 # measured verdict — so keep rationale beside entries that stay.
 catalog:
+  '@ai-sdk/amazon-bedrock': 5.0.57
   '@anthropic-ai/sandbox-runtime': 0.0.73
+  # BST-1353: the AWS default credential chain (profiles, SSO, process creds,
+  # instance/container roles) behind Bedrock's `credentialProvider` seam.
+  # Node-only — imported ONLY beside the provider factory, never from the
+  # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
+  '@aws-sdk/credential-providers': 3.1111.0
   '@assistant-ui/react': '~0.15.13'
   '@assistant-ui/react-data-stream': ^0.12.26
   '@assistant-ui/react-markdown': ^0.14.10
@@ -53,6 +59,8 @@ catalog:
   '@rolldown/plugin-babel': ^0.2.3
   '@shikijs/langs': ^4.4.3
   '@shikijs/themes': ^4.4.3
+  '@smithy/eventstream-codec': ^4.5.2
+  '@smithy/util-utf8': ^4.5.2
   # LOCKSTEP: typescript-checker and vitest-runner peer-depend on
   # `@stryker-mutator/core` at an EXACT version ("10.0.0"), never a range, so the
   # `^` below is looser than what the plugins actually accept. Bump all four in

@@ -79,6 +79,29 @@ interface BaseModelDefinition {
 
 export interface LlmModelDefinition extends BaseModelDefinition {
   /**
+   * Bedrock-only: which `providerOptions.bedrock.reasoningConfig` dialect this
+   * route accepts. Absence is authoritative — the route exposes no reasoning
+   * controls. Declared per model rather than derived, because the dialects do
+   * not follow vendor lines and sending the wrong one is a hard 400:
+   *
+   * - `adaptive` — `{type:'adaptive', maxReasoningEffort, display}`. Required
+   *   by the newer Claude routes, which REJECT `thinking.type:'enabled'`.
+   * - `budget-tokens` — legacy `{type:'enabled', budgetTokens}` extended
+   *   thinking, for Claude routes without adaptive support.
+   * - `max-reasoning-effort` — `{type:'enabled', maxReasoningEffort}`, the
+   *   Amazon Nova extended-thinking shape (no token budget exists there).
+   *
+   * Pinned by `bedrock-reasoning-dialect-contract.spec.ts` against
+   * `getModelCapabilities()` from **`@ai-sdk/anthropic/internal`** — that is
+   * the real source of truth; `@ai-sdk/amazon-bedrock` imports the same table
+   * rather than owning one. So an **`@ai-sdk/anthropic`** bump can move a
+   * route between dialects even when the Bedrock package is untouched; the pin
+   * fails a test instead of failing in production. The pin also asserts
+   * `isKnownModel`, because that table DEFAULTS an unrecognized id to
+   * adaptive — without the assertion a typo'd id would pass silently.
+   */
+  bedrockReasoning?: 'adaptive' | 'budget-tokens' | 'max-reasoning-effort';
+  /**
    * Total context window in tokens (input + output). REQUIRED: adding a model
    * without it is a compile error — this drives the thread context meter and
    * the auto-derived agent input token budget. Use the provider's documented
@@ -102,13 +125,37 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * or $0 (local/keyless) pricing — unknown pricing must render "cost unavailable", never $0.
    */
   pricing?: {
-    /** USD per 1M prompt-cache READ tokens. Anthropic only: 0.1× the input rate. */
+    /**
+     * USD per 1M prompt-cache READ tokens. Declared only on routes that bill
+     * cache reads at their own published rate — the first-party Anthropic
+     * models (0.1× input) and the Bedrock routes that accept explicit cache
+     * points (Anthropic-on-Bedrock 0.1× input; Amazon Nova 0.25× input).
+     */
     cacheReadPerMTok?: number;
-    /** USD per 1M prompt-cache WRITE tokens. Anthropic only: 1.25× the input rate. */
+    /**
+     * USD per 1M prompt-cache WRITE tokens. Declared only where the vendor
+     * bills cache writes at a PREMIUM over the input rate (Anthropic
+     * first-party and Anthropic-on-Bedrock: 1.25× input). Deliberately absent
+     * for Amazon Nova, which bills cache writes at the ordinary input rate —
+     * absence means "no premium", never "unknown".
+     */
     cacheWritePerMTok?: number;
     inputPerMTok: number;
     outputPerMTok: number;
   };
+  /**
+   * Prompt-cache breakpoint DIALECT this exact route accepts, and the sole
+   * input to prompt-caching wrapper selection in the provider factory
+   * (`packages/agent/src/providers/prompt-caching.ts`). Absence is
+   * authoritative: a route that does not declare a dialect is sent no cache
+   * breakpoints at all. NEVER infer the dialect from a provider name or a
+   * model-id substring — the Bedrock catalog is heterogeneous (Claude and
+   * Nova accept `bedrock` cache points; Llama and DeepSeek accept none).
+   *
+   * - `anthropic` — first-party Messages API `cache_control: {type:'ephemeral'}`.
+   * - `bedrock` — Converse API `cachePoint: {type:'default'}`.
+   */
+  promptCaching?: 'anthropic' | 'bedrock';
   /**
    * Authoritative per-model reasoning controls when the provider publishes
    * them. The UI and request boundary both enforce these values so a
@@ -191,14 +238,52 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
 
 export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinition;
 
+/**
+ * How a provider authenticates. `'none'` marks the keyless local runtimes
+ * (their optional bearer token is a transport concern, not an authType).
+ * `'oauth_subscription'` is carried by `openai-codex` (BST-1356, ChatGPT
+ * subscription sign-in) and `'aws'` by `bedrock` (BST-1350).
+ * Keyless-ness DERIVES from `authType === 'none'` — never hand-listed.
+ */
+export type ProviderAuthType = 'api_key' | 'oauth_subscription' | 'aws' | 'none';
+
 export interface ProviderDefinition {
+  authType: ProviderAuthType;
   capabilities: ProviderCapabilities;
+  /**
+   * Historical env names this provider once resolved (BST-1361). NEVER
+   * consulted for authentication. They remain in the desktop `.env`
+   * allow-list (an unrecognized name rejects the WHOLE file, so removal
+   * would brick existing user files) and in the child-env credential
+   * scrubber forever (a credential-shaped var must never leak to children).
+   * When set, they surface a visible rename warning via
+   * `detectDeprecatedProviderEnvVars`.
+   */
+  deprecatedEnvKeys?: readonly string[];
   displayName: string;
   /**
+   * The provider's "get an API key" page. Required in practice for
+   * `api_key` providers (pinned by provider-registry-auth.test.ts).
+   */
+  docsUrl?: string;
+  /**
    * Environment variable keys (most preferred first) for secret discovery.
+   * Exactly two per api_key provider (BST-1361): the app-scoped
+   * `BRAINSTRIKE_<PROVIDER>_API_KEY` override first, then the
+   * vendor-standard name.
    */
   envKeys?: readonly string[];
   id: ProviderId;
+  /**
+   * Vendor-documented stable key prefix (e.g. "sk-ant-..."). Omit when the
+   * vendor documents no stable format — never guessed.
+   */
+  keyFormatHint?: string;
+  /**
+   * Provider-specific key guidance rendered verbatim in Settings (e.g.
+   * google's Gemini-vs-Vertex note). Registry metadata, not a UI branch.
+   */
+  keyNotes?: string;
   /**
    * Ordered list of models covering both chat and embeddings.
    */
@@ -213,6 +298,8 @@ export type ProviderId =
   | 'openrouter'
   | 'cohere'
   | 'voyage'
+  | 'bedrock'
+  | 'openai-codex'
   | 'local'
   | 'ollama'
   | 'lmstudio';
@@ -224,24 +311,26 @@ const OPENAI_O200K_REFERENCE: TokenizerBackedMeasurementCapability = {
 
 const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: true,
       llm: true,
       streaming: true,
     },
-    displayName: 'OpenAI',
-    // Model IDs per OpenAI docs:
-    // https://platform.openai.com/docs/guides/latest-model
-    // https://platform.openai.com/docs/models
-    envKeys: [
-      'BRAINSTRIKE_OPENAI_API_KEY',
+    deprecatedEnvKeys: [
       'BS_OPENAI_API_KEY',
-      'OPENAI_API_KEY',
       'AI_OPENAI_API_KEY',
       'OPENAI_API_KEY_V1',
       'OPENAI_API_KEY_V2',
     ],
+    displayName: 'OpenAI',
+    docsUrl: 'https://platform.openai.com/api-keys',
+    // Model IDs per OpenAI docs:
+    // https://platform.openai.com/docs/guides/latest-model
+    // https://platform.openai.com/docs/models
+    envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
+    keyFormatHint: 'sk-...',
     models: [
       {
         contextWindow: 1_050_000,
@@ -411,18 +500,22 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: false,
       llm: true,
       streaming: true,
     },
+    deprecatedEnvKeys: ['AI_ANTHROPIC_API_KEY'],
     displayName: 'Anthropic',
+    docsUrl: 'https://console.anthropic.com/settings/keys',
     // Model aliases per Anthropic docs:
     // https://www.anthropic.com/claude/sonnet
     // https://www.anthropic.com/claude/haiku
     // https://www.anthropic.com/claude/opus
-    envKeys: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
+    envKeys: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
     id: 'anthropic',
+    keyFormatHint: 'sk-ant-...',
     models: [
       {
         contextWindow: 1_000_000,
@@ -436,6 +529,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 10,
           outputPerMTok: 50,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
@@ -452,6 +546,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 5,
           outputPerMTok: 25,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         tagline: 'For your toughest challenges',
         type: 'llm',
@@ -471,6 +566,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 2,
           outputPerMTok: 10,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         tagline: 'Best mix of smarts and speed',
         type: 'llm',
@@ -488,6 +584,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 3,
           outputPerMTok: 15,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
@@ -504,6 +601,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
           inputPerMTok: 1,
           outputPerMTok: 5,
         },
+        promptCaching: 'anthropic',
         supportsStreaming: true,
         tagline: 'Fastest for lightweight tasks',
         type: 'llm',
@@ -513,17 +611,22 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: true,
       llm: true,
       streaming: true,
     },
+    deprecatedEnvKeys: ['GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
     displayName: 'Google AI Studio',
+    docsUrl: 'https://aistudio.google.com/app/apikey',
     // Gemini 3 model IDs + embeddings docs:
     // https://ai.google.dev/gemini-api/docs/gemini-3
     // https://ai.google.dev/gemini-api/docs/embeddings
-    envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
+    envKeys: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     id: 'google',
+    // Google publishes no stable key prefix, so there is no keyFormatHint.
+    keyNotes: 'Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.',
     models: [
       {
         contextWindow: 1_048_576,
@@ -614,16 +717,20 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: false,
       llm: true,
       streaming: true,
     },
+    deprecatedEnvKeys: ['AI_OPENROUTER_API_KEY'],
     displayName: 'OpenRouter',
+    docsUrl: 'https://openrouter.ai/settings/keys',
     // OpenRouter uses provider-prefixed model slugs (examples in docs):
     // https://openrouter.ai/docs/guides/routing/auto-model-selection
-    envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
+    envKeys: ['BRAINSTRIKE_OPENROUTER_API_KEY', 'OPENROUTER_API_KEY'],
     id: 'openrouter',
+    keyFormatHint: 'sk-or-v1-...',
     // Curated current subset from OpenRouter's model catalog. Provider-reported
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
@@ -1211,13 +1318,17 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'gateway',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: true,
       llm: false,
       streaming: false,
     },
+    deprecatedEnvKeys: ['AI_COHERE_API_KEY'],
     displayName: 'Cohere',
-    envKeys: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
+    // Cohere publishes no stable key prefix, so there is no keyFormatHint.
+    docsUrl: 'https://dashboard.cohere.com/api-keys',
+    envKeys: ['BRAINSTRIKE_COHERE_API_KEY', 'COHERE_API_KEY'],
     id: 'cohere',
     models: [
       {
@@ -1239,13 +1350,18 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    authType: 'api_key',
     capabilities: {
       embeddings: true,
       llm: false,
       streaming: false,
     },
+    deprecatedEnvKeys: ['AI_VOYAGE_API_KEY'],
     displayName: 'Voyage AI',
-    envKeys: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+    // Voyage's docs link this dashboard page (docs.voyageai.com, verified
+    // 2026-08-18). No stable key prefix is documented, so no keyFormatHint.
+    docsUrl: 'https://dashboard.voyageai.com/organization/api-keys',
+    envKeys: ['BRAINSTRIKE_VOYAGE_API_KEY', 'VOYAGE_API_KEY'],
     id: 'voyage',
     models: [
       {
@@ -1267,6 +1383,318 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'hosted',
   },
   {
+    // `authType: 'aws'` covers BOTH live auth forms — the bearer API key
+    // (BST-1350) and the AWS credential chain / SigV4 (BST-1353). The stored
+    // credential's `mode` discriminates them.
+    authType: 'aws',
+    capabilities: {
+      embeddings: false,
+      llm: true,
+      streaming: true,
+    },
+    displayName: 'Amazon Bedrock',
+    // AWS's "Generate Amazon Bedrock API keys" console docs page.
+    docsUrl: 'https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html',
+    // BST-1361 two-name scheme: app-scoped override first, then AWS's
+    // documented bearer-token variable for Bedrock API keys.
+    envKeys: ['BRAINSTRIKE_BEDROCK_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK'],
+    id: 'bedrock',
+    // AWS documents no stable printable prefix for Bedrock API keys, so there
+    // is no keyFormatHint.
+    keyNotes:
+      'Use an Amazon Bedrock API key (bearer token) from the AWS console. IAM SigV4 credentials and AWS profiles are not supported yet. Requests also need an AWS region: set AWS_REGION or store it with the key.',
+    // Model ids/pricing verified against https://models.dev/api.json
+    // (amazon-bedrock provider), retrieved 2026-08-18. Ids are stored
+    // UNPREFIXED; cross-region inference-profile prefixes (us./eu./…) are
+    // applied per request by resolveBedrockModelId in packages/agent.
+    // Prompt caching (BST-1354): Bedrock bills explicit `cachePoint` reads and
+    // writes at published per-model rates, so the Claude and Nova rows carry
+    // cache pricing. AWS documents a maximum of FOUR cache checkpoints per
+    // request for every caching-capable route, which is what bounds the
+    // wrapper's first-2-system + last-2-non-system placement policy.
+    models: [
+      {
+        bedrockReasoning: 'adaptive',
+        contextWindow: 1_000_000,
+        id: 'anthropic.claude-fable-5',
+        label: 'Claude Fable 5 (Bedrock)',
+        maxOutputTokens: 128_000,
+        pricing: {
+          cacheReadPerMTok: 1,
+          cacheWritePerMTok: 12.5,
+          inputPerMTok: 10,
+          outputPerMTok: 50,
+        },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        bedrockReasoning: 'adaptive',
+        contextWindow: 1_000_000,
+        id: 'anthropic.claude-opus-4-8',
+        label: 'Claude Opus 4.8 (Bedrock)',
+        maxOutputTokens: 128_000,
+        pricing: {
+          cacheReadPerMTok: 0.5,
+          cacheWritePerMTok: 6.25,
+          inputPerMTok: 5,
+          outputPerMTok: 25,
+        },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        tagline: 'For your toughest challenges',
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        bedrockReasoning: 'adaptive',
+        contextWindow: 1_000_000,
+        default: true,
+        id: 'anthropic.claude-sonnet-5',
+        label: 'Claude Sonnet 5 (Bedrock)',
+        maxOutputTokens: 128_000,
+        // Bedrock mirrors Anthropic's introductory rate (models.dev 2026-08-18).
+        pricing: {
+          cacheReadPerMTok: 0.2,
+          cacheWritePerMTok: 2.5,
+          inputPerMTok: 2,
+          outputPerMTok: 10,
+        },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        tagline: 'Best mix of smarts and speed',
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        bedrockReasoning: 'adaptive',
+        // models.dev lists a 1M context for this Bedrock route; the registry
+        // pins the vendor's standard tier (200K), consistent with the direct
+        // Anthropic and OpenRouter rows for the same model.
+        contextWindow: 200_000,
+        id: 'anthropic.claude-sonnet-4-6',
+        label: 'Claude Sonnet 4.6 (Bedrock)',
+        maxOutputTokens: 64_000,
+        pricing: {
+          cacheReadPerMTok: 0.3,
+          cacheWritePerMTok: 3.75,
+          inputPerMTok: 3,
+          outputPerMTok: 15,
+        },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        // The one catalogued Claude-on-Bedrock route without adaptive thinking
+        // (installed SDK `getModelCapabilities`), so it keeps the legacy
+        // explicit-budget form.
+        bedrockReasoning: 'budget-tokens',
+        contextWindow: 200_000,
+        id: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+        label: 'Claude Haiku 4.5 (Bedrock)',
+        maxOutputTokens: 64_000,
+        pricing: {
+          cacheReadPerMTok: 0.1,
+          cacheWritePerMTok: 1.25,
+          inputPerMTok: 1,
+          outputPerMTok: 5,
+        },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        tagline: 'Fastest for lightweight tasks',
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        // Nova v1 model cards document explicit cache points (system +
+        // messages, 4 checkpoints) but NO reasoning capability, so these rows
+        // declare caching without `bedrockReasoning`.
+        contextWindow: 300_000,
+        id: 'amazon.nova-pro-v1:0',
+        label: 'Amazon Nova Pro',
+        maxOutputTokens: 8192,
+        pricing: { cacheReadPerMTok: 0.2, inputPerMTok: 0.8, outputPerMTok: 3.2 },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 300_000,
+        id: 'amazon.nova-lite-v1:0',
+        label: 'Amazon Nova Lite',
+        maxOutputTokens: 8192,
+        pricing: { cacheReadPerMTok: 0.015, inputPerMTok: 0.06, outputPerMTok: 0.24 },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 128_000,
+        id: 'amazon.nova-micro-v1:0',
+        label: 'Amazon Nova Micro',
+        maxOutputTokens: 8192,
+        pricing: { cacheReadPerMTok: 0.008_75, inputPerMTok: 0.035, outputPerMTok: 0.14 },
+        promptCaching: 'bedrock',
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      },
+      {
+        // The ONLY Nova route AWS documents extended thinking for
+        // (nova2-userguide/extended-thinking.html: `reasoningConfig` with
+        // `maxReasoningEffort`, no token budget). models.dev publishes no
+        // cache-read rate for it and no Nova 2 model card documents cache
+        // points, so it declares reasoning WITHOUT `promptCaching` — absence
+        // is the honest record, not an oversight.
+        bedrockReasoning: 'max-reasoning-effort',
+        contextWindow: 128_000,
+        id: 'amazon.nova-2-lite-v1:0',
+        label: 'Amazon Nova 2 Lite',
+        maxOutputTokens: 4096,
+        pricing: { inputPerMTok: 0.33, outputPerMTok: 2.75 },
+        supportsStreaming: true,
+        type: 'llm',
+        // models.dev reports `modalities.input: [text, image, video]`. Do NOT
+        // read vision off the sibling `attachment` flag — that field is about
+        // file attachments and is false here despite image input working.
+        vision: 'supported',
+      },
+      // amazon.nova-premier is not listed by models.dev for Bedrock
+      // (2026-08-18), so it is deliberately absent.
+      {
+        contextWindow: 1_000_000,
+        id: 'meta.llama4-maverick-17b-instruct-v1:0',
+        label: 'Llama 4 Maverick (Bedrock)',
+        maxOutputTokens: 16_384,
+        pricing: { inputPerMTok: 0.24, outputPerMTok: 0.97 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 3_500_000,
+        id: 'meta.llama4-scout-17b-instruct-v1:0',
+        label: 'Llama 4 Scout (Bedrock)',
+        maxOutputTokens: 16_384,
+        pricing: { inputPerMTok: 0.17, outputPerMTok: 0.66 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 163_840,
+        id: 'deepseek.v3.2',
+        label: 'DeepSeek V3.2 (Bedrock)',
+        maxOutputTokens: 81_920,
+        pricing: { inputPerMTok: 0.62, outputPerMTok: 1.85 },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      },
+    ],
+    runtime: 'hosted',
+  },
+  {
+    /**
+     * OpenAI via a ChatGPT subscription (BST-1356), governed by
+     * `docs/OAUTH_LEGAL_REVIEW_GATE.md` — APPROVED WITH CONSTRAINTS. This is
+     * the FIRST carrier of `oauth_subscription`.
+     *
+     * The model set mirrors opencode's `ALLOWED_MODELS`, re-verified against
+     * `anomalyco/opencode` `dev` HEAD 0033bb3559 on 2026-08-18 (gate
+     * constraint 8). "Pro" reasoning routes and gpt-5.6 are excluded upstream
+     * and excluded here.
+     *
+     * PRICING IS DELIBERATELY OMITTED on every row: usage draws on the user's
+     * subscription rather than metered per-token billing, so the UI renders
+     * "cost unavailable". A zero price would assert a cost we do not know.
+     *
+     * `nativeToolSearch` is likewise omitted: the Codex backend is a distinct
+     * endpoint from the platform Responses API and its support for OpenAI's
+     * native search tool is unverified. Claiming it unverified would be a
+     * capability we cannot honor.
+     *
+     * MODEL IDS ARE `codex/`-PREFIXED. The `models` table's `id` is a GLOBAL
+     * primary key (migration 015), so a bare `gpt-5.5` row here would collide
+     * with — and on upsert HIJACK — the platform `openai` row of the same id.
+     * Every multi-route provider namespaces for this reason (openrouter uses
+     * `openai/…`, bedrock uses `anthropic.…`). The prefix is stripped to the
+     * bare wire id at request time by `resolveCodexModelId`
+     * (packages/agent/src/providers/codex-model-id.ts).
+     */
+    authType: 'oauth_subscription',
+    capabilities: {
+      embeddings: false,
+      llm: true,
+      streaming: true,
+    },
+    displayName: 'OpenAI (ChatGPT)',
+    docsUrl: 'https://developers.openai.com/codex/auth',
+    // Subscription auth is interactive-desktop-only (gate constraint 4): no
+    // environment variable can authenticate this provider, by construction.
+    envKeys: [],
+    id: 'openai-codex',
+    keyNotes:
+      'Sign in with your own ChatGPT Plus or Pro account. Usage draws on your personal subscription quota; commercial or multi-user serving requires platform API keys instead.',
+    models: [
+      {
+        contextWindow: 400_000,
+        default: true,
+        id: 'codex/gpt-5.5',
+        label: 'GPT-5.5',
+        maxOutputTokens: 128_000,
+        supportsStreaming: true,
+        tagline: 'Included with your ChatGPT subscription',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 400_000,
+        id: 'codex/gpt-5.4',
+        label: 'GPT-5.4',
+        maxOutputTokens: 128_000,
+        supportsStreaming: true,
+        tagline: 'Included with your ChatGPT subscription',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        contextWindow: 400_000,
+        id: 'codex/gpt-5.4-mini',
+        label: 'GPT-5.4 Mini',
+        maxOutputTokens: 128_000,
+        supportsStreaming: true,
+        tagline: 'Faster, included with your ChatGPT subscription',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
+        // Codex-only route with no direct base-registry row; its family
+        // anchor is the base `gpt-5.3-codex` entry (same limits, vision).
+        contextWindow: 400_000,
+        id: 'codex/gpt-5.3-codex-spark',
+        label: 'GPT-5.3 Codex Spark',
+        maxOutputTokens: 128_000,
+        supportsStreaming: true,
+        tagline: 'Lightweight coding, included with your ChatGPT subscription',
+        tokenMeasurement: OPENAI_O200K_REFERENCE,
+        type: 'llm',
+        vision: 'supported',
+      },
+    ],
+    runtime: 'hosted',
+  },
+  {
+    authType: 'none',
     capabilities: {
       embeddings: false,
       llm: true,
@@ -1311,6 +1739,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'browser',
   },
   {
+    // The optional local-server bearer token is a transport concern
+    // (providerOptions.apiToken), not an authType.
+    authType: 'none',
     capabilities: {
       embeddings: true,
       llm: true,
@@ -1323,6 +1754,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     runtime: 'local',
   },
   {
+    // The optional local-server bearer token is a transport concern
+    // (providerOptions.apiToken), not an authType.
+    authType: 'none',
     capabilities: {
       embeddings: true,
       llm: true,
@@ -1392,6 +1826,19 @@ export function getProviderDefinition(provider: ProviderId): ProviderDefinition 
   return PROVIDER_BY_ID[provider];
 }
 
+/**
+ * Non-throwing counterpart to {@link getProviderDefinition} for callers whose
+ * provider id is NOT statically guaranteed to be a registry member (e.g. a
+ * persona pin's config-supplied provider, PR #2513 review finding 1).
+ * `getProviderDefinition`'s signature promises a definition but returns
+ * `undefined` at runtime for out-of-union ids — deref that and a TypeError
+ * escapes into caller error handling. Use this when "unknown provider" has a
+ * defined fallback.
+ */
+export function findProviderDefinition(providerId: string): ProviderDefinition | undefined {
+  return (PROVIDER_BY_ID as Record<string, ProviderDefinition | undefined>)[providerId];
+}
+
 export function listProviderModels(provider: ProviderId, type?: ProviderModelType) {
   const definition = getProviderDefinition(provider);
   if (!type) {
@@ -1412,6 +1859,35 @@ export function listProviderEmbeddingModels(
 
 export function getProviderEnvKeys(provider: ProviderId): readonly string[] {
   return getProviderDefinition(provider).envKeys ?? [];
+}
+
+/**
+ * Historical env names this provider once resolved (BST-1361). Allow-listed
+ * and scrubbed but NEVER consulted for authentication — see
+ * {@link ProviderDefinition.deprecatedEnvKeys}.
+ */
+export function getProviderDeprecatedEnvKeys(provider: ProviderId): readonly string[] {
+  return getProviderDefinition(provider).deprecatedEnvKeys ?? [];
+}
+
+const BRAINSTRIKE_ENV_KEY_PREFIX = 'BRAINSTRIKE_';
+
+/**
+ * The app-scoped `BRAINSTRIKE_<PROVIDER>_API_KEY` override name (BST-1361).
+ * Role-based, not positional: the override IS the `BRAINSTRIKE_`-prefixed
+ * member of the canonical pair (pinned by provider-env-deprecation.test.ts).
+ * `undefined` for keyless providers.
+ */
+export function getProviderOverrideEnvKey(provider: ProviderId): string | undefined {
+  return getProviderEnvKeys(provider).find((name) => name.startsWith(BRAINSTRIKE_ENV_KEY_PREFIX));
+}
+
+/**
+ * The vendor-standard env name (e.g. `OPENAI_API_KEY`) — the non-override
+ * member of the canonical pair (BST-1361). `undefined` for keyless providers.
+ */
+export function getProviderVendorEnvKey(provider: ProviderId): string | undefined {
+  return getProviderEnvKeys(provider).find((name) => !name.startsWith(BRAINSTRIKE_ENV_KEY_PREFIX));
 }
 
 export function providerSupportsStandardEmbeddingDimension(provider: ProviderId): boolean {

@@ -1,18 +1,20 @@
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
-import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-
 declare global {
   interface Window {
-    secrets?: {
-      saveKey: (
-        provider: string,
-        value: string
-      ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
-      getKey: (provider: string) => Promise<string | null>;
-      deleteKey: (provider: string) => Promise<boolean>;
-      list: () => Promise<ProviderKeySource<SupportedProvider | 'tavily'>[]>;
-      listStored: () => Promise<string[]>;
-      clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
-    };
+    /**
+     * Desktop-only secrets bridge, consumed by capability. The shape is
+     * defined ONCE in `@brainstrike/assistant-contract/secrets-bridge`; the
+     * capability view keeps the typed-credential methods optional for older
+     * desktop preloads.
+     */
+    /**
+     * Desktop-only env bootstrap bridge (BST-1363), consumed by capability.
+     * Shape defined ONCE in
+     * `@brainstrike/assistant-contract/env-bootstrap-bridge`. Absent on web,
+     * where the Environment section renders nothing.
+     */
+    envBootstrap?: import('@brainstrike/assistant-contract/env-bootstrap-bridge').EnvBootstrapCapability;
+    secrets?: import('@brainstrike/assistant-contract/secrets-bridge').SecretsCapability;
   }
 }
+
+export {};

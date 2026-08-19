@@ -20,6 +20,7 @@ import { getGoogleThinkingLevels } from '@brainstrike/types';
 import { getLocalLlmModelSpec } from './local-llm-model-specs.js';
 import type { OpenRouterModelMetadata } from './openrouter-model-metadata.js';
 import {
+  getProviderDefinition,
   type LlmModelDefinition,
   listProviderLlmModels,
   listProviders,
@@ -27,6 +28,7 @@ import {
 } from './provider-registry.js';
 import type {
   AnthropicEffort,
+  BedrockReasoningEffort,
   GoogleThinkingLevel,
   OpenAiReasoningEffort,
 } from './runtime-data.js';
@@ -45,6 +47,19 @@ export type ReasoningControlsAvailability =
       mandatory?: boolean | undefined;
     }
   | { available: true; family: 'anthropic'; efforts: readonly AnthropicEffort[] }
+  | {
+      /**
+       * Its own family rather than a reuse of `anthropic` (BST-1354). The
+       * Anthropic family carries a free-form thinking BUDGET toggle that
+       * Bedrock has no equivalent for, so sharing it would render a switch
+       * whose value the Bedrock request builder ignores. The offered efforts
+       * are per-model because the three Bedrock dialects accept different
+       * ladders.
+       */
+      available: true;
+      family: 'bedrock';
+      efforts: readonly BedrockReasoningEffort[];
+    }
   | { available: true; family: 'google'; levels: readonly GoogleThinkingLevel[] }
   | { available: true; family: 'local' }
   | { available: false; reason: 'no-reasoning-controls' };
@@ -75,6 +90,43 @@ export const OPENAI_FAMILY_DEFAULT_EFFORTS: readonly OpenAiReasoningEffort[] = [
  * carries per-model `reasoning.supportedEfforts` for Anthropic.
  */
 export const ANTHROPIC_REASONING_EFFORTS: readonly AnthropicEffort[] = ['low', 'medium', 'high'];
+
+/**
+ * OFFERED Bedrock efforts, per reasoning dialect. Same
+ * offered-vs-membership discipline as `ANTHROPIC_REASONING_EFFORTS`: the TYPE
+ * spans the SDK's full enum, these lists span what a route is documented to
+ * accept.
+ *
+ * - `adaptive` — AWS's adaptive-thinking `output_config.effort`. Held at
+ *   low/medium/high for the same reason the Anthropic list is: `xhigh`/`max`
+ *   are per-model (`supportsXhighEffort` in the SDK's capability table), and
+ *   offering an effort a route rejects is a broken menu entry.
+ * - `budget-tokens` — only the two efforts with a vendor-grounded token budget
+ *   exist (see `BEDROCK_BUDGET_TOKENS_BY_EFFORT`). There is no documented
+ *   low/medium budget, and inventing one would be a guess.
+ * - `max-reasoning-effort` — exactly the three values Amazon's extended
+ *   thinking guide documents for Nova.
+ */
+export const BEDROCK_REASONING_EFFORTS: Readonly<
+  Record<NonNullable<LlmModelDefinition['bedrockReasoning']>, readonly BedrockReasoningEffort[]>
+> = {
+  adaptive: ['low', 'medium', 'high'],
+  'budget-tokens': ['high', 'max'],
+  'max-reasoning-effort': ['low', 'medium', 'high'],
+};
+
+/**
+ * Token budgets for the legacy Bedrock `{type:'enabled', budgetTokens}` form.
+ * AWS documents a 1,024-token minimum and no hard maximum below the model's
+ * output window; these two values match the budgets OpenCode sends on the same
+ * routes. Only these efforts are offered, so the record is total.
+ */
+export const BEDROCK_BUDGET_TOKENS_BY_EFFORT: Readonly<
+  Partial<Record<BedrockReasoningEffort, number>>
+> = {
+  high: 16_000,
+  max: 31_999,
+};
 
 const KNOWN_PROVIDER_IDS: ReadonlySet<string> = new Set<string>(
   listProviders().map((provider) => provider.id)
@@ -116,13 +168,20 @@ export function resolveModelReasoningSupport(
       : { state: 'unsupported' };
   }
 
-  if (provider === 'ollama' || provider === 'lmstudio') {
-    // Discovered runtime models carry no reasoning signal from their
-    // endpoints — surface "unverified" instead of guessing.
+  if (getProviderDefinition(provider).runtime === 'local') {
+    // Local-runtime servers (registry `runtime: 'local'`, PR #2513 review
+    // finding 5): discovered runtime models carry no reasoning signal from
+    // their endpoints — surface "unverified" instead of guessing.
     return { reason: 'discovered-model', state: 'unknown' };
   }
 
-  if (findDeclaredLlmModel(provider, modelId)?.reasoning) {
+  const declared = findDeclaredLlmModel(provider, modelId);
+  if (declared?.reasoning) {
+    return { source: 'model', state: 'supported' };
+  }
+  // Bedrock records reasoning as a per-model DIALECT rather than an effort
+  // ladder, so it declares capability through its own field (BST-1354).
+  if (declared?.bedrockReasoning) {
     return { source: 'model', state: 'supported' };
   }
 
@@ -197,11 +256,25 @@ export function resolveReasoningControlsAvailability(
     return { available: false, reason: 'no-reasoning-controls' };
   }
 
+  if (getProviderDefinition(provider).runtime === 'local') {
+    // Registry-derived (PR #2513 review, finding 5): local-runtime servers'
+    // discovered models expose no reasoning controls.
+    return { available: false, reason: 'no-reasoning-controls' };
+  }
+
   switch (provider) {
     case 'openai':
       return resolveOpenAiFamilyControls(
         'openai',
         modelId === undefined ? undefined : findDeclaredLlmModel('openai', modelId)?.reasoning
+      );
+    case 'openai-codex':
+      // BST-1356: the same GPT-5.x families as the platform `openai` entry,
+      // reached through the Codex backend. Reasoning controls belong to the
+      // MODEL, not the endpoint, so this shares the OpenAI control family.
+      return resolveOpenAiFamilyControls(
+        'openai',
+        modelId === undefined ? undefined : findDeclaredLlmModel('openai-codex', modelId)?.reasoning
       );
     case 'openrouter':
       return resolveOpenRouterControls(modelId, openRouterMetadata);
@@ -218,9 +291,27 @@ export function resolveReasoningControlsAvailability(
     }
     case 'ollama':
     case 'lmstudio':
+      // Unreachable at runtime — the registry `runtime: 'local'` early return
+      // above owns this answer. Retained solely so the switch keeps its
+      // compile-time exhaustiveness pin over ProviderId.
+      return { available: false, reason: 'no-reasoning-controls' };
     case 'cohere':
     case 'voyage':
       return { available: false, reason: 'no-reasoning-controls' };
+    case 'bedrock': {
+      // BST-1354: per-model, straight off the registry's declared dialect.
+      // Bedrock's catalog is heterogeneous — adaptive Claude routes, one
+      // legacy budget-token route, Amazon Nova, and several routes with no
+      // reasoning at all — so there is no provider-wide answer to give.
+      const dialect =
+        modelId === undefined
+          ? undefined
+          : findDeclaredLlmModel(provider, modelId)?.bedrockReasoning;
+      if (!dialect) {
+        return { available: false, reason: 'no-reasoning-controls' };
+      }
+      return { available: true, efforts: BEDROCK_REASONING_EFFORTS[dialect], family: 'bedrock' };
+    }
     default: {
       const exhausted: never = provider;
       throw new Error(`Unhandled provider in reasoning controls resolver: ${String(exhausted)}`);

@@ -263,6 +263,59 @@ describe('assistant-preferences-store', () => {
     );
   });
 
+  it('accepts stored entries carrying the save-time fingerprint metadata (BST-1362)', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      checkedAt: 123,
+      state: 'unavailable',
+    });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([
+        {
+          metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
+          provider: 'google',
+          source: 'stored',
+        },
+      ]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
+    };
+
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+    expect(providers).toContain('google');
+  });
+
+  it('rejects a stored entry whose fingerprint metadata is malformed', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
+      checkedAt: 123,
+      state: 'unavailable',
+    });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      clearAll: vi.fn(),
+      deleteKey: vi.fn(),
+      getKey: vi.fn(),
+      list: vi.fn().mockResolvedValue([
+        {
+          metadata: { last4: '-123', savedAt: 'not-a-date' },
+          provider: 'google',
+          source: 'stored',
+        },
+      ]),
+      listStored: vi.fn(),
+      saveKey: vi.fn(),
+    };
+
+    await expect(useAssistantPreferencesStore.getState().getAvailableProviders()).rejects.toThrow(
+      'invalid provider key metadata'
+    );
+  });
+
   it('rejects malformed provider key metadata', async () => {
     vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeRuntime').mockResolvedValue({
       checkedAt: 123,

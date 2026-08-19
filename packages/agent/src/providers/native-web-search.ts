@@ -30,8 +30,24 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import type { ToolsInput } from '@mastra/core/agent';
+import {
+  type ProviderAuthInput,
+  type ProviderFetchOptions,
+  providerFetchOptions,
+} from './provider-auth-input';
 
 export { WEB_SEARCH_TOOL_ID };
+
+/**
+ * Mirror of provider-factory's `sdkFactorySettings`: preserve the historical
+ * `apiKey ? { apiKey } : undefined` shape when nothing was projected.
+ */
+function webSearchClientSettings(options: ProviderFetchOptions): ProviderFetchOptions | undefined {
+  if (options.apiKey === undefined && options.fetch === undefined) {
+    return;
+  }
+  return options;
+}
 
 /** Providers with a first-party, combinable native web-search tool (v1). */
 export type NativeWebSearchProvider = 'anthropic' | 'openai';
@@ -56,17 +72,24 @@ export function providerSupportsNativeWebSearch(
  *
  * The returned object is a provider-defined tool (`{ type:'provider',
  * isProviderExecuted:true, id, args }`) with no `execute`. It is
- * provider-instance-independent (the actual API auth rides on the language model
- * built separately with the api key), so the key here is only for construction
- * parity and is never embedded in the tool. Returns `undefined` for providers
- * without native search.
+ * provider-instance-independent (the actual API auth rides on the language
+ * model built separately), so the client built here exists for construction
+ * parity — but that parity MUST include the full ProviderAuthInput (BST-1352
+ * review finding 1): building it from a bare key would silently drop an
+ * injected custom fetch, and under `custom_fetch` the dummy key would reach
+ * the real API. `providerFetchOptions` is the same projection the chat model
+ * uses, so the two clients can never diverge on auth kind handling (aws
+ * throws typed here exactly like the chat case). Returns `undefined` for
+ * providers without native search.
  */
 export function createProviderNativeWebSearchTool(
   provider: string,
-  apiKey: string | undefined
+  auth: ProviderAuthInput | undefined
 ): ToolsInput[string] | undefined {
   if (provider === 'anthropic') {
-    const anthropicProvider = createAnthropic(apiKey ? { apiKey } : undefined);
+    const anthropicProvider = createAnthropic(
+      webSearchClientSettings(providerFetchOptions(auth, provider))
+    );
     return anthropicProvider.tools.webSearch_20250305() as unknown as ToolsInput[string];
   }
   if (provider === 'openai') {
@@ -77,8 +100,12 @@ export function createProviderNativeWebSearchTool(
     // callable also routes to `/v1/responses`. If the chat surface ever moves
     // off `/v1/responses` (e.g. `.chat(modelName)` or an OpenAI-compatible base
     // URL), this native tool must move with it — see the matching invariant
-    // comment on the `case 'openai':` branch in provider-factory.ts.
-    const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
+    // comment on the `case 'openai':` branch in provider-factory.ts. Both
+    // clients now share `providerFetchOptions`, so the AUTH halves cannot
+    // drift even while the surface halves stay independently pinned.
+    const openaiProvider = createOpenAI(
+      webSearchClientSettings(providerFetchOptions(auth, provider))
+    );
     return openaiProvider.tools.webSearch() as unknown as ToolsInput[string];
   }
   return;
@@ -90,13 +117,16 @@ interface NativeWebSearchLogger {
 }
 
 export interface ApplyProviderNativeWebSearchParams {
-  /** The resolver's api key for the selected provider (rides on the model, not the tool). */
-  apiKey: string | undefined;
   /**
    * Sanitized ids of tools the permission gate resolved to `ask` (kept as
    * approval-gated clones). Web search present here MUST stay Tavily-backed.
    */
   askTools: ReadonlyMap<string, unknown>;
+  /**
+   * The run's resolved ProviderAuthInput (BST-1352): the SAME input the chat
+   * model was built with, so the web-search client shares its fetch/key.
+   */
+  auth: ProviderAuthInput | undefined;
   logger?: NativeWebSearchLogger;
   /**
    * Keep the execute-backed implementation while resuming a call that already
@@ -131,7 +161,7 @@ function findWebSearchSanitizedId(toolNameMap: ReadonlyMap<string, string>): str
 export function applyProviderNativeWebSearch(
   params: ApplyProviderNativeWebSearchParams
 ): ToolsInput {
-  const { apiKey, askTools, logger, preserveExecuteBackedWebSearch, provider, tools, toolNameMap } =
+  const { auth, askTools, logger, preserveExecuteBackedWebSearch, provider, tools, toolNameMap } =
     params;
 
   if (!providerSupportsNativeWebSearch(provider)) {
@@ -164,7 +194,7 @@ export function applyProviderNativeWebSearch(
     return tools;
   }
 
-  const nativeTool = createProviderNativeWebSearchTool(provider, apiKey);
+  const nativeTool = createProviderNativeWebSearchTool(provider, auth);
   if (!nativeTool) {
     return tools;
   }

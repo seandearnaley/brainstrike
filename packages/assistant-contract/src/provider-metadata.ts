@@ -1,12 +1,16 @@
 import {
   type EmbeddingModelDefinition,
   getProviderDefinition,
+  getProviderDeprecatedEnvKeys,
   getProviderEnvKeys,
+  getProviderOverrideEnvKey,
+  getProviderVendorEnvKey,
   listProviderEmbeddingModels,
   listProviderLlmModels,
   listProviderModels,
   listProviders,
   type ModelVisionSupport,
+  type ProviderAuthType,
   type ProviderCapabilities,
   type ProviderDefinition,
   type ProviderId,
@@ -21,6 +25,7 @@ import {
 export type SupportedProvider = ProviderId;
 export type {
   ModelVisionSupport,
+  ProviderAuthType,
   ProviderCapabilities,
   ProviderDefinition,
   ProviderModelDefinition,
@@ -112,6 +117,47 @@ export function providerEnvKeys(provider: SupportedProvider): readonly string[] 
   return getProviderEnvKeys(provider);
 }
 
+/**
+ * Historical env names the provider once resolved (BST-1361): allow-listed
+ * and scrubbed, never authenticated. See `ProviderDefinition.deprecatedEnvKeys`.
+ */
+export function providerDeprecatedEnvKeys(provider: SupportedProvider): readonly string[] {
+  return getProviderDeprecatedEnvKeys(provider);
+}
+
+/**
+ * The app-scoped `BRAINSTRIKE_<PROVIDER>_API_KEY` override name (BST-1361).
+ * Role-based, not positional — see {@link getProviderOverrideEnvKey}.
+ */
+export function providerOverrideEnvKey(provider: SupportedProvider): string | undefined {
+  return getProviderOverrideEnvKey(provider);
+}
+
+/**
+ * The vendor-standard env name (e.g. `OPENAI_API_KEY`) — the non-override
+ * member of the canonical pair (BST-1361). `undefined` for keyless providers.
+ */
+export function providerVendorEnvKey(provider: SupportedProvider): string | undefined {
+  return getProviderVendorEnvKey(provider);
+}
+
+// Deprecated-name DETECTION rides this subpath too (review 10f): one import
+// surface for provider metadata, no dedicated package export path. The
+// module itself stays separate; it imports only provider-registry, so this
+// re-export is cycle-free.
+export {
+  type DeprecatedEnvVarReport,
+  detectDeprecatedProviderEnvVars,
+} from './provider-env-deprecation.js';
+
+/**
+ * Registry-derived auth mode. Keyless-ness is `authType === 'none'` —
+ * callers must never hand-list the keyless providers (BST-1349).
+ */
+export function providerAuthType(provider: SupportedProvider): ProviderAuthType {
+  return getProviderDefinition(provider).authType;
+}
+
 export function supportsStandardEmbeddingDimension(provider: SupportedProvider): boolean {
   return providerSupportsStandardEmbeddingDimension(provider);
 }
@@ -122,4 +168,15 @@ export function getProviderModelDefinitions(
   return listProviderModels(provider);
 }
 
-export { getProviderDefinition, listProviders } from './provider-registry.js';
+/**
+ * Rides this narrow subpath so the provider FACTORY can read a model's
+ * declared capabilities (prompt-caching dialect, Bedrock reasoning dialect)
+ * without pulling the full contract barrel into narrow server entrypoints.
+ * Non-throwing on purpose: an uncatalogued model id declares no capabilities.
+ */
+export {
+  findLlmModelDefinition,
+  getProviderDefinition,
+  type LlmModelDefinition,
+  listProviders,
+} from './provider-registry.js';

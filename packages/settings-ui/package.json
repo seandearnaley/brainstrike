@@ -54,9 +54,13 @@
       "types": "./dist/settings/models/model-selection-page.d.ts",
       "import": "./dist/settings/models/model-selection-page.js"
     },
-    "./settings/secrets/api-keys-settings-category": {
-      "types": "./dist/settings/secrets/api-keys-settings-category.d.ts",
-      "import": "./dist/settings/secrets/api-keys-settings-category.js"
+    "./settings/providers/providers-settings-category": {
+      "types": "./dist/settings/providers/providers-settings-category.d.ts",
+      "import": "./dist/settings/providers/providers-settings-category.js"
+    },
+    "./settings/secrets/credential-inventory": {
+      "types": "./dist/settings/secrets/credential-inventory/index.d.ts",
+      "import": "./dist/settings/secrets/credential-inventory/index.js"
     },
     "./settings/system/logging-settings-section": {
       "types": "./dist/settings/system/logging-settings-section.d.ts",

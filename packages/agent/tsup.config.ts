@@ -25,6 +25,13 @@ const sharedExternal = [
   // Node-only: spawns platform sandbox tooling and proxy servers. Bundling it
   // would drag that into every consumer, including browser entries.
   '@anthropic-ai/sandbox-runtime',
+  // Node-only (BST-1353): the AWS default credential chain reads `~/.aws`,
+  // spawns `credential_process` children, and talks to IMDS. Externalized so
+  // esbuild can never inline it into a browser entry — the module that
+  // imports it (providers/aws-credential-chain.ts) is reachable only from the
+  // Node entrypoints, and this keeps that true by construction rather than by
+  // import discipline alone.
+  '@aws-sdk/credential-providers',
   '@brainstrike/types',
   '@electric-sql/pglite',
   '@mastra/core',

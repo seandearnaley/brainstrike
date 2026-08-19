@@ -26,7 +26,6 @@ import {
   parseObservationalMemoryModelTarget,
   parseSemanticRecallEmbeddingModelTarget,
   type RuntimeMemoryOptions,
-  resolveRequestedProvider,
 } from '@brainstrike/assistant-service/memory-model-targets';
 import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types';
 import { getDatabase } from '../db-main';
@@ -84,7 +83,6 @@ export async function getDesktopMastraMemory(
     memoryOptions,
     memorySettings,
     runId,
-    runtimeData,
   });
   if (cacheState.cachedPromise) {
     return cacheState.cachedPromise;
@@ -138,24 +136,20 @@ function createDesktopMastraMemoryCacheState({
   memoryOptions,
   memorySettings,
   runId,
-  runtimeData,
 }: {
   readonly memoryOptions: RuntimeMemoryOptions | undefined;
   readonly memorySettings: RuntimeAssistantMemorySettings | undefined;
   readonly runId: string | undefined;
-  readonly runtimeData: RuntimeData | undefined;
 }): DesktopMastraMemoryCacheState {
   const observationalMemoryDescriptor =
     resolveDesktopObservationalMemoryModelTargetDescriptor(memorySettings);
   const semanticRecallEmbeddingDescriptor =
     resolveDesktopSemanticRecallEmbeddingModelTargetDescriptor(memorySettings);
   const observationalMemoryResolution = resolveRuntimeMemoryModelTarget(
-    observationalMemoryDescriptor,
-    runtimeData
+    observationalMemoryDescriptor
   );
   const semanticRecallEmbeddingResolution = resolveRuntimeMemoryModelTarget(
-    semanticRecallEmbeddingDescriptor,
-    runtimeData
+    semanticRecallEmbeddingDescriptor
   );
   if (
     runId ||
@@ -385,8 +379,7 @@ async function resolveDesktopMemoryModelTargetResolution<
 }
 
 function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescriptor>(
-  target: T | undefined,
-  runtimeData: RuntimeData | undefined
+  target: T | undefined
 ): DesktopMemoryModelTargetResolution<T> {
   if (!target) {
     return { kind: 'disabled' };
@@ -397,24 +390,15 @@ function resolveRuntimeMemoryModelTarget<T extends DesktopMemoryModelTargetDescr
       target: resolveLocalMemoryModelTarget(target),
     };
   }
-  const runtimeProvider = resolveRequestedProvider(runtimeData);
-  const apiKey =
-    runtimeProvider === target.provider && runtimeData?.apiKey?.trim()
-      ? runtimeData.apiKey.trim()
-      : undefined;
-  if (!apiKey) {
-    return {
-      descriptor: target,
-      kind: 'needs_async_resolution',
-    };
-  }
+  // BST-1352 review: RuntimeData no longer carries the request's bearer key
+  // (credentials travel only as the direct authInput parameter and never enter
+  // RequestContext serialization), so the old same-provider request-key reuse
+  // is structurally gone. Every hosted target resolves through the SAME
+  // env/keychain chain the request used (`resolveProviderApiKey`), so the
+  // resolved VALUE is identical; the memory cache absorbs the extra read.
   return {
-    kind: 'resolved',
-    target: {
-      ...target,
-      apiKey,
-      cacheKey: `${target.provider}/${target.model}:${hashSecretForCacheKey(apiKey)}`,
-    },
+    descriptor: target,
+    kind: 'needs_async_resolution',
   };
 }
 

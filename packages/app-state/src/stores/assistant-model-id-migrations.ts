@@ -16,6 +16,7 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     'claude-sonnet-4-5-20250929': 'claude-sonnet-4-6',
     'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
   },
+  bedrock: {},
   cohere: {},
   google: {
     'gemini-1.5-pro': 'gemini-2.5-pro',
@@ -40,6 +41,8 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     // gpt-5.2-chat-latest dropped (docs: not recommended for API use).
     'gpt-5.2-chat-latest': 'gpt-5.4',
   },
+  // BST-1356: a brand-new provider has no historical model ids to remap.
+  'openai-codex': {},
   openrouter: {
     'anthropic/claude-3.5-sonnet': 'anthropic/claude-sonnet-4.6',
     'anthropic/claude-opus-4.5': 'anthropic/claude-opus-4.8',

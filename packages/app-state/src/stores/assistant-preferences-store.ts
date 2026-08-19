@@ -1,9 +1,11 @@
+import { parseProviderKeySources } from '@brainstrike/assistant-contract';
 import {
   getProviderDefaultModel,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   type ProviderDefinition,
+  providerAuthType,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -158,8 +160,17 @@ const LOCAL_RUNTIME_PROVIDER_BY_RUNTIME: Record<LocalRuntimeId, SupportedProvide
 const LOCAL_RUNTIME_PROVIDERS = new Set<SupportedProvider>(
   Object.values(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME)
 );
+/**
+ * Providers that are available with NO credential at all.
+ *
+ * Keyless-ness DERIVES from `authType === 'none'` (BST-1349) — it is never
+ * inferred from "declares no env keys". Those differ: BST-1356's
+ * `openai-codex` declares no env keys precisely BECAUSE it is interactive
+ * OAuth only, and treating that as keyless would advertise it as ready to use
+ * before the user has connected an account.
+ */
 const STATIC_NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
-  (provider) => providerEnvKeys(provider).length === 0 && !LOCAL_RUNTIME_PROVIDERS.has(provider)
+  (provider) => providerAuthType(provider) === 'none' && !LOCAL_RUNTIME_PROVIDERS.has(provider)
 );
 const MODEL_KEY_DELIMITER = '::' as const;
 const RECENT_MODELS_MAX = 5;
@@ -581,57 +592,29 @@ function invalidProviderKeyMetadata(): Error {
   return new Error('Secrets bridge returned invalid provider key metadata.');
 }
 
-function hasValidProviderKeySourceShape(
-  candidate: Record<string, unknown>,
-  provider: string,
-  source: 'env' | 'stored'
-): boolean {
-  if (source === 'stored') {
-    return Object.keys(candidate).length === 2 && !Object.hasOwn(candidate, 'envVar');
-  }
-
-  const envVar = candidate['envVar'];
-  if (
-    Object.keys(candidate).length !== 3 ||
-    typeof envVar !== 'string' ||
-    envVar.trim().length === 0
-  ) {
-    return false;
-  }
-  if (provider === 'tavily') {
-    return TAVILY_ENV_KEYS.has(envVar);
-  }
-  return providerEnvKeys(provider as SupportedProvider).includes(envVar);
-}
+const CONFIGURED_KEY_PROVIDER_IDS: ReadonlySet<string> = new Set<string>([
+  ...SUPPORTED_PROVIDERS,
+  'tavily',
+]);
 
 function parseConfiguredProviderKeys(value: unknown): ReadonlySet<SupportedProvider> {
-  if (!Array.isArray(value)) {
-    throw invalidProviderKeyMetadata();
-  }
+  // Wire-shape validation is the SHARED assistant-contract parser (BST-1362)
+  // so this probe and the settings Credential Inventory can never drift on
+  // what `secrets:list` may return (including the optional stored-entry
+  // fingerprint metadata).
+  const sources = parseProviderKeySources<SupportedProvider | 'tavily'>(value, {
+    allowedProviders: CONFIGURED_KEY_PROVIDER_IDS,
+    invalidPayload: invalidProviderKeyMetadata,
+    isAllowedEnvVar: (provider, envVar) =>
+      provider === 'tavily'
+        ? TAVILY_ENV_KEYS.has(envVar)
+        : providerEnvKeys(provider).includes(envVar),
+  });
 
   const configured = new Set<SupportedProvider>();
-  const seen = new Set<string>();
-  for (const entry of value) {
-    if (!(entry && typeof entry === 'object')) {
-      throw invalidProviderKeyMetadata();
-    }
-    const candidate = entry as Record<string, unknown>;
-    const provider = candidate['provider'];
-    const source = candidate['source'];
-    if (
-      typeof provider !== 'string' ||
-      seen.has(provider) ||
-      !(SUPPORTED_PROVIDER_SET.has(provider as SupportedProvider) || provider === 'tavily') ||
-      (source !== 'env' && source !== 'stored')
-    ) {
-      throw invalidProviderKeyMetadata();
-    }
-    if (!hasValidProviderKeySourceShape(candidate, provider, source)) {
-      throw invalidProviderKeyMetadata();
-    }
-    seen.add(provider);
-    if (SUPPORTED_PROVIDER_SET.has(provider as SupportedProvider)) {
-      configured.add(provider as SupportedProvider);
+  for (const source of sources) {
+    if (source.provider !== 'tavily') {
+      configured.add(source.provider);
     }
   }
   return configured;
