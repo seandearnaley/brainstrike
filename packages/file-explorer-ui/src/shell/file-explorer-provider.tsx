@@ -59,6 +59,8 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
   const errorListeners = new Set<() => void>();
   const generations = new Map<string, number>();
   const pendingBatches: PendingFileContentBatch[] = [];
+  const retainedErrorKeysByOwner = new Map<object, ReadonlySet<string>>();
+  const retainedErrorKeyCounts = new Map<string, number>();
   let errorsSnapshot: ReadonlyMap<string, Error> = new Map();
   let lifecycleEpoch = 0;
   let lifecycleGeneration = 0;
@@ -71,6 +73,54 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
     for (const listener of errorListeners) {
       listener();
     }
+  };
+  const isErrorKeyOwned = (compositeKey: string): boolean =>
+    activeLoads.has(compositeKey) || retainedErrorKeyCounts.has(compositeKey);
+  const pruneUnownedErrors = (compositeKeys: Iterable<string>): void => {
+    let next: Map<string, Error> | null = null;
+    for (const compositeKey of compositeKeys) {
+      if (!(errorsSnapshot.has(compositeKey) && !isErrorKeyOwned(compositeKey))) {
+        continue;
+      }
+      next ??= new Map(errorsSnapshot);
+      next.delete(compositeKey);
+    }
+    if (next) {
+      publishErrors(next);
+    }
+  };
+  const replaceRetainedErrorKeys = (owner: object, compositeKeys: readonly string[]): void => {
+    const previousKeys = retainedErrorKeysByOwner.get(owner) ?? new Set<string>();
+    const nextKeys = new Set(compositeKeys);
+    const removedKeys: string[] = [];
+    for (const compositeKey of previousKeys) {
+      if (nextKeys.has(compositeKey)) {
+        continue;
+      }
+      removedKeys.push(compositeKey);
+      const previousCount = retainedErrorKeyCounts.get(compositeKey);
+      if (previousCount === undefined || previousCount < 1) {
+        throw new Error(`Invalid retained file-content error owner count for ${compositeKey}`);
+      }
+      const nextCount = previousCount - 1;
+      if (nextCount === 0) {
+        retainedErrorKeyCounts.delete(compositeKey);
+      } else {
+        retainedErrorKeyCounts.set(compositeKey, nextCount);
+      }
+    }
+    for (const compositeKey of nextKeys) {
+      if (previousKeys.has(compositeKey)) {
+        continue;
+      }
+      retainedErrorKeyCounts.set(compositeKey, (retainedErrorKeyCounts.get(compositeKey) ?? 0) + 1);
+    }
+    if (nextKeys.size === 0) {
+      retainedErrorKeysByOwner.delete(owner);
+    } else {
+      retainedErrorKeysByOwner.set(owner, nextKeys);
+    }
+    pruneUnownedErrors(removedKeys);
   };
   const drainBatchQueue = (): void => {
     while (activeBatchIds.size < MAX_CONCURRENT_FILE_CONTENT_BATCHES && pendingBatches.length > 0) {
@@ -132,6 +182,8 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       lifecycleGeneration = nextGeneration;
       generations.clear();
       activeLoads.clear();
+      retainedErrorKeysByOwner.clear();
+      retainedErrorKeyCounts.clear();
       for (const pending of pendingBatches.splice(0)) {
         pending.resolve();
       }
@@ -147,8 +199,9 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       let next: Map<string, Error> | null = null;
       for (const failure of failures) {
         if (
+          !isErrorKeyOwned(failure.compositeKey) ||
           (generations.get(failure.compositeKey) ?? lifecycleGeneration) !==
-          failure.expectedGeneration
+            failure.expectedGeneration
         ) {
           continue;
         }
@@ -165,6 +218,7 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
           activeLoads.delete(compositeKey);
         }
       }
+      pruneUnownedErrors(compositeKeys);
     },
     runBatch: (task) => {
       const scheduled = new Promise<void>((resolve, reject) => {
@@ -173,6 +227,7 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
       });
       return scheduled;
     },
+    setRetainedErrorKeys: replaceRetainedErrorKeys,
     subscribeErrors: (listener) => {
       errorListeners.add(listener);
       return () => {

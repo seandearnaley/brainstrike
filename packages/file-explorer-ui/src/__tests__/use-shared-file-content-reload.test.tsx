@@ -525,25 +525,35 @@ describe('useSharedFileContentLoading reload ordering', () => {
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
-    const { result } = renderHook(() => useSharedFileContentLoading([fileNode]), { wrapper });
+    const retainedErrorOwner = {};
+    const { result } = renderHook(
+      () => ({
+        authority: useFileContentLoadAuthority(),
+        loader: useSharedFileContentLoading([fileNode]),
+      }),
+      { wrapper }
+    );
+    act(() => {
+      result.current.authority.setRetainedErrorKeys(retainedErrorOwner, [compositeKey]);
+    });
 
     await act(async () => {
-      await expect(result.current.handleFileContentLoading([compositeKey])).rejects.toBe(
+      await expect(result.current.loader.handleFileContentLoading([compositeKey])).rejects.toBe(
         workerFailure
       );
     });
-    expect(result.current.fileContentErrors.get(compositeKey)).toBe(workerFailure);
+    expect(result.current.loader.fileContentErrors.get(compositeKey)).toBe(workerFailure);
 
     await act(async () => {
       const resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
       expect(resetResult.success).toBe(true);
     });
 
-    expect(result.current.fileContentErrors.size).toBe(0);
-    expect(result.current.error).toBeNull();
+    expect(result.current.loader.fileContentErrors.size).toBe(0);
+    expect(result.current.loader.error).toBeNull();
   });
 
-  it('settles preparation per key so a valid sibling loads before the batch rejects', async () => {
+  it('settles preparation per key and prunes an unowned report error after rejection', async () => {
     const adapter = new MockFileSystemAdapter();
     const validNode = createFileNode({ path: '/valid.txt', rootFolderId: 'root-prepare' });
     const validKey = encodeFileSelection('root-prepare', '/valid.txt');
@@ -582,10 +592,9 @@ describe('useSharedFileContentLoading reload ordering', () => {
     expect(worker).toHaveBeenCalledOnce();
     expect(worker.mock.calls[0]?.[0].map((request) => request.compositeKey)).toEqual([validKey]);
     expect(result.current.fileContents[validKey]).toBe('valid sibling content');
-    expect(result.current.fileContentErrors.has(validKey)).toBe(false);
-    expect(result.current.fileContentErrors.get(malformedKey)).toBe(rejection);
+    expect(result.current.fileContentErrors.size).toBe(0);
     expect(result.current.loadingFiles.size).toBe(0);
-    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.error).toBeNull();
   });
 
   it('rethrows worker rejection and cleans every loading marker before retry', async () => {
@@ -617,31 +626,39 @@ describe('useSharedFileContentLoading reload ordering', () => {
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     const wrapper = createWrapper(adapter);
-    const { result } = renderHook(() => useSharedFileContentLoading([firstNode, secondNode]), {
-      wrapper,
+    const retainedErrorOwner = {};
+    const { result } = renderHook(
+      () => ({
+        authority: useFileContentLoadAuthority(),
+        loader: useSharedFileContentLoading([firstNode, secondNode]),
+      }),
+      { wrapper }
+    );
+    act(() => {
+      result.current.authority.setRetainedErrorKeys(retainedErrorOwner, [firstKey, secondKey]);
     });
     let rejection: unknown;
     await act(async () => {
       try {
-        await result.current.handleFileContentLoading([firstKey, secondKey]);
+        await result.current.loader.handleFileContentLoading([firstKey, secondKey]);
       } catch (error) {
         rejection = error;
       }
     });
 
     expect(rejection).toBe(workerFailure);
-    expect(result.current.error).toBe(workerFailure);
-    expect(result.current.fileContentErrors.get(firstKey)).toBe(workerFailure);
-    expect(result.current.fileContentErrors.get(secondKey)).toBe(workerFailure);
-    expect(result.current.loadingFiles.size).toBe(0);
+    expect(result.current.loader.error).toBe(workerFailure);
+    expect(result.current.loader.fileContentErrors.get(firstKey)).toBe(workerFailure);
+    expect(result.current.loader.fileContentErrors.get(secondKey)).toBe(workerFailure);
+    expect(result.current.loader.loadingFiles.size).toBe(0);
 
     await act(async () => {
-      await result.current.handleFileContentLoading([firstKey, secondKey]);
+      await result.current.loader.handleFileContentLoading([firstKey, secondKey]);
     });
     expect(worker).toHaveBeenCalledTimes(2);
-    expect(result.current.fileContentErrors.size).toBe(0);
-    expect(result.current.fileContents[firstKey]).toBe('retry content');
-    expect(result.current.fileContents[secondKey]).toBe('retry content');
+    expect(result.current.loader.fileContentErrors.size).toBe(0);
+    expect(result.current.loader.fileContents[firstKey]).toBe('retry content');
+    expect(result.current.loader.fileContents[secondKey]).toBe('retry content');
   });
 
   it('waits for every independent reload group and preserves only the failed key error', async () => {
@@ -664,6 +681,10 @@ describe('useSharedFileContentLoading reload ordering', () => {
       },
       { wrapper }
     );
+    const retainedErrorOwner = {};
+    act(() => {
+      result.current.authority.setRetainedErrorKeys(retainedErrorOwner, compositeKeys);
+    });
 
     const resolvePredecessors: Array<() => void> = [];
     for (const compositeKey of compositeKeys) {

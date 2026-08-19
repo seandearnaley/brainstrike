@@ -2,7 +2,16 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { type OpenFileInTab, useIdeFileEditor } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
+import { useFileContentLoadAuthority } from '../file-content-load-authority-context';
 import { useTabManager } from '../hooks/use-tab-manager';
 import { useEditorViewStateStore } from '../stores/editor-view-state-store';
 import { useTabManagerStore } from '../stores/tab-manager-store';
@@ -62,6 +71,28 @@ export function WorkspaceTabsProvider({
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
   const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
+  const fileContentLoadAuthority = useFileContentLoadAuthority();
+  const retainedErrorOwnerRef = useRef<object>({});
+
+  // The durable terminal-error projection belongs to the exact open-tab set.
+  // Subscribe below React so tab actions, external hydration, and the 20-tab
+  // eviction limit retire their keys synchronously before another read starts.
+  useLayoutEffect(() => {
+    const owner = retainedErrorOwnerRef.current;
+    const syncRetainedErrorKeys = (): void => {
+      fileContentLoadAuthority.setRetainedErrorKeys(
+        owner,
+        useTabManagerStore.getState().tabs.map((tab) => tab.compositeKey)
+      );
+    };
+    syncRetainedErrorKeys();
+    const unsubscribe = useTabManagerStore.subscribe(syncRetainedErrorKeys);
+    return () => {
+      unsubscribe();
+      fileContentLoadAuthority.setRetainedErrorKeys(owner, []);
+    };
+  }, [fileContentLoadAuthority]);
+
   const {
     canLoadWithoutTree,
     fileContentErrors,

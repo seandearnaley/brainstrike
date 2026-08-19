@@ -19,6 +19,11 @@ export interface FileContentLoadAuthority {
   ) => void;
   releaseActiveLoad: (compositeKeys: readonly string[], expectedPromise: Promise<void>) => void;
   runBatch: (task: () => Promise<void>) => Promise<void>;
+  /**
+   * Replace one consumer's complete retained-key set. Terminal errors exist
+   * only while a key is actively loading or retained by at least one owner.
+   */
+  setRetainedErrorKeys: (owner: object, compositeKeys: readonly string[]) => void;
   subscribeErrors: (listener: () => void) => () => void;
   trackActiveLoad: (compositeKeys: readonly string[], promise: Promise<void>) => void;
 }
