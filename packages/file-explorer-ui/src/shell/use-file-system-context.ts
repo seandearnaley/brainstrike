@@ -10,7 +10,11 @@ import {
   useFileSystemWatcher,
   useToastManager,
 } from '@brainstrike/file-explorer-hooks';
-import type { DirectoryHandle, FileSystemWatchSignal } from '@brainstrike/file-system';
+import type {
+  DirectoryHandle,
+  FileSystemWatchBatchMetadata,
+  FileSystemWatchSignal,
+} from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange } from '@brainstrike/types';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -400,6 +404,7 @@ export function useFileSystemInstance() {
         rootId: string;
         rootPath: string;
         changes: FileSystemChange[];
+        omittedChanges: boolean;
       }
     >
   >(new Map());
@@ -452,6 +457,7 @@ export function useFileSystemInstance() {
     prunePendingRefreshRoots(new Set(watcherRootMetadataRef.current.keys()));
     const roots = Array.from(pendingRefreshRootsRef.current.values()).map((root) => ({
       changes: root.changes,
+      ...(root.omittedChanges ? { omittedChanges: true as const } : {}),
       rootId: root.rootId,
       rootPath: root.rootPath,
     }));
@@ -469,9 +475,17 @@ export function useFileSystemInstance() {
   }, [prunePendingRefreshRoots]);
 
   const handleWatcherChanges = useCallback(
-    (rootId: string, changes: FileSystemChange[]): void => {
+    (
+      rootId: string,
+      changes: FileSystemChange[],
+      metadata?: FileSystemWatchBatchMetadata
+    ): void => {
       const watcherRoot = watcherRootMetadataRef.current.get(rootId);
       if (!watcherRoot) {
+        return;
+      }
+      const omittedChanges = metadata?.omittedChanges === true;
+      if (changes.length === 0 && !omittedChanges) {
         return;
       }
 
@@ -479,9 +493,11 @@ export function useFileSystemInstance() {
       const pendingRoot = pendingRoots.get(rootId);
       if (pendingRoot) {
         pendingRoot.changes.push(...changes);
+        pendingRoot.omittedChanges ||= omittedChanges;
       } else {
         pendingRoots.set(rootId, {
           changes: [...changes],
+          omittedChanges,
           rootId,
           rootPath: watcherRoot.rootPath,
         });

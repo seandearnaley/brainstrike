@@ -5,6 +5,7 @@ export type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
   WatcherBackendKind,

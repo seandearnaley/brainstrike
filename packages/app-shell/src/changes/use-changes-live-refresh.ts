@@ -32,12 +32,31 @@ const logger = createLogger('ChangesLiveRefresh');
 let subscriberCount = 0;
 let unsubscribeFromBridge: (() => void) | null = null;
 let nextRegistrationId = 1;
-const gitScopeRegistrations = new Map<number, GitScopeRefreshRegistration>();
+const gitScopeRegistrations = new Map<number, NormalizedGitScopeRefreshRegistration>();
 
 export interface GitScopeRefreshRegistration {
   readonly repositoryRoot: string;
   readonly rootId: string;
   readonly worktreePath: string;
+}
+
+interface NormalizedGitScopeRefreshRegistration extends GitScopeRefreshRegistration {
+  readonly normalizedRepositoryRoot: string;
+  readonly normalizedWorktreePath: string;
+}
+
+interface NormalizedRefreshRoot {
+  readonly detail: FileExplorerRefreshRootDetail;
+  readonly normalizeChangePath: (
+    change: FileExplorerRefreshRootDetail['changes'][number]
+  ) => string;
+  readonly normalizedRootPath: string;
+}
+
+interface RegistrationGroup {
+  readonly normalizedWorktreePath: string;
+  readonly repositoryRoots: Set<string>;
+  readonly rootId: string;
 }
 
 export function normalizeRefreshPath(path: string): string {
@@ -59,12 +78,15 @@ function isWindowsPath(path: string): boolean {
   return /^[A-Za-z]:\//u.test(path) || path.startsWith('//');
 }
 
-function isPathContained(basePath: string, targetPath: string): boolean {
-  const normalizedBase = normalizeRefreshPath(basePath);
-  const normalizedTarget = normalizeRefreshPath(targetPath);
-  const [base, target] = isWindowsPath(normalizedBase)
-    ? [normalizedBase.toLowerCase(), normalizedTarget.toLowerCase()]
-    : [normalizedBase, normalizedTarget];
+function normalizedPathForComparison(normalized: string): string {
+  return isWindowsPath(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+function normalizeRefreshPathForComparison(path: string): string {
+  return normalizedPathForComparison(normalizeRefreshPath(path));
+}
+
+function isNormalizedPathContained(base: string, target: string): boolean {
   if (base.length === 0 || target.length === 0) {
     return false;
   }
@@ -74,31 +96,51 @@ function isPathContained(basePath: string, targetPath: string): boolean {
   return target === base || target.startsWith(`${base}/`);
 }
 
-function resolveChangePath(root: FileExplorerRefreshRootDetail, changePath: string): string {
+function resolveChangePath(normalizedRootPath: string, changePath: string): string {
   const normalizedChangePath = normalizeRefreshPath(changePath);
   if (isAbsolutePathLike(normalizedChangePath)) {
-    return normalizedChangePath;
+    return normalizedPathForComparison(normalizedChangePath);
   }
-  const normalizedRootPath = normalizeRefreshPath(root.rootPath);
   const relativePath = normalizedChangePath.replace(/^\.\//u, '').replace(/^\/+/u, '');
   const separator = normalizedRootPath.endsWith('/') ? '' : '/';
-  return normalizeRefreshPath(`${normalizedRootPath}${separator}${relativePath}`);
+  return normalizedPathForComparison(`${normalizedRootPath}${separator}${relativePath}`);
 }
 
-function rootRefreshAffectsRegistration(
-  root: FileExplorerRefreshRootDetail,
+function normalizeRefreshRoot(root: FileExplorerRefreshRootDetail): NormalizedRefreshRoot {
+  const normalizedRootPath = normalizeRefreshPathForComparison(root.rootPath);
+  const normalizedChangePaths = new Map<FileExplorerRefreshRootDetail['changes'][number], string>();
+  return {
+    detail: root,
+    normalizeChangePath: (change) => {
+      const cached = normalizedChangePaths.get(change);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const normalized = resolveChangePath(normalizedRootPath, change.path);
+      normalizedChangePaths.set(change, normalized);
+      return normalized;
+    },
+    normalizedRootPath,
+  };
+}
+
+function rootRefreshAffectsRegistrationGroup(
+  root: NormalizedRefreshRoot,
   scope: FileExplorerRefreshEvent['detail']['scope'],
-  registration: GitScopeRefreshRegistration
+  registration: RegistrationGroup
 ): boolean {
-  if (root.rootId !== registration.rootId) {
-    return false;
-  }
   if (scope === 'full') {
     return true;
   }
+  if (root.detail.omittedChanges === true) {
+    // The detailed paths were deliberately filtered upstream. RootId is the
+    // only lossless authority left, so every mounted Git scope in this root is
+    // refreshed; this is NOT watcher overflow and never drives a tree/index scan.
+    return true;
+  }
   const pathsShareVocabulary =
-    isPathContained(root.rootPath, registration.worktreePath) ||
-    isPathContained(registration.worktreePath, root.rootPath);
+    isNormalizedPathContained(root.normalizedRootPath, registration.normalizedWorktreePath) ||
+    isNormalizedPathContained(registration.normalizedWorktreePath, root.normalizedRootPath);
   if (!pathsShareVocabulary) {
     // `rootId` is the durable authority. Desktop watcher paths are re-rooted
     // onto the user-facing handle path while inventory worktrees can be
@@ -107,16 +149,39 @@ function rootRefreshAffectsRegistration(
     // repository in this durable root instead (safe extra work, never stale).
     return true;
   }
-  return root.changes.some((change) => {
-    const changedPath = resolveChangePath(root, change.path);
+  for (const change of root.detail.changes) {
+    const changedPath = root.normalizeChangePath(change);
     // A changed descendant edits repository content. A changed ancestor can
     // add/remove/replace the worktree directory itself, so it also intersects
     // the repository and must refresh it.
-    return (
-      isPathContained(registration.worktreePath, changedPath) ||
-      isPathContained(changedPath, registration.worktreePath)
-    );
-  });
+    if (
+      isNormalizedPathContained(registration.normalizedWorktreePath, changedPath) ||
+      isNormalizedPathContained(changedPath, registration.normalizedWorktreePath)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function groupRegistrations(
+  registrations: readonly NormalizedGitScopeRefreshRegistration[]
+): readonly RegistrationGroup[] {
+  const groups = new Map<string, RegistrationGroup>();
+  for (const registration of registrations) {
+    const key = `${registration.rootId}\0${registration.normalizedWorktreePath}\0${registration.normalizedRepositoryRoot}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.repositoryRoots.add(registration.repositoryRoot);
+      continue;
+    }
+    groups.set(key, {
+      normalizedWorktreePath: registration.normalizedWorktreePath,
+      repositoryRoots: new Set([registration.repositoryRoot]),
+      rootId: registration.rootId,
+    });
+  }
+  return [...groups.values()];
 }
 
 function affectedRepositoryRoots(event: FileExplorerRefreshEvent): readonly string[] {
@@ -126,14 +191,28 @@ function affectedRepositoryRoots(event: FileExplorerRefreshEvent): readonly stri
     // every mounted root; the active registrations are the exact consumer set.
     return [...new Set(registrations.map((entry) => entry.repositoryRoot))];
   }
+  const rootsById = new Map<string, NormalizedRefreshRoot[]>();
+  for (const root of event.detail.roots) {
+    const normalizedRoot = normalizeRefreshRoot(root);
+    const matchingRoots = rootsById.get(root.rootId) ?? [];
+    matchingRoots.push(normalizedRoot);
+    rootsById.set(root.rootId, matchingRoots);
+  }
   const affected = new Set<string>();
-  for (const registration of registrations) {
+  for (const registration of groupRegistrations(registrations)) {
+    if ([...registration.repositoryRoots].every((root) => affected.has(root))) {
+      continue;
+    }
+    const roots = rootsById.get(registration.rootId);
     if (
-      event.detail.roots.some((root) =>
-        rootRefreshAffectsRegistration(root, event.detail.scope, registration)
-      )
+      roots?.some((root) =>
+        rootRefreshAffectsRegistrationGroup(root, event.detail.scope, registration)
+      ) !== true
     ) {
-      affected.add(registration.repositoryRoot);
+      continue;
+    }
+    for (const repositoryRoot of registration.repositoryRoots) {
+      affected.add(repositoryRoot);
     }
   }
   return [...affected];
@@ -158,7 +237,11 @@ export function acquireChangesLiveRefreshSubscription(
 ): () => void {
   const registrationId = registration ? nextRegistrationId++ : null;
   if (registrationId !== null && registration) {
-    gitScopeRegistrations.set(registrationId, registration);
+    gitScopeRegistrations.set(registrationId, {
+      ...registration,
+      normalizedRepositoryRoot: normalizeRefreshPathForComparison(registration.repositoryRoot),
+      normalizedWorktreePath: normalizeRefreshPathForComparison(registration.worktreePath),
+    });
   }
   subscriberCount += 1;
   if (subscriberCount === 1) {

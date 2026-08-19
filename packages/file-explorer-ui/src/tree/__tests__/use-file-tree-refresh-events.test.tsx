@@ -364,6 +364,26 @@ describe('useFileTreeRefreshEvents', () => {
     expect(reconcileSelectionWithDirectorySnapshots).not.toHaveBeenCalled();
   });
 
+  it('does not turn an omitted-only Git freshness marker into tree I/O', async () => {
+    renderHook(() => useFileTreeRefreshEvents(params));
+
+    await dispatchRefresh({
+      roots: [
+        {
+          changes: [],
+          omittedChanges: true,
+          rootId: ROOT_ID,
+          rootPath: ROOT_PATH,
+        },
+      ],
+      scope: 'incremental',
+      source: 'watcher',
+    });
+
+    expect(refreshDirectory).not.toHaveBeenCalled();
+    expect(refreshTree).not.toHaveBeenCalled();
+  });
+
   it('skips changes whose parent directory is not loaded in the tree', async () => {
     renderHook(() => useFileTreeRefreshEvents(params));
 

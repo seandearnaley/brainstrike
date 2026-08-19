@@ -1013,13 +1013,14 @@ function isWorkspaceRefreshDetail(value: unknown): value is FileExplorerRefreshE
       typeof rootCandidate['rootId'] === 'string' &&
       rootCandidate['rootId'].length > 0 &&
       typeof rootCandidate['rootPath'] === 'string' &&
+      (rootCandidate['omittedChanges'] === undefined || rootCandidate['omittedChanges'] === true) &&
       Array.isArray(rootCandidate['changes']) &&
       rootCandidate['changes'].every(isFileSystemChange)
     );
   });
 }
 
-function parseRefreshSyncScope(event: Event): TriggerSyncScope {
+function parseRefreshSyncScope(event: Event): TriggerSyncScope | null {
   if (!(event instanceof CustomEvent)) {
     return { mode: 'full' };
   }
@@ -1045,9 +1046,16 @@ function parseRefreshSyncScope(event: Event): TriggerSyncScope {
       })),
     };
   }
+  const rootsWithDetailedChanges = event.detail.roots.filter((root) => root.changes.length > 0);
+  if (rootsWithDetailedChanges.length === 0) {
+    // `omittedChanges` is coarse working-tree evidence for Git views, not an
+    // overflow. No detailed path reached the indexer, so there is no indexing
+    // work and no justification for the no-matching-root full-recovery path.
+    return null;
+  }
   return {
     mode: 'paths',
-    roots: event.detail.roots.map((root) => ({
+    roots: rootsWithDetailedChanges.map((root) => ({
       changes: root.changes,
       rootId: root.rootId,
     })),
@@ -3022,7 +3030,11 @@ export function WorkspaceCollectionSyncProvider({
 
   useEffect(() => {
     const handleRefresh = (event: Event): void => {
-      triggerSyncFromEvent(parseRefreshSyncScope(event));
+      const scope = parseRefreshSyncScope(event);
+      if (scope === null) {
+        return;
+      }
+      triggerSyncFromEvent(scope);
     };
 
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefresh);

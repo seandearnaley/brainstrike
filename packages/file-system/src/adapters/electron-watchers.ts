@@ -1,4 +1,4 @@
-import type { FileSystemChange } from '../types.js';
+import type { FileSystemChange, FileSystemWatchBatchMetadata } from '../types.js';
 
 // Shared change-batching primitive for the watcher service (BST-568). The
 // legacy chokidar / recursive-fs.watch engines that used to live here were
@@ -11,21 +11,29 @@ export const FS_WATCH_MAX_BATCH_SIZE = 500;
 export interface FileSystemChangeBatcher {
   dispose: () => void;
   enqueue: (change: FileSystemChange) => void;
+  markOmittedChange: () => void;
 }
 
 export function createFileSystemChangeBatcher(
-  callback: (changes: FileSystemChange[]) => void
+  callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
 ): FileSystemChangeBatcher {
   let batch: FileSystemChange[] = [];
   let batchTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  let omittedChanges = false;
 
   const flushBatch = (): void => {
     batchTimer = null;
-    if (batch.length > 0) {
+    if (batch.length > 0 || omittedChanges) {
       const changes = batch;
+      const metadata = omittedChanges ? ({ omittedChanges: true } as const) : undefined;
       batch = [];
-      callback(changes);
+      omittedChanges = false;
+      if (metadata) {
+        callback(changes, metadata);
+      } else {
+        callback(changes);
+      }
     }
   };
 
@@ -52,6 +60,14 @@ export function createFileSystemChangeBatcher(
     scheduleBatchFlush();
   };
 
+  const markOmittedChange = (): void => {
+    if (disposed) {
+      return;
+    }
+    omittedChanges = true;
+    scheduleBatchFlush();
+  };
+
   const dispose = (): void => {
     if (disposed) {
       return;
@@ -63,5 +79,5 @@ export function createFileSystemChangeBatcher(
     flushBatch();
   };
 
-  return { dispose, enqueue };
+  return { dispose, enqueue, markOmittedChange };
 }

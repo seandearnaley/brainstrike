@@ -1,5 +1,8 @@
+import { createLogger } from '@brainstrike/logging';
 import type { ChangesInvalidationEvent } from '@brainstrike/types';
 import { create } from 'zustand';
+
+const logger = createLogger('ChangesLiveRefreshStore');
 
 /**
  * Session-lived, NON-persisted state for live Git-scope refresh signals.
@@ -95,14 +98,22 @@ export const useChangesLiveRefreshStore = create<ChangesLiveRefreshState>((set) 
       if (pending.metadataCount > 0) {
         const currentMetadataNonce = state.metadataNonceByRepositoryRoot[repositoryRoot];
         if (currentMetadataNonce === undefined) {
-          throw new Error(
-            `changes-live-refresh-metadata-baseline-missing: repository "${repositoryRoot}"`
+          // Defensive invariant only: mapped metadata ingestion synchronously
+          // seeds this baseline before queueing. If external state mutation
+          // violates it, the accepted event is still represented by
+          // anyInvalidationNonce's conservative unknown-key selector. Log
+          // loudly, keep the key unknown, and continue so a working-tree count
+          // sharing this timer is never lost to an ownerless callback throw.
+          logger.error(
+            'changes live-refresh metadata baseline missing; retaining conservative unknown-key coverage',
+            { repositoryRoot }
           );
+        } else {
+          updates.metadataNonceByRepositoryRoot = {
+            ...state.metadataNonceByRepositoryRoot,
+            [repositoryRoot]: currentMetadataNonce + pending.metadataCount,
+          };
         }
-        updates.metadataNonceByRepositoryRoot = {
-          ...state.metadataNonceByRepositoryRoot,
-          [repositoryRoot]: currentMetadataNonce + pending.metadataCount,
-        };
       }
       if (pending.workingTreeCount > 0) {
         updates.workingTreeNonceByRepositoryRoot = {

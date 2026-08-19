@@ -242,6 +242,20 @@ export interface FileSystemChange {
 }
 
 /**
+ * Metadata for one filtered watcher callback.
+ *
+ * `omittedChanges` means the watcher observed at least one filesystem record
+ * that the default Explorer path filter deliberately withheld from the
+ * detailed `FileSystemChange[]`. Consumers that need lossless coarse working-
+ * tree freshness may invalidate the named root; Explorer/indexing consumers
+ * continue using only the detailed changes. This is not a health/overflow
+ * signal and must never trigger a full filesystem rescan.
+ */
+export interface FileSystemWatchBatchMetadata {
+  readonly omittedChanges: true;
+}
+
+/**
  * Typed watcher health protocol (BST-568 slice 3).
  *
  * Engines emit `WatcherHealthTransition`s exactly once per state change; the
@@ -438,6 +452,11 @@ export interface FileSystemAdapter {
   /**
    * Watch a directory for changes.
    *
+   * The callback's optional metadata stays on this SAME change channel.
+   * `omittedChanges:true` means detailed default-filtered paths were withheld,
+   * while a consumer that owns coarse working-tree freshness may invalidate
+   * the root. It is not watcher health and does not authorize a full scan.
+   *
    * `onSignal` is the out-of-band health channel for conditions that have no
    * per-path `FileSystemChange` representation:
    * - `overflow`: the watcher may have MISSED events (WICG observer 'unknown'
@@ -456,7 +475,7 @@ export interface FileSystemAdapter {
    */
   watchDirectory?(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void;
 }

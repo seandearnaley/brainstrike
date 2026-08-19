@@ -167,7 +167,13 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
 
     try {
       const omittedRoot = {
-        changes: [],
+        changes: [
+          {
+            kind: 'file' as const,
+            path: '/workspace/repo-a/src/also-visible.ts',
+            type: 'modified' as const,
+          },
+        ],
         omittedChanges: true,
         rootId: 'root-1',
         rootPath: '/workspace',
@@ -202,7 +208,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       worktreePath: '/workspace/repo',
     });
     const releaseGitPanel = acquireChangesLiveRefreshSubscription({
-      repositoryRoot: '/workspace/repo',
+      repositoryRoot: '/workspace/repo/',
       rootId: 'root-1',
       worktreePath: '/workspace/repo/',
     });
@@ -231,6 +237,9 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       expect(pathReads).toBe(changes.length);
       expect(
         selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/workspace/repo')
+      ).toBe(1);
+      expect(
+        selectGitScopeRefreshNonce(useChangesLiveRefreshStore.getState(), '/workspace/repo/')
       ).toBe(1);
     } finally {
       releaseChangesSurface();

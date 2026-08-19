@@ -706,14 +706,21 @@ indexed state only.
   durable storage, and unknown handles must never trigger a fresh-read fallback.
 - **Per-subscription ignore override (BST-1112)**: `StartParcelWatchOptions.ignorePatterns`
   (threaded from `WatchDirectoryOptions.ignorePatterns`) lets a caller REPLACE
-  `DEFAULT_IGNORE_PATTERNS` for its own subscription only — both the native
-  ignore globs and the `fileFilter.shouldIgnorePath` guard — e.g. a
+  `DEFAULT_IGNORE_PATTERNS` for its own subscription only — explicit overrides
+  apply to both native ignore globs and the event guard, e.g. a
   main-owned git-metadata watcher that needs `.git/HEAD` events the default
   patterns would drop. `undefined` selects the default layers: the
   `fileFilter.shouldIgnorePath` guard PLUS (BST-1342) the background-indexing
   policy's unconditional excluded-path prefixes (`.claude/worktrees`),
   applied root-relatively and skipped entirely when the subscription root
-  itself sits inside an excluded tree. `[]` means "ignore nothing", never a
+  itself sits inside an excluded tree. Only the unconditional prefixes and
+  `.git` (owned by the private git-metadata watcher, not working-tree content)
+  feed native globs on the default Explorer subscription. Other
+  default-filtered records
+  must reach the JS guard so its existing batch/IPC callback can carry
+  `omittedChanges:true` for coarse Git freshness without exposing detailed
+  Explorer changes (BST-1180); feeding those defaults back into Parcel would
+  silently erase the signal. `[]` means "ignore nothing", never a
   silent fallback to defaults. Overrides
   cannot reach the desktop `fs:watch` IPC domain: `StartFileSystemWatch`
   takes no `ignorePatterns`, and that domain deduplicates native

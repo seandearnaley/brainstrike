@@ -224,18 +224,15 @@ export function useChangeset(
   // worktree tuple needed to map working-tree changes without loading
   // inventory or refreshing an unrelated repository. Snapshot changesets
   // register nothing and pin 0: neither signal can change captured content.
-  const liveRefreshRegistration = useMemo(
-    () =>
-      stableChangeset?.kind === 'git-scope' && rootId
-        ? {
-            repositoryRoot: stableChangeset.repositoryRoot,
-            rootId,
-            worktreePath: stableChangeset.worktreePath,
-          }
-        : null,
-    [rootId, stableChangeset]
+  useChangesLiveRefreshSubscription(
+    stableChangeset?.kind === 'git-scope' && rootId
+      ? {
+          repositoryRoot: stableChangeset.repositoryRoot,
+          rootId,
+          worktreePath: stableChangeset.worktreePath,
+        }
+      : null
   );
-  useChangesLiveRefreshSubscription(liveRefreshRegistration);
   const gitInvalidationNonce = useChangesLiveRefreshStore((state) =>
     stableChangeset?.kind === 'git-scope'
       ? selectGitScopeRefreshNonce(state, stableChangeset.repositoryRoot)

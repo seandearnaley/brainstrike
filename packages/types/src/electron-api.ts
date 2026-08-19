@@ -179,6 +179,8 @@ export interface ElectronStorageAPI {
  */
 export interface FileSystemWatchEvent {
   changes: FileSystemChange[];
+  /** True when default Explorer filtering omitted at least one record. */
+  omittedChanges?: true;
   watchId: string;
 }
 

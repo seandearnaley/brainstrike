@@ -19,6 +19,7 @@ import type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
   WatcherHealthTransition,
@@ -71,9 +72,10 @@ export interface WatchDirectoryOptions {
    * Per-subscription ignore override (BST-1112): when provided, REPLACES
    * DEFAULT_IGNORE_PATTERNS for THIS watch only — e.g. a main-owned
    * git-metadata watcher that needs `.git/HEAD` events the default patterns
-   * would drop. `undefined` (the default) keeps the shared default patterns
-   * unchanged; `[]` means "ignore nothing", never a silent fallback to
-   * defaults. The shared Explorer refresh pipeline never passes this option.
+   * would drop. Explicit overrides apply natively and in the event guard.
+   * `undefined` keeps the shared default detailed-path filter while allowing
+   * its coarse `omittedChanges` marker; `[]` means "ignore nothing", never a
+   * silent fallback. The shared Explorer refresh pipeline never passes this.
    */
   ignorePatterns?: readonly string[] | undefined;
   /** Typed watcher health transitions (BST-568 slice 3). */
@@ -614,7 +616,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void,
     options?: WatchDirectoryOptions
   ): () => void {
@@ -623,7 +625,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     let dispose: () => void = () => {};
 
     // Wrap callback to invalidate cache on changes
-    const callbackWithCacheInvalidation = (changes: FileSystemChange[]) => {
+    const callbackWithCacheInvalidation = (
+      changes: FileSystemChange[],
+      metadata?: FileSystemWatchBatchMetadata
+    ) => {
       // Invalidate cache for changed paths
       if (this.metadataCache) {
         for (const change of changes) {
@@ -635,7 +640,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         }
       }
       // Call original callback
-      callback(changes);
+      if (metadata) {
+        callback(changes, metadata);
+      } else {
+        callback(changes);
+      }
     };
 
     // The typed health protocol is the richer desktop superset of the shared

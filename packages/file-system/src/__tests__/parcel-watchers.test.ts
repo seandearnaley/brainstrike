@@ -6,7 +6,6 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS } from '@brainstrike/utils/background-indexing-policy';
-import { DEFAULT_IGNORE_PATTERNS } from '@brainstrike/utils/path-filter';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ParcelBackendName,
@@ -110,7 +109,7 @@ describe('startParcelWatch', () => {
     await rm(root, { force: true, recursive: true });
   });
 
-  it('subscribes with the explicit host backend and shared ignore globs', async () => {
+  it('subscribes with the explicit host backend and only hard-exclusion native globs', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(makeHandle(root), collect, {
       loadModule: () => Promise.resolve(fake.module),
@@ -118,18 +117,23 @@ describe('startParcelWatch', () => {
     expect(fake.lastSubscribeArgs.dir).toBe(root);
     // Platform-derived: fs-events on darwin, inotify on linux, windows on win32.
     expect(fake.lastSubscribeArgs.backend).toBe(selectParcelBackend(process.platform));
-    expect(fake.lastSubscribeArgs.ignore).toContain('**/node_modules/**');
-    expect(fake.lastSubscribeArgs.ignore).toContain('**/.git/**');
+    expect(fake.lastSubscribeArgs.ignore).not.toContain('**/node_modules/**');
+    expect(fake.lastSubscribeArgs.ignore).toEqual([
+      '**/.git',
+      '**/.git/**',
+      ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
+    ]);
     stop();
   });
 
-  it('uses the default segment globs plus the unconditional excluded-path globs when no override is given (BST-1112, BST-1342)', async () => {
+  it('keeps default display filters out of native ignores while preserving unconditional exclusions (BST-1180, BST-1342)', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(makeHandle(root), collect, {
       loadModule: () => Promise.resolve(fake.module),
     });
     expect(fake.lastSubscribeArgs.ignore).toEqual([
-      ...DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`]),
+      '**/.git',
+      '**/.git/**',
       ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
     ]);
     stop();
@@ -221,9 +225,7 @@ describe('startParcelWatch', () => {
     // The native layer must not swallow the whole subscription either:
     // parcel matches ignore globs against absolute paths, so the worktrees
     // globs are omitted for a root already inside an excluded tree.
-    expect(fake.lastSubscribeArgs.ignore).toEqual(
-      DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`])
-    );
+    expect(fake.lastSubscribeArgs.ignore).toEqual(['**/.git', '**/.git/**']);
 
     const filePath = join(worktreeRoot, 'src.ts');
     await writeFile(filePath, 'x');

@@ -624,9 +624,25 @@ fallback.
   on manual re-enumeration. That is the point of the fix (run-5189: worktree
   churn flooding FSEvents drove overflow → full-refresh storms → DB-host
   saturation that killed an active run); do not "fix" the staleness back
-  into a watch. DEFAULT_IGNORE_PATTERNS and (for roots outside excluded
-  trees) the excluded-path globs also feed native-level ignore globs — same
-  rules, never broader. A per-subscription `ignorePatterns` override exists
+  into a watch. The background-indexing excluded-path globs still feed the
+  native layer for roots outside excluded trees — this is the load-bearing
+  run-5189 overflow guard. `DEFAULT_IGNORE_PATTERNS` deliberately do NOT:
+  Parcel delivers those records to a lightweight JS classifier, which omits
+  their detailed paths from Explorer/indexing but ORs one bounded
+  `omittedChanges:true` marker into the existing watcher batch (BST-1180).
+  This is how the same subscription keeps Git views fresh for a tracked
+  `dist`/`build`/`node_modules` file; native ignores erase that evidence before
+  any renderer consumer exists. Ignored records never stat, never enter the
+  serialized event promise chain, and collapse behind the existing 150ms then
+  300ms/1s batching, so churn is boolean state rather than retained paths or
+  per-record IPC. User-configured Explorer `excludeFilters` are later display
+  projection, not watcher inputs, so those paths continue through the normal
+  detailed event path. The `.claude/worktrees` exclusion remains the explicit
+  exception: no detailed event and no omitted marker, preserving its documented
+  deliberate staleness. `.git` also remains natively ignored here because it is
+  metadata rather than a working-tree path; the private git-metadata watcher
+  owns its bounded HEAD/index/refs signal and deliberately excludes objects
+  churn. A per-subscription `ignorePatterns` override exists
   (BST-1112, see `docs/agents/platform-contracts.md`) for main-owned callers
   outside this pipeline, e.g. a git-metadata watcher; the Explorer refresh
   pipeline described here NEVER passes it, so "same names, never broader"
@@ -682,7 +698,12 @@ fallback.
   mounted root; `use-file-system-context.ts` debounces dispatches (300ms
   trailing + 1s max-wait so a continuously-busy root cannot starve dispatch)
   into ONE `FILE_EXPLORER_REFRESH_EVENT` (`source:'watcher'`,
-  `scope:'incremental'`, per-root `FileSystemChange[]`).
+  `scope:'incremental'`, per-root `FileSystemChange[]`). The optional per-root
+  `omittedChanges:true` is coarse working-tree evidence from the same watch,
+  OR-merged across the window. It is NOT overflow and never changes `scope` to
+  `full`: Git consumers invalidate mounted registrations in that durable root;
+  tree, background-indexing, and row-metadata consumers no-op when the marker
+  arrives without detailed changes. Mixed batches deliver both once.
 - **Watcher health signals (separate channel from change events).** Change
   events carry structural deltas; watcher HEALTH travels out-of-band on
   `FileSystemWatchSignal` (`packages/types/src/file-system.ts`), the optional

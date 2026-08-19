@@ -7,6 +7,12 @@ export type FileExplorerRefreshScope = 'incremental' | 'full';
 
 export interface FileExplorerRefreshRootDetail {
   readonly changes: readonly FileSystemChange[];
+  /**
+   * The watcher observed default-filtered activity that is intentionally absent
+   * from `changes`. Git consumers root-invalidate; Explorer/indexing consumers
+   * must not treat this as overflow or run a full scan.
+   */
+  readonly omittedChanges?: true;
   readonly rootId: string;
   readonly rootPath: string;
 }

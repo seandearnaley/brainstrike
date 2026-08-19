@@ -11,6 +11,7 @@ import {
 } from '@brainstrike/file-explorer-ui/shell';
 import {
   type DirectoryHandle,
+  type FileSystemWatchBatchMetadata,
   type FileSystemWatchSignal,
   MockFileSystemAdapter,
 } from '@brainstrike/file-system';
@@ -60,10 +61,6 @@ class ParcelProducingTestAdapter extends MockFileSystemAdapter {
     } as ParcelWatcherModule;
   }
 
-  async restoreLastFolder(): Promise<DirectoryHandle> {
-    return this.#handle;
-  }
-
   async restoreRoots(): Promise<RootDescriptor[]> {
     return [
       {
@@ -79,7 +76,7 @@ class ParcelProducingTestAdapter extends MockFileSystemAdapter {
 
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     _onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
     let closed = false;

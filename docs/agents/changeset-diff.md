@@ -425,6 +425,28 @@ canonical manual-full empty-roots broadcast maps all mounted registrations. A
 `Set` dedupes multiple worktrees/scopes of one repository. Unregistered /
 snapshot changesets are never guessed into the result.
 
+The watcher source preserves default-filtered activity (BST-1180 review): the
+single Parcel subscription does not natively ignore `DEFAULT_IGNORE_PATTERNS`.
+Instead its JS guard withholds those detailed paths from Explorer/indexing and
+adds `omittedChanges:true` to the existing batched root entry. Changes treats
+that marker as coarse evidence for every mounted Git registration in the named
+durable root; it is not overflow and cannot trigger a tree/index full scan.
+Custom Explorer exclude filters are display-only and therefore keep their
+normal detailed path. The `.claude/worktrees` hard native exclusion remains the
+documented run-5189 exception and intentionally produces neither signal. The
+Explorer subscription also keeps `.git` natively ignored: it is not a tracked
+working-tree path, and the private git-metadata watcher already owns its
+interesting HEAD/index/refs evidence without forwarding objects churn.
+
+Path work is bounded before scanning a watcher batch: registration paths are
+normalized once at registration, event root paths once per root, and change
+paths lazily once then cached for equivalent consumers. Registrations with the
+same normalized `(rootId, worktreePath, repositoryRoot)` are grouped, so the
+Changes surface and Git panel do not rescan thousands of changes twice. Once a
+repository root is affected, later worktree groups for that same raw key are
+skipped. Equivalent raw repository strings are still all published so selector
+keys never lose evidence.
+
 Both sources feed `changes-live-refresh-store.ts` (wire-generation guard drops
 stale/duplicate bridge deliveries; the store is registered in factory reset).
 `useChangeset` re-resolves a `git-scope` changeset only on ITS OWN repository's
@@ -435,7 +457,8 @@ ONLY mapped repository-view nonces — never `anyInvalidationNonce` — so
 a deferred instance remains unloaded until its existing explicit load gate has
 been crossed.
 
-Repository view evidence is LOSSLESS and split by identity vocabulary:
+Repository view evidence admitted by the canonical pipeline (including the
+default-filter marker above) is LOSSLESS and split by identity vocabulary:
 `metadataNonceByRepositoryRoot` contains only wire keys, while
 `workingTreeNonceByRepositoryRoot` contains renderer registration keys;
 `selectGitScopeRefreshNonce` combines them. A local `/presentation/repo` event
@@ -459,6 +482,14 @@ metadata event, independently refreshing inventory. A 1000ms max wait
 trailing re-arms to starve the view. The pending map deletes on flush and
 factory reset clears every timer, so temporal batch state is bounded. Snapshot
 changesets (`agent-run`/`run-range`) never read these nonces.
+
+This batching deliberately delays the repository VIEW nonce by 300ms after the
+latest signal (up to the 1s starvation bound), while a metadata event advances
+the inventory nonce immediately. With the Explorer producer's own 300ms/1s
+window, an external commit can take roughly 2s in the sustained-churn case to
+reach the diff view, and inventory may briefly lead it. That ordering is the
+cost of losslessly coalescing cross-source evidence, not a guarantee that both
+surfaces publish atomically.
 
 Paired renderer tests:
 `packages/app-shell/src/changes/__tests__/use-changes-live-refresh.test.ts`,
