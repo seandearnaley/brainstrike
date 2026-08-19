@@ -150,9 +150,10 @@ Embedding runtime telemetry (BST-402):
   limits, LRU/idle eviction, disposal, and diagnostic snapshots. BST-369's deterministic
   browser proof injects disposable probe pipelines into that same controller inside a
   dedicated module worker. The probe is exposed only through the explicit
-  `navigator.webdriver` web-E2E hook, performs no model/network fetch, removes its
-  telemetry source when the worker terminates, and asserts model-size estimates only —
-  it is not evidence of measured GPU allocation or real-model inference. Paired tests:
+  `navigator.webdriver` web-E2E hook, performs no model/network fetch, proves 18
+  resident-limit victims separately from 22 total disposals after controller close,
+  removes its telemetry source when the worker terminates, and asserts model-size
+  estimates only — it is not evidence of measured GPU allocation or real-model inference. Paired tests:
   `pipeline-cache-controller.spec.ts`, `pipeline-cache-controller.browser.test.ts`, and
   `apps/web/e2e/performance/embedding-model-switch-memory.test.ts`.
 - `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser

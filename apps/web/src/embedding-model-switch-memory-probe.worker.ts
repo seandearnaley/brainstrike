@@ -15,6 +15,16 @@ function postMessage(message: EmbeddingModelSwitchMemoryProbeWorkerMessage): voi
   workerScope.postMessage(message);
 }
 
+function loadModelsInOrder(
+  models: readonly string[],
+  loadModel: (model: string) => Promise<void>
+): Promise<void> {
+  return models.reduce(
+    (previous, model) => previous.then(() => loadModel(model)),
+    Promise.resolve()
+  );
+}
+
 async function runProbe(sourceId: string): Promise<void> {
   const disposedModels: string[] = [];
   let clock = 0;
@@ -51,22 +61,30 @@ async function runProbe(sourceId: string): Promise<void> {
     });
   };
 
-  await loadWasm('wasm-a');
-  await loadWasm('wasm-b');
-  await loadWasm('wasm-c');
-  await loadWasm('wasm-a');
-  await loadWasm('wasm-d');
-  for (let index = 0; index < 8; index += 1) {
-    await loadWasm(`wasm-cycle-${index}`);
+  try {
+    await loadWasm('wasm-a');
+    await loadWasm('wasm-b');
+    await loadWasm('wasm-c');
+    await loadWasm('wasm-a');
+    await loadWasm('wasm-d');
+    await loadModelsInOrder(
+      Array.from({ length: 8 }, (_, index) => `wasm-cycle-${index}`),
+      loadWasm
+    );
+
+    await loadGpu('gpu-a');
+    await loadGpu('gpu-b');
+    await loadModelsInOrder(
+      Array.from({ length: 8 }, (_, index) => `gpu-cycle-${index}`),
+      loadGpu
+    );
+
+    await controller.waitForPendingDisposals();
+    postMessage({ type: 'resident-state' });
+  } finally {
+    await controller.close();
   }
 
-  await loadGpu('gpu-a');
-  await loadGpu('gpu-b');
-  for (let index = 0; index < 8; index += 1) {
-    await loadGpu(`gpu-cycle-${index}`);
-  }
-
-  await controller.waitForPendingDisposals();
   postMessage({ disposedModels, type: 'complete' });
 }
 

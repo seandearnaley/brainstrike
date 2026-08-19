@@ -37,8 +37,14 @@ test.describe('Embedding model-switch memory regression', () => {
     expect(result.firstWasmEvictedModel).toBe('wasm-b');
     expect(result.firstGpuEvictedModel).toBe('gpu-a');
     expect(result.residentLimitEvictionCount).toBe(18);
-    expect(result.disposedModels).toHaveLength(18);
-    expect(new Set(result.disposedModels).size).toBe(18);
+    expect(result.disposedModels).toHaveLength(22);
+    expect(new Set(result.disposedModels).size).toBe(22);
+    expect(result.disposedModels.slice(-4)).toEqual([
+      'wasm-cycle-5',
+      'wasm-cycle-6',
+      'wasm-cycle-7',
+      'gpu-cycle-7',
+    ]);
     expect(result.health).toEqual({ failureCount: 0, lastFailure: null });
     expect(result.afterTeardown).toEqual({
       estimatedGpuBytes: 0,

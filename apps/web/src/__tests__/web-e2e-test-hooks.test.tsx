@@ -44,7 +44,7 @@ describe('WebE2ETestHooks', () => {
         memoryEstimateUnavailableCount: 0,
         residentCount: 4,
       },
-      disposedModels: ['wasm-b'],
+      disposedModels: ['wasm-b', 'wasm-cycle-5'],
       firstGpuEvictedModel: 'gpu-a',
       firstWasmEvictedModel: 'wasm-b',
       health: { failureCount: 0, lastFailure: null },

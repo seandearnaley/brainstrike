@@ -59,6 +59,13 @@ interface EmbeddingPipelineCacheControllerOptions<Resource extends EmbeddingPipe
     dtype: EmbeddingDType
   ) => Promise<Resource>;
   readonly now?: () => number;
+  readonly onDisposed?: (details: { readonly cacheKey: string }) => void;
+  readonly onLoadFailed?: (details: {
+    readonly device: EmbeddingDevice;
+    readonly dtype: EmbeddingDType;
+    readonly error: unknown;
+    readonly model: string;
+  }) => void;
   readonly onModelSizeEstimateMismatch?: (details: {
     readonly cachedBytes: number;
     readonly cacheKey: string;
@@ -232,7 +239,10 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
           await pipeline.dispose();
         }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .then(() => {
+        options.onDisposed?.({ cacheKey });
+      });
     trackDisposal(disposal);
     options.onResidencyChanged?.();
     if (entries.size === 0) {
@@ -352,6 +362,12 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
             event: 'load-failed',
             ...(request.diagnostics?.id ? { id: request.diagnostics.id } : {}),
             ...(request.diagnostics?.sink ? { sink: request.diagnostics.sink } : {}),
+          });
+          options.onLoadFailed?.({
+            device: request.device,
+            dtype: request.dtype,
+            error,
+            model: request.model,
           });
           throw error;
         }

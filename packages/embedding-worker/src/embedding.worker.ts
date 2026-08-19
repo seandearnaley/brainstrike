@@ -411,6 +411,14 @@ function publishPipelineCacheDiagnostic(event: EmbedWorkerPipelineCacheDiagnosti
 const pipelineCacheController = createEmbeddingPipelineCacheController<FeatureExtractor>({
   isIdleSweepAllowed: () => !isInferenceActive,
   load: createFeatureExtractor,
+  onDisposed: ({ cacheKey }) => {
+    debugLog('Disposed cached pipeline', { cacheKey });
+  },
+  onLoadFailed: ({ device, dtype, error, model }) => {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    debugLog('Pipeline load failed', { device, dtype, error: errorMessage, model, stack });
+  },
   onModelSizeEstimateMismatch: ({ cachedBytes, cacheKey, requestedBytes }) => {
     warnLog(
       'Embedding model size metadata changed for a cached pipeline; keeping the original estimate',

@@ -40,6 +40,9 @@ export type EmbeddingModelSwitchMemoryProbeWorkerMessage =
       readonly type: 'diagnostic';
     }
   | {
+      readonly type: 'resident-state';
+    }
+  | {
       readonly disposedModels: readonly string[];
       readonly type: 'complete';
     }
@@ -72,6 +75,8 @@ export function assertEmbeddingModelSwitchMemoryProbeWorkerMessage(
   switch (value['type']) {
     case 'diagnostic':
       assertEmbedWorkerPipelineCacheDiagnostic(value['diagnostic']);
+      return;
+    case 'resident-state':
       return;
     case 'complete': {
       const disposedModels = value['disposedModels'];

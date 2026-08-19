@@ -96,6 +96,7 @@ describe('performance benchmark measurement contracts', () => {
     expect(source).toContain('hooks.runEmbeddingModelSwitchMemoryProbe()');
     expect(source).toContain('expect(modelRequests).toEqual([])');
     expect(source).toContain('residentLimitEvictionCount).toBe(18)');
+    expect(source).toContain('disposedModels).toHaveLength(22)');
     expect(source).toContain("firstWasmEvictedModel).toBe('wasm-b')");
     expect(source).toContain("firstGpuEvictedModel).toBe('gpu-a')");
     expect(source).not.toContain('Record<string, unknown>');

@@ -57,11 +57,13 @@ async function runWorkerProbe(
   worker: Worker,
   sourceId: string
 ): Promise<{
+  readonly beforeTeardown: EmbeddingModelSwitchMemoryProbeSummary;
   readonly disposedModels: readonly string[];
   readonly evictions: readonly EmbedWorkerPipelineCacheDiagnostic[];
 }> {
   return await new Promise((resolve, reject) => {
     const evictions: EmbedWorkerPipelineCacheDiagnostic[] = [];
+    let beforeTeardown: EmbeddingModelSwitchMemoryProbeSummary | null = null;
     let settled = false;
     const timeout = window.setTimeout(() => {
       if (settled) {
@@ -82,9 +84,15 @@ async function runWorkerProbe(
       if (settled) {
         return;
       }
+      if (beforeTeardown === null) {
+        rejectOnce(
+          new Error('Embedding model-switch probe completed without a resident-state marker.')
+        );
+        return;
+      }
       settled = true;
       window.clearTimeout(timeout);
-      resolve({ disposedModels, evictions });
+      resolve({ beforeTeardown, disposedModels, evictions });
     };
     const recordDiagnostic = (diagnostic: EmbedWorkerPipelineCacheDiagnostic): void => {
       if (diagnostic.workerInstanceId !== sourceId) {
@@ -102,6 +110,14 @@ async function runWorkerProbe(
       }
       if (message.type === 'diagnostic') {
         recordDiagnostic(message.diagnostic);
+        return;
+      }
+      if (message.type === 'resident-state') {
+        if (beforeTeardown !== null) {
+          rejectOnce(new Error('Embedding model-switch probe emitted duplicate resident state.'));
+          return;
+        }
+        beforeTeardown = summarizeSource(getEmbeddingTelemetrySnapshot(), sourceId);
         return;
       }
       resolveOnce(message.disposedModels);
@@ -145,9 +161,8 @@ export async function runEmbeddingModelSwitchMemoryProbe(): Promise<WebE2EEmbedd
   );
   let sourceRemoved = false;
   try {
-    const { disposedModels, evictions } = await runWorkerProbe(worker, sourceId);
+    const { beforeTeardown, disposedModels, evictions } = await runWorkerProbe(worker, sourceId);
     const beforeSnapshot = getEmbeddingTelemetrySnapshot();
-    const beforeTeardown = summarizeSource(beforeSnapshot, sourceId);
 
     worker.terminate();
     removeEmbeddingTelemetrySource(sourceId);

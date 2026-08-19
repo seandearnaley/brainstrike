@@ -26,51 +26,56 @@ describe('embedding pipeline cache controller in Chromium', () => {
       workerInstanceId: 'browser-worker',
     });
 
-    for (const model of ['wasm-a', 'wasm-b', 'wasm-c', 'wasm-a', 'wasm-d']) {
-      await controller.load({
-        device: 'wasm',
-        dtype: 'q4',
-        estimatedModelBytes: WASM_MODEL_BYTES,
-        model,
-      });
-    }
-    for (let index = 0; index < 8; index += 1) {
-      await controller.load({
-        device: 'wasm',
-        dtype: 'q4',
-        estimatedModelBytes: WASM_MODEL_BYTES,
-        model: `wasm-cycle-${index}`,
-      });
-    }
-    for (const model of ['gpu-a', 'gpu-b']) {
-      await controller.load({
-        device: 'webgpu',
-        dtype: 'fp16',
-        estimatedModelBytes: GPU_MODEL_BYTES,
-        model,
-      });
-    }
-    for (let index = 0; index < 8; index += 1) {
-      await controller.load({
-        device: 'webgpu',
-        dtype: 'fp16',
-        estimatedModelBytes: GPU_MODEL_BYTES,
-        model: `gpu-cycle-${index}`,
-      });
+    try {
+      for (const model of ['wasm-a', 'wasm-b', 'wasm-c', 'wasm-a', 'wasm-d']) {
+        await controller.load({
+          device: 'wasm',
+          dtype: 'q4',
+          estimatedModelBytes: WASM_MODEL_BYTES,
+          model,
+        });
+      }
+      for (let index = 0; index < 8; index += 1) {
+        await controller.load({
+          device: 'wasm',
+          dtype: 'q4',
+          estimatedModelBytes: WASM_MODEL_BYTES,
+          model: `wasm-cycle-${index}`,
+        });
+      }
+      for (const model of ['gpu-a', 'gpu-b']) {
+        await controller.load({
+          device: 'webgpu',
+          dtype: 'fp16',
+          estimatedModelBytes: GPU_MODEL_BYTES,
+          model,
+        });
+      }
+      for (let index = 0; index < 8; index += 1) {
+        await controller.load({
+          device: 'webgpu',
+          dtype: 'fp16',
+          estimatedModelBytes: GPU_MODEL_BYTES,
+          model: `gpu-cycle-${index}`,
+        });
+      }
+
+      await controller.waitForPendingDisposals();
+
+      const evictions = diagnostics.filter(
+        (diagnostic) => diagnostic.event === 'evicted' && diagnostic.reason === 'resident-limit'
+      );
+      expect(evictions).toHaveLength(18);
+      expect(evictions[0]?.entry?.model).toBe('wasm-b');
+      expect(evictions[9]?.entry?.model).toBe('gpu-a');
+      expect(disposedModels).toHaveLength(18);
+      expect(new Set(disposedModels).size).toBe(18);
+      expect(controller.getResidentEntries()).toHaveLength(4);
+    } finally {
+      await controller.close();
     }
 
-    await controller.waitForPendingDisposals();
-
-    const evictions = diagnostics.filter(
-      (diagnostic) => diagnostic.event === 'evicted' && diagnostic.reason === 'resident-limit'
-    );
-    expect(evictions).toHaveLength(18);
-    expect(evictions[0]?.entry?.model).toBe('wasm-b');
-    expect(evictions[9]?.entry?.model).toBe('gpu-a');
-    expect(disposedModels).toHaveLength(18);
-    expect(new Set(disposedModels).size).toBe(18);
-    expect(controller.getResidentEntries()).toHaveLength(4);
-
-    await controller.close();
+    expect(disposedModels).toHaveLength(22);
+    expect(new Set(disposedModels).size).toBe(22);
   });
 });
