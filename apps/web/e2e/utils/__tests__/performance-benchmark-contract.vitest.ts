@@ -119,9 +119,11 @@ describe('performance benchmark measurement contracts', () => {
     expect(e2eSource).toContain('page.addInitScript');
     expect(e2eSource).toContain('page.route');
     expect(e2eSource).toContain('const appOrigin = new URL(baseURL).origin');
+    expect(e2eSource).toContain("requestUrl.pathname.startsWith('/api/hf/')");
+    expect(e2eSource).toContain("route.abort('blockedbyclient')");
     expect(e2eSource).toContain('expect(crossOriginRequests).toEqual([])');
+    expect(e2eSource).toContain('expect(modelProxyRequests).toEqual([])');
     expect(e2eSource).toContain('hooks.runEmbeddingModelSwitchMemoryProbe()');
-    expect(e2eSource).toContain('expect(modelRequests).toEqual([])');
     expect(e2eSource).toContain('residentLimitEvictionCount).toBe(18)');
     expect(e2eSource).not.toContain('waitForTimeout(');
 
@@ -143,6 +145,7 @@ describe('performance benchmark measurement contracts', () => {
     expect(workerSource).toContain('parseSingleFragmentValue');
     expect(workerSource).toContain('runtime bootstrap was installed more than once');
     expect(workerSource).toContain('requires exactly one');
+    expect(workerSource).toContain('failProbeWorker');
     expect(workerSource).toContain('liveBytes += resource.store.byteLength');
     expect(workerSource).not.toContain('createEmbeddingPipelineCacheController');
 

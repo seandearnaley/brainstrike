@@ -60,6 +60,11 @@ interface EmbeddingPipelineCacheControllerOptions<Resource extends EmbeddingPipe
   ) => Promise<Resource>;
   readonly now?: () => number;
   readonly onDisposed?: (details: { readonly cacheKey: string }) => void;
+  readonly onDisposeFailed?: (details: {
+    readonly cacheKey: string;
+    readonly error: unknown;
+    readonly reason: PipelineCacheRemovalReason;
+  }) => void;
   readonly onLoadFailed?: (details: {
     readonly device: EmbeddingDevice;
     readonly dtype: EmbeddingDType;
@@ -85,6 +90,18 @@ type PipelineCacheEvent = EmbedWorkerPipelineCacheDiagnostic['event'];
 
 function defaultNow(): number {
   return typeof performance === 'undefined' ? Date.now() : performance.now();
+}
+
+function assertValidLoadRequest(request: EmbeddingPipelineCacheLoadRequest): void {
+  if (request.model.length === 0) {
+    throw new Error('Embedding pipeline cache requires a non-empty model identifier.');
+  }
+  if (
+    request.estimatedModelBytes !== null &&
+    !(Number.isSafeInteger(request.estimatedModelBytes) && request.estimatedModelBytes > 0)
+  ) {
+    throw new Error('Embedding pipeline cache model bytes must be a positive safe integer.');
+  }
 }
 
 function resolvePipelineMemory(
@@ -119,7 +136,16 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
   }
 
   const entries = new Map<string, PipelineCacheEntry<Resource>>();
+  const disposalFailures: unknown[] = [];
   const pendingDisposals = new Set<Promise<void>>();
+  const assertCacheCanLoad = (): void => {
+    if (disposalFailures.length === 0) {
+      return;
+    }
+    throw new Error('Embedding pipeline cache cannot load after a resource disposal failure.', {
+      cause: disposalFailures[0],
+    });
+  };
   const readNow = (): number => {
     const timestamp = (options.now ?? defaultNow)();
     if (!(Number.isFinite(timestamp) && timestamp >= 0)) {
@@ -208,9 +234,18 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
 
   const trackDisposal = (disposal: Promise<void>): void => {
     pendingDisposals.add(disposal);
-    void disposal.finally(() => {
-      pendingDisposals.delete(disposal);
-    });
+    void disposal.then(
+      () => {
+        pendingDisposals.delete(disposal);
+      },
+      () => {
+        pendingDisposals.delete(disposal);
+      }
+    );
+  };
+
+  const observeBackgroundDisposal = (disposal: Promise<void>): void => {
+    void disposal.catch(() => undefined);
   };
 
   const disposeEntry = (
@@ -220,10 +255,10 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       readonly id?: string;
       readonly sink?: PipelineCacheDiagnosticSink;
     } = {}
-  ): void => {
+  ): Promise<void> => {
     const entry = entries.get(cacheKey);
     if (!entry) {
-      return;
+      return Promise.resolve();
     }
     entries.delete(cacheKey);
     emitDiagnostic({
@@ -233,21 +268,32 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       reason,
       ...(diagnostics.sink ? { sink: diagnostics.sink } : {}),
     });
-    const disposal = entry.pipeline
-      .then(async (pipeline) => {
+    const disposal = entry.pipeline.then(
+      async (pipeline) => {
         if (pipeline.dispose) {
-          await pipeline.dispose();
+          try {
+            await pipeline.dispose();
+          } catch (error) {
+            disposalFailures.push(error);
+            options.onDisposeFailed?.({ cacheKey, error, reason });
+            throw error;
+          }
         }
-      })
-      .catch(() => undefined)
-      .then(() => {
         options.onDisposed?.({ cacheKey });
-      });
+      },
+      (error: unknown) => {
+        if (disposalFailures.some((failure) => Object.is(failure, error))) {
+          throw error;
+        }
+        // A pipeline that never loaded owns no physical resource to release.
+      }
+    );
     trackDisposal(disposal);
     options.onResidencyChanged?.();
     if (entries.size === 0) {
       stopIdleSweep();
     }
+    return disposal;
   };
 
   const sweepIdlePipelines = (): void => {
@@ -262,7 +308,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       }
     }
     for (const cacheKey of keysToEvict) {
-      disposeEntry(cacheKey, 'idle-timeout');
+      observeBackgroundDisposal(disposeEntry(cacheKey, 'idle-timeout'));
     }
   };
 
@@ -279,29 +325,22 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       readonly id?: string;
       readonly sink?: PipelineCacheDiagnosticSink;
     }
-  ): void => {
+  ): readonly Promise<void>[] => {
     const matching = [...entries.values()].filter((entry) => entry.device === device);
     const maxResident = device === 'webgpu' ? MAX_GPU_PIPELINES : MAX_WASM_PIPELINES;
     if (matching.length < maxResident) {
-      return;
+      return [];
     }
     matching.sort((left, right) => left.lastUsedAt - right.lastUsedAt);
     const evictCount = matching.length - maxResident + 1;
-    for (const victim of matching.slice(0, evictCount)) {
-      disposeEntry(victim.cacheKey, 'resident-limit', diagnostics);
-    }
+    return matching
+      .slice(0, evictCount)
+      .map((victim) => disposeEntry(victim.cacheKey, 'resident-limit', diagnostics));
   };
 
   const load = async (request: EmbeddingPipelineCacheLoadRequest): Promise<Resource> => {
-    if (request.model.length === 0) {
-      throw new Error('Embedding pipeline cache requires a non-empty model identifier.');
-    }
-    if (
-      request.estimatedModelBytes !== null &&
-      !(Number.isSafeInteger(request.estimatedModelBytes) && request.estimatedModelBytes > 0)
-    ) {
-      throw new Error('Embedding pipeline cache model bytes must be a positive safe integer.');
-    }
+    assertValidLoadRequest(request);
+    assertCacheCanLoad();
     const cacheKey = `${request.model}|${request.device}|${request.dtype}`;
     const existing = entries.get(cacheKey);
     if (existing) {
@@ -326,8 +365,11 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       return existing.pipeline;
     }
 
-    const pipeline = options.load(request.model, request.device, request.dtype);
-    evictLruByDevice(request.device, request.diagnostics ?? {});
+    const victimDisposals = evictLruByDevice(request.device, request.diagnostics ?? {});
+    const pipeline = Promise.all(victimDisposals).then(async () => {
+      assertCacheCanLoad();
+      return await options.load(request.model, request.device, request.dtype);
+    });
     const timestamp = readNow();
     const entry: PipelineCacheEntry<Resource> = {
       cacheKey,
@@ -337,7 +379,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       estimatedModelBytes: request.estimatedModelBytes,
       lastUsedAt: timestamp,
       model: request.model,
-      pipeline: Promise.resolve(pipeline).then(
+      pipeline: pipeline.then(
         (loaded) => {
           if (entries.get(cacheKey) === entry) {
             emitDiagnostic({
@@ -380,8 +422,28 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
   };
 
   const waitForPendingDisposals = async (): Promise<void> => {
+    const failures: unknown[] = [];
     while (pendingDisposals.size > 0) {
-      await Promise.all([...pendingDisposals]);
+      const results = await Promise.allSettled([...pendingDisposals]);
+      for (const result of results) {
+        if (
+          result.status === 'rejected' &&
+          !failures.some((failure) => Object.is(failure, result.reason))
+        ) {
+          failures.push(result.reason);
+        }
+      }
+    }
+    for (const failure of disposalFailures) {
+      if (!failures.some((candidate) => Object.is(candidate, failure))) {
+        failures.push(failure);
+      }
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Multiple embedding pipeline disposals failed.');
     }
   };
 
@@ -389,7 +451,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
     close: async (): Promise<void> => {
       stopIdleSweep();
       for (const cacheKey of [...entries.keys()]) {
-        disposeEntry(cacheKey, 'manual-dispose');
+        void disposeEntry(cacheKey, 'manual-dispose');
       }
       await waitForPendingDisposals();
     },
@@ -398,7 +460,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
     invalidateWebGpuPipelines: () => {
       for (const entry of [...entries.values()]) {
         if (entry.device === 'webgpu') {
-          disposeEntry(entry.cacheKey, 'device-lost');
+          observeBackgroundDisposal(disposeEntry(entry.cacheKey, 'device-lost'));
         }
       }
       emitDiagnostic({ event: 'invalidated', reason: 'device-lost' });

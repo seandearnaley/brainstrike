@@ -175,13 +175,14 @@ describe('embedding pipeline cache controller', () => {
       await loadWasm('wasm-c');
 
       const replacement = loadWasm('wasm-d');
+      const duplicateReplacement = loadWasm('wasm-d');
       await disposalStarted.promise;
 
       expect(load).toHaveBeenCalledTimes(3);
       expect(physicallyLiveModels).toEqual(new Set(['wasm-a', 'wasm-b', 'wasm-c']));
 
       releaseDisposal.resolve();
-      await replacement;
+      await Promise.all([replacement, duplicateReplacement]);
 
       expect(load).toHaveBeenCalledTimes(4);
       expect(physicallyLiveModels).toEqual(new Set(['wasm-b', 'wasm-c', 'wasm-d']));
@@ -193,6 +194,9 @@ describe('embedding pipeline cache controller', () => {
 
   it('rejects replacement loading when resident-limit disposal fails', async () => {
     const disposalError = new Error('physical release failed');
+    const diagnostics: EmbedWorkerPipelineCacheDiagnostic[] = [];
+    const onDisposeFailed = vi.fn();
+    const onLoadFailed = vi.fn();
     const load = vi.fn(async (model: string) => ({
       dispose: async (): Promise<void> => {
         if (model === 'wasm-a') {
@@ -202,8 +206,93 @@ describe('embedding pipeline cache controller', () => {
     }));
     const controller = createEmbeddingPipelineCacheController({
       load,
-      publishDiagnostic: vi.fn(),
+      onDisposeFailed,
+      onLoadFailed,
+      publishDiagnostic: (diagnostic) => {
+        diagnostics.push(diagnostic);
+      },
       workerInstanceId: 'failed-disposal-worker',
+    });
+    const loadWasm = async (model: string): Promise<void> => {
+      await controller.load({
+        device: 'wasm',
+        dtype: 'q4',
+        estimatedModelBytes: WASM_MODEL_BYTES,
+        model,
+      });
+    };
+
+    let closeFailureObserved = false;
+    try {
+      await loadWasm('wasm-a');
+      await loadWasm('wasm-b');
+      await loadWasm('wasm-c');
+
+      await expect(
+        controller.load({
+          device: 'wasm',
+          diagnostics: { id: 'replacement' },
+          dtype: 'q4',
+          estimatedModelBytes: WASM_MODEL_BYTES,
+          model: 'wasm-d',
+        })
+      ).rejects.toBe(disposalError);
+      expect(load).toHaveBeenCalledTimes(3);
+      expect(onDisposeFailed).toHaveBeenCalledExactlyOnceWith({
+        cacheKey: 'wasm-a|wasm|q4',
+        error: disposalError,
+        reason: 'resident-limit',
+      });
+      expect(onLoadFailed).toHaveBeenCalledExactlyOnceWith({
+        device: 'wasm',
+        dtype: 'q4',
+        error: disposalError,
+        model: 'wasm-d',
+      });
+      expect(diagnostics).toContainEqual(
+        expect.objectContaining({
+          event: 'load-failed',
+          id: 'replacement',
+          reason: 'load-failure',
+        })
+      );
+      await expect(loadWasm('wasm-e')).rejects.toThrow(
+        'Embedding pipeline cache cannot load after a resource disposal failure.'
+      );
+      expect(load).toHaveBeenCalledTimes(3);
+
+      await expect(controller.close()).rejects.toBe(disposalError);
+      closeFailureObserved = true;
+    } finally {
+      if (!closeFailureObserved) {
+        await controller.close().catch(() => undefined);
+      }
+    }
+  });
+
+  it('keeps concurrent distinct replacements physically bounded', async () => {
+    const releaseA = createDeferred<void>();
+    const releaseB = createDeferred<void>();
+    const physicallyLiveModels = new Set<string>();
+    let peakPhysicalResidents = 0;
+    const load = vi.fn(async (model: string) => {
+      physicallyLiveModels.add(model);
+      peakPhysicalResidents = Math.max(peakPhysicalResidents, physicallyLiveModels.size);
+      return {
+        dispose: async (): Promise<void> => {
+          if (model === 'wasm-a') {
+            await releaseA.promise;
+          } else if (model === 'wasm-b') {
+            await releaseB.promise;
+          }
+          physicallyLiveModels.delete(model);
+        },
+      };
+    });
+    const controller = createEmbeddingPipelineCacheController({
+      load,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'concurrent-disposal-worker',
     });
     const loadWasm = async (model: string): Promise<void> => {
       await controller.load({
@@ -219,10 +308,56 @@ describe('embedding pipeline cache controller', () => {
       await loadWasm('wasm-b');
       await loadWasm('wasm-c');
 
-      await expect(loadWasm('wasm-d')).rejects.toBe(disposalError);
+      const replacementD = loadWasm('wasm-d');
+      const replacementE = loadWasm('wasm-e');
+      await Promise.resolve();
+
       expect(load).toHaveBeenCalledTimes(3);
+      expect(physicallyLiveModels.size).toBe(3);
+
+      releaseB.resolve();
+      await replacementE;
+      expect(physicallyLiveModels).toEqual(new Set(['wasm-a', 'wasm-c', 'wasm-e']));
+
+      releaseA.resolve();
+      await replacementD;
+      expect(physicallyLiveModels).toEqual(new Set(['wasm-c', 'wasm-d', 'wasm-e']));
+      expect(peakPhysicalResidents).toBe(3);
     } finally {
+      releaseA.resolve();
+      releaseB.resolve();
       await controller.close();
     }
+  });
+
+  it('surfaces a settled background disposal failure through wait and close', async () => {
+    const disposalError = new Error('device-lost release failed');
+    const onDisposeFailed = vi.fn();
+    const controller = createEmbeddingPipelineCacheController({
+      load: vi.fn(async () => ({
+        dispose: async (): Promise<void> => {
+          throw disposalError;
+        },
+      })),
+      onDisposeFailed,
+      publishDiagnostic: vi.fn(),
+      workerInstanceId: 'background-disposal-worker',
+    });
+
+    await controller.load({
+      device: 'webgpu',
+      dtype: 'fp16',
+      estimatedModelBytes: GPU_MODEL_BYTES,
+      model: 'gpu-a',
+    });
+    controller.invalidateWebGpuPipelines();
+
+    await expect(controller.waitForPendingDisposals()).rejects.toBe(disposalError);
+    expect(onDisposeFailed).toHaveBeenCalledExactlyOnceWith({
+      cacheKey: 'gpu-a|webgpu|fp16',
+      error: disposalError,
+      reason: 'device-lost',
+    });
+    await expect(controller.close()).rejects.toBe(disposalError);
   });
 });

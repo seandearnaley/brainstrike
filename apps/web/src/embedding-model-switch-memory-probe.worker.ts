@@ -26,7 +26,6 @@ interface SyntheticModelContract {
 }
 
 interface RetainedResource {
-  readonly bytes: number;
   store: Uint8Array | null;
 }
 
@@ -85,10 +84,18 @@ function postMessage(message: EmbeddingModelSwitchMemoryProbeWorkerMessage): voi
   probeChannel.postMessage(message);
 }
 
+function failProbeWorker(message: string): never {
+  postMessage({ message, type: 'error' });
+  throw new Error(message);
+}
+
 function postState(): void {
   let liveBytes = 0;
   for (const resource of retainedResources.values()) {
-    liveBytes += resource.bytes;
+    if (resource.store === null) {
+      failProbeWorker('BST-369 physical ledger retained a released resource.');
+    }
+    liveBytes += resource.store.byteLength;
   }
   postMessage({
     allocationCount,
@@ -112,13 +119,12 @@ function createSyntheticPipeline(
   model: string,
   contract: SyntheticModelContract
 ): ((texts: readonly string[]) => Promise<readonly Float32Array[]>) & {
-  dispose: () => void;
+  dispose: () => Promise<void>;
 } {
   if (retainedResources.has(model)) {
     throw new Error(`BST-369 synthetic runtime attempted to allocate duplicate model ${model}.`);
   }
   const resource: RetainedResource = {
-    bytes: contract.bytes,
     store: allocatePageTouchedStore(contract.bytes),
   };
   retainedResources.set(model, resource);
@@ -134,9 +140,13 @@ function createSyntheticPipeline(
     }
     return [Float32Array.of(1, 2, 3, 4)];
   };
-  pipeline.dispose = (): void => {
+  pipeline.dispose = async (): Promise<void> => {
+    if (resource.store === null || !retainedResources.has(model)) {
+      failProbeWorker(`BST-369 synthetic runtime disposed model ${model} more than once.`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     if (resource.store === null || !retainedResources.delete(model)) {
-      throw new Error(`BST-369 synthetic runtime disposed model ${model} more than once.`);
+      failProbeWorker(`BST-369 synthetic runtime disposed model ${model} more than once.`);
     }
     resource.store = null;
     disposedModels.push(model);

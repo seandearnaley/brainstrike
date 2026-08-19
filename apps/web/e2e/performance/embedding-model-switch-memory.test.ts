@@ -12,18 +12,30 @@ const VECTOR_TRANSFER_BYTES = 4 * Float32Array.BYTES_PER_ELEMENT;
 
 test.describe('Embedding model-switch memory regression', () => {
   test('bounds production-worker JS allocation for WASM and GPU-class proxy switches', async ({
+    baseURL,
     page,
   }) => {
+    if (!baseURL) {
+      throw new Error('BST-369 requires a Playwright baseURL.');
+    }
+    const appOrigin = new URL(baseURL).origin;
     const browserErrors: string[] = [];
-    const modelRequests: string[] = [];
+    const crossOriginRequests: string[] = [];
+    const modelProxyRequests: string[] = [];
     page.on('pageerror', (error) => browserErrors.push(error.message));
     await page.addInitScript(() => {
       window.__brainstrikeEnableEmbeddingModelSwitchMemoryProbe__ = true;
     });
     await page.route('**/*', async (route) => {
-      const url = route.request().url();
-      if (/huggingface\.co|cdn-lfs\.hf\.co|hf-mirror\.com/u.test(url)) {
-        modelRequests.push(url);
+      const requestUrl = new URL(route.request().url());
+      const isNetworkRequest = requestUrl.protocol === 'http:' || requestUrl.protocol === 'https:';
+      if (isNetworkRequest && requestUrl.origin !== appOrigin) {
+        crossOriginRequests.push(requestUrl.href);
+        await route.abort('blockedbyclient');
+        return;
+      }
+      if (requestUrl.origin === appOrigin && requestUrl.pathname.startsWith('/api/hf/')) {
+        modelProxyRequests.push(requestUrl.href);
         await route.abort('blockedbyclient');
         return;
       }
@@ -79,7 +91,8 @@ test.describe('Embedding model-switch memory regression', () => {
       })}`
     );
 
-    expect(modelRequests).toEqual([]);
+    expect(crossOriginRequests).toEqual([]);
+    expect(modelProxyRequests).toEqual([]);
     expect(result.beforeTeardown).toEqual({
       estimatedGpuBytes: GPU_MODEL_BYTES,
       estimatedHeapBytes: 3 * WASM_MODEL_BYTES,

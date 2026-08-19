@@ -438,6 +438,17 @@ const pipelineCacheController = createEmbeddingPipelineCacheController<FeatureEx
   onDisposed: ({ cacheKey }) => {
     debugLog('Disposed cached pipeline', { cacheKey });
   },
+  onDisposeFailed: ({ cacheKey, error, reason }) => {
+    const cause = error instanceof Error ? error.message : String(error);
+    const message = `Embedding pipeline disposal failed for ${cacheKey} (${reason}).`;
+    errorLog(message, { cause });
+    workerpoolTelemetryChannel?.postMessage({
+      cause,
+      message,
+      type: 'worker-lifetime-error',
+      workerInstanceId: embeddingWorkerInstanceId,
+    } satisfies EmbedWorkerLifetimeError);
+  },
   onLoadFailed: ({ device, dtype, error, model }) => {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
