@@ -613,8 +613,8 @@ fallback.
   unstat-able paths normalize to the safe `directory`/`removed` invalidation
   shape; backend callback errors (e.g. FSEvents dropped-events) degrade to a
   root-level invalidation with log-once semantics while the subscription
-  stays alive. The 150ms/500-item batcher and `fileFilter.shouldIgnorePath`
-  apply, plus (BST-1342) the background-indexing policy's unconditional
+  stays alive. The 150ms/500-item batcher and root-relative default segment
+  classifier apply, plus (BST-1342) the background-indexing policy's unconditional
   excluded-path prefixes (`.claude/worktrees`) checked ROOT-RELATIVELY via
   `isExcludedBackgroundIndexingPath` — a subscription root opened inside an
   excluded tree watches normally; only nested excluded trees are silenced.
@@ -624,13 +624,44 @@ fallback.
   on manual re-enumeration. That is the point of the fix (run-5189: worktree
   churn flooding FSEvents drove overflow → full-refresh storms → DB-host
   saturation that killed an active run); do not "fix" the staleness back
-  into a watch. DEFAULT_IGNORE_PATTERNS and (for roots outside excluded
-  trees) the excluded-path globs also feed native-level ignore globs — same
-  rules, never broader. A per-subscription `ignorePatterns` override exists
+  into a watch. The background-indexing excluded-path globs still feed the
+  native layer for roots outside excluded trees — this is the load-bearing
+  run-5189 overflow guard. The generic Parcel/Electron watcher remains
+  default-false and retains `DEFAULT_IGNORE_PATTERNS` natively. The concrete
+  MAIN-owned Explorer `fs:watch` closure is the sole production caller of
+  `reportDefaultFilteredChanges:true` (never renderer/wire input). That opt-in
+  retains `.git`, `node_modules`, `.pnpm-store`, `.next`, and `.turbo` at the
+  native boundary: recursively observing those high-cardinality trees risks
+  descriptor exhaustion or bounded subscribe-timeout failure. A force-tracked
+  file inside one of them is therefore unsupported by this pipeline; lossless
+  support requires a separate bounded Git-aware tracked-path watcher, not
+  polling or broadening this recursive subscription.
+
+  Parcel delivers only the bounded reportable defaults `dist`, `build`, and
+  `.DS_Store` to a lightweight JS classifier. It matches the event path
+  relative to the watched root, so opening a root beneath an ancestor named
+  `build`, `dist`, or `node_modules` never creates a permanent filtered marker
+  storm. The classifier omits detailed paths from Explorer/indexing and records
+  the first matched root-relative boundary. The 150ms producer batch and the
+  renderer's 300ms/1s aggregate each retain at most 64 deduped boundaries;
+  excess cardinality sets explicit `filteredChangeBoundariesOverflow:true`.
+  Filtered records never stat or enter the serialized event promise chain.
+  Changes refreshes only registrations intersecting retained boundaries;
+  overflow fails open within that durable root only. Sustained builds still
+  cost one trailing/max-wait Git view refresh per affected repository, not per
+  raw event and not for unrelated repositories. User-configured Explorer `excludeFilters` are later display
+  projection, not watcher inputs, so those paths continue through the normal
+  detailed event path. The `.claude/worktrees` exclusion remains the explicit
+  exception: no detailed event and no boundary evidence, preserving its documented
+  deliberate staleness. `.git` also remains natively ignored here because it is
+  metadata rather than a working-tree path; the private git-metadata watcher
+  owns its bounded HEAD/index/refs signal and deliberately excludes objects
+  churn. A per-subscription `ignorePatterns` override exists
   (BST-1112, see `docs/agents/platform-contracts.md`) for main-owned callers
-  outside this pipeline, e.g. a git-metadata watcher; the Explorer refresh
-  pipeline described here NEVER passes it, so "same names, never broader"
-  holds unconditionally for this path. Typed watcher health
+  outside this pipeline, e.g. a git-metadata watcher. It is mutually exclusive
+  with coarse reporting, including the explicit `[]` override; Notes Vault
+  retains default native filtering and git metadata remains marker-free.
+  Typed watcher health
   (`starting|healthy|degraded|failed|stopped`) flows over one-way
   `fs:watch-health` pushes scoped to the owning WebContents (no root-path
   field on the wire); `fs:watch-retry` is MANUAL-only with escalating
@@ -682,7 +713,13 @@ fallback.
   mounted root; `use-file-system-context.ts` debounces dispatches (300ms
   trailing + 1s max-wait so a continuously-busy root cannot starve dispatch)
   into ONE `FILE_EXPLORER_REFRESH_EVENT` (`source:'watcher'`,
-  `scope:'incremental'`, per-root `FileSystemChange[]`).
+  `scope:'incremental'`, per-root `FileSystemChange[]`). Optional per-root
+  `filteredChangeBoundaries` are bounded working-tree evidence from the same
+  watch, Set-merged across the window. Explicit boundary overflow is distinct
+  from watcher record loss and never changes `scope` to `full`: Git consumers
+  fail open only across mounted registrations in that durable root; tree,
+  background-indexing, and row-metadata consumers no-op without detailed
+  changes. Mixed batches deliver both once.
 - **Watcher health signals (separate channel from change events).** Change
   events carry structural deltas; watcher HEALTH travels out-of-band on
   `FileSystemWatchSignal` (`packages/types/src/file-system.ts`), the optional

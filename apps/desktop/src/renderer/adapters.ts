@@ -10,6 +10,7 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import type {
   ElectronAPI,
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchEvent,
   FileSystemWatchSignal,
   IFileNode,
@@ -45,7 +46,10 @@ function requireElectronAPI(): ElectronAPI {
  * every push O(roots) to filter. The shared subscription is created lazily on
  * the first registration and torn down when the last watch unregisters.
  */
-const watchCallbacksById = new Map<string, (changes: FileSystemChange[]) => void>();
+const watchCallbacksById = new Map<
+  string,
+  (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
+>();
 let sharedWatchUnsubscribe: (() => void) | null = null;
 
 function ensureSharedWatchSubscription(
@@ -56,7 +60,17 @@ function ensureSharedWatchSubscription(
   }
   sharedWatchUnsubscribe = onWatchEvent((event) => {
     const callback = watchCallbacksById.get(event.watchId);
-    if (callback && event.changes.length > 0) {
+    if (!callback) {
+      return;
+    }
+    if (event.filteredChangeBoundaries && event.filteredChangeBoundaries.length > 0) {
+      callback(event.changes, {
+        filteredChangeBoundaries: event.filteredChangeBoundaries,
+        ...(event.filteredChangeBoundariesOverflow === true
+          ? { filteredChangeBoundariesOverflow: true }
+          : {}),
+      });
+    } else if (event.changes.length > 0) {
       callback(event.changes);
     }
   });
@@ -65,7 +79,7 @@ function ensureSharedWatchSubscription(
 function registerWatchCallback(
   onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void,
   watchId: string,
-  callback: (changes: FileSystemChange[]) => void
+  callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
 ): void {
   ensureSharedWatchSubscription(onWatchEvent);
   watchCallbacksById.set(watchId, callback);
@@ -258,7 +272,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
     const api = window.electronAPI?.fileSystem;

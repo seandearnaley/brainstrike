@@ -15,6 +15,7 @@ import type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
 } from '../types.js';
@@ -756,7 +757,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
     // Feature gate: FileSystemObserver is only available in Chrome 133+ with the

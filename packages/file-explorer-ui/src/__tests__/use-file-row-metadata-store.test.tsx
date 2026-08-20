@@ -290,6 +290,36 @@ describe('useFileRowMetadataStore', () => {
     expect(result.current.store.getSnapshot(FILE_A).size).toBe(512);
   });
 
+  it('does not invalidate Explorer metadata for an omitted-only working-tree marker', () => {
+    mockContext = stubTokenCache({
+      cacheVersion: 1,
+      isOperational: true,
+      sizes: {},
+      tokens: {},
+    });
+    const { result } = renderStore();
+    const invalidateAllSpy = vi.spyOn(result.current.store, 'invalidateAll');
+    invalidateAllSpy.mockClear();
+    const omittedRoot = {
+      changes: [],
+      filteredChangeBoundaries: ['packages/app/dist'],
+      rootId: ROOT,
+      rootPath: '/workspace/root',
+    } as const;
+
+    act(() => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [omittedRoot],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+
+    expect(invalidateAllSpy).not.toHaveBeenCalled();
+  });
+
   it('stops reacting to refresh events after unmount', () => {
     mockContext = stubTokenCache({
       cacheVersion: 1,

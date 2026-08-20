@@ -1,6 +1,7 @@
 import type {
   DirectoryHandle,
   FileSystemAdapter,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
 } from '@brainstrike/file-system';
 import { useEventCallback } from '@brainstrike/hooks';
@@ -22,7 +23,11 @@ export interface UseFileSystemWatcherParams {
    * Callers should stabilize this reference (e.g. useCallback) to avoid
    * unnecessary watcher restarts.
    */
-  onChanges: (rootId: string, changes: FileSystemChange[]) => void;
+  onChanges: (
+    rootId: string,
+    changes: FileSystemChange[],
+    metadata?: FileSystemWatchBatchMetadata
+  ) => void;
   /**
    * Called when a watched root reports an out-of-band health signal
    * ('overflow' = events may have been missed, full refresh required;
@@ -115,8 +120,12 @@ export function useFileSystemWatcher({
       if (!watchers.has(rootId)) {
         const dispose = watchDirectory(
           handle,
-          (changes) => {
-            emitChanges(rootId, changes);
+          (changes, metadata) => {
+            if (metadata) {
+              emitChanges(rootId, changes, metadata);
+            } else {
+              emitChanges(rootId, changes);
+            }
           },
           (signal) => {
             // 'errored' means the adapter already disconnected the watch; the

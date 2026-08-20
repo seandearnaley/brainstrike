@@ -52,9 +52,10 @@ async function pickDirectoryPathWithNativeDialog(): Promise<string | null> {
  * never hard-unlinks), the shared `ElectronStorageAdapter` (passed by
  * main.ts) for the persisted approved-roots list, and the shared parcel-backed
  * recursive watcher from `@brainstrike/file-system/electron` (`watchDirectory`
- * — batched at 150 ms, ignore-filtered; setup failure surfaces via the typed
- * health protocol, never a silent fallback engine — BST-568 slice 4). The
- * returned disposer unregisters the channels and reaps every live watcher.
+ * — batched at 150 ms, default native ignore-filtered, with BST-1180 coarse
+ * reporting explicitly disabled; setup failure surfaces via the typed health
+ * protocol, never a silent fallback engine — BST-568 slice 4). The returned
+ * disposer unregisters the channels and reaps every live watcher.
  */
 export function registerNotesVaultIpc(
   storage: NotesVaultRootsStorage,
@@ -97,6 +98,7 @@ export function registerNotesVaultIpc(
                   reject(new Error(event.failure?.message ?? 'Notes vault watcher setup failed'));
                 }
               },
+              reportDefaultFilteredChanges: false,
             }
           );
         }),

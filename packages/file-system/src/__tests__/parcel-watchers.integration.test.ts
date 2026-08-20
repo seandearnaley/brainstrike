@@ -20,7 +20,7 @@ import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startParcelWatch } from '../adapters/parcel-watchers.js';
 import { assertNoPlatformSkips, attributeWatcherFailure } from '../testing/watcher-liveness.js';
-import type { DirectoryHandle, FileSystemChange } from '../types.js';
+import type { DirectoryHandle, FileSystemChange, FileSystemWatchBatchMetadata } from '../types.js';
 
 // Must exceed the inner deadline PLUS the attribution probe (~2s native + ~2s
 // control) so the DIAGNOSTIC wins the race, never the bare "Test timed out":
@@ -133,16 +133,22 @@ describe('startParcelWatch (real binding)', () => {
     expect(batches.flat().length).toBe(deliveredBeforeStop);
   });
 
-  it('ignores events under node_modules at the native layer', async (ctx) => {
-    stop = await startParcelWatch(makeHandle(root), (changes) => {
-      batches.push(changes);
-    });
+  it('summarizes dist activity without exposing its detailed path', async (ctx) => {
+    const metadataBatches: Array<FileSystemWatchBatchMetadata | undefined> = [];
+    stop = await startParcelWatch(
+      makeHandle(root),
+      (changes, metadata) => {
+        batches.push(changes);
+        metadataBatches.push(metadata);
+      },
+      { reportDefaultFilteredChanges: true }
+    );
 
     const keptPath = join(root, 'kept.txt');
 
     try {
-      await mkdir(join(root, 'node_modules'));
-      await writeFile(join(root, 'node_modules', 'pkg.js'), 'x');
+      await mkdir(join(root, 'dist'));
+      await writeFile(join(root, 'dist', 'generated.js'), 'x');
       await writeFile(keptPath, 'x');
 
       await vi.waitFor(
@@ -160,7 +166,8 @@ describe('startParcelWatch (real binding)', () => {
     }
 
     const flatPaths = batches.flat().map((change) => change.path);
-    expect(flatPaths.some((changedPath) => changedPath.includes('node_modules'))).toBe(false);
+    expect(flatPaths.some((changedPath) => changedPath.includes('dist'))).toBe(false);
+    expect(metadataBatches).toContainEqual({ filteredChangeBoundaries: ['dist'] });
   });
 });
 

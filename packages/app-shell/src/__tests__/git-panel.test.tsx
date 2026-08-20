@@ -33,12 +33,16 @@ const mockRoot: {
   },
 };
 
-vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  useFileSystem: () => ({
-    rootDirectoryHandle: mockRoot.handle,
-    rootIdByPath: new Map<string, string>(),
-  }),
-}));
+vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>();
+  return {
+    FILE_EXPLORER_REFRESH_EVENT: actual.FILE_EXPLORER_REFRESH_EVENT,
+    useFileSystem: () => ({
+      rootDirectoryHandle: mockRoot.handle,
+      rootIdByPath: new Map<string, string>(),
+    }),
+  };
+});
 
 /**
  * `ChangesetFileDiffCard` (mounted by the Changes tab, BST-1116 W6 Task A)

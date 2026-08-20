@@ -7,6 +7,14 @@ export type FileExplorerRefreshScope = 'incremental' | 'full';
 
 export interface FileExplorerRefreshRootDetail {
   readonly changes: readonly FileSystemChange[];
+  /**
+   * Bounded root-relative default-filter boundaries whose detailed activity is
+   * intentionally absent from `changes`. Git consumers map these paths to
+   * intersecting registered worktrees; Explorer/indexing consumers do no work.
+   */
+  readonly filteredChangeBoundaries?: readonly string[];
+  /** The boundary cap was exceeded; Git consumers fail open in this root only. */
+  readonly filteredChangeBoundariesOverflow?: true;
   readonly rootId: string;
   readonly rootPath: string;
 }

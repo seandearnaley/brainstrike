@@ -39,6 +39,10 @@
     "./testing/watcher-liveness": {
       "types": "./dist/testing/watcher-liveness.d.ts",
       "default": "./dist/testing/watcher-liveness.js"
+    },
+    "./testing/parcel-producer": {
+      "types": "./dist/testing/parcel-producer.d.ts",
+      "default": "./dist/testing/parcel-producer.js"
     }
   },
   "main": "./dist/index.js",

@@ -82,6 +82,15 @@ function makeHandle(path: string): DirectoryHandle {
   return { kind: 'directory', name: 'root', path } as DirectoryHandle;
 }
 
+function withDefaultFilteredReporting(
+  options: Parameters<typeof startParcelWatch>[2]
+): Parameters<typeof startParcelWatch>[2] {
+  return {
+    ...options,
+    reportDefaultFilteredChanges: true,
+  };
+}
+
 async function waitForBatch(batches: FileSystemChange[][], minBatches = 1): Promise<void> {
   await vi.waitFor(
     () => {
@@ -94,20 +103,23 @@ async function waitForBatch(batches: FileSystemChange[][], minBatches = 1): Prom
 describe('startParcelWatch', () => {
   let root = '';
   let batches: FileSystemChange[][] = [];
-  const collect = (changes: FileSystemChange[]) => {
+  let batchMetadata: unknown[] = [];
+  const collect: Parameters<typeof startParcelWatch>[1] = (changes, metadata) => {
     batches.push(changes);
+    batchMetadata.push(metadata);
   };
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'bst568-engine-'));
     batches = [];
+    batchMetadata = [];
   });
 
   afterEach(async () => {
     await rm(root, { force: true, recursive: true });
   });
 
-  it('subscribes with the explicit host backend and shared ignore globs', async () => {
+  it('preserves default native ignore globs unless filtered reporting is explicitly enabled', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(makeHandle(root), collect, {
       loadModule: () => Promise.resolve(fake.module),
@@ -115,21 +127,244 @@ describe('startParcelWatch', () => {
     expect(fake.lastSubscribeArgs.dir).toBe(root);
     // Platform-derived: fs-events on darwin, inotify on linux, windows on win32.
     expect(fake.lastSubscribeArgs.backend).toBe(selectParcelBackend(process.platform));
-    expect(fake.lastSubscribeArgs.ignore).toContain('**/node_modules/**');
-    expect(fake.lastSubscribeArgs.ignore).toContain('**/.git/**');
-    stop();
-  });
-
-  it('uses the default segment globs plus the unconditional excluded-path globs when no override is given (BST-1112, BST-1342)', async () => {
-    const fake = createFakeBinding();
-    const stop = await startParcelWatch(makeHandle(root), collect, {
-      loadModule: () => Promise.resolve(fake.module),
-    });
     expect(fake.lastSubscribeArgs.ignore).toEqual([
       ...DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`]),
       ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
     ]);
     stop();
+  });
+
+  it('broadens only bounded output defaults while retaining high-cardinality native ignores', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(
+      makeHandle(root),
+      collect,
+      withDefaultFilteredReporting({
+        loadModule: () => Promise.resolve(fake.module),
+      })
+    );
+    expect(fake.lastSubscribeArgs.ignore).toEqual([
+      '**/.git',
+      '**/.git/**',
+      '**/node_modules',
+      '**/node_modules/**',
+      '**/.pnpm-store',
+      '**/.pnpm-store/**',
+      '**/.next',
+      '**/.next/**',
+      '**/.turbo',
+      '**/.turbo/**',
+      ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
+    ]);
+    stop();
+  });
+
+  it('does not report a default-filtered path without the explicit opt-in', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+    });
+
+    const ignoredDirectory = join(root, 'node_modules');
+    await mkdir(ignoredDirectory);
+    const ignoredFile = join(ignoredDirectory, 'tracked.js');
+    await writeFile(ignoredFile, 'changed');
+    fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(batches).toEqual([]);
+    expect(batchMetadata).toEqual([]);
+    stop();
+  });
+
+  it.each(['node_modules', '.pnpm-store', '.next', '.turbo'])(
+    'keeps high-cardinality %s activity silent after the explicit opt-in',
+    async (directoryName) => {
+      const fake = createFakeBinding();
+      const stop = await startParcelWatch(
+        makeHandle(root),
+        collect,
+        withDefaultFilteredReporting({
+          loadModule: () => Promise.resolve(fake.module),
+        })
+      );
+
+      const ignoredDirectory = join(root, directoryName);
+      await mkdir(ignoredDirectory);
+      const ignoredFile = join(ignoredDirectory, 'tracked.js');
+      await writeFile(ignoredFile, 'changed');
+      // The fake binding deliberately bypasses Parcel's native ignore so this
+      // also proves the JS guard cannot accidentally disclose a marker.
+      fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(batches).toEqual([]);
+      expect(batchMetadata).toEqual([]);
+      stop();
+    }
+  );
+
+  it('keeps a high-cardinality subtree silent even beneath a reportable boundary', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(
+      makeHandle(root),
+      collect,
+      withDefaultFilteredReporting({
+        loadModule: () => Promise.resolve(fake.module),
+      })
+    );
+
+    const ignoredDirectory = join(root, 'dist', 'node_modules');
+    await mkdir(ignoredDirectory, { recursive: true });
+    const ignoredFile = join(ignoredDirectory, 'tracked.js');
+    await writeFile(ignoredFile, 'changed');
+    fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(batches).toEqual([]);
+    expect(batchMetadata).toEqual([]);
+    stop();
+  });
+
+  it.each(['dist', 'build'])(
+    'reports a root-relative %s boundary only after the explicit opt-in',
+    async (directoryName) => {
+      const fake = createFakeBinding();
+      const stop = await startParcelWatch(
+        makeHandle(root),
+        collect,
+        withDefaultFilteredReporting({
+          loadModule: () => Promise.resolve(fake.module),
+        })
+      );
+
+      const ignoredDirectory = join(root, 'packages', 'app', directoryName);
+      await mkdir(ignoredDirectory, { recursive: true });
+      const ignoredFile = join(ignoredDirectory, 'tracked.js');
+      await writeFile(ignoredFile, 'changed');
+      fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+      await waitForBatch(batches);
+      expect(batches).toEqual([[]]);
+      expect(batchMetadata).toEqual([
+        { filteredChangeBoundaries: [`packages/app/${directoryName}`] },
+      ]);
+      stop();
+    }
+  );
+
+  it('reports a root-relative .DS_Store boundary after the explicit opt-in', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(
+      makeHandle(root),
+      collect,
+      withDefaultFilteredReporting({
+        loadModule: () => Promise.resolve(fake.module),
+      })
+    );
+
+    const ignoredDirectory = join(root, 'packages', 'app');
+    await mkdir(ignoredDirectory, { recursive: true });
+    const ignoredFile = join(ignoredDirectory, '.DS_Store');
+    await writeFile(ignoredFile, 'changed');
+    fake.emit([{ path: ignoredFile, type: 'update' }]);
+
+    await waitForBatch(batches);
+    expect(batches).toEqual([[]]);
+    expect(batchMetadata).toEqual([{ filteredChangeBoundaries: ['packages/app/.DS_Store'] }]);
+    stop();
+  });
+
+  it.each(['build', 'dist', 'node_modules'])(
+    'does not filter every event when the watched root has an ancestor named %s',
+    async (ancestorName) => {
+      const watchedRoot = join(root, ancestorName, 'workspace');
+      await mkdir(watchedRoot, { recursive: true });
+      const fake = createFakeBinding();
+      const stop = await startParcelWatch(
+        makeHandle(watchedRoot),
+        collect,
+        withDefaultFilteredReporting({
+          loadModule: () => Promise.resolve(fake.module),
+        })
+      );
+
+      const visibleFile = join(watchedRoot, 'src.ts');
+      await writeFile(visibleFile, 'changed');
+      fake.emit([{ path: visibleFile, type: 'update' }]);
+
+      await waitForBatch(batches);
+      expect(batches).toEqual([[{ kind: 'file', path: visibleFile, type: 'modified' }]]);
+      expect(batchMetadata).toEqual([undefined]);
+      stop();
+    }
+  );
+
+  it('matches only a nested default boundary for a root under mixed default-filter ancestors', async () => {
+    const watchedRoot = join(root, 'build', 'node_modules', 'workspace');
+    const nestedBoundary = join(watchedRoot, 'src', 'dist');
+    await mkdir(nestedBoundary, { recursive: true });
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(
+      makeHandle(watchedRoot),
+      collect,
+      withDefaultFilteredReporting({
+        loadModule: () => Promise.resolve(fake.module),
+      })
+    );
+
+    const filteredFile = join(nestedBoundary, 'asset.js');
+    await writeFile(filteredFile, 'changed');
+    fake.emit([{ path: filteredFile, type: 'update' }]);
+
+    await waitForBatch(batches);
+    expect(batches).toEqual([[]]);
+    expect(batchMetadata).toEqual([{ filteredChangeBoundaries: ['src/dist'] }]);
+    stop();
+  });
+
+  it('coalesces mixed visible and default-filtered activity after the opt-in (BST-1180)', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(
+      makeHandle(root),
+      collect,
+      withDefaultFilteredReporting({
+        loadModule: () => Promise.resolve(fake.module),
+      })
+    );
+
+    const ignoredDirectory = join(root, 'dist');
+    await mkdir(ignoredDirectory);
+    const ignoredFile = join(ignoredDirectory, 'tracked.js');
+    const visibleFile = join(root, 'source.ts');
+    await Promise.all([writeFile(ignoredFile, 'changed'), writeFile(visibleFile, 'changed')]);
+    fake.emit([
+      { path: ignoredFile, type: 'update' },
+      { path: visibleFile, type: 'update' },
+    ]);
+
+    await waitForBatch(batches);
+    expect(batches).toEqual([[{ kind: 'file', path: visibleFile, type: 'modified' }]]);
+    expect(batchMetadata).toEqual([{ filteredChangeBoundaries: ['dist'] }]);
+    stop();
+  });
+
+  it('rejects filtered reporting combined with any explicit ignore override', async () => {
+    const fake = createFakeBinding();
+
+    await expect(
+      startParcelWatch(
+        makeHandle(root),
+        collect,
+        withDefaultFilteredReporting({
+          ignorePatterns: [],
+          loadModule: () => Promise.resolve(fake.module),
+        })
+      )
+    ).rejects.toThrow(
+      /reportDefaultFilteredChanges.*ignorePatterns|ignorePatterns.*reportDefaultFilteredChanges/u
+    );
+    expect(fake.lastSubscribeArgs.dir).toBeUndefined();
   });
 
   it('drops .claude/worktrees events at the default guard while delivering siblings (BST-1342)', async () => {
@@ -176,8 +411,9 @@ describe('startParcelWatch', () => {
     });
 
     // The native layer must not swallow the whole subscription either:
-    // parcel matches ignore globs against absolute paths, so the worktrees
-    // globs are omitted for a root already inside an excluded tree.
+    // Parcel matches ignore globs against absolute paths, so only the hard
+    // worktrees globs are omitted for a root already inside that tree. The
+    // default-false watcher still preserves its ordinary native filters.
     expect(fake.lastSubscribeArgs.ignore).toEqual(
       DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`])
     );

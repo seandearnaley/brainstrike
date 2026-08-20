@@ -1,4 +1,8 @@
-import type { FileSystemChange } from '../types.js';
+import {
+  FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT,
+  type FileSystemChange,
+  type FileSystemWatchBatchMetadata,
+} from '../types.js';
 
 // Shared change-batching primitive for the watcher service (BST-568). The
 // legacy chokidar / recursive-fs.watch engines that used to live here were
@@ -11,21 +15,39 @@ export const FS_WATCH_MAX_BATCH_SIZE = 500;
 export interface FileSystemChangeBatcher {
   dispose: () => void;
   enqueue: (change: FileSystemChange) => void;
+  markFilteredChangeBoundary: (boundary: string) => void;
 }
 
 export function createFileSystemChangeBatcher(
-  callback: (changes: FileSystemChange[]) => void
+  callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
 ): FileSystemChangeBatcher {
   let batch: FileSystemChange[] = [];
   let batchTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  let filteredChangeBoundaries = new Set<string>();
+  let filteredChangeBoundariesOverflow = false;
 
   const flushBatch = (): void => {
     batchTimer = null;
-    if (batch.length > 0) {
+    if (batch.length > 0 || filteredChangeBoundaries.size > 0) {
       const changes = batch;
+      const metadata: FileSystemWatchBatchMetadata | undefined =
+        filteredChangeBoundaries.size > 0
+          ? {
+              filteredChangeBoundaries: [...filteredChangeBoundaries],
+              ...(filteredChangeBoundariesOverflow
+                ? { filteredChangeBoundariesOverflow: true }
+                : {}),
+            }
+          : undefined;
       batch = [];
-      callback(changes);
+      filteredChangeBoundaries = new Set();
+      filteredChangeBoundariesOverflow = false;
+      if (metadata) {
+        callback(changes, metadata);
+      } else {
+        callback(changes);
+      }
     }
   };
 
@@ -52,6 +74,37 @@ export function createFileSystemChangeBatcher(
     scheduleBatchFlush();
   };
 
+  const markFilteredChangeBoundary = (boundary: string): void => {
+    if (disposed) {
+      return;
+    }
+    const boundarySegments = boundary.split('/');
+    if (
+      boundary.length === 0 ||
+      boundary.startsWith('/') ||
+      /^[A-Za-z]:\//u.test(boundary) ||
+      boundary.includes('\\') ||
+      boundarySegments.some(
+        (segment) => segment.length === 0 || segment === '.' || segment === '..'
+      )
+    ) {
+      throw new Error(
+        `Filtered watcher boundary must be a normalized root-relative path: ${boundary}`
+      );
+    }
+    if (filteredChangeBoundaries.has(boundary)) {
+      scheduleBatchFlush();
+      return;
+    }
+    if (filteredChangeBoundaries.size >= FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT) {
+      filteredChangeBoundariesOverflow = true;
+      scheduleBatchFlush();
+      return;
+    }
+    filteredChangeBoundaries.add(boundary);
+    scheduleBatchFlush();
+  };
+
   const dispose = (): void => {
     if (disposed) {
       return;
@@ -63,5 +116,5 @@ export function createFileSystemChangeBatcher(
     flushBatch();
   };
 
-  return { dispose, enqueue };
+  return { dispose, enqueue, markFilteredChangeBoundary };
 }

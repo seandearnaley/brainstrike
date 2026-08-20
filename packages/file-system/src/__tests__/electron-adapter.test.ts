@@ -483,12 +483,16 @@ describe('ElectronFileSystemAdapter', () => {
       const captured: { callback: ((changes: unknown[]) => void) | null } = {
         callback: null,
       };
-      vi.doMock('../adapters/parcel-watchers', () => ({
-        startParcelWatch: (_handle: unknown, onChanges: (changes: unknown[]) => void) => {
-          captured.callback = onChanges;
-          return Promise.resolve(() => undefined);
-        },
-      }));
+      vi.doMock('../adapters/parcel-watchers', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../adapters/parcel-watchers.js')>();
+        return {
+          ...actual,
+          startParcelWatch: (_handle: unknown, onChanges: (changes: unknown[]) => void) => {
+            captured.callback = onChanges;
+            return Promise.resolve(() => undefined);
+          },
+        };
+      });
 
       const { dialog } = await import('electron');
       vi.mocked(dialog.showOpenDialog).mockResolvedValue({

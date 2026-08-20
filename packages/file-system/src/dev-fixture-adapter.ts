@@ -10,6 +10,7 @@ import type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
 } from './types.js';
@@ -465,7 +466,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
 
   function watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void {
     if (isFixtureActive() && isFixtureOwnedPath(handle.path)) {

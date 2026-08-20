@@ -1,4 +1,4 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemWatchBatchMetadata } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { FileSystemChange } from '@brainstrike/types';
@@ -706,6 +706,89 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
             changes,
             rootId: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
             rootPath: '/debounce-root',
+          },
+        ],
+        scope: 'incremental',
+        source: 'watcher',
+      });
+    } finally {
+      refreshCapture.cleanup();
+    }
+  });
+
+  it('merges filtered boundaries with visible changes under one explicit cap', async () => {
+    const refreshCapture = captureFileExplorerRefreshEvents();
+    let capturedCallback:
+      | ((changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void)
+      | null = null;
+    const handle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'filtered-root',
+      path: '/filtered-omitted-root',
+      platform: 'web',
+      rootId: 'filtered-root-id',
+    } as DirectoryHandle;
+    const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
+      restoreLastFolder: vi.fn(async () => handle),
+      watchDirectory: vi.fn(
+        (
+          _handle: DirectoryHandle,
+          callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void
+        ) => {
+          capturedCallback = callback;
+          return vi.fn();
+        }
+      ),
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        FileExplorerTestWrapper,
+        {
+          mockFileSystemAdapter: adapterWithWatch,
+        },
+        children
+      );
+
+    try {
+      renderHook(() => useExposed(), { wrapper });
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      if (!capturedCallback) {
+        throw new Error('watchDirectory callback was not registered');
+      }
+      const callback = capturedCallback as (
+        changes: FileSystemChange[],
+        metadata?: FileSystemWatchBatchMetadata
+      ) => void;
+      const visibleChange: FileSystemChange = {
+        kind: 'file',
+        path: '/filtered-omitted-root/src/visible.ts',
+        type: 'modified',
+      };
+      const firstBoundaries = Array.from({ length: 40 }, (_, index) => `repo-${index}/dist`);
+      const secondBoundaries = Array.from({ length: 40 }, (_, index) => `repo-${index + 32}/build`);
+
+      act(() => {
+        callback([], {
+          filteredChangeBoundaries: firstBoundaries,
+        });
+        callback([visibleChange]);
+        callback([], {
+          filteredChangeBoundaries: secondBoundaries,
+        });
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(refreshCapture.events).toHaveLength(1);
+      expect(refreshCapture.events[0]?.detail).toEqual({
+        roots: [
+          {
+            changes: [visibleChange],
+            filteredChangeBoundaries: [...firstBoundaries, ...secondBoundaries.slice(0, 24)],
+            filteredChangeBoundariesOverflow: true,
+            rootId: expect.any(String),
+            rootPath: '/filtered-omitted-root',
           },
         ],
         scope: 'incremental',

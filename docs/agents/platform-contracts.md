@@ -706,22 +706,40 @@ indexed state only.
   durable storage, and unknown handles must never trigger a fresh-read fallback.
 - **Per-subscription ignore override (BST-1112)**: `StartParcelWatchOptions.ignorePatterns`
   (threaded from `WatchDirectoryOptions.ignorePatterns`) lets a caller REPLACE
-  `DEFAULT_IGNORE_PATTERNS` for its own subscription only — both the native
-  ignore globs and the `fileFilter.shouldIgnorePath` guard — e.g. a
+  `DEFAULT_IGNORE_PATTERNS` for its own subscription only — explicit overrides
+  apply to both native ignore globs and the event guard, e.g. a
   main-owned git-metadata watcher that needs `.git/HEAD` events the default
   patterns would drop. `undefined` selects the default layers: the
   `fileFilter.shouldIgnorePath` guard PLUS (BST-1342) the background-indexing
   policy's unconditional excluded-path prefixes (`.claude/worktrees`),
   applied root-relatively and skipped entirely when the subscription root
-  itself sits inside an excluded tree. `[]` means "ignore nothing", never a
+  itself sits inside an excluded tree. `StartParcelWatchOptions` and concrete
+  Electron `WatchDirectoryOptions` also expose
+  `reportDefaultFilteredChanges`, default `false`. With that option false,
+  `DEFAULT_IGNORE_PATTERNS` retain their pre-BST-1180 native globs and the
+  callback receives no filtered-boundary evidence. Only `ipc-handlers.ts`'s
+  MAIN-owned Explorer `fs:watch` dependency passes `true`; this broadens only
+  `dist`, `build`, and `.DS_Store` while keeping `.git`, `node_modules`,
+  `.pnpm-store`, `.next`, `.turbo`, plus the hard `.claude/worktrees`
+  exclusion native. The JS guard emits root-relative boundaries without
+  exposing detailed Explorer changes. Both watcher and renderer batching cap
+  retained boundaries at 64 and surface explicit overflow. Tracked files in
+  the retained high-cardinality trees require a future bounded Git-aware
+  tracked-path watcher; this option must not broaden the recursive watcher or
+  claim silent coverage.
+  Notes Vault stays explicitly false. Git inventory keeps its explicit
+  `ignorePatterns: []` and is marker-free. Reporting true plus ANY explicit
+  override (including `[]`) throws before watcher setup — the configuration is
+  ambiguous and never silently coerced. `[]` means "ignore nothing", never a
   silent fallback to defaults. Overrides
   cannot reach the desktop `fs:watch` IPC domain: `StartFileSystemWatch`
   takes no `ignorePatterns`, and that domain deduplicates native
   subscriptions on `(ownerId, resolvedPath)` only. Any future caller that
   threads an override through it MUST add the pattern set to
   `subscriptionKey`, or two registrations for the same root would silently
-  share one filter set. The shared Explorer refresh pipeline never passes
-  this option — "same names, never broader" stays true for that path (see
+  share one filter set. Neither option is renderer/wire input; the shared
+  Explorer refresh pipeline's broadening is fixed by its concrete main-process
+  owner, so "same names, never broader" stays true (see
   `docs/agents/explorer-search-tapestry.md`).
 - **Git-inventory watcher dead-on-failure (BST-1112)**: `git-inventory-watcher.ts`'s
   per-repo subscriptions (one per common dir, using the ignore override above)

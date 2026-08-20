@@ -19,13 +19,14 @@ import type {
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
   WatcherHealthTransition,
 } from '../types.js';
 import { validateDirectoryPath } from '../utils.js';
 import { normalizeDirectoryReadOptions } from '../utils-browser.js';
-import { startParcelWatch } from './parcel-watchers.js';
+import { assertValidParcelWatchFilterOptions, startParcelWatch } from './parcel-watchers.js';
 
 const logger = createLogger('ElectronFileSystemAdapter');
 
@@ -71,13 +72,20 @@ export interface WatchDirectoryOptions {
    * Per-subscription ignore override (BST-1112): when provided, REPLACES
    * DEFAULT_IGNORE_PATTERNS for THIS watch only — e.g. a main-owned
    * git-metadata watcher that needs `.git/HEAD` events the default patterns
-   * would drop. `undefined` (the default) keeps the shared default patterns
-   * unchanged; `[]` means "ignore nothing", never a silent fallback to
-   * defaults. The shared Explorer refresh pipeline never passes this option.
+   * would drop. Explicit overrides apply natively and in the event guard.
+   * `undefined` keeps the shared default native + detailed-path filter; `[]`
+   * means "ignore nothing", never a silent fallback.
    */
   ignorePatterns?: readonly string[] | undefined;
   /** Typed watcher health transitions (BST-568 slice 3). */
   onHealth?: (event: WatcherHealthTransition) => void;
+  /**
+   * Opt into bounded root-relative evidence for reportable default filters.
+   * Default false and mutually exclusive with `ignorePatterns`; only the main
+   * fs:watch Explorer owner enables it. High-cardinality defaults remain
+   * native-suppressed.
+   */
+  reportDefaultFilteredChanges?: boolean;
 }
 
 /** Default batch size for streaming directory reads */
@@ -614,16 +622,20 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
    */
   watchDirectory(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void,
     options?: WatchDirectoryOptions
   ): () => void {
+    assertValidParcelWatchFilterOptions(options ?? {});
     resolveWatcherBackend();
     let closed = false;
     let dispose: () => void = () => {};
 
     // Wrap callback to invalidate cache on changes
-    const callbackWithCacheInvalidation = (changes: FileSystemChange[]) => {
+    const callbackWithCacheInvalidation = (
+      changes: FileSystemChange[],
+      metadata?: FileSystemWatchBatchMetadata
+    ) => {
       // Invalidate cache for changed paths
       if (this.metadataCache) {
         for (const change of changes) {
@@ -635,7 +647,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         }
       }
       // Call original callback
-      callback(changes);
+      if (metadata) {
+        callback(changes, metadata);
+      } else {
+        callback(changes);
+      }
     };
 
     // The typed health protocol is the richer desktop superset of the shared
@@ -660,6 +676,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     startParcelWatch(handle, callbackWithCacheInvalidation, {
       ignorePatterns: options?.ignorePatterns,
       onHealth,
+      reportDefaultFilteredChanges: options?.reportDefaultFilteredChanges ?? false,
     })
       .then((stop) => {
         if (closed) {

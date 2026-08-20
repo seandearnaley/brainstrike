@@ -28,14 +28,18 @@
  *    precise calls above), the full pass is COALESCED behind a trailing timer
  *    with a `RECONCILE_METADATA_MAX_WAIT_MS` starvation bound. Sustained churn
  *    therefore forces a pass at least once per max-wait window. An operational
- *    transition and FILE_EXPLORER_REFRESH_EVENT reconcile immediately — both
- *    are one-shot and user-visible.
+ *    transition and Explorer-relevant FILE_EXPLORER_REFRESH_EVENT reconcile
+ *    immediately — both are one-shot and user-visible. A watcher event whose
+ *    only evidence was a filtered Git boundary is deliberately a no-op here.
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RECONCILE_METADATA_DEBOUNCE_MS, RECONCILE_METADATA_MAX_WAIT_MS } from '../constants';
-import { FILE_EXPLORER_REFRESH_EVENT } from '../shell/file-explorer-refresh-event';
+import {
+  FILE_EXPLORER_REFRESH_EVENT,
+  type FileExplorerRefreshEvent,
+} from '../shell/file-explorer-refresh-event';
 import {
   createFileRowMetadataStore,
   type FileRowDirectorySubtree,
@@ -188,7 +192,15 @@ export function useFileRowMetadataStore(
   }, [isCacheOperational, scheduleReconcile, store]);
 
   useEffect(() => {
-    const handleRefreshEvent = (): void => {
+    const handleRefreshEvent = (event: Event): void => {
+      const { detail } = event as FileExplorerRefreshEvent;
+      if (
+        detail.source === 'watcher' &&
+        detail.scope === 'incremental' &&
+        detail.roots.every((root) => root.changes.length === 0)
+      ) {
+        return;
+      }
       scheduleReconcile.cancel();
       store.invalidateAll();
     };

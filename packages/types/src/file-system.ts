@@ -241,6 +241,28 @@ export interface FileSystemChange {
   type: 'added' | 'removed' | 'modified';
 }
 
+/** Maximum distinct filtered boundaries retained in one watcher batch. */
+export const FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT = 64;
+
+/**
+ * Metadata for one filtered watcher callback.
+ *
+ * `filteredChangeBoundaries` contains root-relative, forward-slash paths to
+ * default-filter boundaries whose detailed records were withheld. The finite
+ * list lets Git consumers invalidate only intersecting registered worktrees;
+ * Explorer/indexing consumers continue using only the detailed changes.
+ *
+ * `filteredChangeBoundariesOverflow:true` is explicit evidence that more than
+ * {@link FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT} distinct boundaries were
+ * observed in this batch. Git consumers fail open within the named durable
+ * root. This is not watcher health/record loss and must never trigger a full
+ * filesystem scan.
+ */
+export interface FileSystemWatchBatchMetadata {
+  readonly filteredChangeBoundaries: readonly string[];
+  readonly filteredChangeBoundariesOverflow?: true;
+}
+
 /**
  * Typed watcher health protocol (BST-568 slice 3).
  *
@@ -438,6 +460,12 @@ export interface FileSystemAdapter {
   /**
    * Watch a directory for changes.
    *
+   * The callback's optional metadata stays on this SAME change channel.
+   * `filteredChangeBoundaries` names the bounded root-relative default-filter
+   * boundaries whose detailed records were withheld. Explicit boundary
+   * overflow permits a Git consumer to invalidate the named root, but is not
+   * watcher health and does not authorize a full filesystem scan.
+   *
    * `onSignal` is the out-of-band health channel for conditions that have no
    * per-path `FileSystemChange` representation:
    * - `overflow`: the watcher may have MISSED events (WICG observer 'unknown'
@@ -456,7 +484,7 @@ export interface FileSystemAdapter {
    */
   watchDirectory?(
     handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void,
+    callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
     onSignal?: (signal: FileSystemWatchSignal) => void
   ): () => void;
 }

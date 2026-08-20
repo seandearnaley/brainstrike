@@ -179,6 +179,10 @@ export interface ElectronStorageAPI {
  */
 export interface FileSystemWatchEvent {
   changes: FileSystemChange[];
+  /** Bounded root-relative default-filter boundaries omitted from `changes`. */
+  filteredChangeBoundaries?: readonly string[];
+  /** More distinct boundaries existed than the typed protocol cap. */
+  filteredChangeBoundariesOverflow?: true;
   watchId: string;
 }
 
