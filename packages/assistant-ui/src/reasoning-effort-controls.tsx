@@ -121,6 +121,35 @@ function buildBedrockEffortControlModel(
   };
 }
 
+function buildGoogleThinkingLevelControlModel(
+  levels: readonly GoogleThinkingLevel[],
+  settings: AssistantProviderSettings
+): EffortControlModel {
+  const current = settings.googleThinkingLevel;
+  const isOffered = current !== undefined && levels.includes(current);
+  const options: EffortOption[] = levels.map((level) => ({
+    isModelDefault: false,
+    label: GOOGLE_THINKING_LEVEL_LABELS[level],
+    value: level,
+  }));
+  if (current !== undefined && !isOffered) {
+    options.push({
+      isModelDefault: false,
+      label: `${GOOGLE_THINKING_LEVEL_LABELS[current]} (unsupported)`,
+      value: current,
+    });
+  }
+  return {
+    // Parity with GoogleThinkingSection's level select.
+    buildUpdate: (value) => ({
+      googleThinkingLevel: value === 'auto' ? undefined : (value as GoogleThinkingLevel),
+    }),
+    currentLabel: isOffered && current ? GOOGLE_THINKING_LEVEL_LABELS[current] : 'Auto',
+    currentValue: isOffered && current ? current : 'auto',
+    options,
+  };
+}
+
 /**
  * Derive the Effort submenu model for an available controls family. Returns
  * undefined for families without an effort/level list (local) — the caller
@@ -185,22 +214,8 @@ export function buildEffortControlModel(
     }
     case 'bedrock':
       return buildBedrockEffortControlModel(availability.efforts, settings);
-    case 'google': {
-      const current = settings.googleThinkingLevel;
-      return {
-        // Parity with GoogleThinkingSection's level select.
-        buildUpdate: (value) => ({
-          googleThinkingLevel: value === 'auto' ? undefined : (value as GoogleThinkingLevel),
-        }),
-        currentLabel: current ? GOOGLE_THINKING_LEVEL_LABELS[current] : 'Auto',
-        currentValue: current ?? 'auto',
-        options: availability.levels.map((level) => ({
-          isModelDefault: false,
-          label: GOOGLE_THINKING_LEVEL_LABELS[level],
-          value: level,
-        })),
-      };
-    }
+    case 'google':
+      return buildGoogleThinkingLevelControlModel(availability.levels, settings);
     case 'local':
       return;
     default: {

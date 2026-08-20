@@ -1076,18 +1076,24 @@ describe('frontier models migrations', () => {
       },
     ]);
     await expect(
-      db.query<{ tagline: string }>(
-        "SELECT tagline FROM models WHERE provider_id = 'google' AND id = 'gemini-3.7-flash'"
+      db.query<{ best_for: string[]; tagline: string }>(
+        "SELECT tagline, best_for FROM models WHERE provider_id = 'google' AND id = 'gemini-3.7-flash'"
       )
     ).resolves.toMatchObject({
       rows: [
         {
-          tagline: 'Our most capable Flash model for agentic workflows and multimodal reasoning.',
+          best_for: [
+            'Code generation',
+            'Spatial/multimodal reasoning',
+            'Multi-step agentic workflows',
+          ],
+          tagline:
+            'Our latest and most capable Flash model, built for complex coding, agentic workflows, and reliable multi-step execution.',
         },
       ],
     });
 
-    await runner.down(migrations, 100);
+    await runner.down(migrations, 103);
     expect(await readRows()).toEqual([
       {
         capabilities: { streaming: true, type: 'llm', vision: true },
@@ -1130,7 +1136,7 @@ describe('frontier models migrations', () => {
       sort_order: 1,
     });
 
-    await runner.down(migrations, 100);
+    await runner.down(migrations, 103);
     expect(await readRows()).toEqual([
       {
         capabilities: { streaming: true, type: 'llm', vision: true },

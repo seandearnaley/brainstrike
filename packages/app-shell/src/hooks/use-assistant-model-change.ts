@@ -43,6 +43,9 @@ function buildReconciledProviderSettingsUpdate(
   if (compatibleSettings?.maxOutputTokens !== currentSettings?.maxOutputTokens) {
     updates.maxOutputTokens = undefined;
   }
+  if (compatibleSettings?.googleThinkingLevel !== currentSettings?.googleThinkingLevel) {
+    updates.googleThinkingLevel = undefined;
+  }
   return updates;
 }
 

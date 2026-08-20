@@ -1305,6 +1305,22 @@ describe('assistant runtime helpers', () => {
       })
     ).toEqual({ maxOutputTokens: 128_000 });
     expect(
+      reconcileProviderSettingsForModel('google', 'gemini-3.7-flash', {
+        googleThinkingLevel: 'minimal',
+        maxOutputTokens: 2048,
+      })
+    ).toEqual({ maxOutputTokens: 2048 });
+    expect(
+      reconcileProviderSettingsForModel('google', 'gemini-3.7-flash', {
+        googleThinkingLevel: 'low',
+      })
+    ).toEqual({ googleThinkingLevel: 'low' });
+    expect(
+      reconcileProviderSettingsForModel('google', 'gemini-3.5-flash', {
+        googleThinkingLevel: 'minimal',
+      })
+    ).toEqual({ googleThinkingLevel: 'minimal' });
+    expect(
       buildProviderOptions('ollama', 'llama', {
         localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
       })

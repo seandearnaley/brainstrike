@@ -629,8 +629,11 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     keyNotes: 'Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.',
     models: [
       {
-        // Direct Google GA route and introductory pricing through 2026-12-31:
+        // Direct Google GA route and introductory pricing through 2026-12-31,
+        // revalidated 2026-08-20:
         // https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash
+        // https://ai.google.dev/gemini-api/docs/models
+        // https://ai.google.dev/gemini-api/docs/latest-model
         // https://ai.google.dev/gemini-api/docs/changelog
         // https://ai.google.dev/gemini-api/docs/pricing (BST-1339).
         contextWindow: 1_048_576,
@@ -639,7 +642,8 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
         supportsStreaming: true,
-        tagline: 'Our most capable Flash model for agentic workflows and multimodal reasoning.',
+        tagline:
+          'Our latest and most capable Flash model, built for complex coding, agentic workflows, and reliable multi-step execution.',
         type: 'llm',
         vision: 'supported',
       },

@@ -1806,6 +1806,18 @@ function reconcileBedrockSettingsForModel(
   return compatibleSettings;
 }
 
+function reconcileGoogleSettingsForModel(
+  modelName: string,
+  settings: AssistantProviderSettings
+): AssistantProviderSettings {
+  const level = settings.googleThinkingLevel;
+  if (!(level && !getGoogleThinkingLevels(modelName).includes(level))) {
+    return settings;
+  }
+  const { googleThinkingLevel: _unsupportedGoogleThinkingLevel, ...compatibleSettings } = settings;
+  return compatibleSettings;
+}
+
 /**
  * Clear provider-wide overrides when the user explicitly switches to a model
  * that cannot honor them. The model's documented defaults then remain visible
@@ -1817,6 +1829,9 @@ export function reconcileProviderSettingsForModel(
   modelName: string,
   settings: AssistantProviderSettings | undefined
 ): AssistantProviderSettings | undefined {
+  if (providerId === 'google' && settings) {
+    return reconcileGoogleSettingsForModel(modelName, settings);
+  }
   if (providerId === 'bedrock' && settings) {
     return reconcileBedrockSettingsForModel(modelName, settings);
   }
