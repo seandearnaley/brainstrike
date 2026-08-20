@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useLayoutEffect, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileTab, UseTabManagerReturn } from '../hooks/use-tab-manager';
+import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import { createFileExplorerRefreshEvent } from '../shell/file-explorer-refresh-event';
 import {
   planOpenFileRefresh,
@@ -38,9 +39,17 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   };
 });
 
+let capturedFileExplorerStore: ReturnType<typeof useFileExplorerStoreContext> | null = null;
+
+function CaptureFileExplorerStore(): null {
+  capturedFileExplorerStore = useFileExplorerStoreContext();
+  return null;
+}
+
 function Wrapper({ children }: { readonly children: ReactNode }) {
   return (
     <FileExplorerTestWrapper>
+      <CaptureFileExplorerStore />
       <WorkspaceTabsProvider apps={[]}>{children}</WorkspaceTabsProvider>
     </FileExplorerTestWrapper>
   );
@@ -173,6 +182,7 @@ async function configureRejectedFileExplorer(
 describe('workspace tabs open-file refresh', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    capturedFileExplorerStore = null;
     __resetWorkspaceTabSelectionStoreForTests();
 
     const tabModule = await import('../hooks/use-tab-manager');
@@ -188,6 +198,51 @@ describe('workspace tabs open-file refresh', () => {
       updateTabContent: vi.fn(),
     };
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue(empty);
+  });
+
+  it('retries a restored tab after its durable root descriptor arrives asynchronously', async () => {
+    const compositeKey = 'late-root|@|src/restored.ts';
+    await configureTabs([fileTab(compositeKey, 'src/restored.ts')]);
+    useWorkspaceTabSelectionStore.getState().selectFile(compositeKey);
+    const restorationModule = await import('@brainstrike/file-explorer-hooks');
+    vi.mocked(restorationModule.useTabFileRestoration).mockReturnValue({
+      getStatusMessage: () => null,
+      isRestoring: false,
+      needsUserAction: () => false,
+      requestTabPermission: vi.fn().mockResolvedValue(true),
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
+      tabStatuses: new Map<string, TabFileStatus>(),
+    });
+    const loadFileContent = vi.fn().mockResolvedValue(undefined);
+    const fileExplorerModule = await import('../shell/use-file-explorer-context');
+    vi.mocked(fileExplorerModule.useFileExplorer).mockReturnValue({
+      canLoadWithoutTree: true,
+      clearFileContents: vi.fn(),
+      fileContentErrors: new Map<string, Error>(),
+      fileContents: {},
+      fileTree: [],
+      loadFileContent,
+      loadingFiles: new Set<string>(),
+      loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
+      reloadFileContents: vi.fn().mockResolvedValue(undefined),
+      rootDirectoryHandle: null,
+    } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
+
+    render(<div />, { wrapper: Wrapper });
+    await waitFor(() => expect(loadFileContent).toHaveBeenCalledTimes(1));
+    if (!capturedFileExplorerStore) {
+      throw new Error('File Explorer store was not captured');
+    }
+
+    act(() => {
+      capturedFileExplorerStore
+        ?.getState()
+        .setActiveRoots([{ displayName: 'workspace', path: '/workspace', rootId: 'late-root' }]);
+    });
+
+    await waitFor(() => expect(loadFileContent).toHaveBeenCalledTimes(2));
+    expect(loadFileContent).toHaveBeenNthCalledWith(1, compositeKey, 'interactive');
+    expect(loadFileContent).toHaveBeenNthCalledWith(2, compositeKey, 'interactive');
   });
 
   it('reloads only the matching root-scoped cached open tab after a modified-file refresh', async () => {

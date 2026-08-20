@@ -835,7 +835,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('surfaces a terminal result when an empty tree has no mounted direct-read root', async () => {
+  it('leaves an empty-tree read unloaded when mounted-root authority has not arrived yet', async () => {
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
       .fn<(path: string) => Promise<string>>()
@@ -863,12 +863,10 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(mockWorker).not.toHaveBeenCalled();
     expect(readFileByPathSpy).not.toHaveBeenCalled();
-    expect(result.current.fileContents[compositeKey]).toBe(
-      buildInaccessibleContent('direct read root identity is unavailable')
-    );
+    expect(result.current.fileContents[compositeKey]).toBeUndefined();
   });
 
-  it('does not leave a restored Electron tab pending when direct root identity is unavailable', async () => {
+  it('keeps a restored Electron tab retryable while direct root identity is unavailable', async () => {
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
       .fn<(path: string) => Promise<string>>()
@@ -903,9 +901,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(mockWorker).not.toHaveBeenCalled();
     expect(readFileByPathSpy).not.toHaveBeenCalled();
-    expect(result.current.fileContents[compositeKey]).toBe(
-      buildInaccessibleContent('direct read root identity is unavailable')
-    );
+    expect(result.current.fileContents[compositeKey]).toBeUndefined();
   });
 
   it('reads selected absolute-root files by path when lazy tree children are not indexed yet', async () => {

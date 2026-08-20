@@ -271,6 +271,25 @@ describe('FileExplorerMiddlePanelBase', () => {
     );
   });
 
+  it('keeps a real preview failure visible across value-equivalent multi-root selection sets', async () => {
+    mocks.loadMultipleFileContents.mockRejectedValueOnce(new Error('preview failed'));
+    const view = render(<FileExplorerMiddlePanelBase />);
+    const props = mocks.previewProps.current;
+    if (!props) {
+      throw new Error('PreviewPanel props were not captured');
+    }
+
+    props.onRequestFileContent?.(selectedFileKey);
+    expect(
+      await screen.findByRole('alert', { name: 'Preview content unavailable' })
+    ).toBeInTheDocument();
+
+    mocks.selectedFilePaths = new Set([...mocks.selectedFilePaths]);
+    view.rerender(<FileExplorerMiddlePanelBase />);
+
+    expect(screen.getByRole('alert', { name: 'Preview content unavailable' })).toBeInTheDocument();
+  });
+
   it('retries the exact failed copy operation and original export options', async () => {
     const exportOptions = {
       projectTreeUsesViewFilters: true,

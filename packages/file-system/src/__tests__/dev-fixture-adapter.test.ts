@@ -655,6 +655,32 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     );
   });
 
+  it('keeps fixture-owned absolute reads inside the active inline fixture', async () => {
+    const base = createBaseAdapter();
+    const readFileByAbsolutePath = vi.fn(async () => 'real-file');
+    base.readFileByAbsolutePath = readFileByAbsolutePath;
+    const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+    const fixtureRoot = await adapter.loadInlineFixture(FIXTURE);
+
+    await expect(
+      adapter.readFileByAbsolutePath?.(
+        'fixture-root/src/a.ts',
+        'fixture-root',
+        fixtureRoot.rootId ?? ''
+      )
+    ).resolves.toBe('export const a = 1;');
+    expect(readFileByAbsolutePath).not.toHaveBeenCalled();
+
+    await expect(
+      adapter.readFileByAbsolutePath?.('/real-root/file.ts', '/real-root', 'real-root-id')
+    ).resolves.toBe('real-file');
+    expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+      '/real-root/file.ts',
+      '/real-root',
+      'real-root-id'
+    );
+  });
+
   describe('addInlineFixtureRoot (multi-root harness)', () => {
     const SECOND_FIXTURE: FixtureDefinition = {
       name: 'second-root',
