@@ -548,6 +548,7 @@ const FLOATING_LAYER_SELECTOR = [
   '[data-slot="select-content"]',
   '[data-slot="popover-content"]',
   '[data-slot="dropdown-menu-content"]',
+  '[data-slot="context-menu-content"]',
 ].join(', ');
 
 type LayerReadiness =
@@ -588,6 +589,15 @@ type LayerReadiness =
  * carry `data-slot="dialog-content"`), the caller must first assert the new one
  * exists — `expect(panels).toHaveCount(2)` — because "last match" cannot tell
  * "not open yet" from "open".
+ *
+ * Two known limits, neither reachable from the current callers:
+ * - "last match is topmost" assumes the layer PORTALS to `document.body`.
+ *   `packages/ui/src/model-picker/model-picker.tsx:86` deliberately sets
+ *   `portal={false}` to stay inside the parent Dialog's RemoveScroll allow-list;
+ *   such a layer sits inside its dialog in document order, so with two dialogs
+ *   open the ordering premise breaks.
+ * - Radix submenu surfaces (`*-sub-content`) are not listed: they are not
+ *   separate DismissableLayers, and adding them unverified would be guesswork.
  */
 export async function waitForFloatingLayerStack(
   page: Page,
@@ -611,12 +621,19 @@ export async function waitForFloatingLayerStack(
         // Radix sets this while ANY layer disables outside pointer events. With
         // no such layer the `auto` check below is trivially true and would wait
         // on nothing, so say that instead of reporting a false ready.
+        // Radix sets this while ANY layer disables outside pointer events, and
+        // only then does it write `pointerEvents` on the layers themselves. With
+        // no such layer there is no signal at all, so say that rather than
+        // reporting a false ready.
         if (document.body.style.pointerEvents !== 'none') {
           return 'no-modal-beneath';
         }
-        return globalThis.getComputedStyle(node).pointerEvents === 'auto'
-          ? 'ready'
-          : 'not-registered';
+        // Radix's OWN bookkeeping, read from the inline style it writes on the
+        // layer node — not the computed value. Computed style is not a
+        // registration signal: `model-picker.tsx` hardcodes `pointer-events-auto`
+        // on its PopoverContent, which would read `auto` before registration,
+        // and a `portal={false}` layer inherits whatever its ancestor dialog has.
+        return (node as HTMLElement).style.pointerEvents === 'auto' ? 'ready' : 'not-registered';
       },
       [FLOATING_LAYER_SELECTOR, targetSelector] as const
     );
@@ -645,7 +662,7 @@ export async function waitForFloatingLayerStack(
   const measured = await page.evaluate(
     (selector: string) =>
       Array.from(document.querySelectorAll(selector)).map((layer) => ({
-        pointerEvents: globalThis.getComputedStyle(layer).pointerEvents,
+        inlinePointerEvents: (layer as HTMLElement).style.pointerEvents || '(unset)',
         slot: layer.getAttribute('data-slot'),
         zIndex: globalThis.getComputedStyle(layer).zIndex,
       })),
