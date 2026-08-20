@@ -15,6 +15,7 @@ import { Braces, Star, WandSparkles } from 'lucide-react';
 import { type Dispatch, type FormEvent, type SetStateAction, useMemo, useState } from 'react';
 import { extractPromptTemplateVariables } from './prompt-template';
 import {
+  buildPromptModelSettings,
   KIND_COPY,
   PROMPT_KINDS,
   type PromptDraft,
@@ -24,7 +25,10 @@ import {
   toModelSettingsDraft,
 } from './prompt-workbench-shared';
 
-function toDraft(item: PromptItem | null): PromptDraft {
+function toDraft(
+  item: PromptItem | null,
+  modelSettings = toModelSettingsDraft(item?.modelSettings ?? null)
+): PromptDraft {
   return item
     ? {
         content: item.content,
@@ -32,7 +36,7 @@ function toDraft(item: PromptItem | null): PromptDraft {
         isFavorite: item.isFavorite,
         kind: item.kind,
         modelKey: item.modelKey ?? '',
-        modelSettings: toModelSettingsDraft(item.modelSettings),
+        modelSettings,
         sourceUrl: item.sourceUrl ?? '',
         tags: item.tags.join(', '),
         title: item.title,
@@ -43,11 +47,25 @@ function toDraft(item: PromptItem | null): PromptDraft {
         isFavorite: false,
         kind: 'prompt',
         modelKey: '',
-        modelSettings: toModelSettingsDraft(null),
+        modelSettings,
         sourceUrl: '',
         tags: '',
         title: '',
       };
+}
+
+function toInitialState(item: PromptItem | null): {
+  readonly draft: PromptDraft;
+  readonly error: string | null;
+} {
+  try {
+    return { draft: toDraft(item), error: null };
+  } catch (cause) {
+    return {
+      draft: toDraft(item, toModelSettingsDraft(null)),
+      error: `${promptWorkbenchErrorMessage(cause)} Repair or clear the advanced settings before saving.`,
+    };
+  }
 }
 
 export function PromptBuilderDialog({
@@ -61,8 +79,9 @@ export function PromptBuilderDialog({
   readonly onClose: () => void;
   readonly onSave: (draft: PromptDraft) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<PromptDraft>(() => toDraft(item));
-  const [error, setError] = useState<string | null>(null);
+  const [initialState] = useState(() => toInitialState(item));
+  const [draft, setDraft] = useState<PromptDraft>(initialState.draft);
+  const [error, setError] = useState<string | null>(initialState.error);
   const [saving, setSaving] = useState(false);
   const variables = useMemo(() => extractPromptTemplateVariables(draft.content), [draft.content]);
   const unavailableModelKey =
@@ -73,8 +92,12 @@ export function PromptBuilderDialog({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
-    setSaving(true);
     try {
+      const modelSettings = buildPromptModelSettings(draft.modelSettings, item?.modelSettings);
+      if (!draft.modelKey && modelSettings) {
+        throw new Error('Choose a model or clear the advanced model settings before saving.');
+      }
+      setSaving(true);
       await onSave(draft);
       setSaving(false);
       onClose();

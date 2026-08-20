@@ -131,4 +131,50 @@ describe('PromptBuilderDialog model settings', () => {
       'Prompt model setting "maxOutputTokens" must be an integer.'
     );
   });
+
+  it('blocks saving advanced settings after switching to the current thread model', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn<(draft: PromptDraft) => Promise<void>>().mockResolvedValue(undefined);
+    render(
+      <PromptBuilderDialog
+        item={promptItem({ temperature: 0.25 })}
+        modelOptions={[{ key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' }]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit Evidence rule' });
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Run with' }), '');
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'Choose a model or clear the advanced model settings before saving.'
+    );
+  });
+
+  it('surfaces malformed stored settings and keeps the dialog available for repair', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn<(draft: PromptDraft) => Promise<void>>().mockResolvedValue(undefined);
+    render(
+      <PromptBuilderDialog
+        item={promptItem({ maxOutputTokens: 4096, maxTokens: 2048, temperature: 'hot' })}
+        modelOptions={[{ key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' }]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit Evidence rule' });
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'Prompt model settings cannot specify both "maxTokens" and "maxOutputTokens".'
+    );
+    await user.click(within(dialog).getByText('Advanced model settings'));
+    expect(within(dialog).getByRole('spinbutton', { name: 'Max output tokens' })).toHaveValue(null);
+
+    await user.type(within(dialog).getByRole('spinbutton', { name: 'Max output tokens' }), '8192');
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+  });
 });
