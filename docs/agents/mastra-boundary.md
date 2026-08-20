@@ -476,9 +476,11 @@ Decided here, implemented separately. None is architecture-gated any longer.
 
 - **Unknown resume schema (R9).** Replace the dead-end notice with visible
   rejection.
-- **Dead run-event kinds.** `context.budget`, `context.prepared`,
-  `context.selection` are declared in `run-events.ts:4-6` with **no emitter
-  anywhere** — emit or remove.
+
+BST-909 removed the never-emitted `context.budget`, `context.prepared`, and
+`context.selection` kinds from the closed run-event union. The inbound guard
+rejects those retired strings, and informational timeline coverage uses the
+real `hook.notice` kind instead of legitimizing a fabricated persisted event.
 
 Flagged, outside this boundary:
 `packages/app-shell/src/hooks/use-assistant-mcp-menu-state.ts:55-57` collapses every
