@@ -44,6 +44,12 @@ describe('isAssistantRunEvent', () => {
     expect(isAssistantRunEvent({ ...validEvent, status: 'exploded' })).toBe(false);
   });
 
+  it('rejects retired context event kinds that never had production emitters', () => {
+    for (const kind of ['context.budget', 'context.prepared', 'context.selection']) {
+      expect(isAssistantRunEvent({ ...validEvent, kind })).toBe(false);
+    }
+  });
+
   it('rejects mistyped optionals, including non-finite numbers', () => {
     expect(isAssistantRunEvent({ ...validEvent, detail: 7 })).toBe(false);
     expect(isAssistantRunEvent({ ...validEvent, runId: {} })).toBe(false);

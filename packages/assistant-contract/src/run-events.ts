@@ -1,9 +1,6 @@
 export const ASSISTANT_RUN_EVENT_DATA_NAME = 'brainstrike.run-event';
 
 export const ASSISTANT_RUN_EVENT_KINDS = [
-  'context.budget',
-  'context.prepared',
-  'context.selection',
   'hook.blocked',
   'hook.notice',
   'memory.configured',

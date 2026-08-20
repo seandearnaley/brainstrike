@@ -62,7 +62,7 @@ describe('AssistantRunTimeline', () => {
       ['memory.semantic.started', 'running', 'Semantic recall'],
       ['tool.failed', 'failed', 'Tool failed'],
       ['run.cancelled', 'cancelled', 'Run cancelled'],
-      ['context.budget', 'info', 'Context budget'],
+      ['hook.notice', 'info', 'Hook notice'],
     ] as const;
 
     wrap(
@@ -87,7 +87,7 @@ describe('AssistantRunTimeline', () => {
     expect(screen.getByLabelText('Failed')).toBeInTheDocument();
     expect(screen.getByText('Run cancelled')).toBeInTheDocument();
     expect(screen.getByLabelText('Cancelled')).toBeInTheDocument();
-    expect(screen.getByText('Context budget')).toBeInTheDocument();
+    expect(screen.getByText('Hook notice')).toBeInTheDocument();
     expect(screen.getByLabelText('Observed')).toBeInTheDocument();
   });
 
