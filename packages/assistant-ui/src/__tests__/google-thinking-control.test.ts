@@ -1,6 +1,6 @@
 import type { ReasoningControlsAvailability } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
-import { buildEffortControlModel } from '../reasoning-effort-controls';
+import { buildEffortControlModel, buildEffortSliderModel } from '../reasoning-effort-controls';
 
 const GEMINI_37_FLASH: ReasoningControlsAvailability = {
   available: true,
@@ -17,16 +17,18 @@ describe('buildEffortControlModel for Gemini 3.7 Flash', () => {
     expect(model?.options.map((option) => option.value)).toEqual(['low', 'medium', 'high']);
   });
 
-  it('reads Auto instead of a persisted level the model rejects', () => {
+  it('keeps a rejected persisted level off the interactive slider', () => {
     const model = buildEffortControlModel(GEMINI_37_FLASH, { googleThinkingLevel: 'minimal' });
 
     expect(model?.currentLabel).toBe('Auto');
     expect(model?.currentValue).toBe('auto');
-    expect(model?.options.at(-1)).toEqual({
-      isModelDefault: false,
-      label: 'Minimal (unsupported)',
-      value: 'minimal',
-    });
+    expect(model?.options.map((option) => option.value)).toEqual(['low', 'medium', 'high']);
+    if (!model) {
+      throw new Error('Expected a Google effort control model');
+    }
+    const slider = buildEffortSliderModel(model);
+    expect(slider.stops.map((stop) => stop.value)).toEqual(['auto', 'low', 'medium', 'high']);
+    expect(slider.index).toBe(0);
   });
 
   it('writes the Google setting and clears it for Auto', () => {

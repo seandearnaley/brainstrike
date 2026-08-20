@@ -132,13 +132,6 @@ function buildGoogleThinkingLevelControlModel(
     label: GOOGLE_THINKING_LEVEL_LABELS[level],
     value: level,
   }));
-  if (current !== undefined && !isOffered) {
-    options.push({
-      isModelDefault: false,
-      label: `${GOOGLE_THINKING_LEVEL_LABELS[current]} (unsupported)`,
-      value: current,
-    });
-  }
   return {
     // Parity with GoogleThinkingSection's level select.
     buildUpdate: (value) => ({

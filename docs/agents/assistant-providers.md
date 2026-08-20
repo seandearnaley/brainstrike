@@ -617,10 +617,10 @@
   about what earlier Flash models offer, not a definition of the type. Gemini
   3.7 Flash deliberately omits `minimal`, which its official model page says
   returns an error. The shared effort control must render any persisted Google
-  level outside the selected model's ladder as `Auto` while retaining a labeled
-  unsupported option, and `reconcileProviderSettingsForModel` clears that level
-  on an explicit Google model switch. This keeps the visible control aligned
-  with the request builder, which declines to send a rejected level.
+  level outside the selected model's ladder as `Auto` and keep rejected values
+  out of its interactive options; `reconcileProviderSettingsForModel` clears
+  that level on an explicit Google model switch. This keeps the visible control
+  aligned with the request builder, which declines to send a rejected level.
 - The provider-options INTERFACES (`OpenAiProviderOptions`,
   `GoogleProviderOptions`, `AnthropicProviderOptions`, `BedrockProviderOptions`,
   `LocalProviderOptions`,
