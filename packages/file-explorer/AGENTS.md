@@ -115,6 +115,14 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
 ## File content cache (LRU) & memory pressure
 
 * In-memory LRU with **\~5 MB cap / 50 entries**; files **>1 MB are skipped** (warned).
+* The LRU is owned by ONE Zustand store instance and is created when that
+  store's `StateCreator` runs. It is never module-global: a retired provider's
+  in-flight read may finish against its retired store/cache, but it cannot
+  repopulate content returned by a replacement store. `clearFileContents`,
+  `clearAllFileContents`, eviction, and cache stats operate only on that same
+  store-owned cache. Renderer factory reset explicitly calls
+  `clearAllFileContents()` on the live provider store because web reset need
+  not reload the page; clearing persisted browser storage alone is not enough.
 * When cache usage exceeds \~**2 MB** we **filter `fileContents` in state** to: current file + \~10 most recent, while **all content remains in the cache**. Always fetch via `getFileContent()` to avoid reading a filtered-out entry from state.
 * Motivation: avoid multi-MB JSON snapshots on persistence and keep re-renders/lightweight state.
 

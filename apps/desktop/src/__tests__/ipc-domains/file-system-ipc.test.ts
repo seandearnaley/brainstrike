@@ -2,12 +2,14 @@ import path from 'node:path';
 import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { IpcMainInvokeEvent } from 'electron';
+import type { RootDescriptor } from '@brainstrike/types';
+import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
 import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
+import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createFileSystem,
   createStorage,
@@ -19,6 +21,7 @@ import {
 } from './file-system-ipc-test-harness';
 
 describe('file system IPC domain', () => {
+  const visibleSenderId = 11_591;
   let fileSystem: ElectronFileSystemAdapter;
   let storage: ElectronStorageAdapter;
 
@@ -34,6 +37,7 @@ describe('file system IPC domain', () => {
   });
 
   afterEach(() => {
+    clearWindowRoleByWebContentsId(visibleSenderId);
     vi.unstubAllEnvs();
     delete (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY];
   });
@@ -318,6 +322,60 @@ describe('file system IPC domain', () => {
         rootId: descriptor.handle.rootId,
       } satisfies FileHandle)
     ).rejects.toThrow('outside the selected workspace root');
+  });
+
+  it('enforces the exact claimed mounted root for scoped absolute reads', async () => {
+    register();
+    const rootAPath = '/users/test/workspace-a';
+    const rootBPath = '/users/test/workspace-b';
+    vi.mocked(fileSystem.requestDirectoryAccess)
+      .mockResolvedValueOnce({
+        kind: 'directory',
+        name: 'workspace-a',
+        path: rootAPath,
+        platform: 'electron',
+      })
+      .mockResolvedValueOnce({
+        kind: 'directory',
+        name: 'workspace-b',
+        path: rootBPath,
+        platform: 'electron',
+      });
+
+    const rootA = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as RootDescriptor;
+    const rootB = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as RootDescriptor;
+    assignWindowRole(
+      {
+        once: vi.fn(),
+        webContents: { id: visibleSenderId },
+      } as unknown as BrowserWindow,
+      'visible-ui'
+    );
+    const visibleEvent = { sender: { id: visibleSenderId } } as IpcMainInvokeEvent;
+
+    const readScoped = handlers.get('fs:readFileByAbsolutePath');
+    expect(readScoped).toBeDefined();
+    await expect(
+      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, rootB.rootId)
+    ).resolves.toBe('file content');
+    await expect(
+      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootAPath, rootA.rootId)
+    ).rejects.toThrow('outside the selected workspace root');
+    await expect(
+      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, rootA.rootId)
+    ).rejects.toThrow('does not match the mounted workspace root');
+    await expect(
+      readScoped?.(visibleEvent, path.join(rootBPath, 'readme.md'), rootBPath, undefined)
+    ).rejects.toThrow('durable rootId');
+    await expect(
+      readScoped?.(
+        { sender: { id: visibleSenderId + 1 } } as IpcMainInvokeEvent,
+        path.join(rootBPath, 'readme.md'),
+        rootBPath,
+        rootB.rootId
+      )
+    ).rejects.toThrow('requires sender role visible-ui');
+    expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
   });
 
   it('preserves structured oversized and missing-file payloads after authorization', async () => {

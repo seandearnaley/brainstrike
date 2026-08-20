@@ -269,10 +269,12 @@ describe('useFileExplorer (context)', () => {
     vi.mocked(useSharedFileContentLoading).mockReturnValue({
       canLoadWithoutTree: false,
       error: null,
+      fileContentErrors: new Map(),
       fileContents: { '/file1.ts': 'content' },
       handleFileContentLoading: mockHandleFileContentLoading,
       isLoading: false,
       loadingFiles: new Set<string>(),
+      reloadFileContents: vi.fn(),
     });
 
     const coreReturn = {
@@ -304,11 +306,11 @@ describe('useFileExplorer (context)', () => {
 
     act(() => {
       result.current.handleRootDirectorySelect();
-      result.current.loadFileContent('/file1.ts');
+      result.current.loadFileContent('/file1.ts', 'interactive');
     });
 
     expect(mockSelectRootDirectory).toHaveBeenCalled();
-    expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts']);
+    expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts'], 'interactive');
   });
 
   it('applyFileFilters updates store filters and returns freshly filtered fileTree', () => {
@@ -360,14 +362,16 @@ describe('useFileExplorer (context)', () => {
     const { result } = renderHook(() => useFileExplorer());
 
     await act(async () => {
-      await result.current.loadMultipleFileContents(['/file1.ts', '/file2.js', '/file3.tsx']);
+      await result.current.loadMultipleFileContents(
+        ['/file1.ts', '/file2.js', '/file3.tsx'],
+        'background'
+      );
     });
 
-    expect(mockHandleFileContentLoading).toHaveBeenCalledWith([
-      '/file1.ts',
-      '/file2.js',
-      '/file3.tsx',
-    ]);
+    expect(mockHandleFileContentLoading).toHaveBeenCalledWith(
+      ['/file1.ts', '/file2.js', '/file3.tsx'],
+      'background'
+    );
   });
 
   describe('stale state clearing behavior', () => {

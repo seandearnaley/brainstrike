@@ -6,7 +6,7 @@ import {
   useToastManager,
 } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useReportManager } from '@brainstrike/hooks';
+import { type ContextExportOutcome, useReportManager } from '@brainstrike/hooks';
 import { useCallback } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
 import type { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
@@ -49,8 +49,8 @@ const toContextGenerationOverrides = (
 };
 
 export function usePreviewPanelReportActions(input: UsePreviewPanelReportActionsInput): {
-  handleDownloadContext: (options?: ContextExportOptions) => Promise<void>;
-  handleCopyContext: (options?: ContextExportOptions) => Promise<void>;
+  handleDownloadContext: (options?: ContextExportOptions) => Promise<ContextExportOutcome>;
+  handleCopyContext: (options?: ContextExportOptions) => Promise<ContextExportOutcome>;
 } {
   const { fileSystemAdapter } = useAdapters();
   const { toast } = useToastManager();
@@ -102,13 +102,13 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
   const handleCopyContext = manager.handleCopyContext;
 
   const handleDownloadContextWithOptions = useCallback(
-    async (options?: ContextExportOptions): Promise<void> =>
+    async (options?: ContextExportOptions): Promise<ContextExportOutcome> =>
       handleDownloadContext(toContextGenerationOverrides(options)),
     [handleDownloadContext]
   );
 
   const handleCopyContextWithOptions = useCallback(
-    async (options?: ContextExportOptions): Promise<void> =>
+    async (options?: ContextExportOptions): Promise<ContextExportOutcome> =>
       handleCopyContext(toContextGenerationOverrides(options)),
     [handleCopyContext]
   );

@@ -9,6 +9,7 @@ import type { WorkspaceApp } from './workspace-app';
 export interface WorkspaceTabsValue {
   /** Full app registry, in canonical display order. */
   readonly apps: readonly WorkspaceApp[];
+  readonly fileContentErrors: ReadonlyMap<string, Error>;
   readonly fileContents: { readonly [key: string]: string };
   readonly getTabStatusMessage: (compositeKey: string) => string | null;
   /** The registered open-file seam — `WorkspaceOpenFileBridge` registers it. */
@@ -23,6 +24,7 @@ export interface WorkspaceTabsValue {
   readonly onCloseFileTabsToRight: (tabId: string) => void;
   readonly onCloseOtherFileTabs: (tabId: string) => void;
   readonly onOpenApp: (appId: string) => void;
+  readonly onRetryFileContent: (compositeKey: string) => void;
   readonly onSelectFileTab: (tabId: string) => void | Promise<void>;
   /** Registry ∩ openAppIds, in registry order — what the strip renders. */
   readonly openApps: readonly WorkspaceApp[];

@@ -348,18 +348,33 @@ export interface FileSystemAdapter {
   ): Promise<void>;
   readFile(handle: FileHandle): Promise<string>;
   /**
-   * Read a file by absolute path within an adapter-authorized root.
+   * Explicit capability for reading an absolute native path without a
+   * materialized file-tree handle.
    *
-   * This method is available on platforms with direct file system access (Electron)
-   * This does not require a file-tree handle, but implementations must still
-   * authorize the path against a persisted/mounted root. Useful for restoring
-   * persisted file tabs before the tree is loaded.
+   * Consumers MUST pass non-empty, fully qualified absolute paths for both the
+   * authoritative mounted root and requested file plus the durable RootId that
+   * owns that mount, and confine the file to the root before invoking this
+   * method. Registry-backed implementations must bind the RootId and claimed
+   * path to the SAME live mount before reading. Implementations must reject
+   * malformed arguments and independently enforce their mounted-root authority. The
+   * method's presence is the capability gate;
+   * `readFileByPath` alone is not evidence of absolute-path authority because
+   * web adapters use it for root-relative handle resolution.
    *
    * @param absolutePath - The absolute path to the file
+   * @param rootPath - The mounted absolute root containing the file
+   * @param rootId - Durable identity of the mounted root
    * @returns The file contents as a string
    * @throws Error if the file doesn't exist or cannot be read
    */
-  readFileByPath?(absolutePath: string): Promise<string>;
+  readFileByAbsolutePath?(absolutePath: string, rootPath: string, rootId: RootId): Promise<string>;
+  /**
+   * Read a file by an adapter-defined path. Web implementations may accept a
+   * RootId-relative path and resolve a cached browser handle; desktop
+   * implementations retain this method for existing IPC/import consumers.
+   * Never use this method's presence as an absolute-path capability gate.
+   */
+  readFileByPath?(path: string): Promise<string>;
   /**
    * Multi-root: disconnect an authoritative persisted root by its RootId.
    *

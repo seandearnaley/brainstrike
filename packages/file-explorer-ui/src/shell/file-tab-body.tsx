@@ -28,6 +28,7 @@ import { buildFileBreadcrumbSegments } from './file-tab-breadcrumb-segments';
 import { FileTabExplorerPane } from './file-tab-explorer-pane';
 import { FileTabHeader } from './file-tab-header';
 import {
+  FileContentErrorScreen,
   FileContentPendingScreen,
   FileNotFoundScreen,
   InaccessibleFileScreen,
@@ -41,8 +42,10 @@ const MarkdownSurfaceLazy = lazy(() =>
 
 export interface FileTabBodyProps {
   readonly content: string | undefined;
+  readonly contentError?: Error;
   readonly isLoading: boolean;
   readonly isRestoring: boolean;
+  readonly onRetryContent: () => void;
   readonly rootPath?: string | null;
   readonly status: TabFileStatus | undefined;
   readonly tab: FileTab;
@@ -51,8 +54,10 @@ export interface FileTabBodyProps {
 export function FileTabBody({
   tab,
   content,
+  contentError,
   isLoading,
   isRestoring,
+  onRetryContent,
   rootPath = null,
   status,
 }: FileTabBodyProps) {
@@ -302,6 +307,10 @@ export function FileTabBody({
     body = <PermissionRequiredScreen path={path} status={status} />;
   } else if (status?.status === 'not-found') {
     body = <FileNotFoundScreen path={path} status={status} />;
+  } else if (contentError) {
+    body = (
+      <FileContentErrorScreen contentError={contentError} onRetry={onRetryContent} path={path} />
+    );
   } else if (typeof content !== 'string') {
     // Three reasons content may be missing here, none of which is "the file is gone":
     //  1. Restoration is still in flight (status not yet emitted).

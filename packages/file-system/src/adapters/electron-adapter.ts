@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils';
+import { isDurableRootId, isFullyQualifiedFileSystemPath } from '../absolute-read-path.js';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors.js';
 import {
   createMetadataCache,
@@ -27,6 +28,17 @@ import { normalizeDirectoryReadOptions } from '../utils-browser.js';
 import { startParcelWatch } from './parcel-watchers.js';
 
 const logger = createLogger('ElectronFileSystemAdapter');
+
+function assertNativeAbsoluteReadPath(value: unknown, label: string): asserts value is string {
+  if (isFullyQualifiedFileSystemPath(value) && path.isAbsolute(value)) {
+    return;
+  }
+  throw new AccessError(
+    `${label} must be a non-empty native absolute path.`,
+    typeof value === 'string' ? value : '',
+    'read'
+  );
+}
 
 export type WatcherBackendChoice = 'parcel';
 
@@ -527,6 +539,8 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     const { formatFileSize, getFileSizeConfig } = await import('../config.js');
     const { maxFileSize } = getFileSizeConfig();
 
+    let validatedReadPath = absolutePath;
+
     // Validate path against root if provided (security check)
     if (rootPath) {
       const validated = await resolveValidatedPath({
@@ -544,11 +558,12 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
           'read'
         );
       }
+      validatedReadPath = validated.path;
     }
 
     try {
       // Check file size before reading
-      const stats = await fsPromises.stat(absolutePath);
+      const stats = await fsPromises.stat(validatedReadPath);
 
       if (stats.size > maxFileSize) {
         throw new AccessError(
@@ -558,7 +573,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         );
       }
 
-      return await fsPromises.readFile(absolutePath, 'utf-8');
+      return await fsPromises.readFile(validatedReadPath, 'utf-8');
     } catch (error) {
       if (error instanceof AccessError) {
         throw error;
@@ -569,6 +584,23 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         'read'
       );
     }
+  }
+
+  /** Explicit root-confined native-path capability for handleless readers. */
+  async readFileByAbsolutePath(
+    absolutePath: string,
+    rootPath: string,
+    rootId: string
+  ): Promise<string> {
+    assertNativeAbsoluteReadPath(rootPath, 'Mounted root path');
+    assertNativeAbsoluteReadPath(absolutePath, 'Requested file path');
+    if (!isDurableRootId(rootId)) {
+      throw new AccessError('Mounted root identity must be a durable rootId.', '', 'read');
+    }
+    // This non-registry adapter has no mount table: rootPath remains its native
+    // confinement authority. rootId is validated for contract parity, never
+    // reinterpreted as a path and never used to fall back to an unscoped read.
+    return this.readFileByPath(absolutePath, rootPath);
   }
 
   /**

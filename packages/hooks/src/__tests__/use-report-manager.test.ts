@@ -54,8 +54,9 @@ describe('useReportManager', () => {
       })
     );
 
+    let outcome: unknown;
     await act(async () => {
-      await result.current.handleCopyContext();
+      outcome = await result.current.handleCopyContext();
     });
 
     // Should call the context generation function
@@ -69,6 +70,7 @@ describe('useReportManager', () => {
     });
     // Should call the shared clipboard service with the report content
     expect(clipboardMocks.writeText).toHaveBeenCalledWith('Test Report Content');
+    expect(outcome).toEqual({ ok: true });
   });
 
   it('should handle error when no root directory is provided', async () => {
@@ -80,8 +82,9 @@ describe('useReportManager', () => {
       })
     );
 
+    let outcome: unknown;
     await act(async () => {
-      await result.current.handleCopyContext();
+      outcome = await result.current.handleCopyContext();
     });
 
     // Should show an error toast
@@ -92,6 +95,7 @@ describe('useReportManager', () => {
     });
     // Should not call context generation
     expect(mockGenerateContextWithContent).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ ok: false, reason: 'root-unavailable', retryable: false });
   });
 
   it('should handle error during context generation', async () => {
@@ -105,8 +109,9 @@ describe('useReportManager', () => {
       })
     );
 
+    let outcome: unknown;
     await act(async () => {
-      await result.current.handleCopyContext();
+      outcome = await result.current.handleCopyContext();
     });
 
     expect(mockToast).toHaveBeenCalledWith({
@@ -116,6 +121,7 @@ describe('useReportManager', () => {
     });
     expect(mockDismiss).toHaveBeenCalledTimes(1);
     expect(clipboardMocks.writeText).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ ok: false, reason: 'generation-failed', retryable: true });
   });
 
   it('should handle error during clipboard copy', async () => {
@@ -129,8 +135,9 @@ describe('useReportManager', () => {
       })
     );
 
+    let outcome: unknown;
     await act(async () => {
-      await result.current.handleCopyContext();
+      outcome = await result.current.handleCopyContext();
     });
 
     // Should dismiss the loading toast
@@ -138,6 +145,30 @@ describe('useReportManager', () => {
     // Should show an error toast
     expect(mockToast).toHaveBeenCalledWith({
       description: `${FileExplorerStrings.error.contextCopyFailed}: Clipboard error`,
+      title: FileExplorerStrings.error.title,
+      variant: 'destructive',
+    });
+    expect(outcome).toEqual({ ok: false, reason: 'action-failed', retryable: true });
+  });
+
+  it('returns a truthful failure outcome when the download action rejects', async () => {
+    mockDownloadBlobFile.mockRejectedValueOnce(new Error('save bridge failed'));
+    const { result } = renderHook(() =>
+      useReportManager({
+        generateContextWithContent: mockGenerateContextWithContent,
+        rootDirectoryHandle: mockRootDirectoryHandle,
+        toast: mockToast,
+      })
+    );
+
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await result.current.handleDownloadContext();
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'action-failed', retryable: true });
+    expect(mockToast).toHaveBeenCalledWith({
+      description: `${FileExplorerStrings.error.contextDownloadFailed}: save bridge failed`,
       title: FileExplorerStrings.error.title,
       variant: 'destructive',
     });
@@ -330,7 +361,7 @@ describe('useReportManager', () => {
     });
 
     expect(mockToast).toHaveBeenCalledWith({
-      description: `${FileExplorerStrings.error.contextGenerationFailed}: disk full`,
+      description: `${FileExplorerStrings.error.contextDownloadFailed}: disk full`,
       title: FileExplorerStrings.error.title,
       variant: 'destructive',
     });

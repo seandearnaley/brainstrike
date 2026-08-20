@@ -81,9 +81,11 @@ console.log(contents['file2']);
 
 ```typescript
 interface FileReadRequest {
-  compositeKey: string;  // Unique identifier for this request
-  handle: FileHandle;    // File handle from file system adapter
-  path: string;          // File path for logging/errors
+  absoluteRootId?: string;   // Durable identity required with absoluteRootPath
+  absoluteRootPath?: string; // Required for an explicit handleless native read
+  compositeKey: string;      // Unique identifier for this request
+  handle?: FileHandle;       // Preferred file handle from the adapter/tree/cache
+  path: string;              // File path for reading and diagnostics
 }
 
 interface ProgressEvent {
@@ -97,13 +99,17 @@ interface FileContentWorkerOptions {
   concurrency?: number; // Max concurrent reads (default: 3)
 }
 
-function createFileContentWorker(options): {
-  runQueue(
-    queue: FileReadRequest[],
-    onProgress?: (e: ProgressEvent) => void
-  ): Promise<Record<string, string>>;
-}
+function createFileContentWorker(options): (
+  queue: FileReadRequest[],
+  onProgress?: (e: ProgressEvent) => void,
+  options?: { abortSignal?: AbortSignal }
+) => Promise<Record<string, FileContentReadResult>>;
 ```
+
+Handleless native requests require `absoluteRootId` to be a non-empty durable identity and
+both `absoluteRootPath` and `path` to be non-empty, fully qualified POSIX, Windows-drive, or
+UNC paths. Malformed explicit requests fail before adapter I/O, and an unavailable explicit
+capability never falls back to generic `readFileByPath`.
 
 **Binary File Handling:**
 

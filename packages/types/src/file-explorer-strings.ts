@@ -8,6 +8,7 @@ export const FileExplorerStrings = {
   error: {
     browserCompatibility: 'Browser Compatibility Error',
     contextCopyFailed: 'Failed to generate or copy context',
+    contextDownloadFailed: 'Failed to generate or download context',
     contextGenerationFailed: 'Failed to generate context',
     fileLoadFailed: 'Failed to load file',
     noRootDirectory: 'No folder selected.',

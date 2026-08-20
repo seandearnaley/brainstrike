@@ -4,6 +4,8 @@ import {
   formatFileSize,
   getFileSizeConfig,
   getFileTooLargeMessage,
+  isDurableRootId,
+  isFullyQualifiedFileSystemPath,
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
@@ -16,8 +18,12 @@ import {
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 
 export interface FileReadRequest {
+  /** Durable identity required with `absoluteRootPath`. */
+  absoluteRootId?: string;
+  /** Mounted native root required when `handle` is absent for an absolute read. */
+  absoluteRootPath?: string;
   compositeKey: string;
-  /** File handle - optional if readFileByPath is available on the adapter */
+  /** File handle; optional for an explicit absolute-root or adapter-defined path read. */
   handle?: FileHandle;
   path: string;
 }
@@ -58,6 +64,40 @@ function normalizeSchedulerError(error: unknown): Error {
   return error instanceof Error
     ? error
     : new Error('File content queue scheduling failed.', { cause: error });
+}
+
+async function readRequestContent(
+  fileSystemAdapter: FileSystemAdapter,
+  request: FileReadRequest
+): Promise<string> {
+  if (request.handle) {
+    return fileSystemAdapter.readFile(request.handle);
+  }
+  if (request.absoluteRootPath !== undefined || request.absoluteRootId !== undefined) {
+    if (
+      !(
+        isDurableRootId(request.absoluteRootId) &&
+        isFullyQualifiedFileSystemPath(request.absoluteRootPath) &&
+        isFullyQualifiedFileSystemPath(request.path)
+      )
+    ) {
+      throw new Error(
+        'Absolute path reads require durable root identity and non-empty fully qualified root and file paths'
+      );
+    }
+    if (!fileSystemAdapter.readFileByAbsolutePath) {
+      throw new Error('Absolute path read capability is unavailable');
+    }
+    return fileSystemAdapter.readFileByAbsolutePath(
+      request.path,
+      request.absoluteRootPath,
+      request.absoluteRootId
+    );
+  }
+  if (!fileSystemAdapter.readFileByPath) {
+    throw new Error('No handle or path-read capability is available');
+  }
+  return fileSystemAdapter.readFileByPath(request.path);
 }
 
 const logger = createLogger('FileContentWorker');
@@ -225,15 +265,7 @@ export function createFileContentWorker({
 
     let content: string;
     try {
-      // Prefer handle-based reads when available so we can use metadata already loaded in the tree.
-      if (req.handle) {
-        content = await fileSystemAdapter.readFile(req.handle);
-      } else if (fileSystemAdapter.readFileByPath) {
-        // Fallback for persisted tabs / paths that don't have a tree handle yet.
-        content = await fileSystemAdapter.readFileByPath(req.path);
-      } else {
-        throw new Error('No handle available and readFileByPath not supported');
-      }
+      content = await readRequestContent(fileSystemAdapter, req);
     } catch (error) {
       if (error instanceof FileContentError) {
         throw error;

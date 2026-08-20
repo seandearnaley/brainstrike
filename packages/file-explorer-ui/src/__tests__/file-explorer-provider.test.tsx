@@ -119,13 +119,20 @@ describe('FileExplorerProvider', () => {
     act(() => {
       result.current.getState().setFolderSelection('root-a', ['root-a|@|src/a.ts']);
       result.current.getState().setSelectedFiles(new Set(['root-a|@|src/a.ts']));
+      result.current.getState().setFileContent('root-a|@|src/a.ts', 'cached before reset');
     });
     expect(result.current.getState().selectedFilePaths.size).toBe(1);
     expect(result.current.getState().folderStates['root-a']?.selectedFilePaths.size).toBe(1);
+    expect(result.current.getState().getFileContentCacheStats().entryCount).toBe(1);
 
-    const resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
-    expect(resetResult.success).toBe(true);
+    let resetResult: Awaited<ReturnType<typeof clearPersistentUiStateWithResult>> | undefined;
+    await act(async () => {
+      resetResult = await clearPersistentUiStateWithResult({ skipIndexedDb: true });
+    });
+    expect(resetResult?.success).toBe(true);
     expect(result.current.getState().selectedFilePaths.size).toBe(0);
     expect(result.current.getState().folderStates['root-a']?.selectedFilePaths.size).toBe(0);
+    expect(result.current.getState().fileContents).toEqual({});
+    expect(result.current.getState().getFileContentCacheStats().entryCount).toBe(0);
   });
 });

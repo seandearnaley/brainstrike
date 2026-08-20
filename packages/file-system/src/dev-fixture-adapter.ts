@@ -313,6 +313,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const originalReadDirectory = adapter.readDirectory.bind(adapter);
   const originalReadFile = adapter.readFile.bind(adapter);
   const originalExists = adapter.exists.bind(adapter);
+  const originalReadFileByAbsolutePath = adapter.readFileByAbsolutePath?.bind(adapter);
   const originalReadFileByPath = (
     adapter as { readFileByPath?: ((path: string) => Promise<string>) | undefined }
   ).readFileByPath?.bind(adapter);
@@ -387,6 +388,20 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       throw new Error('Direct path reads are not supported by this adapter');
     }
     return originalReadFileByPath(path);
+  }
+
+  async function readFileByAbsolutePath(
+    path: string,
+    mountedRootPath: string,
+    rootId: string
+  ): Promise<string> {
+    if (isFixtureActive() && isFixtureOwnedPath(path)) {
+      return readFileByPath(path);
+    }
+    if (!originalReadFileByAbsolutePath) {
+      throw new Error('Absolute path reads are not supported by this adapter');
+    }
+    return originalReadFileByAbsolutePath(path, mountedRootPath, rootId);
   }
 
   // Mirrors WebFileSystemAdapter.resolveFileForIndexing for the in-memory
@@ -538,6 +553,9 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
   decorated.readFile = readFile;
   decorated.exists = exists;
+  if (originalReadFileByAbsolutePath) {
+    decorated.readFileByAbsolutePath = readFileByAbsolutePath;
+  }
   if (originalReadFileByPath) {
     (
       decorated as T & {

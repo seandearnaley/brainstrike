@@ -103,6 +103,25 @@ standing rules follow:
    with no capability" and "web/SSR with no bridge at all" are different states
    and must not share a code path.
 
+The handleless native file-read channel `fs:readFileByAbsolutePath` is also
+visible-UI-only. Its typed payload carries both the requested absolute path and
+the exact claimed mounted-root path plus its durable RootId. Main resolves the
+RootId FIRST in the live `WorkspaceRootRegistry`, verifies the claimed
+presentation/canonical path belongs to that same mount, and only then confines
+the requested file. Duplicate presentation aliases or a symlink/junction
+retarget therefore cannot make insertion order choose authority. Malformed
+path/root/rootId assertions execute inside the durable denial logger and emit
+exactly one bounded diagnostic record. Renderer-controlled requested paths and
+handle RootIds are projected before entering that logger: control and
+line-separator characters use visible Unicode escapes, each field is capped at
+256 UTF-16 code units, and truncation ends with `…[truncated]`; non-string input
+projects to the empty string. Error messages are never copied into the record:
+the logger emits a static access/path-validation/filesystem category message
+plus only a syntactically bounded safe error code, so native `realpath` text
+cannot re-inject a path or line break through metadata. The legacy
+`fs:readFileByPath` channel remains a separate generic mounted-path API and is
+never a fallback for the scoped capability.
+
 ---
 
 ## FACTORY RESET CONTRACT
@@ -152,6 +171,18 @@ Desktop reset order:
 3. Purge DB tables (job_queue, embedding_sets, etc.).
 4. Reload renderer.
 Do not skip reload.
+
+The Explorer's file-content LRU, active read machinery, and per-composite-key
+terminal error projection are volatile but
+still require renderer reset wiring because the web reset path may not reload.
+`FileExplorerProvider` registers one session-store resetter that invalidates
+all content generations, queued batches, and projected errors, clears the current store's raw
+`fileContents` plus its store-owned LRU, clears selections, and advances the
+provider content-lifecycle key so hook-local loading refs/state remount empty.
+An already-running obsolete read may settle afterward, but its invalidated
+generation cannot commit into the reset store. Provider/store identity changes
+use the same keyed lifecycle and invalidate the retired authority during the
+commit phase.
 
 Database-owned assistant persistence added outside Mastra's tables must also
 be cleared explicitly. This includes `brainstrike_assistant_message_parents`,

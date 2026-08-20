@@ -98,6 +98,51 @@ describe('usePreviewPanelReportActions', () => {
     expect(handleCopyContext).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves typed export outcomes while stripping UI-only range fields', async () => {
+    const copyOutcome = {
+      ok: false as const,
+      reason: 'generation-failed' as const,
+      retryable: true as const,
+    };
+    const handleCopyContext = vi.fn(async () => copyOutcome);
+    mockUseReportManager.mockReturnValue({
+      handleCopyContext,
+      handleDownloadContext: vi.fn(async () => ({ ok: true as const })),
+    });
+    const { store } = createMockStore({});
+    const { result } = renderHook(
+      () =>
+        usePreviewPanelReportActions({
+          excludeFilters: [],
+          fileContents: {},
+          folderSummaryThreshold: 0,
+          includeFilters: [],
+          includeProjectTree: false,
+          loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
+          rootDirectoryHandle: null,
+          selectedFiles: new Set(['file-a']),
+          store,
+          useRegex: false,
+        }),
+      { wrapper: createWrapper() }
+    );
+
+    const outcome = await result.current.handleCopyContext({
+      projectTreeUsesViewFilters: true,
+      selectedLineRangesByFile: {
+        'file-a': [{ color: 'blue', endLine: 9, id: 'ui-range', isActive: true, startLine: 4 }],
+      },
+    });
+
+    expect(outcome).toEqual(copyOutcome);
+    expect(handleCopyContext).toHaveBeenCalledExactlyOnceWith({
+      projectTreeUsesViewFilters: true,
+      selectedLineRangesByFile: {
+        'file-a': [{ endLine: 9, isActive: true, startLine: 4 }],
+      },
+    });
+  });
+
   it('passes expected parameters to useReportGeneration and useReportManager', () => {
     const generateContextWithContent = vi.fn(async () => 'report');
     mockUseReportGeneration.mockReturnValue({

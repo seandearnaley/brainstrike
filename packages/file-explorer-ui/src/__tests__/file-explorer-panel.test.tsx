@@ -300,6 +300,7 @@ describe('FileExplorerPanel', () => {
       error: null,
       expandAllProgress: null,
       expandAllProgressively: vi.fn(),
+      fileContentErrors: new Map<string, Error>(),
       fileContents: {},
       fileTree: [],
       filterError: null,
@@ -322,6 +323,7 @@ describe('FileExplorerPanel', () => {
       refreshDirectory: vi.fn(),
       refreshFileExplorer: refreshFileExplorerMock,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
+      reloadFileContents: vi.fn(),
       removeRootDirectory: vi.fn().mockResolvedValue(undefined),
       restorationProgress: null,
       rootDirectoryHandle: {

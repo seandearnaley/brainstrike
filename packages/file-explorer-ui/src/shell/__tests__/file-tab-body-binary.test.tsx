@@ -1,4 +1,5 @@
 import { type ActionServices, createTestActionRegistry } from '@brainstrike/context-actions';
+import { buildInaccessibleContent } from '@brainstrike/file-explorer-hooks';
 import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -60,6 +61,7 @@ function renderBinaryBody({
         content={content}
         isLoading={false}
         isRestoring={false}
+        onRetryContent={vi.fn()}
         rootPath={rootPath}
         status={undefined}
         tab={{
@@ -112,6 +114,16 @@ describe('FileTabBody binary file preview', () => {
     renderBinaryBody({ content: `${BINARY_CONTENT_MESSAGE} — said the log file` });
     expect(screen.queryByTestId('binary-file-preview')).not.toBeInTheDocument();
     expect(screen.getByTestId('file-code-surface')).toBeInTheDocument();
+  });
+
+  it('renders a canonical inaccessible worker result outside the code surface', () => {
+    const inaccessibleContent = buildInaccessibleContent('File disappeared during refresh');
+
+    renderBinaryBody({ content: inaccessibleContent });
+
+    expect(screen.getByText(inaccessibleContent)).toBeInTheDocument();
+    expect(screen.queryByTestId('binary-file-preview')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('file-code-surface')).not.toBeInTheDocument();
   });
 
   it('reveals the file in the OS file manager with a platform-specific label', async () => {

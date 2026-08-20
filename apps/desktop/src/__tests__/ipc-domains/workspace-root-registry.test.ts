@@ -163,6 +163,200 @@ describe('WorkspaceRootRegistry', () => {
     }
   });
 
+  it('binds a scoped absolute read to rootId when duplicate presentation paths retarget', async () => {
+    const sharedPresentationPath = '/workspace-link';
+    const rootA = secureRoot('/canonical/target-a');
+    const rootB = secureRoot('/canonical/target-b');
+    vi.mocked(rootA.readFile).mockResolvedValue({
+      content: Buffer.from('target-a'),
+      status: 'ok',
+    });
+    vi.mocked(rootB.readFile).mockResolvedValue({
+      content: Buffer.from('target-b'),
+      status: 'ok',
+    });
+    storage = createStorage({
+      rootsList: JSON.stringify([
+        { addedAt: 1, path: sharedPresentationPath, rootId: 'root-a' },
+        { addedAt: 2, path: sharedPresentationPath, rootId: 'root-b' },
+      ]),
+    });
+    let mountCount = 0;
+    const registry = createRegistry({
+      createSecureRoot: async () => {
+        mountCount += 1;
+        return mountCount === 1 ? rootA : rootB;
+      },
+      resolveReadPath: async (requestedPath, canonicalRoot) =>
+        path.join(canonicalRoot, path.basename(requestedPath)),
+    });
+    await registry.restoreRoots();
+    const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
+      requestedPath: unknown,
+      claimedRootPath: unknown,
+      claimedRootId: unknown
+    ) => Promise<string>;
+
+    await expect(
+      readScoped(`${sharedPresentationPath}/file.txt`, sharedPresentationPath, 'root-b')
+    ).resolves.toBe('target-b');
+    expect(rootA.readFile).not.toHaveBeenCalled();
+    expect(rootB.readFile).toHaveBeenCalledWith('file.txt', expect.any(Number));
+    await expect(
+      readScoped(`${sharedPresentationPath}/file.txt`, '/canonical/target-a', 'root-b')
+    ).rejects.toThrow('does not match the mounted workspace root');
+    await expect(
+      readScoped(`${sharedPresentationPath}/file.txt`, sharedPresentationPath, undefined)
+    ).rejects.toThrow('durable rootId');
+  });
+
+  it('logs malformed scoped authority exactly once without expanding non-string diagnostics', async () => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceRootRegistry' &&
+        record.level === LogLevel.WARN &&
+        record.message === 'Workspace read denied'
+      ) {
+        captured.push(record);
+      }
+    });
+    try {
+      const registry = createRegistry();
+      const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
+        requestedPath: unknown,
+        claimedRootPath: unknown,
+        claimedRootId: unknown
+      ) => Promise<string>;
+
+      await expect(
+        readScoped({ secret: 'must-not-be-logged' }, '/workspace', 'root-a')
+      ).rejects.toThrow('Requested file path must be a non-empty native absolute path.');
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.args[1]).toMatchObject({
+        operation: 'readFileByAbsolutePath',
+        requestedPath: '',
+      });
+      expect(JSON.stringify(captured)).not.toContain('must-not-be-logged');
+    } finally {
+      removeListener();
+    }
+  });
+
+  it.each([
+    {
+      name: 'a multi-megabyte absolute path',
+      requestedPath: `/${'a'.repeat(2_000_000)}RAW_DIAGNOSTIC_TAIL_MUST_NOT_APPEAR`,
+      verify: (diagnosticPath: string) => {
+        expect(diagnosticPath).toContain('[truncated]');
+        expect(diagnosticPath).not.toContain('RAW_DIAGNOSTIC_TAIL_MUST_NOT_APPEAR');
+      },
+    },
+    {
+      name: 'a path containing renderer-controlled line breaks and controls',
+      requestedPath: '/workspace/line-one\nline-two\tcontrol',
+      verify: (diagnosticPath: string) => {
+        expect(diagnosticPath).toContain('\\u000a');
+        expect(diagnosticPath).toContain('\\u0009');
+        expect(diagnosticPath).not.toMatch(/[\n\r\t]/u);
+      },
+    },
+  ])('bounds the denial diagnostic for $name', async ({ requestedPath, verify }) => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceRootRegistry' &&
+        record.level === LogLevel.WARN &&
+        record.message === 'Workspace read denied'
+      ) {
+        captured.push(record);
+      }
+    });
+    try {
+      const registry = createRegistry();
+      const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
+        requestedPath: unknown,
+        claimedRootPath: unknown,
+        claimedRootId: unknown
+      ) => Promise<string>;
+
+      await expect(readScoped(requestedPath, '/workspace', 'root-a')).rejects.toThrow();
+
+      expect(captured).toHaveLength(1);
+      const diagnosticFields = captured[0]?.args[1];
+      if (!(diagnosticFields && typeof diagnosticFields === 'object')) {
+        throw new Error('Missing denial diagnostic fields');
+      }
+      const diagnosticPath = (diagnosticFields as { requestedPath?: unknown }).requestedPath;
+      if (typeof diagnosticPath !== 'string') {
+        throw new Error('Missing denial diagnostic path');
+      }
+      expect(diagnosticPath.length).toBeLessThanOrEqual(256);
+      verify(diagnosticPath);
+    } finally {
+      removeListener();
+    }
+  });
+
+  it.each([
+    {
+      name: 'directory',
+      read: (registry: WorkspaceRootRegistry, rootId: string) =>
+        registry.readDirectory({
+          kind: 'directory',
+          name: 'workspace',
+          path: '/workspace',
+          platform: 'electron',
+          rootId,
+        }),
+    },
+    {
+      name: 'file',
+      read: (registry: WorkspaceRootRegistry, rootId: string) =>
+        registry.readFile({
+          kind: 'file',
+          name: 'file.txt',
+          path: '/workspace/file.txt',
+          platform: 'electron',
+          rootId,
+        }),
+    },
+  ])('bounds renderer-controlled rootId on denied $name reads', async ({ read }) => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceRootRegistry' &&
+        record.level === LogLevel.WARN &&
+        record.message === 'Workspace read denied'
+      ) {
+        captured.push(record);
+      }
+    });
+    const rawTail = 'RAW_ROOT_ID_TAIL_MUST_NOT_APPEAR';
+    const rootId = `renderer\nroot-${'r'.repeat(2_000_000)}${rawTail}`;
+    try {
+      await expect(read(createRegistry(), rootId)).rejects.toThrow();
+
+      expect(captured).toHaveLength(1);
+      const diagnosticFields = captured[0]?.args[1];
+      if (!(diagnosticFields && typeof diagnosticFields === 'object')) {
+        throw new Error('Missing denial diagnostic fields');
+      }
+      const diagnosticRootId = (diagnosticFields as { rootId?: unknown }).rootId;
+      if (typeof diagnosticRootId !== 'string') {
+        throw new Error('Missing denial diagnostic rootId');
+      }
+      expect(diagnosticRootId.length).toBeLessThanOrEqual(256);
+      expect(diagnosticRootId).toContain('\\u000a');
+      expect(diagnosticRootId).toContain('[truncated]');
+      expect(diagnosticRootId).not.toContain(rawTail);
+      expect(diagnosticRootId).not.toMatch(/[\n\r\t]/u);
+    } finally {
+      removeListener();
+    }
+  });
+
   it('fails visibly instead of treating malformed persistence as zero roots', async () => {
     storage = createStorage({ rootsList: '{broken' });
     const registry = createRegistry();

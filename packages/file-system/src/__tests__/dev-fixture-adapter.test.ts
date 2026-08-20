@@ -636,6 +636,51 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(getHandleCache).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards the explicit absolute-path read capability only when the base has it', async () => {
+    const base = createBaseAdapter();
+    const readFileByAbsolutePath = vi.fn(
+      async (absolutePath: string, rootPath: string, rootId: string) =>
+        `${rootId}:${rootPath}:${absolutePath}`
+    );
+    base.readFileByAbsolutePath = readFileByAbsolutePath;
+    const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+
+    await expect(
+      adapter.readFileByAbsolutePath?.('/workspace/file.txt', '/workspace', 'native-root')
+    ).resolves.toBe('native-root:/workspace:/workspace/file.txt');
+    expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+      '/workspace/file.txt',
+      '/workspace',
+      'native-root'
+    );
+  });
+
+  it('keeps fixture-owned absolute reads inside the active inline fixture', async () => {
+    const base = createBaseAdapter();
+    const readFileByAbsolutePath = vi.fn(async () => 'real-file');
+    base.readFileByAbsolutePath = readFileByAbsolutePath;
+    const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+    const fixtureRoot = await adapter.loadInlineFixture(FIXTURE);
+
+    await expect(
+      adapter.readFileByAbsolutePath?.(
+        'fixture-root/src/a.ts',
+        'fixture-root',
+        fixtureRoot.rootId ?? ''
+      )
+    ).resolves.toBe('export const a = 1;');
+    expect(readFileByAbsolutePath).not.toHaveBeenCalled();
+
+    await expect(
+      adapter.readFileByAbsolutePath?.('/real-root/file.ts', '/real-root', 'real-root-id')
+    ).resolves.toBe('real-file');
+    expect(readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
+      '/real-root/file.ts',
+      '/real-root',
+      'real-root-id'
+    );
+  });
+
   describe('addInlineFixtureRoot (multi-root harness)', () => {
     const SECOND_FIXTURE: FixtureDefinition = {
       name: 'second-root',
