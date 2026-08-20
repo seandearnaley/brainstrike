@@ -257,14 +257,17 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
     // absorbing sub-pixel layout rounding.
     expect(
       geometry.publishedWidth,
-      `Floating UI measured the trigger as ${geometry.publishedWidth}px against a real ${geometry.anchorWidth}px — the anchor was transformed when the popup opened.`
+      `Floating UI measured the trigger as ${geometry.publishedWidth}px against a real ${geometry.anchorWidth}px. A ~3% shortfall means the anchor was transformed when the popup opened; NaN means the listbox is not in popper mode and never published the variable at all.`
     ).toBeCloseTo(geometry.anchorWidth, 0);
     expect(geometry.publishedHeight).toBeCloseTo(geometry.anchorHeight, 0);
 
     // Anchored under the field, flush with its left edge, never narrower.
     expect(geometry.side).toBe('bottom');
     expect(Math.abs(geometry.leftDelta)).toBeLessThanOrEqual(1);
-    expect(geometry.widthDelta).toBeGreaterThanOrEqual(-1);
+    // Two-sided: narrower is the item-aligned / scaled-anchor failure, wider is
+    // the Viewport `min-w` failure (the Viewport sizes the inner box, so the
+    // Content overhangs by its own 2px border).
+    expect(Math.abs(geometry.widthDelta)).toBeLessThanOrEqual(1);
     expect(geometry.gapBelowTrigger).toBeGreaterThan(0);
     expect(geometry.gapBelowTrigger).toBeLessThan(12);
 
