@@ -10,7 +10,7 @@ import { getKnownFileSize } from '@brainstrike/utils/file-content';
 const logger = createLogger('SharedFileContentLoading');
 
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { resolveDirectReadPath, supportsDirectPathRead } from './file-content-direct-read-path';
 import type { FileContentLoadIntent } from './file-content-load-authority-context';
 import { useFileContentLoadAuthority } from './file-content-load-authority-context';
@@ -307,11 +307,11 @@ async function handleMissingFileNode(args: {
 
   if (supportsDirectPathRead(fileSystemAdapter)) {
     if (!directReadAuthority) {
-      logger.warn('Rejected direct file read without durable mounted-root authority');
-      setFileContent(
-        compositeKey,
-        buildInaccessibleContent('direct read root identity is unavailable')
-      );
+      // Root descriptors hydrate asynchronously during desktop boot. Keep the
+      // key unloaded so WorkspaceTabsProvider can retry when authority arrives;
+      // persisting an inaccessible sentinel here would turn a transient boot
+      // ordering state into a sticky terminal result.
+      logger.debug('Deferred direct file read until mounted-root authority is available');
       return null;
     }
     const directReadPath = resolveDirectReadPath(directReadAuthority.rootPath, path);
@@ -551,8 +551,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     loadAuthority.getErrorsSnapshot,
     loadAuthority.getErrorsSnapshot
   );
-  const uniqueErrors = [...new Set(fileContentErrors.values())];
-  const error = uniqueErrors.length > 0 ? createFileContentLoadError(uniqueErrors) : null;
+  const error = useMemo(() => {
+    const uniqueErrors = [...new Set(fileContentErrors.values())];
+    return uniqueErrors.length > 0 ? createFileContentLoadError(uniqueErrors) : null;
+  }, [fileContentErrors]);
 
   // Try to use shared FileTreeIndex for O(1) lookups when available
   // Falls back to cache-based lookups when not within FileTreeProvider

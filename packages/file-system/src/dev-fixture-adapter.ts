@@ -390,6 +390,20 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     return originalReadFileByPath(path);
   }
 
+  async function readFileByAbsolutePath(
+    path: string,
+    mountedRootPath: string,
+    rootId: string
+  ): Promise<string> {
+    if (isFixtureActive() && isFixtureOwnedPath(path)) {
+      return readFileByPath(path);
+    }
+    if (!originalReadFileByAbsolutePath) {
+      throw new Error('Absolute path reads are not supported by this adapter');
+    }
+    return originalReadFileByAbsolutePath(path, mountedRootPath, rootId);
+  }
+
   // Mirrors WebFileSystemAdapter.resolveFileForIndexing for the in-memory
   // fixture. We deliberately return `kind: 'content'` instead of fabricating a
   // synthetic FileSystemFileHandle: only the browser's real handles have
@@ -540,7 +554,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   decorated.readFile = readFile;
   decorated.exists = exists;
   if (originalReadFileByAbsolutePath) {
-    decorated.readFileByAbsolutePath = originalReadFileByAbsolutePath;
+    decorated.readFileByAbsolutePath = readFileByAbsolutePath;
   }
   if (originalReadFileByPath) {
     (

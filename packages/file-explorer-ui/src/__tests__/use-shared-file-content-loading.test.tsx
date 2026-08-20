@@ -1,10 +1,6 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import {
-  AdaptersProvider,
-  buildInaccessibleContent,
-  INACCESSIBLE_CONTENT_PREFIX,
-} from '@brainstrike/file-explorer-hooks';
+import { AdaptersProvider, INACCESSIBLE_CONTENT_PREFIX } from '@brainstrike/file-explorer-hooks';
 import {
   DEFAULT_MAX_FILE_SIZE,
   type FileSystemAdapter,
@@ -1074,7 +1070,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     );
   });
 
-  it('fails explicitly instead of falling back to direct-path reads when the tree never contains the file', async () => {
+  it('keeps a handleless file unloaded until durable direct-read authority arrives', async () => {
     vi.useFakeTimers();
     const adapter = new MockFileSystemAdapter();
     const readFileByPathSpy = vi
@@ -1105,9 +1101,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(readFileByPathSpy).not.toHaveBeenCalled();
     expect(mockWorker).not.toHaveBeenCalled();
-    expect(result.current.fileContents[compositeKey]).toBe(
-      buildInaccessibleContent('direct read root identity is unavailable')
-    );
+    expect(result.current.fileContents[compositeKey]).toBeUndefined();
     vi.useRealTimers();
   });
 });

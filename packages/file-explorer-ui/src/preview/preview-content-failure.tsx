@@ -47,6 +47,18 @@ function failureForDisplay(failure: StoredPreviewFailure): PreviewContentFailure
   return { action: failure.action, kind: failure.kind, outcome: failure.outcome };
 }
 
+function haveSameSelection(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const path of left) {
+    if (!right.has(path)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function usePreviewContentFailure({
   handleCopyContext,
   handleDownloadContext,
@@ -67,14 +79,16 @@ export function usePreviewContentFailure({
   const [storedFailure, setStoredFailure] = useState<StoredPreviewFailure | null>(null);
   const requestIdRef = useRef(0);
   const visibleStoredFailure =
-    storedFailure?.selectionSnapshot === selectedFilePaths ? storedFailure : null;
+    storedFailure && haveSameSelection(storedFailure.selectionSnapshot, selectedFilePaths)
+      ? storedFailure
+      : null;
   const failure = visibleStoredFailure ? failureForDisplay(visibleStoredFailure) : null;
 
   const loadPreviewFileContents = useCallback(
     async (compositeKeys: string[]): Promise<void> => {
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
-      const selectionSnapshot = selectedFilePaths;
+      const selectionSnapshot = new Set(selectedFilePaths);
       const uniqueKeys = [...new Set(compositeKeys)];
       setStoredFailure(null);
       try {
@@ -97,7 +111,7 @@ export function usePreviewContentFailure({
     (action: ContextExportAction, options: ContextExportOptions): void => {
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
-      const selectionSnapshot = selectedFilePaths;
+      const selectionSnapshot = new Set(selectedFilePaths);
       const optionsSnapshot = snapshotContextExportOptions(options);
       const execute = action === 'copy' ? handleCopyContext : handleDownloadContext;
       setStoredFailure(null);

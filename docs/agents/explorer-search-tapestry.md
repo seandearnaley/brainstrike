@@ -828,11 +828,15 @@ fallback.
   so a nested content read cannot supersede the outer action epoch or replace
   its accurately labelled copy/download failure with a preview-only retry.
   Root-unavailable outcomes are explicit and non-retryable. Selection change
-  fences the retired action, and internal error text is logged rather than
-  rendered. There is no arbitrary eviction that could hide an
+  fences the retired action by canonical set membership rather than `Set`
+  identity, because multi-root projections may recreate a value-equivalent
+  selection. Internal error text is logged rather than rendered. There is no
+  arbitrary eviction that could hide an
   active tab's terminal error. Every
   physical reload group and deduped active read settles before the
-  public logical request rejects with the single error or an aggregate; a later
+  public logical request rejects with the single error or an aggregate. The
+  aggregate object is memoized by the immutable error-map snapshot so an
+  unrelated rerender cannot manufacture a new error identity. A later
   successful queued group cannot erase an earlier sibling's failure. A logical
   retry clears only its requested keys at its boundary. `WorkspaceTabsProvider`
   carries that map to `WorkspaceBody`, which exact-matches the active tab's key
@@ -842,9 +846,11 @@ fallback.
   user-visible Retry button calls `reloadFileContents([compositeKey], 'interactive')`, which
   clears only that key and starts a fresh read. The screen shows the selected
   file path plus a bounded safe error category, never a raw internal message.
-  A later canonical refresh can also clear only the affected key and retry it. Content
-  failures never enter the explorer's global error surface or appear on
-  unrelated tabs. Fire-and-forget UI consumers explicitly observe the rejection
+  A later canonical refresh can also clear only the affected key and retry it.
+  Content failures never enter the explorer's global error surface or appear on
+  unrelated tabs. The authority's `trackActiveLoad`/`releaseActiveLoad` methods
+  are test-only predecessor seams; production reads are owned through
+  `scheduleBatch`. Fire-and-forget UI consumers explicitly observe the rejection
   after the shared error state is set. Rebuilt worker `FileHandle`s carry
   `fileNode.handle.rootId` when present; `rootFolderId` remains selection/cache
   identity and is NEVER substituted for durable read authority. Removed
@@ -859,8 +865,11 @@ fallback.
   presentation aliases and symlink/junction retargets never select the first
   path match. A path under mounted root B therefore cannot be read while
   claiming mounted root A or A's durable identity. Legacy path-shaped composite
-  keys without an exact root descriptor fail visibly instead of falling back to
-  path-only lookup. `readFileByPath` is
+  keys that remain unmatched after the descriptor projection is authoritative
+  fail visibly instead of falling back to path-only lookup. During async desktop
+  boot, an open tab whose exact root descriptor has not arrived remains unloaded;
+  the workspace tab effect observes descriptor arrival and retries rather than
+  persisting a sticky inaccessible sentinel. `readFileByPath` is
   adapter-defined—the real web adapter implements
   it for root-relative browser-handle resolution—so its presence is never
   treated as desktop/native authority. Web missing/lazy nodes therefore retain
@@ -876,6 +885,8 @@ fallback.
   worker requests carry the mounted root and RootId and never fall back to generic
   `readFileByPath` if that explicit capability disappears. Path resolution
   preserves POSIX `/`, Windows drive roots such as `C:\`, and UNC share roots.
+  The dev inline-fixture decorator keeps fixture-owned absolute reads on fixture
+  bytes while delegating foreign absolute paths to the wrapped capability.
   Relative paths reject empty, control, `.` and `..` segments.
   Absolute paths are accepted only when contained by the selected root, using
   POSIX case-sensitive and Windows drive/UNC case-insensitive semantics; an

@@ -54,6 +54,19 @@ export interface WorkspaceTabsProviderProps {
   readonly children: ReactNode;
 }
 
+function canAutoLoadFileContent(
+  canLoadWithoutTree: boolean,
+  compositeKey: string,
+  fileTreeLength: number,
+  rootDescriptors: Readonly<Record<string, unknown>>
+): boolean {
+  if (!canLoadWithoutTree) {
+    return fileTreeLength > 0;
+  }
+  const { folderId } = decodeFileSelection(compositeKey);
+  return rootDescriptors[folderId] !== undefined;
+}
+
 /**
  * Owns all workspace tab orchestration (BST-1258): file-tab lifecycle,
  * restoration/permission flows, app open/close/singleton semantics, selection
@@ -350,7 +363,14 @@ export function WorkspaceTabsProvider({
     if (!tab) {
       return;
     }
-    if (!canLoadWithoutTree && fileTree.length === 0) {
+    if (
+      !canAutoLoadFileContent(
+        canLoadWithoutTree,
+        tab.compositeKey,
+        fileTree.length,
+        rootDescriptors
+      )
+    ) {
       return;
     }
     if (fileContents[tab.compositeKey] !== undefined) {
@@ -382,6 +402,7 @@ export function WorkspaceTabsProvider({
     tabStatuses,
     canLoadWithoutTree,
     fileTree,
+    rootDescriptors,
     startFileContentLoad,
   ]);
 

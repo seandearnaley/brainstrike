@@ -229,7 +229,7 @@ describe('workspace tabs open-file refresh', () => {
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
     render(<div />, { wrapper: Wrapper });
-    await waitFor(() => expect(loadFileContent).toHaveBeenCalledTimes(1));
+    expect(loadFileContent).not.toHaveBeenCalled();
     if (!capturedFileExplorerStore) {
       throw new Error('File Explorer store was not captured');
     }
@@ -240,9 +240,8 @@ describe('workspace tabs open-file refresh', () => {
         .setActiveRoots([{ displayName: 'workspace', path: '/workspace', rootId: 'late-root' }]);
     });
 
-    await waitFor(() => expect(loadFileContent).toHaveBeenCalledTimes(2));
-    expect(loadFileContent).toHaveBeenNthCalledWith(1, compositeKey, 'interactive');
-    expect(loadFileContent).toHaveBeenNthCalledWith(2, compositeKey, 'interactive');
+    await waitFor(() => expect(loadFileContent).toHaveBeenCalledTimes(1));
+    expect(loadFileContent).toHaveBeenCalledWith(compositeKey, 'interactive');
   });
 
   it('reloads only the matching root-scoped cached open tab after a modified-file refresh', async () => {

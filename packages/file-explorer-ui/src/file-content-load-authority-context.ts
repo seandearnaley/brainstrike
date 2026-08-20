@@ -22,6 +22,7 @@ export interface FileContentLoadAuthority {
       readonly expectedGeneration: number;
     }[]
   ) => void;
+  /** @internal Test-only predecessor seam; production reads are owned by scheduleBatch. */
   releaseActiveLoad: (compositeKeys: readonly string[], expectedPromise: Promise<void>) => void;
   scheduleBatch: (
     compositeKeys: readonly string[],
@@ -34,6 +35,7 @@ export interface FileContentLoadAuthority {
    */
   setRetainedErrorKeys: (owner: object, compositeKeys: readonly string[]) => void;
   subscribeErrors: (listener: () => void) => () => void;
+  /** @internal Test-only predecessor seam; production reads are owned by scheduleBatch. */
   trackActiveLoad: (compositeKeys: readonly string[], promise: Promise<void>) => void;
 }
 
