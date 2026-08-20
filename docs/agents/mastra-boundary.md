@@ -470,17 +470,24 @@ these tests in the same change.
 | R7 | `@mastra/mcp` absent from every manifest and the lockfile |
 | R8 | *(unguarded by design — R8 permits adding `@mastra/evals` on its own merits, so an absence assertion would encode a constraint this ruling explicitly retires)* |
 
+## RESOLVED CONTRACT MAINTENANCE
+
+BST-909 removed the never-emitted `context.budget`, `context.prepared`, and
+`context.selection` kinds from the closed run-event union. The inbound guard
+rejects those retired strings, and informational timeline coverage uses the
+real `hook.notice` kind instead of legitimizing a fabricated persisted event.
+Repository history from their introduction in `33799e0fe` through the contract
+move and inbound-guard adoption shows the strings only in the declaration and a
+fabricated UI fixture, never in an emitter or persistence write. They therefore
+never reached durable run-event rows, so no data migration or backfill is
+required; adding one would mutate local-first user data without evidence.
+
 ## FOLLOW-UPS
 
 Decided here, implemented separately. None is architecture-gated any longer.
 
 - **Unknown resume schema (R9).** Replace the dead-end notice with visible
   rejection.
-
-BST-909 removed the never-emitted `context.budget`, `context.prepared`, and
-`context.selection` kinds from the closed run-event union. The inbound guard
-rejects those retired strings, and informational timeline coverage uses the
-real `hook.notice` kind instead of legitimizing a fabricated persisted event.
 
 Flagged, outside this boundary:
 `packages/app-shell/src/hooks/use-assistant-mcp-menu-state.ts:55-57` collapses every
