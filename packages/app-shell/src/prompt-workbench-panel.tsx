@@ -49,8 +49,9 @@ import {
   useState,
 } from 'react';
 import { extractPromptTemplateVariables, renderPromptTemplate } from './prompt-template';
-import { buildPromptModelSettings, PromptBuilderDialog } from './prompt-workbench-builder-dialog';
+import { PromptBuilderDialog } from './prompt-workbench-builder-dialog';
 import {
+  buildPromptModelSettings,
   promptWorkbenchErrorMessage as errorMessage,
   KIND_COPY,
   PROMPT_KINDS,

@@ -3,8 +3,12 @@ import type { PromptItem } from '@brainstrike/db';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { buildPromptModelSettings, PromptBuilderDialog } from '../prompt-workbench-builder-dialog';
-import type { PromptDraft, PromptModelSettingsDraft } from '../prompt-workbench-shared';
+import { PromptBuilderDialog } from '../prompt-workbench-builder-dialog';
+import {
+  buildPromptModelSettings,
+  type PromptDraft,
+  type PromptModelSettingsDraft,
+} from '../prompt-workbench-shared';
 
 function promptItem(modelSettings: Record<string, unknown>): PromptItem {
   return {
