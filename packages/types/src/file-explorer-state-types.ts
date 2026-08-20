@@ -13,6 +13,7 @@ import {
   type SelectionModel,
   type SelectionQueryDescriptor,
 } from './file-explorer-selection-types.js';
+import type { IFileNode } from './file-system.js';
 
 // Multi-root types (Phase 4)
 
@@ -185,6 +186,24 @@ export interface FileExplorerState extends FileExplorerData {
   getFileContent: (compositeKey: string) => string | undefined;
   getFileContentCacheStats: () => CacheStats;
   hydrateFolderState: (folderId: string) => void;
+  /**
+   * Reconcile selection keys against one complete directory enumeration.
+   * Only absence proven at this directory boundary removes a key; descendants
+   * of a surviving directory retain their selection until that directory is
+   * itself enumerated.
+   */
+  reconcileSelectionWithDirectorySnapshot: (
+    folderId: string,
+    directoryPath: string,
+    entries: readonly Pick<IFileNode, 'path' | 'type'>[]
+  ) => void;
+  reconcileSelectionWithDirectorySnapshots: (
+    folderId: string,
+    snapshots: readonly {
+      directoryPath: string;
+      entries: readonly Pick<IFileNode, 'path' | 'type'>[];
+    }[]
+  ) => void;
   /**
    * Disconnect a root: atomically purge it from activeRootIds, rootDescriptors,
    * folderStates, and folderAccessOrder (single setState). Does NOT touch

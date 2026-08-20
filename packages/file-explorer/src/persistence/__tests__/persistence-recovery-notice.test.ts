@@ -141,7 +141,7 @@ describe('persisted explorer recovery notice', () => {
       currentFolderId: 'valid',
       folderAccessOrder: null,
       folderStates: {
-        valid: { selectedFilePaths: ['src/valid.ts'] },
+        valid: { selectedFilePaths: ['valid|@|src/valid.ts'] },
       },
     });
 
@@ -149,7 +149,7 @@ describe('persisted explorer recovery notice', () => {
 
     expect(store.getState().currentFolderId).toBe('valid');
     expect(store.getState().folderStates['valid']?.selectedFilePaths).toEqual(
-      new Set(['src/valid.ts'])
+      new Set(['valid|@|src/valid.ts'])
     );
     expect(store.getState().folderAccessOrder).toEqual([]);
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
@@ -177,7 +177,7 @@ describe('persisted explorer recovery notice', () => {
       currentFolderId: 'dangling-folder',
       folderAccessOrder: ['dangling-folder', 'valid'],
       folderStates: {
-        valid: { selectedFilePaths: ['src/valid.ts'] },
+        valid: { selectedFilePaths: ['valid|@|src/valid.ts'] },
       },
     });
 
@@ -186,7 +186,7 @@ describe('persisted explorer recovery notice', () => {
     expect(store.getState().currentFolderId).toBeNull();
     expect(store.getState().folderAccessOrder).toEqual(['valid']);
     expect(store.getState().folderStates['valid']?.selectedFilePaths).toEqual(
-      new Set(['src/valid.ts'])
+      new Set(['valid|@|src/valid.ts'])
     );
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
   });
@@ -293,7 +293,7 @@ describe('persisted explorer recovery notice', () => {
       ...validSerializedState,
       folderStates: {
         malformed: { selectedFilePaths: 'not-an-array' },
-        valid: { selectedFilePaths: ['src/valid.ts'] },
+        valid: { selectedFilePaths: ['valid|@|src/valid.ts'] },
       },
     });
 
@@ -301,22 +301,40 @@ describe('persisted explorer recovery notice', () => {
 
     expect(store.getState().folderStates['malformed']).toBeUndefined();
     expect(store.getState().folderStates['valid']?.selectedFilePaths).toEqual(
-      new Set(['src/valid.ts'])
+      new Set(['valid|@|src/valid.ts'])
     );
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
   });
 
-  it('salvages valid string entries from top-level persisted arrays', async () => {
+  it('salvages canonical entries from top-level persisted arrays and reports corruption', async () => {
     const storage = new MemoryStorageAdapter();
     await seedPersistedState(storage, {
       ...validSerializedState,
-      selectedFilePaths: ['src/index.ts', null],
+      selectedFilePaths: ['root-1|@|src/index.ts', null],
     });
 
     const store = await createHydratedStore(storage);
 
-    expect(store.getState().selectedFilePaths).toEqual(new Set(['src/index.ts']));
-    expect(store.getState().persistenceRecoveryNotice).toBeNull();
+    expect(store.getState().selectedFilePaths).toEqual(new Set(['root-1|@|src/index.ts']));
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
+  it('drops malformed persisted selection keys and records a visible discard notice', async () => {
+    const storage = new MemoryStorageAdapter();
+    await seedPersistedState(storage, {
+      ...validSerializedState,
+      selectedFilePaths: [
+        'root-1|@|src/index.ts',
+        'persisted-path-without-prefix',
+        '|@|src/missing-root.ts',
+        'root-1|@|',
+      ],
+    });
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().selectedFilePaths).toEqual(new Set(['root-1|@|src/index.ts']));
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
   });
 
   it('does not record a discard notice when no persisted state exists', async () => {

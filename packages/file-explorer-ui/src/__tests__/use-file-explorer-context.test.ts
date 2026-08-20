@@ -165,6 +165,8 @@ describe('useFileExplorer (context)', () => {
       persistenceRecoveryNotice: null,
       querySelectionManifest: null,
       quickFilter: '',
+      reconcileSelectionWithDirectorySnapshot: vi.fn(),
+      reconcileSelectionWithDirectorySnapshots: vi.fn(),
       removeActiveRoot: vi.fn(),
       removeMultipleSelectedFiles: vi.fn(),
       removeSelectedFile: vi.fn(),

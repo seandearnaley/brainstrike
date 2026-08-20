@@ -7,8 +7,8 @@
 /**
  * Process items with limited concurrency.
  *
- * Processes items in chunks where each chunk runs in parallel,
- * but chunks are processed sequentially to limit concurrent operations.
+ * Runs a work-conserving pool: whenever one worker settles, it immediately
+ * claims the next item without waiting for unrelated in-flight peers.
  *
  * @param items - Items to process
  * @param concurrency - Maximum number of concurrent operations
@@ -25,17 +25,49 @@
  * ```
  */
 export async function runWithConcurrency<T, R>(
-  items: T[],
+  items: readonly T[],
   concurrency: number,
   fn: (item: T) => Promise<R>
 ): Promise<R[]> {
-  const results: R[] = [];
+  if (!(Number.isInteger(concurrency) && concurrency > 0)) {
+    throw new RangeError('Concurrency must be a positive integer');
+  }
+  if (items.length === 0) {
+    return [];
+  }
 
-  // Process items in chunks of concurrency size
-  for (let i = 0; i < items.length; i += concurrency) {
-    const chunk = items.slice(i, i + concurrency);
-    const chunkResults = await Promise.all(chunk.map(fn));
-    results.push(...chunkResults);
+  const results = new Array<R>(items.length);
+  let failed = false;
+  let firstError: unknown;
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (!failed) {
+        // Claim synchronously before awaiting: JavaScript execution cannot
+        // interleave between the read and increment, so every worker receives
+        // one unique index without a lock.
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) {
+          return;
+        }
+        const item = items[index] as T;
+        try {
+          results[index] = await fn(item);
+        } catch (error) {
+          if (!failed) {
+            failed = true;
+            firstError = error;
+          }
+        }
+      }
+    })
+  );
+
+  if (failed) {
+    throw firstError;
   }
 
   return results;

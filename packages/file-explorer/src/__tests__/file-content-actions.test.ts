@@ -31,6 +31,8 @@ function createTestStore() {
     getFileContent: vi.fn(),
     getFileContentCacheStats: vi.fn(),
     hydrateFolderState: vi.fn(),
+    reconcileSelectionWithDirectorySnapshot: vi.fn(),
+    reconcileSelectionWithDirectorySnapshots: vi.fn(),
     removeActiveRoot: vi.fn(),
     removeMultipleSelectedFiles: vi.fn(),
     removeSelectedFile: vi.fn(),

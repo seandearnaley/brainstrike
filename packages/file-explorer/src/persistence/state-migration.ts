@@ -1,5 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
+import { decodeFileSelection } from '../selection.js';
 import { FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
 
 interface ZustandPersistWrapper<T> {
@@ -47,6 +48,70 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
+}
+
+function recoverSelectionKeys(
+  value: unknown,
+  scope: 'folder' | 'selection-model' | 'top-level',
+  shouldLog: boolean,
+  onDiscard?: () => void
+): string[] {
+  if (!isArray(value)) {
+    if (value !== undefined) {
+      onDiscard?.();
+      if (shouldLog) {
+        logger.debug('Migrate - Recovered malformed persisted selection key collection.', {
+          scope,
+        });
+      }
+    }
+    return [];
+  }
+
+  const validKeys: string[] = [];
+  let droppedKeyCount = 0;
+  for (const key of value) {
+    if (typeof key !== 'string') {
+      droppedKeyCount += 1;
+      continue;
+    }
+    try {
+      decodeFileSelection(key);
+      validKeys.push(key);
+    } catch {
+      droppedKeyCount += 1;
+    }
+  }
+
+  if (droppedKeyCount > 0) {
+    onDiscard?.();
+    if (shouldLog) {
+      logger.debug('Migrate - Recovered malformed persisted selection keys.', {
+        droppedKeyCount,
+        scope,
+      });
+    }
+  }
+  return validKeys;
+}
+
+function recoverSelectionModel(
+  value: unknown,
+  shouldLog: boolean,
+  onDiscard?: () => void
+): unknown {
+  if (!isRecord(value)) {
+    return value;
+  }
+  return {
+    ...value,
+    explicitPaths: recoverSelectionKeys(
+      value['explicitPaths'],
+      'selection-model',
+      shouldLog,
+      onDiscard
+    ),
+  };
 }
 
 function hasArrayContainer(value: Record<string, unknown>, key: string): boolean {
@@ -144,9 +209,13 @@ export function validateAndRecoverSerializedState(
       ? candidate['folderAccessOrder']
       : [],
     folderStates,
-    selectedFilePaths: isArray(candidate['selectedFilePaths'])
-      ? candidate['selectedFilePaths']
-      : [],
+    selectedFilePaths: recoverSelectionKeys(
+      isArray(candidate['selectedFilePaths']) ? candidate['selectedFilePaths'] : [],
+      'top-level',
+      shouldLog,
+      onDiscard
+    ),
+    selectionModel: recoverSelectionModel(candidate['selectionModel'], shouldLog, onDiscard),
   } as unknown as SerializedState;
   if (hadMalformedTopLevelContainer) {
     onDiscard?.();
@@ -154,13 +223,28 @@ export function validateAndRecoverSerializedState(
       logger.debug('Migrate - Recovered malformed top-level state containers.');
     }
   }
-  const validFolderStates = Object.fromEntries(
+  const shapeValidFolderStates = Object.fromEntries(
     Object.entries(folderStates).filter(([, folderState]) =>
       looksLikeSerializedFolderState(folderState)
     )
   ) as SerializedState['folderStates'];
   const droppedFolderStateCount =
-    Object.keys(folderStates).length - Object.keys(validFolderStates).length;
+    Object.keys(folderStates).length - Object.keys(shapeValidFolderStates).length;
+  const validFolderStates = Object.fromEntries(
+    Object.entries(shapeValidFolderStates).map(([folderId, folderState]) => [
+      folderId,
+      {
+        ...folderState,
+        selectedFilePaths: recoverSelectionKeys(
+          folderState.selectedFilePaths,
+          'folder',
+          shouldLog,
+          onDiscard
+        ),
+        selectionModel: recoverSelectionModel(folderState.selectionModel, shouldLog, onDiscard),
+      },
+    ])
+  ) as SerializedState['folderStates'];
   const validFolderIds = new Set(Object.keys(validFolderStates));
   const normalizedCurrentFolderId =
     recoveredState.currentFolderId && validFolderIds.has(recoveredState.currentFolderId)

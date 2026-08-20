@@ -8,7 +8,12 @@
  * eliminating duplicate O(N) tree traversals across features.
  */
 
+import {
+  getSelectionAncestorDirectories,
+  getSelectionProjectionPaths,
+} from '@brainstrike/file-explorer';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { useEventCallback } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import {
   createContext,
@@ -33,6 +38,7 @@ import {
 import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { createEmptyNormalizedFileTreeState } from '../utils/normalized-file-tree';
 import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
+import { createSelectionProjectionRevisionTracker } from './selection-projection-revision';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
 import { useFileTreeRefreshEvents } from './use-file-tree-refresh-events';
 
@@ -195,6 +201,44 @@ export function FileTreeProvider({
   // as IFileNode.rootFolderId (both resolved via the same getRootFolderId lookup).
   const currentRootPath = rootDirectoryHandle?.path ?? null;
   const currentRootIndexKey = rootId ?? currentRootPath;
+  const reconcileSelectionWithDirectorySnapshot = useEventCallback(
+    (snapshotRootId: string, directoryPath: string, entries: readonly IFileNode[]): void => {
+      store
+        .getState()
+        .reconcileSelectionWithDirectorySnapshot(snapshotRootId, directoryPath, entries);
+    }
+  );
+  // Bind the batch owner at the render/event boundary. A sequential refresh
+  // can span multiple awaits; using a latest-value callback here would route
+  // already-completed root-A snapshots into root B after a same-path switch.
+  const reconcileSelectionWithDirectorySnapshots = useCallback(
+    (snapshots: readonly { directoryPath: string; entries: readonly IFileNode[] }[]): void => {
+      if (!currentRootIndexKey || snapshots.length === 0) {
+        return;
+      }
+      store.getState().reconcileSelectionWithDirectorySnapshots(currentRootIndexKey, snapshots);
+    },
+    [currentRootIndexKey, store]
+  );
+  const getCurrentSelectionAncestorDirectories = useCallback((): readonly string[] => {
+    if (!(currentRootIndexKey && currentRootPath)) {
+      return [];
+    }
+    return getSelectionAncestorDirectories(store.getState(), currentRootIndexKey, currentRootPath);
+  }, [currentRootIndexKey, currentRootPath, store]);
+  const [selectionProjectionRevisionTracker] = useState(() =>
+    createSelectionProjectionRevisionTracker()
+  );
+  const getCurrentSelectionProjectionRevision = useCallback(
+    (): number =>
+      selectionProjectionRevisionTracker.read(
+        currentRootIndexKey,
+        currentRootIndexKey
+          ? getSelectionProjectionPaths(store.getState(), currentRootIndexKey)
+          : []
+      ),
+    [currentRootIndexKey, selectionProjectionRevisionTracker, store]
+  );
 
   // Refcounted folder registration replaces clear-on-identity-change: the
   // effect cleanup releases the OLD key (clearing its entries only when this
@@ -229,9 +273,10 @@ export function FileTreeProvider({
   const options = useMemo(() => {
     const base: {
       onNodesIndexed: typeof onNodesIndexed;
+      onRootRefreshSnapshot: typeof reconcileSelectionWithDirectorySnapshot;
       filterTreeFn?: typeof filterTreeFn;
       rootId?: string;
-    } = { onNodesIndexed };
+    } = { onNodesIndexed, onRootRefreshSnapshot: reconcileSelectionWithDirectorySnapshot };
     if (filterTreeFn) {
       base.filterTreeFn = filterTreeFn;
     }
@@ -239,7 +284,7 @@ export function FileTreeProvider({
       base.rootId = rootId;
     }
     return base;
-  }, [onNodesIndexed, filterTreeFn, rootId]);
+  }, [onNodesIndexed, reconcileSelectionWithDirectorySnapshot, filterTreeFn, rootId]);
 
   const fileTreeState = useFileTree(rootDirectoryHandle, options);
   // Storage v5: restoration uses rootId (UUID) when available so
@@ -279,8 +324,11 @@ export function FileTreeProvider({
   // RootSection providers react to them. See use-file-tree-refresh-events.ts.
   const refreshEventsNormalizedTreeRef =
     fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef;
-  useFileTreeRefreshEvents({
+  const refreshTreeWithSelection = useFileTreeRefreshEvents({
     getNormalizedTree: () => refreshEventsNormalizedTreeRef.current,
+    getSelectionAncestorDirectories: getCurrentSelectionAncestorDirectories,
+    getSelectionProjectionRevision: getCurrentSelectionProjectionRevision,
+    reconcileSelectionWithDirectorySnapshots,
     refreshDirectory: fileTreeState.refreshDirectory,
     refreshTree: fileTreeState.refreshTree,
     rootId: rootId ?? null,
@@ -337,8 +385,10 @@ export function FileTreeProvider({
     () => ({
       ...fileTreeState,
       ...restorationState,
+      refreshTree: refreshTreeWithSelection,
       rootDirectoryHandle,
     }),
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- fileTreeState and restorationState are intentionally fresh objects; every consumed leaf is enumerated below to preserve context identity.
     [
       fileTreeState.__internalGetDescendantFileCount,
       fileTreeState.__internalGetDescendantFilePaths,
@@ -367,7 +417,7 @@ export function FileTreeProvider({
       fileTreeState.loadingProgress?.loadingCount,
       fileTreeState.loadSpecificPaths,
       fileTreeState.refreshDirectory,
-      fileTreeState.refreshTree,
+      refreshTreeWithSelection,
       fileTreeState.selectAllRecursively,
       fileTreeState.selectFolderRecursively,
       fileTreeState.workerPortRef,

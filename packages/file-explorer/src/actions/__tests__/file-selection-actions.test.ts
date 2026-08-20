@@ -40,7 +40,7 @@ describe('file-selection-actions', () => {
       expect(updatedState?.selectedFilePaths).not.toBe(initialSet);
     });
 
-    it('should filter out invalid composite keys', () => {
+    it('should reject invalid composite keys without publishing a partial selection', () => {
       // Arrange
       const selectedFiles = new Set([
         'folder1|@|file1.ts',
@@ -51,24 +51,10 @@ describe('file-selection-actions', () => {
       ]);
       const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
 
-      // Act
-      fileSelectionActions.setSelectedFiles(selectedFiles);
-
-      // Assert
-      expect(mockSet).toHaveBeenCalledTimes(1);
-      // @ts-expect-error - TS struggles with mock call type narrowing
-      const arg = mockSet.mock.calls[0][0];
-
-      let updatedState: Partial<FileExplorerState> | undefined;
-      if (typeof arg === 'function') {
-        updatedState = arg(createMockState({ selectedFilePaths: new Set<string>() }));
-      } else {
-        updatedState = arg as Partial<FileExplorerState>;
-      }
-
-      expect(updatedState).toBeDefined();
-      expect(updatedState?.selectedFilePaths).toEqual(new Set(['folder1|@|file1.ts']));
-      expect(updatedState?.selectedFilePaths?.has('invalid-key')).toBe(false);
+      expect(() => fileSelectionActions.setSelectedFiles(selectedFiles)).toThrow(
+        'Invalid composite key format'
+      );
+      expect(mockSet).not.toHaveBeenCalled();
     });
 
     it('should handle empty sets', () => {

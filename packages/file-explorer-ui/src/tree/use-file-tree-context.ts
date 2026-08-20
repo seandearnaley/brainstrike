@@ -19,9 +19,13 @@ import type React from 'react';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
 import type { SelectAllOptions } from '../hooks/use-recursive-select-all';
 import type { NormalizedFileTreeState } from '../utils/normalized-file-tree';
-import { type FileTreeRefreshResult, useLazyFileTree } from './use-lazy-file-tree';
+import {
+  type FileTreeDirectorySnapshot,
+  type FileTreeRefreshResult,
+  useLazyFileTree,
+} from './use-lazy-file-tree';
 
-export type { FileTreeRefreshResult };
+export type { FileTreeDirectorySnapshot, FileTreeRefreshResult };
 
 /**
  * Simplified loading progress state for lazy loading.
@@ -83,13 +87,17 @@ export interface CancellableFileTreeHook {
   /** Set of paths currently loading their children (for UI feedback) */
   loadingPaths: Set<string>;
   loadingProgress: LoadingProgressState;
-  /** Load specific paths using worker (for restoration) */
+  /**
+   * Load specific paths for restoration. Non-abort worker, patch, and serial
+   * read failures update the visible tree error and reject; callers must
+   * handle the rejection so a failed restoration remains retryable.
+   */
   loadSpecificPaths: (
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
   /** Refresh a specific directory */
-  refreshDirectory: (path: string) => Promise<void>;
+  refreshDirectory: (path: string) => Promise<FileTreeDirectorySnapshot | null>;
   refreshTree: () => Promise<FileTreeRefreshResult>;
   /**
    * Select all files in the provided tree, loading if needed.
@@ -139,6 +147,17 @@ export interface UseFileTreeOptions {
    * @param parentPath - The parent path, or null for root-level nodes
    */
   onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
+
+  /**
+   * Receives each complete directory enumeration before display filtering.
+   * Selection owners use this authoritative boundary to remove keys whose
+   * direct child vanished without scanning the full lazy tree.
+   */
+  onRootRefreshSnapshot?: (
+    rootFolderId: string,
+    directoryPath: string,
+    entries: readonly IFileNode[]
+  ) => void;
 
   /**
    * Durable RootId UUID for this root (storage v5).
