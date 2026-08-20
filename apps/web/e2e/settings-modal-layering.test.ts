@@ -220,6 +220,15 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
    * enters `:active` and measures correctly even on the broken build.
    */
   test('the open listbox is bound to its trigger, not to a scaled phantom', async ({ page }) => {
+    // Pinned because `side` and the offset below are viewport-dependent, and
+    // the config sets no viewport (so this would otherwise run at Playwright's
+    // 1280x720 default). Radix flips the popper to `side="top"` when the space
+    // under the trigger cannot hold the listbox; at 900px tall the trigger sits
+    // ~450px from the bottom with a 74px listbox, so `bottom` is not marginal.
+    // These are also the exact conditions every number in this spec's comment
+    // and in the PR's before/after table was measured under.
+    await page.setViewportSize({ height: 900, width: 1440 });
+
     await openSearchIndexingCategory(page);
 
     const trigger = page.getByRole('combobox', { name: 'Indexing policy' });

@@ -58,14 +58,9 @@ describe('kinetic press effect vs popup anchors', () => {
   it('never applies while the trigger is an open popup anchor', () => {
     const selector = pressEffectSelector();
 
-    // Radix sets `aria-expanded` on comboboxes and `data-state` on every
-    // floating trigger, so these two cover Select, Popover, DropdownMenu and
-    // ContextMenu without naming any component.
-    expect(
-      selector,
-      'The press effect must not apply while a popup is open — a transform on the anchor is ' +
-        'what Floating UI measures. Keep `:not([aria-expanded="true"])` in the selector.'
-    ).toContain(':not([aria-expanded="true"])');
+    // Every Radix floating trigger — Select, Popover, DropdownMenu,
+    // ContextMenu, Tooltip — sets `data-state`, so this one clause covers them
+    // all without naming a component.
     expect(
       selector,
       'The press effect must not apply while a popup is open — a transform on the anchor is ' +
@@ -73,15 +68,28 @@ describe('kinetic press effect vs popup anchors', () => {
     ).toContain(':not([data-state="open"])');
   });
 
-  it('still applies to ordinary buttons', () => {
+  it('still applies to ordinary buttons and to plain disclosure toggles', () => {
     const selector = pressEffectSelector();
 
-    // The point of scoping the exclusions to the OPEN state rather than
-    // dropping the effect from popup triggers outright: an ordinary button, and
-    // the click that DISMISSES a popup, both keep their press feedback.
+    // Scoping to the OPEN state rather than dropping the effect from popup
+    // triggers outright is what keeps the press feedback on an ordinary button
+    // and on the click that DISMISSES a popup.
     expect(selector).not.toContain(':not(button)');
     expect(selector).not.toContain(':not([aria-haspopup])');
     expect(selector).toContain(':not(.no-depress)');
+
+    // A bare `aria-expanded` exclusion is the specific over-reach to avoid.
+    // `Button` defaults to `depress`, so excluding every expandable element
+    // silently kills the press affordance on plain disclosure toggles —
+    // tree-row expand chevrons, ide-layout's hide-panel buttons — in one of
+    // their two states, buying nothing for the anchor defect. If a non-Radix
+    // combobox ever needs cover, scope it to `[role="combobox"]`.
+    expect(
+      selector,
+      'Do not exclude every `[aria-expanded="true"]` element: `data-state` already covers every ' +
+        'Radix floating trigger, and this clause disables the press effect on ~14 plain ' +
+        'disclosure buttons that never anchor a popup.'
+    ).not.toContain(':not([aria-expanded="true"])');
   });
 
   it('keeps the transition on a selector that cannot fight the exclusions', () => {

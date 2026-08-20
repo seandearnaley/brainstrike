@@ -593,10 +593,16 @@ and 11px inside the field's left edge.
 Rules:
 
 - The press effect is suppressed while a trigger is an OPEN popup anchor, via
-  `:not([aria-expanded="true"]):not([data-state="open"])` in that `:active`
-  rule. Do not remove those exclusions. Do not "fix" a misaligned popup by
-  nudging `sideOffset` or `align` — that hides a measurement bug behind a
-  cosmetic constant.
+  `:not([data-state="open"])` in that `:active` rule. Do not remove it. Do not
+  "fix" a misaligned popup by nudging `sideOffset` or `align` — that hides a
+  measurement bug behind a cosmetic constant.
+- `data-state` is the whole condition on purpose. Every Radix floating trigger
+  sets it, and the repo has no non-Radix floating anchors. Do NOT widen it to
+  `[aria-expanded="true"]`: `Button` defaults to `depress`, so that clause kills
+  the press affordance on ~14 plain disclosure toggles — tree-row expand
+  chevrons, ide-layout's hide-panel buttons (dead outright, since they render
+  only while expanded) — and buys nothing for this defect. A non-Radix combobox
+  would be scoped as `[role="combobox"][aria-expanded="true"]`.
 - Do not add any other transform, `zoom`, or `scale` to an element that anchors
   a floating layer, and do not wrap one in a transformed container.
 - A keyboard-opened popup measures correctly even when the defect is present

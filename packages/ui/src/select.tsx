@@ -54,12 +54,19 @@ SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
  * a combo box. shadcn shipped `popper` as its own default until Dec 2025 and
  * still ships every popper style rule below; only the default flipped.
  *
- * `min-w-(--radix-select-trigger-width)` on the CONTENT is Radix's documented
- * "constrain the content size" recipe (their example uses `width`; `min-width`
- * keeps long option labels from truncating in narrow triggers). It replaces
- * shadcn's `min-w` on the Viewport, which sizes the inner box and therefore
- * overhangs the trigger by the content's 2px border. Do not also set it on the
- * Viewport — the two fight and clip the right edge of every item.
+ * The CONTENT min-width is Radix's documented "constrain the content size"
+ * recipe (their example uses `width`; `min-width` keeps long option labels
+ * from truncating in narrow triggers). It replaces shadcn's `min-w` on the
+ * Viewport, which sizes the inner box and therefore overhangs the trigger by
+ * the content's 2px border. Do not also set it on the Viewport — the two fight
+ * and clip the right edge of every item.
+ *
+ * It is `max(8rem, …)` rather than the bare variable because `cn` is
+ * `twMerge`: a second `min-w-*` in the same call REPLACES the base
+ * `min-w-[8rem]` rather than stacking with it, which would have handed every
+ * narrow trigger a listbox narrower than the 8rem floor its sibling primitives
+ * keep (`dropdown-menu.tsx`, `context-menu.tsx`). Measured case: db-explorer's
+ * `w-[5.5rem]` token-cap preset trigger, 88px.
  *
  * The Viewport's `h-[var(--radix-select-trigger-height)]` from shadcn is
  * dropped: Radix sets `flex: 1` inline on the Viewport and popper content is a
@@ -82,7 +89,7 @@ const SelectContent = ({
         'data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 relative max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-y-auto overflow-x-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=closed]:animate-out data-[state=open]:animate-in',
         POPUP_LAYER_CLASS,
         position === 'popper' &&
-          'min-w-(--radix-select-trigger-width) data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1',
+          'min-w-[max(8rem,var(--radix-select-trigger-width))] data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1',
         className
       )}
       data-slot="select-content"

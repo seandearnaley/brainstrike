@@ -405,9 +405,9 @@
   /*
    * Subtle press effect for specifically marked kinetic elements.
    *
-   * The `[aria-expanded="true"]` / `[data-state="open"]` exclusions are load
-   * bearing, not cosmetic. Radix opens a Select, Popover, DropdownMenu or
-   * ContextMenu on POINTERDOWN — while the button is still held, so still
+   * The `[data-state="open"]` exclusion is load bearing, not cosmetic. Radix
+   * opens a Select, Popover, DropdownMenu or ContextMenu on POINTERDOWN —
+   * while the button is still held, so still
    * `:active`, so still scaled by this rule. Floating UI positions the popup
    * from `getBoundingClientRect()` on that trigger, which INCLUDES transforms,
    * and publishes the result as `--radix-popper-anchor-width/height`. It never
@@ -425,10 +425,23 @@
    * Suppressing only while OPEN keeps the press feedback on every ordinary
    * button, and on the click that DISMISSES a popup — the state has already
    * flipped back to closed by then, and a dismiss measures nothing.
+   *
+   * `data-state` is the whole condition, deliberately: every Radix floating
+   * trigger sets it, and the repo has no non-Radix floating anchors (zero
+   * direct `@floating-ui` / `useFloating` call sites). An earlier revision also
+   * excluded `[aria-expanded="true"]`, which added nothing here and cost real
+   * affordance — `Button` defaults to `depress`, so it silently killed the
+   * press effect on plain disclosure toggles across ~14 call sites, including
+   * the expand chevron on every expanded tree row
+   * (`tree-table/tree-table-row.tsx`) and `layout/ide-layout.tsx`'s hide-panel
+   * buttons, which render only while expanded and were therefore dead outright.
+   * If a non-Radix combobox ever needs cover, scope it to popup anchors
+   * (`:not([role="combobox"][aria-expanded="true"])`), never to everything that
+   * can expand.
    */
   .kinetic-depress:not(:disabled):not([aria-disabled="true"]):not(.no-depress):not(
-      [aria-expanded="true"]
-    ):not([data-state="open"]):active {
+      [data-state="open"]
+    ):active {
     transform: scale(0.97);
   }
 
