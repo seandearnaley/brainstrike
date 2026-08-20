@@ -53,8 +53,11 @@ Ownership and flow:
   provider remain available, but old-provider model settings must not leak into the new provider.
   On a same-provider change, explicit per-thread model settings win over provider defaults, and
   explicit settings stored on the prompt win over both.
-  Workbench edits preserve stored rating and model settings until dedicated controls expose an
-  explicit way to change them; changing the structured model key must not erase legacy settings.
+  Workbench edits preserve stored ratings and expose the five canonical runtime model settings
+  (`temperature`, `topP`, `maxOutputTokens`, `frequencyPenalty`, `presencePenalty`) in a collapsed
+  Advanced section. Saving replaces only those editable keys, preserves other stored settings,
+  and canonicalizes legacy `maxTokens` to `maxOutputTokens`; changing the structured model key must
+  not erase model settings.
   Rendered prompt text must be validated as non-whitespace before runtime selection, thread
   creation, composer staging, or usage writes. Composer context mirrors assistant-ui's authoritative
   state, including programmatic send/reset clears; never derive it only from textarea DOM events.
