@@ -565,3 +565,82 @@ Two traps worth knowing before you debug this class of bug again:
 When changing this scale, update this section and `layers.test.ts` together.
 
 ---
+
+## FLOATING LAYER ANCHORING
+
+Stacking (above) decides what a popup paints *over*. This section is the other
+half: what it is *measured against*.
+
+Radix positions Select/Popover/DropdownMenu/ContextMenu content with Floating
+UI, which measures the trigger via `getBoundingClientRect()` and publishes the
+result as `--radix-popper-anchor-width` / `--radix-popper-anchor-height` (Select
+re-namespaces these to `--radix-select-trigger-*`).
+
+**A transform on a trigger corrupts every popup it opens.** `getBoundingClientRect()`
+includes transforms; `ResizeObserver` does not fire for them; and Radix's default
+`updatePositionStrategy` is `optimized`, so there is no per-frame re-measure. The
+popup therefore stays sized and placed from whatever the trigger looked like at
+the instant it opened, for as long as it is open.
+
+That instant is POINTERDOWN — Radix opens on pointerdown, not click, so the
+trigger is still `:active`. `packages/ui/src/globals.css` applies
+`transform: scale(0.97)` to `.kinetic-depress:active`, and `SelectTrigger`
+carries that class. Measured on the 718x40 "Indexing policy" trigger in the
+Settings modal at 1440x900: the anchor was published as 696.46 x 38.80 —
+718 x 0.97 and 40 x 0.97 exactly — and the listbox rendered 21.5px too narrow
+and 11px inside the field's left edge.
+
+Rules:
+
+- The press effect is suppressed while a trigger is an OPEN popup anchor, via
+  `:not([aria-expanded="true"]):not([data-state="open"])` in that `:active`
+  rule. Do not remove those exclusions. Do not "fix" a misaligned popup by
+  nudging `sideOffset` or `align` — that hides a measurement bug behind a
+  cosmetic constant.
+- Do not add any other transform, `zoom`, or `scale` to an element that anchors
+  a floating layer, and do not wrap one in a transformed container.
+- A keyboard-opened popup measures correctly even when the defect is present
+  (no `:active`), so reproduce and assert with a REAL mouse press.
+
+Guards: `packages/ui/src/__tests__/kinetic-depress-popup-anchors.test.ts` pins
+the selector; the geometry assertion in
+`apps/web/e2e/settings-modal-layering.test.ts` ("bound to its trigger, not to a
+scaled phantom") pins the rendered result in a real browser.
+
+`SelectContent` defaults to `position="popper"`. Radix's other mode,
+`item-aligned`, paints the selected option ON TOP of the trigger and does not
+expose `--radix-select-trigger-width` at all, so a listbox cannot be bound to
+its field in that mode. shadcn shipped `popper` as its own default until
+Dec 2025 and still ships every popper style rule; only the default flipped.
+`min-w-(--radix-select-trigger-width)` belongs on the Content (Radix's
+documented "constrain the content size" recipe), not on the Viewport — on the
+Viewport it sizes the inner box and overhangs the trigger by the content's 2px
+border.
+
+---
+
+## TAILWIND SOURCE COVERAGE
+
+Tailwind v4 discovers utilities by scanning source TEXT. A workspace package
+whose `.tsx` never enters the scan emits NO CSS for any class only it uses, and
+nothing reports it: no missing import, no type error, no console warning. The
+classes just resolve to nothing.
+
+Convention: a package that writes Tailwind classes ships a package-local
+`styles.css` containing `@source "./src";`, exports it as `./styles.css`, and is
+imported — directly, or chained through another package's `styles.css` — from
+EVERY app CSS entrypoint that renders it (`apps/web/src/app/globals.css` and
+`apps/desktop/src/renderer/styles.css`).
+
+`packages/settings-ui` sat outside that scan with 102 `.tsx` files. Measured on
+the running renderer, 103 utilities produced no rule at all — every `sm:`/`md:`/
+`lg:`/`xl:` variant in Settings (so panels rendered their narrow branch at every
+width), `space-y-5`/`space-y-7`, the `w-[30%]`/`min-w-[800px]`/`h-[600px]`
+sizing set, the status color scale, and the provider brand-color custom-property
+bridge.
+
+Guard: `scripts/__tests__/tailwind-source-coverage.test.mjs` (runs in
+`pnpm test:scripts`, the Static CI job) walks every `packages/*` for `className=`
+and fails on any that is unreachable from either entrypoint.
+
+---
