@@ -199,6 +199,92 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
     await closeSettingsModal(page);
   });
 
+  /**
+   * Defect: the open listbox was bound to a PHANTOM of its trigger.
+   *
+   * `.kinetic-depress:active` puts `transform: scale(0.97)` on the Select
+   * trigger, and Radix opens on POINTERDOWN — while the button is still held,
+   * so still `:active`, so still scaled. Floating UI measures the anchor with
+   * `getBoundingClientRect()`, which includes transforms, and never re-measures
+   * (ResizeObserver ignores transforms; Radix's `updatePositionStrategy`
+   * defaults to `optimized`). Measured on the broken build at 1440x900:
+   * `--radix-select-trigger-width` was published as 696.46px against a 718px
+   * trigger — 718 x 0.97 exactly — and the listbox rendered 21.5px too narrow,
+   * inset 11px from the field's left edge.
+   *
+   * This asserts geometry rather than the CSS selector on purpose: the same
+   * misalignment returns from any transform on the anchor, from a switch back
+   * to `position="item-aligned"` (which does not expose the trigger width at
+   * all), or from a wrapper that establishes a new containing block. Clicking
+   * with a real mouse press is load bearing — a keyboard-opened listbox never
+   * enters `:active` and measures correctly even on the broken build.
+   */
+  test('the open listbox is bound to its trigger, not to a scaled phantom', async ({ page }) => {
+    // Pinned because `side` and the offset below are viewport-dependent, and
+    // the config sets no viewport (so this would otherwise run at Playwright's
+    // 1280x720 default). Radix flips the popper to `side="top"` when the space
+    // under the trigger cannot hold the listbox; at 900px tall the trigger sits
+    // ~450px from the bottom with a 74px listbox, so `bottom` is not marginal.
+    // These are also the exact conditions every number in this spec's comment
+    // and in the PR's before/after table was measured under.
+    await page.setViewportSize({ height: 900, width: 1440 });
+
+    await openSearchIndexingCategory(page);
+
+    const trigger = page.getByRole('combobox', { name: 'Indexing policy' });
+    await trigger.click();
+
+    const listbox = page.locator(SELECT_LISTBOX);
+    await expect(listbox).toBeVisible({ timeout: 15_000 });
+
+    const geometry = await page.evaluate((selector) => {
+      const content = document.querySelector(selector);
+      const anchor = document.querySelector('[data-slot="select-trigger"][aria-expanded="true"]');
+      if (!(content && anchor)) {
+        throw new Error('Expected an open listbox and an expanded trigger.');
+      }
+      const contentBox = content.getBoundingClientRect();
+      const anchorBox = anchor.getBoundingClientRect();
+      return {
+        anchorHeight: anchorBox.height,
+        anchorWidth: anchorBox.width,
+        gapBelowTrigger: contentBox.top - anchorBox.bottom,
+        leftDelta: contentBox.left - anchorBox.left,
+        publishedHeight: Number.parseFloat(
+          globalThis.getComputedStyle(content).getPropertyValue('--radix-select-trigger-height')
+        ),
+        publishedWidth: Number.parseFloat(
+          globalThis.getComputedStyle(content).getPropertyValue('--radix-select-trigger-width')
+        ),
+        side: content.getAttribute('data-side'),
+        widthDelta: contentBox.width - anchorBox.width,
+      };
+    }, SELECT_LISTBOX);
+
+    // The published anchor size must be the trigger's REAL size. A scaled
+    // measurement lands ~3% low, which these tolerances exclude while still
+    // absorbing sub-pixel layout rounding.
+    expect(
+      geometry.publishedWidth,
+      `Floating UI measured the trigger as ${geometry.publishedWidth}px against a real ${geometry.anchorWidth}px. A ~3% shortfall means the anchor was transformed when the popup opened; NaN means the listbox is not in popper mode and never published the variable at all.`
+    ).toBeCloseTo(geometry.anchorWidth, 0);
+    expect(geometry.publishedHeight).toBeCloseTo(geometry.anchorHeight, 0);
+
+    // Anchored under the field, flush with its left edge, never narrower.
+    expect(geometry.side).toBe('bottom');
+    expect(Math.abs(geometry.leftDelta)).toBeLessThanOrEqual(1);
+    // Two-sided: narrower is the item-aligned / scaled-anchor failure, wider is
+    // the Viewport `min-w` failure (the Viewport sizes the inner box, so the
+    // Content overhangs by its own 2px border).
+    expect(Math.abs(geometry.widthDelta)).toBeLessThanOrEqual(1);
+    expect(geometry.gapBelowTrigger).toBeGreaterThan(0);
+    expect(geometry.gapBelowTrigger).toBeLessThan(12);
+
+    await page.keyboard.press('Escape');
+    await expect(listbox).toHaveCount(0);
+    await closeSettingsModal(page);
+  });
+
   // Defect 2: the Log Viewer's "Details" dialog used to inherit the SAME
   // 50/51 tier as Settings, so its scrim painted UNDER the Settings panel and
   // dimmed only the page around it — the reported background "flash".

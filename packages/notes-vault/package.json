@@ -25,6 +25,7 @@
     "vitest": "catalog:"
   },
   "exports": {
+    "./styles.css": "./styles.css",
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"

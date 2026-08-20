@@ -13,6 +13,7 @@
 @import "@brainstrike/app-shell/styles.css";
 @import "@brainstrike/workspace-search/styles.css";
 @import "@brainstrike/db-explorer/styles.css";
+@import "@brainstrike/settings-ui/styles.css";
 @import "@brainstrike/ui/globals.css";
 @source "src/**/*.{ts,tsx}";
 
