@@ -3,12 +3,31 @@ import type * as React from 'react';
 
 import { cn } from './lib/utils';
 
+/**
+ * Which axes the viewport's content is allowed to size along.
+ *
+ * Radix wraps the viewport's children in a `min-width: 100%; display: table`
+ * div so content can grow past the viewport and scroll horizontally. A table
+ * box takes its content's min-content width, so children are laid out at full
+ * content width and never see a shortfall — `flex-1` has nothing to shrink and
+ * `truncate` never ellipsises, leaving rows to overflow the panel instead.
+ *
+ * - `both` (default) keeps that behaviour for content that genuinely scrolls
+ *   sideways, such as diffs and wide tables.
+ * - `vertical` forces the wrapper back to a block box, constraining content to
+ *   the viewport width. Radix sets `display` inline, so `!important` is the
+ *   only way to override it.
+ */
+export type ScrollAreaAxis = 'both' | 'vertical';
+
 const ScrollArea = ({
+  axis = 'both',
   className,
   children,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & {
+  axis?: ScrollAreaAxis;
   ref?: React.RefObject<HTMLDivElement | null>;
 }) => (
   <ScrollAreaPrimitive.Root
@@ -18,7 +37,11 @@ const ScrollArea = ({
     {...props}
   >
     <ScrollAreaPrimitive.Viewport
-      className="size-full rounded-[inherit] outline-hidden transition-[color,box-shadow] focus-visible:outline-1 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      className={cn(
+        'size-full rounded-[inherit] outline-hidden transition-[color,box-shadow] focus-visible:outline-1 focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        // `& > div` is the content wrapper Radix renders inside every viewport.
+        axis === 'vertical' && '[&>div]:!block'
+      )}
       data-slot="scroll-area-viewport"
     >
       {children}

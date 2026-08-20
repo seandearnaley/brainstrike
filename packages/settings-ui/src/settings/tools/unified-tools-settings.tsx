@@ -785,7 +785,7 @@ function ToolsAccordionList({
       key={errorBoundaryKey}
       onReset={onErrorBoundaryReset}
     >
-      <ScrollArea className="max-h-[600px]">
+      <ScrollArea axis="vertical" className="max-h-[600px]">
         <Accordion defaultValue={defaultExpandedGroups} type="multiple">
           {toolGroups.map((group) => {
             const serverName = group.source === 'mcp' ? group.serverName : undefined;
