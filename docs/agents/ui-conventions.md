@@ -613,6 +613,34 @@ the selector; the geometry assertion in
 `apps/web/e2e/settings-modal-layering.test.ts` ("bound to its trigger, not to a
 scaled phantom") pins the rendered result in a real browser.
 
+### Layer registration is not synchronous
+
+`DismissableLayer` keeps its stack in a module-level `Set` that it mutates in an
+EFFECT but reads during RENDER, so a freshly mounted layer paints one frame at
+`index === -1`. Radix writes its verdict as an INLINE `pointer-events` style on
+each layer node: `none` for a layer that is not (yet) the registered top, `auto`
+for one that is, and nothing at all while no layer disables outside pointer
+events.
+
+Keyboard dismissal keys off the same stack, so an Escape inside that window is
+routed to the layer UNDERNEATH the one just opened — in Settings that closes the
+modal and unmounts the nested surface with it. Measured on
+`settings-modal-layering`: the pre-settle snapshot appeared in 3 of 6 runs and
+correlated exactly with the failure. The window is ~20ms.
+
+E2E waits on this with `waitForFloatingLayerStack(page, targetSelector)` in
+`apps/web/e2e/utils/layout-helpers.ts`. Two rules if you extend it:
+
+- Read the INLINE style, never the computed one. Computed is not a registration
+  signal — `model-picker.tsx` hardcodes `pointer-events-auto` on its
+  PopoverContent, and a `portal={false}` layer inherits its ancestor dialog's
+  value.
+- Do not assert a shape across the whole stack ("topmost `auto`, everything
+  beneath `none`"). That only holds when every layer is modal. `Popover` is a
+  bare `PopoverPrimitive.Root` (Radix default `modal={false}`), so it never
+  disables outside pointer events and the dialog beneath it stays `auto`
+  forever. Key off the target layer alone.
+
 `SelectContent` defaults to `position="popper"`. Radix's other mode,
 `item-aligned`, paints the selected option ON TOP of the trigger and does not
 expose `--radix-select-trigger-width` at all, so a listbox cannot be bound to
