@@ -2,7 +2,12 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
-import { closeSettingsModal, openSettingsModal, waitForSettingsPage } from './utils/layout-helpers';
+import {
+  closeSettingsModal,
+  openSettingsModal,
+  waitForFloatingLayerStack,
+  waitForSettingsPage,
+} from './utils/layout-helpers';
 
 /**
  * Regression cover for BST-963.
@@ -163,6 +168,7 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
     // resolve to zero matches and time out (see utils/layout-helpers.ts).
     const listbox = page.locator(SELECT_LISTBOX);
     await expect(listbox).toBeVisible({ timeout: 15_000 });
+    await waitForFloatingLayerStack(page);
 
     const occluders = await occludersOverListbox(page, SELECT_LISTBOX);
 
@@ -186,6 +192,7 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
     await trigger.click();
     const listbox = page.locator(SELECT_LISTBOX);
     await expect(listbox).toBeVisible({ timeout: 15_000 });
+    await waitForFloatingLayerStack(page);
 
     const panelZ = await computedZIndex(page, SETTINGS_PANEL);
     const listboxZ = await computedZIndex(page, SELECT_LISTBOX);
@@ -236,6 +243,7 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
 
     const listbox = page.locator(SELECT_LISTBOX);
     await expect(listbox).toBeVisible({ timeout: 15_000 });
+    await waitForFloatingLayerStack(page);
 
     const geometry = await page.evaluate((selector) => {
       const content = document.querySelector(selector);
@@ -306,6 +314,7 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
 
     const panels = page.locator(SETTINGS_PANEL);
     await expect(panels).toHaveCount(2, { timeout: 15_000 });
+    await waitForFloatingLayerStack(page);
 
     const layering = await page.evaluate(() => {
       const zOf = (node: Element) => Number(globalThis.getComputedStyle(node).zIndex);
@@ -342,6 +351,7 @@ test.describe('Settings modal layering @stateful @web-settings-state', () => {
     await expect(trigger).toContainText('Balanced');
 
     await trigger.click();
+    await waitForFloatingLayerStack(page);
     await page.getByRole('option', { name: 'Full root' }).click();
 
     await expect(trigger).toContainText('Full root');

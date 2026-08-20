@@ -538,6 +538,81 @@ export async function assertSettingsModalClosed(page: Page, caller: string): Pro
   }
 }
 
+/**
+ * Every Radix floating surface that participates in the DismissableLayer stack,
+ * in the order they portal to `document.body` (mount order, so the last match
+ * in document order is the topmost layer).
+ */
+const FLOATING_LAYER_SELECTOR = [
+  '[data-slot="dialog-content"]',
+  '[data-slot="select-content"]',
+  '[data-slot="popover-content"]',
+  '[data-slot="dropdown-menu-content"]',
+].join(', ');
+
+/**
+ * Waits until Radix has finished registering the topmost floating layer.
+ *
+ * `DismissableLayer` keeps its layer stack in a module-level `Set` that is
+ * mutated in an EFFECT, but reads it during RENDER to decide each layer's
+ * `pointer-events`. A newly mounted layer therefore paints one frame with
+ * `index === -1` — `pointer-events: none` on the layer that just opened, and a
+ * stale `auto` on the one beneath it — until Radix's own update dispatch forces
+ * both to re-render. Keyboard dismissal keys off the same stack, so an Escape
+ * inside that window is routed to the layer UNDERNEATH the one the test just
+ * opened. In Settings that closes the whole modal and unmounts the nested
+ * dialog with it: both panels vanish, and the assertion sees zero.
+ *
+ * Measured on `settings-modal-layering`: the inverted snapshot appeared in 3 of
+ * 6 runs and correlated exactly with the failure (Settings `auto` -> fail,
+ * Settings `none` -> pass). Waiting for the stack to settle first passed 4 of
+ * 4, including one run whose pre-wait snapshot was inverted.
+ *
+ * This is a readiness condition, not a sleep: a stack that never settles is a
+ * REAL layer-ownership bug (a height cap on `DialogContent` does it — see
+ * `docs/agents/ui-conventions.md`), so this throws with the measured state
+ * rather than letting the caller time out somewhere less informative.
+ */
+export async function waitForFloatingLayerStack(page: Page, timeout = 5000): Promise<void> {
+  try {
+    await page.waitForFunction(
+      (selector: string) => {
+        const layers = Array.from(document.querySelectorAll(selector));
+        if (layers.length === 0) {
+          return false;
+        }
+        const pointerEvents = layers.map(
+          (layer) => globalThis.getComputedStyle(layer).pointerEvents
+        );
+        return (
+          pointerEvents.at(-1) === 'auto' &&
+          pointerEvents.slice(0, -1).every((value) => value === 'none')
+        );
+      },
+      FLOATING_LAYER_SELECTOR,
+      { timeout }
+    );
+  } catch {
+    const measured = await page.evaluate(
+      (selector: string) =>
+        Array.from(document.querySelectorAll(selector)).map((layer) => ({
+          pointerEvents: globalThis.getComputedStyle(layer).pointerEvents,
+          slot: layer.getAttribute('data-slot'),
+          zIndex: globalThis.getComputedStyle(layer).zIndex,
+        })),
+      FLOATING_LAYER_SELECTOR
+    );
+
+    throw new Error(
+      `Radix's floating layer stack never settled within ${timeout}ms. The topmost layer must own ` +
+        `pointer-events ("auto") and every layer beneath it must be "none". Measured: ${JSON.stringify(measured)}. ` +
+        'A PERMANENT inversion here is a real defect, not a timing problem — the usual cause is a ' +
+        'height cap on DialogContent, which is the DismissableLayer host (docs/agents/ui-conventions.md, ' +
+        'FLOATING LAYER ANCHORING).'
+    );
+  }
+}
+
 export async function openSettingsModal(page: Page): Promise<void> {
   const expect = await getPlaywrightExpect();
 
