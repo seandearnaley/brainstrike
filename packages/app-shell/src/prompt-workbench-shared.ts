@@ -27,6 +27,30 @@ export interface PromptDraft {
 
 export const PROMPT_KINDS: readonly PromptItemKind[] = ['fragment', 'snippet', 'prompt'];
 
+export const PROMPT_EDITABLE_MODEL_SETTING_KEYS = [
+  'frequencyPenalty',
+  'maxOutputTokens',
+  'maxTokens',
+  'presencePenalty',
+  'temperature',
+  'topP',
+] as const;
+
+export const PROMPT_MODEL_SETTING_KEYS: ReadonlySet<string> = new Set([
+  ...PROMPT_EDITABLE_MODEL_SETTING_KEYS,
+  'model',
+]);
+
+export const PROMPT_MODEL_SETTING_LIMITS = {
+  frequencyPenalty: { max: 2, min: -2, step: 'any' },
+  maxOutputTokens: { integer: true, min: 1, step: '1' },
+  presencePenalty: { max: 2, min: -2, step: 'any' },
+  temperature: { max: 2, min: 0, step: 'any' },
+  topP: { max: 1, min: 0, step: 'any' },
+} as const;
+
+type PromptModelSettingLimitKey = keyof typeof PROMPT_MODEL_SETTING_LIMITS;
+
 export const KIND_COPY: Record<PromptItemKind, { label: string; short: string }> = {
   fragment: { label: 'Idea fragment', short: 'Fragment' },
   prompt: { label: 'Runnable prompt', short: 'Prompt' },
@@ -67,28 +91,39 @@ export function toModelSettingsDraft(
   };
 }
 
+export function requirePromptModelSettingNumber(
+  value: unknown,
+  field: string,
+  limitKey: PromptModelSettingLimitKey
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Prompt model setting "${field}" must be a finite number.`);
+  }
+  const limits = PROMPT_MODEL_SETTING_LIMITS[limitKey];
+  if ('integer' in limits && (!Number.isInteger(value) || value < limits.min)) {
+    throw new Error(`Prompt model setting "${field}" must be a positive integer.`);
+  }
+  if ('max' in limits && (value < limits.min || value > limits.max)) {
+    throw new Error(
+      `Prompt model setting "${field}" must be between ${limits.min} and ${limits.max}.`
+    );
+  }
+  if (!('max' in limits) && value < limits.min) {
+    throw new Error(`Prompt model setting "${field}" must be at least ${limits.min}.`);
+  }
+  return value;
+}
+
 function parseDraftNumber(
   value: string,
   field: string,
-  bounds: { readonly integer?: boolean; readonly max?: number; readonly min?: number }
+  limitKey: PromptModelSettingLimitKey
 ): number | undefined {
   if (!value.trim()) {
     return;
   }
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`Prompt model setting "${field}" must be a finite number.`);
-  }
-  if (bounds.integer && !Number.isInteger(parsed)) {
-    throw new Error(`Prompt model setting "${field}" must be an integer.`);
-  }
-  if (bounds.min !== undefined && parsed < bounds.min) {
-    throw new Error(`Prompt model setting "${field}" must be at least ${bounds.min}.`);
-  }
-  if (bounds.max !== undefined && parsed > bounds.max) {
-    throw new Error(`Prompt model setting "${field}" must be at most ${bounds.max}.`);
-  }
-  return parsed;
+  return requirePromptModelSettingNumber(parsed, field, limitKey);
 }
 
 export function buildPromptModelSettings(
@@ -96,31 +131,27 @@ export function buildPromptModelSettings(
   existing: Record<string, unknown> | null | undefined
 ): Record<string, unknown> | null {
   const settings = { ...(existing ?? {}) };
-  for (const key of [
-    'frequencyPenalty',
-    'maxOutputTokens',
-    'maxTokens',
-    'presencePenalty',
-    'temperature',
-    'topP',
-  ]) {
+  for (const key of PROMPT_EDITABLE_MODEL_SETTING_KEYS) {
     delete settings[key];
   }
 
-  const temperature = parseDraftNumber(draft.temperature, 'temperature', { max: 2, min: 0 });
-  const topP = parseDraftNumber(draft.topP, 'topP', { max: 1, min: 0 });
-  const maxOutputTokens = parseDraftNumber(draft.maxOutputTokens, 'maxOutputTokens', {
-    integer: true,
-    min: 1,
-  });
-  const frequencyPenalty = parseDraftNumber(draft.frequencyPenalty, 'frequencyPenalty', {
-    max: 2,
-    min: -2,
-  });
-  const presencePenalty = parseDraftNumber(draft.presencePenalty, 'presencePenalty', {
-    max: 2,
-    min: -2,
-  });
+  const temperature = parseDraftNumber(draft.temperature, 'temperature', 'temperature');
+  const topP = parseDraftNumber(draft.topP, 'topP', 'topP');
+  const maxOutputTokens = parseDraftNumber(
+    draft.maxOutputTokens,
+    'maxOutputTokens',
+    'maxOutputTokens'
+  );
+  const frequencyPenalty = parseDraftNumber(
+    draft.frequencyPenalty,
+    'frequencyPenalty',
+    'frequencyPenalty'
+  );
+  const presencePenalty = parseDraftNumber(
+    draft.presencePenalty,
+    'presencePenalty',
+    'presencePenalty'
+  );
 
   if (temperature !== undefined) {
     settings['temperature'] = temperature;

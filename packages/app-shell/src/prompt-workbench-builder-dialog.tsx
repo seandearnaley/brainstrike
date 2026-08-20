@@ -17,7 +17,9 @@ import { extractPromptTemplateVariables } from './prompt-template';
 import {
   buildPromptModelSettings,
   KIND_COPY,
+  PROMPT_EDITABLE_MODEL_SETTING_KEYS,
   PROMPT_KINDS,
+  PROMPT_MODEL_SETTING_LIMITS,
   type PromptDraft,
   type PromptModelSettingsDraft,
   type PromptWorkbenchModelOption,
@@ -88,6 +90,12 @@ export function PromptBuilderDialog({
     draft.modelKey && !modelOptions.some((option) => option.key === draft.modelKey)
       ? draft.modelKey
       : null;
+  const uneditableModelSettings = Object.entries(item?.modelSettings ?? {}).filter(
+    ([key]) =>
+      !PROMPT_EDITABLE_MODEL_SETTING_KEYS.includes(
+        key as (typeof PROMPT_EDITABLE_MODEL_SETTING_KEYS)[number]
+      )
+  );
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -124,7 +132,7 @@ export function PromptBuilderDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form className="grid gap-4" onSubmit={submit}>
+        <form className="grid gap-4" noValidate onSubmit={submit}>
           <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
             <div className="grid gap-1.5">
               <Label htmlFor="prompt-builder-title">Title</Label>
@@ -267,7 +275,11 @@ export function PromptBuilderDialog({
             </label>
           </div>
 
-          <AdvancedModelSettings draft={draft} setDraft={setDraft} />
+          <AdvancedModelSettings
+            draft={draft}
+            setDraft={setDraft}
+            uneditableSettings={uneditableModelSettings}
+          />
 
           {error ? (
             <p
@@ -295,9 +307,11 @@ export function PromptBuilderDialog({
 function AdvancedModelSettings({
   draft,
   setDraft,
+  uneditableSettings,
 }: {
   readonly draft: PromptDraft;
   readonly setDraft: Dispatch<SetStateAction<PromptDraft>>;
+  readonly uneditableSettings: ReadonlyArray<readonly [string, unknown]>;
 }) {
   const update = (key: keyof PromptModelSettingsDraft, value: string): void => {
     setDraft((current) => ({
@@ -314,47 +328,54 @@ function AdvancedModelSettings({
         <ModelSettingField
           id="prompt-builder-temperature"
           label="Temperature"
-          max={2}
-          min={0}
+          limitKey="temperature"
           onChange={(value) => update('temperature', value)}
-          step="0.01"
           value={draft.modelSettings.temperature}
         />
         <ModelSettingField
           id="prompt-builder-top-p"
           label="Top P"
-          max={1}
-          min={0}
+          limitKey="topP"
           onChange={(value) => update('topP', value)}
-          step="0.01"
           value={draft.modelSettings.topP}
         />
         <ModelSettingField
           id="prompt-builder-max-output-tokens"
           label="Max output tokens"
-          min={1}
+          limitKey="maxOutputTokens"
           onChange={(value) => update('maxOutputTokens', value)}
-          step="1"
           value={draft.modelSettings.maxOutputTokens}
         />
         <ModelSettingField
           id="prompt-builder-frequency-penalty"
           label="Frequency penalty"
-          max={2}
-          min={-2}
+          limitKey="frequencyPenalty"
           onChange={(value) => update('frequencyPenalty', value)}
-          step="0.01"
           value={draft.modelSettings.frequencyPenalty}
         />
         <ModelSettingField
           id="prompt-builder-presence-penalty"
           label="Presence penalty"
-          max={2}
-          min={-2}
+          limitKey="presencePenalty"
           onChange={(value) => update('presencePenalty', value)}
-          step="0.01"
           value={draft.modelSettings.presencePenalty}
         />
+        {uneditableSettings.length > 0 ? (
+          <div className="grid gap-2 rounded-md border border-border bg-background/70 p-3 sm:col-span-2">
+            <p className="font-medium text-xs">Preserved uneditable settings</p>
+            <p className="text-muted-foreground text-xs">
+              These stored keys remain visible and are preserved unchanged on save.
+            </p>
+            <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-x-3 gap-y-1 font-mono text-xs">
+              {uneditableSettings.map(([key, value]) => (
+                <div className="contents" key={key}>
+                  <dt className="truncate text-muted-foreground">{key}</dt>
+                  <dd className="break-all">{JSON.stringify(value) ?? String(value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ) : null}
       </div>
     </details>
   );
@@ -363,29 +384,26 @@ function AdvancedModelSettings({
 function ModelSettingField({
   id,
   label,
-  max,
-  min,
+  limitKey,
   onChange,
-  step,
   value,
 }: {
   readonly id: string;
   readonly label: string;
-  readonly max?: number;
-  readonly min?: number;
+  readonly limitKey: keyof typeof PROMPT_MODEL_SETTING_LIMITS;
   readonly onChange: (value: string) => void;
-  readonly step: string;
   readonly value: string;
 }) {
+  const limits = PROMPT_MODEL_SETTING_LIMITS[limitKey];
   return (
     <div className="grid gap-1.5">
       <Label htmlFor={id}>{label}</Label>
       <Input
         id={id}
-        max={max}
-        min={min}
+        max={'max' in limits ? limits.max : undefined}
+        min={limits.min}
         onChange={(event) => onChange(event.target.value)}
-        step={step}
+        step={limits.step}
         type="number"
         value={value}
       />

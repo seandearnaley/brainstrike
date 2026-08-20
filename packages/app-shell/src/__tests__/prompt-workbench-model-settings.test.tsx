@@ -128,7 +128,33 @@ describe('PromptBuilderDialog model settings', () => {
       topP: '',
     };
     expect(() => buildPromptModelSettings(draft, null)).toThrow(
-      'Prompt model setting "maxOutputTokens" must be an integer.'
+      'Prompt model setting "maxOutputTokens" must be a positive integer.'
+    );
+  });
+
+  it('surfaces an invalid collapsed setting through the dialog alert', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn<(draft: PromptDraft) => Promise<void>>().mockResolvedValue(undefined);
+    render(
+      <PromptBuilderDialog
+        item={promptItem({ temperature: 0.25 })}
+        modelOptions={[{ key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' }]}
+        onClose={vi.fn()}
+        onSave={onSave}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit Evidence rule' });
+    await user.click(within(dialog).getByText('Advanced model settings'));
+    const temperature = within(dialog).getByRole('spinbutton', { name: 'Temperature' });
+    await user.clear(temperature);
+    await user.type(temperature, '3');
+    await user.click(within(dialog).getByText('Advanced model settings'));
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'Prompt model setting "temperature" must be between 0 and 2.'
     );
   });
 
@@ -176,5 +202,25 @@ describe('PromptBuilderDialog model settings', () => {
     await user.type(within(dialog).getByRole('spinbutton', { name: 'Max output tokens' }), '8192');
     await user.click(within(dialog).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+  });
+
+  it('makes preserved uneditable settings visible in the advanced section', async () => {
+    const user = userEvent.setup();
+    render(
+      <PromptBuilderDialog
+        item={promptItem({ model: 'gpt-5.4', seed: 42 })}
+        modelOptions={[{ key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' }]}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit Evidence rule' });
+    await user.click(within(dialog).getByText('Advanced model settings'));
+    expect(within(dialog).getByText('Preserved uneditable settings')).toBeVisible();
+    expect(within(dialog).getByText('model')).toBeVisible();
+    expect(within(dialog).getByText('"gpt-5.4"')).toBeVisible();
+    expect(within(dialog).getByText('seed')).toBeVisible();
+    expect(within(dialog).getByText('42')).toBeVisible();
   });
 });
