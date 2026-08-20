@@ -741,10 +741,13 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       ),
     });
     const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(FileExplorerTestWrapper, {
-        children,
-        mockFileSystemAdapter: adapterWithWatch,
-      });
+      createElement(
+        FileExplorerTestWrapper,
+        {
+          mockFileSystemAdapter: adapterWithWatch,
+        },
+        children
+      );
 
     try {
       renderHook(() => useExposed(), { wrapper });
