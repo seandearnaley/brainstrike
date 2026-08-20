@@ -25,8 +25,9 @@ import {
   isUnderRelativePrefix,
   isUnderTruncatedDirectory,
   iterRelativePathSegments,
-  joinRootRelativePath,
   normalizeScopedChangePath,
+  toRootAnchoredPath,
+  toRootRelativePath,
   toTruncatedRelativePrefixes,
 } from './workspace-collection-sync-scan-paths';
 
@@ -189,12 +190,15 @@ function toSyntheticFileNode(args: {
   rootHandle: RootDirectoryHandle;
   rootPath: string;
 }): IFileNode {
-  const absolutePath = joinRootRelativePath(args.rootPath, args.relativePath);
+  // Anchor rather than join: the web watcher's paths are already root-anchored,
+  // and re-joining them doubles the root segment (see toRootAnchoredPath).
+  const absolutePath = toRootAnchoredPath(args.rootPath, args.relativePath);
   const fileName = getPathName(args.relativePath);
   return {
     // Watcher batches can synthesize many file nodes; scan once instead of
-    // allocating split/filter arrays for every changed path.
-    depth: countRelativePathSegments(args.relativePath),
+    // allocating split/filter arrays for every changed path. Depth is measured
+    // from the root, so it counts the root-relative path, not the cache identity.
+    depth: countRelativePathSegments(toRootRelativePath(args.rootPath, absolutePath)),
     handle: {
       kind: 'file',
       name: fileName,
@@ -244,8 +248,11 @@ async function resolveSyntheticFileNodeHandle(args: {
     return args.node;
   }
   try {
+    // The adapter walks from the root handle, so it needs the path relative to
+    // the ROOT — not the managed-cache identity, which on web still carries the
+    // root-name prefix and would send it into a phantom child of the root.
     const rawFileHandle = await fileSystemAdapter.resolveFileHandleByPath(
-      `${rootId}/${args.relativePath}`
+      `${rootId}/${toRootRelativePath(args.rootHandle.path, args.node.path)}`
     );
     // Mirror the web adapter's readDirectory shape: node.handle IS the raw handle.
     return { ...args.node, handle: rawFileHandle };

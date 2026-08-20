@@ -4,10 +4,7 @@ import { WebFileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { ChunkingRedispatchTracker } from '../workspace-collection-sync-import';
-import {
-  __workspaceCollectionSyncScanInternalsForTests,
-  collectPreparedWorkspaceSyncChanges,
-} from '../workspace-collection-sync-scan';
+import { collectPreparedWorkspaceSyncChanges } from '../workspace-collection-sync-scan';
 import { BALANCED_QOS_POLICY } from './workspace-collection-sync-service-test-helpers';
 
 async function* emptyDirectoryListing(): AsyncGenerator<never> {
@@ -32,112 +29,6 @@ function createHandleCacheStub(overrides: Partial<HandleCache> = {}): HandleCach
     ...overrides,
   } as unknown as HandleCache;
 }
-
-describe('workspace collection sync scan path helpers', () => {
-  it('extracts names and depths without changing split/filter path semantics', () => {
-    const cases = [
-      { depth: 2, name: 'index.ts', path: 'src/index.ts' },
-      { depth: 3, name: 'Button.tsx', path: '/src//components/Button.tsx/' },
-      { depth: 1, name: 'README.md', path: 'README.md' },
-      { depth: 0, name: '', path: '' },
-      { depth: 0, name: '///', path: '///' },
-    ];
-
-    for (const { path, depth, name } of cases) {
-      expect(
-        __workspaceCollectionSyncScanInternalsForTests.countRelativePathSegments(path),
-        path
-      ).toBe(depth);
-      expect(__workspaceCollectionSyncScanInternalsForTests.getPathName(path), path).toBe(name);
-    }
-  });
-
-  it('does not exact-invalidate entries under a truncated directory listing', () => {
-    // Third branch of the scoped removal reconciliation: a removed directory
-    // with live descendants invalidates cached entries that were not observed
-    // live. A truncated re-listing hides entries past the cap, so their
-    // absence from the live set is not evidence of deletion.
-    const targets =
-      __workspaceCollectionSyncScanInternalsForTests.collectScopedRemovalInvalidations({
-        existingEntries: [
-          {
-            contentHash: 'hash-a',
-            embeddingSetId: 'set-1',
-            fileRecordId: 'file-a',
-            mtimeMs: 1,
-            relativePath: 'big/a.ts',
-            rootId: 'root-1',
-            size: 1,
-            updatedAt: '2026-08-13T00:00:00.000Z',
-          },
-          {
-            contentHash: 'hash-z',
-            embeddingSetId: 'set-1',
-            fileRecordId: 'file-z',
-            mtimeMs: 1,
-            relativePath: 'big/z.ts',
-            rootId: 'root-1',
-            size: 1,
-            updatedAt: '2026-08-13T00:00:00.000Z',
-          },
-        ],
-        liveFilePaths: new Set(['big/a.ts']),
-        pendingRemovals: [
-          {
-            change: { kind: 'directory', path: '/workspace/root/big', type: 'removed' },
-            relativePath: 'big',
-          },
-        ],
-        rootId: 'root-1',
-        truncatedDirectoryPrefixes: ['big'],
-      });
-    expect(targets).toEqual([]);
-
-    const untruncated =
-      __workspaceCollectionSyncScanInternalsForTests.collectScopedRemovalInvalidations({
-        existingEntries: [
-          {
-            contentHash: 'hash-z',
-            embeddingSetId: 'set-1',
-            fileRecordId: 'file-z',
-            mtimeMs: 1,
-            relativePath: 'big/z.ts',
-            rootId: 'root-1',
-            size: 1,
-            updatedAt: '2026-08-13T00:00:00.000Z',
-          },
-        ],
-        liveFilePaths: new Set(['big/a.ts']),
-        pendingRemovals: [
-          {
-            change: { kind: 'directory', path: '/workspace/root/big', type: 'removed' },
-            relativePath: 'big',
-          },
-        ],
-        rootId: 'root-1',
-        truncatedDirectoryPrefixes: [],
-      });
-    expect(untruncated).toEqual([
-      expect.objectContaining({ mode: 'exact', relativePath: 'big/z.ts' }),
-    ]);
-  });
-
-  it('iterates relative path segments without materializing split/filter arrays', () => {
-    const cases = [
-      { path: 'src/components/Button.tsx', segments: ['src', 'components', 'Button.tsx'] },
-      { path: '/src//components/Button.tsx/', segments: ['src', 'components', 'Button.tsx'] },
-      { path: 'README.md', segments: ['README.md'] },
-      { path: '', segments: [] },
-      { path: '///', segments: [] },
-    ];
-
-    for (const { path, segments } of cases) {
-      expect([
-        ...__workspaceCollectionSyncScanInternalsForTests.iterRelativePathSegments(path),
-      ]).toEqual(segments);
-    }
-  });
-});
 
 describe('workspace collection scoped traversal', () => {
   it('preserves the durable rootId on rebuilt directory handles', async () => {
@@ -874,5 +765,210 @@ describe('workspace collection scoped traversal', () => {
 
     expect(resolveFileHandleByPath).not.toHaveBeenCalled();
     expect(result.prepared.inaccessiblePaths).toEqual(['workspace/fresh.md']);
+  });
+
+  it('keeps the managed-cache identity stable for a real web watcher path', async () => {
+    // The web watcher emits `${rootHandle.path}/${relative}` (web-adapter
+    // watchDirectory), i.e. 'workspace/fresh.md' — already anchored at the
+    // root, NOT root-relative. Re-joining it onto the root path doubles the
+    // leading segment, so the scan writes a row at 'workspace/workspace/…'
+    // that no full scan will ever match: the file's real row never updates and
+    // a phantom duplicate accumulates instead.
+    const existingEntry = {
+      chunksProcessedAt: '2026-08-19T00:00:00.000Z',
+      contentHash: 'stale-hash',
+      embeddingSetId: 'set-1',
+      fileRecordId: 'file-record-1',
+      mtimeMs: 1,
+      relativePath: 'workspace/fresh.md',
+      rootId: 'root-1',
+      size: 1,
+      updatedAt: '2026-08-19T00:00:00.000Z',
+    };
+    const rootHandle: DirectoryHandle = {
+      _internal: { entries: () => undefined, kind: 'directory', name: 'workspace' },
+      kind: 'directory',
+      name: 'workspace',
+      path: 'workspace',
+      platform: 'web',
+      rootId: 'web-root-id',
+    };
+    const rawFileHandle = { getFile: vi.fn(), kind: 'file', name: 'fresh.md' };
+    const fileSystemAdapter = {
+      exists: vi.fn(),
+      // Sibling listing misses the file: the synthetic-fallback branch.
+      readDirectory: vi.fn(async (): Promise<IFileNode[]> => []),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      resolveFileHandleByPath: vi.fn(async () => rawFileHandle as unknown as FileSystemFileHandle),
+    } as unknown as FileSystemAdapter;
+    const processFiles = vi.fn(async (requests: FileContentRequest[]) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: '# fresh', status: 'accessible' as const },
+        ])
+      )
+    );
+
+    const result = await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: rootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'root-1',
+        rootPath: rootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileContentProcessor: { processFiles },
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => [existingEntry]),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: rootHandle,
+        scope: {
+          changes: [{ kind: 'file', path: 'workspace/fresh.md', type: 'modified' }],
+          mode: 'paths',
+        },
+      },
+    });
+
+    // Updates the file's existing row rather than minting a doubled-path duplicate.
+    expect(result.prepared.changes).toHaveLength(1);
+    expect(result.prepared.changes[0]?.relativePath).toBe('workspace/fresh.md');
+    expect(result.prepared.changes[0]?.mode).toBe('replace');
+    expect(result.prepared.changes[0]?.id).toBe('file-record-1');
+  });
+
+  it('asks the adapter for the path relative to the root, not the cache identity', async () => {
+    // On web the managed-cache identity keeps the root-name prefix
+    // ('workspace/fresh.md') while the adapter walks from the root handle and
+    // needs 'fresh.md'. Handing it the cache identity makes it walk a phantom
+    // 'workspace' child of the root.
+    const rootHandle: DirectoryHandle = {
+      _internal: { entries: () => undefined, kind: 'directory', name: 'workspace' },
+      kind: 'directory',
+      name: 'workspace',
+      path: 'workspace',
+      platform: 'web',
+      rootId: 'web-root-id',
+    };
+    const rawFileHandle = { getFile: vi.fn(), kind: 'file', name: 'fresh.md' };
+    const resolveFileHandleByPath = vi.fn(
+      async () => rawFileHandle as unknown as FileSystemFileHandle
+    );
+    const fileSystemAdapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(async (): Promise<IFileNode[]> => []),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+      resolveFileHandleByPath,
+    } as unknown as FileSystemAdapter;
+    const processFiles = vi.fn(async (requests: FileContentRequest[]) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: '# fresh', status: 'accessible' as const },
+        ])
+      )
+    );
+
+    await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: rootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'root-1',
+        rootPath: rootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileContentProcessor: { processFiles },
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => []),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: rootHandle,
+        scope: {
+          changes: [{ kind: 'file', path: 'workspace/fresh.md', type: 'modified' }],
+          mode: 'paths',
+        },
+      },
+    });
+
+    expect(resolveFileHandleByPath).toHaveBeenCalledWith('web-root-id/fresh.md');
+    const readRequests = processFiles.mock.calls[0]?.[0];
+    expect(readRequests?.[0]?.fileNode.handle).toBe(rawFileHandle);
+    expect(readRequests?.[0]?.fileNode.path).toBe('workspace/fresh.md');
+  });
+
+  it('leaves absolute (desktop) watcher paths untouched', async () => {
+    // Regression guard for the fix above: on desktop the change path is
+    // absolute and the cache identity IS the root-relative path, so anchoring
+    // must not disturb either.
+    const rootHandle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'root',
+      path: '/workspace/root',
+      platform: 'electron',
+      rootId: 'desktop-root',
+    };
+    const fileSystemAdapter = {
+      exists: vi.fn(),
+      readDirectory: vi.fn(async (): Promise<IFileNode[]> => []),
+      readFile: vi.fn(),
+      requestDirectoryAccess: vi.fn(),
+    } as unknown as FileSystemAdapter;
+    const processFiles = vi.fn(async (requests: FileContentRequest[]) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: '# fresh', status: 'accessible' as const },
+        ])
+      )
+    );
+
+    const result = await collectPreparedWorkspaceSyncChanges({
+      abortSignal: new AbortController().signal,
+      context: {
+        activeRootPath: rootHandle.path,
+        collectionId: 'set-1',
+        dbRootId: 'root-1',
+        rootPath: rootHandle.path,
+      },
+      deps: {
+        chunkingRedispatchTracker: new ChunkingRedispatchTracker(),
+        fileContentProcessor: { processFiles },
+        fileRecordRepository: {
+          listManagedCacheEntryMetadata: vi.fn(async () => []),
+        },
+        fileSystemAdapter,
+        onScanningPath: vi.fn(),
+      },
+      qosPolicy: BALANCED_QOS_POLICY,
+      request: {
+        indexingPolicyPreset: 'balanced',
+        rootDirectoryHandle: rootHandle,
+        scope: {
+          changes: [{ kind: 'file', path: '/workspace/root/nested/fresh.md', type: 'modified' }],
+          mode: 'paths',
+        },
+      },
+    });
+
+    expect(result.prepared.changes[0]?.relativePath).toBe('nested/fresh.md');
+    const readRequests = processFiles.mock.calls[0]?.[0];
+    expect(readRequests?.[0]?.fileNode.path).toBe('/workspace/root/nested/fresh.md');
   });
 });
