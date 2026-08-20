@@ -613,18 +613,6 @@ the selector; the geometry assertion in
 `apps/web/e2e/settings-modal-layering.test.ts` ("bound to its trigger, not to a
 scaled phantom") pins the rendered result in a real browser.
 
-**Never constrain `DialogContent`'s own height.** It is the DismissableLayer and
-RemoveScroll host, and capping it inverts which layer owns pointer events.
-Measured on the Log Viewer's "Diagnostic details" dialog with
-`max-h-[85vh]` on `DialogContent`: the Settings panel underneath resolved
-`pointer-events: auto` while the detail dialog — topmost, z-index 53 against
-Settings' 51 — resolved `pointer-events: none`. Escape then dismissed Settings,
-and because the detail dialog is nested in Settings' subtree it unmounted with
-it, closing both at once. `overflow-y-auto` on `DialogContent` is harmless on
-its own; the height cap is what does it. Put `max-h-*` and the scroll on an
-INNER wrapper, which is also shadcn's scrollable-dialog shape. Pinned by the
-"dims the Settings panel too" spec in the same file.
-
 `SelectContent` defaults to `position="popper"`. Radix's other mode,
 `item-aligned`, paints the selected option ON TOP of the trigger and does not
 expose `--radix-select-trigger-width` at all, so a listbox cannot be bound to

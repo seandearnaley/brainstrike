@@ -76,24 +76,7 @@ export function LogRecordDetailDialog({ record, onClose }: LogRecordDetailDialog
       }}
       open
     >
-      {/*
-       * The height cap and the scroll live on an INNER wrapper, never on
-       * `DialogContent` itself. `DialogContent` is Radix's DismissableLayer and
-       * RemoveScroll host; constraining its height inverts which layer owns
-       * pointer events. Measured with `max-h-[85vh]` on `DialogContent`: the
-       * Settings panel underneath resolved `pointer-events: auto` while this
-       * dialog — the topmost layer, z-index 53 against Settings' 51 — resolved
-       * `pointer-events: none`. Escape then dismissed Settings instead of this
-       * dialog, and since this dialog is nested in Settings' subtree it
-       * unmounted along with it, closing both at once. Pinned by the
-       * "dims the Settings panel too" spec in
-       * `apps/web/e2e/settings-modal-layering.test.ts`.
-       *
-       * The bug was latent until BST's settings-ui package entered Tailwind's
-       * source scan: `max-h-[85vh]` had never been emitted, so the cap simply
-       * did nothing.
-       */}
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Diagnostic details</DialogTitle>
           <DialogDescription>
@@ -101,7 +84,7 @@ export function LogRecordDetailDialog({ record, onClose }: LogRecordDetailDialog
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
+        <div className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-2">
             <DetailValue label="Source" value={getLogRecordSource(record)} />
             <DetailValue label="Code" value={getLogRecordCode(record)} />
