@@ -68,17 +68,22 @@ export const MODEL_ID_MIGRATIONS: Readonly<
 };
 
 export function getModelIdMigrationTarget(
-  provider: string | undefined,
+  provider: SupportedProvider | undefined,
   modelId: string
 ): string | null {
   if (!provider) {
     return null;
   }
-  const migrations = (
-    MODEL_ID_MIGRATIONS as Readonly<Record<string, Readonly<Record<string, string>>>>
-  )[provider];
-  if (!(migrations && Object.hasOwn(migrations, modelId))) {
+  const migrations = MODEL_ID_MIGRATIONS[provider];
+  if (!Object.hasOwn(migrations, modelId)) {
     return null;
   }
   return migrations[modelId] ?? null;
+}
+
+export function isRetiredModelId(
+  provider: SupportedProvider | undefined,
+  modelId: string
+): boolean {
+  return provider !== undefined && Object.hasOwn(MODEL_ID_MIGRATIONS[provider], modelId);
 }

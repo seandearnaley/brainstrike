@@ -1091,6 +1091,7 @@ describe('ThreadsPanel', () => {
     expect(screen.getByText('Second thread')).toBeVisible();
     expect(screen.getByText('OpenAI')).toBeVisible();
     expect(screen.getByText('Unavailable · gpt-5.2-chat-latest')).toBeVisible();
+    expect(screen.getByText('openai/gpt-5.6-terra')).toBeVisible();
     expect(screen.getByText('Reasoning: high')).toBeVisible();
     expect(screen.getByText('Reasoning: low')).toBeVisible();
     expect(screen.getByText('Max output: 512')).toBeVisible();

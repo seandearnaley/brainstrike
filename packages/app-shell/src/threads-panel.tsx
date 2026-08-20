@@ -1,6 +1,7 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
-import { getModelIdMigrationTarget } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { isRetiredModelId } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   ASSISTANT_THREAD_COLOR_IDS,
   ASSISTANT_THREAD_ICON_IDS,
@@ -179,7 +180,9 @@ function getThreadModelLabel(thread: AssistantMemoryThread): string | null {
   if (!model) {
     return null;
   }
-  return getModelIdMigrationTarget(thread.latestRun?.provider, model)
+  const provider = thread.latestRun?.provider;
+  return (provider !== undefined && !isSupportedProvider(provider)) ||
+    isRetiredModelId(provider, model)
     ? `Unavailable · ${model}`
     : model;
 }

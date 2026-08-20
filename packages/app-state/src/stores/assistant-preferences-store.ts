@@ -36,11 +36,14 @@ import {
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
 } from '../automation-overrides';
-import { MODEL_ID_MIGRATIONS } from './assistant-model-id-migrations';
+import { getModelIdMigrationTarget } from './assistant-model-id-migrations';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
 import { clearPersistedStorageForTests } from './persist-api';
 
-export { getModelIdMigrationTarget } from './assistant-model-id-migrations';
+export {
+  getModelIdMigrationTarget,
+  isRetiredModelId,
+} from './assistant-model-id-migrations';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -429,7 +432,7 @@ function pushRecentModel(recents: readonly string[], compositeKey: string): stri
 }
 
 function migrateModelId(provider: SupportedProvider, modelId: string): string {
-  return MODEL_ID_MIGRATIONS[provider]?.[modelId] ?? modelId;
+  return getModelIdMigrationTarget(provider, modelId) ?? modelId;
 }
 
 function migrateModelList(provider: SupportedProvider, models: Iterable<string>): string[] {
