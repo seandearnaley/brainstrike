@@ -1,5 +1,7 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { isRetiredModelId } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   ASSISTANT_THREAD_COLOR_IDS,
   ASSISTANT_THREAD_ICON_IDS,
@@ -171,6 +173,18 @@ function getMaxOutputValue(thread: AssistantMemoryThread): string | null {
 function getMaxOutputLabel(thread: AssistantMemoryThread): string | null {
   const value = getMaxOutputValue(thread);
   return value ? `Max output: ${value}` : null;
+}
+
+function getThreadModelLabel(thread: AssistantMemoryThread): string | null {
+  const model = thread.latestRun?.model;
+  if (!model) {
+    return null;
+  }
+  const provider = thread.latestRun?.provider;
+  return (provider !== undefined && !isSupportedProvider(provider)) ||
+    isRetiredModelId(provider, model)
+    ? `Unavailable · ${model}`
+    : model;
 }
 
 function formatThreadDate(value: Date): string {
@@ -1059,6 +1073,7 @@ function ThreadExpandedDetails({
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
   const providerLabel = getProviderLabel(thread.latestRun?.provider);
+  const modelLabel = getThreadModelLabel(thread);
   const reasoningValue = getReasoningValue(thread);
   const maxOutputValue = getMaxOutputValue(thread);
   return (
@@ -1068,9 +1083,7 @@ function ThreadExpandedDetails({
     >
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
         {providerLabel ? <ThreadDetail label="Provider" value={providerLabel} /> : null}
-        {thread.latestRun?.model ? (
-          <ThreadDetail label="Model" value={thread.latestRun.model} />
-        ) : null}
+        {modelLabel ? <ThreadDetail label="Model" value={modelLabel} /> : null}
         {thread.latestRun?.runtimeKind ? (
           <ThreadDetail label="Runtime" value={thread.latestRun.runtimeKind} />
         ) : null}
@@ -1113,15 +1126,16 @@ function ThreadMetadataBadges({
   readonly thread: AssistantMemoryThread;
 }): ReactElement | null {
   const providerLabel = getProviderLabel(thread.latestRun?.provider);
+  const modelLabel = getThreadModelLabel(thread);
   const reasoningLabel = getReasoningLabel(thread);
   const maxOutputLabel = getMaxOutputLabel(thread);
-  if (!(providerLabel || thread.latestRun?.model || reasoningLabel || maxOutputLabel)) {
+  if (!(providerLabel || modelLabel || reasoningLabel || maxOutputLabel)) {
     return null;
   }
   return (
     <div className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden [&>span:nth-child(n+2)]:@[560px]/threads:inline-flex [&>span:nth-child(n+2)]:hidden">
       {providerLabel ? <ThreadBadge>{providerLabel}</ThreadBadge> : null}
-      {thread.latestRun?.model ? <ThreadBadge>{thread.latestRun.model}</ThreadBadge> : null}
+      {modelLabel ? <ThreadBadge>{modelLabel}</ThreadBadge> : null}
       {reasoningLabel ? <ThreadBadge>{reasoningLabel}</ThreadBadge> : null}
       {maxOutputLabel ? <ThreadBadge>{maxOutputLabel}</ThreadBadge> : null}
     </div>

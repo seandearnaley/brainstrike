@@ -66,3 +66,24 @@ export const MODEL_ID_MIGRATIONS: Readonly<
   },
   voyage: {},
 };
+
+export function getModelIdMigrationTarget(
+  provider: SupportedProvider | undefined,
+  modelId: string
+): string | null {
+  if (!provider) {
+    return null;
+  }
+  const migrations = MODEL_ID_MIGRATIONS[provider];
+  if (!Object.hasOwn(migrations, modelId)) {
+    return null;
+  }
+  return migrations[modelId] ?? null;
+}
+
+export function isRetiredModelId(
+  provider: SupportedProvider | undefined,
+  modelId: string
+): boolean {
+  return provider !== undefined && Object.hasOwn(MODEL_ID_MIGRATIONS[provider], modelId);
+}

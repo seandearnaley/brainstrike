@@ -336,7 +336,7 @@ beforeEach(() => {
       createdAt: new Date('2026-04-22T11:00:00Z'),
       error: null,
       id: 'run-1',
-      model: 'gpt-5.2',
+      model: 'gpt-5.2-chat-latest',
       modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
       provider: 'openai',
       providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
@@ -1090,7 +1090,8 @@ describe('ThreadsPanel', () => {
     expect(screen.getByText('First thread')).toBeVisible();
     expect(screen.getByText('Second thread')).toBeVisible();
     expect(screen.getByText('OpenAI')).toBeVisible();
-    expect(screen.getByText('gpt-5.2')).toBeVisible();
+    expect(screen.getByText('Unavailable · gpt-5.2-chat-latest')).toBeVisible();
+    expect(screen.getByText('openai/gpt-5.6-terra')).toBeVisible();
     expect(screen.getByText('Reasoning: high')).toBeVisible();
     expect(screen.getByText('Reasoning: low')).toBeVisible();
     expect(screen.getByText('Max output: 512')).toBeVisible();
@@ -1114,7 +1115,7 @@ describe('ThreadsPanel', () => {
     expect(within(secondThread).getByTestId('thread-color-blue')).toBeVisible();
     expect(within(secondThread).getByText('Second thread')).toBeVisible();
     expect(within(secondThread).getByText('OpenAI')).toBeVisible();
-    expect(within(secondThread).getByText('gpt-5.2')).toBeVisible();
+    expect(within(secondThread).getByText('Unavailable · gpt-5.2-chat-latest')).toBeVisible();
     expect(within(secondThread).queryByText('thread-b')).not.toBeInTheDocument();
   });
 
@@ -1378,7 +1379,7 @@ describe('ThreadsPanel', () => {
     expect(within(details).getByText('Provider')).toBeVisible();
     expect(within(details).getByText('OpenAI')).toBeVisible();
     expect(within(details).getByText('Model')).toBeVisible();
-    expect(within(details).getByText('gpt-5.2')).toBeVisible();
+    expect(within(details).getByText('Unavailable · gpt-5.2-chat-latest')).toBeVisible();
     expect(within(details).getByText('Runtime')).toBeVisible();
     expect(within(details).getByText('hosted')).toBeVisible();
     expect(within(details).getByText('Status')).toBeVisible();
