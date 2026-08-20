@@ -103,6 +103,49 @@ export function isUnderRelativePrefix(path: string, prefix: string): boolean {
 }
 
 /**
+ * Anchor a scoped change's path to the active root, WITHOUT double-prefixing.
+ *
+ * The managed-cache identity and the node path coincide on web and diverge on
+ * desktop, because `normalizeSelectionPathForFolder` only strips a prefix it
+ * recognizes as absolute. A desktop root path is absolute, so the identity is
+ * genuinely root-relative ('nested/a.ts') and must be joined back on. A web
+ * root path is the picked folder's bare NAME, so nothing is stripped and the
+ * identity is already root-anchored ('workspace/nested/a.ts') — joining it
+ * again yields 'workspace/workspace/nested/a.ts', a row no full scan can ever
+ * match.
+ *
+ * Checking anchoring rather than platform keeps this unambiguous even when the
+ * root contains a child directory sharing the root's name: on web that file's
+ * identity is 'workspace/workspace/a.ts', which is already anchored and is
+ * returned unchanged.
+ */
+export function toRootAnchoredPath(rootPath: string, cacheRelativePath: string): string {
+  const normalizedRoot = toSlashPath(rootPath);
+  const normalized = toSlashPath(cacheRelativePath.replace(/\\/g, '/'));
+  if (normalized === normalizedRoot || normalized.startsWith(`${normalizedRoot}/`)) {
+    return normalized;
+  }
+  return joinRootRelativePath(normalizedRoot, normalized);
+}
+
+/**
+ * The path of a node relative to the ROOT HANDLE — what a handle-walking
+ * adapter needs, and not the same string as the managed-cache identity on web
+ * (see `toRootAnchoredPath`). Returns '' for the root itself.
+ */
+export function toRootRelativePath(rootPath: string, nodePath: string): string {
+  const normalizedRoot = toSlashPath(rootPath);
+  const normalized = toSlashPath(nodePath.replace(/\\/g, '/'));
+  if (normalized === normalizedRoot) {
+    return '';
+  }
+  if (normalized.startsWith(`${normalizedRoot}/`)) {
+    return normalized.slice(normalizedRoot.length + 1);
+  }
+  return normalized;
+}
+
+/**
  * Convert the walker's absolute truncated-directory paths into root-relative
  * prefixes ('' = the root itself) for absence-inference guards.
  */
