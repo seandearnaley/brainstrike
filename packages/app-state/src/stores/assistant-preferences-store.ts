@@ -40,6 +40,8 @@ import { MODEL_ID_MIGRATIONS } from './assistant-model-id-migrations';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
 import { clearPersistedStorageForTests } from './persist-api';
 
+export { getModelIdMigrationTarget } from './assistant-model-id-migrations';
+
 const logger = createLogger('AssistantPreferencesStore');
 
 type EnabledModelsMap = Record<SupportedProvider, string[]>;

@@ -2092,7 +2092,11 @@ invalidation, or assistant-panel remount; a failed write performs no store
 transition and remains visibly failed in the panel. `listThreads` returns the
 thread row plus its latest-run badge data in ONE SQL snapshot; splitting those
 reads permits a metadata write to interleave before a stale title refresh lands
-in the store. The refresh captures each loaded metadata object before its read;
+in the store. Historical run model ids remain plain persisted evidence: ids
+known to `MODEL_ID_MIGRATIONS` render as `Unavailable · <raw id>` in both the
+row badge and expanded details, while unrecognized ids remain visible verbatim
+instead of disappearing or being rewritten to the current replacement. The
+refresh captures each loaded metadata object before its read;
 if an immutable metadata transition lands while that read is in flight, the
 refresh preserves the current metadata while still applying refreshed titles,
 run badges, and ordering. That store-side ordering guard closes the stale

@@ -66,3 +66,19 @@ export const MODEL_ID_MIGRATIONS: Readonly<
   },
   voyage: {},
 };
+
+export function getModelIdMigrationTarget(
+  provider: string | undefined,
+  modelId: string
+): string | null {
+  if (!provider) {
+    return null;
+  }
+  const migrations = (
+    MODEL_ID_MIGRATIONS as Readonly<Record<string, Readonly<Record<string, string>>>>
+  )[provider];
+  if (!(migrations && Object.hasOwn(migrations, modelId))) {
+    return null;
+  }
+  return migrations[modelId] ?? null;
+}
