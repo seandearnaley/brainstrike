@@ -228,7 +228,6 @@ async function resolveSyntheticFileNodeHandle(args: {
   deps: WorkspaceCollectionSyncScanDeps;
   node: IFileNode;
   onResolutionFailure: (path: string) => void;
-  relativePath: string;
   rootHandle: RootDirectoryHandle;
 }): Promise<IFileNode> {
   const { fileSystemAdapter } = args.deps;
@@ -329,7 +328,14 @@ async function resolveDirectoryHandleForRelativePath(args: {
 }): Promise<RootDirectoryHandle | null> {
   let currentHandle = args.rootHandle;
   let currentRelativePath = '';
-  for (const segment of iterRelativePathSegments(args.relativePath)) {
+  // Walking descends from the ROOT HANDLE, so it is expressed in root-relative
+  // coordinates — not the managed-cache identity, which on web still carries
+  // the root-name prefix and would send the first step looking for a child of
+  // the root named after the root itself. The entry policy takes the same
+  // coordinate by contract (see background-indexing-policy.ts).
+  for (const segment of iterRelativePathSegments(
+    toRootRelativePath(args.rootPath, toRootAnchoredPath(args.rootPath, args.relativePath))
+  )) {
     const children = await readDirectoryWithProgress({
       abortSignal: args.abortSignal,
       deps: args.deps,
@@ -345,16 +351,7 @@ async function resolveDirectoryHandleForRelativePath(args: {
       if (node.name === segment) {
         return true;
       }
-      try {
-        return (
-          normalizeScopedChangePath(
-            { kind: 'directory', path: node.path, type: 'modified' },
-            args.rootPath
-          ) === nextRelativePath
-        );
-      } catch {
-        return false;
-      }
+      return toRootRelativePath(args.rootPath, node.path) === nextRelativePath;
     });
     if (!matchingDirectory) {
       return null;
@@ -386,7 +383,12 @@ async function resolveChangedFileNode(args: {
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode | null> {
-  const parentRelativePath = getParentRelativePath(args.relativePath);
+  // Root-relative is the coordinate for walking and for the entry policy; the
+  // managed-cache identity (args.relativePath) stays the DB key and is not
+  // interchangeable with it on web.
+  const nodePath = toRootAnchoredPath(args.rootPath, args.relativePath);
+  const rootRelativePath = toRootRelativePath(args.rootPath, nodePath);
+  const parentRelativePath = getParentRelativePath(rootRelativePath);
   const parentHandle = parentRelativePath
     ? await resolveDirectoryHandleForRelativePath({
         abortSignal: args.abortSignal,
@@ -415,21 +417,12 @@ async function resolveChangedFileNode(args: {
       onDirectoryTruncated: args.onDirectoryTruncated,
       statusReporter: args.statusReporter,
     });
-    const matchingNode = siblings.find((candidate) => {
-      if (!(isFileNode(candidate) && candidate.name === fileName)) {
-        return false;
-      }
-      try {
-        return (
-          normalizeScopedChangePath(
-            { kind: 'file', path: candidate.path, type: 'modified' },
-            args.rootPath
-          ) === args.relativePath
-        );
-      } catch {
-        return false;
-      }
-    });
+    const matchingNode = siblings.find(
+      (candidate) =>
+        isFileNode(candidate) &&
+        candidate.name === fileName &&
+        toRootRelativePath(args.rootPath, candidate.path) === rootRelativePath
+    );
     if (matchingNode) {
       node = matchingNode;
     }
@@ -438,7 +431,7 @@ async function resolveChangedFileNode(args: {
     !args.entryPolicy.shouldIncludeFile({
       fileName: node.name,
       fileSize: node.size ?? 0,
-      relativePath: args.relativePath,
+      relativePath: rootRelativePath,
     })
   ) {
     args.onExcludedEntry();
@@ -454,7 +447,6 @@ async function resolveChangedFileNode(args: {
       deps: args.deps,
       node,
       onResolutionFailure: args.onFileHandleResolutionFailure,
-      relativePath: args.relativePath,
       rootHandle: args.rootHandle,
     });
   }
@@ -481,14 +473,9 @@ async function readScopedDirectoryTree(args: {
   });
   const fileNodes: IFileNode[] = [];
   for (const node of children) {
-    const relativePath = normalizeScopedChangePath(
-      {
-        kind: node.type === 'directory' ? 'directory' : 'file',
-        path: node.path,
-        type: 'modified',
-      },
-      args.rootPath
-    );
+    // Entry-policy coordinate: relative to the ROOT, per its documented
+    // contract — not the managed-cache identity.
+    const relativePath = toRootRelativePath(args.rootPath, node.path);
     if (isDirectoryNode(node)) {
       if (
         !args.entryPolicy.shouldTraverseDirectory({
@@ -647,10 +634,14 @@ async function collectChangedDirectoryFileNodes(args: {
   rootPath: string;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode[]> {
+  const rootRelativePath = toRootRelativePath(
+    args.rootPath,
+    toRootAnchoredPath(args.rootPath, args.relativePath)
+  );
   if (
     !args.entryPolicy.shouldTraverseDirectory({
-      directoryName: getPathName(args.relativePath),
-      relativePath: args.relativePath,
+      directoryName: getPathName(rootRelativePath),
+      relativePath: rootRelativePath,
     })
   ) {
     args.onExcludedEntry();
