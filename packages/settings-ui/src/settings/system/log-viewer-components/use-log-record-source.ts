@@ -1,6 +1,6 @@
 import type { LogRecord } from '@brainstrike/logging';
 import type { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { LogSourceAdapter } from './log-source-adapter';
 
 const LOG_SUBSCRIPTION_DEBOUNCE_MS = 100;
@@ -10,6 +10,7 @@ interface UseLogRecordSourceOptions {
   readonly logSource: LogSourceAdapter | undefined;
   readonly onLoadingChange: (loading: boolean) => void;
   readonly onRecordsChange: (records: readonly LogRecord[]) => void;
+  readonly onSubscriptionErrorChange: (error: string | null) => void;
   readonly toast: ReturnType<typeof useToast>['toast'];
 }
 
@@ -29,7 +30,6 @@ function subscribeToLogSource(
 
 interface UseLogRecordSourceResult {
   readonly refreshLogs: () => Promise<void>;
-  readonly subscriptionError: string | null;
 }
 
 export function useLogRecordSource({
@@ -37,15 +37,15 @@ export function useLogRecordSource({
   logSource,
   onLoadingChange,
   onRecordsChange,
+  onSubscriptionErrorChange,
   toast,
 }: UseLogRecordSourceOptions): UseLogRecordSourceResult {
   const failedSubscriptionSourceRef = useRef<LogSourceAdapter | null>(null);
-  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!logSource) {
       failedSubscriptionSourceRef.current = null;
-      setSubscriptionError(null);
+      onSubscriptionErrorChange(null);
       onRecordsChange([]);
       return;
     }
@@ -91,7 +91,7 @@ export function useLogRecordSource({
       }, LOG_SUBSCRIPTION_DEBOUNCE_MS);
     };
     const subscription = subscribeToLogSource(logSource, handleSubscriptionRecords);
-    setSubscriptionError(subscription.error);
+    onSubscriptionErrorChange(subscription.error);
     if (subscription.error) {
       if (failedSubscriptionSourceRef.current !== logSource) {
         failedSubscriptionSourceRef.current = logSource;
@@ -112,7 +112,14 @@ export function useLogRecordSource({
       }
       subscription.unsubscribe?.();
     };
-  }, [applyRetentionLimit, logSource, onLoadingChange, onRecordsChange, toast]);
+  }, [
+    applyRetentionLimit,
+    logSource,
+    onLoadingChange,
+    onRecordsChange,
+    onSubscriptionErrorChange,
+    toast,
+  ]);
 
   const refreshLogs = useCallback(async () => {
     const getInitialRecords = logSource?.getInitialRecords;
@@ -134,5 +141,5 @@ export function useLogRecordSource({
     }
   }, [applyRetentionLimit, logSource, onLoadingChange, onRecordsChange, toast]);
 
-  return { refreshLogs, subscriptionError };
+  return { refreshLogs };
 }

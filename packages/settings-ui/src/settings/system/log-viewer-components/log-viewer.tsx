@@ -332,6 +332,7 @@ interface LogViewerState {
   scopeFilter: string;
   sorting: SortingState;
   sourceFilter: string;
+  subscriptionError: string | null;
   timeEnd: number | null;
   timeStart: number | null;
   wrapLines: boolean;
@@ -344,6 +345,7 @@ type LogViewerAction =
   | { type: 'SET_LOG_LEVEL_FILTER'; level: LogLevel }
   | { type: 'SET_SCOPE_FILTER'; scope: string }
   | { type: 'SET_SOURCE_FILTER'; source: string }
+  | { type: 'SET_SUBSCRIPTION_ERROR'; error: string | null }
   | { type: 'SET_CODE_FILTER'; code: string }
   | { type: 'SET_TIME_START'; value: number | null }
   | { type: 'SET_TIME_END'; value: number | null }
@@ -370,6 +372,7 @@ const initialLogViewerState: LogViewerState = {
   scopeFilter: ALL_SCOPES_VALUE,
   sorting: [{ desc: false, id: 'timestamp' }],
   sourceFilter: ALL_SOURCES_VALUE,
+  subscriptionError: null,
   timeEnd: null,
   timeStart: null,
   wrapLines: true,
@@ -401,6 +404,8 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
       return { ...state, scopeFilter: action.scope };
     case 'SET_SOURCE_FILTER':
       return { ...state, sourceFilter: action.source };
+    case 'SET_SUBSCRIPTION_ERROR':
+      return { ...state, subscriptionError: action.error };
     case 'SET_CODE_FILTER':
       return { ...state, codeFilter: action.code };
     case 'SET_TIME_START':
@@ -450,6 +455,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     sorting,
     columnVisibility,
     pagination,
+    subscriptionError,
   } = viewerState;
 
   const applyRetentionLimit = useCallback(
@@ -468,11 +474,15 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
   const onLoadingChange = useCallback((loading: boolean) => {
     dispatch({ loading, type: 'SET_LOGS_LOADING' });
   }, []);
-  const { refreshLogs, subscriptionError } = useLogRecordSource({
+  const onSubscriptionErrorChange = useCallback((error: string | null) => {
+    dispatch({ error, type: 'SET_SUBSCRIPTION_ERROR' });
+  }, []);
+  const { refreshLogs } = useLogRecordSource({
     applyRetentionLimit,
     logSource,
     onLoadingChange,
     onRecordsChange,
+    onSubscriptionErrorChange,
     toast,
   });
 
