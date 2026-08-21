@@ -47,7 +47,7 @@ class WorkerLoopRendezvous {
   private readonly releasePromise: Promise<void>;
   private releasePromiseResolve = (): void => {};
   private released = false;
-  private readonly timeout: ReturnType<typeof setTimeout>;
+  private timeout: ReturnType<typeof setTimeout> | undefined;
   reached = false;
 
   constructor(expectedArrivalCount: number) {
@@ -60,10 +60,6 @@ class WorkerLoopRendezvous {
     this.releasePromise = new Promise<void>((resolve) => {
       this.releasePromiseResolve = resolve;
     });
-    this.timeout = setTimeout(() => {
-      this.release();
-    }, WORKER_LOOP_RENDEZVOUS_TIMEOUT_MS);
-    this.timeout.unref();
   }
 
   get arrivals(): number {
@@ -78,6 +74,12 @@ class WorkerLoopRendezvous {
     if (this.released) {
       return;
     }
+    if (!this.timeout) {
+      this.timeout = setTimeout(() => {
+        this.release();
+      }, WORKER_LOOP_RENDEZVOUS_TIMEOUT_MS);
+      this.timeout.unref();
+    }
     this.arrivalCount += 1;
     if (this.arrivalCount === this.expectedArrivalCount) {
       this.reached = true;
@@ -91,7 +93,9 @@ class WorkerLoopRendezvous {
       return;
     }
     this.released = true;
-    clearTimeout(this.timeout);
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+    }
     this.releasePromiseResolve();
   }
 }
