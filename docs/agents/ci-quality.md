@@ -264,6 +264,21 @@ SOURCE, and `@brainstrike/text-splitter` exports only `./dist`, so the package
 specifier would silently benchmark a stale build. Expect to triage new findings
 this way on the next bump rather than assuming the tree regressed.
 
+### Warden guard inventory (BST-675)
+
+`scripts/_guard-inventory.md` is the authoritative set of scripts classified as
+CI guards. A row means the script is wired into a required path, has a paired
+test under `scripts/__tests__`, and that test contains a negative control that
+proves the guard can fail. `scripts/verify-guard-inventory.mjs` validates the
+inventory in both local and CI lint paths; malformed rows, duplicate names, and
+classified scripts that no longer exist fail closed.
+
+Guard-shaped tools are not classified merely because they live under
+`scripts/`. In particular, `scan-hooks.cjs` remains a manual diagnostic and
+`ts7-parity-check.mjs` remains an opt-in parity sweep that requires an external
+TS7 binary. Promote either only by adding required-path wiring, a paired armed
+control, and an inventory row in the same change.
+
 ### App test-tsconfig programs (`tsconfig.test.json`)
 
 `apps/web` and `apps/desktop` type-check their test files through a dedicated
