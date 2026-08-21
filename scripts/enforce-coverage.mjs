@@ -4,6 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Default thresholds applied to all packages unless overridden below.
 // Keep these aligned with root vitest.config.mts global thresholds.
@@ -166,18 +167,6 @@ function discoverCoverageScriptPackages() {
   return packages.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-const coverageFiles = [];
-for (const root of ['packages', 'apps']) {
-  if (!fs.existsSync(root)) {
-    continue;
-  }
-  for (const file of walk(root)) {
-    if (file.endsWith(path.join('coverage', 'coverage-final.json'))) {
-      coverageFiles.push(file);
-    }
-  }
-}
-
 function summarize(json) {
   let stTot = 0,
     stCov = 0,
@@ -231,78 +220,99 @@ function formatPct(n) {
   return `${n.toFixed(2)}%`;
 }
 
-if (coverageFiles.length === 0) {
-  console.error('❌ No coverage files found under packages/* or apps/*');
-  try {
-    // Print a quick debug listing to help diagnose CI path issues without being noisy.
-    const hints = [];
-    for (const root of ['packages', 'apps']) {
-      if (fs.existsSync(root)) {
-        for (const entry of fs.readdirSync(root)) {
-          const p = path.join(root, entry, 'coverage');
-          if (fs.existsSync(p)) {
-            hints.push(p);
+export function main() {
+  const coverageFiles = [];
+  for (const root of ['packages', 'apps']) {
+    if (!fs.existsSync(root)) {
+      continue;
+    }
+    for (const file of walk(root)) {
+      if (file.endsWith(path.join('coverage', 'coverage-final.json'))) {
+        coverageFiles.push(file);
+      }
+    }
+  }
+
+  if (coverageFiles.length === 0) {
+    console.error('❌ No coverage files found under packages/* or apps/*');
+    try {
+      // Print a quick debug listing to help diagnose CI path issues without being noisy.
+      const hints = [];
+      for (const root of ['packages', 'apps']) {
+        if (fs.existsSync(root)) {
+          for (const entry of fs.readdirSync(root)) {
+            const p = path.join(root, entry, 'coverage');
+            if (fs.existsSync(p)) {
+              hints.push(p);
+            }
           }
         }
       }
+      if (hints.length) {
+        console.error('Found coverage directories (no final json yet):', hints.join(', '));
+      }
+    } catch (error) {
+      console.error('Failed to inspect coverage directory hints:', error);
     }
-    if (hints.length) {
-      console.error('Found coverage directories (no final json yet):', hints.join(', '));
+    process.exit(1);
+  }
+
+  const coveredPackageNames = new Set(
+    coverageFiles.map((file) => findPkgName(path.dirname(path.dirname(file))))
+  );
+  const missingCoveragePackages = discoverCoverageScriptPackages().filter(
+    ({ name }) => !coveredPackageNames.has(name)
+  );
+  if (missingCoveragePackages.length > 0) {
+    console.error('❌ Missing coverage artifacts for coverage-producing test:coverage scripts:');
+    for (const { dir, name } of missingCoveragePackages) {
+      console.error(`  - ${name} (${path.relative(process.cwd(), dir)})`);
     }
-  } catch (error) {
-    console.error('Failed to inspect coverage directory hints:', error);
+    process.exit(1);
   }
-  process.exit(1);
-}
 
-const coveredPackageNames = new Set(
-  coverageFiles.map((file) => findPkgName(path.dirname(path.dirname(file))))
-);
-const missingCoveragePackages = discoverCoverageScriptPackages().filter(
-  ({ name }) => !coveredPackageNames.has(name)
-);
-if (missingCoveragePackages.length > 0) {
-  console.error('❌ Missing coverage artifacts for coverage-producing test:coverage scripts:');
-  for (const { dir, name } of missingCoveragePackages) {
-    console.error(`  - ${name} (${path.relative(process.cwd(), dir)})`);
-  }
-  process.exit(1);
-}
+  let hasFailure = false;
+  for (const file of coverageFiles.sort()) {
+    const pkgDir = path.dirname(path.dirname(file));
+    const pkgName = findPkgName(pkgDir);
+    const thresholds = OVERRIDES.get(pkgName) ?? DEFAULT_THRESHOLDS;
 
-let hasFailure = false;
-for (const file of coverageFiles.sort()) {
-  const pkgDir = path.dirname(path.dirname(file));
-  const pkgName = findPkgName(pkgDir);
-  const thresholds = OVERRIDES.get(pkgName) ?? DEFAULT_THRESHOLDS;
-
-  const json = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const s = summarize(json);
-  // Only enforce metrics that exist (total > 0). Packages without functions/branches
-  // shouldn't fail due to 0% on non-existent metrics.
-  const checks = [
-    ['lines', s.lines.pct, thresholds.lines, s.lines.total],
-    ['functions', s.functions.pct, thresholds.functions, s.functions.total],
-    ['branches', s.branches.pct, thresholds.branches, s.branches.total],
-    ['statements', s.statements.pct, thresholds.statements, s.statements.total],
-  ];
-  let ok = true;
-  for (const [, pct, min, total] of checks) {
-    if (total > 0 && pct + 1e-6 < min) {
-      ok = false;
+    const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const s = summarize(json);
+    // Only enforce metrics that exist (total > 0). Packages without functions/branches
+    // shouldn't fail due to 0% on non-existent metrics.
+    const checks = [
+      ['lines', s.lines.pct, thresholds.lines, s.lines.total],
+      ['functions', s.functions.pct, thresholds.functions, s.functions.total],
+      ['branches', s.branches.pct, thresholds.branches, s.branches.total],
+      ['statements', s.statements.pct, thresholds.statements, s.statements.total],
+    ];
+    let ok = true;
+    for (const [, pct, min, total] of checks) {
+      if (total > 0 && pct + 1e-6 < min) {
+        ok = false;
+      }
+    }
+    const summary = `L ${formatPct(s.lines.pct)} | F ${formatPct(s.functions.pct)} | B ${formatPct(s.branches.pct)} | S ${formatPct(s.statements.pct)}`;
+    const threshText = `(>= L${thresholds.lines} F${thresholds.functions} B${thresholds.branches} S${thresholds.statements})`;
+    const rel = path.relative(process.cwd(), file);
+    if (ok) {
+      console.log(`✅ ${pkgName}: ${summary} ${threshText}`);
+    } else {
+      hasFailure = true;
+      console.error(`❌ ${pkgName}: ${summary} is below thresholds ${threshText} [${rel}]`);
     }
   }
-  const summary = `L ${formatPct(s.lines.pct)} | F ${formatPct(s.functions.pct)} | B ${formatPct(s.branches.pct)} | S ${formatPct(s.statements.pct)}`;
-  const threshText = `(>= L${thresholds.lines} F${thresholds.functions} B${thresholds.branches} S${thresholds.statements})`;
-  const rel = path.relative(process.cwd(), file);
-  if (ok) {
-    console.log(`✅ ${pkgName}: ${summary} ${threshText}`);
-  } else {
-    hasFailure = true;
-    console.error(`❌ ${pkgName}: ${summary} is below thresholds ${threshText} [${rel}]`);
+
+  if (hasFailure) {
+    process.exit(1);
   }
+  console.log('All package coverage thresholds satisfied.');
 }
 
-if (hasFailure) {
-  process.exit(1);
+const isDirectExecution =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectExecution) {
+  main();
 }
-console.log('All package coverage thresholds satisfied.');

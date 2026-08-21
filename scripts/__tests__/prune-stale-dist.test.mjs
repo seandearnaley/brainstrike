@@ -46,11 +46,11 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { main } from '../prune-stale-dist.mjs';
+
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..');
 const PRUNE_SCRIPT = path.join(SCRIPTS_DIR, 'prune-stale-dist.mjs');
-
-const { main } = await import(PRUNE_SCRIPT);
 
 /**
  * Create a temp package dir populated from { 'src/a.ts': '...', 'dist/a.js': '...' } maps.

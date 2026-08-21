@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   findTaggedPlaywrightTitleRanges,
   isInsideRange,
@@ -25,42 +26,51 @@ function getLineNumber(source, index) {
   return source.slice(0, index).split('\n').length;
 }
 
-const failures = [];
+export async function main() {
+  const failures = [];
 
-for (const e2eDir of e2eDirs) {
-  for (const file of await listTestFiles(e2eDir)) {
-    const source = await readFile(file, 'utf8');
-    const destructiveTitleRanges = findTaggedPlaywrightTitleRanges(source, file, '@destructive');
+  for (const e2eDir of e2eDirs) {
+    for (const file of await listTestFiles(e2eDir)) {
+      const source = await readFile(file, 'utf8');
+      const destructiveTitleRanges = findTaggedPlaywrightTitleRanges(source, file, '@destructive');
 
-    for (const { label, pattern } of destructiveFlowPatterns) {
-      const globalPattern = new RegExp(pattern.source, `${pattern.flags}g`);
-      for (const match of source.matchAll(globalPattern)) {
-        if (typeof match.index !== 'number') {
-          continue;
+      for (const { label, pattern } of destructiveFlowPatterns) {
+        const globalPattern = new RegExp(pattern.source, `${pattern.flags}g`);
+        for (const match of source.matchAll(globalPattern)) {
+          if (typeof match.index !== 'number') {
+            continue;
+          }
+          if (isInsideRange(match.index, destructiveTitleRanges)) {
+            continue;
+          }
+
+          failures.push({
+            file: path.relative(rootDir, file),
+            label,
+            line: getLineNumber(source, match.index),
+          });
         }
-        if (isInsideRange(match.index, destructiveTitleRanges)) {
-          continue;
-        }
-
-        failures.push({
-          file: path.relative(rootDir, file),
-          label,
-          line: getLineNumber(source, match.index),
-        });
       }
     }
   }
-}
 
-if (failures.length > 0) {
-  console.error('E2E destructive tag check failed.');
-  console.error(
-    'Factory-reset E2E flows must include @destructive in a Playwright test or describe title so they run in the isolated single-worker destructive job.'
-  );
-  for (const failure of failures) {
-    console.error(`- ${failure.file}:${failure.line}: matched ${failure.label}`);
+  if (failures.length > 0) {
+    console.error('E2E destructive tag check failed.');
+    console.error(
+      'Factory-reset E2E flows must include @destructive in a Playwright test or describe title so they run in the isolated single-worker destructive job.'
+    );
+    for (const failure of failures) {
+      console.error(`- ${failure.file}:${failure.line}: matched ${failure.label}`);
+    }
+    process.exit(1);
   }
-  process.exit(1);
+
+  console.log('E2E destructive tag check passed.');
 }
 
-console.log('E2E destructive tag check passed.');
+const isDirectExecution =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectExecution) {
+  await main();
+}

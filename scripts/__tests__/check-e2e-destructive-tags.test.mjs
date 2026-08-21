@@ -6,6 +6,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import '../check-e2e-destructive-tags.mjs';
+
 const scriptPath = fileURLToPath(new URL('../check-e2e-destructive-tags.mjs', import.meta.url));
 
 async function withWorkspace(run) {
