@@ -114,6 +114,14 @@ describe('embedding queue load harness contract', () => {
       throw new Error('Expected @brainstrike/embeddings to define a test:integration script.');
     }
     const integrationArguments = parseScriptArguments(integrationScript);
+    expect(integrationArguments).toEqual([
+      'vitest',
+      'run',
+      '--config',
+      'vitest.integration.config.mts',
+      '--maxWorkers=1',
+      '--no-file-parallelism',
+    ]);
     const integrationConfigIndex = integrationArguments.indexOf('--config');
     expect(configArguments(integrationScript)).toEqual(['--config']);
     expect(configArguments(`${integrationScript} --config=vitest.models.config.mts`)).toHaveLength(
