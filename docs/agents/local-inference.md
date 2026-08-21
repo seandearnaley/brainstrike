@@ -80,6 +80,13 @@ Vector device preference is ONE canonical record (BST-1380):
      `maxInFlightJobs` may override it with another positive value. Slots are
      released only after the corresponding completion/failure write, or during
      explicit cleanup after a lost lease or interrupted batch.
+   - Every durable `embed_chunk` payload carries `embeddingInputHash`, the
+     lowercase SHA-256 of `${contentHash}:${modelKey}`. The pipeline computes it
+     before enqueue; the worker validates and reuses it for stale checks and
+     completion writes. The claim path must never recompute it. Migration 105
+     backfills provable historical jobs and visibly cancels/counts active jobs
+     whose chunk/model identity cannot be proven; do not add a legacy hashing
+     fallback to the worker.
    - Desktop backfill admission bounds queued/running jobs for the target
      `embedding_set_id`, not the entire embeddings queue. Workspace Index may
      legitimately fill its separate QoS depth with other embedding sets; those
