@@ -22,6 +22,8 @@ const TEXT_ENCODER = new TextEncoder();
 
 interface QueueLoadMetrics {
   readonly adaptiveClaimLimits: readonly number[];
+  readonly claimedBatchSizes: readonly number[];
+  readonly claimLimits: readonly number[];
   readonly completionLatencyMs: number;
   readonly concurrency: number;
   readonly jobCount: number;
@@ -205,6 +207,8 @@ async function runLoadScenario(params: {
 
     const service = new LoadTestEmbeddingService(params.adaptive ? 25 : 50, params.adaptive);
     const adaptiveClaimLimits: number[] = [];
+    const claimedBatchSizes: number[] = [];
+    const claimLimits: number[] = [];
     let leaseClaimCount = 0;
     let peakClaimedJobs = 0;
     const originalClaimMany = JobQueue.prototype.claimMany;
@@ -215,6 +219,11 @@ async function runLoadScenario(params: {
       const jobs = await originalClaimMany.call(this, claimParams);
       leaseClaimCount += jobs.length;
       if (jobs.length > 0) {
+        if (typeof claimParams.limit !== 'number') {
+          throw new Error('Embedding worker claimed load-test jobs without an explicit limit.');
+        }
+        claimLimits.push(claimParams.limit);
+        claimedBatchSizes.push(jobs.length);
         const running = await db.query<{ count: number }>(
           `SELECT COUNT(*)::int AS count
              FROM job_queue
@@ -272,6 +281,8 @@ async function runLoadScenario(params: {
 
     return {
       adaptiveClaimLimits,
+      claimedBatchSizes,
+      claimLimits,
       completionLatencyMs: performance.now() - startedAt,
       concurrency: params.concurrency,
       jobCount: JOB_COUNT,
@@ -311,14 +322,9 @@ describe.sequential('embedding queue load matrix', () => {
 
         expect(result.leaseClaimCount).toBe(JOB_COUNT);
         expect(result.maxAttempts).toBe(1);
-        expect(result.peakClaimedJobs).toBeGreaterThanOrEqual(
-          Math.min(concurrency, MAX_IN_FLIGHT_JOBS)
-        );
-        expect(result.peakClaimedJobs).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
-        expect(result.peakVectorsInFlight).toBeGreaterThanOrEqual(
-          Math.min(concurrency, MAX_IN_FLIGHT_JOBS)
-        );
-        expect(result.peakVectorsInFlight).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
+        const expectedPeak = Math.min(concurrency, MAX_IN_FLIGHT_JOBS);
+        expect(result.peakClaimedJobs).toBe(expectedPeak);
+        expect(result.peakVectorsInFlight).toBe(expectedPeak);
         expect(result.peakInputBytesInFlight).toBeGreaterThan(0);
       }
 
@@ -338,6 +344,10 @@ describe.sequential('embedding queue load matrix', () => {
 
       expect(result.adaptiveClaimLimits[0]).toBe(1);
       expect(result.adaptiveClaimLimits).toContain(MAX_IN_FLIGHT_JOBS);
+      expect(result.claimLimits[0]).toBe(1);
+      expect(result.claimedBatchSizes[0]).toBe(1);
+      expect(result.claimLimits.some((limit) => limit > 1)).toBe(true);
+      expect(result.claimedBatchSizes.some((size) => size > 1)).toBe(true);
       // Two loops with a one-job claim limit can peak at only 2. Reaching at
       // least 3 proves a later claim consumed the accelerated resolver policy
       // without requiring a timing-sensitive exact overlap of all four slots.
