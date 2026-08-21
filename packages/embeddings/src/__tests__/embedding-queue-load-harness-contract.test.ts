@@ -50,6 +50,8 @@ describe('embedding queue load harness contract', () => {
     }
     expect(hasExactArgument(integrationScript, '--maxWorkers=1')).toBe(true);
     expect(hasExactArgument(integrationScript, '--no-file-parallelism')).toBe(true);
+    // This lane deliberately owns its forks pool in the imported config; a CLI
+    // pool override could silently replace the effective isolation contract.
     expect(hasPoolArgument(integrationScript)).toBe(false);
     expect(hasPoolArgument(`${integrationScript} --pool=threads`)).toBe(true);
     expect(hasPoolArgument(`${integrationScript} --pool threads`)).toBe(true);

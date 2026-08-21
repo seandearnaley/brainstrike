@@ -170,7 +170,7 @@ Vector device preference is ONE canonical record (BST-1380):
 ### Embedding queue load verification (BST-387)
 
 - `packages/embeddings/src/__tests__/embedding-queue-load.integration.test.ts`
-  runs a serialized real-PGlite matrix with 1, 2, and 4 polling loops.
+  runs a serialized real-PGlite matrix with 1, 2, 4, and 8 polling loops.
 - It records exact peak claimed jobs, vectors and UTF-8 input bytes in flight,
   effective claim limits and returned batch sizes, lease claim count, maximum
   attempts, and completion latency. Absolute latency
@@ -180,9 +180,10 @@ Vector device preference is ONE canonical record (BST-1380):
   product baseline. `peakClaimedJobs` is sampled post-claim and depends on the
   worker preserving reserve-before-claim ordering. The deterministic gates are
   one claim per job, exact claim limit and returned batch size 1, and observed
-  concurrency scaling from 1 to 2 to 4 with a global working set no larger than
-  `maxInFlightJobs`. A first-wave rendezvous makes the 1/2/4 vector-overlap
-  proof structural rather than dependent on a wall-clock delay.
+  concurrency scaling from 1 to 2 to 4 before flattening at the four-job global
+  working-set ceiling when eight loops poll. The first-wave rendezvous targets
+  `min(concurrency, maxInFlightJobs)`, which makes the overlap proof structural
+  without deadlocking loops parked on the in-flight budget.
 - The adaptive scenario begins with a slow synthetic model (claim limit 1),
   then accelerates it (claim limit 4), proving the runtime consumes changing
   throughput policy without exceeding the same global budget.

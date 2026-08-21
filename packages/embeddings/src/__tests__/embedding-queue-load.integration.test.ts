@@ -279,7 +279,7 @@ async function runLoadScenario(params: {
     const service = new LoadTestEmbeddingService(
       params.adaptive ? 25 : 0,
       params.adaptive,
-      params.adaptive ? 1 : params.concurrency
+      params.adaptive ? 1 : Math.min(params.concurrency, MAX_IN_FLIGHT_JOBS)
     );
     const adaptiveClaimLimits: number[] = [];
     const claimedBatchSizes: number[] = [];
@@ -384,9 +384,9 @@ describe.sequential('embedding queue load matrix', () => {
   });
 
   it(
-    'bounds working sets and lease churn with 1, 2, and 4 worker loops',
+    'bounds working sets and lease churn with 1, 2, 4, and 8 worker loops',
     async () => {
-      const concurrencyLevels = [1, 2, 4] as const;
+      const concurrencyLevels = [1, 2, 4, 8] as const;
       const results: QueueLoadMetrics[] = [];
 
       for (const concurrency of concurrencyLevels) {
