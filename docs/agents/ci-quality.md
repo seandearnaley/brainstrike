@@ -273,12 +273,20 @@ proves the guard can fail. `scripts/verify-guard-inventory.mjs` validates the
 inventory in both local and CI lint paths; malformed rows, duplicate names, and
 classified scripts that no longer exist fail closed.
 
-The verifier derives required guards from root `lint*`, `arch:*`, `boundaries`,
-`coverage:enforce`, and `secrets:scan` commands, so required-path wiring cannot
-silently disappear from the inventory. A `paired` claim must have discoverable
-evidence under `scripts/__tests__`, either by matching basename or an explicit
-script reference. Those tests own the behavioral negative controls represented
-by `armed`.
+The verifier traverses root package-script calls from the actual `lint`,
+`lint:ci`, and `coverage:enforce` entrypoints plus required Static workflow
+steps. It rejects both missing required rows and a classified root guard leaf
+that is no longer reachable, so merely leaving `lint:foo` in `package.json`
+does not count as wiring. Direct workflow guards (including the pre-install
+lockfile check) are part of the same derived set.
+
+A `paired` claim is machine-checked against either the guard's exact-basename
+test or an explicit `contract: scripts/__tests__/<name>.test.mjs` annotation in
+the row. Discovery is intentionally non-recursive because `test:scripts` is
+non-recursive. `armed` is a reviewed, human-maintained declaration: arbitrary
+negative-control behavior cannot be derived safely from source text, so the
+verifier does not pretend to corroborate it. The named contract tests own those
+behavioral controls, and changes to an `armed` claim must update them together.
 
 Guard-shaped tools are not classified merely because they live under
 `scripts/`. In particular, `scan-hooks.cjs` remains a manual diagnostic and

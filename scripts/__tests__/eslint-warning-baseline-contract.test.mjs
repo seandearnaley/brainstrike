@@ -1,9 +1,8 @@
 // Structural contract for the PER-RULE eslint warning ratchet (#2372).
 //
-// The behavioural control tests (over-baseline / under-baseline / missing-entry
-// / error-severity all exit 1) each need a full ~40s eslint run, so they are not
-// run here. This file guards the cheap structural invariants that would silently
-// defeat the ratchet:
+// Full CLI controls need a ~40s eslint run. This file exercises the pure
+// over-baseline / under-baseline / missing-entry comparison seam directly and
+// guards the structural invariants that would silently defeat the ratchet:
 //
 //   - `lint:eslint` must actually invoke the verifier. Reverting it to a bare
 //     `eslint --max-warnings=N` restores the single-scalar design whose failure
@@ -20,6 +19,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+
+import { diffAgainstBaseline } from '../verify-eslint-warning-baselines.mjs';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative) => readFileSync(path.join(repoRoot, relative), 'utf8');
@@ -75,4 +76,14 @@ test('eslint-warning-baseline.json is well-formed', () => {
       `baseline["${ruleId}"] must be a non-negative integer, got ${count}`
     );
   }
+});
+
+test('warning count drift produces behavioral ratchet failures', () => {
+  assert.match(
+    diffAgainstBaseline(new Map([['example/rule', 2]]), { 'example/rule': 1 })[0],
+    /\+1/
+  );
+  assert.match(diffAgainstBaseline(new Map([['example/rule', 0]]), { 'example/rule': 1 })[0], /-1/);
+  assert.match(diffAgainstBaseline(new Map([['new/rule', 1]]), {})[0], /NO baseline entry/);
+  assert.match(diffAgainstBaseline(new Map(), { 'missing/rule': 1 })[0], /ZERO findings/);
 });

@@ -80,7 +80,7 @@ function countWarningsByRule(results) {
   return counts;
 }
 
-function diffAgainstBaseline(counts, baseline) {
+export function diffAgainstBaseline(counts, baseline) {
   const failures = [];
   for (const [ruleId, count] of [...counts].sort(([a], [b]) => a.localeCompare(b))) {
     const allowed = baseline[ruleId];
