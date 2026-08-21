@@ -122,8 +122,14 @@ test('rejects out-of-order inventory rows', async () => {
         packageScripts: {},
         scriptsRoot: workspace,
         testSources: [
-          { path: 'alpha-guard.test.mjs', source: "import '../alpha-guard.mjs';\n" },
-          { path: 'zeta-guard.test.mjs', source: "import '../zeta-guard.mjs';\n" },
+          {
+            path: 'alpha-guard.test.mjs',
+            source: "import { main } from '../alpha-guard.mjs';\nmain();\n",
+          },
+          {
+            path: 'zeta-guard.test.mjs',
+            source: "import { main } from '../zeta-guard.mjs';\nmain();\n",
+          },
         ],
       }),
       [
