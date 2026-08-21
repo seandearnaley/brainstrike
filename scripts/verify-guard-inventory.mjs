@@ -10,6 +10,7 @@ const GUARD_LEAF_SCRIPT_NAME = /^(?:arch:|boundaries$|coverage:enforce$|lint(?::
 const DIRECT_NODE_GUARD = /\bnode scripts\/(?<script>[a-z0-9][a-z0-9.-]*\.(?:cjs|mjs))\b/g;
 const PACKAGE_SCRIPT_INVOCATION = /\bpnpm(?:\s+run)?\s+(?<name>[a-z0-9][a-z0-9:-]*)\b/g;
 const CONTRACT_TEST = /\bcontract: scripts\/__tests__\/(?<path>[a-z0-9][a-z0-9.-]*\.test\.mjs)\b/;
+const REQUIRED_PATH_CHANNEL = /\bchannel: required-path\b/;
 const INVENTORY_LABEL = 'scripts/_guard-inventory.md';
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const ROOT_GUARD_ENTRYPOINTS = ['coverage:enforce', 'lint', 'lint:ci'];
@@ -287,6 +288,14 @@ export async function validateGuardInventory({
     if (inventoryScripts.has(unreachableScript)) {
       issues.push(
         `${unreachableScript}: wired guard leaf is not reachable from a required root entrypoint`
+      );
+    }
+  }
+
+  for (const entry of entries) {
+    if (REQUIRED_PATH_CHANNEL.test(entry.purpose) && !required.has(entry.script)) {
+      issues.push(
+        `${entry.script}: declared required-path channel is not reachable from a required root entrypoint`
       );
     }
   }
