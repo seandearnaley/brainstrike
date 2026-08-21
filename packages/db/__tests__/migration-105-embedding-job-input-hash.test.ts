@@ -26,7 +26,7 @@ describe('migration 105 embedding job input hash', () => {
     db = new PGlite();
     await db.exec(`
       CREATE TABLE file_chunks (
-        id uuid PRIMARY KEY,
+        id text PRIMARY KEY,
         content_hash text NOT NULL
       );
       CREATE TABLE job_queue (

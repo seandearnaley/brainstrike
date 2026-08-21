@@ -23,7 +23,14 @@ export const migration105EmbeddingJobInputHash: Migration = {
          '{embeddingInputHash}',
          to_jsonb(
            encode(
-             sha256(convert_to(fc.content_hash || ':' || (jq.payload->>'modelKey'), 'UTF8')),
+             sha256(convert_to(
+               fc.content_hash || ':' || CASE
+                 WHEN jq.payload->>'modelKey' ~ '^(local|transformers|openai|google|cohere|voyage|ollama|lmstudio)(::|:).+'
+                 THEN jq.payload->>'modelKey'
+                 ELSE (jq.payload->>'provider') || '::' || (jq.payload->>'modelKey')
+               END,
+               'UTF8'
+             )),
              'hex'
            )
          ),
@@ -31,11 +38,19 @@ export const migration105EmbeddingJobInputHash: Migration = {
        )
       FROM file_chunks AS fc
      WHERE jq.job_type = 'embed_chunk'
+       AND jq.state IN ('queued', 'running')
        AND jsonb_typeof(jq.payload) = 'object'
        AND NOT jq.payload ? 'embeddingInputHash'
        AND NULLIF(jq.payload->>'modelKey', '') IS NOT NULL
        AND NULLIF(fc.content_hash, '') IS NOT NULL
-       AND fc.id::text = jq.payload->>'chunkId';
+       AND (
+         jq.payload->>'modelKey' ~ '^(local|transformers|openai|google|cohere|voyage|ollama|lmstudio)(::|:).+'
+         OR (
+           jq.payload->>'provider' IN ('openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio')
+           AND jq.payload->>'modelKey' !~ '::|:'
+         )
+       )
+       AND fc.id = jq.payload->>'chunkId';
     --> statement-breakpoint
 
     WITH canceled AS (
@@ -55,11 +70,21 @@ export const migration105EmbeddingJobInputHash: Migration = {
          AND NOT EXISTS (
            SELECT 1
              FROM file_chunks AS fc
-            WHERE fc.id::text = jq.payload->>'chunkId'
+            WHERE fc.id = jq.payload->>'chunkId'
               AND NULLIF(jq.payload->>'modelKey', '') IS NOT NULL
               AND NULLIF(fc.content_hash, '') IS NOT NULL
               AND jq.payload->>'embeddingInputHash' = encode(
-                sha256(convert_to(fc.content_hash || ':' || (jq.payload->>'modelKey'), 'UTF8')),
+                sha256(convert_to(
+                  fc.content_hash || ':' || CASE
+                    WHEN jq.payload->>'modelKey' ~ '^(local|transformers|openai|google|cohere|voyage|ollama|lmstudio)(::|:).+'
+                    THEN jq.payload->>'modelKey'
+                    WHEN jq.payload->>'provider' IN ('openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio')
+                         AND jq.payload->>'modelKey' !~ '::|:'
+                    THEN (jq.payload->>'provider') || '::' || (jq.payload->>'modelKey')
+                    ELSE NULL
+                  END,
+                  'UTF8'
+                )),
                 'hex'
               )
          )

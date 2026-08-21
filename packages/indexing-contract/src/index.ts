@@ -1,4 +1,5 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+import { buildEmbeddingInputHash } from './embedding-input-hash.js';
 import type { EmbeddingDimensionParameter } from './embedding-worker-protocol.js';
 
 export * from './embedding-input-hash.js';
@@ -869,4 +870,30 @@ export function canonicalizeEmbeddingProviderModelKey(
     modelId: rawModelId,
     provider,
   };
+}
+
+/**
+ * Build durable input hashes using the exact model identity the embedding
+ * worker resolves from a queued job. The batch form deliberately computes
+ * independent SHA-256 digests concurrently before a producer writes anything.
+ */
+export async function buildEmbeddingJobInputHashes(
+  contentHashes: readonly string[],
+  modelKey: string,
+  providerHint?: EmbeddingProviderType | null
+): Promise<string[]> {
+  const parsed = parseEmbeddingProviderModelKey(modelKey);
+  const resolvedModelKey = (() => {
+    if (parsed) {
+      return modelKey;
+    }
+    if (providerHint && isHostedProvider(providerHint)) {
+      return formatEmbeddingProviderModelKey(providerHint, modelKey);
+    }
+    throw new Error(`Invalid modelKey for embedding job input hash: ${modelKey}`);
+  })();
+
+  return Promise.all(
+    contentHashes.map((contentHash) => buildEmbeddingInputHash(contentHash, resolvedModelKey))
+  );
 }

@@ -37,7 +37,10 @@
  * ```
  */
 
-import { buildEmbeddingInputHash, buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
+import {
+  buildEmbeddingJobInputHashes,
+  buildEmbedJobDedupeKey,
+} from '@brainstrike/indexing-contract';
 import { generateChunkId } from './identifiers.js';
 import type { ChunkId, ChunkOutput, EmbeddingSetId, FileId, JobId, JobState } from './types.js';
 
@@ -260,19 +263,20 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
   /**
    * Build job payload for a single chunk.
    */
-  async function buildJobPayload(
+  function buildJobPayload(
     chunkId: ChunkId,
     chunk: ChunkOutput,
     fileId: FileId,
     embeddingSetId: EmbeddingSetId,
     modelKey: string,
-    expectedDimension: number
-  ): Promise<EmbedJobPayloadInternal> {
+    expectedDimension: number,
+    embeddingInputHash: string
+  ): EmbedJobPayloadInternal {
     return {
       chunkId,
       chunkIndex: chunk.chunkIndex,
       contentHash: chunk.contentHash,
-      embeddingInputHash: await buildEmbeddingInputHash(chunk.contentHash, modelKey),
+      embeddingInputHash,
       embeddingSetId,
       expectedDimension,
       fileRecordId: fileId,
@@ -320,6 +324,10 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
     modelKey: string,
     expectedDimension: number
   ): Promise<EnqueueJobParams[]> {
+    const embeddingInputHashes = await buildEmbeddingJobInputHashes(
+      chunks.map(({ contentHash }) => contentHash),
+      modelKey
+    );
     const params: EnqueueJobParams[] = [];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
@@ -327,14 +335,19 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
       if (!(chunk && chunkId)) {
         continue;
       }
+      const embeddingInputHash = embeddingInputHashes[i];
+      if (!embeddingInputHash) {
+        throw new Error(`Missing embedding input hash for chunk '${chunkId}'.`);
+      }
 
-      const payload = await buildJobPayload(
+      const payload = buildJobPayload(
         chunkId,
         chunk,
         fileId,
         embeddingSetId,
         modelKey,
-        expectedDimension
+        expectedDimension,
+        embeddingInputHash
       );
       const dedupeKey = buildEmbedJobDedupeKey(chunkId, embeddingSetId, chunk.contentHash);
 

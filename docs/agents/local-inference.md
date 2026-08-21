@@ -81,9 +81,13 @@ Vector device preference is ONE canonical record (BST-1380):
      released only after the corresponding completion/failure write, or during
      explicit cleanup after a lost lease or interrupted batch.
    - Every durable `embed_chunk` payload carries `embeddingInputHash`, the
-     lowercase SHA-256 of `${contentHash}:${modelKey}`. The pipeline computes it
-     before enqueue; the worker validates and reuses it for stale checks and
-     completion writes. The claim path must never recompute it. Migration 105
+     lowercase SHA-256 of `${contentHash}:${resolvedModelKey}`. Every producer
+     (pipeline, transactional chunk insert, desktop backfill, and vector queue
+     backfill) computes batches through `buildEmbeddingJobInputHashes` before
+     enqueue. That helper mirrors the worker's hosted-provider model resolution
+     and hashes independent chunks concurrently. The worker validates and
+     reuses the result for stale checks and completion writes. The claim path
+     must never recompute it. Migration 105
      backfills provable historical jobs and visibly cancels/counts active jobs
      whose chunk/model identity cannot be proven; do not add a legacy hashing
      fallback to the worker.
