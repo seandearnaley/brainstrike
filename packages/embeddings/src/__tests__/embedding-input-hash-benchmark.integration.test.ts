@@ -36,6 +36,21 @@ interface HistoricalEmbedChunkPayload {
   readonly modelKey: string;
 }
 
+interface HistoricalEmbeddingJobModel {
+  readonly compositeKey: string;
+}
+
+interface HistoricalLoadAndFilterChunksOptions {
+  readonly db: IDatabase;
+  readonly failOrphanJobs: (
+    jobs: Array<{ id: string; leaseToken: string }>,
+    error: string
+  ) => Promise<void>;
+  readonly fileChunkIdType: string;
+  readonly hashExpectedEmbedding: (input: string) => Promise<string>;
+  readonly logWarn: (message: string, meta?: unknown) => void;
+}
+
 interface HistoricalLoadedChunkItem {
   readonly chunk: EmbedChunkRow;
   readonly expectedHash: string;
@@ -267,11 +282,12 @@ async function seedScenario(
 }
 
 async function runLegacyWorkerHotPath(
-  db: IDatabase,
-  jobs: ClaimedEmbeddingJob[]
+  jobs: ClaimedEmbeddingJob[],
+  jobModel: HistoricalEmbeddingJobModel,
+  options: HistoricalLoadAndFilterChunksOptions
 ): Promise<HistoricalFilterResult> {
   const chunkIds = jobs.map((job) => assertHistoricalEmbedChunkJob(job).chunkId);
-  const loadedChunks = await loadChunksBatch(db, chunkIds, 'text');
+  const loadedChunks = await loadChunksBatch(options.db, chunkIds, options.fileChunkIdType);
   const chunkMap = new Map(loadedChunks.map((chunk) => [chunk.id, chunk]));
   const found: Array<{
     chunk: EmbedChunkRow;
@@ -290,10 +306,13 @@ async function runLegacyWorkerHotPath(
     }
   }
   if (orphans.length > 0) {
-    throw new Error(
-      `Legacy benchmark unexpectedly found orphaned chunks: ${orphans
-        .map((orphan) => orphan.chunkId)
-        .join(', ')}`
+    options.logWarn('Embedding jobs reference deleted chunks; failing as terminal', {
+      orphanCount: orphans.length,
+      sampleChunkIds: orphans.slice(0, 3).map((orphan) => orphan.chunkId),
+    });
+    await options.failOrphanJobs(
+      orphans.map((orphan) => ({ id: orphan.job.id, leaseToken: orphan.job.lease_token })),
+      'Chunk no longer exists (likely re-chunked or deleted)'
     );
   }
 
@@ -302,8 +321,8 @@ async function runLegacyWorkerHotPath(
   for (const item of found) {
     // Reproduce the historical claim path exactly: it awaited one SHA-256 per
     // found chunk in this loop, before BST-391 moved hashing to producers.
-    const expectedHash = await historicalSha256Hex(
-      `${item.chunk.contentHash}:${item.payload.modelKey}`
+    const expectedHash = await options.hashExpectedEmbedding(
+      `${item.chunk.contentHash}:${jobModel.compositeKey}`
     );
     const tagged = { ...item, expectedHash };
     if (historicalIsEmbeddingUpToDate(item.chunk, expectedHash)) {
@@ -313,6 +332,18 @@ async function runLegacyWorkerHotPath(
     }
   }
   return { completed, orphanCount: orphans.length, toProcess };
+}
+
+function createHistoricalWorkerHotPathOptions(db: IDatabase): HistoricalLoadAndFilterChunksOptions {
+  return {
+    db,
+    failOrphanJobs: async () => {
+      throw new Error('Historical benchmark unexpectedly found an orphaned chunk.');
+    },
+    fileChunkIdType: 'text',
+    hashExpectedEmbedding: historicalSha256Hex,
+    logWarn: () => {},
+  };
 }
 
 function createPersistedWorkerHotPathOptions(db: IDatabase): LoadAndFilterChunksOptions {
@@ -342,9 +373,11 @@ describe.sequential('embedding input hash relocation benchmark', () => {
             const scenario = await seedScenario(db, batchSize, contentLength);
             const database = db as unknown as IDatabase;
             const historicalJobs = scenario.jobs.map(withoutRelocatedHash);
+            const historicalJobModel = { compositeKey: MODEL_KEY } as const;
+            const historicalOptions = createHistoricalWorkerHotPathOptions(database);
             const persistedOptions = createPersistedWorkerHotPathOptions(database);
             const runHistoricalWorkerHotPath = () =>
-              runLegacyWorkerHotPath(database, historicalJobs);
+              runLegacyWorkerHotPath(historicalJobs, historicalJobModel, historicalOptions);
             const runPersistedWorkerHotPath = () =>
               loadAndFilterChunks(scenario.jobs, persistedOptions);
             const historicalResult = await runHistoricalWorkerHotPath();
