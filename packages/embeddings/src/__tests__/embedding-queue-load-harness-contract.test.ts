@@ -19,9 +19,9 @@ function hasFileParallelismArgument(script: string): boolean {
 }
 
 function hasPoolArgument(script: string): boolean {
-  return script
-    .split(/\s+/u)
-    .some((argument) => argument === '--pool' || argument.startsWith('--pool='));
+  return parseScriptArguments(script).some(
+    (argument) => argument === '--pool' || argument.startsWith('--pool=')
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -80,6 +80,7 @@ describe('embedding queue load harness contract', () => {
     expect(hasPoolArgument(integrationScript)).toBe(false);
     expect(hasPoolArgument(`${integrationScript} --pool=threads`)).toBe(true);
     expect(hasPoolArgument(`${integrationScript} --pool threads`)).toBe(true);
+    expect(hasPoolArgument(`${integrationScript} "--pool=threads"`)).toBe(true);
     // The positive worker-count contract intentionally pins the canonical
     // equals form; a widened count cannot satisfy it through substring matching.
     expect(
