@@ -23,7 +23,12 @@ describe('embedding queue load harness contract', () => {
     if (typeof integrationScript !== 'string') {
       throw new Error('Expected @brainstrike/embeddings to define a test:integration script.');
     }
-    expect(integrationScript).toContain('--maxWorkers=1');
-    expect(integrationScript).toContain('--no-file-parallelism');
+    const integrationArguments = integrationScript.split(/\s+/u);
+    const tenWorkerArguments = integrationScript
+      .replace('--maxWorkers=1', '--maxWorkers=10')
+      .split(/\s+/u);
+    expect(tenWorkerArguments).not.toContain('--maxWorkers=1');
+    expect(integrationArguments).toContain('--maxWorkers=1');
+    expect(integrationArguments).toContain('--no-file-parallelism');
   });
 });
