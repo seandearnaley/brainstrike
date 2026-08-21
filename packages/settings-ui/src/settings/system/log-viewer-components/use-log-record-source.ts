@@ -13,6 +13,23 @@ interface UseLogRecordSourceOptions {
   readonly toast: ReturnType<typeof useToast>['toast'];
 }
 
+function subscribeToLogSource(
+  logSource: LogSourceAdapter,
+  onRecords: (records: readonly LogRecord[]) => void,
+  toast: ReturnType<typeof useToast>['toast']
+): (() => void) | undefined {
+  try {
+    return logSource.subscribe?.(onRecords);
+  } catch (error) {
+    toast({
+      description: error instanceof Error ? error.message : String(error),
+      title: 'Failed to subscribe to logs',
+      variant: 'destructive',
+    });
+    return;
+  }
+}
+
 export function useLogRecordSource({
   applyRetentionLimit,
   logSource,
@@ -66,16 +83,7 @@ export function useLogRecordSource({
         }
       }, LOG_SUBSCRIPTION_DEBOUNCE_MS);
     };
-    let unsubscribe: (() => void) | undefined;
-    try {
-      unsubscribe = logSource.subscribe?.(handleSubscriptionRecords);
-    } catch (error) {
-      toast({
-        description: error instanceof Error ? error.message : String(error),
-        title: 'Failed to subscribe to logs',
-        variant: 'destructive',
-      });
-    }
+    const unsubscribe = subscribeToLogSource(logSource, handleSubscriptionRecords, toast);
 
     return () => {
       cancelled = true;
