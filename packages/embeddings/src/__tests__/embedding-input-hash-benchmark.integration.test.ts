@@ -122,6 +122,14 @@ function classifyTaggedFilterResult(result: TaggedFilterResult): FilterClassific
   };
 }
 
+function makeStaleEmbeddingHash(currentHash: string): string {
+  if (!/^[0-9a-f]{64}$/.test(currentHash)) {
+    throw new Error(`Cannot derive a stale fixture hash from '${currentHash}'.`);
+  }
+  const replacement = currentHash.startsWith('0') ? '1' : '0';
+  return `${replacement}${currentHash.slice(1)}`;
+}
+
 function median(samples: readonly number[]): number {
   const sorted = [...samples].sort((left, right) => left - right);
   const midpoint = Math.floor(sorted.length / 2);
@@ -200,7 +208,13 @@ async function seedScenario(
       throw new Error(`Missing benchmark identity for chunk '${chunkId}'.`);
     }
     const isCurrent = (index + (contentLength === 4096 ? 1 : 0)) % 2 === 0;
-    const embeddingHash = isCurrent ? embeddingInputHash : `stale-${embeddingInputHash}`;
+    const embeddingHash = isCurrent
+      ? embeddingInputHash
+      : makeStaleEmbeddingHash(embeddingInputHash);
+    expect(embeddingHash).toMatch(/^[0-9a-f]{64}$/);
+    if (!isCurrent) {
+      expect(embeddingHash).not.toBe(embeddingInputHash);
+    }
     const expectedIds = isCurrent ? completedChunkIds : toProcessChunkIds;
     expectedIds.push(chunkId);
     await db.query(
