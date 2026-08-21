@@ -151,10 +151,12 @@ async function seedScenario(
     [fileId, `${scenario}.txt`, `/${scenario}.txt`, contentLength, `file-hash-${scenario}`, now]
   );
 
-  const contentHashes = Array.from(
-    { length: batchSize },
-    (_, index) => `content-hash-${scenario}-${index}`
+  const contentHashes = await Promise.all(
+    Array.from({ length: batchSize }, (_, index) =>
+      historicalSha256Hex(`benchmark-content-${scenario}-${index}`)
+    )
   );
+  expect(contentHashes.every((hash) => /^[0-9a-f]{64}$/.test(hash))).toBe(true);
   const embeddingInputHashes = await buildEmbeddingJobInputHashes(contentHashes, MODEL_KEY);
   const queue = new JobQueue(db as unknown as IDatabase);
   const jobs: Job[] = [];
