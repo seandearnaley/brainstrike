@@ -1,6 +1,7 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const INVENTORY_ROW =
   /^(?<script>[a-z0-9][a-z0-9.-]*\.(?:cjs|mjs)) → (?<states>[a-z]+(?:\/[a-z]+)*) → (?<purpose>\S.*)$/;
@@ -143,33 +144,66 @@ export async function loadGuardTestSources(scriptsRoot) {
   );
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function structurallyReferencesGuard(source, script) {
-  const executableSource = source
-    .replace(/^[ \t]*\/\*[\s\S]*?\*\/[ \t]*$/gm, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-  const escapedScript = escapeRegExp(script);
-  const relativePath = String.raw`(?:\.\./)+${escapedScript}`;
-  const pathJoinReference = executableSource
-    .split(/\r?\n/)
-    .some(
-      (line) =>
-        /\bpath\.join\(/.test(line) &&
-        (line.includes(`'${script}'`) || line.includes(`"${script}"`))
-    );
-
-  return (
-    pathJoinReference ||
-    [
-      new RegExp(String.raw`\b(?:from|import)\s*(?:\([^)]*?\)|['"]${relativePath}['"])`),
-      new RegExp(String.raw`\bnew\s+URL\(\s*['"]${relativePath}['"]`),
-      new RegExp(String.raw`['"]scripts\/${escapedScript}['"]`),
-      new RegExp(String.raw`['"]scripts['"]\s*,\s*['"]${escapedScript}['"]`),
-    ].some((pattern) => pattern.test(executableSource))
+  const sourceFile = ts.createSourceFile(
+    'guard-contract.test.mjs',
+    source,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.JS
   );
+
+  const isGuardSpecifier = (node) => ts.isStringLiteralLike(node) && node.text === `../${script}`;
+  const isStringValue = (node, value) => ts.isStringLiteralLike(node) && node.text === value;
+  let found = false;
+
+  const visit = (node) => {
+    if (found) {
+      return;
+    }
+
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      isGuardSpecifier(node.moduleSpecifier)
+    ) {
+      found = true;
+      return;
+    }
+
+    if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isPathJoin =
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === 'path' &&
+        node.expression.name.text === 'join';
+      if (
+        (isDynamicImport && node.arguments[0] && isGuardSpecifier(node.arguments[0])) ||
+        (isPathJoin && node.arguments.some((argument) => isStringValue(argument, script))) ||
+        node.arguments.some((argument) => isStringValue(argument, `scripts/${script}`))
+      ) {
+        found = true;
+        return;
+      }
+    }
+
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'URL' &&
+      node.arguments?.[0] &&
+      isGuardSpecifier(node.arguments[0])
+    ) {
+      found = true;
+      return;
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return found;
 }
 
 function hasPairedTest(entry, testSources) {
