@@ -14,6 +14,7 @@ import type {
 } from '../types.js';
 
 const LOAD_TEST_TIMEOUT_MS = 90_000;
+const LOAD_TEST_LEASE_MS = 1000;
 const SCENARIO_COMPLETION_TIMEOUT_MS = 15_000;
 const FIRST_WAVE_RENDEZVOUS_TIMEOUT_MS = 5000;
 const WORKER_LOOP_RENDEZVOUS_TIMEOUT_MS = 5000;
@@ -382,7 +383,9 @@ async function runLoadScenario(params: {
       idlePollInitialMs: 5,
       idlePollMaxMs: 20,
       interBatchDelayMs: 1,
-      leaseMs: 5000,
+      // This is 40x the slowest synthetic inference delay while bounding the
+      // worker stop fallback to one second per scenario on a contended host.
+      leaseMs: LOAD_TEST_LEASE_MS,
       log: () => {},
       maxInFlightJobs: MAX_IN_FLIGHT_JOBS,
       metricsIntervalMs: 5000,
