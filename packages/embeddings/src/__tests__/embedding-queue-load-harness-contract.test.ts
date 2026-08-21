@@ -7,6 +7,12 @@ function hasExactArgument(script: string, argument: string): boolean {
   return script.split(/\s+/u).includes(argument);
 }
 
+function hasPoolArgument(script: string): boolean {
+  return script
+    .split(/\s+/u)
+    .some((argument) => argument === '--pool' || argument.startsWith('--pool='));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -43,6 +49,8 @@ describe('embedding queue load harness contract', () => {
     }
     expect(hasExactArgument(integrationScript, '--maxWorkers=1')).toBe(true);
     expect(hasExactArgument(integrationScript, '--no-file-parallelism')).toBe(true);
+    expect(hasPoolArgument(integrationScript)).toBe(false);
+    expect(hasPoolArgument(`${integrationScript} --pool=threads`)).toBe(true);
     // Pin the equals form so a widened worker count cannot satisfy the same
     // exact-token check through substring matching.
     expect(
