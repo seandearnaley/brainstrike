@@ -11,7 +11,6 @@ import {
   loadAndFilterChunks,
 } from '../worker/embedding-worker-chunk-filter.js';
 import { loadChunksBatch } from '../worker/embedding-worker-db-io.js';
-import { assertEmbedChunkJob } from '../worker/embedding-worker-job-payload.js';
 
 const BENCHMARK_TIMEOUT_MS = 90_000;
 const MODEL_KEY = 'local::benchmark-model';
@@ -30,6 +29,48 @@ interface HashRelocationBenchmarkResult {
 interface FilterClassification {
   readonly completedChunkIds: readonly string[];
   readonly toProcessChunkIds: readonly string[];
+}
+
+interface HistoricalEmbedChunkPayload {
+  readonly chunkId: string;
+  readonly embeddingSetId?: string | null;
+  readonly expectedDimension?: number;
+  readonly modelKey?: string | null;
+}
+
+function assertHistoricalEmbedChunkJob(claimed: Job): HistoricalEmbedChunkPayload {
+  if (claimed.jobType !== 'embed_chunk') {
+    throw new Error(`Unsupported job type: ${claimed.jobType}`);
+  }
+  const payload = (claimed.payload || {}) as HistoricalEmbedChunkPayload;
+  if (typeof payload.chunkId !== 'string' || payload.chunkId.length === 0) {
+    throw new Error('Missing chunkId in payload');
+  }
+  if (typeof payload.embeddingSetId !== 'string' || payload.embeddingSetId.length === 0) {
+    throw new Error('Missing embeddingSetId in payload');
+  }
+  if (typeof payload.modelKey !== 'string' || payload.modelKey.length === 0) {
+    throw new Error('Missing modelKey in payload');
+  }
+  if (!Number.isFinite(payload.expectedDimension) || (payload.expectedDimension ?? 0) <= 0) {
+    throw new Error('Missing expectedDimension in payload');
+  }
+  return payload;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function withoutRelocatedHash(job: ClaimedEmbeddingJob): ClaimedEmbeddingJob {
+  if (!isRecord(job.payload)) {
+    throw new Error(`Benchmark job '${job.id}' does not have an object payload.`);
+  }
+  const { embeddingInputHash, ...historicalPayload } = job.payload;
+  if (typeof embeddingInputHash !== 'string') {
+    throw new Error(`Benchmark job '${job.id}' is missing its relocated input hash.`);
+  }
+  return { ...job, payload: historicalPayload };
 }
 
 function median(samples: readonly number[]): number {
@@ -157,17 +198,17 @@ async function runLegacyWorkerHotPath(
   db: IDatabase,
   jobs: ClaimedEmbeddingJob[]
 ): Promise<FilterClassification> {
-  const chunkIds = jobs.map((job) => assertEmbedChunkJob(job).chunkId);
+  const chunkIds = jobs.map((job) => assertHistoricalEmbedChunkJob(job).chunkId);
   const loadedChunks = await loadChunksBatch(db, chunkIds, 'text');
   const chunkMap = new Map(loadedChunks.map((chunk) => [chunk.id, chunk]));
   const found: Array<{
     chunk: NonNullable<ReturnType<typeof chunkMap.get>>;
-    payload: ReturnType<typeof assertEmbedChunkJob>;
+    payload: ReturnType<typeof assertHistoricalEmbedChunkJob>;
   }> = [];
   const orphanChunkIds: string[] = [];
 
   for (const job of jobs) {
-    const payload = assertEmbedChunkJob(job);
+    const payload = assertHistoricalEmbedChunkJob(job);
     const chunk = chunkMap.get(payload.chunkId);
     if (chunk) {
       found.push({ chunk, payload });
@@ -232,7 +273,8 @@ describe.sequential('embedding input hash relocation benchmark', () => {
           for (const batchSize of batchSizes) {
             const scenario = await seedScenario(db, batchSize, contentLength);
             const database = db as unknown as IDatabase;
-            const legacyClassification = await runLegacyWorkerHotPath(database, scenario.jobs);
+            const historicalJobs = scenario.jobs.map(withoutRelocatedHash);
+            const legacyClassification = await runLegacyWorkerHotPath(database, historicalJobs);
             const persistedClassification = await runPersistedWorkerHotPath(
               database,
               scenario.jobs
@@ -241,7 +283,7 @@ describe.sequential('embedding input hash relocation benchmark', () => {
             expect(persistedClassification).toEqual(scenario.expectedClassification);
 
             const legacyWorkerHotPathMs = await measureMedian(async () => {
-              await runLegacyWorkerHotPath(database, scenario.jobs);
+              await runLegacyWorkerHotPath(database, historicalJobs);
             });
             const persistedWorkerHotPathMs = await measureMedian(async () => {
               await runPersistedWorkerHotPath(database, scenario.jobs);

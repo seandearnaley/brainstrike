@@ -133,7 +133,9 @@ Vector device preference is ONE canonical record (BST-1380):
   seed both current and stale embedding hashes and require the historical and
   persisted filters to classify the same exact chunk IDs across the full
   matrix. The historical path intentionally preserves its serial per-chunk hash
-  awaits, so its timing includes the scheduling behavior that BST-391 removed.
+  awaits and pre-BST-391 payload validator; its fixture payloads omit the new
+  hash field so the legacy timing cannot silently absorb relocated validation
+  work. The timing therefore includes the scheduling behavior BST-391 removed.
   Source length still varies because `loadChunksBatch` reads chunk content,
   while the SHA-256 identity itself remains fixed-size
   `${contentHash}:${resolvedModelKey}` input.
