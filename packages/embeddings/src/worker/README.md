@@ -13,7 +13,8 @@ Current owned modules:
 - `embedding-worker-chunk-filter.ts` - chunk loading, orphan handling, and up-to-date filtering for claimed jobs.
 - `embedding-worker-db-io.ts` - file chunk loading, vector-column assertions, embedding writes, and embedding-set dimension lookup.
 - `embedding-worker-failures.ts` - worker failure classification and job-processing error ownership.
-- `embedding-worker-job-payload.ts` - embed job payload validation and model-key resolution.
+- `embedding-worker-job-payload.ts` - embed job payload validation, including the required
+  producer-owned `embeddingInputHash`, and model-key resolution.
 - `embedding-worker-scheduler.ts` - claim-size and idle-backoff scheduling helpers.
 - `embedding-stats-refresh-controller.ts` - collection indexing stats refresh scheduling.
 - `embedding-cache-maintenance.ts` - cooperative cache eviction/maintenance after queue drains.
@@ -25,6 +26,10 @@ Use `@brainstrike/embeddings/worker` or the root `@brainstrike/embeddings` expor
 ## Allowed dependencies
 
 Allowed inward dependencies are db queue/repository APIs, queue provider metadata, embedding provider factories, shared embedding types, and shared utilities. This runtime must remain renderer-safe. Do not move local embedding execution into Electron main or Node-only runtime paths.
+
+The indexing pipeline owns model-qualified input hashing before durable enqueue. The worker only
+validates and carries that payload value; a compute-on-claim compatibility path would put CPU work
+back on the hot path and is not allowed.
 
 ## Focused local test
 

@@ -268,6 +268,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
@@ -346,6 +347,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
@@ -425,6 +427,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
@@ -499,6 +502,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 384,
           modelKey: payloadModelKey,
@@ -569,6 +573,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 384,
           modelKey: payloadModelKey,

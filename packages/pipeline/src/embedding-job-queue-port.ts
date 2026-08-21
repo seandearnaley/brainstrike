@@ -6,6 +6,7 @@ import type {
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
 import {
+  buildEmbeddingInputHash,
   buildEmbedJobDedupeKey,
   STANDARD_EMBEDDING_DIMENSION,
 } from '@brainstrike/indexing-contract';
@@ -13,6 +14,7 @@ import {
 interface DurableEmbeddingJobPayload {
   readonly chunkId: string;
   readonly dimensionParameter: ProviderDimensionParameter | null;
+  readonly embeddingInputHash: string;
   readonly embeddingSetId: string | null;
   readonly expectedDimension: number;
   readonly fileRecordId: string;
@@ -101,6 +103,7 @@ export function createEmbeddingJobQueuePort<TTransaction = unknown>({
           'Cannot enqueue embedding job for chunk without content hash.'
         );
         const embeddingSetId = resolveEmbeddingSetId(chunk, options);
+        const embeddingInputHash = await buildEmbeddingInputHash(contentHash, modelKey);
 
         enqueueParams.push({
           dedupeKey: buildEmbedJobDedupeKey(chunkId, embeddingSetId, contentHash),
@@ -108,6 +111,7 @@ export function createEmbeddingJobQueuePort<TTransaction = unknown>({
           payload: {
             chunkId,
             dimensionParameter,
+            embeddingInputHash,
             embeddingSetId,
             expectedDimension,
             fileRecordId,

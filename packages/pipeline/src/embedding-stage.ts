@@ -37,7 +37,7 @@
  * ```
  */
 
-import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
+import { buildEmbeddingInputHash, buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
 import { generateChunkId } from './identifiers.js';
 import type { ChunkId, ChunkOutput, EmbeddingSetId, FileId, JobId, JobState } from './types.js';
 
@@ -228,6 +228,7 @@ interface EmbedJobPayloadInternal {
   chunkId: string;
   chunkIndex: number;
   contentHash: string;
+  embeddingInputHash: string;
   embeddingSetId: string;
   expectedDimension: number;
   fileRecordId: string;
@@ -259,18 +260,19 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
   /**
    * Build job payload for a single chunk.
    */
-  function buildJobPayload(
+  async function buildJobPayload(
     chunkId: ChunkId,
     chunk: ChunkOutput,
     fileId: FileId,
     embeddingSetId: EmbeddingSetId,
     modelKey: string,
     expectedDimension: number
-  ): EmbedJobPayloadInternal {
+  ): Promise<EmbedJobPayloadInternal> {
     return {
       chunkId,
       chunkIndex: chunk.chunkIndex,
       contentHash: chunk.contentHash,
+      embeddingInputHash: await buildEmbeddingInputHash(chunk.contentHash, modelKey),
       embeddingSetId,
       expectedDimension,
       fileRecordId: fileId,
@@ -310,14 +312,14 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
   /**
    * Build enqueue params for all chunks.
    */
-  function buildEnqueueParams(
+  async function buildEnqueueParams(
     chunks: ChunkOutput[],
     chunkIds: ChunkId[],
     fileId: FileId,
     embeddingSetId: EmbeddingSetId,
     modelKey: string,
     expectedDimension: number
-  ): EnqueueJobParams[] {
+  ): Promise<EnqueueJobParams[]> {
     const params: EnqueueJobParams[] = [];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
@@ -326,7 +328,7 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
         continue;
       }
 
-      const payload = buildJobPayload(
+      const payload = await buildJobPayload(
         chunkId,
         chunk,
         fileId,
@@ -381,7 +383,7 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
     }
 
     const chunkIds = resolveChunkIds(chunks, providedChunkIds);
-    const enqueueParams = buildEnqueueParams(
+    const enqueueParams = await buildEnqueueParams(
       chunks,
       chunkIds,
       fileId,

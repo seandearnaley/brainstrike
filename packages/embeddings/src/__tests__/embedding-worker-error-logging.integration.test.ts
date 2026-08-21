@@ -171,6 +171,7 @@ describe('embedding-worker error logging', () => {
       [
         JSON.stringify({
           chunkId: 'missing-chunk',
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId: 'set-missing',
           expectedDimension: 768,
           modelKey: 'local::mock-model',
@@ -249,6 +250,7 @@ describe('embedding-worker error logging', () => {
           `job-log-spam-${i}`,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 384,
             modelKey,
@@ -312,6 +314,7 @@ describe('embedding-worker error logging', () => {
         jobId,
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 384,
           modelKey,

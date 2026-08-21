@@ -124,6 +124,7 @@ describe('Embedding Worker - Terminal Errors', () => {
       jobType: 'embed_chunk',
       payload: {
         chunkId,
+        embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
         embeddingSetId: setId,
         expectedDimension: 1536,
         modelKey: 'local::test-model',

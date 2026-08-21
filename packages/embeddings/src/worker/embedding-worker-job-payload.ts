@@ -1,4 +1,5 @@
 import type { Job } from '@brainstrike/db';
+import { isEmbeddingInputHash } from '@brainstrike/indexing-contract';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import type { EmbeddingProviderType } from '../provider-types.js';
 import {
@@ -10,6 +11,7 @@ import {
 export interface EmbedChunkPayload {
   chunkId: string;
   dimensionParameter?: ProviderDimensionParameter | null;
+  embeddingInputHash: string;
   embeddingSetId?: string | null;
   expectedDimension?: number;
   fileRecordId?: string;
@@ -36,6 +38,12 @@ export function assertEmbedChunkJob(claimed: Job): EmbedChunkPayload {
   }
   if (typeof payload.modelKey !== 'string' || payload.modelKey.length === 0) {
     throw new Error('Missing modelKey in payload');
+  }
+  if (payload.embeddingInputHash === undefined) {
+    throw new Error('Missing embeddingInputHash in payload');
+  }
+  if (!isEmbeddingInputHash(payload.embeddingInputHash)) {
+    throw new Error('Invalid embeddingInputHash in payload');
   }
   if (!Number.isFinite(payload.expectedDimension) || (payload.expectedDimension ?? 0) <= 0) {
     throw new Error('Missing expectedDimension in payload');

@@ -151,6 +151,7 @@ describe('embedding-worker-batch', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 768,
             modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
@@ -214,6 +215,7 @@ describe('embedding-worker-batch', () => {
         jobId,
         JSON.stringify({
           chunkId: 'missing-chunk-id',
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
@@ -288,6 +290,7 @@ describe('embedding-worker-batch', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 768,
             modelKey: 'local::jinaai/jina-embeddings-v2-base-code',

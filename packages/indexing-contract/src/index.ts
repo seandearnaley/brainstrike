@@ -1,6 +1,7 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { EmbeddingDimensionParameter } from './embedding-worker-protocol.js';
 
+export * from './embedding-input-hash.js';
 export * from './embedding-worker-protocol.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;

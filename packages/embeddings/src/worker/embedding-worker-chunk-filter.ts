@@ -1,6 +1,6 @@
 import type { IDatabase, Job } from '@brainstrike/db';
 import { type loadChunk, loadChunksBatch } from './embedding-worker-db-io.js';
-import type { EmbedChunkPayload, EmbeddingJobModel } from './embedding-worker-job-payload.js';
+import type { EmbedChunkPayload } from './embedding-worker-job-payload.js';
 import { assertEmbedChunkJob } from './embedding-worker-job-payload.js';
 
 // biome-ignore lint/style/useNamingConvention: lease_token is a database field name.
@@ -17,7 +17,6 @@ export interface LoadAndFilterChunksOptions {
   db: IDatabase;
   failOrphanJobs: (jobs: Array<{ id: string; leaseToken: string }>, error: string) => Promise<void>;
   fileChunkIdType: string;
-  hashExpectedEmbedding: (input: string) => Promise<string>;
   logWarn: (message: string, meta?: unknown) => void;
 }
 
@@ -30,7 +29,6 @@ function isEmbeddingUpToDate(
 
 export async function loadAndFilterChunks(
   jobs: ClaimedEmbeddingJob[],
-  jobModel: EmbeddingJobModel,
   options: LoadAndFilterChunksOptions
 ): Promise<{
   completed: LoadedChunkItem[];
@@ -72,11 +70,8 @@ export async function loadAndFilterChunks(
   const toProcess: LoadedChunkItem[] = [];
   const completed: LoadedChunkItem[] = [];
   for (const item of found) {
-    const expectedHash = await options.hashExpectedEmbedding(
-      `${item.chunk.contentHash}:${jobModel.compositeKey}`
-    );
-    const tagged = { ...item, expectedHash };
-    if (isEmbeddingUpToDate(item.chunk, expectedHash)) {
+    const tagged = { ...item, expectedHash: item.payload.embeddingInputHash };
+    if (isEmbeddingUpToDate(item.chunk, tagged.expectedHash)) {
       completed.push(tagged);
     } else {
       toProcess.push(tagged);

@@ -113,6 +113,7 @@ describe('embedding-worker: heartbeat error logging', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
