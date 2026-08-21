@@ -5,9 +5,9 @@ import type { Migration } from './migration-runner';
  *
  * New producers write both fields before enqueue. This migration upgrades valid
  * historical active and retryable jobs so the renderer worker can require the
- * fields without a legacy compute-on-claim path. Active jobs whose source
- * identity cannot be proven are canceled visibly and counted instead of being
- * silently guessed.
+ * fields without a legacy compute-on-claim path. Jobs whose source identity
+ * cannot be proven are canceled visibly and counted instead of being silently
+ * guessed or becoming invalid candidates for requeueFailed().
  */
 export const migration105EmbeddingJobInputHash: Migration = {
   down: `
@@ -18,23 +18,43 @@ export const migration105EmbeddingJobInputHash: Migration = {
   `,
   name: 'embedding_job_input_hash',
   up: `
+    WITH proven_source AS (
+      SELECT
+        jq.id,
+        fc.content_hash,
+        CASE
+          WHEN jq.payload->>'modelKey' ~ '^(local|transformers|openai|google|cohere|voyage|ollama|lmstudio)(::|:).+'
+          THEN jq.payload->>'modelKey'
+          WHEN jq.payload->>'provider' IN ('openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio')
+          THEN (jq.payload->>'provider') || '::' || (jq.payload->>'modelKey')
+          ELSE NULL
+        END AS resolved_model_key
+      FROM job_queue AS jq
+      JOIN file_chunks AS fc ON fc.id = jq.chunk_id
+      WHERE jq.job_type = 'embed_chunk'
+        AND jq.state IN ('queued', 'running', 'failed')
+        AND jsonb_typeof(jq.payload) = 'object'
+        AND NULLIF(jq.payload->>'modelKey', '') IS NOT NULL
+        AND NULLIF(fc.content_hash, '') IS NOT NULL
+        AND jq.payload->>'chunkId' = jq.chunk_id
+        AND COALESCE(NULLIF(jq.payload->>'embeddingSetId', ''), 'none') =
+            COALESCE(NULLIF(jq.embedding_set_id, ''), 'none')
+        AND jq.dedupe_key =
+            jq.chunk_id || ':' || COALESCE(NULLIF(jq.embedding_set_id, ''), 'none') || ':' || fc.content_hash
+    )
     UPDATE job_queue AS jq
        SET payload = jsonb_set(
          jsonb_set(
            jq.payload,
            '{sourceContentHash}',
-           to_jsonb(fc.content_hash),
+           to_jsonb(proven_source.content_hash),
            true
          ),
          '{embeddingInputHash}',
          to_jsonb(
            encode(
              sha256(convert_to(
-               fc.content_hash || ':' || CASE
-                 WHEN jq.payload->>'modelKey' ~ '^(local|transformers|openai|google|cohere|voyage|ollama|lmstudio)(::|:).+'
-                 THEN jq.payload->>'modelKey'
-                 ELSE (jq.payload->>'provider') || '::' || (jq.payload->>'modelKey')
-               END,
+               proven_source.content_hash || ':' || proven_source.resolved_model_key,
                'UTF8'
              )),
              'hex'
@@ -42,27 +62,39 @@ export const migration105EmbeddingJobInputHash: Migration = {
          ),
          true
        )
-      FROM file_chunks AS fc
-     WHERE jq.job_type = 'embed_chunk'
-       AND jq.state IN ('queued', 'running', 'failed')
-       AND jsonb_typeof(jq.payload) = 'object'
+      FROM proven_source
+     WHERE jq.id = proven_source.id
+       AND proven_source.resolved_model_key IS NOT NULL
        AND (
          NOT jq.payload ? 'embeddingInputHash'
          OR NOT jq.payload ? 'sourceContentHash'
-       )
-       AND NULLIF(jq.payload->>'modelKey', '') IS NOT NULL
-       AND NULLIF(fc.content_hash, '') IS NOT NULL
-       AND (
-         jq.payload->>'modelKey' ~ '^(local|transformers|openai|google|cohere|voyage|ollama|lmstudio)(::|:).+'
-         OR (
-           jq.payload->>'provider' IN ('openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio')
-           AND jq.payload->>'modelKey' !~ '::|:'
-         )
-       )
-       AND fc.id = jq.payload->>'chunkId';
+       );
     --> statement-breakpoint
 
-    WITH canceled AS (
+    WITH proven_source AS (
+      SELECT
+        jq.id,
+        fc.content_hash,
+        CASE
+          WHEN jq.payload->>'modelKey' ~ '^(local|transformers|openai|google|cohere|voyage|ollama|lmstudio)(::|:).+'
+          THEN jq.payload->>'modelKey'
+          WHEN jq.payload->>'provider' IN ('openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio')
+          THEN (jq.payload->>'provider') || '::' || (jq.payload->>'modelKey')
+          ELSE NULL
+        END AS resolved_model_key
+      FROM job_queue AS jq
+      JOIN file_chunks AS fc ON fc.id = jq.chunk_id
+      WHERE jq.job_type = 'embed_chunk'
+        AND jq.state IN ('queued', 'running', 'failed')
+        AND jsonb_typeof(jq.payload) = 'object'
+        AND NULLIF(jq.payload->>'modelKey', '') IS NOT NULL
+        AND NULLIF(fc.content_hash, '') IS NOT NULL
+        AND jq.payload->>'chunkId' = jq.chunk_id
+        AND COALESCE(NULLIF(jq.payload->>'embeddingSetId', ''), 'none') =
+            COALESCE(NULLIF(jq.embedding_set_id, ''), 'none')
+        AND jq.dedupe_key =
+            jq.chunk_id || ':' || COALESCE(NULLIF(jq.embedding_set_id, ''), 'none') || ':' || fc.content_hash
+    ), canceled AS (
       UPDATE job_queue AS jq
          SET state = 'canceled',
              leased_until = NULL,
@@ -75,24 +107,16 @@ export const migration105EmbeddingJobInputHash: Migration = {
                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
              )
        WHERE jq.job_type = 'embed_chunk'
-         AND jq.state IN ('queued', 'running')
+         AND jq.state IN ('queued', 'running', 'failed')
          AND NOT EXISTS (
            SELECT 1
-             FROM file_chunks AS fc
-            WHERE fc.id = jq.payload->>'chunkId'
-              AND NULLIF(jq.payload->>'modelKey', '') IS NOT NULL
-              AND NULLIF(fc.content_hash, '') IS NOT NULL
-              AND jq.payload->>'sourceContentHash' = fc.content_hash
+             FROM proven_source
+            WHERE proven_source.id = jq.id
+              AND proven_source.resolved_model_key IS NOT NULL
+              AND jq.payload->>'sourceContentHash' = proven_source.content_hash
               AND jq.payload->>'embeddingInputHash' = encode(
                 sha256(convert_to(
-                  fc.content_hash || ':' || CASE
-                    WHEN jq.payload->>'modelKey' ~ '^(local|transformers|openai|google|cohere|voyage|ollama|lmstudio)(::|:).+'
-                    THEN jq.payload->>'modelKey'
-                    WHEN jq.payload->>'provider' IN ('openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio')
-                         AND jq.payload->>'modelKey' !~ '::|:'
-                    THEN (jq.payload->>'provider') || '::' || (jq.payload->>'modelKey')
-                    ELSE NULL
-                  END,
+                  proven_source.content_hash || ':' || proven_source.resolved_model_key,
                   'UTF8'
                 )),
                 'hex'
