@@ -16,12 +16,15 @@ unit-shard-partition.mjs → wired/paired/armed → exact Unit shard partition
 verify-catalog-references.mjs → wired/paired/armed → pnpm catalog consistency
 verify-codecov-status-contract.mjs → wired/paired/armed → Codecov status contexts remaining non-gating
 verify-config-load-hash-coverage.mjs → wired/paired/armed → Turbo config-load hash coverage
+verify-eslint-warning-baselines.mjs → wired/paired/armed → per-rule ESLint warning budgets remaining exact and error findings staying forbidden
 verify-guard-inventory.mjs → wired/paired/armed → authoritative Warden guard classification and inventory integrity
 verify-mastra-schema-init-order.mjs → wired/paired/armed → lazy initialization of Mastra memory-schema constants
 verify-minimum-release-age-exclusions.mjs → wired/paired/armed → minimumReleaseAgeExclude entries expiring instead of becoming standing exemptions (publish dates recorded in scripts/minimum-release-age-exclusions.json)
 verify-no-cross-chunk-cycles.mjs → wired/paired/armed → acyclic emitted renderer chunk graph
+verify-no-raw-nul-bytes.mjs → wired/paired/armed → tracked source files remaining free of raw NUL bytes
 verify-no-source-cycles.mjs → wired/paired/armed → acyclic renderer source module graph
 verify-no-vitest-worker-mutation.mjs → wired/paired/armed → Vitest worker-global mutation
+verify-package-build-strategies.mjs → wired/paired/armed → package build commands matching their declared output ownership
 verify-playwright-pin-sync.mjs → wired/paired/armed → Playwright package and container pin parity
 verify-tokenizer-asset-bundle.mjs → wired/paired/armed → tokenizer data staying out of JavaScript bundles
 verify-tsconfig-paths-match-registry.mjs → wired/paired/armed → tsconfig paths matching source-alias registry

@@ -273,6 +273,13 @@ proves the guard can fail. `scripts/verify-guard-inventory.mjs` validates the
 inventory in both local and CI lint paths; malformed rows, duplicate names, and
 classified scripts that no longer exist fail closed.
 
+The verifier derives required guards from root `lint*`, `arch:*`, `boundaries`,
+`coverage:enforce`, and `secrets:scan` commands, so required-path wiring cannot
+silently disappear from the inventory. A `paired` claim must have discoverable
+evidence under `scripts/__tests__`, either by matching basename or an explicit
+script reference. Those tests own the behavioral negative controls represented
+by `armed`.
+
 Guard-shaped tools are not classified merely because they live under
 `scripts/`. In particular, `scan-hooks.cjs` remains a manual diagnostic and
 `ts7-parity-check.mjs` remains an opt-in parity sweep that requires an external
