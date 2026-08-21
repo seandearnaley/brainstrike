@@ -1519,6 +1519,14 @@ export async function createTestBackfillJob(page: Page): Promise<{
       const modelId = 'Xenova/all-MiniLM-L6-v2';
       const modelKey = `local::${modelId}`;
       const expectedDimension = 384;
+      const contentHash = `chunk-hash-${randomSuffix}`;
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(`${contentHash}:${modelKey}`)
+      );
+      const embeddingInputHash = Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, '0')
+      ).join('');
 
       await api.db.query(
         `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
@@ -1549,7 +1557,7 @@ export async function createTestBackfillJob(page: Page): Promise<{
           fileRecordId,
           0,
           'Test content for embedding host validation',
-          `chunk-hash-${randomSuffix}`,
+          contentHash,
           16,
           16,
           now,
@@ -1563,6 +1571,7 @@ export async function createTestBackfillJob(page: Page): Promise<{
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash,
             embeddingSetId,
             expectedDimension,
             modelKey,

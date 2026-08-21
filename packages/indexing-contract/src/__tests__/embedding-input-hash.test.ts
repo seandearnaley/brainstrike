@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildEmbeddingInputHash, isEmbeddingInputHash } from '../embedding-input-hash.js';
 
 describe('embedding input hash', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('hashes the content/model identity with the durable payload algorithm', async () => {
     await expect(buildEmbeddingInputHash('hash-1', 'local::bge-m3')).resolves.toBe(
       'a80aabf0d21d49164154d0972531edf40605eb595aff029c37bc74ca083a98df'
@@ -13,6 +17,26 @@ describe('embedding input hash', () => {
       'without a content hash'
     );
     await expect(buildEmbeddingInputHash('hash-1', '')).rejects.toThrow('without a model key');
+  });
+
+  it('fails visibly when Web Crypto is unavailable', async () => {
+    vi.stubGlobal('crypto', undefined);
+
+    await expect(buildEmbeddingInputHash('hash-1', 'local::bge-m3')).rejects.toThrow(
+      'requires crypto.subtle.digest'
+    );
+  });
+
+  it('rejects an invalid SHA-256 digest length', async () => {
+    vi.stubGlobal('crypto', {
+      subtle: {
+        digest: vi.fn(async () => new ArrayBuffer(16)),
+      },
+    });
+
+    await expect(buildEmbeddingInputHash('hash-1', 'local::bge-m3')).rejects.toThrow(
+      'invalid 16-byte embedding input hash'
+    );
   });
 
   it('accepts only canonical lowercase SHA-256 text', () => {

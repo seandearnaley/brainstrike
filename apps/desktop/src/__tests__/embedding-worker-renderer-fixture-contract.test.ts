@@ -34,7 +34,8 @@ describe('desktop embedding renderer E2E fixture surface', () => {
       .split('export async function createTestBackfillJob')[1]
       ?.split('export async function createInvalidJob')[0];
 
-    expect(validJobFixture).toContain("crypto.subtle.digest('SHA-256'");
+    expect(validJobFixture).toContain('crypto.subtle.digest(');
+    expect(validJobFixture).toContain("'SHA-256'");
     expect(validJobFixture).toContain('embeddingInputHash,');
   });
 });
