@@ -71,6 +71,7 @@ describe('embedding queue load harness contract', () => {
     const integrationArguments = parseScriptArguments(integrationScript);
     const integrationConfigIndex = integrationArguments.indexOf('--config');
     expect(integrationArguments.filter((argument) => argument === '--config')).toHaveLength(1);
+    expect(integrationArguments).not.toContain('-c');
     expect(integrationArguments.at(integrationConfigIndex + 1)).toBe(
       'vitest.integration.config.mts'
     );
