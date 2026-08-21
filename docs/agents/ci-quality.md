@@ -284,6 +284,11 @@ required rows and a classified root guard leaf that is no longer reachable.
 Direct workflow guards (including the pre-install lockfile check) are part of
 both derived sets.
 
+Workflow evidence is YAML-parsed from `test.yml` and scoped specifically to
+`jobs.static.steps[*].run`. A command in another job or text inside a YAML
+comment is not executable Static evidence and cannot make a required-path claim
+green.
+
 `wired` is machine-corroborated for guards discoverable through the complete
 root package-script and workflow command graph. Rows reached through the
 CI-derived graph declare `channel: required-path`; the verifier rejects the
@@ -298,12 +303,13 @@ A `paired` claim is machine-checked against either the guard's exact-basename
 test or an explicit `contract: scripts/__tests__/<name>.test.mjs` annotation in
 the row. The resolved test must either invoke a binding statically imported from
 the exact guard module, or execute an exact `import.meta.url`-resolved guard path
-through `spawn`/`spawnSync`/`execFile` and assert the returned status. Bare
-side-effect imports, filenames, comments, unrelated path construction,
-unasserted subprocesses, and source-string fixtures are insufficient. This
-evidence is read from the JavaScript syntax tree. Discovery is intentionally
-non-recursive because `test:scripts` is non-recursive. `armed` is a reviewed,
-human-maintained declaration:
+as the child-process program or as the first argument to `process.execPath`, then
+assert the returned status. Merely passing the path as an unrelated subprocess
+argument is insufficient, as are bare side-effect imports, filenames, comments,
+unrelated path construction, unasserted subprocesses, and source-string
+fixtures. This evidence is read from the JavaScript syntax tree. Discovery is
+intentionally non-recursive because `test:scripts` is non-recursive. `armed` is
+a reviewed, human-maintained declaration:
 arbitrary negative-control behavior cannot be derived safely from source text,
 so the verifier does not pretend to corroborate it. The named contract tests
 own those behavioral controls, and changes to an `armed` claim must update them
