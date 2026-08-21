@@ -129,6 +129,29 @@ test('rejects a wired guard leaf that is unreachable from required entrypoints',
   }
 });
 
+test('rejects a declared required-path channel after its package binding is removed', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-unbound-required-guard-'));
+  try {
+    await writeFile(path.join(workspace, 'orphaned-guard.mjs'), 'export {};\n');
+
+    const issues = await validateGuardInventory({
+      inventorySource:
+        'orphaned-guard.mjs → wired/paired/armed → protects an orphaned invariant; channel: required-path\n',
+      packageScripts: { lint: 'biome check .', 'lint:ci': 'biome check .' },
+      scriptsRoot: workspace,
+      testSources: [
+        { path: 'orphaned-guard.test.mjs', source: "import '../orphaned-guard.mjs';\n" },
+      ],
+    });
+
+    assert.deepEqual(issues, [
+      'orphaned-guard.mjs: declared required-path channel is not reachable from a required root entrypoint',
+    ]);
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
 test('rejects required workflow guards omitted from the inventory', async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-workflow-guard-'));
   try {

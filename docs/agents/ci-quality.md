@@ -282,21 +282,25 @@ does not count as wiring. Direct workflow guards (including the pre-install
 lockfile check) are part of the same derived set.
 
 `wired` is machine-corroborated for guards discoverable through that root
-package-script and required-workflow command graph. Other classified guards are
-enforced by package-level build scripts or by their paired contract under the
-required Static `test:scripts` step; those rows remain reviewed declarations.
-Moving one of those guards out of its declared channel requires updating the
-inventory and contract together.
+package-script and required-workflow command graph. Those rows declare
+`channel: required-path`; the verifier rejects the declaration if the guard
+disappears from the derived graph, so deleting its package-script binding cannot
+silently reclassify it. Other classified guards are enforced by package-level
+build scripts or by their paired contract under the required Static
+`test:scripts` step; those rows remain reviewed declarations. Moving a guard
+between channels requires updating the inventory and contract together.
 
 A `paired` claim is machine-checked against either the guard's exact-basename
 test or an explicit `contract: scripts/__tests__/<name>.test.mjs` annotation in
 the row. The resolved test must structurally reference the guard through an
-import, URL, or script path; a filename or comment-only mention is insufficient.
-Discovery is intentionally non-recursive because `test:scripts` is
-non-recursive. `armed` is a reviewed, human-maintained declaration: arbitrary
-negative-control behavior cannot be derived safely from source text, so the
-verifier does not pretend to corroborate it. The named contract tests own those
-behavioral controls, and changes to an `armed` claim must update them together.
+import, URL, or script path. This evidence is read from the JavaScript syntax
+tree, so filenames, comments, unrelated imports, and source-string fixtures are
+insufficient. Discovery is intentionally non-recursive because `test:scripts`
+is non-recursive. `armed` is a reviewed, human-maintained declaration:
+arbitrary negative-control behavior cannot be derived safely from source text,
+so the verifier does not pretend to corroborate it. The named contract tests
+own those behavioral controls, and changes to an `armed` claim must update them
+together.
 
 Guard-shaped tools are not classified merely because they live under
 `scripts/`. In particular, `scan-hooks.cjs` remains a manual diagnostic and
