@@ -243,6 +243,41 @@ than another optional parameter on `makeRunEventChunk` because `detail` and
 `timestamp` are both `string`, so a positional slip between them would
 type-check cleanly while writing a timestamp into the detail field.
 
+**A provider-evidenced HTTP 401 is a REJECTED CREDENTIAL, and the visible
+detail says so — with the remedy for THAT provider's auth type (BST-1384).**
+`resolveProviderError` (`mastra-chunk-decoding.ts`) rewrites the human detail
+for a run error whose `httpStatus` is 401 into "<remedy> Provider response:
+<body>", where the remedy is keyed by the registry `authType` of the run's
+provider (subject = registry `displayName`):
+`api_key` → "rejected the API key … Update the key in Settings → Providers, or
+verify it in the provider dashboard"; `oauth_subscription` → "rejected the
+sign-in session … Sign in again in Settings → Providers" (its stored key is the
+`oauth-subscription-no-api-key` placeholder — an api-key remedy would be a
+dead end); `aws` → "rejected the AWS credentials … Update the Bedrock credential
+… or refresh the AWS profile session"; `none` → "rejected the request as
+unauthorized … Check the runtime’s API token under Settings → Local Runtimes"
+(the optional local-runtime bearer is `providerOptions.apiToken`, not a Settings
+key); unknown provider → a neutral "rejected the credential" sentence. Adding a
+registry `authType` is a compile error here until it picks a remedy. Guidance
+comes FIRST so the visible clamp can only ever shorten the provider's own text
+(pinned by the clamp spec). 401 is the ONE wrong-credential status, mirroring
+the Settings "Test connection" probe's settled classifier
+(`provider-verification.ts`: 403 = authenticated-but-limited, 429 = rate-limited
+VALID credential) — a run must never blame the credential for a status the
+probe reports as verified. The `runError` envelope (code, `httpStatus`, the
+`mastra_agent_stream_provider_error:401` log fingerprint, debug-bundle fields)
+is byte-identical to before; only the detail changes. DELIBERATE asymmetry with
+the probe, do not "fix" either side to match the other: the probe composes its
+detail from the status alone (bodies are never echoed there), while this path
+appends the provider body — it is the user's only provider-side evidence, the
+pre-change visible detail WAS the raw body, and `runError.message` persists it
+regardless, so nothing new is exposed (some providers do echo a partially
+masked key in a 401 body, e.g. OpenAI's `Incorrect API key provided: sk-…XYZ`).
+Motivating field failure (2026-08-21): OpenRouter's 401 body is literally "User
+not found." for ANY unrecognized key, so a revoked stored key surfaced as an
+opaque app failure and read as a regression for a day. Pinned by the
+`rejected credential (HTTP 401)` block in `mastra-chunk-decoding.spec.ts`.
+
 **Finish-reason absence is distinct from a raw unsupported value (BST-868).**
 `readFinishReason` and `resolveFinishReason` preserve a missing, empty, or
 non-string Mastra field as Brainstrike's internal `'absent'` sentinel. The AI

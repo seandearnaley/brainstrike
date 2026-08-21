@@ -15,6 +15,10 @@
  * See docs/agents/mastra-boundary.md R6.
  */
 import {
+  findProviderDefinition,
+  type ProviderAuthType,
+} from '@brainstrike/assistant-contract/provider-registry';
+import {
   extractProviderRunError,
   isLocalRunErrorClassification,
   LOCAL_RUN_ERROR_FALLBACK_CODE,
@@ -526,17 +530,91 @@ export function extractErrorMessage(value: unknown): string | undefined {
   }
 }
 
+/**
+ * The ONE wrong-credential HTTP status (BST-1384). Mirrors the Settings "Test
+ * connection" probe's settled classifier (`provider-verification.ts`): 401 is
+ * `invalid`; 403 is authenticated-but-limited and 429 is a rate-limited VALID
+ * credential, so neither may be read as a credential problem here either.
+ * Keeping the two in agreement is the point — a run must not blame the
+ * credential for a status the probe would report as "verified".
+ */
+const REJECTED_CREDENTIAL_HTTP_STATUS = 401;
+
+/**
+ * The remedy half of the 401 copy, keyed by the provider's registry
+ * `authType` (PR #2573 review). The remedy MUST match how that provider
+ * actually authenticates — an "update the API key" instruction is a dead end
+ * for a ChatGPT subscription session (`oauth_subscription`; its stored key is
+ * the `oauth-subscription-no-api-key` placeholder and a 401 means the session
+ * expired or was revoked), for Bedrock (`aws`; bearer key OR an AWS profile
+ * chain whose SSO session can expire), and for a local runtime (`none`; the
+ * optional bearer is `providerOptions.apiToken`, configured under Local
+ * Runtimes — there is no Settings key to edit). Settings surface names are the
+ * CURRENT category titles ("Providers" replaced "API Keys" in #2529).
+ */
+function rejectedCredentialRemedy(authType: ProviderAuthType, subject: string): string {
+  switch (authType) {
+    case 'api_key':
+      return `${subject} rejected the API key (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — it is invalid or was revoked. Update the key in Settings → Providers, or verify it in the provider dashboard.`;
+    case 'aws':
+      return `${subject} rejected the AWS credentials (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — they are invalid or expired. Update the Bedrock credential in Settings → Providers, or refresh the AWS profile session (for example \`aws sso login\`).`;
+    case 'none':
+      return `${subject} rejected the request as unauthorized (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}). Check the runtime’s API token under Settings → Local Runtimes.`;
+    case 'oauth_subscription':
+      return `${subject} rejected the sign-in session (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — it expired or was revoked. Sign in again in Settings → Providers.`;
+    default: {
+      // Exhaustive: a new registry authType must choose its remedy here.
+      const exhaustive: never = authType;
+      throw new Error(`Unhandled provider authType: ${String(exhaustive)}`);
+    }
+  }
+}
+
+/** Neutral remedy for a provider the registry does not know (no authType to branch on). */
+const REJECTED_CREDENTIAL_UNKNOWN_PROVIDER_REMEDY = `The provider rejected the credential (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — it is invalid or was revoked. Check the provider’s credential in Settings → Providers.`;
+
+/**
+ * Visible copy for a provider-evidenced 401. GUIDANCE FIRST, provider body
+ * LAST: the termination helper clamps the visible detail to
+ * {@link MAX_VISIBLE_PROVIDER_ERROR_CHARS}, so this ordering guarantees the
+ * clamp can only ever shorten the provider's text, never the instruction
+ * (pinned by the clamp spec in mastra-chunk-decoding.spec.ts).
+ *
+ * The raw body is still appended (and the runError envelope is untouched)
+ * because it is the only provider-side evidence the user has: OpenRouter's
+ * 401 body is literally "User not found." for ANY unrecognized key — shown
+ * alone it reads like an app bug, which is the 2026-08-21 field failure that
+ * motivated this classification. This is a DELIBERATE asymmetry with the
+ * Settings probe, which composes its detail from the status alone: the
+ * pre-change visible detail WAS the raw body and `runError.message` persists
+ * it regardless, so nothing new is exposed here.
+ */
+function describeRejectedCredential(provider: string | undefined, providerBody: string): string {
+  const definition = provider === undefined ? undefined : findProviderDefinition(provider);
+  const remedy = definition
+    ? rejectedCredentialRemedy(definition.authType, definition.displayName)
+    : REJECTED_CREDENTIAL_UNKNOWN_PROVIDER_REMEDY;
+  return `${remedy} Provider response: ${providerBody}`;
+}
+
 export function resolveProviderError(
   value: unknown,
   runtimeData: RuntimeData | undefined
 ): ResolvedProviderError {
   const runError = extractProviderRunError(value);
   const extractedDetail = extractErrorMessage(value);
-  const detail =
+  const providerBody =
     extractedDetail && extractedDetail !== '[object Object]'
       ? extractedDetail
       : (runError.message ?? 'agent_stream_error');
   const provider = runtimeData?.provider?.trim().toLowerCase();
+  // An httpStatus is provider evidence by construction (see
+  // extractProviderRunError), so a 401 here always crossed to the provider —
+  // a local fault can never wear the rejected-credential wording.
+  const detail =
+    runError.httpStatus === REJECTED_CREDENTIAL_HTTP_STATUS
+      ? describeRejectedCredential(provider, providerBody)
+      : providerBody;
   // Both fallback codes are classifications, not provider-issued codes — only
   // stable typed codes earn the visible `[code]` prefix.
   const includeStableCode =
