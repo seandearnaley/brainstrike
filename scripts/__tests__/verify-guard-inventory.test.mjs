@@ -100,6 +100,39 @@ test('preserves classified guards with degraded states and reports every gap', a
   }
 });
 
+test('rejects out-of-order inventory rows', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-unsorted-guard-'));
+  const inventorySource = [
+    'zeta-guard.mjs → wired=yes/paired=yes/armed=yes → protects zeta',
+    'alpha-guard.mjs → wired=yes/paired=yes/armed=yes → protects alpha',
+  ].join('\n');
+
+  try {
+    await Promise.all(
+      ['alpha-guard.mjs', 'zeta-guard.mjs'].map((script) =>
+        writeFile(path.join(workspace, script), 'export {};\n')
+      )
+    );
+
+    assert.deepEqual(
+      await validateGuardInventory({
+        inventorySource,
+        packageScripts: {},
+        scriptsRoot: workspace,
+        testSources: [
+          { path: 'alpha-guard.test.mjs' },
+          { path: 'zeta-guard.test.mjs' },
+        ],
+      }),
+      [
+        'guard inventory rows must use deterministic script-name order: alpha-guard.mjs before zeta-guard.mjs',
+      ]
+    );
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
 test('rejects classified rows whose guard script no longer exists', async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-guard-inventory-'));
   try {

@@ -454,6 +454,16 @@ export async function validateGuardInventory({
     }
   }
 
+  for (let index = 1; index < entries.length; index += 1) {
+    const previous = entries[index - 1];
+    const current = entries[index];
+    if (previous.script > current.script) {
+      issues.push(
+        `guard inventory rows must use deterministic script-name order: ${current.script} before ${previous.script}`
+      );
+    }
+  }
+
   for (const entry of entries) {
     if (REQUIRED_PATH_CHANNEL.test(entry.purpose) && !ciRequired.has(entry.script)) {
       issues.push(
