@@ -254,7 +254,8 @@ export function main() {
     } catch (error) {
       console.error('Failed to inspect coverage directory hints:', error);
     }
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const coveredPackageNames = new Set(
@@ -268,7 +269,8 @@ export function main() {
     for (const { dir, name } of missingCoveragePackages) {
       console.error(`  - ${name} (${path.relative(process.cwd(), dir)})`);
     }
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   let hasFailure = false;
@@ -305,13 +307,15 @@ export function main() {
   }
 
   if (hasFailure) {
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   console.log('All package coverage thresholds satisfied.');
 }
 
 const isDirectExecution =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  process.argv[1] &&
+  fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
 
 if (isDirectExecution) {
   main();

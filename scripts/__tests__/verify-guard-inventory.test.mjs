@@ -60,7 +60,7 @@ test('rejects classified rows whose guard script no longer exists', async () => 
       testSources: [
         {
           path: 'missing-guard.test.mjs',
-          source: "import '../missing-guard.mjs';",
+          source: "import { main } from '../missing-guard.mjs';\nmain();",
         },
       ],
     });
@@ -90,7 +90,7 @@ test('rejects required lint guards omitted from the inventory', async () => {
       testSources: [
         {
           path: 'declared-guard.test.mjs',
-          source: "import '../declared-guard.mjs';",
+          source: "import { main } from '../declared-guard.mjs';\nmain();",
         },
       ],
     });
@@ -117,7 +117,10 @@ test('rejects a wired guard leaf that is unreachable from required entrypoints',
       },
       scriptsRoot: workspace,
       testSources: [
-        { path: 'orphaned-guard.test.mjs', source: "import '../orphaned-guard.mjs';\n" },
+        {
+          path: 'orphaned-guard.test.mjs',
+          source: "import { main } from '../orphaned-guard.mjs';\nmain();\n",
+        },
       ],
     });
 
@@ -129,7 +132,7 @@ test('rejects a wired guard leaf that is unreachable from required entrypoints',
   }
 });
 
-test('rejects a declared required-path channel after its package binding is removed', async () => {
+test('rejects a required-path channel reachable only through local lint', async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-unbound-required-guard-'));
   try {
     await writeFile(path.join(workspace, 'orphaned-guard.mjs'), 'export {};\n');
@@ -137,15 +140,23 @@ test('rejects a declared required-path channel after its package binding is remo
     const issues = await validateGuardInventory({
       inventorySource:
         'orphaned-guard.mjs → wired/paired/armed → protects an orphaned invariant; channel: required-path\n',
-      packageScripts: { lint: 'biome check .', 'lint:ci': 'biome check .' },
+      packageScripts: {
+        lint: 'pnpm run lint:orphaned',
+        'lint:ci': 'biome check .',
+        'lint:orphaned': 'node scripts/orphaned-guard.mjs',
+      },
       scriptsRoot: workspace,
       testSources: [
-        { path: 'orphaned-guard.test.mjs', source: "import '../orphaned-guard.mjs';\n" },
+        {
+          path: 'orphaned-guard.test.mjs',
+          source: "import { main } from '../orphaned-guard.mjs';\nmain();\n",
+        },
       ],
+      workflowSources: ['steps:\n  - run: pnpm run lint:ci\n'],
     });
 
     assert.deepEqual(issues, [
-      'orphaned-guard.mjs: declared required-path channel is not reachable from a required root entrypoint',
+      'orphaned-guard.mjs: declared required-path channel is not reachable from a required CI workflow',
     ]);
   } finally {
     await rm(workspace, { force: true, recursive: true });
@@ -166,7 +177,10 @@ test('rejects required workflow guards omitted from the inventory', async () => 
       packageScripts: { 'lint:ci': 'biome check .' },
       scriptsRoot: workspace,
       testSources: [
-        { path: 'declared-guard.test.mjs', source: "import '../declared-guard.mjs';\n" },
+        {
+          path: 'declared-guard.test.mjs',
+          source: "import { main } from '../declared-guard.mjs';\nmain();\n",
+        },
       ],
       workflowSources: [
         [
@@ -192,15 +206,19 @@ test('rejects a required CI lint entrypoint that the workflow no longer reaches'
     await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
 
     const issues = await validateGuardInventory({
-      inventorySource:
-        'example-guard.mjs → wired/paired/armed → protects an example invariant; channel: required-path\n',
+      inventorySource: 'example-guard.mjs → wired/paired/armed → protects an example invariant\n',
       packageScripts: {
         lint: 'pnpm run lint:example',
         'lint:ci': 'pnpm run lint:example',
         'lint:example': 'node scripts/example-guard.mjs',
       },
       scriptsRoot: workspace,
-      testSources: [{ path: 'example-guard.test.mjs', source: "import '../example-guard.mjs';\n" }],
+      testSources: [
+        {
+          path: 'example-guard.test.mjs',
+          source: "import { main } from '../example-guard.mjs';\nmain();\n",
+        },
+      ],
       workflowSources: ['steps:\n  - run: pnpm run secrets:scan\n'],
     });
 
@@ -264,6 +282,7 @@ test('requires an exact basename or declared contract path for paired evidence',
             path: 'different-contract.test.mjs',
             source: [
               "import('../unrelated.mjs');",
+              "import '../example-guard.mjs';",
               `const fixture = "import('../example-guard.mjs')";`,
               "run(); // 'scripts/example-guard.mjs'",
               "run(/* 'scripts/example-guard.mjs' */);",
@@ -285,11 +304,55 @@ test('requires an exact basename or declared contract path for paired evidence',
         testSources: [
           {
             path: 'different-contract.test.mjs',
-            source: "import('../example-guard.mjs');\n",
+            source: "import { main } from '../example-guard.mjs';\nmain();\n",
           },
         ],
       }),
       []
+    );
+
+    assert.deepEqual(
+      await validateGuardInventory({
+        inventorySource:
+          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+        packageScripts: {},
+        scriptsRoot: workspace,
+        testSources: [
+          {
+            path: 'different-contract.test.mjs',
+            source: [
+              "import assert from 'node:assert/strict';",
+              "import { spawnSync } from 'node:child_process';",
+              "import { fileURLToPath } from 'node:url';",
+              "const scriptPath = fileURLToPath(new URL('../example-guard.mjs', import.meta.url));",
+              'const result = spawnSync(process.execPath, [scriptPath]);',
+              'assert.equal(result.status, 1);',
+            ].join('\n'),
+          },
+        ],
+      }),
+      []
+    );
+
+    assert.deepEqual(
+      await validateGuardInventory({
+        inventorySource:
+          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+        packageScripts: {},
+        scriptsRoot: workspace,
+        testSources: [
+          {
+            path: 'different-contract.test.mjs',
+            source: [
+              "import { spawnSync } from 'node:child_process';",
+              "import { fileURLToPath } from 'node:url';",
+              "const scriptPath = fileURLToPath(new URL('../example-guard.mjs', import.meta.url));",
+              'spawnSync(process.execPath, [scriptPath]);',
+            ].join('\n'),
+          },
+        ],
+      }),
+      ['example-guard.mjs: paired guard has no discoverable test under scripts/__tests__']
     );
   } finally {
     await rm(workspace, { force: true, recursive: true });

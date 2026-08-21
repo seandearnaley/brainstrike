@@ -102,6 +102,7 @@ function collectRequiredGuardScripts(packageScripts, workflowSources) {
     ...[...workflowEntrypoints].filter((name) => GUARD_LEAF_SCRIPT_NAME.test(name)),
   ]);
   const reachablePackageScripts = collectReachablePackageScripts(packageScripts, entrypoints);
+  const ciRequired = new Set();
   const required = new Set();
   const guardBindings = new Map();
 
@@ -110,6 +111,11 @@ function collectRequiredGuardScripts(packageScripts, workflowSources) {
     if (reachablePackageScripts.has(name)) {
       for (const script of directGuards) {
         required.add(script);
+      }
+    }
+    if (workflowReachablePackageScripts.has(name)) {
+      for (const script of directGuards) {
+        ciRequired.add(script);
       }
     }
 
@@ -125,6 +131,7 @@ function collectRequiredGuardScripts(packageScripts, workflowSources) {
   for (const workflowSource of workflowSources) {
     for (const command of collectWorkflowRunCommands(workflowSource)) {
       for (const script of collectDirectGuardScripts(command)) {
+        ciRequired.add(script);
         required.add(script);
       }
     }
@@ -144,7 +151,7 @@ function collectRequiredGuardScripts(packageScripts, workflowSources) {
           (name) => !workflowReachablePackageScripts.has(name)
         );
 
-  return { missingWorkflowEntrypoints, required, unreachable };
+  return { ciRequired, missingWorkflowEntrypoints, required, unreachable };
 }
 
 export async function loadGuardTestSources(scriptsRoot) {
@@ -170,36 +177,181 @@ function structurallyReferencesGuard(source, script) {
     ts.ScriptKind.JS
   );
 
+  const importedGuardBindings = new Set();
+  const guardNamespaces = new Set();
+  const childProcessBindings = new Set();
+  const childProcessNamespaces = new Set();
+  const assertBindings = new Set();
+  const guardPathBindings = new Set();
+  const childProcessResults = new Set();
+  const supportedChildProcessCalls = new Set(['execFile', 'execFileSync', 'spawn', 'spawnSync']);
   const isGuardSpecifier = (node) => ts.isStringLiteralLike(node) && node.text === `../${script}`;
-  let found = false;
 
-  const visit = (node) => {
-    if (found) {
-      return;
+  for (const statement of sourceFile.statements) {
+    if (!(ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier))) {
+      continue;
     }
 
-    if (
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-      node.moduleSpecifier &&
-      isGuardSpecifier(node.moduleSpecifier)
-    ) {
-      found = true;
-      return;
+    const importClause = statement.importClause;
+    if (!importClause) {
+      continue;
     }
 
-    if (ts.isCallExpression(node)) {
-      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
-      if (isDynamicImport && node.arguments[0] && isGuardSpecifier(node.arguments[0])) {
-        found = true;
-        return;
+    if (isGuardSpecifier(statement.moduleSpecifier)) {
+      if (importClause.name) {
+        importedGuardBindings.add(importClause.name.text);
+      }
+      if (importClause.namedBindings && ts.isNamespaceImport(importClause.namedBindings)) {
+        guardNamespaces.add(importClause.namedBindings.name.text);
+      }
+      if (importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)) {
+        for (const element of importClause.namedBindings.elements) {
+          importedGuardBindings.add(element.name.text);
+        }
+      }
+      continue;
+    }
+
+    if (statement.moduleSpecifier.text === 'node:child_process') {
+      if (importClause.namedBindings && ts.isNamespaceImport(importClause.namedBindings)) {
+        childProcessNamespaces.add(importClause.namedBindings.name.text);
+      }
+      if (importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)) {
+        for (const element of importClause.namedBindings.elements) {
+          const importedName = element.propertyName?.text ?? element.name.text;
+          if (supportedChildProcessCalls.has(importedName)) {
+            childProcessBindings.add(element.name.text);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (statement.moduleSpecifier.text === 'node:assert/strict') {
+      if (importClause.name) {
+        assertBindings.add(importClause.name.text);
+      }
+      if (importClause.namedBindings && ts.isNamespaceImport(importClause.namedBindings)) {
+        assertBindings.add(importClause.namedBindings.name.text);
       }
     }
+  }
 
-    ts.forEachChild(node, visit);
+  const isImportMetaUrl = (node) =>
+    ts.isPropertyAccessExpression(node) &&
+    node.name.text === 'url' &&
+    ts.isMetaProperty(node.expression) &&
+    node.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
+    node.expression.name.text === 'meta';
+  const isExactGuardPath = (node) =>
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'fileURLToPath' &&
+    node.arguments.length === 1 &&
+    ts.isNewExpression(node.arguments[0]) &&
+    ts.isIdentifier(node.arguments[0].expression) &&
+    node.arguments[0].expression.text === 'URL' &&
+    node.arguments[0].arguments?.length === 2 &&
+    isGuardSpecifier(node.arguments[0].arguments[0]) &&
+    isImportMetaUrl(node.arguments[0].arguments[1]);
+
+  const collectGuardPaths = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      isExactGuardPath(node.initializer)
+    ) {
+      guardPathBindings.add(node.name.text);
+    }
+    ts.forEachChild(node, collectGuardPaths);
+  };
+  collectGuardPaths(sourceFile);
+
+  const containsGuardPath = (node) => {
+    if (ts.isIdentifier(node) && guardPathBindings.has(node.text)) {
+      return true;
+    }
+    if (isExactGuardPath(node)) {
+      return true;
+    }
+    let found = false;
+    ts.forEachChild(node, (child) => {
+      if (!found && containsGuardPath(child)) {
+        found = true;
+      }
+    });
+    return found;
+  };
+  const isChildProcessCall = (node) => {
+    if (!ts.isCallExpression(node)) {
+      return false;
+    }
+    if (ts.isIdentifier(node.expression)) {
+      return childProcessBindings.has(node.expression.text);
+    }
+    return (
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      childProcessNamespaces.has(node.expression.expression.text) &&
+      supportedChildProcessCalls.has(node.expression.name.text)
+    );
   };
 
-  visit(sourceFile);
-  return found;
+  let invokesImportedGuard = false;
+  const collectExecutions = (node) => {
+    if (ts.isCallExpression(node)) {
+      if (ts.isIdentifier(node.expression) && importedGuardBindings.has(node.expression.text)) {
+        invokesImportedGuard = true;
+      }
+      if (
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        guardNamespaces.has(node.expression.expression.text)
+      ) {
+        invokesImportedGuard = true;
+      }
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      isChildProcessCall(node.initializer) &&
+      node.initializer.arguments.some(containsGuardPath)
+    ) {
+      childProcessResults.add(node.name.text);
+    }
+    ts.forEachChild(node, collectExecutions);
+  };
+  collectExecutions(sourceFile);
+
+  if (invokesImportedGuard) {
+    return true;
+  }
+
+  let assertsChildProcessStatus = false;
+  const collectAssertions = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      assertBindings.has(node.expression.expression.text) &&
+      ['equal', 'strictEqual'].includes(node.expression.name.text) &&
+      node.arguments.some(
+        (argument) =>
+          ts.isPropertyAccessExpression(argument) &&
+          argument.name.text === 'status' &&
+          ts.isIdentifier(argument.expression) &&
+          childProcessResults.has(argument.expression.text)
+      )
+    ) {
+      assertsChildProcessStatus = true;
+      return;
+    }
+    ts.forEachChild(node, collectAssertions);
+  };
+  collectAssertions(sourceFile);
+  return assertsChildProcessStatus;
 }
 
 function hasPairedTest(entry, testSources) {
@@ -270,10 +422,8 @@ export async function validateGuardInventory({
   const issues = [];
   const inventoryScripts = new Set(entries.map((entry) => entry.script));
 
-  const { missingWorkflowEntrypoints, required, unreachable } = collectRequiredGuardScripts(
-    packageScripts,
-    workflowSources
-  );
+  const { ciRequired, missingWorkflowEntrypoints, required, unreachable } =
+    collectRequiredGuardScripts(packageScripts, workflowSources);
   for (const name of missingWorkflowEntrypoints) {
     issues.push(
       `${name}: required package-script entrypoint is not reachable from required workflow commands`
@@ -296,9 +446,9 @@ export async function validateGuardInventory({
   }
 
   for (const entry of entries) {
-    if (REQUIRED_PATH_CHANNEL.test(entry.purpose) && !required.has(entry.script)) {
+    if (REQUIRED_PATH_CHANNEL.test(entry.purpose) && !ciRequired.has(entry.script)) {
       issues.push(
-        `${entry.script}: declared required-path channel is not reachable from a required root entrypoint`
+        `${entry.script}: declared required-path channel is not reachable from a required CI workflow`
       );
     }
   }

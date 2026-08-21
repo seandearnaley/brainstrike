@@ -5,7 +5,7 @@ browser-events-literal-guard.mjs → wired/paired/armed → shared browser Custo
 catalog-user-choice-guard.mjs → wired/paired/armed → catalog migrations preserving user model enablement; channel: required-path
 check-e2e-destructive-tags.mjs → wired/paired/armed → factory-reset E2E isolation tags; channel: required-path
 check-e2e-readiness-contracts.mjs → wired/paired/armed → fast E2E shard DB-readiness isolation; channel: required-path
-enforce-coverage.mjs → wired/paired/armed → coverage artifacts and per-package thresholds; contract: scripts/__tests__/enforce-coverage-artifact-contract.test.mjs; channel: required-path
+enforce-coverage.mjs → wired/paired/armed → coverage artifacts and per-package thresholds; contract: scripts/__tests__/enforce-coverage-artifact-contract.test.mjs
 forbid-no-memo.mjs → wired/paired/armed → React compiler escape directives; channel: required-path
 mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union coverage and observable unknown chunks; channel: required-path
 model-catalog-migration-contract.mjs → wired/paired/armed → dual migration registration and model remaps; channel: required-path
