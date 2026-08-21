@@ -24,6 +24,13 @@ function hasPoolArgument(script: string): boolean {
   );
 }
 
+function configArguments(script: string): string[] {
+  return parseScriptArguments(script).filter((argument) => {
+    const [name] = argument.split('=');
+    return name === '--config' || name === '-c';
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -70,8 +77,11 @@ describe('embedding queue load harness contract', () => {
     }
     const integrationArguments = parseScriptArguments(integrationScript);
     const integrationConfigIndex = integrationArguments.indexOf('--config');
-    expect(integrationArguments.filter((argument) => argument === '--config')).toHaveLength(1);
-    expect(integrationArguments).not.toContain('-c');
+    expect(configArguments(integrationScript)).toEqual(['--config']);
+    expect(configArguments(`${integrationScript} --config=vitest.models.config.mts`)).toHaveLength(
+      2
+    );
+    expect(configArguments(`${integrationScript} -c=vitest.models.config.mts`)).toHaveLength(2);
     expect(integrationArguments.at(integrationConfigIndex + 1)).toBe(
       'vitest.integration.config.mts'
     );
