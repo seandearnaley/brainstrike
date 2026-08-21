@@ -287,7 +287,8 @@ both derived sets.
 Workflow evidence is YAML-parsed from `test.yml` and scoped specifically to
 `jobs.static.steps[*].run`. A command in another job or text inside a YAML
 comment is not executable Static evidence and cannot make a required-path claim
-green.
+green. A Static step with a literal-false `if` condition is likewise excluded:
+text that GitHub Actions will never execute is not required-path wiring.
 
 `wired` is machine-corroborated for guards discoverable through the complete
 root package-script and workflow command graph. Rows reached through the

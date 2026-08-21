@@ -272,6 +272,44 @@ test('ignores non-Static jobs and inline comments when deriving CI reachability'
   }
 });
 
+test('ignores statically disabled Static steps when deriving CI reachability', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-disabled-static-step-'));
+  try {
+    await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
+
+    const issues = await validateGuardInventory({
+      inventorySource: 'example-guard.mjs → wired/paired/armed → protects an example invariant\n',
+      packageScripts: {
+        lint: 'pnpm run lint:example',
+        'lint:ci': 'pnpm run lint:example',
+        'lint:example': 'node scripts/example-guard.mjs',
+      },
+      scriptsRoot: workspace,
+      testSources: [
+        {
+          path: 'example-guard.test.mjs',
+          source: "import { main } from '../example-guard.mjs';\nmain();\n",
+        },
+      ],
+      workflowSources: [
+        [
+          'jobs:',
+          '  static:',
+          '    steps:',
+          ['      - if: $', '{{ false }}'].join(''),
+          '        run: pnpm run lint:ci',
+        ].join('\n'),
+      ],
+    });
+
+    assert.deepEqual(issues, [
+      'lint:ci: required package-script entrypoint is not reachable from required workflow commands',
+    ]);
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
 test('rejects paired claims without discoverable test evidence', async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-paired-guard-'));
   try {
