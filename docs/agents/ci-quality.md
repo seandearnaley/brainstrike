@@ -274,7 +274,7 @@ test exists under `scripts/__tests__`; `armed=yes` means that test contains a
 negative control proving the guard can fail; the corroboration boundary for
 each claim is defined below. `scripts/verify-guard-inventory.mjs` validates the
 inventory in both local and CI lint paths; malformed rows, duplicate names,
-duplicate names, missing scripts, degraded states, and rows that are not in
+missing scripts, degraded states, and rows that are not in
 ascending code-unit order by script name fail closed. The allowed names are
 ASCII, so contributors can reproduce the order with `LC_ALL=C sort`.
 

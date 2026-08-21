@@ -121,7 +121,10 @@ test('rejects out-of-order inventory rows', async () => {
         inventorySource,
         packageScripts: {},
         scriptsRoot: workspace,
-        testSources: [{ path: 'alpha-guard.test.mjs' }, { path: 'zeta-guard.test.mjs' }],
+        testSources: [
+          { path: 'alpha-guard.test.mjs', source: "import '../alpha-guard.mjs';\n" },
+          { path: 'zeta-guard.test.mjs', source: "import '../zeta-guard.mjs';\n" },
+        ],
       }),
       [
         'line 3: guard inventory rows must use ascending code-unit script-name order (LC_ALL=C sort): alpha-guard.mjs before zeta-guard.mjs',
