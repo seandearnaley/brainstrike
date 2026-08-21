@@ -115,6 +115,8 @@ export function getGoogleThinkingLevels(
   if (isGemini3ProModel(modelName)) {
     return GOOGLE_PRO_THINKING_LEVELS;
   }
+  // Keep this exact. Aliases and sibling variants require their own evidence;
+  // prefix matching could incorrectly narrow a future Flash-Lite ladder.
   return modelName === 'gemini-3.7-flash'
     ? GOOGLE_GEMINI_37_FLASH_THINKING_LEVELS
     : GOOGLE_FLASH_THINKING_LEVELS;

@@ -23,7 +23,7 @@ function renderModelChange(
   return { result, setModel, setProviderSettings, setThreadDraftRuntime };
 }
 
-describe('useAssistantModelChange Google reconciliation', () => {
+describe('useAssistantModelChange provider reconciliation', () => {
   it('clears a persisted minimal level when switching to Gemini 3.7 Flash', () => {
     const { result, setModel, setProviderSettings } = renderModelChange({
       google: { googleThinkingLevel: 'minimal', maxOutputTokens: 2048 },
@@ -47,5 +47,20 @@ describe('useAssistantModelChange Google reconciliation', () => {
     act(() => result.current.handleModelChange('google::gemini-3.7-flash'));
 
     expect(setProviderSettings).not.toHaveBeenCalled();
+  });
+
+  it('clears an unsupported Bedrock effort on a global model switch', () => {
+    const { result, setModel, setProviderSettings } = renderModelChange({
+      bedrock: { bedrockEffort: 'max', maxOutputTokens: 2048 },
+    });
+
+    act(() => result.current.handleModelChange('bedrock::amazon.nova-2-lite-v1:0'));
+
+    expect(setProviderSettings).toHaveBeenCalledOnce();
+    const [provider, updates] = setProviderSettings.mock.calls[0] ?? [];
+    expect(provider).toBe('bedrock');
+    expect(Object.keys(updates ?? {})).toEqual(['bedrockEffort']);
+    expect(updates).toHaveProperty('bedrockEffort', undefined);
+    expect(setModel).toHaveBeenCalledWith('bedrock::amazon.nova-2-lite-v1:0');
   });
 });

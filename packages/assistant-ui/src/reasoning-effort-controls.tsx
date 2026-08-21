@@ -133,7 +133,8 @@ function buildGoogleThinkingLevelControlModel(
     value: level,
   }));
   return {
-    // Parity with GoogleThinkingSection's level select.
+    // This model-aware control is the sole writer for `googleThinkingLevel`;
+    // the provider settings panel owns only the separate Include thoughts switch.
     buildUpdate: (value) => ({
       googleThinkingLevel: value === 'auto' ? undefined : (value as GoogleThinkingLevel),
     }),

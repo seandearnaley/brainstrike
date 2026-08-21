@@ -18,7 +18,7 @@ export const migration104GoogleGemini37Flash: Migration = {
         'gemini-3.7-flash',
         'google',
         'Gemini 3.7 Flash',
-        'Our latest and most capable Flash model, built for complex coding, agentic workflows, and reliable multi-step execution.',
+        'Fast multimodal reasoning for complex agentic workflows',
         '["Code generation", "Spatial/multimodal reasoning", "Multi-step agentic workflows"]',
         '{"type":"llm","streaming":true,"vision":true}',
         1,

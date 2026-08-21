@@ -816,6 +816,7 @@ describe('frontier models migrations', () => {
       },
     ]);
   });
+
   it('adds Nemotron 3.5 Lightning disabled, preserves its toggle, and rolls back migration 099', {
     timeout: 60_000,
   }, async () => {
@@ -1087,8 +1088,7 @@ describe('frontier models migrations', () => {
             'Spatial/multimodal reasoning',
             'Multi-step agentic workflows',
           ],
-          tagline:
-            'Our latest and most capable Flash model, built for complex coding, agentic workflows, and reliable multi-step execution.',
+          tagline: 'Fast multimodal reasoning for complex agentic workflows',
         },
       ],
     });

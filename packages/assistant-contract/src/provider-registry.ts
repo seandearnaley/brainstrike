@@ -642,8 +642,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
         supportsStreaming: true,
-        tagline:
-          'Our latest and most capable Flash model, built for complex coding, agentic workflows, and reliable multi-step execution.',
+        tagline: 'Fast multimodal reasoning for complex agentic workflows',
         type: 'llm',
         vision: 'supported',
       },
