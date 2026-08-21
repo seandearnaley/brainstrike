@@ -182,6 +182,7 @@ async function seedEmbeddingJobs(db: PGlite, scenario: string): Promise<void> {
         embeddingSetId: setId,
         expectedDimension: EMBEDDING_DIMENSIONS,
         modelKey: MODEL_KEY,
+        sourceContentHash: contentHash,
       },
       queue: 'embeddings',
     });
