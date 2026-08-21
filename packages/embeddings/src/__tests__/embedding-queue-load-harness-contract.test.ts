@@ -107,13 +107,8 @@ describe('embedding queue load harness contract', () => {
     expect(hasPoolArgument(`${integrationScript} --pool=threads`)).toBe(true);
     expect(hasPoolArgument(`${integrationScript} --pool threads`)).toBe(true);
     expect(hasPoolArgument(`${integrationScript} "--pool=threads"`)).toBe(true);
-    // The positive worker-count contract intentionally pins the canonical
-    // equals form; a widened count cannot satisfy it through substring matching.
-    expect(
-      hasExactArgument(
-        integrationScript.replace('--maxWorkers=1', '--maxWorkers=10'),
-        '--maxWorkers=1'
-      )
-    ).toBe(false);
+    // hasExactArgument must not degrade to substring matching: a lengthened
+    // flag name must not satisfy the --no-file-parallelism requirement.
+    expect(hasExactArgument(`${integrationScript}x`, '--no-file-parallelism')).toBe(false);
   });
 });
