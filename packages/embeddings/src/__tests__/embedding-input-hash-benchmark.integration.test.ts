@@ -33,9 +33,9 @@ interface FilterClassification {
 
 interface HistoricalEmbedChunkPayload {
   readonly chunkId: string;
-  readonly embeddingSetId?: string | null;
-  readonly expectedDimension?: number;
-  readonly modelKey?: string | null;
+  readonly embeddingSetId: string;
+  readonly expectedDimension: number;
+  readonly modelKey: string;
 }
 
 function assertHistoricalEmbedChunkJob(claimed: Job): HistoricalEmbedChunkPayload {
@@ -66,9 +66,9 @@ function withoutRelocatedHash(job: ClaimedEmbeddingJob): ClaimedEmbeddingJob {
   if (!isRecord(job.payload)) {
     throw new Error(`Benchmark job '${job.id}' does not have an object payload.`);
   }
-  const { embeddingInputHash, ...historicalPayload } = job.payload;
-  if (typeof embeddingInputHash !== 'string') {
-    throw new Error(`Benchmark job '${job.id}' is missing its relocated input hash.`);
+  const { embeddingInputHash, sourceContentHash, ...historicalPayload } = job.payload;
+  if (typeof embeddingInputHash !== 'string' || typeof sourceContentHash !== 'string') {
+    throw new Error(`Benchmark job '${job.id}' is missing its relocated source identities.`);
   }
   return { ...job, payload: historicalPayload };
 }
@@ -110,7 +110,9 @@ async function seedScenario(
   contentLength: number
 ): Promise<{
   readonly contentHashes: readonly string[];
+  readonly embeddingSetId: string;
   readonly expectedClassification: FilterClassification;
+  readonly fileId: string;
   readonly jobs: ClaimedEmbeddingJob[];
 }> {
   const scenario = `b${batchSize}-c${contentLength}`;
@@ -175,6 +177,7 @@ async function seedScenario(
           embeddingSetId,
           expectedDimension: 8,
           modelKey: MODEL_KEY,
+          sourceContentHash: contentHash,
         },
         queue: 'embeddings',
       })
@@ -183,10 +186,12 @@ async function seedScenario(
 
   return {
     contentHashes,
+    embeddingSetId,
     expectedClassification: {
       completedChunkIds: completedChunkIds.sort(),
       toProcessChunkIds: toProcessChunkIds.sort(),
     },
+    fileId,
     jobs: jobs.map((job, index) => ({
       ...job,
       lease_token: `benchmark-lease-${scenario}-${index}`,
@@ -227,7 +232,10 @@ async function runLegacyWorkerHotPath(
   for (const item of found) {
     // Reproduce the historical claim path exactly: it awaited one SHA-256 per
     // found chunk in this loop, before BST-391 moved hashing to producers.
-    const expectedHash = await buildEmbeddingInputHash(item.chunk.contentHash, MODEL_KEY);
+    const expectedHash = await buildEmbeddingInputHash(
+      item.chunk.contentHash,
+      item.payload.modelKey
+    );
     if (item.chunk.embeddingHash === expectedHash) {
       completedChunkIds.push(item.payload.chunkId);
     } else {
@@ -246,8 +254,8 @@ async function runPersistedWorkerHotPath(
 ): Promise<FilterClassification> {
   const result = await loadAndFilterChunks(jobs, {
     db,
-    failOrphanJobs: async () => {
-      throw new Error('Persisted benchmark unexpectedly found an orphaned chunk.');
+    failTerminalJobs: async () => {
+      throw new Error('Persisted benchmark unexpectedly found an orphaned or stale chunk.');
     },
     fileChunkIdType: 'text',
     logWarn: () => {},
@@ -303,6 +311,11 @@ describe.sequential('embedding input hash relocation benchmark', () => {
               producerHashMs,
               relocatedEndToEndMs,
             });
+            await db.query('DELETE FROM job_queue WHERE id = ANY($1)', [
+              scenario.jobs.map((job) => job.id),
+            ]);
+            await db.query('DELETE FROM file_records WHERE id = $1', [scenario.fileId]);
+            await db.query('DELETE FROM embedding_sets WHERE id = $1', [scenario.embeddingSetId]);
           }
         }
 

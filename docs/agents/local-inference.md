@@ -118,7 +118,7 @@ Vector device preference is ONE canonical record (BST-1380):
 ### Embedding input hash relocation benchmark (BST-393)
 
 - `packages/embeddings/src/__tests__/embedding-input-hash-benchmark.integration.test.ts`
-  compares the historical claim-path hash with the persisted-payload path from
+  compares the historical claim-path filter hash with the persisted-payload path from
   BST-391 for batch sizes 1, 8, and 32 and source contents of 128 and 4096 bytes.
 - It reports median legacy worker-hot-path, persisted worker-hot-path, producer
   hash, and relocated end-to-end durations. The relocated end-to-end value is a
@@ -128,14 +128,17 @@ Vector device preference is ONE canonical record (BST-1380):
   its CPU cost disappear.
 - Completion-path duplicate hashing is not benchmarked: BST-392 removed it
   before this harness existed. The remaining comparison is the still-relevant
-  BST-391 claim-path relocation identified when BST-393 was re-groomed.
+  BST-391 claim-path filter relocation identified when BST-393 was re-groomed.
 - Timing is diagnostic output, not a threshold gate. The deterministic checks
   seed both current and stale embedding hashes and require the historical and
   persisted filters to classify the same exact chunk IDs across the full
   matrix. The historical path intentionally preserves its serial per-chunk hash
-  awaits and pre-BST-391 payload validator; its fixture payloads omit the new
-  hash field so the legacy timing cannot silently absorb relocated validation
-  work. The timing therefore includes the scheduling behavior BST-391 removed.
+  awaits and pre-BST-391 payload validator; its fixture payloads omit both new
+  source-identity fields so the legacy timing cannot silently absorb relocated
+  validation work. Each scenario deletes its queue, chunk, file, and embedding-set
+  rows before the next scenario, so table growth does not confound comparisons
+  across the content-length axis. The timing therefore includes the scheduling
+  behavior BST-391 removed.
   Source length still varies because `loadChunksBatch` reads chunk content,
   while the SHA-256 identity itself remains fixed-size
   `${contentHash}:${resolvedModelKey}` input.
