@@ -1,7 +1,9 @@
+import { realpathSync } from 'node:fs';
 import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { parse as parseYaml } from 'yaml';
 
 const INVENTORY_ROW =
   /^(?<script>[a-z0-9][a-z0-9.-]*\.(?:cjs|mjs)) → (?<states>[a-z]+(?:\/[a-z]+)*) → (?<purpose>\S.*)$/;
@@ -29,39 +31,26 @@ function collectDirectGuardScripts(source) {
     .filter(Boolean);
 }
 
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function collectWorkflowRunCommands(source) {
-  const lines = source.split(/\r?\n/);
-  const commands = [];
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = /^(?<indent>\s*)(?:-\s+)?run:\s*(?<value>.*)$/.exec(lines[index]);
-    if (!match?.groups) {
-      continue;
-    }
-
-    const indent = match.groups.indent.length;
-    const value = match.groups.value.trim();
-    if (!['|', '|-', '>', '>-'].includes(value)) {
-      commands.push(value);
-      continue;
-    }
-
-    const block = [];
-    while (index + 1 < lines.length) {
-      const nextLine = lines[index + 1];
-      const nextIndent = /^\s*/.exec(nextLine)?.[0].length ?? 0;
-      if (nextLine.length > 0 && nextIndent <= indent) {
-        break;
-      }
-      index += 1;
-      if (!/^\s*#/.test(nextLine)) {
-        block.push(nextLine);
-      }
-    }
-    commands.push(block.join('\n'));
+  const workflow = parseYaml(source);
+  if (!(isRecord(workflow) && isRecord(workflow.jobs) && isRecord(workflow.jobs.static))) {
+    throw new Error('required workflow must define a jobs.static mapping');
+  }
+  const steps = workflow.jobs.static.steps;
+  if (!Array.isArray(steps)) {
+    throw new Error('required workflow jobs.static must define a steps array');
   }
 
-  return commands;
+  return steps.flatMap((step) => {
+    if (!isRecord(step)) {
+      throw new Error('required workflow jobs.static steps must be mappings');
+    }
+    return typeof step.run === 'string' ? [step.run] : [];
+  });
 }
 
 function collectReachablePackageScripts(packageScripts, entrypoints) {
@@ -268,21 +257,13 @@ function structurallyReferencesGuard(source, script) {
   };
   collectGuardPaths(sourceFile);
 
-  const containsGuardPath = (node) => {
-    if (ts.isIdentifier(node) && guardPathBindings.has(node.text)) {
-      return true;
-    }
-    if (isExactGuardPath(node)) {
-      return true;
-    }
-    let found = false;
-    ts.forEachChild(node, (child) => {
-      if (!found && containsGuardPath(child)) {
-        found = true;
-      }
-    });
-    return found;
-  };
+  const isGuardPathReference = (node) =>
+    (ts.isIdentifier(node) && guardPathBindings.has(node.text)) || isExactGuardPath(node);
+  const isProcessExecPath = (node) =>
+    ts.isPropertyAccessExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'process' &&
+    node.name.text === 'execPath';
   const isChildProcessCall = (node) => {
     if (!ts.isCallExpression(node)) {
       return false;
@@ -295,6 +276,21 @@ function structurallyReferencesGuard(source, script) {
       ts.isIdentifier(node.expression.expression) &&
       childProcessNamespaces.has(node.expression.expression.text) &&
       supportedChildProcessCalls.has(node.expression.name.text)
+    );
+  };
+  const executesGuard = (node) => {
+    const program = node.arguments[0];
+    if (program && isGuardPathReference(program)) {
+      return true;
+    }
+    const programArguments = node.arguments[1];
+    return Boolean(
+      program &&
+        isProcessExecPath(program) &&
+        programArguments &&
+        ts.isArrayLiteralExpression(programArguments) &&
+        programArguments.elements[0] &&
+        isGuardPathReference(programArguments.elements[0])
     );
   };
 
@@ -317,7 +313,7 @@ function structurallyReferencesGuard(source, script) {
       ts.isIdentifier(node.name) &&
       node.initializer &&
       isChildProcessCall(node.initializer) &&
-      node.initializer.arguments.some(containsGuardPath)
+      executesGuard(node.initializer)
     ) {
       childProcessResults.add(node.name.text);
     }
@@ -497,7 +493,7 @@ export async function main({ repoRoot = path.resolve(process.argv[2] ?? DEFAULT_
 }
 
 const isDirectExecution =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isDirectExecution) {
   main().catch((error) => {
