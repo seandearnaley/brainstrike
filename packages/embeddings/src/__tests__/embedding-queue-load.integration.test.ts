@@ -354,6 +354,7 @@ async function runLoadScenario(params: {
     let leaseClaimCount = 0;
     let peakClaimedJobs = 0;
     const originalClaimMany = JobQueue.prototype.claimMany;
+    const originalCompleteBatch = JobQueue.prototype.completeBatch;
     const originalCompleteEmbeddingChunkBatch = JobQueue.prototype.completeEmbeddingChunkBatch;
     const claimSpy = vi.spyOn(JobQueue.prototype, 'claimMany').mockImplementation(async function (
       this: JobQueue,
@@ -374,6 +375,15 @@ async function runLoadScenario(params: {
       }
       return jobs;
     });
+    const completeBatchSpy = vi
+      .spyOn(JobQueue.prototype, 'completeBatch')
+      .mockImplementation(async function (this: JobQueue, completionParams) {
+        const completedJobs = await originalCompleteBatch.call(this, completionParams);
+        for (const job of completedJobs) {
+          activeClaimedJobIds.delete(job.id);
+        }
+        return completedJobs;
+      });
     const completionSpy = vi
       .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
       .mockImplementation(async function (this: JobQueue, completionParams) {
@@ -388,6 +398,7 @@ async function runLoadScenario(params: {
       });
     restoreQueueSpies = () => {
       claimSpy.mockRestore();
+      completeBatchSpy.mockRestore();
       completionSpy.mockRestore();
     };
 
