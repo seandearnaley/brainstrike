@@ -162,6 +162,11 @@ describe('resolveReasoningControlsAvailability', () => {
       family: 'google',
       levels: ['minimal', 'low', 'medium', 'high'],
     });
+    expect(resolveReasoningControlsAvailability('google', 'gemini-3.7-flash')).toEqual({
+      available: true,
+      family: 'google',
+      levels: ['low', 'medium', 'high'],
+    });
     expect(resolveReasoningControlsAvailability('google', 'gemini-3.1-pro-preview')).toEqual({
       available: true,
       family: 'google',

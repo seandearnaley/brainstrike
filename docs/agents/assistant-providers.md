@@ -606,14 +606,21 @@
   `packages/agent/src/types.ts`. Neither has a values const, deliberately.
   `OPENAI_SUMMARY_OPTIONS` (`provider-settings-panel.tsx`) is typed
   `OpenAiReasoningSummary | 'off'` — its `off` entry is a UI sentinel, not a
-  wire value, so the list cannot be derived from the union. Google already has
-  TWO offered lists in the same file as the type —
-  `GOOGLE_FLASH_THINKING_LEVELS` and `GOOGLE_PRO_THINKING_LEVELS`, selected
-  per-model by `getGoogleThinkingLevels` — and a third "all values" const sitting
-  beside them is precisely the offered-vs-membership confusion the
+  wire value, so the list cannot be derived from the union. Google keeps its
+  offered lists in the same file as the type —
+  `GOOGLE_FLASH_THINKING_LEVELS`, `GOOGLE_PRO_THINKING_LEVELS`, and the exact
+  `GOOGLE_GEMINI_37_FLASH_THINKING_LEVELS` exception — selected per-model by
+  `getGoogleThinkingLevels`. A separate "all values" const sitting beside them
+  would still be precisely the offered-vs-membership confusion the
   `ANTHROPIC_REASONING_EFFORTS` ruling exists to prevent. That
   `GOOGLE_FLASH_THINKING_LEVELS` happens to list all four levels today is a fact
-  about what the Flash line offers, not a definition of the type.
+  about what earlier Flash models offer, not a definition of the type. Gemini
+  3.7 Flash deliberately omits `minimal`, which its official model page says
+  returns an error. The shared effort control must render any persisted Google
+  level outside the selected model's ladder as `Auto` and keep rejected values
+  out of its interactive options; `reconcileProviderSettingsForModel` clears
+  that level on an explicit Google model switch. This keeps the visible control
+  aligned with the request builder, which declines to send a rejected level.
 - The provider-options INTERFACES (`OpenAiProviderOptions`,
   `GoogleProviderOptions`, `AnthropicProviderOptions`, `BedrockProviderOptions`,
   `LocalProviderOptions`,
