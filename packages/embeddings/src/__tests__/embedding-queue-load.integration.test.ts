@@ -452,6 +452,8 @@ async function runLoadScenario(params: {
        WHERE queue = 'embeddings'`
     );
     expect(attempts.rows[0]?.total_attempts).toBe(JOB_COUNT);
+    // Every claimed job must leave through one of the spied successful exits.
+    expect(activeClaimedJobIds.size).toBe(0);
 
     return {
       adaptiveClaimLimits,
