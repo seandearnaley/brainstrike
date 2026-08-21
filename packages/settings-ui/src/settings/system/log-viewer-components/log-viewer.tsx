@@ -86,9 +86,13 @@ const PAGE_SIZE_ITEMS = PAGE_SIZE_OPTIONS.map((size) => (
   </SelectItem>
 ));
 
+function getLogLevelIndex(level: LogLevel): number {
+  const knownLevelIndex = LOG_LEVEL_OPTIONS.indexOf(level);
+  return knownLevelIndex === -1 ? LOG_LEVEL_OPTIONS.indexOf(LogLevel.INFO) : knownLevelIndex;
+}
+
 function matchesLogLevel(record: LogRecord, minimumLevelIndex: number): boolean {
-  const recordLevelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(record.level));
-  return recordLevelIndex >= minimumLevelIndex;
+  return getLogLevelIndex(record.level) >= minimumLevelIndex;
 }
 
 function matchesScopeSelection(record: LogRecord, scopeSelection: string): boolean {
@@ -215,16 +219,16 @@ function buildLogColumns(
       accessorKey: 'level',
       cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => {
         const rawLevel = getValue();
-        const level =
+        const knownLevel =
           typeof rawLevel === 'string' && LOG_LEVEL_OPTIONS.includes(rawLevel as LogLevel)
             ? (rawLevel as LogLevel)
-            : LogLevel.INFO;
+            : null;
         return (
           <Badge
             className="h-5 px-1.5 py-0 font-bold text-[10px] uppercase tracking-wider"
-            variant={getLevelBadgeVariant(level)}
+            variant={knownLevel ? getLevelBadgeVariant(knownLevel) : 'outline'}
           >
-            {level}
+            {knownLevel ?? `unknown (${String(rawLevel)})`}
           </Badge>
         );
       },
@@ -328,6 +332,7 @@ interface LogViewerState {
   scopeFilter: string;
   sorting: SortingState;
   sourceFilter: string;
+  subscriptionError: string | null;
   timeEnd: number | null;
   timeStart: number | null;
   wrapLines: boolean;
@@ -340,6 +345,7 @@ type LogViewerAction =
   | { type: 'SET_LOG_LEVEL_FILTER'; level: LogLevel }
   | { type: 'SET_SCOPE_FILTER'; scope: string }
   | { type: 'SET_SOURCE_FILTER'; source: string }
+  | { type: 'SET_SUBSCRIPTION_ERROR'; error: string | null }
   | { type: 'SET_CODE_FILTER'; code: string }
   | { type: 'SET_TIME_START'; value: number | null }
   | { type: 'SET_TIME_END'; value: number | null }
@@ -366,6 +372,7 @@ const initialLogViewerState: LogViewerState = {
   scopeFilter: ALL_SCOPES_VALUE,
   sorting: [{ desc: false, id: 'timestamp' }],
   sourceFilter: ALL_SOURCES_VALUE,
+  subscriptionError: null,
   timeEnd: null,
   timeStart: null,
   wrapLines: true,
@@ -397,6 +404,8 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
       return { ...state, scopeFilter: action.scope };
     case 'SET_SOURCE_FILTER':
       return { ...state, sourceFilter: action.source };
+    case 'SET_SUBSCRIPTION_ERROR':
+      return { ...state, subscriptionError: action.error };
     case 'SET_CODE_FILTER':
       return { ...state, codeFilter: action.code };
     case 'SET_TIME_START':
@@ -446,6 +455,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     sorting,
     columnVisibility,
     pagination,
+    subscriptionError,
   } = viewerState;
 
   const applyRetentionLimit = useCallback(
@@ -464,16 +474,20 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
   const onLoadingChange = useCallback((loading: boolean) => {
     dispatch({ loading, type: 'SET_LOGS_LOADING' });
   }, []);
+  const onSubscriptionErrorChange = useCallback((error: string | null) => {
+    dispatch({ error, type: 'SET_SUBSCRIPTION_ERROR' });
+  }, []);
   const { refreshLogs } = useLogRecordSource({
     applyRetentionLimit,
     logSource,
     onLoadingChange,
     onRecordsChange,
+    onSubscriptionErrorChange,
     toast,
   });
 
   const filteredRecords = useMemo(() => {
-    const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
+    const levelIndex = getLogLevelIndex(logLevelFilter);
     const term = globalFilter.trim().toLowerCase();
     const scopeSelection = scopeFilter.trim();
     searchHaystackCache.resetFor(logRecords);
@@ -683,7 +697,13 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
           <span data-testid="log-viewer-summary">{summaryText}</span>
           <span className="flex items-center gap-3">
             <span data-testid="log-viewer-source-coverage">{sourceCoverageText}</span>
-            <span>{autoScroll ? 'Auto-scroll on' : 'Scroll paused'}</span>
+            <span data-testid="log-viewer-live-status" role="status">
+              {subscriptionError
+                ? `Live updates unavailable: ${subscriptionError}`
+                : autoScroll
+                  ? 'Auto-scroll on'
+                  : 'Scroll paused'}
+            </span>
           </span>
         </div>
         {totalPages > 1 ? (
