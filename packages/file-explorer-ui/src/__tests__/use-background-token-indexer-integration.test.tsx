@@ -155,6 +155,18 @@ const fileTreeRootB: IFileNode[] = [
   },
 ];
 
+type IndexerOptions = Parameters<typeof useBackgroundTokenIndexerIntegration>[0];
+
+const renderIndexer = (overrides: Partial<IndexerOptions> = {}) =>
+  renderHook(() =>
+    useBackgroundTokenIndexerIntegration({
+      fileTree: fileTreeRootA,
+      onTokenResolved: vi.fn(),
+      selectedFiles: new Set([fileAKey]),
+      ...overrides,
+    })
+  );
+
 const flushTimers = (): void => {
   // Run multiple cycles to ensure:
   // 1. First cycle: debounced effects (500ms timeout for handle map build)
@@ -218,6 +230,22 @@ function createElectronTree(fileCount: number): {
   return { keys, tree };
 }
 
+const createElectronIndexContext = (fileCount: number): FileTreeIndexContextValue => ({
+  getHandle: vi.fn((_folderId, path) => ({
+    electronHandle: {
+      kind: 'file' as const,
+      name: path,
+      path: `/repo/${path}`,
+      platform: 'electron' as const,
+    },
+    fileName: path,
+    fileSize: 128,
+  })),
+  getNode: vi.fn(() => undefined),
+  stats: { totalDirectories: 0, totalFiles: fileCount, totalNodes: fileCount },
+  version: 1,
+});
+
 describe('useBackgroundTokenIndexerIntegration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -230,14 +258,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
   it('reports unavailable diagnostics and declines dispatch when the token cache is absent', async () => {
     tokenCacheContextOverride = null;
-
-    const { result } = renderHook(() =>
-      useBackgroundTokenIndexerIntegration({
-        fileTree: fileTreeRootA,
-        onTokenResolved: vi.fn(),
-        selectedFiles: new Set([fileAKey]),
-      })
-    );
+    const { result } = renderIndexer();
 
     await act(async () => {
       await result.current.triggerIndexing([fileAKey]);
@@ -457,13 +478,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
   });
 
   it('recovers when indexed cache equals selection but no indexing is running', () => {
-    renderHook(() =>
-      useBackgroundTokenIndexerIntegration({
-        fileTree: fileTreeRootA,
-        onTokenResolved: vi.fn(),
-        selectedFiles: new Set([fileAKey]),
-      })
-    );
+    renderIndexer();
 
     flushTimers();
     // The stale-cache safety should enqueue once.
@@ -517,13 +532,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
       updateHotCacheSpy.mockClear();
 
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
+      renderIndexer();
 
       flushTimers();
 
@@ -593,13 +602,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
   describe('edge cases', () => {
     it('handles empty selection gracefully', () => {
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set<string>(),
-        })
-      );
+      renderIndexer({ selectedFiles: new Set<string>() });
 
       flushTimers();
 
@@ -608,13 +611,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     });
 
     it('handles empty file tree gracefully', () => {
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: [],
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
+      renderIndexer({ fileTree: [] });
 
       flushTimers();
 
@@ -805,29 +802,9 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
     it('surfaces the missing Electron reader capability before dispatch', async () => {
       const { keys } = createElectronTree(1);
-      mockFileTreeIndexContext = {
-        getHandle: vi.fn((_folderId, path) => ({
-          electronHandle: {
-            kind: 'file' as const,
-            name: path,
-            path: `/repo/${path}`,
-            platform: 'electron' as const,
-          },
-          fileName: path,
-          fileSize: 128,
-        })),
-        getNode: vi.fn(() => undefined),
-        stats: { totalDirectories: 0, totalFiles: 1, totalNodes: 1 },
-        version: 1,
-      };
+      mockFileTreeIndexContext = createElectronIndexContext(1);
 
-      const { result } = renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: [],
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set(),
-        })
-      );
+      const { result } = renderIndexer({ fileTree: [], selectedFiles: new Set() });
 
       await expect(result.current.triggerIndexing(keys)).rejects.toThrow(
         'electronFileReader is required for Electron file handles'
@@ -849,30 +826,13 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         }
         throw new Error('permission denied');
       });
-      mockFileTreeIndexContext = {
-        getHandle: vi.fn((_folderId, path) => ({
-          electronHandle: {
-            kind: 'file' as const,
-            name: path,
-            path: `/repo/${path}`,
-            platform: 'electron' as const,
-          },
-          fileName: path,
-          fileSize: 128,
-        })),
-        getNode: vi.fn(() => undefined),
-        stats: { totalDirectories: 0, totalFiles: 2, totalNodes: 2 },
-        version: 1,
-      };
+      mockFileTreeIndexContext = createElectronIndexContext(2);
 
-      const { result } = renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          electronFileReader,
-          fileTree: [],
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set(),
-        })
-      );
+      const { result } = renderIndexer({
+        electronFileReader,
+        fileTree: [],
+        selectedFiles: new Set(),
+      });
 
       try {
         await act(async () => {
@@ -1153,13 +1113,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         }
       });
 
-      const { rerender } = renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
+      const { rerender } = renderIndexer();
 
       tokenCacheContextOverride = null;
       rerender();
@@ -1186,13 +1140,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       (storeMock.getBatch as ReturnType<typeof vi.fn>).mockReturnValueOnce(deferredEntries.promise);
       const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
 
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
+      renderIndexer();
 
       flushTimers();
       act(() => {
@@ -1219,13 +1167,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       };
       tokenCacheContextOverride = initialContext;
 
-      const { rerender } = renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
+      const { rerender } = renderIndexer();
 
       await act(async () => {
         await vi.runAllTimersAsync();
