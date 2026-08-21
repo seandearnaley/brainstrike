@@ -65,6 +65,7 @@ describe('createEmbeddingJobQueuePort', () => {
         payload: {
           chunkId: 'chunk-1',
           dimensionParameter: 'dimensions',
+          embeddingInputHash: 'a80aabf0d21d49164154d0972531edf40605eb595aff029c37bc74ca083a98df',
           embeddingSetId: 'target-set',
           expectedDimension: 768,
           fileRecordId: 'file-1',
