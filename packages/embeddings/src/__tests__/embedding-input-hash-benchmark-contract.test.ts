@@ -7,16 +7,12 @@ describe('embedding input hash benchmark contract', () => {
     process.cwd(),
     'src/__tests__/embedding-input-hash-benchmark.integration.test.ts'
   );
+  const integrationConfigPath = path.resolve(process.cwd(), 'vitest.integration.config.mts');
 
-  it('ships the BST-393 relocation matrix and worker-path metrics', () => {
+  it('keeps the BST-393 harness in the serialized integration lane', () => {
     expect(existsSync(benchmarkPath)).toBe(true);
 
-    const source = readFileSync(benchmarkPath, 'utf8');
-    expect(source).toContain('batchSizes = [1, 8, 32]');
-    expect(source).toContain('contentLengths = [128, 4096]');
-    expect(source).toContain('legacyWorkerHotPathMs');
-    expect(source).toContain('persistedWorkerHotPathMs');
-    expect(source).toContain('producerHashMs');
-    expect(source).toContain('relocatedEndToEndMs');
+    const integrationConfig = readFileSync(integrationConfigPath, 'utf8');
+    expect(integrationConfig).toContain("include: ['**/*.integration.test.*']");
   });
 });

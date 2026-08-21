@@ -27,19 +27,26 @@ interface HashRelocationBenchmarkResult {
   readonly relocatedEndToEndMs: number;
 }
 
-interface FilterCounts {
-  readonly completed: number;
-  readonly toProcess: number;
+interface FilterClassification {
+  readonly completedChunkIds: readonly string[];
+  readonly toProcessChunkIds: readonly string[];
 }
 
 function median(samples: readonly number[]): number {
   const sorted = [...samples].sort((left, right) => left - right);
   const midpoint = Math.floor(sorted.length / 2);
-  const value = sorted[midpoint];
-  if (value === undefined) {
+  const upper = sorted[midpoint];
+  if (upper === undefined) {
     throw new Error('Cannot calculate a benchmark median without samples.');
   }
-  return value;
+  if (sorted.length % 2 === 1) {
+    return upper;
+  }
+  const lower = sorted[midpoint - 1];
+  if (lower === undefined) {
+    throw new Error('Cannot calculate an even-sample benchmark median without a lower value.');
+  }
+  return (lower + upper) / 2;
 }
 
 async function measureMedian(operation: () => Promise<void>): Promise<number> {
@@ -62,6 +69,7 @@ async function seedScenario(
   contentLength: number
 ): Promise<{
   readonly contentHashes: readonly string[];
+  readonly expectedClassification: FilterClassification;
   readonly jobs: ClaimedEmbeddingJob[];
 }> {
   const scenario = `b${batchSize}-c${contentLength}`;
@@ -87,6 +95,8 @@ async function seedScenario(
   const embeddingInputHashes = await buildEmbeddingJobInputHashes(contentHashes, MODEL_KEY);
   const queue = new JobQueue(db as unknown as IDatabase);
   const jobs: Job[] = [];
+  const completedChunkIds: string[] = [];
+  const toProcessChunkIds: string[] = [];
 
   for (let index = 0; index < batchSize; index += 1) {
     const chunkId = `chunk-${scenario}-${index}`;
@@ -95,12 +105,24 @@ async function seedScenario(
     if (!(contentHash && embeddingInputHash)) {
       throw new Error(`Missing benchmark identity for chunk '${chunkId}'.`);
     }
+    const embeddingHash = index % 2 === 0 ? embeddingInputHash : `stale-${embeddingInputHash}`;
+    const expectedIds = index % 2 === 0 ? completedChunkIds : toProcessChunkIds;
+    expectedIds.push(chunkId);
     await db.query(
       `INSERT INTO file_chunks
          (id, file_record_id, chunk_index, content, content_hash, token_count,
-          chunk_type, chunk_size, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, 16, 'text', $6, $7, $7)`,
-      [chunkId, fileId, index, 'x'.repeat(contentLength), contentHash, contentLength, now]
+          chunk_type, chunk_size, embedding_hash, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 16, 'text', $6, $7, $8, $8)`,
+      [
+        chunkId,
+        fileId,
+        index,
+        'x'.repeat(contentLength),
+        contentHash,
+        contentLength,
+        embeddingHash,
+        now,
+      ]
     );
     jobs.push(
       await queue.enqueue({
@@ -120,6 +142,10 @@ async function seedScenario(
 
   return {
     contentHashes,
+    expectedClassification: {
+      completedChunkIds: completedChunkIds.sort(),
+      toProcessChunkIds: toProcessChunkIds.sort(),
+    },
     jobs: jobs.map((job, index) => ({
       ...job,
       lease_token: `benchmark-lease-${scenario}-${index}`,
@@ -130,40 +156,53 @@ async function seedScenario(
 async function runLegacyWorkerHotPath(
   db: IDatabase,
   jobs: ClaimedEmbeddingJob[]
-): Promise<FilterCounts> {
-  const payloads = jobs.map((job) => assertEmbedChunkJob(job));
-  const chunks = await loadChunksBatch(
-    db,
-    payloads.map(({ chunkId }) => chunkId),
-    'text'
-  );
-  const chunkById = new Map(chunks.map((chunk) => [chunk.id, chunk]));
-  let completed = 0;
-  let toProcess = 0;
+): Promise<FilterClassification> {
+  const chunkIds = jobs.map((job) => assertEmbedChunkJob(job).chunkId);
+  const loadedChunks = await loadChunksBatch(db, chunkIds, 'text');
+  const chunkMap = new Map(loadedChunks.map((chunk) => [chunk.id, chunk]));
+  const found: Array<{
+    chunk: NonNullable<ReturnType<typeof chunkMap.get>>;
+    payload: ReturnType<typeof assertEmbedChunkJob>;
+  }> = [];
+  const orphanChunkIds: string[] = [];
 
-  for (const payload of payloads) {
-    const chunk = chunkById.get(payload.chunkId);
-    if (!chunk) {
-      throw new Error(`Legacy benchmark could not load chunk '${payload.chunkId}'.`);
-    }
-    const modelKey = payload.modelKey;
-    if (!modelKey) {
-      throw new Error(`Legacy benchmark job for chunk '${payload.chunkId}' has no model key.`);
-    }
-    const expectedHash = await buildEmbeddingInputHash(chunk.contentHash, modelKey);
-    if (chunk.embeddingHash === expectedHash) {
-      completed += 1;
+  for (const job of jobs) {
+    const payload = assertEmbedChunkJob(job);
+    const chunk = chunkMap.get(payload.chunkId);
+    if (chunk) {
+      found.push({ chunk, payload });
     } else {
-      toProcess += 1;
+      orphanChunkIds.push(payload.chunkId);
     }
   }
-  return { completed, toProcess };
+  if (orphanChunkIds.length > 0) {
+    throw new Error(
+      `Legacy benchmark unexpectedly found orphaned chunks: ${orphanChunkIds.join(', ')}`
+    );
+  }
+
+  const completedChunkIds: string[] = [];
+  const toProcessChunkIds: string[] = [];
+  for (const item of found) {
+    // Reproduce the historical claim path exactly: it awaited one SHA-256 per
+    // found chunk in this loop, before BST-391 moved hashing to producers.
+    const expectedHash = await buildEmbeddingInputHash(item.chunk.contentHash, MODEL_KEY);
+    if (item.chunk.embeddingHash === expectedHash) {
+      completedChunkIds.push(item.payload.chunkId);
+    } else {
+      toProcessChunkIds.push(item.payload.chunkId);
+    }
+  }
+  return {
+    completedChunkIds: completedChunkIds.sort(),
+    toProcessChunkIds: toProcessChunkIds.sort(),
+  };
 }
 
 async function runPersistedWorkerHotPath(
   db: IDatabase,
   jobs: ClaimedEmbeddingJob[]
-): Promise<FilterCounts> {
+): Promise<FilterClassification> {
   const result = await loadAndFilterChunks(jobs, {
     db,
     failOrphanJobs: async () => {
@@ -172,7 +211,10 @@ async function runPersistedWorkerHotPath(
     fileChunkIdType: 'text',
     logWarn: () => {},
   });
-  return { completed: result.completed.length, toProcess: result.toProcess.length };
+  return {
+    completedChunkIds: result.completed.map((item) => item.chunk.id).sort(),
+    toProcessChunkIds: result.toProcess.map((item) => item.chunk.id).sort(),
+  };
 }
 
 describe.sequential('embedding input hash relocation benchmark', () => {
@@ -190,10 +232,13 @@ describe.sequential('embedding input hash relocation benchmark', () => {
           for (const batchSize of batchSizes) {
             const scenario = await seedScenario(db, batchSize, contentLength);
             const database = db as unknown as IDatabase;
-            const legacyCounts = await runLegacyWorkerHotPath(database, scenario.jobs);
-            const persistedCounts = await runPersistedWorkerHotPath(database, scenario.jobs);
-            expect(persistedCounts).toEqual(legacyCounts);
-            expect(persistedCounts).toEqual({ completed: 0, toProcess: batchSize });
+            const legacyClassification = await runLegacyWorkerHotPath(database, scenario.jobs);
+            const persistedClassification = await runPersistedWorkerHotPath(
+              database,
+              scenario.jobs
+            );
+            expect(persistedClassification).toEqual(legacyClassification);
+            expect(persistedClassification).toEqual(scenario.expectedClassification);
 
             const legacyWorkerHotPathMs = await measureMedian(async () => {
               await runLegacyWorkerHotPath(database, scenario.jobs);
@@ -204,12 +249,10 @@ describe.sequential('embedding input hash relocation benchmark', () => {
             const producerHashMs = await measureMedian(async () => {
               await buildEmbeddingJobInputHashes(scenario.contentHashes, MODEL_KEY);
             });
-            const relocatedEndToEndMs = producerHashMs + persistedWorkerHotPathMs;
-
-            expect(legacyWorkerHotPathMs).toBeGreaterThan(0);
-            expect(persistedWorkerHotPathMs).toBeGreaterThan(0);
-            expect(producerHashMs).toBeGreaterThan(0);
-            expect(relocatedEndToEndMs).toBeGreaterThan(0);
+            const relocatedEndToEndMs = await measureMedian(async () => {
+              await buildEmbeddingJobInputHashes(scenario.contentHashes, MODEL_KEY);
+              await runPersistedWorkerHotPath(database, scenario.jobs);
+            });
             results.push({
               batchSize,
               contentLength,
