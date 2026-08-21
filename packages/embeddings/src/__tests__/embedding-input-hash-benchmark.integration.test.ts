@@ -7,7 +7,7 @@ import {
   type ClaimedEmbeddingJob,
   loadAndFilterChunks,
 } from '../worker/embedding-worker-chunk-filter.js';
-import { loadChunksBatch } from '../worker/embedding-worker-db-io.js';
+import { type EmbedChunkRow, loadChunksBatch } from '../worker/embedding-worker-db-io.js';
 
 const BENCHMARK_TIMEOUT_MS = 90_000;
 const MODEL_KEY = 'local::benchmark-model';
@@ -33,6 +33,24 @@ interface HistoricalEmbedChunkPayload {
   readonly embeddingSetId: string;
   readonly expectedDimension: number;
   readonly modelKey: string;
+}
+
+interface HistoricalLoadedChunkItem {
+  readonly chunk: EmbedChunkRow;
+  readonly expectedHash: string;
+  readonly job: ClaimedEmbeddingJob;
+  readonly payload: HistoricalEmbedChunkPayload;
+}
+
+interface HistoricalFilterResult {
+  readonly completed: readonly HistoricalLoadedChunkItem[];
+  readonly orphanCount: number;
+  readonly toProcess: readonly HistoricalLoadedChunkItem[];
+}
+
+interface TaggedFilterResult {
+  readonly completed: readonly { readonly chunk: { readonly id: string } }[];
+  readonly toProcess: readonly { readonly chunk: { readonly id: string } }[];
 }
 
 function assertHistoricalEmbedChunkJob(claimed: Job): HistoricalEmbedChunkPayload {
@@ -91,6 +109,17 @@ function withoutRelocatedHash(job: ClaimedEmbeddingJob): ClaimedEmbeddingJob {
     throw new Error(`Benchmark job '${job.id}' is missing its relocated source identities.`);
   }
   return { ...job, payload: historicalPayload };
+}
+
+function historicalIsEmbeddingUpToDate(chunk: EmbedChunkRow, expectedHash: string): boolean {
+  return Boolean(chunk.embeddingHash && chunk.embeddingHash === expectedHash);
+}
+
+function classifyTaggedFilterResult(result: TaggedFilterResult): FilterClassification {
+  return {
+    completedChunkIds: result.completed.map((item) => item.chunk.id).sort(),
+    toProcessChunkIds: result.toProcess.map((item) => item.chunk.id).sort(),
+  };
 }
 
 function median(samples: readonly number[]): number {
@@ -225,56 +254,57 @@ async function seedScenario(
 async function runLegacyWorkerHotPath(
   db: IDatabase,
   jobs: ClaimedEmbeddingJob[]
-): Promise<FilterClassification> {
+): Promise<HistoricalFilterResult> {
   const chunkIds = jobs.map((job) => assertHistoricalEmbedChunkJob(job).chunkId);
   const loadedChunks = await loadChunksBatch(db, chunkIds, 'text');
   const chunkMap = new Map(loadedChunks.map((chunk) => [chunk.id, chunk]));
   const found: Array<{
-    chunk: NonNullable<ReturnType<typeof chunkMap.get>>;
+    chunk: EmbedChunkRow;
+    job: ClaimedEmbeddingJob;
     payload: ReturnType<typeof assertHistoricalEmbedChunkJob>;
   }> = [];
-  const orphanChunkIds: string[] = [];
+  const orphans: Array<{ chunkId: string; job: ClaimedEmbeddingJob }> = [];
 
   for (const job of jobs) {
     const payload = assertHistoricalEmbedChunkJob(job);
     const chunk = chunkMap.get(payload.chunkId);
     if (chunk) {
-      found.push({ chunk, payload });
+      found.push({ chunk, job, payload });
     } else {
-      orphanChunkIds.push(payload.chunkId);
+      orphans.push({ chunkId: payload.chunkId, job });
     }
   }
-  if (orphanChunkIds.length > 0) {
+  if (orphans.length > 0) {
     throw new Error(
-      `Legacy benchmark unexpectedly found orphaned chunks: ${orphanChunkIds.join(', ')}`
+      `Legacy benchmark unexpectedly found orphaned chunks: ${orphans
+        .map((orphan) => orphan.chunkId)
+        .join(', ')}`
     );
   }
 
-  const completedChunkIds: string[] = [];
-  const toProcessChunkIds: string[] = [];
+  const toProcess: HistoricalLoadedChunkItem[] = [];
+  const completed: HistoricalLoadedChunkItem[] = [];
   for (const item of found) {
     // Reproduce the historical claim path exactly: it awaited one SHA-256 per
     // found chunk in this loop, before BST-391 moved hashing to producers.
     const expectedHash = await historicalSha256Hex(
       `${item.chunk.contentHash}:${item.payload.modelKey}`
     );
-    if (item.chunk.embeddingHash === expectedHash) {
-      completedChunkIds.push(item.payload.chunkId);
+    const tagged = { ...item, expectedHash };
+    if (historicalIsEmbeddingUpToDate(item.chunk, expectedHash)) {
+      completed.push(tagged);
     } else {
-      toProcessChunkIds.push(item.payload.chunkId);
+      toProcess.push(tagged);
     }
   }
-  return {
-    completedChunkIds: completedChunkIds.sort(),
-    toProcessChunkIds: toProcessChunkIds.sort(),
-  };
+  return { completed, orphanCount: orphans.length, toProcess };
 }
 
 async function runPersistedWorkerHotPath(
   db: IDatabase,
   jobs: ClaimedEmbeddingJob[]
-): Promise<FilterClassification> {
-  const result = await loadAndFilterChunks(jobs, {
+): ReturnType<typeof loadAndFilterChunks> {
+  return loadAndFilterChunks(jobs, {
     db,
     failTerminalJobs: async () => {
       throw new Error('Persisted benchmark unexpectedly found an orphaned or stale chunk.');
@@ -282,10 +312,6 @@ async function runPersistedWorkerHotPath(
     fileChunkIdType: 'text',
     logWarn: () => {},
   });
-  return {
-    completedChunkIds: result.completed.map((item) => item.chunk.id).sort(),
-    toProcessChunkIds: result.toProcess.map((item) => item.chunk.id).sort(),
-  };
 }
 
 describe.sequential('embedding input hash relocation benchmark', () => {
@@ -304,11 +330,21 @@ describe.sequential('embedding input hash relocation benchmark', () => {
             const scenario = await seedScenario(db, batchSize, contentLength);
             const database = db as unknown as IDatabase;
             const historicalJobs = scenario.jobs.map(withoutRelocatedHash);
-            const legacyClassification = await runLegacyWorkerHotPath(database, historicalJobs);
-            const persistedClassification = await runPersistedWorkerHotPath(
-              database,
-              scenario.jobs
-            );
+            const historicalResult = await runLegacyWorkerHotPath(database, historicalJobs);
+            const persistedResult = await runPersistedWorkerHotPath(database, scenario.jobs);
+            const historicalTaggedItems = [
+              ...historicalResult.completed,
+              ...historicalResult.toProcess,
+            ];
+            expect(historicalResult.orphanCount).toBe(0);
+            expect(historicalTaggedItems).toHaveLength(batchSize);
+            expect(historicalTaggedItems[0]).toMatchObject({
+              expectedHash: expect.any(String),
+              job: expect.any(Object),
+              payload: expect.any(Object),
+            });
+            const legacyClassification = classifyTaggedFilterResult(historicalResult);
+            const persistedClassification = classifyTaggedFilterResult(persistedResult);
             expect(persistedClassification).toEqual(legacyClassification);
             expect(persistedClassification).toEqual(scenario.expectedClassification);
 
