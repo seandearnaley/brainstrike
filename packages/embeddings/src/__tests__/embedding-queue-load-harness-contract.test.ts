@@ -10,7 +10,7 @@ describe('embedding queue load harness contract', () => {
   const integrationConfigPath = path.resolve(process.cwd(), 'vitest.integration.config.mts');
   const packageJsonPath = path.resolve(process.cwd(), 'package.json');
 
-  it('ships a serialized real-PGlite load matrix for 1, 2, and 4 worker loops', () => {
+  it('keeps the load harness in the serialized integration lane', () => {
     expect(existsSync(harnessPath)).toBe(true);
 
     const integrationConfig = readFileSync(integrationConfigPath, 'utf8');

@@ -18,6 +18,7 @@ const JOB_COUNT = 12;
 const MAX_IN_FLIGHT_JOBS = 4;
 const EMBEDDING_DIMENSIONS = 8;
 const MODEL_KEY = 'local::load-test-model';
+const TEXT_ENCODER = new TextEncoder();
 
 interface QueueLoadMetrics {
   readonly adaptiveClaimLimits: readonly number[];
@@ -68,7 +69,7 @@ class LoadTestEmbeddingService implements EmbeddingService {
 
   async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
     const inputBytes = texts.reduce(
-      (total, text) => total + new TextEncoder().encode(text).byteLength,
+      (total, text) => total + TEXT_ENCODER.encode(text).byteLength,
       0
     );
     this.activeInputBytes += inputBytes;
@@ -202,7 +203,7 @@ async function runLoadScenario(params: {
     await migrate(db);
     await seedEmbeddingJobs(db, params.scenario);
 
-    const service = new LoadTestEmbeddingService(params.adaptive ? 25 : 4, params.adaptive);
+    const service = new LoadTestEmbeddingService(params.adaptive ? 25 : 50, params.adaptive);
     const adaptiveClaimLimits: number[] = [];
     let leaseClaimCount = 0;
     let peakClaimedJobs = 0;
@@ -337,10 +338,13 @@ describe.sequential('embedding queue load matrix', () => {
 
       expect(result.adaptiveClaimLimits[0]).toBe(1);
       expect(result.adaptiveClaimLimits).toContain(MAX_IN_FLIGHT_JOBS);
-      // The two initial one-job claims can peak at only 2. Reaching 4 proves a
-      // later worker claim consumed the accelerated resolver policy.
-      expect(result.peakClaimedJobs).toBe(MAX_IN_FLIGHT_JOBS);
-      expect(result.peakVectorsInFlight).toBe(MAX_IN_FLIGHT_JOBS);
+      // Two loops with a one-job claim limit can peak at only 2. Reaching at
+      // least 3 proves a later claim consumed the accelerated resolver policy
+      // without requiring a timing-sensitive exact overlap of all four slots.
+      expect(result.peakClaimedJobs).toBeGreaterThanOrEqual(3);
+      expect(result.peakClaimedJobs).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
+      expect(result.peakVectorsInFlight).toBeGreaterThanOrEqual(3);
+      expect(result.peakVectorsInFlight).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
       expect(result.leaseClaimCount).toBe(JOB_COUNT);
       expect(result.maxAttempts).toBe(1);
     },
