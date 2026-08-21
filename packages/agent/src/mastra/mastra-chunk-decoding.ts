@@ -14,6 +14,7 @@
  * the single R6 dispatch site pinned by `scripts/mastra-stream-chunk-contract.mjs`.
  * See docs/agents/mastra-boundary.md R6.
  */
+import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import {
   extractProviderRunError,
   isLocalRunErrorClassification,
@@ -526,17 +527,53 @@ export function extractErrorMessage(value: unknown): string | undefined {
   }
 }
 
+/**
+ * The ONE wrong-key HTTP status (BST-1384). Mirrors the Settings "Test
+ * connection" probe's settled classifier (`provider-verification.ts`): 401 is
+ * `invalid`; 403 is authenticated-but-limited and 429 is a rate-limited VALID
+ * key, so neither may be read as a key problem here either. Keeping the two
+ * in agreement is the point — a run must not blame the key for a status the
+ * probe would report as "verified".
+ */
+const REJECTED_API_KEY_HTTP_STATUS = 401;
+
+/**
+ * Visible copy for a provider-evidenced 401. GUIDANCE FIRST, provider body
+ * LAST: the termination helper clamps the visible detail to
+ * {@link MAX_VISIBLE_PROVIDER_ERROR_CHARS}, so this ordering guarantees the
+ * clamp can only ever shorten the provider's text, never the instruction.
+ *
+ * The raw body is still appended (and the runError envelope is untouched)
+ * because it is the only provider-side evidence the user has: OpenRouter's
+ * 401 body is literally "User not found." for ANY unrecognized key — shown
+ * alone it reads like an app bug, which is the 2026-08-21 field failure that
+ * motivated this classification.
+ */
+function describeRejectedApiKey(provider: string | undefined, providerBody: string): string {
+  const subject =
+    (provider === undefined ? undefined : findProviderDefinition(provider)?.displayName) ??
+    'The provider';
+  return `${subject} rejected the API key (HTTP ${REJECTED_API_KEY_HTTP_STATUS}) — it is invalid or was revoked. Update the key in Settings → LLM Provider Keys, or verify it in the provider dashboard. Provider response: ${providerBody}`;
+}
+
 export function resolveProviderError(
   value: unknown,
   runtimeData: RuntimeData | undefined
 ): ResolvedProviderError {
   const runError = extractProviderRunError(value);
   const extractedDetail = extractErrorMessage(value);
-  const detail =
+  const providerBody =
     extractedDetail && extractedDetail !== '[object Object]'
       ? extractedDetail
       : (runError.message ?? 'agent_stream_error');
   const provider = runtimeData?.provider?.trim().toLowerCase();
+  // An httpStatus is provider evidence by construction (see
+  // extractProviderRunError), so a 401 here always crossed to the provider —
+  // a local fault can never wear the rejected-key wording.
+  const detail =
+    runError.httpStatus === REJECTED_API_KEY_HTTP_STATUS
+      ? describeRejectedApiKey(provider, providerBody)
+      : providerBody;
   // Both fallback codes are classifications, not provider-issued codes — only
   // stable typed codes earn the visible `[code]` prefix.
   const includeStableCode =

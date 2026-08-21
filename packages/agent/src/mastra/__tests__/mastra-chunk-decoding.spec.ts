@@ -414,6 +414,75 @@ describe('resolveProviderError', () => {
     expect(provider.runError.code).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
     expect(provider.detail).toBe('opaque');
   });
+
+  // BST-1384: a provider 401 is the ONE wrong-key status (the same rule the
+  // Settings "Test connection" probe applies — provider-verification.ts).
+  // OpenRouter's 401 body is literally "User not found." for ANY unrecognized
+  // key, which read as an app regression for a full day. The visible detail
+  // must name the provider, say the key was rejected, and point at the fix;
+  // the runError envelope (code/httpStatus — the diagnostics fingerprint and
+  // debug-bundle fields) must be byte-identical to before.
+  describe('rejected API key (HTTP 401)', () => {
+    const openRouterUserNotFound = {
+      message: 'User not found.',
+      statusCode: 401,
+    };
+
+    it('rewrites an OpenRouter 401 into actionable copy, guidance first', () => {
+      const resolved = resolveProviderError(openRouterUserNotFound, {
+        provider: 'openrouter',
+      } as RuntimeData);
+      expect(resolved.detail).toBe(
+        'OpenRouter rejected the API key (HTTP 401) — it is invalid or was revoked. Update the key in Settings → LLM Provider Keys, or verify it in the provider dashboard. Provider response: User not found.'
+      );
+    });
+
+    it('leaves the runError envelope untouched (fingerprint + bundle fields)', () => {
+      const resolved = resolveProviderError(openRouterUserNotFound, {
+        provider: 'openrouter',
+      } as RuntimeData);
+      expect(resolved.runError).toEqual({
+        code: PROVIDER_RUN_ERROR_FALLBACK_CODE,
+        httpStatus: 401,
+        message: 'User not found.',
+      });
+    });
+
+    it('names every hosted provider by its registry displayName', () => {
+      const resolved = resolveProviderError(
+        { message: 'Incorrect API key provided.', statusCode: 401 },
+        { provider: 'openai' } as RuntimeData
+      );
+      expect(resolved.detail).toBe(
+        'OpenAI rejected the API key (HTTP 401) — it is invalid or was revoked. Update the key in Settings → LLM Provider Keys, or verify it in the provider dashboard. Provider response: Incorrect API key provided.'
+      );
+    });
+
+    it('falls back to a neutral subject when the provider is unknown', () => {
+      const resolved = resolveProviderError(openRouterUserNotFound, undefined);
+      expect(resolved.detail).toBe(
+        'The provider rejected the API key (HTTP 401) — it is invalid or was revoked. Update the key in Settings → LLM Provider Keys, or verify it in the provider dashboard. Provider response: User not found.'
+      );
+    });
+
+    it('does NOT treat 403 as a wrong key (authenticated but limited — probe parity)', () => {
+      const resolved = resolveProviderError(
+        { message: 'Your account is not allowed to use this model.', statusCode: 403 },
+        { provider: 'openrouter' } as RuntimeData
+      );
+      expect(resolved.detail).toBe('Your account is not allowed to use this model.');
+    });
+
+    it('never classifies a local (evidence-free) failure as a rejected key', () => {
+      // No httpStatus ⇒ the error never crossed to a provider; the wording of
+      // its message is irrelevant.
+      const resolved = resolveProviderError(new Error('User not found.'), {
+        provider: 'openrouter',
+      } as RuntimeData);
+      expect(resolved.runError.code).toBe(LOCAL_RUN_ERROR_FALLBACK_CODE);
+      expect(resolved.detail).toBe('User not found.');
+    });
+  });
 });
 
 describe('buildProviderErrorDiagnosticCode', () => {
