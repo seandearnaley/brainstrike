@@ -6,6 +6,8 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import '../enforce-coverage.mjs';
+
 const scriptPath = fileURLToPath(new URL('../enforce-coverage.mjs', import.meta.url));
 let workspace;
 

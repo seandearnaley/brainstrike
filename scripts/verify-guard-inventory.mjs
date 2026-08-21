@@ -13,7 +13,8 @@ const CONTRACT_TEST = /\bcontract: scripts\/__tests__\/(?<path>[a-z0-9][a-z0-9.-
 const REQUIRED_PATH_CHANNEL = /\bchannel: required-path\b/;
 const INVENTORY_LABEL = 'scripts/_guard-inventory.md';
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const ROOT_GUARD_ENTRYPOINTS = ['coverage:enforce', 'lint', 'lint:ci'];
+const LOCAL_ROOT_GUARD_ENTRYPOINTS = ['coverage:enforce', 'lint'];
+const REQUIRED_WORKFLOW_PACKAGE_SCRIPTS = ['lint:ci'];
 const REQUIRED_WORKFLOW_PATHS = ['.github/workflows/test.yml'];
 
 function collectPackageScriptNames(source) {
@@ -81,17 +82,25 @@ function collectReachablePackageScripts(packageScripts, entrypoints) {
 }
 
 function collectRequiredGuardScripts(packageScripts, workflowSources) {
-  const entrypoints = new Set(ROOT_GUARD_ENTRYPOINTS);
+  const workflowEntrypoints = new Set();
   for (const workflowSource of workflowSources) {
     for (const command of collectWorkflowRunCommands(workflowSource)) {
       for (const name of collectPackageScriptNames(command)) {
-        if (packageScripts[name] !== undefined && GUARD_LEAF_SCRIPT_NAME.test(name)) {
-          entrypoints.add(name);
+        if (packageScripts[name] !== undefined) {
+          workflowEntrypoints.add(name);
         }
       }
     }
   }
 
+  const workflowReachablePackageScripts = collectReachablePackageScripts(
+    packageScripts,
+    workflowEntrypoints
+  );
+  const entrypoints = new Set([
+    ...LOCAL_ROOT_GUARD_ENTRYPOINTS,
+    ...[...workflowEntrypoints].filter((name) => GUARD_LEAF_SCRIPT_NAME.test(name)),
+  ]);
   const reachablePackageScripts = collectReachablePackageScripts(packageScripts, entrypoints);
   const required = new Set();
   const guardBindings = new Map();
@@ -128,7 +137,14 @@ function collectRequiredGuardScripts(packageScripts, workflowSources) {
     }
   }
 
-  return { required, unreachable };
+  const missingWorkflowEntrypoints =
+    workflowSources.length === 0
+      ? []
+      : REQUIRED_WORKFLOW_PACKAGE_SCRIPTS.filter(
+          (name) => !workflowReachablePackageScripts.has(name)
+        );
+
+  return { missingWorkflowEntrypoints, required, unreachable };
 }
 
 export async function loadGuardTestSources(scriptsRoot) {
@@ -155,7 +171,6 @@ function structurallyReferencesGuard(source, script) {
   );
 
   const isGuardSpecifier = (node) => ts.isStringLiteralLike(node) && node.text === `../${script}`;
-  const isStringValue = (node, value) => ts.isStringLiteralLike(node) && node.text === value;
   let found = false;
 
   const visit = (node) => {
@@ -174,30 +189,10 @@ function structurallyReferencesGuard(source, script) {
 
     if (ts.isCallExpression(node)) {
       const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
-      const isPathJoin =
-        ts.isPropertyAccessExpression(node.expression) &&
-        ts.isIdentifier(node.expression.expression) &&
-        node.expression.expression.text === 'path' &&
-        node.expression.name.text === 'join';
-      if (
-        (isDynamicImport && node.arguments[0] && isGuardSpecifier(node.arguments[0])) ||
-        (isPathJoin && node.arguments.some((argument) => isStringValue(argument, script))) ||
-        node.arguments.some((argument) => isStringValue(argument, `scripts/${script}`))
-      ) {
+      if (isDynamicImport && node.arguments[0] && isGuardSpecifier(node.arguments[0])) {
         found = true;
         return;
       }
-    }
-
-    if (
-      ts.isNewExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === 'URL' &&
-      node.arguments?.[0] &&
-      isGuardSpecifier(node.arguments[0])
-    ) {
-      found = true;
-      return;
     }
 
     ts.forEachChild(node, visit);
@@ -275,7 +270,15 @@ export async function validateGuardInventory({
   const issues = [];
   const inventoryScripts = new Set(entries.map((entry) => entry.script));
 
-  const { required, unreachable } = collectRequiredGuardScripts(packageScripts, workflowSources);
+  const { missingWorkflowEntrypoints, required, unreachable } = collectRequiredGuardScripts(
+    packageScripts,
+    workflowSources
+  );
+  for (const name of missingWorkflowEntrypoints) {
+    issues.push(
+      `${name}: required package-script entrypoint is not reachable from required workflow commands`
+    );
+  }
   for (const requiredScript of [...required].sort()) {
     if (!inventoryScripts.has(requiredScript)) {
       issues.push(

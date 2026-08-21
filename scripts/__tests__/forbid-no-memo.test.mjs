@@ -6,6 +6,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import '../forbid-no-memo.mjs';
+
 const scriptPath = fileURLToPath(new URL('../forbid-no-memo.mjs', import.meta.url));
 
 async function withWorkspace(run) {

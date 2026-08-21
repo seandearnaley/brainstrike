@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { glob } from 'glob';
 
 const SOURCE_PATTERNS = [
@@ -34,7 +36,7 @@ function getLineNumber(sourceText, matchIndex) {
   return sourceText.slice(0, matchIndex).split('\n').length;
 }
 
-async function main() {
+export async function main() {
   const sourceFiles = await glob(SOURCE_PATTERNS, {
     absolute: false,
     ignore: IGNORE_PATTERNS,
@@ -81,4 +83,9 @@ async function main() {
   process.exitCode = 1;
 }
 
-await main();
+const isDirectExecution =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectExecution) {
+  await main();
+}

@@ -274,12 +274,13 @@ defined below. `scripts/verify-guard-inventory.mjs` validates the inventory in
 both local and CI lint paths; malformed rows, duplicate names, and classified
 scripts that no longer exist fail closed.
 
-The verifier traverses root package-script calls from the actual `lint`,
-`lint:ci`, and `coverage:enforce` entrypoints plus required Static workflow
-steps. It rejects both missing required rows and a classified root guard leaf
-that is no longer reachable, so merely leaving `lint:foo` in `package.json`
-does not count as wiring. Direct workflow guards (including the pre-install
-lockfile check) are part of the same derived set.
+The verifier traverses root package-script calls from the local `lint` and
+`coverage:enforce` entrypoints plus package scripts actually invoked by required
+Static workflow steps. The required workflow command graph must reach
+`lint:ci`; leaving that script in `package.json` does not count as CI wiring.
+It rejects both missing required rows and a classified root guard leaf that is
+no longer reachable. Direct workflow guards (including the pre-install lockfile
+check) are part of the same derived set.
 
 `wired` is machine-corroborated for guards discoverable through that root
 package-script and required-workflow command graph. Those rows declare
@@ -292,11 +293,12 @@ between channels requires updating the inventory and contract together.
 
 A `paired` claim is machine-checked against either the guard's exact-basename
 test or an explicit `contract: scripts/__tests__/<name>.test.mjs` annotation in
-the row. The resolved test must structurally reference the guard through an
-import, URL, or script path. This evidence is read from the JavaScript syntax
-tree, so filenames, comments, unrelated imports, and source-string fixtures are
-insufficient. Discovery is intentionally non-recursive because `test:scripts`
-is non-recursive. `armed` is a reviewed, human-maintained declaration:
+the row. The resolved test must statically import, re-export, or dynamically
+import the exact guard module. This evidence is read from the JavaScript syntax
+tree, so filenames, comments, unrelated path construction, subprocess argument
+strings, and source-string fixtures are insufficient. Discovery is
+intentionally non-recursive because `test:scripts` is non-recursive. `armed` is
+a reviewed, human-maintained declaration:
 arbitrary negative-control behavior cannot be derived safely from source text,
 so the verifier does not pretend to corroborate it. The named contract tests
 own those behavioral controls, and changes to an `armed` claim must update them

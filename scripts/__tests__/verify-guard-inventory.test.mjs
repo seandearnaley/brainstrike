@@ -163,18 +163,49 @@ test('rejects required workflow guards omitted from the inventory', async () => 
 
     const issues = await validateGuardInventory({
       inventorySource: 'declared-guard.mjs → wired/paired/armed → protects a declared invariant\n',
-      packageScripts: {},
+      packageScripts: { 'lint:ci': 'biome check .' },
       scriptsRoot: workspace,
       testSources: [
         { path: 'declared-guard.test.mjs', source: "import '../declared-guard.mjs';\n" },
       ],
       workflowSources: [
-        '# node scripts/comment-only-guard.mjs\nsteps:\n  - run: node scripts/workflow-guard.mjs',
+        [
+          '# node scripts/comment-only-guard.mjs',
+          'steps:',
+          '  - run: pnpm run lint:ci',
+          '  - run: node scripts/workflow-guard.mjs',
+        ].join('\n'),
       ],
     });
 
     assert.deepEqual(issues, [
       'workflow-guard.mjs: required root guard script is missing from scripts/_guard-inventory.md',
+    ]);
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
+test('rejects a required CI lint entrypoint that the workflow no longer reaches', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-workflow-entrypoint-'));
+  try {
+    await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
+
+    const issues = await validateGuardInventory({
+      inventorySource:
+        'example-guard.mjs → wired/paired/armed → protects an example invariant; channel: required-path\n',
+      packageScripts: {
+        lint: 'pnpm run lint:example',
+        'lint:ci': 'pnpm run lint:example',
+        'lint:example': 'node scripts/example-guard.mjs',
+      },
+      scriptsRoot: workspace,
+      testSources: [{ path: 'example-guard.test.mjs', source: "import '../example-guard.mjs';\n" }],
+      workflowSources: ['steps:\n  - run: pnpm run secrets:scan\n'],
+    });
+
+    assert.deepEqual(issues, [
+      'lint:ci: required package-script entrypoint is not reachable from required workflow commands',
     ]);
   } finally {
     await rm(workspace, { force: true, recursive: true });
@@ -236,6 +267,8 @@ test('requires an exact basename or declared contract path for paired evidence',
               `const fixture = "import('../example-guard.mjs')";`,
               "run(); // 'scripts/example-guard.mjs'",
               "run(/* 'scripts/example-guard.mjs' */);",
+              "writeFile('fixture.txt', 'scripts/example-guard.mjs');",
+              "path.join('/unrelated/fixtures', 'example-guard.mjs');",
             ].join('\n'),
           },
         ],
