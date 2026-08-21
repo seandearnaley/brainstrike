@@ -336,7 +336,10 @@ describe.sequential('embedding queue load matrix', () => {
 
       expect(result.adaptiveClaimLimits[0]).toBe(1);
       expect(result.adaptiveClaimLimits).toContain(MAX_IN_FLIGHT_JOBS);
-      expect(result.peakClaimedJobs).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
+      // The two initial one-job claims can peak at only 2. Reaching 4 proves a
+      // later worker claim consumed the accelerated resolver policy.
+      expect(result.peakClaimedJobs).toBe(MAX_IN_FLIGHT_JOBS);
+      expect(result.peakVectorsInFlight).toBe(MAX_IN_FLIGHT_JOBS);
       expect(result.leaseClaimCount).toBe(JOB_COUNT);
       expect(result.maxAttempts).toBe(1);
     },
