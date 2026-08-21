@@ -552,7 +552,10 @@ describe('ConnectedPromptManager', () => {
     expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
     expect(screen.getByTestId('active-thread-id')).toHaveTextContent('thread-active');
     expect(screen.getByTestId('composer-context')).toHaveTextContent('Live draft');
-    expect(screen.getByTestId('model-options')).toHaveTextContent('openai::gpt-5.4');
+    expect(JSON.parse(screen.getByTestId('model-options').textContent ?? 'null')).toEqual([
+      { key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' },
+      { key: 'google::gemini-3.1-pro-preview', label: 'Google · Gemini 3.1 Pro' },
+    ]);
     await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalled());
     expect(mocks.loadEmbeddingQueue).toHaveBeenCalled();
     expect(mocks.loadEmbeddingQueue.mock.invocationCallOrder[0]).toBeLessThan(
