@@ -335,7 +335,7 @@ async function runLoadScenario(params: {
   }
   const workerLoopRendezvous = new WorkerLoopRendezvous(params.concurrency);
   const db = await wasmLoader.createPGlite(`memory://${params.scenario}`);
-  let restoreClaimSpy: (() => void) | undefined;
+  let restoreQueueSpies: (() => void) | undefined;
   let stopWorker: (() => Promise<void>) | undefined;
 
   try {
@@ -350,9 +350,11 @@ async function runLoadScenario(params: {
     const adaptiveClaimLimits: number[] = [];
     const claimedBatchSizes: number[] = [];
     const claimLimits: number[] = [];
+    const activeClaimedJobIds = new Set<string>();
     let leaseClaimCount = 0;
     let peakClaimedJobs = 0;
     const originalClaimMany = JobQueue.prototype.claimMany;
+    const originalCompleteEmbeddingChunkBatch = JobQueue.prototype.completeEmbeddingChunkBatch;
     const claimSpy = vi.spyOn(JobQueue.prototype, 'claimMany').mockImplementation(async function (
       this: JobQueue,
       claimParams
@@ -365,16 +367,29 @@ async function runLoadScenario(params: {
         }
         claimLimits.push(claimParams.limit);
         claimedBatchSizes.push(jobs.length);
-        const running = await db.query<{ count: number }>(
-          `SELECT COUNT(*)::int AS count
-             FROM job_queue
-            WHERE queue = 'embeddings' AND state = 'running'`
-        );
-        peakClaimedJobs = Math.max(peakClaimedJobs, running.rows[0]?.count ?? 0);
+        for (const job of jobs) {
+          activeClaimedJobIds.add(job.id);
+        }
+        peakClaimedJobs = Math.max(peakClaimedJobs, activeClaimedJobIds.size);
       }
       return jobs;
     });
-    restoreClaimSpy = () => claimSpy.mockRestore();
+    const completionSpy = vi
+      .spyOn(JobQueue.prototype, 'completeEmbeddingChunkBatch')
+      .mockImplementation(async function (this: JobQueue, completionParams) {
+        const completedJobs = await originalCompleteEmbeddingChunkBatch.call(
+          this,
+          completionParams
+        );
+        for (const job of completedJobs) {
+          activeClaimedJobIds.delete(job.id);
+        }
+        return completedJobs;
+      });
+    restoreQueueSpies = () => {
+      claimSpy.mockRestore();
+      completionSpy.mockRestore();
+    };
 
     const startedAt = performance.now();
     const controller = await startEmbeddingWorker({
@@ -449,7 +464,7 @@ async function runLoadScenario(params: {
     if (stopWorker) {
       await stopWorker();
     }
-    restoreClaimSpy?.();
+    restoreQueueSpies?.();
     await db.close();
   }
 }
