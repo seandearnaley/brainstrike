@@ -263,9 +263,10 @@ async function runLoadScenario(params: {
   readonly concurrency: number;
   readonly scenario: string;
 }): Promise<QueueLoadMetrics> {
-  if (!(params.adaptive || JOB_COUNT >= params.concurrency)) {
+  const firstWaveSize = params.adaptive ? 1 : Math.min(params.concurrency, MAX_IN_FLIGHT_JOBS);
+  if (JOB_COUNT < firstWaveSize) {
     throw new Error(
-      `Non-adaptive load scenarios require at least one first-wave job per loop: ${JOB_COUNT} jobs for concurrency ${params.concurrency}.`
+      `Embedding load scenarios require one job per first-wave loop: ${JOB_COUNT} jobs for a first wave of ${firstWaveSize}.`
     );
   }
   const db = await wasmLoader.createPGlite(`memory://${params.scenario}`);
@@ -279,7 +280,7 @@ async function runLoadScenario(params: {
     const service = new LoadTestEmbeddingService(
       params.adaptive ? 25 : 0,
       params.adaptive,
-      params.adaptive ? 1 : Math.min(params.concurrency, MAX_IN_FLIGHT_JOBS)
+      firstWaveSize
     );
     const adaptiveClaimLimits: number[] = [];
     const claimedBatchSizes: number[] = [];
@@ -384,9 +385,9 @@ describe.sequential('embedding queue load matrix', () => {
   });
 
   it(
-    'bounds working sets and lease churn with 1, 2, 4, and 8 worker loops',
+    'bounds working sets and lease churn with 1, 2, 4, and 16 worker loops',
     async () => {
-      const concurrencyLevels = [1, 2, 4, 8] as const;
+      const concurrencyLevels = [1, 2, 4, 16] as const;
       const results: QueueLoadMetrics[] = [];
 
       for (const concurrency of concurrencyLevels) {
