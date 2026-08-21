@@ -35,6 +35,18 @@ function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isStaticallyDisabled(condition) {
+  if (condition === false) {
+    return true;
+  }
+  if (typeof condition !== 'string') {
+    return false;
+  }
+
+  const normalized = condition.trim();
+  return /^false$/i.test(normalized) || /^\$\{\{\s*false\s*\}\}$/i.test(normalized);
+}
+
 function collectWorkflowRunCommands(source) {
   const workflow = parseYaml(source);
   if (!(isRecord(workflow) && isRecord(workflow.jobs) && isRecord(workflow.jobs.static))) {
@@ -48,6 +60,9 @@ function collectWorkflowRunCommands(source) {
   return steps.flatMap((step) => {
     if (!isRecord(step)) {
       throw new Error('required workflow jobs.static steps must be mappings');
+    }
+    if (isStaticallyDisabled(step.if)) {
+      return [];
     }
     return typeof step.run === 'string' ? [step.run] : [];
   });
