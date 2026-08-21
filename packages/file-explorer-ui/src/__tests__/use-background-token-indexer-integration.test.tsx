@@ -85,9 +85,11 @@ const createTokenCacheContext = (): TokenCacheContextValue => ({
 });
 
 const tokenCacheContext: TokenCacheContextValue | null = createTokenCacheContext();
+let tokenCacheContextOverride: TokenCacheContextValue | null | undefined;
 
 vi.mock('../indexing/token-cache-context', () => ({
-  useOptionalTokenCacheContext: () => tokenCacheContext,
+  useOptionalTokenCacheContext: () =>
+    tokenCacheContextOverride === undefined ? tokenCacheContext : tokenCacheContextOverride,
 }));
 
 let mockFileTreeIndexContext: FileTreeIndexContextValue | null = null;
@@ -153,10 +155,18 @@ const fileTreeRootB: IFileNode[] = [
   },
 ];
 
+type IndexerOptions = Parameters<typeof useBackgroundTokenIndexerIntegration>[0];
+const renderIndexer = (getOverrides: () => Partial<IndexerOptions> = () => ({})) =>
+  renderHook(() =>
+    useBackgroundTokenIndexerIntegration({
+      fileTree: fileTreeRootA,
+      onTokenResolved: vi.fn(),
+      selectedFiles: new Set([fileAKey]),
+      ...getOverrides(),
+    })
+  );
 const flushTimers = (): void => {
-  // Run multiple cycles to ensure:
-  // 1. First cycle: debounced effects (500ms timeout for handle map build)
-  // 2. Second cycle: effects triggered by state updates from first cycle
+  // Flush the debounced handle-map build and effects triggered by its state update.
   act(() => {
     vi.runAllTimers();
   });
@@ -216,6 +226,22 @@ function createElectronTree(fileCount: number): {
   return { keys, tree };
 }
 
+const createElectronIndexContext = (fileCount: number): FileTreeIndexContextValue => ({
+  getHandle: vi.fn((_folderId, path) => ({
+    electronHandle: {
+      kind: 'file' as const,
+      name: path,
+      path: `/repo/${path}`,
+      platform: 'electron' as const,
+    },
+    fileName: path,
+    fileSize: 128,
+  })),
+  getNode: vi.fn(() => undefined),
+  stats: { totalDirectories: 0, totalFiles: fileCount, totalNodes: fileCount },
+  version: 1,
+});
+
 describe('useBackgroundTokenIndexerIntegration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -223,6 +249,21 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     __resetVectorStatusUIStoreForTests();
     mockBackgroundIndexer.isIndexing = false;
     mockFileTreeIndexContext = null;
+    tokenCacheContextOverride = undefined;
+  });
+
+  it('reports unavailable diagnostics and declines dispatch when the token cache is absent', async () => {
+    tokenCacheContextOverride = null;
+    const { result } = renderIndexer();
+
+    await act(async () => {
+      await result.current.triggerIndexing([fileAKey]);
+    });
+
+    expect(result.current.diagnostics.cacheOperational).toBe(false);
+    expect(result.current.diagnostics.cachePersisted).toBe(false);
+    expect(result.current.isReady).toBe(false);
+    expect(indexFilesMock).not.toHaveBeenCalled();
   });
 
   it('does not re-queue still-selected files when selection shrinks', () => {
@@ -433,13 +474,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
   });
 
   it('recovers when indexed cache equals selection but no indexing is running', () => {
-    renderHook(() =>
-      useBackgroundTokenIndexerIntegration({
-        fileTree: fileTreeRootA,
-        onTokenResolved: vi.fn(),
-        selectedFiles: new Set([fileAKey]),
-      })
-    );
+    renderIndexer();
 
     flushTimers();
     // The stale-cache safety should enqueue once.
@@ -493,13 +528,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
       updateHotCacheSpy.mockClear();
 
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
+      renderIndexer();
 
       flushTimers();
 
@@ -569,13 +598,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
   describe('edge cases', () => {
     it('handles empty selection gracefully', () => {
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: fileTreeRootA,
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set<string>(),
-        })
-      );
+      renderIndexer(() => ({ selectedFiles: new Set<string>() }));
 
       flushTimers();
 
@@ -584,13 +607,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     });
 
     it('handles empty file tree gracefully', () => {
-      renderHook(() =>
-        useBackgroundTokenIndexerIntegration({
-          fileTree: [],
-          onTokenResolved: vi.fn(),
-          selectedFiles: new Set([fileAKey]),
-        })
-      );
+      renderIndexer(() => ({ fileTree: [] }));
 
       flushTimers();
 
@@ -777,6 +794,58 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       flushTimers();
 
       expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('surfaces the missing Electron reader capability before dispatch', async () => {
+      const { keys } = createElectronTree(1);
+      mockFileTreeIndexContext = createElectronIndexContext(1);
+
+      const { result } = renderIndexer(() => ({ fileTree: [], selectedFiles: new Set() }));
+
+      await expect(result.current.triggerIndexing(keys)).rejects.toThrow(
+        'electronFileReader is required for Electron file handles'
+      );
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('classifies missing and rejected Electron reads without dispatching either file', async () => {
+      const { keys } = createElectronTree(2);
+      const records: Array<{ level: LogLevel; message: string }> = [];
+      const unsubscribe = addLogListener((record) => {
+        if (record.scope === 'BackgroundTokenIndexerIntegration') {
+          records.push({ level: record.level, message: record.message ?? '' });
+        }
+      });
+      const electronFileReader = vi.fn(async (handle: { path: string }): Promise<string> => {
+        if (handle.path.endsWith('file-0.ts')) {
+          throw new Error('ENOENT: no such file or directory');
+        }
+        throw new Error('permission denied');
+      });
+      mockFileTreeIndexContext = createElectronIndexContext(2);
+
+      const { result } = renderIndexer(() => ({
+        electronFileReader,
+        fileTree: [],
+        selectedFiles: new Set(),
+      }));
+
+      try {
+        await act(async () => {
+          await result.current.triggerIndexing(keys);
+        });
+      } finally {
+        unsubscribe();
+      }
+
+      expect(electronFileReader).toHaveBeenCalledTimes(2);
+      expect(indexFilesMock).not.toHaveBeenCalled();
+      expect(
+        records.filter(
+          (record) =>
+            record.level === LogLevel.ERROR && record.message === 'Failed to read Electron file'
+        )
+      ).toHaveLength(1);
     });
 
     it('streams Electron file reads in cooperative batches with a yield before overflow reads', async () => {
@@ -1025,6 +1094,94 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       // Test passes if no error is thrown
       expect(true).toBe(true);
+    });
+
+    it('abandons a completed warm-cache read when the cache provider is removed', async () => {
+      const deferredEntries =
+        createDeferredValue<
+          Map<string, { filePath: string; folderId: string; tokenCount: number }>
+        >();
+      (storeMock.getBatch as ReturnType<typeof vi.fn>).mockReturnValueOnce(deferredEntries.promise);
+      const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
+      const warnings: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (
+          record.level === LogLevel.WARN &&
+          record.scope === 'BackgroundTokenIndexerIntegration'
+        ) {
+          warnings.push(record.message ?? '');
+        }
+      });
+
+      const { rerender } = renderIndexer();
+
+      tokenCacheContextOverride = null;
+      rerender();
+
+      try {
+        await act(async () => {
+          deferredEntries.resolve(
+            new Map([['a.txt', { filePath: 'a.txt', folderId: 'root', tokenCount: 100 }]])
+          );
+          await deferredEntries.promise;
+        });
+      } finally {
+        unsubscribe();
+      }
+
+      expect(warnings).toContain('Warm cache: cache ref became null during async operation');
+      expect(updateHotCacheSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not hydrate a record that indexing resolved before the store read completed', async () => {
+      const deferredEntries =
+        createDeferredValue<
+          Map<string, { filePath: string; folderId: string; tokenCount: number }>
+        >();
+      (storeMock.getBatch as ReturnType<typeof vi.fn>).mockReturnValueOnce(deferredEntries.promise);
+      const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
+
+      renderIndexer();
+
+      flushTimers();
+      act(() => {
+        capturedOnFileIndexed?.(fileAKey, 90, 12);
+      });
+
+      await act(async () => {
+        deferredEntries.resolve(
+          new Map([['a.txt', { filePath: 'a.txt', folderId: 'root', tokenCount: 100 }]])
+        );
+        await deferredEntries.promise;
+      });
+
+      expect(updateHotCacheSpy).toHaveBeenCalledTimes(1);
+      expect(updateHotCacheSpy).toHaveBeenCalledWith('root', 'a.txt', 90);
+    });
+
+    it('clears the preload memo when persistence becomes available', async () => {
+      const preloadFolder = vi.fn();
+      const initialContext = {
+        ...createTokenCacheContext(),
+        isPersisted: false,
+        preloadFolder,
+      };
+      tokenCacheContextOverride = initialContext;
+
+      const { rerender } = renderIndexer();
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      expect(preloadFolder).toHaveBeenCalledTimes(1);
+
+      tokenCacheContextOverride = { ...initialContext, isPersisted: true };
+      rerender();
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(preloadFolder).toHaveBeenCalledTimes(2);
     });
 
     it('hydrates warm cache from persistent store even while file import is in progress', async () => {
