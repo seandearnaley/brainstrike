@@ -103,6 +103,57 @@ test('rejects required lint guards omitted from the inventory', async () => {
   }
 });
 
+test('rejects a wired guard leaf that is unreachable from required entrypoints', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-unreachable-guard-'));
+  try {
+    await writeFile(path.join(workspace, 'orphaned-guard.mjs'), 'export {};\n');
+
+    const issues = await validateGuardInventory({
+      inventorySource: 'orphaned-guard.mjs → wired/paired/armed → protects an orphaned invariant\n',
+      packageScripts: {
+        lint: 'biome check .',
+        'lint:ci': 'biome check .',
+        'lint:orphaned': 'node scripts/orphaned-guard.mjs',
+      },
+      scriptsRoot: workspace,
+      testSources: [{ path: 'orphaned-guard.test.mjs', source: '' }],
+    });
+
+    assert.deepEqual(issues, [
+      'orphaned-guard.mjs: wired guard leaf is not reachable from a required root entrypoint',
+    ]);
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
+test('rejects required workflow guards omitted from the inventory', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-workflow-guard-'));
+  try {
+    await Promise.all(
+      ['declared-guard.mjs', 'workflow-guard.mjs'].map((script) =>
+        writeFile(path.join(workspace, script), 'export {};\n')
+      )
+    );
+
+    const issues = await validateGuardInventory({
+      inventorySource: 'declared-guard.mjs → wired/paired/armed → protects a declared invariant\n',
+      packageScripts: {},
+      scriptsRoot: workspace,
+      testSources: [{ path: 'declared-guard.test.mjs', source: '' }],
+      workflowSources: [
+        '# node scripts/comment-only-guard.mjs\nsteps:\n  - run: node scripts/workflow-guard.mjs',
+      ],
+    });
+
+    assert.deepEqual(issues, [
+      'workflow-guard.mjs: required root guard script is missing from scripts/_guard-inventory.md',
+    ]);
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
 test('rejects paired claims without discoverable test evidence', async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-paired-guard-'));
   try {
@@ -123,6 +174,42 @@ test('rejects paired claims without discoverable test evidence', async () => {
   }
 });
 
+test('requires an exact basename or declared contract path for paired evidence', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-explicit-guard-test-'));
+  try {
+    await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
+    const testSources = [
+      {
+        path: 'different-contract.test.mjs',
+        source: '// example-guard.mjs is mentioned only in prose\n',
+      },
+    ];
+
+    assert.deepEqual(
+      await validateGuardInventory({
+        inventorySource: 'example-guard.mjs → wired/paired/armed → protects an example invariant\n',
+        packageScripts: {},
+        scriptsRoot: workspace,
+        testSources,
+      }),
+      ['example-guard.mjs: paired guard has no discoverable test under scripts/__tests__']
+    );
+
+    assert.deepEqual(
+      await validateGuardInventory({
+        inventorySource:
+          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+        packageScripts: {},
+        scriptsRoot: workspace,
+        testSources,
+      }),
+      []
+    );
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
 test('validates the current classified guard inventory', async () => {
   const inventorySource = await readFile(inventoryPath, 'utf8');
   const packageJson = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
@@ -131,6 +218,9 @@ test('validates the current classified guard inventory', async () => {
     packageScripts: packageJson.scripts,
     scriptsRoot: path.join(repoRoot, 'scripts'),
     testSources: await loadGuardTestSources(path.join(repoRoot, 'scripts')),
+    workflowSources: [
+      await readFile(path.join(repoRoot, '.github', 'workflows', 'test.yml'), 'utf8'),
+    ],
   });
 
   assert.deepEqual(issues, []);
@@ -141,7 +231,9 @@ test('direct execution is an armed fail-closed guard', async () => {
   try {
     const scriptsRoot = path.join(workspace, 'scripts');
     await mkdir(path.join(scriptsRoot, '__tests__'), { recursive: true });
+    await mkdir(path.join(workspace, '.github', 'workflows'), { recursive: true });
     await writeFile(path.join(workspace, 'package.json'), '{"scripts":{}}\n');
+    await writeFile(path.join(workspace, '.github', 'workflows', 'test.yml'), 'name: test\n');
     await writeFile(
       path.join(scriptsRoot, '_guard-inventory.md'),
       'missing-guard.mjs → wired/paired/armed → protects a missing invariant\n'

@@ -5,7 +5,7 @@ browser-events-literal-guard.mjs → wired/paired/armed → shared browser Custo
 catalog-user-choice-guard.mjs → wired/paired/armed → catalog migrations preserving user model enablement
 check-e2e-destructive-tags.mjs → wired/paired/armed → factory-reset E2E isolation tags
 check-e2e-readiness-contracts.mjs → wired/paired/armed → fast E2E shard DB-readiness isolation
-enforce-coverage.mjs → wired/paired/armed → coverage artifacts and per-package thresholds
+enforce-coverage.mjs → wired/paired/armed → coverage artifacts and per-package thresholds; contract: scripts/__tests__/enforce-coverage-artifact-contract.test.mjs
 forbid-no-memo.mjs → wired/paired/armed → React compiler escape directives
 mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union coverage and observable unknown chunks
 model-catalog-migration-contract.mjs → wired/paired/armed → dual migration registration and model remaps
@@ -16,17 +16,18 @@ unit-shard-partition.mjs → wired/paired/armed → exact Unit shard partition
 verify-catalog-references.mjs → wired/paired/armed → pnpm catalog consistency
 verify-codecov-status-contract.mjs → wired/paired/armed → Codecov status contexts remaining non-gating
 verify-config-load-hash-coverage.mjs → wired/paired/armed → Turbo config-load hash coverage
-verify-eslint-warning-baselines.mjs → wired/paired/armed → per-rule ESLint warning budgets remaining exact and error findings staying forbidden
+verify-eslint-warning-baselines.mjs → wired/paired/armed → per-rule ESLint warning budgets remaining exact and error findings staying forbidden; contract: scripts/__tests__/eslint-warning-baseline-contract.test.mjs
 verify-guard-inventory.mjs → wired/paired/armed → authoritative Warden guard classification and inventory integrity
+verify-lockfile-catalog-conformance.mjs → wired/paired/armed → lockfile catalog conformance before dependency installation
 verify-mastra-schema-init-order.mjs → wired/paired/armed → lazy initialization of Mastra memory-schema constants
 verify-minimum-release-age-exclusions.mjs → wired/paired/armed → minimumReleaseAgeExclude entries expiring instead of becoming standing exemptions (publish dates recorded in scripts/minimum-release-age-exclusions.json)
 verify-no-cross-chunk-cycles.mjs → wired/paired/armed → acyclic emitted renderer chunk graph
 verify-no-raw-nul-bytes.mjs → wired/paired/armed → tracked source files remaining free of raw NUL bytes
 verify-no-source-cycles.mjs → wired/paired/armed → acyclic renderer source module graph
-verify-no-vitest-worker-mutation.mjs → wired/paired/armed → Vitest worker-global mutation
+verify-no-vitest-worker-mutation.mjs → wired/paired/armed → Vitest worker-global mutation; contract: scripts/__tests__/vitest-worker-global-mutation.test.mjs
 verify-package-build-strategies.mjs → wired/paired/armed → package build commands matching their declared output ownership
 verify-playwright-pin-sync.mjs → wired/paired/armed → Playwright package and container pin parity
-verify-tokenizer-asset-bundle.mjs → wired/paired/armed → tokenizer data staying out of JavaScript bundles
+verify-tokenizer-asset-bundle.mjs → wired/paired/armed → tokenizer data staying out of JavaScript bundles; contract: scripts/__tests__/tokenizer-asset-bundle-contract.test.mjs
 verify-tsconfig-paths-match-registry.mjs → wired/paired/armed → tsconfig paths matching source-alias registry
 verify-tsup-build-invariants.mjs → wired/paired/armed → tsup clean and declaration ownership invariants
 verify-workspace-src-aliases.mjs → wired/paired/armed → test lanes resolving workspace imports from source
