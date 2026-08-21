@@ -2,42 +2,27 @@ import '@testing-library/jest-dom/vitest';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LogViewer } from '../log-viewer';
-
-global.ResizeObserver = class ResizeObserver {
-  disconnect() {}
-  observe() {}
-  unobserve() {}
-};
+import { installLogViewerDomStubs } from './log-viewer-test-harness';
 
 vi.mock('@tanstack/react-virtual', async () => {
   const actual = await vi.importActual('@tanstack/react-virtual');
+  const { createMockLogVirtualizer } = await vi.importActual('./log-viewer-test-harness');
   return {
     ...actual,
-    useVirtualizer: ({ count }: { count: number }) => ({
-      getTotalSize: () => count * 30,
-      getVirtualItems: () =>
-        Array.from({ length: count }, (_, index) => ({
-          end: (index + 1) * 30,
-          index,
-          key: index,
-          size: 30,
-          start: index * 30,
-        })),
-      measure: () => {},
-      measureElement: () => {},
-      scrollToIndex: () => {},
-    }),
+    useVirtualizer: createMockLogVirtualizer,
   };
 });
 
 const mockToast = vi.fn();
 
 beforeAll(() => {
-  (Element.prototype as unknown as { hasPointerCapture: () => boolean }).hasPointerCapture = () =>
-    false;
-  (Element.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {};
+  installLogViewerDomStubs();
+});
+
+beforeEach(() => {
+  mockToast.mockClear();
 });
 
 afterEach(() => {
@@ -98,10 +83,11 @@ describe('LogViewer interactions and export', () => {
     render(<LogViewer logSource={logSource} toast={mockToast} />);
 
     expect(await screen.findByText('Malformed record remains visible')).toBeInTheDocument();
-    expect(screen.getByText('info')).toBeInTheDocument();
+    expect(screen.getByText('unknown (unexpected-level)')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'View details for Malformed record remains visible' })
     ).toBeInTheDocument();
+    expect(mockToast).not.toHaveBeenCalled();
   });
 
   it('sorts rows and toggles column visibility from the table controls', async () => {

@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LogViewer } from '../log-viewer';
+import { installLogViewerDomStubs } from './log-viewer-test-harness';
 
 const clipboardMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
@@ -15,42 +16,19 @@ vi.mock('@brainstrike/context-actions', () => ({
   }),
 }));
 
-// Mock ResizeObserver
-global.ResizeObserver = class ResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-};
-
-// Mock virtualizer to render all items for testing
 vi.mock('@tanstack/react-virtual', async () => {
   const actual = await vi.importActual('@tanstack/react-virtual');
+  const { createMockLogVirtualizer } = await vi.importActual('./log-viewer-test-harness');
   return {
     ...actual,
-    useVirtualizer: ({ count }: any) => ({
-      getTotalSize: () => count * 30,
-      getVirtualItems: () =>
-        Array.from({ length: count }).map((_, i) => ({
-          end: (i + 1) * 30,
-          index: i,
-          key: i,
-          measureElement: () => {},
-          size: 30,
-          start: i * 30,
-        })),
-      measureElement: () => {},
-      scrollToIndex: () => {},
-    }),
+    useVirtualizer: createMockLogVirtualizer,
   };
 });
 
 const mockToast = vi.fn();
 
 beforeAll(() => {
-  // JSDOM implements neither of these Radix Select interaction APIs.
-  (Element.prototype as unknown as { hasPointerCapture: () => boolean }).hasPointerCapture = () =>
-    false;
-  (Element.prototype as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {};
+  installLogViewerDomStubs();
 });
 
 const createMockLogRecord = (overrides: Partial<LogRecord> = {}): LogRecord => ({
@@ -141,6 +119,7 @@ describe('LogViewer', () => {
   });
 
   it('surfaces subscription failures and recovers when the source changes', async () => {
+    const user = userEvent.setup();
     const failedSource = {
       getInitialRecords: async () => [createMockLogRecord({ message: 'Initial fallback record' })],
       subscribe: () => {
@@ -165,6 +144,13 @@ describe('LogViewer', () => {
       title: 'Failed to subscribe to logs',
       variant: 'destructive',
     });
+    expect(screen.getByTestId('log-viewer-live-status')).toHaveTextContent(
+      'Live updates unavailable: subscription failed'
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Retention' }));
+    await user.click(screen.getByRole('option', { name: '500 logs' }));
+    expect(mockToast).toHaveBeenCalledTimes(1);
 
     rerender(<LogViewer logSource={recoveredSource} toast={mockToast} />);
     await waitFor(() => expect(subscribedHandler).toBeDefined());
@@ -174,6 +160,7 @@ describe('LogViewer', () => {
     await waitFor(() =>
       expect(screen.getByText('Recovered subscription record')).toBeInTheDocument()
     );
+    expect(screen.getByTestId('log-viewer-live-status')).toHaveTextContent('Auto-scroll on');
 
     unmount();
     expect(unsubscribe).toHaveBeenCalledTimes(1);

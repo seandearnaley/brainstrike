@@ -1,6 +1,6 @@
 import type { LogRecord } from '@brainstrike/logging';
 import type { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LogSourceAdapter } from './log-source-adapter';
 
 const LOG_SUBSCRIPTION_DEBOUNCE_MS = 100;
@@ -15,19 +15,21 @@ interface UseLogRecordSourceOptions {
 
 function subscribeToLogSource(
   logSource: LogSourceAdapter,
-  onRecords: (records: readonly LogRecord[]) => void,
-  toast: ReturnType<typeof useToast>['toast']
-): (() => void) | undefined {
+  onRecords: (records: readonly LogRecord[]) => void
+): { error: string | null; unsubscribe: (() => void) | undefined } {
   try {
-    return logSource.subscribe?.(onRecords);
+    return { error: null, unsubscribe: logSource.subscribe?.(onRecords) };
   } catch (error) {
-    toast({
-      description: error instanceof Error ? error.message : String(error),
-      title: 'Failed to subscribe to logs',
-      variant: 'destructive',
-    });
-    return;
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      unsubscribe: undefined,
+    };
   }
+}
+
+interface UseLogRecordSourceResult {
+  readonly refreshLogs: () => Promise<void>;
+  readonly subscriptionError: string | null;
 }
 
 export function useLogRecordSource({
@@ -36,9 +38,14 @@ export function useLogRecordSource({
   onLoadingChange,
   onRecordsChange,
   toast,
-}: UseLogRecordSourceOptions): { readonly refreshLogs: () => Promise<void> } {
+}: UseLogRecordSourceOptions): UseLogRecordSourceResult {
+  const failedSubscriptionSourceRef = useRef<LogSourceAdapter | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!logSource) {
+      failedSubscriptionSourceRef.current = null;
+      setSubscriptionError(null);
       onRecordsChange([]);
       return;
     }
@@ -83,14 +90,27 @@ export function useLogRecordSource({
         }
       }, LOG_SUBSCRIPTION_DEBOUNCE_MS);
     };
-    const unsubscribe = subscribeToLogSource(logSource, handleSubscriptionRecords, toast);
+    const subscription = subscribeToLogSource(logSource, handleSubscriptionRecords);
+    setSubscriptionError(subscription.error);
+    if (subscription.error) {
+      if (failedSubscriptionSourceRef.current !== logSource) {
+        failedSubscriptionSourceRef.current = logSource;
+        toast({
+          description: subscription.error,
+          title: 'Failed to subscribe to logs',
+          variant: 'destructive',
+        });
+      }
+    } else {
+      failedSubscriptionSourceRef.current = null;
+    }
 
     return () => {
       cancelled = true;
       if (subscriptionTimerId !== null) {
         window.clearTimeout(subscriptionTimerId);
       }
-      unsubscribe?.();
+      subscription.unsubscribe?.();
     };
   }, [applyRetentionLimit, logSource, onLoadingChange, onRecordsChange, toast]);
 
@@ -114,5 +134,5 @@ export function useLogRecordSource({
     }
   }, [applyRetentionLimit, logSource, onLoadingChange, onRecordsChange, toast]);
 
-  return { refreshLogs };
+  return { refreshLogs, subscriptionError };
 }
