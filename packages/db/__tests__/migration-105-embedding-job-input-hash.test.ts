@@ -1,7 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { migration105EmbeddingJobInputHash } from '../src/migrations/105-embedding-job-input-hash.js';
-import { migrations } from '../src/migrations/index.js';
 
 const VALID_HASH = 'cc48e54faf852e887cf52ea4b232e7c3db4773e5a55c0045e9ee06a8b4151b78';
 const TAGGED_OLLAMA_HASH = 'ed6fc06776642bbaf685acde7bcde4b2b4ed886b43fc96d1048819367f03ed08';
@@ -17,10 +16,6 @@ describe('migration 105 embedding job input hash', () => {
 
   afterEach(async () => {
     await db?.close();
-  });
-
-  it('is the latest numbered migration', () => {
-    expect(migrations.at(-1)).toBe(migration105EmbeddingJobInputHash);
   });
 
   it('backfills provable jobs and visibly cancels unprovable active and retryable jobs', async () => {

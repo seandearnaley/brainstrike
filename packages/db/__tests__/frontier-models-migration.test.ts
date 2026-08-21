@@ -65,6 +65,7 @@ describe('frontier models migrations', () => {
       'qwen/qwen3.6-flash',
       'qwen/qwen3.8-27b',
       'qwen/qwen3-coder-next',
+      'meta/muse-spark-1.2',
       'meta/muse-spark-1.1',
       'moonshotai/kimi-k3',
       'inclusionai/ling-3.0-flash:free',

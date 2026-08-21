@@ -137,6 +137,7 @@ describe('frontier model refresh (2026-07)', () => {
           'qwen/qwen3.6-flash',
           'qwen/qwen3.8-27b',
           'qwen/qwen3-coder-next',
+          'meta/muse-spark-1.2',
           'meta/muse-spark-1.1',
           'moonshotai/kimi-k3',
           'inclusionai/ling-3.0-flash:free',
@@ -305,6 +306,27 @@ describe('frontier model refresh (2026-07)', () => {
         vision: 'supported',
       });
       expect(grok.maxOutputTokens).toBeUndefined();
+    });
+
+    it('declares Muse Spark 1.2 from vendor capabilities and gateway metadata', () => {
+      const spark = getLlmModelDefinition('openrouter', 'meta/muse-spark-1.2');
+
+      expect(spark).toEqual({
+        contextWindow: 1_048_576,
+        id: 'meta/muse-spark-1.2',
+        label: 'Muse Spark 1.2 (OpenRouter)',
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
+        reasoning: {
+          defaultEffort: 'medium',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+      expect(spark.maxOutputTokens).toBeUndefined();
     });
 
     it('declares Qwen3.8 27B from vendor capabilities and gateway metadata', () => {
