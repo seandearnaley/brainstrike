@@ -94,7 +94,29 @@ describe('embedding queue load harness contract', () => {
     if (!isRecord(effectiveTestConfig)) {
       throw new Error('Expected the embeddings integration Vitest config to define test options.');
     }
-    expect(effectiveTestConfig['include']).toEqual(['**/*.integration.test.*']);
+    const includePatterns = effectiveTestConfig['include'];
+    const excludePatterns = effectiveTestConfig['exclude'];
+    if (
+      !(
+        Array.isArray(includePatterns) &&
+        includePatterns.every((pattern) => typeof pattern === 'string') &&
+        Array.isArray(excludePatterns) &&
+        excludePatterns.every((pattern) => typeof pattern === 'string')
+      )
+    ) {
+      throw new Error('Expected the embeddings integration Vitest config to define string globs.');
+    }
+    expect(configModule['default']['root']).toBeUndefined();
+    expect(effectiveTestConfig['dir']).toBeUndefined();
+    expect(includePatterns).toEqual(['**/*.integration.test.*']);
+    expect(excludePatterns).toEqual(['**/node_modules/**', '**/dist/**', '**/*.models.test.*']);
+    const harnessRelativePath = path.relative(packageRoot, harnessPath).split(path.sep).join('/');
+    expect(includePatterns.some((pattern) => path.matchesGlob(harnessRelativePath, pattern))).toBe(
+      true
+    );
+    expect(excludePatterns.some((pattern) => path.matchesGlob(harnessRelativePath, pattern))).toBe(
+      false
+    );
     expect(effectiveTestConfig['pool']).toBe('forks');
 
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
