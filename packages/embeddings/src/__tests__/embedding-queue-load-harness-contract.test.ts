@@ -1,9 +1,14 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 function hasExactArgument(script: string, argument: string): boolean {
   return script.split(/\s+/u).includes(argument);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 describe('embedding queue load harness contract', () => {
@@ -11,22 +16,23 @@ describe('embedding queue load harness contract', () => {
     process.cwd(),
     'src/__tests__/embedding-queue-load.integration.test.ts'
   );
-  const baseConfigPath = path.resolve(process.cwd(), 'vitest.config.mts');
   const integrationConfigPath = path.resolve(process.cwd(), 'vitest.integration.config.mts');
   const packageJsonPath = path.resolve(process.cwd(), 'package.json');
 
-  it('keeps the load harness in the serialized integration lane', () => {
+  it('keeps the load harness in the serialized integration lane', async () => {
     expect(existsSync(harnessPath)).toBe(true);
 
-    const integrationConfig = readFileSync(integrationConfigPath, 'utf8');
-    expect(integrationConfig).toContain("include: ['**/*.integration.test.*']");
-    const executableIntegrationConfig = integrationConfig
-      .split('\n')
-      .filter((line) => !line.trimStart().startsWith('//'))
-      .join('\n');
-    expect(executableIntegrationConfig).not.toMatch(/\bpool\s*:/u);
-    const baseConfig = readFileSync(baseConfigPath, 'utf8');
-    expect(baseConfig).toContain("pool: 'forks'");
+    const configUrl = pathToFileURL(integrationConfigPath).href;
+    const configModule: unknown = await import(configUrl);
+    if (!(isRecord(configModule) && isRecord(configModule['default']))) {
+      throw new Error('Expected the embeddings integration Vitest config to export an object.');
+    }
+    const effectiveTestConfig = configModule['default']['test'];
+    if (!isRecord(effectiveTestConfig)) {
+      throw new Error('Expected the embeddings integration Vitest config to define test options.');
+    }
+    expect(effectiveTestConfig['include']).toEqual(['**/*.integration.test.*']);
+    expect(effectiveTestConfig['pool']).toBe('forks');
 
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
       scripts?: { 'test:integration'?: unknown };
