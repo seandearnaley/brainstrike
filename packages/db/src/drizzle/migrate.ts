@@ -94,6 +94,7 @@ import { migration101AmazonBedrock } from '../migrations/101-amazon-bedrock.js';
 import { migration102AmazonNova2Lite } from '../migrations/102-amazon-nova-2-lite.js';
 import { migration103OpenAiCodex } from '../migrations/103-openai-codex.js';
 import { migration104GoogleGemini37Flash } from '../migrations/104-google-gemini-3-7-flash.js';
+import { migration105EmbeddingJobInputHash } from '../migrations/105-embedding-job-input-hash.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -332,6 +333,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-102-amazon-nova-2-lite', migration102AmazonNova2Lite),
   customMigration('custom-103-openai-codex', migration103OpenAiCodex),
   customMigration('custom-104-google-gemini-3-7-flash', migration104GoogleGemini37Flash),
+  customMigration('custom-105-embedding-job-input-hash', migration105EmbeddingJobInputHash),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

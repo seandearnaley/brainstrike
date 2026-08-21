@@ -268,9 +268,11 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
+            sourceContentHash: `hash-${suffix}`,
           }),
           now,
         ]
@@ -346,9 +348,11 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
+            sourceContentHash: `stream-hash-${suffix}`,
           }),
           now,
         ]
@@ -425,9 +429,11 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
+            sourceContentHash: `fatal-stream-hash-${suffix}`,
           }),
           now,
         ]
@@ -499,9 +505,11 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 384,
           modelKey: payloadModelKey,
+          sourceContentHash: 'hash-switch',
         }),
         now,
       ]
@@ -569,9 +577,11 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 384,
           modelKey: payloadModelKey,
+          sourceContentHash: 'hash-lazy',
         }),
         now,
       ]

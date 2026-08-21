@@ -1,5 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
 import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import { buildEmbeddingInputHash } from '@brainstrike/indexing-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProviderModelKey, startEmbeddingWorker } from '../index.js';
@@ -232,9 +233,11 @@ async function insertQueuedEmbeddingJob({
       `job-${prefix}`,
       JSON.stringify({
         chunkId,
+        embeddingInputHash: await buildEmbeddingInputHash(`${prefix}-hash`, compositeKey),
         embeddingSetId,
         expectedDimension: 768,
         modelKey: compositeKey,
+        sourceContentHash: `${prefix}-hash`,
       }),
       now,
     ]
@@ -344,9 +347,11 @@ describe('Embedding Worker Batch Optimization', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: expectedHash,
             embeddingSetId,
             expectedDimension: 768,
             modelKey: compositeKey,
+            sourceContentHash: 'hash-batch',
           }),
           now,
         ]
@@ -424,9 +429,11 @@ describe('Embedding Worker Batch Optimization', () => {
         jobId,
         JSON.stringify({
           chunkId,
+          embeddingInputHash: await buildEmbeddingInputHash('hash-pressure', compositeKey),
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash-pressure',
         }),
         now,
       ]
@@ -664,9 +671,11 @@ describe('Embedding Worker Batch Optimization', () => {
           `job-stream-heartbeat-${index}`,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: await buildEmbeddingInputHash(`stream-hash-${index}`, compositeKey),
             embeddingSetId,
             expectedDimension: 768,
             modelKey: compositeKey,
+            sourceContentHash: `stream-hash-${index}`,
           }),
           now,
         ]
@@ -1140,9 +1149,14 @@ describe('Embedding Worker Batch Optimization', () => {
           `job-stats-coalesce-${index}`,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: await buildEmbeddingInputHash(
+              `stats-coalesce-hash-${index}`,
+              compositeKey
+            ),
             embeddingSetId,
             expectedDimension: 768,
             modelKey: compositeKey,
+            sourceContentHash: `stats-coalesce-hash-${index}`,
           }),
           now,
         ]
@@ -1558,9 +1572,11 @@ describe('Embedding Worker Batch Optimization', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: await buildEmbeddingInputHash('hash', compositeKey),
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash',
         }),
         now,
       ]
@@ -1638,9 +1654,11 @@ describe('Embedding Worker Batch Optimization', () => {
         jobId,
         JSON.stringify({
           chunkId,
+          embeddingInputHash: await buildEmbeddingInputHash('hash', compositeKey),
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash',
         }),
         now,
       ]
@@ -1722,9 +1740,11 @@ describe('Embedding Worker Batch Optimization', () => {
         jobId,
         JSON.stringify({
           chunkId,
+          embeddingInputHash: await buildEmbeddingInputHash('hash', compositeKey),
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash',
         }),
         now,
       ]

@@ -70,6 +70,19 @@ describe('embedding worker architecture', () => {
     expect(workerSource()).not.toContain('function isEmbeddingUpToDate');
   });
 
+  it('does not hash embedding inputs on the claimed-job hot path', () => {
+    const chunkFilter = readFileSync(
+      path.join(workerRoot, 'embedding-worker-chunk-filter.ts'),
+      'utf8'
+    );
+
+    expect(workerSource()).not.toContain('subtle.digest');
+    expect(workerSource()).not.toContain('sha256Hex');
+    expect(chunkFilter).not.toContain('hashExpectedEmbedding');
+    expect(chunkFilter).toContain('item.payload.embeddingInputHash');
+    expect(chunkFilter).toContain('item.payload.sourceContentHash === item.chunk.contentHash');
+  });
+
   it('documents worker ownership and focused verification', () => {
     const readmePath = path.join(workerRoot, 'README.md');
     expect(existsSync(readmePath), 'worker must have an ownership README').toBe(true);
@@ -78,6 +91,9 @@ describe('embedding worker architecture', () => {
     expect(readme).toContain('## Ownership');
     expect(readme).toContain('## Public surface');
     expect(readme).toContain('## Allowed dependencies');
+    expect(readme).toContain('producer-owned `embeddingInputHash`');
+    expect(readme).toContain('`sourceContentHash`');
+    expect(readme).toContain('compute-on-claim compatibility path');
     expect(readme).toContain('## Focused local test');
   });
 });

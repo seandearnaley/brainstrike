@@ -232,10 +232,15 @@ describe('vector-queue-service', () => {
     expect(enqueuedJobs).toHaveLength(2);
 
     const payloads = enqueuedJobs?.map((job) => job.payload as Record<string, unknown>) ?? [];
-    for (const payload of payloads) {
+    for (const [index, payload] of payloads.entries()) {
       expect(payload).toMatchObject({
+        embeddingInputHash: [
+          '181e106797c737b828f6a510f06221bb7345d0fa00e24c8658327cb0178f1c84',
+          '42072b1edc1a7a6f3aea779123124b15e5d71f2dad896476a2d27cfdf16fd34d',
+        ][index],
         expectedDimension: 768,
         modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+        sourceContentHash: ['aa', 'bb'][index],
       });
     }
     expect(enqueuedJobs?.map((job) => job.dedupeKey)).toEqual(['1:set-1:aa', '2:set-1:bb']);
@@ -966,10 +971,12 @@ describe('vector-queue-service', () => {
     const rejection = expect(backfillPromise).rejects.toThrow(
       "Backfill timed out while waiting for embedding set 'set-1' to drain."
     );
+    await vi.waitFor(() => {
+      expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    });
     await vi.advanceTimersByTimeAsync(300_500);
 
     await rejection;
-    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 

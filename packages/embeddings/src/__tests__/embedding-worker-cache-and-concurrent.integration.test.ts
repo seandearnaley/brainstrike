@@ -166,9 +166,11 @@ async function setupTestData(
       jobId,
       JSON.stringify({
         chunkId,
+        embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
         embeddingSetId,
         expectedDimension: dimensions,
         modelKey,
+        sourceContentHash: `hash-${chunkId}`,
       }),
       now,
     ]
@@ -488,9 +490,11 @@ describe('embedding-worker: concurrent access patterns', () => {
           // match the worker's active jina model so no model-switch reinit occurs.
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 768,
             modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+            sourceContentHash: `hash-c${i}`,
           }),
           now,
         ]
@@ -583,9 +587,11 @@ describe('embedding-worker: concurrent access patterns', () => {
           jobId,
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 768,
             modelKey,
+            sourceContentHash: `hash-cap-${index}`,
           }),
           now,
         ]
@@ -683,9 +689,11 @@ describe('embedding-worker: concurrent access patterns', () => {
           // payload.modelKey is required by the worker; match the active jina model.
           JSON.stringify({
             chunkId,
+            embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
             embeddingSetId,
             expectedDimension: 768,
             modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+            sourceContentHash: `hash-l${i}`,
           }),
           now,
         ]

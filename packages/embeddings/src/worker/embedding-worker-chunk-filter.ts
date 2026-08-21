@@ -1,6 +1,6 @@
 import type { IDatabase, Job } from '@brainstrike/db';
 import { type loadChunk, loadChunksBatch } from './embedding-worker-db-io.js';
-import type { EmbedChunkPayload, EmbeddingJobModel } from './embedding-worker-job-payload.js';
+import type { EmbedChunkPayload } from './embedding-worker-job-payload.js';
 import { assertEmbedChunkJob } from './embedding-worker-job-payload.js';
 
 // biome-ignore lint/style/useNamingConvention: lease_token is a database field name.
@@ -15,9 +15,11 @@ export interface LoadedChunkItem {
 
 export interface LoadAndFilterChunksOptions {
   db: IDatabase;
-  failOrphanJobs: (jobs: Array<{ id: string; leaseToken: string }>, error: string) => Promise<void>;
+  failTerminalJobs: (
+    jobs: Array<{ id: string; leaseToken: string }>,
+    error: string
+  ) => Promise<void>;
   fileChunkIdType: string;
-  hashExpectedEmbedding: (input: string) => Promise<string>;
   logWarn: (message: string, meta?: unknown) => void;
 }
 
@@ -30,11 +32,11 @@ function isEmbeddingUpToDate(
 
 export async function loadAndFilterChunks(
   jobs: ClaimedEmbeddingJob[],
-  jobModel: EmbeddingJobModel,
   options: LoadAndFilterChunksOptions
 ): Promise<{
   completed: LoadedChunkItem[];
   orphanCount: number;
+  staleCount: number;
   toProcess: LoadedChunkItem[];
 }> {
   const chunkIds = jobs.map((job) => assertEmbedChunkJob(job).chunkId);
@@ -63,25 +65,42 @@ export async function loadAndFilterChunks(
       orphanCount: orphans.length,
       sampleChunkIds: orphans.slice(0, 3).map((orphan) => orphan.chunkId),
     });
-    await options.failOrphanJobs(
+    await options.failTerminalJobs(
       orphans.map((orphan) => ({ id: orphan.job.id, leaseToken: orphan.job.lease_token })),
       'Chunk no longer exists (likely re-chunked or deleted)'
     );
   }
 
+  const current: typeof found = [];
+  const stale: typeof found = [];
+  for (const item of found) {
+    if (item.payload.sourceContentHash === item.chunk.contentHash) {
+      current.push(item);
+    } else {
+      stale.push(item);
+    }
+  }
+  if (stale.length > 0) {
+    options.logWarn('Embedding jobs reference changed chunks; failing as terminal', {
+      sampleChunkIds: stale.slice(0, 3).map((item) => item.payload.chunkId),
+      staleCount: stale.length,
+    });
+    await options.failTerminalJobs(
+      stale.map((item) => ({ id: item.job.id, leaseToken: item.job.lease_token })),
+      'Chunk content changed after embedding job was enqueued'
+    );
+  }
+
   const toProcess: LoadedChunkItem[] = [];
   const completed: LoadedChunkItem[] = [];
-  for (const item of found) {
-    const expectedHash = await options.hashExpectedEmbedding(
-      `${item.chunk.contentHash}:${jobModel.compositeKey}`
-    );
-    const tagged = { ...item, expectedHash };
-    if (isEmbeddingUpToDate(item.chunk, expectedHash)) {
+  for (const item of current) {
+    const tagged = { ...item, expectedHash: item.payload.embeddingInputHash };
+    if (isEmbeddingUpToDate(item.chunk, tagged.expectedHash)) {
       completed.push(tagged);
     } else {
       toProcess.push(tagged);
     }
   }
 
-  return { completed, orphanCount: orphans.length, toProcess };
+  return { completed, orphanCount: orphans.length, staleCount: stale.length, toProcess };
 }

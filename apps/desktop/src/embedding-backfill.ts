@@ -10,7 +10,10 @@ import {
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,
 } from '@brainstrike/db';
-import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
+import {
+  buildEmbeddingJobInputHashes,
+  buildEmbedJobDedupeKey,
+} from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
 import { isExpectedBackfillTeardown } from './desktop-shutdown-state';
@@ -911,24 +914,36 @@ async function enqueueEmbeddingChunkJobsBatch(
     return { inserted: 0, selected: 0 };
   }
 
+  const embeddingInputHashes = await buildEmbeddingJobInputHashes(
+    batch.map(({ contentHash }) => contentHash),
+    metadata.modelKey
+  );
   const jobs = await jobQueue.enqueueBatch(
-    batch.map((row) => ({
-      dedupeKey: buildEmbedJobDedupeKey(row.id, embeddingSetId, row.contentHash),
-      jobType: 'embed_chunk' as const,
-      maxAttempts: 5,
-      payload: {
-        chunkId: String(row.id),
-        embeddingSetId,
-        expectedDimension: metadata.expectedDimension,
-        fileRecordId: String(row.fileRecordId),
-        modelKey: metadata.modelKey,
-      },
-      queue: EMBEDDINGS_QUEUE,
-      // JobQueue claims the earliest runnable run_at first. Manual backfills are
-      // user-requested recovery work, so they must not wait behind an unrelated
-      // workspace-index backlog after target-scoped admission succeeds.
-      runAt: MANUAL_BACKFILL_PRIORITY_RUN_AT,
-    }))
+    batch.map((row, index) => {
+      const embeddingInputHash = embeddingInputHashes[index];
+      if (!embeddingInputHash) {
+        throw new Error(`Missing embedding input hash for chunk '${row.id}'.`);
+      }
+      return {
+        dedupeKey: buildEmbedJobDedupeKey(row.id, embeddingSetId, row.contentHash),
+        jobType: 'embed_chunk' as const,
+        maxAttempts: 5,
+        payload: {
+          chunkId: String(row.id),
+          embeddingInputHash,
+          embeddingSetId,
+          expectedDimension: metadata.expectedDimension,
+          fileRecordId: String(row.fileRecordId),
+          modelKey: metadata.modelKey,
+          sourceContentHash: row.contentHash,
+        },
+        queue: EMBEDDINGS_QUEUE,
+        // JobQueue claims the earliest runnable run_at first. Manual backfills are
+        // user-requested recovery work, so they must not wait behind an unrelated
+        // workspace-index backlog after target-scoped admission succeeds.
+        runAt: MANUAL_BACKFILL_PRIORITY_RUN_AT,
+      };
+    })
   );
 
   return {

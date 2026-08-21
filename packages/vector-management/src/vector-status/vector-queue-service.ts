@@ -4,6 +4,7 @@ import {
   checkApiKeyAvailability,
 } from '@brainstrike/embeddings';
 import {
+  buildEmbeddingJobInputHashes,
   buildEmbedJobDedupeKey,
   canonicalizeEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
@@ -771,20 +772,32 @@ async function enqueueEmbeddingChunkJobsBatch(
     return { inserted: 0, selected: 0 };
   }
 
+  const embeddingInputHashes = await buildEmbeddingJobInputHashes(
+    batch.map(({ contentHash }) => contentHash),
+    metadata.modelKey
+  );
   const jobs = await jobQueue.enqueueBatch(
-    batch.map((row) => ({
-      dedupeKey: buildEmbedJobDedupeKey(row.id, embeddingSetId, row.contentHash),
-      jobType: 'embed_chunk' as const,
-      maxAttempts: 5,
-      payload: {
-        chunkId: String(row.id),
-        embeddingSetId,
-        expectedDimension: metadata.expectedDimension,
-        fileRecordId: String(row.fileRecordId),
-        modelKey: metadata.modelKey,
-      },
-      queue: EMBEDDINGS_QUEUE,
-    }))
+    batch.map((row, index) => {
+      const embeddingInputHash = embeddingInputHashes[index];
+      if (!embeddingInputHash) {
+        throw new Error(`Missing embedding input hash for chunk '${row.id}'.`);
+      }
+      return {
+        dedupeKey: buildEmbedJobDedupeKey(row.id, embeddingSetId, row.contentHash),
+        jobType: 'embed_chunk' as const,
+        maxAttempts: 5,
+        payload: {
+          chunkId: String(row.id),
+          embeddingInputHash,
+          embeddingSetId,
+          expectedDimension: metadata.expectedDimension,
+          fileRecordId: String(row.fileRecordId),
+          modelKey: metadata.modelKey,
+          sourceContentHash: row.contentHash,
+        },
+        queue: EMBEDDINGS_QUEUE,
+      };
+    })
   );
 
   return {

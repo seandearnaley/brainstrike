@@ -6,6 +6,7 @@ import type {
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
 import {
+  buildEmbeddingJobInputHashes,
   buildEmbedJobDedupeKey,
   STANDARD_EMBEDDING_DIMENSION,
 } from '@brainstrike/indexing-contract';
@@ -13,11 +14,13 @@ import {
 interface DurableEmbeddingJobPayload {
   readonly chunkId: string;
   readonly dimensionParameter: ProviderDimensionParameter | null;
+  readonly embeddingInputHash: string;
   readonly embeddingSetId: string | null;
   readonly expectedDimension: number;
   readonly fileRecordId: string;
   readonly modelKey: string;
   readonly provider: EmbeddingProviderType | null;
+  readonly sourceContentHash: string;
 }
 
 interface DurableEmbeddingJobEnqueueParams {
@@ -85,9 +88,7 @@ export function createEmbeddingJobQueuePort<TTransaction = unknown>({
       const expectedDimension = options?.targetDimension ?? defaultExpectedDimension;
       const provider = options?.provider ?? null;
       const dimensionParameter = options?.dimensionParameter ?? null;
-      const enqueueParams: DurableEmbeddingJobEnqueueParams[] = [];
-
-      for (const chunk of chunks) {
+      const identities = chunks.map((chunk) => {
         if (options?.signal?.aborted) {
           throw createAbortError();
         }
@@ -101,22 +102,40 @@ export function createEmbeddingJobQueuePort<TTransaction = unknown>({
           'Cannot enqueue embedding job for chunk without content hash.'
         );
         const embeddingSetId = resolveEmbeddingSetId(chunk, options);
-
-        enqueueParams.push({
-          dedupeKey: buildEmbedJobDedupeKey(chunkId, embeddingSetId, contentHash),
-          jobType: 'embed_chunk',
-          payload: {
-            chunkId,
-            dimensionParameter,
-            embeddingSetId,
-            expectedDimension,
-            fileRecordId,
-            modelKey,
-            provider,
-          },
-          queue: 'embeddings',
-        });
+        return { chunkId, contentHash, embeddingSetId };
+      });
+      const embeddingInputHashes = await buildEmbeddingJobInputHashes(
+        identities.map(({ contentHash }) => contentHash),
+        modelKey,
+        provider
+      );
+      if (options?.signal?.aborted) {
+        throw createAbortError();
       }
+      const enqueueParams = identities.map<DurableEmbeddingJobEnqueueParams>(
+        ({ chunkId, contentHash, embeddingSetId }, index) => {
+          const embeddingInputHash = embeddingInputHashes[index];
+          if (!embeddingInputHash) {
+            throw new Error(`Missing embedding input hash for chunk '${chunkId}'.`);
+          }
+          return {
+            dedupeKey: buildEmbedJobDedupeKey(chunkId, embeddingSetId, contentHash),
+            jobType: 'embed_chunk',
+            payload: {
+              chunkId,
+              dimensionParameter,
+              embeddingInputHash,
+              embeddingSetId,
+              expectedDimension,
+              fileRecordId,
+              modelKey,
+              provider,
+              sourceContentHash: contentHash,
+            },
+            queue: 'embeddings',
+          };
+        }
+      );
 
       await queue.enqueueBatch(enqueueParams);
     },

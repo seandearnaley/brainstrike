@@ -220,9 +220,11 @@ describe('embedding-worker retries and backoff', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 'hhash',
         }),
         now,
       ]
@@ -299,9 +301,11 @@ describe('embedding-worker retries and backoff', () => {
       [
         JSON.stringify({
           chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 't-hash',
         }),
         now,
       ]
@@ -385,7 +389,17 @@ describe('embedding-worker hosted-provider retries', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
       VALUES ('job-h1','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
-      [JSON.stringify({ chunkId, embeddingSetId, expectedDimension: 768, modelKey }), now]
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingInputHash: '0000000000000000000000000000000000000000000000000000000000000001',
+          embeddingSetId,
+          expectedDimension: 768,
+          modelKey,
+          sourceContentHash: 'hhash',
+        }),
+        now,
+      ]
     );
 
     // Fail transiently on attempts 1 and 2, then succeed on attempt 3 (right at

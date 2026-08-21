@@ -83,11 +83,27 @@ describe('JobQueue transactional enqueue', () => {
     const chunks = await db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM file_chunks WHERE id = 'chunk-1'`
     );
-    const jobs = await db.query<{ chunk_id: string; state: string }>(
-      `SELECT chunk_id, state FROM job_queue WHERE job_type = 'embed_chunk'`
+    const jobs = await db.query<{
+      chunk_id: string;
+      embedding_input_hash: string;
+      source_content_hash: string;
+      state: string;
+    }>(
+      `SELECT chunk_id,
+              payload->>'embeddingInputHash' AS embedding_input_hash,
+              payload->>'sourceContentHash' AS source_content_hash,
+              state
+         FROM job_queue WHERE job_type = 'embed_chunk'`
     );
     expect(Number(chunks.rows[0]?.count ?? 0)).toBe(1);
-    expect(jobs.rows).toEqual([{ chunk_id: 'chunk-1', state: 'queued' }]);
+    expect(jobs.rows).toEqual([
+      {
+        chunk_id: 'chunk-1',
+        embedding_input_hash: '5359eace2a9f21f21e7ea601475201045f73784801dc9148c754b0583e6e94bd',
+        source_content_hash: 'chunk-hash',
+        state: 'queued',
+      },
+    ]);
   });
 
   // Pins the single embed-job dedupe key format. `@brainstrike/pipeline`'s
