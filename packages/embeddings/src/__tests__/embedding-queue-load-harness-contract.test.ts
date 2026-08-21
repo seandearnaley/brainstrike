@@ -38,6 +38,37 @@ function maxWorkerArguments(script: string): string[] {
   });
 }
 
+const VALUE_ARGUMENTS = new Set([
+  '--config',
+  '--exclude',
+  '--file-parallelism',
+  '--fileParallelism',
+  '--max-workers',
+  '--maxWorkers',
+  '--pool',
+  '-c',
+]);
+
+function positionalFilters(script: string): string[] {
+  const argumentsAfterCommand = parseScriptArguments(script).slice(2);
+  const filters: string[] = [];
+  for (let index = 0; index < argumentsAfterCommand.length; index += 1) {
+    const argument = argumentsAfterCommand[index];
+    if (argument === undefined) {
+      continue;
+    }
+    if (VALUE_ARGUMENTS.has(argument)) {
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('-')) {
+      continue;
+    }
+    filters.push(argument);
+  }
+  return filters;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -95,6 +126,10 @@ describe('embedding queue load harness contract', () => {
     expect(maxWorkerArguments(integrationScript)).toEqual(['--maxWorkers=1']);
     expect(maxWorkerArguments(`${integrationScript} --maxWorkers=10`)).toHaveLength(2);
     expect(maxWorkerArguments(`${integrationScript} --max-workers=10`)).toHaveLength(2);
+    expect(positionalFilters(integrationScript)).toEqual([]);
+    expect(
+      positionalFilters(`${integrationScript} src/__tests__/embedding-worker.integration.test.ts`)
+    ).toEqual(['src/__tests__/embedding-worker.integration.test.ts']);
     expect(hasExactArgument(integrationScript, '--no-file-parallelism')).toBe(true);
     expect(hasFileParallelismArgument(integrationScript)).toBe(false);
     expect(hasFileParallelismArgument(`${integrationScript} --fileParallelism`)).toBe(true);
@@ -109,6 +144,11 @@ describe('embedding queue load harness contract', () => {
     expect(hasPoolArgument(`${integrationScript} "--pool=threads"`)).toBe(true);
     // hasExactArgument must not degrade to substring matching: a lengthened
     // flag name must not satisfy the --no-file-parallelism requirement.
-    expect(hasExactArgument(`${integrationScript}x`, '--no-file-parallelism')).toBe(false);
+    expect(
+      hasExactArgument(
+        integrationScript.replace('--no-file-parallelism', '--no-file-parallelismx'),
+        '--no-file-parallelism'
+      )
+    ).toBe(false);
   });
 });
