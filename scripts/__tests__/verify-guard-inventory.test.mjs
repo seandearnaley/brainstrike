@@ -25,6 +25,7 @@ test('parses the authoritative classified guard set', () => {
     {
       purpose: 'protects an example invariant',
       script: 'example-guard.mjs',
+      sourceLine: 1,
       states: { armed: true, paired: true, wired: true },
     },
   ]);
@@ -104,6 +105,7 @@ test('rejects out-of-order inventory rows', async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-unsorted-guard-'));
   const inventorySource = [
     'zeta-guard.mjs → wired=yes/paired=yes/armed=yes → protects zeta',
+    '',
     'alpha-guard.mjs → wired=yes/paired=yes/armed=yes → protects alpha',
   ].join('\n');
 
@@ -125,7 +127,7 @@ test('rejects out-of-order inventory rows', async () => {
         ],
       }),
       [
-        'line 2: guard inventory rows must use ascending code-unit script-name order (LC_ALL=C sort): alpha-guard.mjs before zeta-guard.mjs',
+        'line 3: guard inventory rows must use ascending code-unit script-name order (LC_ALL=C sort): alpha-guard.mjs before zeta-guard.mjs',
       ]
     );
   } finally {

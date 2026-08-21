@@ -409,6 +409,7 @@ export function parseGuardInventory(source) {
     entries.push({
       purpose,
       script,
+      sourceLine: index + 1,
       states: { armed: armed === 'yes', paired: paired === 'yes', wired: wired === 'yes' },
     });
   }
@@ -459,7 +460,7 @@ export async function validateGuardInventory({
     const current = entries[index];
     if (previous.script > current.script) {
       issues.push(
-        `line ${index + 1}: guard inventory rows must use ascending code-unit script-name order (LC_ALL=C sort): ${current.script} before ${previous.script}`
+        `line ${current.sourceLine}: guard inventory rows must use ascending code-unit script-name order (LC_ALL=C sort): ${current.script} before ${previous.script}`
       );
     }
   }
