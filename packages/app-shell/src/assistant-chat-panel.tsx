@@ -151,7 +151,7 @@ function toProviderReadErrors(
 function getAssistantDisabledDescription(reason: string | undefined): string {
   switch (reason) {
     case 'missing_api_key':
-      return 'Configure an AI provider in Settings → LLM Provider Keys to enable the assistant.';
+      return 'Configure an AI provider in Settings → Providers to enable the assistant.';
     case 'production_auth_required':
       return 'Use a protected Preview deployment, or add application authentication with distributed quota and cost controls before enabling the assistant publicly.';
     case 'invalid_request_body_limit_config':

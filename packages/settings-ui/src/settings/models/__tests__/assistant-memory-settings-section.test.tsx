@@ -248,7 +248,7 @@ describe('AssistantMemorySettingsSection', () => {
 
     expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Configure its API key in Settings → LLM Provider Keys'
+      'Configure its API key in Settings → Providers'
     );
   });
 

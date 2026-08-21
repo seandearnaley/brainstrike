@@ -226,8 +226,8 @@ function resolveSemanticRecallDisabledReason(args: {
 
   const providerName = getProviderDefinition(providerId).displayName;
   return args.memorySettings.semanticRecall.enabled
-    ? `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn semantic recall off.`
-    : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn vector observation retrieval off.`;
+    ? `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.`
+    : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn vector observation retrieval off.`;
 }
 
 /** Why an 'auto' observer target could not resolve to a concrete model. */
@@ -374,7 +374,7 @@ function resolveObservationalMemoryDisabledReason(args: {
   }
 
   const providerName = getProviderDefinition(providerId).displayName;
-  return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → LLM Provider Keys, choose a keyless local observer, or turn observations off.`;
+  return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.`;
 }
 
 export function resolveAssistantMemoryDisabledReason(args: {
@@ -780,8 +780,7 @@ export function resolveAssistantProviderDisabledReason(args: {
   }
 
   if (args.configuredProviders.length === 0) {
-    const baseReason =
-      'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.';
+    const baseReason = 'Connect an AI provider in Settings → Providers to enable the assistant.';
     return args.localRuntimeHint ? `${baseReason} ${args.localRuntimeHint}` : baseReason;
   }
   if (!args.selectedProvider) {

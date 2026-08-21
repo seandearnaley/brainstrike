@@ -799,7 +799,7 @@ function PendingProviderSection({ provider }: PendingProviderSectionProps) {
           <p className="text-muted-foreground text-xs">
             {runtimeProvider
               ? 'Detecting locally available models from the runtime endpoint.'
-              : 'Hosted embedding integration coming soon. Configure API keys in the Provider Keys section to prepare for launch.'}
+              : 'Hosted embedding integration coming soon. Configure API keys in Settings → Providers to prepare for launch.'}
           </p>
         </div>
         <Badge variant="outline">

@@ -306,7 +306,7 @@ describe('assistant runtime helpers', () => {
         providerKeySources: [{ provider: 'openai', source: 'stored' }],
       })
     ).toBe(
-      'Observational memory requires a configured Anthropic API key. Configure it in Settings → LLM Provider Keys, choose a keyless local observer, or turn observations off.'
+      'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.'
     );
   });
 
@@ -378,7 +378,7 @@ describe('assistant runtime helpers', () => {
         providerKeySources: [{ provider: 'google', source: 'stored' }],
       })
     ).toBe(
-      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → LLM Provider Keys, choose a keyless local embedder, or turn semantic recall off.'
+      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.'
     );
   });
 

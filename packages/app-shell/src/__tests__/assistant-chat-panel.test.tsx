@@ -64,9 +64,7 @@ describe('AssistantChatPanel', () => {
 
     expect(screen.getByText('Assistant disabled')).toBeInTheDocument();
     expect(
-      screen.getByText(
-        'Configure an AI provider in Settings → LLM Provider Keys to enable the assistant.'
-      )
+      screen.getByText('Configure an AI provider in Settings → Providers to enable the assistant.')
     ).toBeInTheDocument();
     expect(screen.getByText('Reason: missing_api_key')).toBeInTheDocument();
   });
