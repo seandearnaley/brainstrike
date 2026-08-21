@@ -1,5 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
 import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import { buildEmbeddingJobInputHashes } from '@brainstrike/indexing-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
@@ -152,10 +153,19 @@ async function seedEmbeddingJobs(db: PGlite, scenario: string): Promise<void> {
   );
 
   const queue = new JobQueue(db as unknown as IDatabase);
+  const contentHashes = Array.from(
+    { length: JOB_COUNT },
+    (_, index) => `content-hash-${scenario}-${index}`
+  );
+  const embeddingInputHashes = await buildEmbeddingJobInputHashes(contentHashes, MODEL_KEY);
   for (let index = 0; index < JOB_COUNT; index += 1) {
     const chunkId = `chunk-${scenario}-${index}`;
     const content = `${scenario}:${index}:${'x'.repeat(256)}`;
-    const contentHash = `content-hash-${scenario}-${index}`;
+    const contentHash = contentHashes[index];
+    const embeddingInputHash = embeddingInputHashes[index];
+    if (!(contentHash && embeddingInputHash)) {
+      throw new Error(`Missing load-test identity for chunk '${chunkId}'.`);
+    }
     await db.query(
       `INSERT INTO file_chunks
          (id, file_record_id, chunk_index, content, content_hash, token_count,
@@ -168,6 +178,7 @@ async function seedEmbeddingJobs(db: PGlite, scenario: string): Promise<void> {
       jobType: 'embed_chunk',
       payload: {
         chunkId,
+        embeddingInputHash,
         embeddingSetId: setId,
         expectedDimension: EMBEDDING_DIMENSIONS,
         modelKey: MODEL_KEY,
