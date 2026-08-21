@@ -7,6 +7,14 @@ function hasExactArgument(script: string, argument: string): boolean {
   return script.split(/\s+/u).includes(argument);
 }
 
+function hasFileParallelismArgument(script: string): boolean {
+  return script
+    .split(/\s+/u)
+    .some(
+      (argument) => argument === '--fileParallelism' || argument.startsWith('--fileParallelism=')
+    );
+}
+
 function hasPoolArgument(script: string): boolean {
   return script
     .split(/\s+/u)
@@ -50,6 +58,9 @@ describe('embedding queue load harness contract', () => {
     }
     expect(hasExactArgument(integrationScript, '--maxWorkers=1')).toBe(true);
     expect(hasExactArgument(integrationScript, '--no-file-parallelism')).toBe(true);
+    expect(hasFileParallelismArgument(integrationScript)).toBe(false);
+    expect(hasFileParallelismArgument(`${integrationScript} --fileParallelism`)).toBe(true);
+    expect(hasFileParallelismArgument(`${integrationScript} --fileParallelism=true`)).toBe(true);
     // This lane deliberately owns its forks pool in the imported config; a CLI
     // pool override could silently replace the effective isolation contract.
     expect(hasPoolArgument(integrationScript)).toBe(false);
