@@ -14,6 +14,7 @@ import type {
 } from '../types.js';
 
 const LOAD_TEST_TIMEOUT_MS = 90_000;
+const SCENARIO_COMPLETION_TIMEOUT_MS = 15_000;
 const JOB_COUNT = 12;
 const MAX_IN_FLIGHT_JOBS = 4;
 const EMBEDDING_DIMENSIONS = 8;
@@ -26,6 +27,7 @@ interface QueueLoadMetrics {
   readonly claimLimits: readonly number[];
   readonly completionLatencyMs: number;
   readonly concurrency: number;
+  readonly firstWaveRendezvousReached: boolean;
   readonly jobCount: number;
   readonly leaseClaimCount: number;
   readonly maxAttempts: number;
@@ -38,18 +40,43 @@ class LoadTestEmbeddingService implements EmbeddingService {
   private activeInputBytes = 0;
   private activeVectors = 0;
   private delayMs: number;
+  private firstWaveArrivals = 0;
+  private readonly firstWaveRelease: Promise<void>;
+  private readonly firstWaveSize: number;
   private generationCount = 0;
+  private readonly releaseFirstWave: () => void;
+  firstWaveRendezvousReached = false;
   peakInputBytesInFlight = 0;
   peakVectorsInFlight = 0;
 
   constructor(
     delayMs: number,
-    private readonly accelerateAfterFirstGeneration = false
+    private readonly accelerateAfterFirstGeneration = false,
+    firstWaveSize = 1
   ) {
+    if (!(Number.isInteger(firstWaveSize) && firstWaveSize > 0)) {
+      throw new Error(
+        `Load-test first-wave size must be a positive integer, got ${firstWaveSize}.`
+      );
+    }
     this.delayMs = delayMs;
+    this.firstWaveSize = firstWaveSize;
+    if (firstWaveSize === 1) {
+      this.firstWaveRelease = Promise.resolve();
+      this.releaseFirstWave = () => {};
+      this.firstWaveRendezvousReached = true;
+      return;
+    }
+    let releaseFirstWave = (): void => {};
+    this.firstWaveRelease = new Promise<void>((resolve) => {
+      releaseFirstWave = resolve;
+    });
+    this.releaseFirstWave = releaseFirstWave;
   }
 
   getSuggestedClaimLimit(): number {
+    // Only the adaptive scenario installs this resolver; fixed-size matrix
+    // scenarios never consult the model-delay heuristic.
     return this.delayMs > 10 ? 1 : MAX_IN_FLIGHT_JOBS;
   }
 
@@ -80,6 +107,7 @@ class LoadTestEmbeddingService implements EmbeddingService {
     this.peakVectorsInFlight = Math.max(this.peakVectorsInFlight, this.activeVectors);
 
     try {
+      await this.waitForFirstWave();
       await new Promise((resolve) => setTimeout(resolve, this.delayMs));
       return await Promise.all(texts.map((text) => this.generateEmbedding(text)));
     } finally {
@@ -127,9 +155,21 @@ class LoadTestEmbeddingService implements EmbeddingService {
   dispose(): Promise<void> {
     return Promise.resolve();
   }
+
+  private async waitForFirstWave(): Promise<void> {
+    if (this.firstWaveRendezvousReached) {
+      return;
+    }
+    this.firstWaveArrivals += 1;
+    if (this.firstWaveArrivals === this.firstWaveSize) {
+      this.firstWaveRendezvousReached = true;
+      this.releaseFirstWave();
+    }
+    await this.firstWaveRelease;
+  }
 }
 
-async function waitFor(condition: () => Promise<boolean>, timeoutMs = 15_000): Promise<void> {
+async function waitFor(condition: () => Promise<boolean>, timeoutMs: number): Promise<void> {
   const startedAt = performance.now();
   while (!(await condition())) {
     if (performance.now() - startedAt > timeoutMs) {
@@ -205,7 +245,11 @@ async function runLoadScenario(params: {
     await migrate(db);
     await seedEmbeddingJobs(db, params.scenario);
 
-    const service = new LoadTestEmbeddingService(params.adaptive ? 25 : 50, params.adaptive);
+    const service = new LoadTestEmbeddingService(
+      params.adaptive ? 25 : 0,
+      params.adaptive,
+      params.adaptive ? 1 : params.concurrency
+    );
     const adaptiveClaimLimits: number[] = [];
     const claimedBatchSizes: number[] = [];
     const claimLimits: number[] = [];
@@ -268,7 +312,7 @@ async function runLoadScenario(params: {
           WHERE queue = 'embeddings' AND state = 'succeeded'`
       );
       return result.rows[0]?.count === JOB_COUNT;
-    });
+    }, SCENARIO_COMPLETION_TIMEOUT_MS);
 
     const attempts = await db.query<{ max_attempts: number; total_attempts: number }>(
       `SELECT
@@ -285,6 +329,7 @@ async function runLoadScenario(params: {
       claimLimits,
       completionLatencyMs: performance.now() - startedAt,
       concurrency: params.concurrency,
+      firstWaveRendezvousReached: service.firstWaveRendezvousReached,
       jobCount: JOB_COUNT,
       leaseClaimCount,
       maxAttempts: attempts.rows[0]?.max_attempts ?? 0,
@@ -322,10 +367,15 @@ describe.sequential('embedding queue load matrix', () => {
 
         expect(result.leaseClaimCount).toBe(JOB_COUNT);
         expect(result.maxAttempts).toBe(1);
+        expect(result.firstWaveRendezvousReached).toBe(true);
         const expectedPeak = Math.min(concurrency, MAX_IN_FLIGHT_JOBS);
         expect(result.peakClaimedJobs).toBe(expectedPeak);
         expect(result.peakVectorsInFlight).toBe(expectedPeak);
         expect(result.peakInputBytesInFlight).toBeGreaterThan(0);
+        expect(result.claimLimits).toHaveLength(JOB_COUNT);
+        expect(result.claimLimits.every((limit) => limit === 1)).toBe(true);
+        expect(result.claimedBatchSizes).toHaveLength(JOB_COUNT);
+        expect(result.claimedBatchSizes.every((size) => size === 1)).toBe(true);
       }
 
       console.info('BST-387 embedding queue load matrix', JSON.stringify(results));
