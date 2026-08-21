@@ -167,6 +167,21 @@ Vector device preference is ONE canonical record (BST-1380):
 - Focused run:
   `pnpm --filter @brainstrike/embeddings exec vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/embedding-input-hash-benchmark.integration.test.ts`.
 
+### Embedding queue load verification (BST-387)
+
+- `packages/embeddings/src/__tests__/embedding-queue-load.integration.test.ts`
+  runs a serialized real-PGlite matrix with 1, 2, and 4 polling loops.
+- It records exact peak claimed jobs, vectors and UTF-8 input bytes in flight,
+  lease claim count, maximum attempts, and completion latency. Absolute latency
+  is reported rather than threshold-gated because host load is not a product
+  invariant; the deterministic gates are one claim per job and a global
+  working set no larger than `maxInFlightJobs`.
+- The adaptive scenario begins with a slow synthetic model (claim limit 1),
+  then accelerates it (claim limit 4), proving the runtime consumes changing
+  throughput policy without exceeding the same global budget.
+- Focused run:
+  `pnpm --filter @brainstrike/embeddings exec vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/embedding-queue-load.integration.test.ts`.
+
 Foreground query coordination (desktop):
 - The hidden host runs BOTH background indexing and assistant query embeddings; a
   foreground query must never share the GPU with background indexing.
