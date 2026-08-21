@@ -211,6 +211,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 'h1',
         }),
         now,
       ]
@@ -283,6 +284,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
           embeddingSetId,
           expectedDimension: 384,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 'h2',
         }),
         now,
       ]

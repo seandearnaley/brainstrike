@@ -3,15 +3,16 @@ import type { Migration } from './migration-runner';
 /**
  * Persist the model-qualified input hash in durable embedding jobs (BST-391).
  *
- * New producers write this field before enqueue. This migration upgrades valid
- * historical jobs so the renderer worker can require the field without a
- * legacy compute-on-claim path. Active jobs whose source identity cannot be
- * proven are canceled visibly and counted instead of being silently guessed.
+ * New producers write both fields before enqueue. This migration upgrades valid
+ * historical active and retryable jobs so the renderer worker can require the
+ * fields without a legacy compute-on-claim path. Active jobs whose source
+ * identity cannot be proven are canceled visibly and counted instead of being
+ * silently guessed.
  */
 export const migration105EmbeddingJobInputHash: Migration = {
   down: `
     UPDATE job_queue
-       SET payload = payload - 'embeddingInputHash'
+       SET payload = payload - 'embeddingInputHash' - 'sourceContentHash'
      WHERE job_type = 'embed_chunk'
        AND jsonb_typeof(payload) = 'object';
   `,
@@ -19,7 +20,12 @@ export const migration105EmbeddingJobInputHash: Migration = {
   up: `
     UPDATE job_queue AS jq
        SET payload = jsonb_set(
-         jq.payload,
+         jsonb_set(
+           jq.payload,
+           '{sourceContentHash}',
+           to_jsonb(fc.content_hash),
+           true
+         ),
          '{embeddingInputHash}',
          to_jsonb(
            encode(
@@ -38,9 +44,12 @@ export const migration105EmbeddingJobInputHash: Migration = {
        )
       FROM file_chunks AS fc
      WHERE jq.job_type = 'embed_chunk'
-       AND jq.state IN ('queued', 'running')
+       AND jq.state IN ('queued', 'running', 'failed')
        AND jsonb_typeof(jq.payload) = 'object'
-       AND NOT jq.payload ? 'embeddingInputHash'
+       AND (
+         NOT jq.payload ? 'embeddingInputHash'
+         OR NOT jq.payload ? 'sourceContentHash'
+       )
        AND NULLIF(jq.payload->>'modelKey', '') IS NOT NULL
        AND NULLIF(fc.content_hash, '') IS NOT NULL
        AND (
@@ -73,6 +82,7 @@ export const migration105EmbeddingJobInputHash: Migration = {
             WHERE fc.id = jq.payload->>'chunkId'
               AND NULLIF(jq.payload->>'modelKey', '') IS NOT NULL
               AND NULLIF(fc.content_hash, '') IS NOT NULL
+              AND jq.payload->>'sourceContentHash' = fc.content_hash
               AND jq.payload->>'embeddingInputHash' = encode(
                 sha256(convert_to(
                   fc.content_hash || ':' || CASE

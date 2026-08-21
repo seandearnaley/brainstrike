@@ -1522,16 +1522,16 @@ export async function startEmbeddingWorker(
     checkLease: () => boolean,
     onJobsSettled?: (jobIds: Set<string>) => void
   ) {
-    const { toProcess, completed, orphanCount } = await loadAndFilterChunks(jobs, {
+    const { toProcess, completed, orphanCount, staleCount } = await loadAndFilterChunks(jobs, {
       db: options.db,
-      failOrphanJobs: async (orphanJobs, error) => {
-        await jq.failBatch({ error, jobs: orphanJobs, terminal: true });
-        onJobsSettled?.(new Set(orphanJobs.map((job) => job.id)));
+      failTerminalJobs: async (terminalJobs, error) => {
+        await jq.failBatch({ error, jobs: terminalJobs, terminal: true });
+        onJobsSettled?.(new Set(terminalJobs.map((job) => job.id)));
       },
       fileChunkIdType,
       logWarn: (message, meta) => workerLogger.warn(message, meta),
     });
-    metrics.jobsFailed += orphanCount;
+    metrics.jobsFailed += orphanCount + staleCount;
     const completedJobIds = new Set<string>(completed.map((item) => item.job.id));
 
     try {

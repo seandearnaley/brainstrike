@@ -15,7 +15,10 @@ export interface LoadedChunkItem {
 
 export interface LoadAndFilterChunksOptions {
   db: IDatabase;
-  failOrphanJobs: (jobs: Array<{ id: string; leaseToken: string }>, error: string) => Promise<void>;
+  failTerminalJobs: (
+    jobs: Array<{ id: string; leaseToken: string }>,
+    error: string
+  ) => Promise<void>;
   fileChunkIdType: string;
   logWarn: (message: string, meta?: unknown) => void;
 }
@@ -33,6 +36,7 @@ export async function loadAndFilterChunks(
 ): Promise<{
   completed: LoadedChunkItem[];
   orphanCount: number;
+  staleCount: number;
   toProcess: LoadedChunkItem[];
 }> {
   const chunkIds = jobs.map((job) => assertEmbedChunkJob(job).chunkId);
@@ -61,15 +65,35 @@ export async function loadAndFilterChunks(
       orphanCount: orphans.length,
       sampleChunkIds: orphans.slice(0, 3).map((orphan) => orphan.chunkId),
     });
-    await options.failOrphanJobs(
+    await options.failTerminalJobs(
       orphans.map((orphan) => ({ id: orphan.job.id, leaseToken: orphan.job.lease_token })),
       'Chunk no longer exists (likely re-chunked or deleted)'
     );
   }
 
+  const current: typeof found = [];
+  const stale: typeof found = [];
+  for (const item of found) {
+    if (item.payload.sourceContentHash === item.chunk.contentHash) {
+      current.push(item);
+    } else {
+      stale.push(item);
+    }
+  }
+  if (stale.length > 0) {
+    options.logWarn('Embedding jobs reference changed chunks; failing as terminal', {
+      sampleChunkIds: stale.slice(0, 3).map((item) => item.payload.chunkId),
+      staleCount: stale.length,
+    });
+    await options.failTerminalJobs(
+      stale.map((item) => ({ id: item.job.id, leaseToken: item.job.lease_token })),
+      'Chunk content changed after embedding job was enqueued'
+    );
+  }
+
   const toProcess: LoadedChunkItem[] = [];
   const completed: LoadedChunkItem[] = [];
-  for (const item of found) {
+  for (const item of current) {
     const tagged = { ...item, expectedHash: item.payload.embeddingInputHash };
     if (isEmbeddingUpToDate(item.chunk, tagged.expectedHash)) {
       completed.push(tagged);
@@ -78,5 +102,5 @@ export async function loadAndFilterChunks(
     }
   }
 
-  return { completed, orphanCount: orphans.length, toProcess };
+  return { completed, orphanCount: orphans.length, staleCount: stale.length, toProcess };
 }

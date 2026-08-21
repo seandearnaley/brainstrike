@@ -80,6 +80,7 @@ describe('embedding worker architecture', () => {
     expect(workerSource()).not.toContain('sha256Hex');
     expect(chunkFilter).not.toContain('hashExpectedEmbedding');
     expect(chunkFilter).toContain('item.payload.embeddingInputHash');
+    expect(chunkFilter).toContain('item.payload.sourceContentHash === item.chunk.contentHash');
   });
 
   it('documents worker ownership and focused verification', () => {
@@ -91,6 +92,7 @@ describe('embedding worker architecture', () => {
     expect(readme).toContain('## Public surface');
     expect(readme).toContain('## Allowed dependencies');
     expect(readme).toContain('producer-owned `embeddingInputHash`');
+    expect(readme).toContain('`sourceContentHash`');
     expect(readme).toContain('compute-on-claim compatibility path');
     expect(readme).toContain('## Focused local test');
   });

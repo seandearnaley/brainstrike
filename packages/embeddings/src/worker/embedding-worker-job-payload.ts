@@ -17,6 +17,7 @@ export interface EmbedChunkPayload {
   fileRecordId?: string;
   modelKey?: string | null;
   provider?: EmbeddingProviderType | null;
+  sourceContentHash: string;
 }
 
 export interface EmbeddingJobModel {
@@ -44,6 +45,9 @@ export function assertEmbedChunkJob(claimed: Job): EmbedChunkPayload {
   }
   if (!isEmbeddingInputHash(payload.embeddingInputHash)) {
     throw new Error('Invalid embeddingInputHash in payload');
+  }
+  if (typeof payload.sourceContentHash !== 'string' || payload.sourceContentHash.length === 0) {
+    throw new Error('Missing sourceContentHash in payload');
   }
   if (!Number.isFinite(payload.expectedDimension) || (payload.expectedDimension ?? 0) <= 0) {
     throw new Error('Missing expectedDimension in payload');

@@ -237,6 +237,7 @@ async function insertQueuedEmbeddingJob({
         embeddingSetId,
         expectedDimension: 768,
         modelKey: compositeKey,
+        sourceContentHash: `${prefix}-hash`,
       }),
       now,
     ]
@@ -350,6 +351,7 @@ describe('Embedding Worker Batch Optimization', () => {
             embeddingSetId,
             expectedDimension: 768,
             modelKey: compositeKey,
+            sourceContentHash: 'hash-batch',
           }),
           now,
         ]
@@ -431,6 +433,7 @@ describe('Embedding Worker Batch Optimization', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash-pressure',
         }),
         now,
       ]
@@ -672,6 +675,7 @@ describe('Embedding Worker Batch Optimization', () => {
             embeddingSetId,
             expectedDimension: 768,
             modelKey: compositeKey,
+            sourceContentHash: `stream-hash-${index}`,
           }),
           now,
         ]
@@ -1152,6 +1156,7 @@ describe('Embedding Worker Batch Optimization', () => {
             embeddingSetId,
             expectedDimension: 768,
             modelKey: compositeKey,
+            sourceContentHash: `stats-coalesce-hash-${index}`,
           }),
           now,
         ]
@@ -1571,6 +1576,7 @@ describe('Embedding Worker Batch Optimization', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash',
         }),
         now,
       ]
@@ -1652,6 +1658,7 @@ describe('Embedding Worker Batch Optimization', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash',
         }),
         now,
       ]
@@ -1737,6 +1744,7 @@ describe('Embedding Worker Batch Optimization', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: compositeKey,
+          sourceContentHash: 'hash',
         }),
         now,
       ]

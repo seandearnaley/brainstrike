@@ -935,6 +935,7 @@ async function enqueueEmbeddingChunkJobsBatch(
           expectedDimension: metadata.expectedDimension,
           fileRecordId: String(row.fileRecordId),
           modelKey: metadata.modelKey,
+          sourceContentHash: row.contentHash,
         },
         queue: EMBEDDINGS_QUEUE,
         // JobQueue claims the earliest runnable run_at first. Manual backfills are

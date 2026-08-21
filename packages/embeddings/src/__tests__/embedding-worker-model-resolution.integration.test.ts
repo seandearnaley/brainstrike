@@ -272,6 +272,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
+            sourceContentHash: `hash-${suffix}`,
           }),
           now,
         ]
@@ -351,6 +352,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
+            sourceContentHash: `stream-hash-${suffix}`,
           }),
           now,
         ]
@@ -431,6 +433,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
             embeddingSetId,
             expectedDimension: 384,
             modelKey: payloadModelKey,
+            sourceContentHash: `fatal-stream-hash-${suffix}`,
           }),
           now,
         ]
@@ -506,6 +509,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           embeddingSetId,
           expectedDimension: 384,
           modelKey: payloadModelKey,
+          sourceContentHash: 'hash-switch',
         }),
         now,
       ]
@@ -577,6 +581,7 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
           embeddingSetId,
           expectedDimension: 384,
           modelKey: payloadModelKey,
+          sourceContentHash: 'hash-lazy',
         }),
         now,
       ]

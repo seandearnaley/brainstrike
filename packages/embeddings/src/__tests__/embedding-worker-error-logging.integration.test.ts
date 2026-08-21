@@ -175,6 +175,7 @@ describe('embedding-worker error logging', () => {
           embeddingSetId: 'set-missing',
           expectedDimension: 768,
           modelKey: 'local::mock-model',
+          sourceContentHash: 'missing-source-hash',
         }),
         now,
       ]
@@ -254,6 +255,7 @@ describe('embedding-worker error logging', () => {
             embeddingSetId,
             expectedDimension: 384,
             modelKey,
+            sourceContentHash: `hash-log-spam-${i}`,
           }),
           now,
         ]
@@ -318,6 +320,7 @@ describe('embedding-worker error logging', () => {
           embeddingSetId,
           expectedDimension: 384,
           modelKey,
+          sourceContentHash: 'hash-chunk',
         }),
         now,
       ]

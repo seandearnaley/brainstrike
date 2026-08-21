@@ -22,7 +22,7 @@ describe('migration 105 embedding job input hash', () => {
     expect(migrations.at(-1)).toBe(migration105EmbeddingJobInputHash);
   });
 
-  it('backfills provable jobs and visibly cancels unprovable active jobs', async () => {
+  it('backfills provable active and retryable jobs and visibly cancels unprovable active jobs', async () => {
     db = new PGlite();
     await db.exec(`
       CREATE TABLE file_chunks (
@@ -58,6 +58,15 @@ describe('migration 105 embedding job input hash', () => {
           '2026-08-21T00:00:00.000Z'
         ),
         (
+          'failed-valid-job',
+          'embeddings',
+          'embed_chunk',
+          '{"chunkId":"00000000-0000-4000-8000-000000000001","modelKey":"text-embedding-3-small","provider":"openai"}',
+          'failed',
+          NULL,
+          '2026-08-21T00:00:00.000Z'
+        ),
+        (
           'terminal-job',
           'embeddings',
           'embed_chunk',
@@ -87,6 +96,7 @@ describe('migration 105 embedding job input hash', () => {
       hash: string | null;
       id: string;
       leased_until: string | null;
+      source_hash: string | null;
       state: string;
     }>(`
       SELECT
@@ -94,7 +104,8 @@ describe('migration 105 embedding job input hash', () => {
         state,
         error,
         leased_until,
-        payload->>'embeddingInputHash' AS hash
+        payload->>'embeddingInputHash' AS hash,
+        payload->>'sourceContentHash' AS source_hash
       FROM job_queue
       ORDER BY id
     `);
@@ -104,16 +115,33 @@ describe('migration 105 embedding job input hash', () => {
         hash: VALID_HASH,
         id: 'active-valid-job',
         leased_until: null,
+        source_hash: 'hash-1',
         state: 'queued',
+      },
+      {
+        error: null,
+        hash: VALID_HASH,
+        id: 'failed-valid-job',
+        leased_until: null,
+        source_hash: 'hash-1',
+        state: 'failed',
       },
       {
         error: 'canceled by migration 105: cannot prove embeddingInputHash',
         hash: null,
         id: 'orphan-job',
         leased_until: null,
+        source_hash: null,
         state: 'canceled',
       },
-      { error: null, hash: null, id: 'terminal-job', leased_until: null, state: 'succeeded' },
+      {
+        error: null,
+        hash: null,
+        id: 'terminal-job',
+        leased_until: null,
+        source_hash: null,
+        state: 'succeeded',
+      },
     ]);
 
     const metrics = await db.query<{ canceled_total: string | number }>(

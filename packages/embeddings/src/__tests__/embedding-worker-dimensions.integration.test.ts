@@ -148,6 +148,7 @@ describe('Embedding Worker Dimensions', () => {
         embeddingSetId: setId,
         expectedDimension: 1536,
         modelKey: 'local::large-dim-model',
+        sourceContentHash: 'hash123',
       },
       queue: 'embeddings',
     });

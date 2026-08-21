@@ -85,6 +85,7 @@ async function buildEmbeddingJobParams(
         fileRecordId: args.fileRecordId,
         modelKey,
         provider,
+        sourceContentHash: chunk.contentHash,
       },
       queue: 'embeddings',
     };

@@ -240,6 +240,7 @@ describe('vector-queue-service', () => {
         ][index],
         expectedDimension: 768,
         modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+        sourceContentHash: ['aa', 'bb'][index],
       });
     }
     expect(enqueuedJobs?.map((job) => job.dedupeKey)).toEqual(['1:set-1:aa', '2:set-1:bb']);

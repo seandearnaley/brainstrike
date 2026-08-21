@@ -20,6 +20,7 @@ interface DurableEmbeddingJobPayload {
   readonly fileRecordId: string;
   readonly modelKey: string;
   readonly provider: EmbeddingProviderType | null;
+  readonly sourceContentHash: string;
 }
 
 interface DurableEmbeddingJobEnqueueParams {
@@ -129,6 +130,7 @@ export function createEmbeddingJobQueuePort<TTransaction = unknown>({
               fileRecordId,
               modelKey,
               provider,
+              sourceContentHash: contentHash,
             },
             queue: 'embeddings',
           };

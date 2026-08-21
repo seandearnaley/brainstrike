@@ -236,6 +236,7 @@ interface EmbedJobPayloadInternal {
   expectedDimension: number;
   fileRecordId: string;
   modelKey: string;
+  sourceContentHash: string;
 }
 
 // =============================================================================
@@ -281,6 +282,7 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
       expectedDimension,
       fileRecordId: fileId,
       modelKey,
+      sourceContentHash: chunk.contentHash,
     };
   }
 

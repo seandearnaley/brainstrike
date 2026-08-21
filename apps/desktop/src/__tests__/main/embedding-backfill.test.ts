@@ -1192,6 +1192,7 @@ describe('embedding-backfill', () => {
         payload: expect.objectContaining({
           embeddingInputHash: 'bb103e93e8a03ee38185fef46f8b8b8736de603d16296c91c9e20fc27eddef88',
           modelKey: 'local::model::variant',
+          sourceContentHash: 'hash-1',
         }),
       }),
     ]);

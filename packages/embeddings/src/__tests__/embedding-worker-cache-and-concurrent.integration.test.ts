@@ -170,6 +170,7 @@ async function setupTestData(
         embeddingSetId,
         expectedDimension: dimensions,
         modelKey,
+        sourceContentHash: `hash-${chunkId}`,
       }),
       now,
     ]
@@ -493,6 +494,7 @@ describe('embedding-worker: concurrent access patterns', () => {
             embeddingSetId,
             expectedDimension: 768,
             modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+            sourceContentHash: `hash-c${i}`,
           }),
           now,
         ]
@@ -589,6 +591,7 @@ describe('embedding-worker: concurrent access patterns', () => {
             embeddingSetId,
             expectedDimension: 768,
             modelKey,
+            sourceContentHash: `hash-cap-${index}`,
           }),
           now,
         ]
@@ -690,6 +693,7 @@ describe('embedding-worker: concurrent access patterns', () => {
             embeddingSetId,
             expectedDimension: 768,
             modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+            sourceContentHash: `hash-l${i}`,
           }),
           now,
         ]

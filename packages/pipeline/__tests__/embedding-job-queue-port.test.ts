@@ -71,6 +71,7 @@ describe('createEmbeddingJobQueuePort', () => {
           fileRecordId: 'file-1',
           modelKey: 'local::bge-m3',
           provider: 'local',
+          sourceContentHash: 'hash-1',
         },
         queue: 'embeddings',
       },
@@ -109,6 +110,7 @@ describe('createEmbeddingJobQueuePort', () => {
       expect.objectContaining({
         payload: expect.objectContaining({
           embeddingInputHash: 'cc48e54faf852e887cf52ea4b232e7c3db4773e5a55c0045e9ee06a8b4151b78',
+          sourceContentHash: 'hash-1',
         }),
       }),
     ]);

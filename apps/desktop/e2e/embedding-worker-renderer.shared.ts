@@ -1575,6 +1575,7 @@ export async function createTestBackfillJob(page: Page): Promise<{
             embeddingSetId,
             expectedDimension,
             modelKey,
+            sourceContentHash: contentHash,
           }),
           now,
         ]

@@ -224,6 +224,7 @@ describe('embedding-worker retries and backoff', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 'hhash',
         }),
         now,
       ]
@@ -304,6 +305,7 @@ describe('embedding-worker retries and backoff', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 't-hash',
         }),
         now,
       ]
@@ -394,6 +396,7 @@ describe('embedding-worker hosted-provider retries', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey,
+          sourceContentHash: 'hhash',
         }),
         now,
       ]

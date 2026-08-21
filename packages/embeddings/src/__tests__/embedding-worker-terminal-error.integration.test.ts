@@ -128,6 +128,7 @@ describe('Embedding Worker - Terminal Errors', () => {
         embeddingSetId: setId,
         expectedDimension: 1536,
         modelKey: 'local::test-model',
+        sourceContentHash: 'hash123',
       },
       queue: 'embeddings',
     });

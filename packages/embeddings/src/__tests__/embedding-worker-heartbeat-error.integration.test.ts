@@ -117,6 +117,7 @@ describe('embedding-worker: heartbeat error logging', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 'h',
         }),
         now,
       ]

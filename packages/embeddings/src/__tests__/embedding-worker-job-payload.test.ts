@@ -34,6 +34,7 @@ describe('embedding worker job payload', () => {
           embeddingSetId: 'set-1',
           expectedDimension: 768,
           modelKey: 'local::bge-m3',
+          sourceContentHash: 'content-hash',
         })
       )
     ).toThrow('Missing embeddingInputHash in payload');
@@ -50,6 +51,7 @@ describe('embedding worker job payload', () => {
           embeddingSetId: 'set-1',
           expectedDimension: 768,
           modelKey: 'local::bge-m3',
+          sourceContentHash: 'content-hash',
         })
       )
     ).toMatchObject({ embeddingInputHash });
@@ -64,8 +66,23 @@ describe('embedding worker job payload', () => {
           embeddingSetId: 'set-1',
           expectedDimension: 768,
           modelKey: 'local::bge-m3',
+          sourceContentHash: 'content-hash',
         })
       )
     ).toThrow('Invalid embeddingInputHash in payload');
+  });
+
+  it('rejects persisted jobs without the source content identity', () => {
+    expect(() =>
+      assertEmbedChunkJob(
+        embeddingJob({
+          chunkId: 'chunk-1',
+          embeddingInputHash: 'a80aabf0d21d49164154d0972531edf40605eb595aff029c37bc74ca083a98df',
+          embeddingSetId: 'set-1',
+          expectedDimension: 768,
+          modelKey: 'local::bge-m3',
+        })
+      )
+    ).toThrow('Missing sourceContentHash in payload');
   });
 });

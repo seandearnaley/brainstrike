@@ -155,6 +155,7 @@ describe('embedding-worker-batch', () => {
             embeddingSetId,
             expectedDimension: 768,
             modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+            sourceContentHash: `hash${i}`,
           }),
           now,
         ]
@@ -219,6 +220,7 @@ describe('embedding-worker-batch', () => {
           embeddingSetId,
           expectedDimension: 768,
           modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          sourceContentHash: 'missing-source-hash',
         }),
         now,
       ]
@@ -294,6 +296,7 @@ describe('embedding-worker-batch', () => {
             embeddingSetId,
             expectedDimension: 768,
             modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+            sourceContentHash: 'hash-dup',
           }),
           now,
         ]
