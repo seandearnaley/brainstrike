@@ -970,10 +970,12 @@ describe('vector-queue-service', () => {
     const rejection = expect(backfillPromise).rejects.toThrow(
       "Backfill timed out while waiting for embedding set 'set-1' to drain."
     );
+    await vi.waitFor(() => {
+      expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    });
     await vi.advanceTimersByTimeAsync(300_500);
 
     await rejection;
-    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
