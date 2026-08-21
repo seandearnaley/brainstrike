@@ -116,7 +116,9 @@ test('rejects a wired guard leaf that is unreachable from required entrypoints',
         'lint:orphaned': 'node scripts/orphaned-guard.mjs',
       },
       scriptsRoot: workspace,
-      testSources: [{ path: 'orphaned-guard.test.mjs', source: '' }],
+      testSources: [
+        { path: 'orphaned-guard.test.mjs', source: "import '../orphaned-guard.mjs';\n" },
+      ],
     });
 
     assert.deepEqual(issues, [
@@ -140,7 +142,9 @@ test('rejects required workflow guards omitted from the inventory', async () => 
       inventorySource: 'declared-guard.mjs → wired/paired/armed → protects a declared invariant\n',
       packageScripts: {},
       scriptsRoot: workspace,
-      testSources: [{ path: 'declared-guard.test.mjs', source: '' }],
+      testSources: [
+        { path: 'declared-guard.test.mjs', source: "import '../declared-guard.mjs';\n" },
+      ],
       workflowSources: [
         '# node scripts/comment-only-guard.mjs\nsteps:\n  - run: node scripts/workflow-guard.mjs',
       ],
@@ -202,6 +206,22 @@ test('requires an exact basename or declared contract path for paired evidence',
         packageScripts: {},
         scriptsRoot: workspace,
         testSources,
+      }),
+      ['example-guard.mjs: paired guard has no discoverable test under scripts/__tests__']
+    );
+
+    assert.deepEqual(
+      await validateGuardInventory({
+        inventorySource:
+          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+        packageScripts: {},
+        scriptsRoot: workspace,
+        testSources: [
+          {
+            path: 'different-contract.test.mjs',
+            source: "import '../example-guard.mjs';\n",
+          },
+        ],
       }),
       []
     );

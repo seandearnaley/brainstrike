@@ -20,7 +20,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { diffAgainstBaseline } from '../verify-eslint-warning-baselines.mjs';
+import { assertNoErrorSeverity, diffAgainstBaseline } from '../verify-eslint-warning-baselines.mjs';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const read = (relative) => readFileSync(path.join(repoRoot, relative), 'utf8');
@@ -86,4 +86,12 @@ test('warning count drift produces behavioral ratchet failures', () => {
   assert.match(diffAgainstBaseline(new Map([['example/rule', 0]]), { 'example/rule': 1 })[0], /-1/);
   assert.match(diffAgainstBaseline(new Map([['new/rule', 1]]), {})[0], /NO baseline entry/);
   assert.match(diffAgainstBaseline(new Map(), { 'missing/rule': 1 })[0], /ZERO findings/);
+});
+
+test('error-severity findings are never budgeted', () => {
+  assert.throws(
+    () => assertNoErrorSeverity([{ errorCount: 1 }]),
+    /1 error-severity finding\(s\)\. Errors never get a budget/
+  );
+  assert.doesNotThrow(() => assertNoErrorSeverity([{ errorCount: 0 }]));
 });

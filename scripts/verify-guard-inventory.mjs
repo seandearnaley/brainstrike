@@ -135,7 +135,41 @@ export async function loadGuardTestSources(scriptsRoot) {
     relativePath.endsWith('.test.mjs')
   );
 
-  return relativePaths.map((relativePath) => ({ path: relativePath }));
+  return Promise.all(
+    relativePaths.map(async (relativePath) => ({
+      path: relativePath,
+      source: await readFile(path.join(testsRoot, relativePath), 'utf8'),
+    }))
+  );
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function structurallyReferencesGuard(source, script) {
+  const executableSource = source
+    .replace(/^[ \t]*\/\*[\s\S]*?\*\/[ \t]*$/gm, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const escapedScript = escapeRegExp(script);
+  const relativePath = String.raw`(?:\.\./)+${escapedScript}`;
+  const pathJoinReference = executableSource
+    .split(/\r?\n/)
+    .some(
+      (line) =>
+        /\bpath\.join\(/.test(line) &&
+        (line.includes(`'${script}'`) || line.includes(`"${script}"`))
+    );
+
+  return (
+    pathJoinReference ||
+    [
+      new RegExp(String.raw`\b(?:from|import)\s*(?:\([^)]*?\)|['"]${relativePath}['"])`),
+      new RegExp(String.raw`\bnew\s+URL\(\s*['"]${relativePath}['"]`),
+      new RegExp(String.raw`['"]scripts\/${escapedScript}['"]`),
+      new RegExp(String.raw`['"]scripts['"]\s*,\s*['"]${escapedScript}['"]`),
+    ].some((pattern) => pattern.test(executableSource))
+  );
 }
 
 function hasPairedTest(entry, testSources) {
@@ -143,7 +177,13 @@ function hasPairedTest(entry, testSources) {
   const contractPath = CONTRACT_TEST.exec(entry.purpose)?.groups?.path;
   return testSources.some((testSource) => {
     const testPath = testSource.path.replaceAll(path.sep, '/');
-    return path.basename(testPath) === `${basename}.test.mjs` || testPath === contractPath;
+    const isResolvedTest =
+      path.basename(testPath) === `${basename}.test.mjs` || testPath === contractPath;
+    return (
+      isResolvedTest &&
+      typeof testSource.source === 'string' &&
+      structurallyReferencesGuard(testSource.source, entry.script)
+    );
   });
 }
 

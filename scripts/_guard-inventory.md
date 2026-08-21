@@ -9,7 +9,7 @@ enforce-coverage.mjs → wired/paired/armed → coverage artifacts and per-packa
 forbid-no-memo.mjs → wired/paired/armed → React compiler escape directives
 mastra-stream-chunk-contract.mjs → wired/paired/armed → Mastra chunk union coverage and observable unknown chunks
 model-catalog-migration-contract.mjs → wired/paired/armed → dual migration registration and model remaps
-prune-stale-dist.mjs → wired/paired/armed → stale dist artifacts pruned before non-cleaning tsc builds (global-turbo-cache poisoning class); wired into 10 package `build` scripts; contract: scripts/__tests__/prune-stale-dist.test.mjs
+prune-stale-dist.mjs → wired/paired/armed → stale dist artifacts pruned before non-cleaning tsc builds (global-turbo-cache poisoning class); wired into 35 package `build` scripts; contract: scripts/__tests__/prune-stale-dist.test.mjs
 secret-scan.mjs → wired/paired/armed → committed credential patterns
 turbo-boundaries.mjs → wired/paired/armed → package-escaping imports + undeclared dependencies (`turbo boundaries`, verdict scoped to files git does not ignore, since the analyzer reads build output and cannot be told not to); Static-lane step `pnpm run boundaries`, ordered before any dist-producing step for scan cost; contract: scripts/__tests__/turbo-boundaries-gate.test.mjs (BST-967)
 unit-shard-partition.mjs → wired/paired/armed → exact Unit shard partition
