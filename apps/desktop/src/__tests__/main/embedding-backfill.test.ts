@@ -1398,6 +1398,9 @@ describe('embedding-backfill', () => {
       }
     );
 
+    await vi.waitFor(() => {
+      expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(3);
+    });
     await vi.runAllTimersAsync();
     await backfillPromise;
 
