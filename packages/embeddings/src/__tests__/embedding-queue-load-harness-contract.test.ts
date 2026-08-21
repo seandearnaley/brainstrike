@@ -3,16 +3,19 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+function parseScriptArguments(script: string): string[] {
+  return script.split(/\s+/u).map((argument) => argument.replace(/^["']|["']$/gu, ''));
+}
+
 function hasExactArgument(script: string, argument: string): boolean {
-  return script.split(/\s+/u).includes(argument);
+  return parseScriptArguments(script).includes(argument);
 }
 
 function hasFileParallelismArgument(script: string): boolean {
-  return script
-    .split(/\s+/u)
-    .some(
-      (argument) => argument === '--fileParallelism' || argument.startsWith('--fileParallelism=')
-    );
+  return parseScriptArguments(script).some((argument) => {
+    const [name] = argument.split('=');
+    return name === '--fileParallelism' || name === '--file-parallelism';
+  });
 }
 
 function hasPoolArgument(script: string): boolean {
@@ -50,8 +53,17 @@ describe('embedding queue load harness contract', () => {
     expect(effectiveTestConfig['pool']).toBe('forks');
 
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
-      scripts?: { 'test:integration'?: unknown };
+      scripts?: { test?: unknown; 'test:integration'?: unknown };
     };
+    const pureScript = packageJson.scripts?.['test'];
+    if (typeof pureScript !== 'string') {
+      throw new Error('Expected @brainstrike/embeddings to define a test script.');
+    }
+    const pureArguments = parseScriptArguments(pureScript);
+    const pureExcludeIndex = pureArguments.indexOf('--exclude');
+    expect(pureArguments.filter((argument) => argument === '--exclude')).toHaveLength(1);
+    expect(pureArguments.at(pureExcludeIndex + 1)).toBe('**/*.integration.test.*');
+
     const integrationScript = packageJson.scripts?.['test:integration'];
     if (typeof integrationScript !== 'string') {
       throw new Error('Expected @brainstrike/embeddings to define a test:integration script.');
@@ -61,6 +73,8 @@ describe('embedding queue load harness contract', () => {
     expect(hasFileParallelismArgument(integrationScript)).toBe(false);
     expect(hasFileParallelismArgument(`${integrationScript} --fileParallelism`)).toBe(true);
     expect(hasFileParallelismArgument(`${integrationScript} --fileParallelism=true`)).toBe(true);
+    expect(hasFileParallelismArgument(`${integrationScript} --file-parallelism`)).toBe(true);
+    expect(hasFileParallelismArgument(`${integrationScript} --file-parallelism=true`)).toBe(true);
     // This lane deliberately owns its forks pool in the imported config; a CLI
     // pool override could silently replace the effective isolation contract.
     expect(hasPoolArgument(integrationScript)).toBe(false);
