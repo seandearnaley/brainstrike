@@ -18,14 +18,14 @@ const scriptPath = fileURLToPath(new URL('../verify-guard-inventory.mjs', import
 
 test('parses the authoritative classified guard set', () => {
   const entries = parseGuardInventory(
-    'example-guard.mjs → wired/paired/armed → protects an example invariant\n'
+    'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant\n'
   );
 
   assert.deepEqual(entries, [
     {
       purpose: 'protects an example invariant',
       script: 'example-guard.mjs',
-      states: ['wired', 'paired', 'armed'],
+      states: { armed: true, paired: true, wired: true },
     },
   ]);
 });
@@ -36,25 +36,56 @@ test('rejects malformed and duplicate classified guard rows', () => {
     /scripts\/_guard-inventory\.md:1 must match/
   );
   assert.doesNotThrow(() =>
-    parseGuardInventory('example-guard.cjs → wired/paired/armed → protects an example invariant\n')
+    parseGuardInventory(
+      'example-guard.cjs → wired=yes/paired=yes/armed=yes → protects an example invariant\n'
+    )
   );
   assert.throws(
     () =>
       parseGuardInventory(
         [
-          'example-guard.mjs → wired/paired/armed → first purpose',
-          'example-guard.mjs → wired/paired/armed → second purpose',
+          'example-guard.mjs → wired=yes/paired=yes/armed=yes → first purpose',
+          'example-guard.mjs → wired=yes/paired=yes/armed=yes → second purpose',
         ].join('\n')
       ),
     /duplicate guard example-guard\.mjs/
   );
 });
 
+test('preserves classified guards with degraded states and reports every gap', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-degraded-guard-'));
+  const source =
+    'example-guard.mjs → wired=yes/paired=no/armed=no → protects an example invariant\n';
+
+  try {
+    await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
+    const entries = parseGuardInventory(source);
+
+    assert.deepEqual(entries[0]?.states, {
+      armed: false,
+      paired: false,
+      wired: true,
+    });
+    assert.deepEqual(
+      await validateGuardInventory({
+        inventorySource: source,
+        packageScripts: {},
+        scriptsRoot: workspace,
+        testSources: [],
+      }),
+      ['example-guard.mjs: degraded guard state (paired=no, armed=no)']
+    );
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
 test('rejects classified rows whose guard script no longer exists', async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'brainstrike-guard-inventory-'));
   try {
     const issues = await validateGuardInventory({
-      inventorySource: 'missing-guard.mjs → wired/paired/armed → protects a missing invariant\n',
+      inventorySource:
+        'missing-guard.mjs → wired=yes/paired=yes/armed=yes → protects a missing invariant\n',
       packageScripts: {},
       scriptsRoot: workspace,
       testSources: [
@@ -81,7 +112,8 @@ test('rejects required lint guards omitted from the inventory', async () => {
     );
 
     const issues = await validateGuardInventory({
-      inventorySource: 'declared-guard.mjs → wired/paired/armed → protects a declared invariant\n',
+      inventorySource:
+        'declared-guard.mjs → wired=yes/paired=yes/armed=yes → protects a declared invariant\n',
       packageScripts: {
         lint: 'pnpm run lint:omitted',
         'lint:omitted': 'node scripts/omitted-guard.mjs',
@@ -109,7 +141,8 @@ test('rejects a wired guard leaf that is unreachable from required entrypoints',
     await writeFile(path.join(workspace, 'orphaned-guard.mjs'), 'export {};\n');
 
     const issues = await validateGuardInventory({
-      inventorySource: 'orphaned-guard.mjs → wired/paired/armed → protects an orphaned invariant\n',
+      inventorySource:
+        'orphaned-guard.mjs → wired=yes/paired=yes/armed=yes → protects an orphaned invariant\n',
       packageScripts: {
         lint: 'biome check .',
         'lint:ci': 'biome check .',
@@ -139,7 +172,7 @@ test('rejects a required-path channel reachable only through local lint', async 
 
     const issues = await validateGuardInventory({
       inventorySource:
-        'orphaned-guard.mjs → wired/paired/armed → protects an orphaned invariant; channel: required-path\n',
+        'orphaned-guard.mjs → wired=yes/paired=yes/armed=yes → protects an orphaned invariant; channel: required-path\n',
       packageScripts: {
         lint: 'pnpm run lint:orphaned',
         'lint:ci': 'biome check .',
@@ -173,7 +206,8 @@ test('rejects required workflow guards omitted from the inventory', async () => 
     );
 
     const issues = await validateGuardInventory({
-      inventorySource: 'declared-guard.mjs → wired/paired/armed → protects a declared invariant\n',
+      inventorySource:
+        'declared-guard.mjs → wired=yes/paired=yes/armed=yes → protects a declared invariant\n',
       packageScripts: { 'lint:ci': 'biome check .' },
       scriptsRoot: workspace,
       testSources: [
@@ -208,7 +242,8 @@ test('rejects a required CI lint entrypoint that the workflow no longer reaches'
     await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
 
     const issues = await validateGuardInventory({
-      inventorySource: 'example-guard.mjs → wired/paired/armed → protects an example invariant\n',
+      inventorySource:
+        'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant\n',
       packageScripts: {
         lint: 'pnpm run lint:example',
         'lint:ci': 'pnpm run lint:example',
@@ -316,7 +351,8 @@ test('rejects paired claims without discoverable test evidence', async () => {
     await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
 
     const issues = await validateGuardInventory({
-      inventorySource: 'example-guard.mjs → wired/paired/armed → protects an example invariant\n',
+      inventorySource:
+        'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant\n',
       packageScripts: {},
       scriptsRoot: workspace,
       testSources: [],
@@ -343,7 +379,8 @@ test('requires an exact basename or declared contract path for paired evidence',
 
     assert.deepEqual(
       await validateGuardInventory({
-        inventorySource: 'example-guard.mjs → wired/paired/armed → protects an example invariant\n',
+        inventorySource:
+          'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant\n',
         packageScripts: {},
         scriptsRoot: workspace,
         testSources,
@@ -354,7 +391,7 @@ test('requires an exact basename or declared contract path for paired evidence',
     assert.deepEqual(
       await validateGuardInventory({
         inventorySource:
-          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+          'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
         packageScripts: {},
         scriptsRoot: workspace,
         testSources: [
@@ -378,7 +415,7 @@ test('requires an exact basename or declared contract path for paired evidence',
     assert.deepEqual(
       await validateGuardInventory({
         inventorySource:
-          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+          'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
         packageScripts: {},
         scriptsRoot: workspace,
         testSources: [
@@ -394,7 +431,7 @@ test('requires an exact basename or declared contract path for paired evidence',
     assert.deepEqual(
       await validateGuardInventory({
         inventorySource:
-          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+          'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
         packageScripts: {},
         scriptsRoot: workspace,
         testSources: [
@@ -440,7 +477,7 @@ test('requires an exact basename or declared contract path for paired evidence',
     assert.deepEqual(
       await validateGuardInventory({
         inventorySource:
-          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+          'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
         packageScripts: {},
         scriptsRoot: workspace,
         testSources: [
@@ -491,7 +528,7 @@ test('direct execution is an armed fail-closed guard', async () => {
     );
     await writeFile(
       path.join(scriptsRoot, '_guard-inventory.md'),
-      'missing-guard.mjs → wired/paired/armed → protects a missing invariant\n'
+      'missing-guard.mjs → wired=yes/paired=yes/armed=yes → protects a missing invariant\n'
     );
     await writeFile(
       path.join(scriptsRoot, '__tests__', 'missing-guard.test.mjs'),

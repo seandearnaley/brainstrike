@@ -6,7 +6,7 @@ import ts from 'typescript';
 import { parse as parseYaml } from 'yaml';
 
 const INVENTORY_ROW =
-  /^(?<script>[a-z0-9][a-z0-9.-]*\.(?:cjs|mjs)) → (?<states>[a-z]+(?:\/[a-z]+)*) → (?<purpose>\S.*)$/;
+  /^(?<script>[a-z0-9][a-z0-9.-]*\.(?:cjs|mjs)) → (?<states>wired=(?:yes|no)\/paired=(?:yes|no)\/armed=(?:yes|no)) → (?<purpose>\S.*)$/;
 const REQUIRED_STATES = ['wired', 'paired', 'armed'];
 const GUARD_LEAF_SCRIPT_NAME = /^(?:arch:|boundaries$|coverage:enforce$|lint(?::|$)|secrets:scan$)/;
 const DIRECT_NODE_GUARD = /\bnode scripts\/(?<script>[a-z0-9][a-z0-9.-]*\.(?:cjs|mjs))\b/g;
@@ -380,6 +380,23 @@ function hasPairedTest(entry, testSources) {
   });
 }
 
+function parseStates(source, lineNumber) {
+  const states = {};
+  const declarations = source.split('/');
+
+  for (const [index, declaration] of declarations.entries()) {
+    const [name, value] = declaration.split('=');
+    if (name !== REQUIRED_STATES[index] || (value !== 'yes' && value !== 'no')) {
+      throw new Error(
+        `${INVENTORY_LABEL}:${lineNumber} must declare states exactly as wired=<yes|no>/paired=<yes|no>/armed=<yes|no>`
+      );
+    }
+    states[name] = value === 'yes';
+  }
+
+  return states;
+}
+
 export function parseGuardInventory(source) {
   const entries = [];
   const scripts = new Set();
@@ -393,20 +410,12 @@ export function parseGuardInventory(source) {
     const match = INVENTORY_ROW.exec(line);
     if (!match?.groups) {
       throw new Error(
-        `${INVENTORY_LABEL}:${index + 1} must match "<guard>.<cjs|mjs> → wired/paired/armed → <purpose>"`
+        `${INVENTORY_LABEL}:${index + 1} must match "<guard>.<cjs|mjs> → wired=<yes|no>/paired=<yes|no>/armed=<yes|no> → <purpose>"`
       );
     }
 
     const { purpose, script, states: stateSource } = match.groups;
-    const states = stateSource.split('/');
-    if (
-      states.length !== REQUIRED_STATES.length ||
-      states.some((state, stateIndex) => state !== REQUIRED_STATES[stateIndex])
-    ) {
-      throw new Error(
-        `${INVENTORY_LABEL}:${index + 1} must declare states exactly as wired/paired/armed`
-      );
-    }
+    const states = parseStates(stateSource, index + 1);
     if (scripts.has(script)) {
       throw new Error(`${INVENTORY_LABEL}:${index + 1} contains duplicate guard ${script}`);
     }
@@ -471,8 +480,17 @@ export async function validateGuardInventory({
       issues.push(`${entry.script}: classified guard script does not exist`);
     }
 
-    if (entry.states.includes('paired') && !hasPairedTest(entry, testSources)) {
+    if (entry.states.paired && !hasPairedTest(entry, testSources)) {
       issues.push(`${entry.script}: paired guard has no discoverable test under scripts/__tests__`);
+    }
+
+    const degradedStates = REQUIRED_STATES.filter((state) => !entry.states[state]);
+    if (degradedStates.length > 0) {
+      issues.push(
+        `${entry.script}: degraded guard state (${degradedStates
+          .map((state) => `${state}=no`)
+          .join(', ')})`
+      );
     }
   }
 

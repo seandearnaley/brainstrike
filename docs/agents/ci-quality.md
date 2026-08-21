@@ -267,12 +267,14 @@ this way on the next bump rather than assuming the tree regressed.
 ### Warden guard inventory (BST-675)
 
 `scripts/_guard-inventory.md` is the authoritative set of scripts classified as
-Warden guards. A row declares that the script is wired, has a paired test under
-`scripts/__tests__`, and that test contains a negative control that proves the
-guard can fail; the corroboration boundary for each claim is defined below.
-`scripts/verify-guard-inventory.mjs` validates the inventory in both local and
-CI lint paths; malformed rows, duplicate names, and classified scripts that no
-longer exist fail closed.
+Warden guards. Every row records `wired`, `paired`, and `armed` independently as
+`yes` or `no`; a classified guard remains in the inventory when any property
+degrades, and the verifier reports each degraded property. `paired=yes` means a
+test exists under `scripts/__tests__`; `armed=yes` means that test contains a
+negative control proving the guard can fail; the corroboration boundary for
+each claim is defined below. `scripts/verify-guard-inventory.mjs` validates the
+inventory in both local and CI lint paths; malformed rows, duplicate names,
+missing scripts, and degraded states fail closed.
 
 The verifier derives two sets. The complete wired set traverses root
 package-script calls from local `lint` and `coverage:enforce` plus package
