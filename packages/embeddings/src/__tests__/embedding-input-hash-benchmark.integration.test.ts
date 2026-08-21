@@ -5,6 +5,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 import {
   type ClaimedEmbeddingJob,
+  type LoadAndFilterChunksOptions,
   loadAndFilterChunks,
 } from '../worker/embedding-worker-chunk-filter.js';
 import { type EmbedChunkRow, loadChunksBatch } from '../worker/embedding-worker-db-io.js';
@@ -147,7 +148,7 @@ function median(samples: readonly number[]): number {
   return (lower + upper) / 2;
 }
 
-async function measureMedian(operation: () => Promise<void>): Promise<number> {
+async function measureMedian(operation: () => Promise<unknown>): Promise<number> {
   for (let index = 0; index < WARMUP_ITERATIONS; index += 1) {
     await operation();
   }
@@ -314,18 +315,15 @@ async function runLegacyWorkerHotPath(
   return { completed, orphanCount: orphans.length, toProcess };
 }
 
-async function runPersistedWorkerHotPath(
-  db: IDatabase,
-  jobs: ClaimedEmbeddingJob[]
-): ReturnType<typeof loadAndFilterChunks> {
-  return loadAndFilterChunks(jobs, {
+function createPersistedWorkerHotPathOptions(db: IDatabase): LoadAndFilterChunksOptions {
+  return {
     db,
     failTerminalJobs: async () => {
       throw new Error('Persisted benchmark unexpectedly found an orphaned or stale chunk.');
     },
     fileChunkIdType: 'text',
     logWarn: () => {},
-  });
+  };
 }
 
 describe.sequential('embedding input hash relocation benchmark', () => {
@@ -344,8 +342,13 @@ describe.sequential('embedding input hash relocation benchmark', () => {
             const scenario = await seedScenario(db, batchSize, contentLength);
             const database = db as unknown as IDatabase;
             const historicalJobs = scenario.jobs.map(withoutRelocatedHash);
-            const historicalResult = await runLegacyWorkerHotPath(database, historicalJobs);
-            const persistedResult = await runPersistedWorkerHotPath(database, scenario.jobs);
+            const persistedOptions = createPersistedWorkerHotPathOptions(database);
+            const runHistoricalWorkerHotPath = () =>
+              runLegacyWorkerHotPath(database, historicalJobs);
+            const runPersistedWorkerHotPath = () =>
+              loadAndFilterChunks(scenario.jobs, persistedOptions);
+            const historicalResult = await runHistoricalWorkerHotPath();
+            const persistedResult = await runPersistedWorkerHotPath();
             const historicalTaggedItems = [
               ...historicalResult.completed,
               ...historicalResult.toProcess,
@@ -362,18 +365,14 @@ describe.sequential('embedding input hash relocation benchmark', () => {
             expect(persistedClassification).toEqual(legacyClassification);
             expect(persistedClassification).toEqual(scenario.expectedClassification);
 
-            const legacyWorkerHotPathMs = await measureMedian(async () => {
-              await runLegacyWorkerHotPath(database, historicalJobs);
-            });
-            const persistedWorkerHotPathMs = await measureMedian(async () => {
-              await runPersistedWorkerHotPath(database, scenario.jobs);
-            });
+            const legacyWorkerHotPathMs = await measureMedian(runHistoricalWorkerHotPath);
+            const persistedWorkerHotPathMs = await measureMedian(runPersistedWorkerHotPath);
             const producerHashMs = await measureMedian(async () => {
               await buildEmbeddingJobInputHashes(scenario.contentHashes, MODEL_KEY);
             });
             const relocatedEndToEndMs = await measureMedian(async () => {
               await buildEmbeddingJobInputHashes(scenario.contentHashes, MODEL_KEY);
-              await runPersistedWorkerHotPath(database, scenario.jobs);
+              await runPersistedWorkerHotPath();
             });
             results.push({
               batchSize,
