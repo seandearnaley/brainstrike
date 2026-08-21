@@ -229,7 +229,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(
         () => {
           expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
-            'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.'
+            'Connect an AI provider in Settings → Providers to enable the assistant.'
           );
           expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
         },

@@ -116,8 +116,8 @@ function ObservationalMemoryModelField({
           role={observationalMemoryEnabled ? 'alert' : 'status'}
         >
           Configured observational memory model {modelTarget} is not available with the current
-          provider credentials. Configure its API key in Settings → LLM Provider Keys, choose a
-          keyless local observer, or turn observations off.
+          provider credentials. Configure its API key in Settings → Providers, choose a keyless
+          local observer, or turn observations off.
         </p>
       )}
     </div>
