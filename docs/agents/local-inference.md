@@ -130,18 +130,25 @@ Vector device preference is ONE canonical record (BST-1380):
   before this harness existed. The remaining comparison is the still-relevant
   BST-391 claim-path filter relocation identified when BST-393 was re-groomed.
 - Timing is diagnostic output, not a threshold gate. The deterministic checks
-  seed both current and stale embedding hashes and require the historical and
-  persisted filters to classify the same exact chunk IDs across the full
-  matrix. The historical path intentionally preserves its serial per-chunk hash
-  awaits and pre-BST-391 payload validator; its fixture payloads omit both new
-  source-identity fields so the legacy timing cannot silently absorb relocated
-  validation work. Each scenario deletes its queue, chunk, file, and embedding-set
-  rows before the next scenario, so table growth does not confound comparisons
-  across the content-length axis. The timing therefore includes the scheduling
-  behavior BST-391 removed.
+  seed both current and stale embedding hashes across the matrix and require the
+  historical and persisted filters to classify the same exact chunk IDs. The
+  two one-item scenarios split the branches: 128 bytes is current and 4096 bytes
+  is stale; every multi-item scenario contains both. The historical path
+  intentionally preserves its serial per-chunk hash awaits, verbatim pre-BST-391
+  SHA-256 helper, and pre-BST-391 payload validator; its fixture payloads omit
+  both new source-identity fields so the legacy timing cannot silently absorb
+  relocated validation work. The timing therefore includes the scheduling
+  behavior BST-391 removed. The persisted arm also includes BST-391's new
+  current/stale partition and per-chunk `sourceContentHash` comparison, so
+  legacy-minus-persisted understates the hashing win rather than isolating pure
+  hash cost. Each scenario deletes its queue, chunk, file, and embedding-set rows
+  before the next scenario, so table growth does not confound comparisons across
+  the content-length axis.
   Source length still varies because `loadChunksBatch` reads chunk content,
   while the SHA-256 identity itself remains fixed-size
-  `${contentHash}:${resolvedModelKey}` input.
+  `${contentHash}:${resolvedModelKey}` input. The fixture uses an already-composite
+  local model key; equivalence does not claim coverage of hosted-provider key
+  normalization.
 - Focused run:
   `pnpm --filter @brainstrike/embeddings exec vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/embedding-input-hash-benchmark.integration.test.ts`.
 

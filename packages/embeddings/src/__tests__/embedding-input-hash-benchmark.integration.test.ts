@@ -1,9 +1,6 @@
 import type { IDatabase, Job } from '@brainstrike/db';
 import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
-import {
-  buildEmbeddingInputHash,
-  buildEmbeddingJobInputHashes,
-} from '@brainstrike/indexing-contract';
+import { buildEmbeddingJobInputHashes } from '@brainstrike/indexing-contract';
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 import {
@@ -60,6 +57,29 @@ function assertHistoricalEmbedChunkJob(claimed: Job): HistoricalEmbedChunkPayloa
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// Verbatim pre-BST-391 worker helper: the legacy timing must not absorb the
+// relocated helper's validation, error surface, or byte-to-hex implementation.
+async function historicalSha256Hex(input: string): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error('Web Crypto SHA-256 is unavailable in the renderer embedding worker.');
+  }
+
+  try {
+    const data = new TextEncoder().encode(input);
+    const digest = await subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  } catch (error) {
+    throw new Error(
+      `Web Crypto SHA-256 failed in the renderer embedding worker: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
 }
 
 function withoutRelocatedHash(job: ClaimedEmbeddingJob): ClaimedEmbeddingJob {
@@ -148,8 +168,9 @@ async function seedScenario(
     if (!(contentHash && embeddingInputHash)) {
       throw new Error(`Missing benchmark identity for chunk '${chunkId}'.`);
     }
-    const embeddingHash = index % 2 === 0 ? embeddingInputHash : `stale-${embeddingInputHash}`;
-    const expectedIds = index % 2 === 0 ? completedChunkIds : toProcessChunkIds;
+    const isCurrent = (index + (contentLength === 4096 ? 1 : 0)) % 2 === 0;
+    const embeddingHash = isCurrent ? embeddingInputHash : `stale-${embeddingInputHash}`;
+    const expectedIds = isCurrent ? completedChunkIds : toProcessChunkIds;
     expectedIds.push(chunkId);
     await db.query(
       `INSERT INTO file_chunks
@@ -232,9 +253,8 @@ async function runLegacyWorkerHotPath(
   for (const item of found) {
     // Reproduce the historical claim path exactly: it awaited one SHA-256 per
     // found chunk in this loop, before BST-391 moved hashing to producers.
-    const expectedHash = await buildEmbeddingInputHash(
-      item.chunk.contentHash,
-      item.payload.modelKey
+    const expectedHash = await historicalSha256Hex(
+      `${item.chunk.contentHash}:${item.payload.modelKey}`
     );
     if (item.chunk.embeddingHash === expectedHash) {
       completedChunkIds.push(item.payload.chunkId);
