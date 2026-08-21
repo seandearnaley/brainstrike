@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { migration105EmbeddingJobInputHash } from '../src/migrations/105-embedding-job-input-hash.js';
 import { migrations } from '../src/migrations/index.js';
 
-const VALID_HASH = 'a80aabf0d21d49164154d0972531edf40605eb595aff029c37bc74ca083a98df';
+const VALID_HASH = 'cc48e54faf852e887cf52ea4b232e7c3db4773e5a55c0045e9ee06a8b4151b78';
 
 async function executeMigrationSql(db: PGlite, sql: string): Promise<void> {
   for (const statement of sql.split('--> statement-breakpoint')) {
@@ -26,7 +26,7 @@ describe('migration 105 embedding job input hash', () => {
     db = new PGlite();
     await db.exec(`
       CREATE TABLE file_chunks (
-        id text PRIMARY KEY,
+        id uuid PRIMARY KEY,
         content_hash text NOT NULL
       );
       CREATE TABLE job_queue (
@@ -43,16 +43,26 @@ describe('migration 105 embedding job input hash', () => {
         queue text PRIMARY KEY,
         canceled_total bigint NOT NULL DEFAULT 0
       );
-      INSERT INTO file_chunks (id, content_hash) VALUES ('chunk-1', 'hash-1');
+      INSERT INTO file_chunks (id, content_hash)
+      VALUES ('00000000-0000-4000-8000-000000000001', 'hash-1');
       INSERT INTO job_queue
         (id, queue, job_type, payload, state, leased_until, updated_at)
       VALUES
         (
-          'valid-job',
+          'active-valid-job',
           'embeddings',
           'embed_chunk',
-          '{"chunkId":"chunk-1","modelKey":"local::bge-m3"}',
+          '{"chunkId":"00000000-0000-4000-8000-000000000001","modelKey":"text-embedding-3-small","provider":"openai"}',
           'queued',
+          NULL,
+          '2026-08-21T00:00:00.000Z'
+        ),
+        (
+          'terminal-job',
+          'embeddings',
+          'embed_chunk',
+          '{"chunkId":"00000000-0000-4000-8000-000000000001","modelKey":"text-embedding-3-small","provider":"openai"}',
+          'succeeded',
           NULL,
           '2026-08-21T00:00:00.000Z'
         ),
@@ -90,13 +100,20 @@ describe('migration 105 embedding job input hash', () => {
     `);
     expect(rows.rows).toEqual([
       {
+        error: null,
+        hash: VALID_HASH,
+        id: 'active-valid-job',
+        leased_until: null,
+        state: 'queued',
+      },
+      {
         error: 'canceled by migration 105: cannot prove embeddingInputHash',
         hash: null,
         id: 'orphan-job',
         leased_until: null,
         state: 'canceled',
       },
-      { error: null, hash: VALID_HASH, id: 'valid-job', leased_until: null, state: 'queued' },
+      { error: null, hash: null, id: 'terminal-job', leased_until: null, state: 'succeeded' },
     ]);
 
     const metrics = await db.query<{ canceled_total: string | number }>(

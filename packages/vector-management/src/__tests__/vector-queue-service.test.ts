@@ -232,8 +232,12 @@ describe('vector-queue-service', () => {
     expect(enqueuedJobs).toHaveLength(2);
 
     const payloads = enqueuedJobs?.map((job) => job.payload as Record<string, unknown>) ?? [];
-    for (const payload of payloads) {
+    for (const [index, payload] of payloads.entries()) {
       expect(payload).toMatchObject({
+        embeddingInputHash: [
+          '181e106797c737b828f6a510f06221bb7345d0fa00e24c8658327cb0178f1c84',
+          '42072b1edc1a7a6f3aea779123124b15e5d71f2dad896476a2d27cfdf16fd34d',
+        ][index],
         expectedDimension: 768,
         modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
       });

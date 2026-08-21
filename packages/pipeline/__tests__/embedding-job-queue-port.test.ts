@@ -93,6 +93,27 @@ describe('createEmbeddingJobQueuePort', () => {
     expect(createQueue).toHaveBeenCalledWith(tx);
   });
 
+  it('hashes bare hosted model ids with the provider-qualified worker identity', async () => {
+    const queue = createRecordedQueue();
+    const port = createEmbeddingJobQueuePort({
+      createQueue: () => queue,
+      db: { kind: 'db' },
+    });
+
+    await port.enqueueBatch([{ contentHash: 'hash-1', id: 'chunk-1' }], 'file-1', {
+      model: 'text-embedding-3-small',
+      provider: 'openai',
+    });
+
+    expect(queue.enqueueBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          embeddingInputHash: 'cc48e54faf852e887cf52ea4b232e7c3db4773e5a55c0045e9ee06a8b4151b78',
+        }),
+      }),
+    ]);
+  });
+
   it('fails fast instead of silently skipping chunks without required queue identity', async () => {
     const port = createEmbeddingJobQueuePort({
       createQueue: () => createRecordedQueue(),

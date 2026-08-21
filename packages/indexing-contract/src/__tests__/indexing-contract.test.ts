@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertEmbedWorkerLifetimeError,
+  buildEmbeddingJobInputHashes,
   canonicalizeEmbeddingProviderModelKey,
   formatEmbeddingProviderModelKey,
   getChunkingPreset,
@@ -17,6 +18,12 @@ import {
 } from '../index';
 
 describe('@brainstrike/indexing-contract', () => {
+  it('hashes job inputs against the worker-resolved hosted model key', async () => {
+    await expect(
+      buildEmbeddingJobInputHashes(['hash-1'], 'text-embedding-3-small', 'openai')
+    ).resolves.toEqual(['cc48e54faf852e887cf52ea4b232e7c3db4773e5a55c0045e9ee06a8b4151b78']);
+  });
+
   it('validates worker-lifetime errors used for idle pool replacement', () => {
     expect(() =>
       assertEmbedWorkerLifetimeError({
