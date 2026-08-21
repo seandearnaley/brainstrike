@@ -108,6 +108,7 @@ describe('embedding queue load harness contract', () => {
     }
     expect(configModule['default']['root']).toBeUndefined();
     expect(effectiveTestConfig['dir']).toBeUndefined();
+    expect(effectiveTestConfig['projects']).toBeUndefined();
     expect(includePatterns).toEqual(['**/*.integration.test.*']);
     expect(excludePatterns).toEqual(['**/node_modules/**', '**/dist/**', '**/*.models.test.*']);
     const harnessRelativePath = path.relative(packageRoot, harnessPath).split(path.sep).join('/');

@@ -179,6 +179,7 @@ Vector device preference is ONE canonical record (BST-1380):
   non-empty claim, so reported latency includes observer cost and is not a
   product baseline. `peakClaimedJobs` is sampled post-claim and depends on the
   worker preserving reserve-before-claim ordering. The deterministic gates are
+  a pre-claim permit rendezvous proving every requested polling loop starts,
   one claim per job, exact claim limit and returned batch size 1, and observed
   concurrency scaling from 1 to 2 to 4 before flattening at the four-job global
   working-set ceiling when sixteen loops poll. The first-wave rendezvous targets

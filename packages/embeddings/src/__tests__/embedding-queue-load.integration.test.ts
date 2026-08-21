@@ -16,6 +16,7 @@ import type {
 const LOAD_TEST_TIMEOUT_MS = 90_000;
 const SCENARIO_COMPLETION_TIMEOUT_MS = 15_000;
 const FIRST_WAVE_RENDEZVOUS_TIMEOUT_MS = 5000;
+const WORKER_LOOP_RENDEZVOUS_TIMEOUT_MS = 5000;
 const JOB_COUNT = 12;
 const MAX_IN_FLIGHT_JOBS = 4;
 const EMBEDDING_DIMENSIONS = 8;
@@ -36,6 +37,63 @@ interface QueueLoadMetrics {
   readonly peakClaimedJobs: number;
   readonly peakInputBytesInFlight: number;
   readonly peakVectorsInFlight: number;
+  readonly workerLoopArrivalCount: number;
+  readonly workerLoopRendezvousReached: boolean;
+}
+
+class WorkerLoopRendezvous {
+  private arrivalCount = 0;
+  private readonly expectedArrivalCount: number;
+  private readonly releasePromise: Promise<void>;
+  private releasePromiseResolve = (): void => {};
+  private released = false;
+  private readonly timeout: ReturnType<typeof setTimeout>;
+  reached = false;
+
+  constructor(expectedArrivalCount: number) {
+    if (!(Number.isInteger(expectedArrivalCount) && expectedArrivalCount > 0)) {
+      throw new Error(
+        `Load-test worker-loop rendezvous requires a positive integer, got ${expectedArrivalCount}.`
+      );
+    }
+    this.expectedArrivalCount = expectedArrivalCount;
+    this.releasePromise = new Promise<void>((resolve) => {
+      this.releasePromiseResolve = resolve;
+    });
+    this.timeout = setTimeout(() => {
+      this.release();
+    }, WORKER_LOOP_RENDEZVOUS_TIMEOUT_MS);
+    this.timeout.unref();
+  }
+
+  get arrivals(): number {
+    return this.arrivalCount;
+  }
+
+  dispose(): void {
+    this.release();
+  }
+
+  async wait(): Promise<void> {
+    if (this.released) {
+      return;
+    }
+    this.arrivalCount += 1;
+    if (this.arrivalCount === this.expectedArrivalCount) {
+      this.reached = true;
+      this.release();
+    }
+    await this.releasePromise;
+  }
+
+  private release(): void {
+    if (this.released) {
+      return;
+    }
+    this.released = true;
+    clearTimeout(this.timeout);
+    this.releasePromiseResolve();
+  }
 }
 
 class LoadTestEmbeddingService implements EmbeddingService {
@@ -272,6 +330,7 @@ async function runLoadScenario(params: {
   const db = await wasmLoader.createPGlite(`memory://${params.scenario}`);
   let restoreClaimSpy: (() => void) | undefined;
   let stopWorker: (() => Promise<void>) | undefined;
+  const workerLoopRendezvous = new WorkerLoopRendezvous(params.concurrency);
 
   try {
     await migrate(db);
@@ -334,6 +393,9 @@ async function runLoadScenario(params: {
           }
         : {}),
       service,
+      waitForBackgroundPermit: async () => {
+        await workerLoopRendezvous.wait();
+      },
     });
     stopWorker = () => controller.stop();
 
@@ -369,8 +431,11 @@ async function runLoadScenario(params: {
       peakClaimedJobs,
       peakInputBytesInFlight: service.peakInputBytesInFlight,
       peakVectorsInFlight: service.peakVectorsInFlight,
+      workerLoopArrivalCount: workerLoopRendezvous.arrivals,
+      workerLoopRendezvousReached: workerLoopRendezvous.reached,
     };
   } finally {
+    workerLoopRendezvous.dispose();
     if (stopWorker) {
       await stopWorker();
     }
@@ -400,6 +465,8 @@ describe.sequential('embedding queue load matrix', () => {
 
         expect(result.leaseClaimCount).toBe(JOB_COUNT);
         expect(result.maxAttempts).toBe(1);
+        expect(result.workerLoopRendezvousReached).toBe(true);
+        expect(result.workerLoopArrivalCount).toBe(concurrency);
         expect(result.firstWaveRendezvousReached).toBe(true);
         const expectedPeak = Math.min(concurrency, MAX_IN_FLIGHT_JOBS);
         expect(result.firstWaveArrivalCount).toBe(expectedPeak);
@@ -441,6 +508,8 @@ describe.sequential('embedding queue load matrix', () => {
       expect(result.peakVectorsInFlight).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
       expect(result.leaseClaimCount).toBe(JOB_COUNT);
       expect(result.maxAttempts).toBe(1);
+      expect(result.workerLoopRendezvousReached).toBe(true);
+      expect(result.workerLoopArrivalCount).toBe(2);
     },
     LOAD_TEST_TIMEOUT_MS
   );
