@@ -1,0 +1,321 @@
+import type { IDatabase } from '@brainstrike/db';
+import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { startEmbeddingWorker } from '../index.js';
+import type {
+  EmbeddingConfig,
+  EmbeddingProgress,
+  EmbeddingResult,
+  EmbeddingService,
+  EmbeddingStatus,
+  SimilarityResult,
+} from '../types.js';
+
+const LOAD_TEST_TIMEOUT_MS = 90_000;
+const JOB_COUNT = 12;
+const MAX_IN_FLIGHT_JOBS = 4;
+const EMBEDDING_DIMENSIONS = 8;
+const MODEL_KEY = 'local::load-test-model';
+
+interface QueueLoadMetrics {
+  readonly adaptiveClaimLimits: readonly number[];
+  readonly completionLatencyMs: number;
+  readonly concurrency: number;
+  readonly jobCount: number;
+  readonly leaseClaimCount: number;
+  readonly maxAttempts: number;
+  readonly peakClaimedJobs: number;
+  readonly peakInputBytesInFlight: number;
+  readonly peakVectorsInFlight: number;
+}
+
+class LoadTestEmbeddingService implements EmbeddingService {
+  private activeInputBytes = 0;
+  private activeVectors = 0;
+  private delayMs: number;
+  private generationCount = 0;
+  peakInputBytesInFlight = 0;
+  peakVectorsInFlight = 0;
+
+  constructor(
+    delayMs: number,
+    private readonly accelerateAfterFirstGeneration = false
+  ) {
+    this.delayMs = delayMs;
+  }
+
+  getSuggestedClaimLimit(): number {
+    return this.delayMs > 10 ? 1 : MAX_IN_FLIGHT_JOBS;
+  }
+
+  initialize(
+    _config?: Partial<EmbeddingConfig>,
+    _onProgress?: (progress: EmbeddingProgress) => void
+  ): Promise<void> {
+    return Promise.resolve();
+  }
+
+  async generateEmbedding(_text: string): Promise<EmbeddingResult> {
+    return {
+      dimensions: EMBEDDING_DIMENSIONS,
+      embedding: new Array(EMBEDDING_DIMENSIONS).fill(0.1),
+      model: 'load-test-model',
+      usage: { totalTokens: 1 },
+    };
+  }
+
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    const inputBytes = texts.reduce(
+      (total, text) => total + new TextEncoder().encode(text).byteLength,
+      0
+    );
+    this.activeInputBytes += inputBytes;
+    this.activeVectors += texts.length;
+    this.peakInputBytesInFlight = Math.max(this.peakInputBytesInFlight, this.activeInputBytes);
+    this.peakVectorsInFlight = Math.max(this.peakVectorsInFlight, this.activeVectors);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, this.delayMs));
+      return await Promise.all(texts.map((text) => this.generateEmbedding(text)));
+    } finally {
+      this.activeInputBytes -= inputBytes;
+      this.activeVectors -= texts.length;
+      this.generationCount += 1;
+      if (this.accelerateAfterFirstGeneration && this.generationCount === 1) {
+        this.delayMs = 1;
+      }
+    }
+  }
+
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: {
+      endIndex: number;
+      results: EmbeddingResult[];
+      startIndex: number;
+    }) => Promise<void> | void
+  ): Promise<void> {
+    const results = await this.generateEmbeddings(texts);
+    await onBatch({ endIndex: results.length, results, startIndex: 0 });
+  }
+
+  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+    return await this.generateEmbedding(text);
+  }
+
+  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+    return await this.generateEmbedding(text);
+  }
+
+  calculateSimilarity(_left: number[], _right: number[]): SimilarityResult {
+    return { distance: 0, method: 'cosine', similarity: 1 };
+  }
+
+  getStatus(): EmbeddingStatus {
+    return 'ready';
+  }
+
+  getConfig(): EmbeddingConfig {
+    return { modelId: 'load-test-model' };
+  }
+
+  dispose(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+async function waitFor(condition: () => Promise<boolean>, timeoutMs = 15_000): Promise<void> {
+  const startedAt = performance.now();
+  while (!(await condition())) {
+    if (performance.now() - startedAt > timeoutMs) {
+      throw new Error(`Timed out after ${timeoutMs}ms waiting for the embedding load scenario.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function seedEmbeddingJobs(db: PGlite, scenario: string): Promise<void> {
+  const now = new Date().toISOString();
+  const setId = `set-${scenario}`;
+  const fileId = `file-${scenario}`;
+  await db.query(
+    `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+     VALUES ($1, $2, 'load-test-model', $3, 'cosine', $4)`,
+    [setId, MODEL_KEY, EMBEDDING_DIMENSIONS, now]
+  );
+  await db.query(
+    `INSERT INTO file_records
+       (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+     VALUES ($1, $2, $3, 1024, 'load fixture', $4, 12, $5, $5)`,
+    [fileId, `${scenario}.ts`, `/${scenario}.ts`, `file-hash-${scenario}`, now]
+  );
+
+  const queue = new JobQueue(db as unknown as IDatabase);
+  for (let index = 0; index < JOB_COUNT; index += 1) {
+    const chunkId = `chunk-${scenario}-${index}`;
+    const content = `${scenario}:${index}:${'x'.repeat(256)}`;
+    const contentHash = `content-hash-${scenario}-${index}`;
+    await db.query(
+      `INSERT INTO file_chunks
+         (id, file_record_id, chunk_index, content, content_hash, token_count,
+          chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 12, 'text', 256, $6, $6)`,
+      [chunkId, fileId, index, content, contentHash, now]
+    );
+    await queue.enqueue({
+      dedupeKey: `${chunkId}:${setId}:${contentHash}`,
+      jobType: 'embed_chunk',
+      payload: {
+        chunkId,
+        embeddingSetId: setId,
+        expectedDimension: EMBEDDING_DIMENSIONS,
+        modelKey: MODEL_KEY,
+      },
+      queue: 'embeddings',
+    });
+  }
+}
+
+async function runLoadScenario(params: {
+  readonly adaptive: boolean;
+  readonly concurrency: number;
+  readonly scenario: string;
+}): Promise<QueueLoadMetrics> {
+  const db = await wasmLoader.createPGlite(`memory://${params.scenario}`);
+  await migrate(db);
+  await seedEmbeddingJobs(db, params.scenario);
+
+  const service = new LoadTestEmbeddingService(params.adaptive ? 25 : 4, params.adaptive);
+  const adaptiveClaimLimits: number[] = [];
+  let leaseClaimCount = 0;
+  let peakClaimedJobs = 0;
+  const originalClaimMany = JobQueue.prototype.claimMany;
+  const claimSpy = vi.spyOn(JobQueue.prototype, 'claimMany').mockImplementation(async function (
+    this: JobQueue,
+    claimParams
+  ) {
+    const jobs = await originalClaimMany.call(this, claimParams);
+    leaseClaimCount += jobs.length;
+    const running = await db.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count
+           FROM job_queue
+          WHERE queue = 'embeddings' AND state = 'running'`
+    );
+    peakClaimedJobs = Math.max(peakClaimedJobs, running.rows[0]?.count ?? 0);
+    return jobs;
+  });
+
+  const startedAt = performance.now();
+  const controller = await startEmbeddingWorker({
+    claimBatchSize: MAX_IN_FLIGHT_JOBS,
+    concurrency: params.concurrency,
+    db: db as unknown as IDatabase,
+    idlePollInitialMs: 5,
+    idlePollMaxMs: 20,
+    interBatchDelayMs: 1,
+    leaseMs: 5000,
+    log: () => {},
+    maxInFlightJobs: MAX_IN_FLIGHT_JOBS,
+    metricsIntervalMs: 5000,
+    modelKey: 'load-test-model',
+    ...(params.adaptive
+      ? {
+          resolveClaimBatchSize: async () => {
+            const limit = service.getSuggestedClaimLimit();
+            adaptiveClaimLimits.push(limit);
+            return limit;
+          },
+        }
+      : {}),
+    service,
+  });
+
+  try {
+    await waitFor(async () => {
+      const result = await db.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count
+           FROM job_queue
+          WHERE queue = 'embeddings' AND state = 'succeeded'`
+      );
+      return result.rows[0]?.count === JOB_COUNT;
+    });
+
+    const attempts = await db.query<{ max_attempts: number; total_attempts: number }>(
+      `SELECT
+         MAX(attempts)::int AS max_attempts,
+         SUM(attempts)::int AS total_attempts
+       FROM job_queue
+       WHERE queue = 'embeddings'`
+    );
+    expect(attempts.rows[0]?.total_attempts).toBe(JOB_COUNT);
+
+    return {
+      adaptiveClaimLimits,
+      completionLatencyMs: performance.now() - startedAt,
+      concurrency: params.concurrency,
+      jobCount: JOB_COUNT,
+      leaseClaimCount,
+      maxAttempts: attempts.rows[0]?.max_attempts ?? 0,
+      peakClaimedJobs,
+      peakInputBytesInFlight: service.peakInputBytesInFlight,
+      peakVectorsInFlight: service.peakVectorsInFlight,
+    };
+  } finally {
+    await controller.stop();
+    claimSpy.mockRestore();
+    await db.close();
+  }
+}
+
+describe.sequential('embedding queue load matrix', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it(
+    'bounds working sets and lease churn with 1, 2, and 4 worker loops',
+    async () => {
+      const concurrencyLevels = [1, 2, 4] as const;
+      const results: QueueLoadMetrics[] = [];
+
+      for (const concurrency of concurrencyLevels) {
+        const result = await runLoadScenario({
+          adaptive: false,
+          concurrency,
+          scenario: `load-c${concurrency}`,
+        });
+        results.push(result);
+
+        expect(result.leaseClaimCount).toBe(JOB_COUNT);
+        expect(result.maxAttempts).toBe(1);
+        expect(result.peakClaimedJobs).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
+        expect(result.peakVectorsInFlight).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
+        expect(result.peakInputBytesInFlight).toBeGreaterThan(0);
+        expect(result.completionLatencyMs).toBeGreaterThan(0);
+      }
+
+      expect(results.map((result) => result.concurrency)).toEqual(concurrencyLevels);
+      console.info('BST-387 embedding queue load matrix', JSON.stringify(results));
+    },
+    LOAD_TEST_TIMEOUT_MS
+  );
+
+  it(
+    'reduces then expands claim limits as modeled throughput improves',
+    async () => {
+      const result = await runLoadScenario({
+        adaptive: true,
+        concurrency: 2,
+        scenario: 'adaptive-throughput',
+      });
+
+      expect(result.adaptiveClaimLimits[0]).toBe(1);
+      expect(result.adaptiveClaimLimits).toContain(MAX_IN_FLIGHT_JOBS);
+      expect(result.peakClaimedJobs).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
+      expect(result.leaseClaimCount).toBe(JOB_COUNT);
+      expect(result.maxAttempts).toBe(1);
+    },
+    LOAD_TEST_TIMEOUT_MS
+  );
+});
