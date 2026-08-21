@@ -20,6 +20,11 @@ describe('embedding queue load harness contract', () => {
 
     const integrationConfig = readFileSync(integrationConfigPath, 'utf8');
     expect(integrationConfig).toContain("include: ['**/*.integration.test.*']");
+    const executableIntegrationConfig = integrationConfig
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('//'))
+      .join('\n');
+    expect(executableIntegrationConfig).not.toMatch(/\bpool\s*:/u);
     const baseConfig = readFileSync(baseConfigPath, 'utf8');
     expect(baseConfig).toContain("pool: 'forks'");
 
