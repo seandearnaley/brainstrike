@@ -459,7 +459,7 @@ export async function validateGuardInventory({
     const current = entries[index];
     if (previous.script > current.script) {
       issues.push(
-        `guard inventory rows must use deterministic script-name order: ${current.script} before ${previous.script}`
+        `line ${index + 1}: guard inventory rows must use ascending code-unit script-name order (LC_ALL=C sort): ${current.script} before ${previous.script}`
       );
     }
   }

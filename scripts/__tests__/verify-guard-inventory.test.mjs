@@ -125,7 +125,7 @@ test('rejects out-of-order inventory rows', async () => {
         ],
       }),
       [
-        'guard inventory rows must use deterministic script-name order: alpha-guard.mjs before zeta-guard.mjs',
+        'line 2: guard inventory rows must use ascending code-unit script-name order (LC_ALL=C sort): alpha-guard.mjs before zeta-guard.mjs',
       ]
     );
   } finally {
