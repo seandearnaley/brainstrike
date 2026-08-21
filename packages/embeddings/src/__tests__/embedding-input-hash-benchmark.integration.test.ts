@@ -18,7 +18,7 @@ const WARMUP_ITERATIONS = 2;
 interface HashRelocationBenchmarkResult {
   readonly batchSize: number;
   readonly contentLength: number;
-  readonly legacyWorkerHotPathMs: number;
+  readonly historicalWorkerHotPathMs: number;
   readonly persistedWorkerHotPathMs: number;
   readonly producerHashMs: number;
   readonly relocatedEndToEndMs: number;
@@ -93,7 +93,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// Verbatim pre-BST-391 worker helper: the legacy timing must not absorb the
+// Verbatim pre-BST-391 worker helper: the historical timing must not absorb the
 // relocated helper's validation, error surface, or byte-to-hex implementation.
 async function historicalSha256Hex(input: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
@@ -206,14 +206,15 @@ async function seedScenario(
     [fileId, `${scenario}.txt`, `/${scenario}.txt`, contentLength, `file-hash-${scenario}`, now]
   );
 
-  // Production chunk hashes are 64 lowercase hex characters. With MODEL_KEY,
-  // that makes the SHA-256 input 87 bytes and spans two compression blocks.
+  // SHA-256 leaves at most 55 input bytes in one padded block, so a production
+  // 64-hex chunk hash plus ':' already forces a second block. MODEL_KEY makes
+  // this concrete fixture input 87 bytes, but does not cause that second block.
   const contentHashes = await Promise.all(
     Array.from({ length: batchSize }, (_, index) =>
       historicalSha256Hex(`benchmark-content-${scenario}-${index}`)
     )
   );
-  expect(contentHashes.every((hash) => /^[0-9a-f]{64}$/.test(hash))).toBe(true);
+  expect(contentHashes.filter((hash) => !/^[0-9a-f]{64}$/.test(hash))).toEqual([]);
   const embeddingInputHashes = await buildEmbeddingJobInputHashes(contentHashes, MODEL_KEY);
   const queue = new JobQueue(db as unknown as IDatabase);
   const jobs: Job[] = [];
@@ -285,7 +286,7 @@ async function seedScenario(
   };
 }
 
-async function runLegacyWorkerHotPath(
+async function runHistoricalWorkerHotPath(
   jobs: ClaimedEmbeddingJob[],
   jobModel: HistoricalEmbeddingJobModel,
   options: HistoricalLoadAndFilterChunksOptions
@@ -380,11 +381,11 @@ describe.sequential('embedding input hash relocation benchmark', () => {
             const historicalJobModel = { compositeKey: MODEL_KEY } as const;
             const historicalOptions = createHistoricalWorkerHotPathOptions(database);
             const persistedOptions = createPersistedWorkerHotPathOptions(database);
-            const runHistoricalWorkerHotPath = () =>
-              runLegacyWorkerHotPath(historicalJobs, historicalJobModel, historicalOptions);
+            const runHistoricalWorkerFilter = () =>
+              runHistoricalWorkerHotPath(historicalJobs, historicalJobModel, historicalOptions);
             const runPersistedWorkerHotPath = () =>
               loadAndFilterChunks(scenario.jobs, persistedOptions);
-            const historicalResult = await runHistoricalWorkerHotPath();
+            const historicalResult = await runHistoricalWorkerFilter();
             const persistedResult = await runPersistedWorkerHotPath();
             const historicalTaggedItems = [
               ...historicalResult.completed,
@@ -402,15 +403,15 @@ describe.sequential('embedding input hash relocation benchmark', () => {
                 payload: expect.any(Object),
               });
             }
-            const legacyClassification = classifyTaggedFilterResult(historicalResult);
+            const historicalClassification = classifyTaggedFilterResult(historicalResult);
             const persistedClassification = classifyTaggedFilterResult(persistedResult);
             expect(
               persistedClassification,
               'Historical and persisted filters disagree; verify whether the embedding-input hash format intentionally changed.'
-            ).toEqual(legacyClassification);
+            ).toEqual(historicalClassification);
             expect(persistedClassification).toEqual(scenario.expectedClassification);
 
-            const legacyWorkerHotPathMs = await measureMedian(runHistoricalWorkerHotPath);
+            const historicalWorkerHotPathMs = await measureMedian(runHistoricalWorkerFilter);
             const persistedWorkerHotPathMs = await measureMedian(runPersistedWorkerHotPath);
             const producerHashMs = await measureMedian(async () => {
               await buildEmbeddingJobInputHashes(scenario.contentHashes, MODEL_KEY);
@@ -422,7 +423,7 @@ describe.sequential('embedding input hash relocation benchmark', () => {
             results.push({
               batchSize,
               contentLength,
-              legacyWorkerHotPathMs,
+              historicalWorkerHotPathMs,
               persistedWorkerHotPathMs,
               producerHashMs,
               relocatedEndToEndMs,
