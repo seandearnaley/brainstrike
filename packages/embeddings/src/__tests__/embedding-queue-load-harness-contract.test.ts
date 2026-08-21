@@ -31,6 +31,13 @@ function configArguments(script: string): string[] {
   });
 }
 
+function maxWorkerArguments(script: string): string[] {
+  return parseScriptArguments(script).filter((argument) => {
+    const [name] = argument.split('=');
+    return name === '--maxWorkers' || name === '--max-workers';
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -85,7 +92,9 @@ describe('embedding queue load harness contract', () => {
     expect(integrationArguments.at(integrationConfigIndex + 1)).toBe(
       'vitest.integration.config.mts'
     );
-    expect(hasExactArgument(integrationScript, '--maxWorkers=1')).toBe(true);
+    expect(maxWorkerArguments(integrationScript)).toEqual(['--maxWorkers=1']);
+    expect(maxWorkerArguments(`${integrationScript} --maxWorkers=10`)).toHaveLength(2);
+    expect(maxWorkerArguments(`${integrationScript} --max-workers=10`)).toHaveLength(2);
     expect(hasExactArgument(integrationScript, '--no-file-parallelism')).toBe(true);
     expect(hasFileParallelismArgument(integrationScript)).toBe(false);
     expect(hasFileParallelismArgument(`${integrationScript} --fileParallelism`)).toBe(true);
