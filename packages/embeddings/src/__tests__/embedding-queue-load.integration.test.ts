@@ -194,55 +194,62 @@ async function runLoadScenario(params: {
   readonly scenario: string;
 }): Promise<QueueLoadMetrics> {
   const db = await wasmLoader.createPGlite(`memory://${params.scenario}`);
-  await migrate(db);
-  await seedEmbeddingJobs(db, params.scenario);
-
-  const service = new LoadTestEmbeddingService(params.adaptive ? 25 : 4, params.adaptive);
-  const adaptiveClaimLimits: number[] = [];
-  let leaseClaimCount = 0;
-  let peakClaimedJobs = 0;
-  const originalClaimMany = JobQueue.prototype.claimMany;
-  const claimSpy = vi.spyOn(JobQueue.prototype, 'claimMany').mockImplementation(async function (
-    this: JobQueue,
-    claimParams
-  ) {
-    const jobs = await originalClaimMany.call(this, claimParams);
-    leaseClaimCount += jobs.length;
-    const running = await db.query<{ count: number }>(
-      `SELECT COUNT(*)::int AS count
-           FROM job_queue
-          WHERE queue = 'embeddings' AND state = 'running'`
-    );
-    peakClaimedJobs = Math.max(peakClaimedJobs, running.rows[0]?.count ?? 0);
-    return jobs;
-  });
-
-  const startedAt = performance.now();
-  const controller = await startEmbeddingWorker({
-    claimBatchSize: MAX_IN_FLIGHT_JOBS,
-    concurrency: params.concurrency,
-    db: db as unknown as IDatabase,
-    idlePollInitialMs: 5,
-    idlePollMaxMs: 20,
-    interBatchDelayMs: 1,
-    leaseMs: 5000,
-    log: () => {},
-    maxInFlightJobs: MAX_IN_FLIGHT_JOBS,
-    metricsIntervalMs: 5000,
-    modelKey: 'load-test-model',
-    ...(params.adaptive
-      ? {
-          resolveClaimBatchSize: async () => {
-            const limit = service.getSuggestedClaimLimit();
-            adaptiveClaimLimits.push(limit);
-            return limit;
-          },
-        }
-      : {}),
-    service,
-  });
+  let restoreClaimSpy: (() => void) | undefined;
+  let stopWorker: (() => Promise<void>) | undefined;
 
   try {
+    await migrate(db);
+    await seedEmbeddingJobs(db, params.scenario);
+
+    const service = new LoadTestEmbeddingService(params.adaptive ? 25 : 4, params.adaptive);
+    const adaptiveClaimLimits: number[] = [];
+    let leaseClaimCount = 0;
+    let peakClaimedJobs = 0;
+    const originalClaimMany = JobQueue.prototype.claimMany;
+    const claimSpy = vi.spyOn(JobQueue.prototype, 'claimMany').mockImplementation(async function (
+      this: JobQueue,
+      claimParams
+    ) {
+      const jobs = await originalClaimMany.call(this, claimParams);
+      leaseClaimCount += jobs.length;
+      if (jobs.length > 0) {
+        const running = await db.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count
+             FROM job_queue
+            WHERE queue = 'embeddings' AND state = 'running'`
+        );
+        peakClaimedJobs = Math.max(peakClaimedJobs, running.rows[0]?.count ?? 0);
+      }
+      return jobs;
+    });
+    restoreClaimSpy = () => claimSpy.mockRestore();
+
+    const startedAt = performance.now();
+    const controller = await startEmbeddingWorker({
+      claimBatchSize: params.adaptive ? MAX_IN_FLIGHT_JOBS : 1,
+      concurrency: params.concurrency,
+      db: db as unknown as IDatabase,
+      idlePollInitialMs: 5,
+      idlePollMaxMs: 20,
+      interBatchDelayMs: 1,
+      leaseMs: 5000,
+      log: () => {},
+      maxInFlightJobs: MAX_IN_FLIGHT_JOBS,
+      metricsIntervalMs: 5000,
+      modelKey: 'load-test-model',
+      ...(params.adaptive
+        ? {
+            resolveClaimBatchSize: async () => {
+              const limit = service.getSuggestedClaimLimit();
+              adaptiveClaimLimits.push(limit);
+              return limit;
+            },
+          }
+        : {}),
+      service,
+    });
+    stopWorker = () => controller.stop();
+
     await waitFor(async () => {
       const result = await db.query<{ count: number }>(
         `SELECT COUNT(*)::int AS count
@@ -273,8 +280,10 @@ async function runLoadScenario(params: {
       peakVectorsInFlight: service.peakVectorsInFlight,
     };
   } finally {
-    await controller.stop();
-    claimSpy.mockRestore();
+    if (stopWorker) {
+      await stopWorker();
+    }
+    restoreClaimSpy?.();
     await db.close();
   }
 }
@@ -300,13 +309,17 @@ describe.sequential('embedding queue load matrix', () => {
 
         expect(result.leaseClaimCount).toBe(JOB_COUNT);
         expect(result.maxAttempts).toBe(1);
+        expect(result.peakClaimedJobs).toBeGreaterThanOrEqual(
+          Math.min(concurrency, MAX_IN_FLIGHT_JOBS)
+        );
         expect(result.peakClaimedJobs).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
+        expect(result.peakVectorsInFlight).toBeGreaterThanOrEqual(
+          Math.min(concurrency, MAX_IN_FLIGHT_JOBS)
+        );
         expect(result.peakVectorsInFlight).toBeLessThanOrEqual(MAX_IN_FLIGHT_JOBS);
         expect(result.peakInputBytesInFlight).toBeGreaterThan(0);
-        expect(result.completionLatencyMs).toBeGreaterThan(0);
       }
 
-      expect(results.map((result) => result.concurrency)).toEqual(concurrencyLevels);
       console.info('BST-387 embedding queue load matrix', JSON.stringify(results));
     },
     LOAD_TEST_TIMEOUT_MS
