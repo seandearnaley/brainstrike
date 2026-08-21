@@ -87,7 +87,9 @@ const PAGE_SIZE_ITEMS = PAGE_SIZE_OPTIONS.map((size) => (
 ));
 
 function matchesLogLevel(record: LogRecord, minimumLevelIndex: number): boolean {
-  const recordLevelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(record.level));
+  const knownLevelIndex = LOG_LEVEL_OPTIONS.indexOf(record.level);
+  const recordLevelIndex =
+    knownLevelIndex === -1 ? LOG_LEVEL_OPTIONS.indexOf(LogLevel.INFO) : knownLevelIndex;
   return recordLevelIndex >= minimumLevelIndex;
 }
 

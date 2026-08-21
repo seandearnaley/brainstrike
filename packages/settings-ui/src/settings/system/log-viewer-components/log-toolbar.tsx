@@ -98,13 +98,13 @@ export function LogToolbar({
             onValueChange={(value) => onLevelChange(value as LogLevel)}
             value={logLevelFilter}
           >
-            <SelectTrigger className="w-[140px] border-border/50 bg-muted/50">
+            <SelectTrigger aria-label="Level" className="w-[140px] border-border/50 bg-muted/50">
               <SelectValue placeholder="Level" />
             </SelectTrigger>
             <SelectContent>{logLevelItems}</SelectContent>
           </Select>
           <Select onValueChange={onScopeChange} value={scopeFilter}>
-            <SelectTrigger className="w-[170px] border-border/50 bg-muted/50">
+            <SelectTrigger aria-label="Scope" className="w-[170px] border-border/50 bg-muted/50">
               <SelectValue placeholder="Scope" />
             </SelectTrigger>
             <SelectContent>{scopeItems}</SelectContent>

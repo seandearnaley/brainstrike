@@ -52,7 +52,7 @@ export function useLogRecordSource({
         });
     }
 
-    const unsubscribe = logSource.subscribe?.((records) => {
+    const handleSubscriptionRecords = (records: readonly LogRecord[]): void => {
       pendingSubscriptionRecords = records;
       if (subscriptionTimerId !== null) {
         window.clearTimeout(subscriptionTimerId);
@@ -65,7 +65,17 @@ export function useLogRecordSource({
           onRecordsChange(applyRetentionLimit(pendingRecords));
         }
       }, LOG_SUBSCRIPTION_DEBOUNCE_MS);
-    });
+    };
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = logSource.subscribe?.(handleSubscriptionRecords);
+    } catch (error) {
+      toast({
+        description: error instanceof Error ? error.message : String(error),
+        title: 'Failed to subscribe to logs',
+        variant: 'destructive',
+      });
+    }
 
     return () => {
       cancelled = true;

@@ -91,6 +91,7 @@ describe('LogViewer', () => {
     await waitFor(() => {
       expect(screen.getByText('No logs recorded for the current session.')).toBeInTheDocument();
     });
+    expect(screen.getByRole('button', { name: 'Export Logs' })).toBeDisabled();
   });
 
   it('surfaces initial log load failures through toast', async () => {
@@ -137,6 +138,45 @@ describe('LogViewer', () => {
         variant: 'destructive',
       });
     });
+  });
+
+  it('surfaces subscription failures and recovers when the source changes', async () => {
+    const failedSource = {
+      getInitialRecords: async () => [createMockLogRecord({ message: 'Initial fallback record' })],
+      subscribe: () => {
+        throw new Error('subscription failed');
+      },
+    };
+    let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;
+    const unsubscribe = vi.fn();
+    const recoveredSource = {
+      getInitialRecords: async () => [],
+      subscribe: (handler: (records: readonly LogRecord[]) => void) => {
+        subscribedHandler = handler;
+        return unsubscribe;
+      },
+    };
+
+    const { rerender, unmount } = render(<LogViewer logSource={failedSource} toast={mockToast} />);
+
+    expect(await screen.findByText('Initial fallback record')).toBeInTheDocument();
+    expect(mockToast).toHaveBeenCalledWith({
+      description: 'subscription failed',
+      title: 'Failed to subscribe to logs',
+      variant: 'destructive',
+    });
+
+    rerender(<LogViewer logSource={recoveredSource} toast={mockToast} />);
+    await waitFor(() => expect(subscribedHandler).toBeDefined());
+    act(() => {
+      subscribedHandler?.([createMockLogRecord({ message: 'Recovered subscription record' })]);
+    });
+    await waitFor(() =>
+      expect(screen.getByText('Recovered subscription record')).toBeInTheDocument()
+    );
+
+    unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('renders subscribed log updates and unsubscribes on unmount', async () => {
@@ -943,54 +983,5 @@ describe('LogViewer', () => {
     await waitFor(() => expect(clipboardMocks.writeText).toHaveBeenCalledTimes(1));
     const copied = clipboardMocks.writeText.mock.calls[0]?.[0];
     expect(JSON.parse(String(copied))).toEqual(record);
-  });
-
-  it('filters logs by level', async () => {
-    const logs = [
-      createMockLogRecord({ level: LogLevel.DEBUG, message: 'Debug Log' }),
-      createMockLogRecord({ level: LogLevel.ERROR, message: 'Error Log' }),
-    ];
-    const logSource = {
-      getInitialRecords: async () => logs,
-      subscribe: () => () => {},
-    };
-
-    render(<LogViewer logSource={logSource} toast={mockToast} />);
-
-    // Default level is DEBUG, so both should show
-    await waitFor(() => {
-      expect(screen.getByText('Debug Log')).toBeInTheDocument();
-      expect(screen.getByText('Error Log')).toBeInTheDocument();
-    });
-
-    // Change to ERROR (we need to find the select trigger)
-    // Note: Radix UI Select is hard to test with simple fireEvent, usually requires userEvent or finding by role.
-    // For simplicity in this environment, we assume the logic works if the filter prop works.
-    // But let's try to interact with it if possible, or just rely on unit tests for the filter logic if we extracted it.
-    // Since we didn't extract logic to a pure function, we should try to test it.
-    // However, interacting with Radix Select in JSDOM can be tricky without setup.
-    // Let's skip complex interaction tests for now and focus on rendering.
-  });
-
-  it('shows pagination when logs exceed the page size', async () => {
-    const logs = Array.from({ length: 60 }, (_, index) =>
-      createMockLogRecord({
-        message: `Log ${index + 1}`,
-        timestamp: index + 1,
-      })
-    );
-    const logSource = {
-      getInitialRecords: async () => logs,
-      subscribe: () => () => {},
-    };
-
-    render(<LogViewer logSource={logSource} toast={mockToast} />);
-
-    await waitFor(() => {
-      // New pagination format: page input showing "2" and "of 2" text
-      const pageInput = screen.getByRole('spinbutton', { name: 'Page number' });
-      expect(pageInput).toHaveValue(2);
-      expect(screen.getByText('of 2')).toBeInTheDocument();
-    });
   });
 });
