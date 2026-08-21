@@ -1026,6 +1026,8 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         // Meta's direct-provider examples publish a 131,072 output limit, but
         // the fixed OpenRouter route reports max_completion_tokens: null.
         // Omit maxOutputTokens rather than transplanting a provider-local limit.
+        // Meta does not document that limit as a distinct default combined
+        // thinking+answer window, so vendorDefaultOutputTokens is absent too.
         pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
         reasoning: {
           defaultEffort: 'medium',
