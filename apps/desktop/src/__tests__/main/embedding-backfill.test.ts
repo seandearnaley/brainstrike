@@ -2463,9 +2463,11 @@ describe('embedding-backfill', () => {
       "Backfill timed out while waiting for embedding set 'set-123' to drain."
     );
 
+    await vi.waitFor(() => {
+      expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    });
     await vi.advanceTimersByTimeAsync(100);
     await rejection;
-    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
