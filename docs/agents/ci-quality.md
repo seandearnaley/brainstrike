@@ -316,7 +316,8 @@ a reviewed, human-maintained declaration:
 arbitrary negative-control behavior cannot be derived safely from source text,
 so the verifier does not pretend to corroborate it. The named contract tests
 own those behavioral controls, and changes to an `armed` claim must update them
-together.
+together. Because `armed=yes` asserts a negative control in that paired test, it
+is invalid when `paired=no`; the parser rejects that contradictory state.
 
 Guard-shaped tools are not classified merely because they live under
 `scripts/`. In particular, `scan-hooks.cjs` remains a manual diagnostic and

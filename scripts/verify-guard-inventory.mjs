@@ -401,6 +401,9 @@ export function parseGuardInventory(source) {
     if (scripts.has(script)) {
       throw new Error(`${INVENTORY_LABEL}:${index + 1} contains duplicate guard ${script}`);
     }
+    if (armed === 'yes' && paired === 'no') {
+      throw new Error(`${INVENTORY_LABEL}:${index + 1} armed=yes requires paired=yes`);
+    }
 
     scripts.add(script);
     entries.push({

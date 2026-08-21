@@ -56,6 +56,13 @@ test('rejects malformed and duplicate classified guard rows', () => {
   assert.throws(
     () =>
       parseGuardInventory(
+        'example-guard.mjs → wired=yes/paired=no/armed=yes → protects an example invariant\n'
+      ),
+    /armed=yes requires paired=yes/
+  );
+  assert.throws(
+    () =>
+      parseGuardInventory(
         [
           'example-guard.mjs → wired=yes/paired=yes/armed=yes → first purpose',
           'example-guard.mjs → wired=yes/paired=yes/armed=yes → second purpose',
@@ -327,7 +334,8 @@ test('ignores statically disabled Static steps when deriving CI reachability', a
     await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
 
     const issues = await validateGuardInventory({
-      inventorySource: 'example-guard.mjs → wired/paired/armed → protects an example invariant\n',
+      inventorySource:
+        'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant\n',
       packageScripts: {
         lint: 'pnpm run lint:example',
         'lint:ci': 'pnpm run lint:example',
