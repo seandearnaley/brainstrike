@@ -137,18 +137,31 @@ Vector device preference is ONE canonical record (BST-1380):
   intentionally preserves its serial per-chunk hash awaits, verbatim pre-BST-391
   SHA-256 helper, and pre-BST-391 payload validator; its fixture payloads omit
   both new source-identity fields so the legacy timing cannot silently absorb
-  relocated validation work. The timing therefore includes the scheduling
+  relocated validation work. It also reproduces the historical tagged-item
+  construction/result shape and normalizes both arms to sorted chunk IDs only
+  after timing. Stable per-scenario closures invoke both arms; their options and
+  callbacks are constructed once outside warmup and measured samples. The
+  historical options dispatch hashing through the snapshotted callback with a
+  batch-level `jobModel.compositeKey` and preserve the original orphan
+  `logWarn`/`failOrphanJobs` path. The timing therefore includes the scheduling
   behavior BST-391 removed. The persisted arm also includes BST-391's new
   current/stale partition and per-chunk `sourceContentHash` comparison, so
   legacy-minus-persisted understates the hashing win rather than isolating pure
   hash cost. Each scenario deletes its queue, chunk, file, and embedding-set rows
   before the next scenario, so table growth does not confound comparisons across
   the content-length axis.
-  Source length still varies because `loadChunksBatch` reads chunk content,
-  while the SHA-256 identity itself remains fixed-size
-  `${contentHash}:${resolvedModelKey}` input. The fixture uses an already-composite
-  local model key; equivalence does not claim coverage of hosted-provider key
-  normalization.
+  Source length still varies because `loadChunksBatch` reads chunk content.
+  Fixture chunk hashes must be production-shaped 64-character lowercase hex:
+  with the 22-byte composite model key, `${contentHash}:${resolvedModelKey}` is
+  87 bytes and spans two SHA-256 compression blocks rather than the one block a
+  short literal would exercise. Current and stale `embedding_hash` fixtures are
+  distinct 64-hex digests so equality compares like-shaped identities instead
+  of rejecting by length. The fixture uses an already-composite local model key
+  supplied independently to the producer and historical batch job model;
+  equivalence does not cover hosted-provider normalization or payload/job-model
+  divergence. Historical `resolveJobModel` parsing is intentionally outside the
+  claim-path filter timing, so legacy-minus-persisted also excludes that
+  once-per-batch cost.
 - Focused run:
   `pnpm --filter @brainstrike/embeddings exec vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/embedding-input-hash-benchmark.integration.test.ts`.
 

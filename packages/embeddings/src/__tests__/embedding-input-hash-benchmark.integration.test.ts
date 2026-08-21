@@ -138,6 +138,8 @@ function classifyTaggedFilterResult(result: TaggedFilterResult): FilterClassific
   };
 }
 
+// Production stores both current and previous embedding identities as 64-hex
+// SHA-256 digests; changing one nibble keeps stale comparisons shape-faithful.
 function makeStaleEmbeddingHash(currentHash: string): string {
   if (!/^[0-9a-f]{64}$/.test(currentHash)) {
     throw new Error(`Cannot derive a stale fixture hash from '${currentHash}'.`);
@@ -204,6 +206,8 @@ async function seedScenario(
     [fileId, `${scenario}.txt`, `/${scenario}.txt`, contentLength, `file-hash-${scenario}`, now]
   );
 
+  // Production chunk hashes are 64 lowercase hex characters. With MODEL_KEY,
+  // that makes the SHA-256 input 87 bytes and spans two compression blocks.
   const contentHashes = await Promise.all(
     Array.from({ length: batchSize }, (_, index) =>
       historicalSha256Hex(`benchmark-content-${scenario}-${index}`)
@@ -387,15 +391,23 @@ describe.sequential('embedding input hash relocation benchmark', () => {
               ...historicalResult.toProcess,
             ];
             expect(historicalResult.orphanCount).toBe(0);
+            expect(persistedResult.orphanCount).toBe(0);
+            expect(persistedResult.staleCount).toBe(0);
             expect(historicalTaggedItems).toHaveLength(batchSize);
-            expect(historicalTaggedItems[0]).toMatchObject({
-              expectedHash: expect.any(String),
-              job: expect.any(Object),
-              payload: expect.any(Object),
-            });
+            for (const historicalTaggedItem of historicalTaggedItems) {
+              expect(historicalTaggedItem).toMatchObject({
+                chunk: expect.any(Object),
+                expectedHash: expect.any(String),
+                job: expect.any(Object),
+                payload: expect.any(Object),
+              });
+            }
             const legacyClassification = classifyTaggedFilterResult(historicalResult);
             const persistedClassification = classifyTaggedFilterResult(persistedResult);
-            expect(persistedClassification).toEqual(legacyClassification);
+            expect(
+              persistedClassification,
+              'Historical and persisted filters disagree; verify whether the embedding-input hash format intentionally changed.'
+            ).toEqual(legacyClassification);
             expect(persistedClassification).toEqual(scenario.expectedClassification);
 
             const legacyWorkerHotPathMs = await measureMedian(runHistoricalWorkerHotPath);
