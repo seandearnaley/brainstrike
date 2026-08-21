@@ -280,6 +280,14 @@ that is no longer reachable, so merely leaving `lint:foo` in `package.json`
 does not count as wiring. Direct workflow guards (including the pre-install
 lockfile check) are part of the same derived set.
 
+`wired` is machine-corroborated for guards discoverable through that root
+package-script and required-workflow command graph. Some classified guards are
+enforced by their paired contract under the required Static `test:scripts`
+step instead; those rows remain reviewed declarations because the verifier
+does not guess execution from arbitrary JavaScript test source. Moving one of
+those guards out of its contract requires updating the inventory and contract
+together.
+
 A `paired` claim is machine-checked against either the guard's exact-basename
 test or an explicit `contract: scripts/__tests__/<name>.test.mjs` annotation in
 the row. Discovery is intentionally non-recursive because `test:scripts` is
