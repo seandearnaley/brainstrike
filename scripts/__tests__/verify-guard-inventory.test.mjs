@@ -35,6 +35,19 @@ test('rejects malformed and duplicate classified guard rows', () => {
     () => parseGuardInventory('not an inventory row\n'),
     /scripts\/_guard-inventory\.md:1 must match/
   );
+  for (const malformedStates of [
+    'wired=yes/paired=maybe/armed=no',
+    'armed=no/wired=yes/paired=yes',
+    'wired=yes/paired=yes',
+  ]) {
+    assert.throws(
+      () =>
+        parseGuardInventory(
+          `example-guard.mjs → ${malformedStates} → protects an example invariant\n`
+        ),
+      /scripts\/_guard-inventory\.md:1 must match/
+    );
+  }
   assert.doesNotThrow(() =>
     parseGuardInventory(
       'example-guard.cjs → wired=yes/paired=yes/armed=yes → protects an example invariant\n'
