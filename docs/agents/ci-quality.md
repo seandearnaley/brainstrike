@@ -267,11 +267,12 @@ this way on the next bump rather than assuming the tree regressed.
 ### Warden guard inventory (BST-675)
 
 `scripts/_guard-inventory.md` is the authoritative set of scripts classified as
-CI guards. A row means the script is wired into a required path, has a paired
-test under `scripts/__tests__`, and that test contains a negative control that
-proves the guard can fail. `scripts/verify-guard-inventory.mjs` validates the
-inventory in both local and CI lint paths; malformed rows, duplicate names, and
-classified scripts that no longer exist fail closed.
+CI guards. A row declares that the script is wired into a required path, has a
+paired test under `scripts/__tests__`, and that test contains a negative control
+that proves the guard can fail; the corroboration boundary for each claim is
+defined below. `scripts/verify-guard-inventory.mjs` validates the inventory in
+both local and CI lint paths; malformed rows, duplicate names, and classified
+scripts that no longer exist fail closed.
 
 The verifier traverses root package-script calls from the actual `lint`,
 `lint:ci`, and `coverage:enforce` entrypoints plus required Static workflow
@@ -281,16 +282,17 @@ does not count as wiring. Direct workflow guards (including the pre-install
 lockfile check) are part of the same derived set.
 
 `wired` is machine-corroborated for guards discoverable through that root
-package-script and required-workflow command graph. Some classified guards are
-enforced by their paired contract under the required Static `test:scripts`
-step instead; those rows remain reviewed declarations because the verifier
-does not guess execution from arbitrary JavaScript test source. Moving one of
-those guards out of its contract requires updating the inventory and contract
-together.
+package-script and required-workflow command graph. Other classified guards are
+enforced by package-level build scripts or by their paired contract under the
+required Static `test:scripts` step; those rows remain reviewed declarations.
+Moving one of those guards out of its declared channel requires updating the
+inventory and contract together.
 
 A `paired` claim is machine-checked against either the guard's exact-basename
 test or an explicit `contract: scripts/__tests__/<name>.test.mjs` annotation in
-the row. Discovery is intentionally non-recursive because `test:scripts` is
+the row. The resolved test must structurally reference the guard through an
+import, URL, or script path; a filename or comment-only mention is insufficient.
+Discovery is intentionally non-recursive because `test:scripts` is
 non-recursive. `armed` is a reviewed, human-maintained declaration: arbitrary
 negative-control behavior cannot be derived safely from source text, so the
 verifier does not pretend to corroborate it. The named contract tests own those

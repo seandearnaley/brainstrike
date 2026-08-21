@@ -114,6 +114,13 @@ export function diffAgainstBaseline(counts, baseline) {
   return failures;
 }
 
+export function assertNoErrorSeverity(results) {
+  const errorCount = results.reduce((sum, result) => sum + result.errorCount, 0);
+  if (errorCount > 0) {
+    throw new Error(`eslint: ${errorCount} error-severity finding(s). Errors never get a budget.`);
+  }
+}
+
 export async function main({ repoRoot = DEFAULT_REPO_ROOT, writeBaseline = false } = {}) {
   const baselinePath = path.join(repoRoot, BASELINE_FILENAME);
   const eslint = new ESLint({ cwd: repoRoot });
@@ -140,11 +147,12 @@ export async function main({ repoRoot = DEFAULT_REPO_ROOT, writeBaseline = false
   // Missing/malformed baseline throws — a root without one cannot be verified.
   const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
 
-  const errorCount = results.reduce((sum, result) => sum + result.errorCount, 0);
-  if (errorCount > 0) {
+  try {
+    assertNoErrorSeverity(results);
+  } catch (error) {
     const formatter = await eslint.loadFormatter('stylish');
     console.log(await formatter.format(results));
-    throw new Error(`eslint: ${errorCount} error-severity finding(s). Errors never get a budget.`);
+    throw error;
   }
 
   const failures = diffAgainstBaseline(counts, baseline);
