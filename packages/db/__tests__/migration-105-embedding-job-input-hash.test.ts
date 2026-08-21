@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { migration105EmbeddingJobInputHash } from '../src/migrations/105-embedding-job-input-hash.js';
+import { migration106OpenRouterMuseSpark12 } from '../src/migrations/106-openrouter-muse-spark-1-2.js';
 import { migrations } from '../src/migrations/index.js';
 
 const VALID_HASH = 'cc48e54faf852e887cf52ea4b232e7c3db4773e5a55c0045e9ee06a8b4151b78';
@@ -19,8 +20,10 @@ describe('migration 105 embedding job input hash', () => {
     await db?.close();
   });
 
-  it('is the latest numbered migration', () => {
-    expect(migrations.at(-1)).toBe(migration105EmbeddingJobInputHash);
+  it('runs immediately before migration 106', () => {
+    const migration105Index = migrations.indexOf(migration105EmbeddingJobInputHash);
+    expect(migration105Index).toBeGreaterThanOrEqual(0);
+    expect(migrations[migration105Index + 1]).toBe(migration106OpenRouterMuseSpark12);
   });
 
   it('backfills provable jobs and visibly cancels unprovable active and retryable jobs', async () => {

@@ -1015,6 +1015,29 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'supported',
       },
       {
+        // Identity, lifecycle, modalities, context, streaming, tools, structured
+        // output, and mandatory reasoning ladder: official Meta Model API docs
+        // and 2026-08-05 release notes. Route, effective gateway limit, default
+        // effort, and gateway pricing: OpenRouter Models API, retrieved
+        // 2026-08-21 (BST-1383).
+        contextWindow: 1_048_576,
+        id: 'meta/muse-spark-1.2',
+        label: 'Muse Spark 1.2 (OpenRouter)',
+        // Meta's direct-provider examples publish a 131,072 output limit, but
+        // the fixed OpenRouter route reports max_completion_tokens: null.
+        // Omit maxOutputTokens rather than transplanting a provider-local limit.
+        pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
+        reasoning: {
+          defaultEffort: 'medium',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
         contextWindow: 1_048_576,
         id: 'meta/muse-spark-1.1',
         label: 'Muse Spark 1.1 (OpenRouter)',
