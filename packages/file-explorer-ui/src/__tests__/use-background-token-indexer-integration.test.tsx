@@ -156,21 +156,17 @@ const fileTreeRootB: IFileNode[] = [
 ];
 
 type IndexerOptions = Parameters<typeof useBackgroundTokenIndexerIntegration>[0];
-
-const renderIndexer = (overrides: Partial<IndexerOptions> = {}) =>
+const renderIndexer = (getOverrides: () => Partial<IndexerOptions> = () => ({})) =>
   renderHook(() =>
     useBackgroundTokenIndexerIntegration({
       fileTree: fileTreeRootA,
       onTokenResolved: vi.fn(),
       selectedFiles: new Set([fileAKey]),
-      ...overrides,
+      ...getOverrides(),
     })
   );
-
 const flushTimers = (): void => {
-  // Run multiple cycles to ensure:
-  // 1. First cycle: debounced effects (500ms timeout for handle map build)
-  // 2. Second cycle: effects triggered by state updates from first cycle
+  // Flush the debounced handle-map build and effects triggered by its state update.
   act(() => {
     vi.runAllTimers();
   });
@@ -602,7 +598,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
   describe('edge cases', () => {
     it('handles empty selection gracefully', () => {
-      renderIndexer({ selectedFiles: new Set<string>() });
+      renderIndexer(() => ({ selectedFiles: new Set<string>() }));
 
       flushTimers();
 
@@ -611,7 +607,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     });
 
     it('handles empty file tree gracefully', () => {
-      renderIndexer({ fileTree: [] });
+      renderIndexer(() => ({ fileTree: [] }));
 
       flushTimers();
 
@@ -804,7 +800,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       const { keys } = createElectronTree(1);
       mockFileTreeIndexContext = createElectronIndexContext(1);
 
-      const { result } = renderIndexer({ fileTree: [], selectedFiles: new Set() });
+      const { result } = renderIndexer(() => ({ fileTree: [], selectedFiles: new Set() }));
 
       await expect(result.current.triggerIndexing(keys)).rejects.toThrow(
         'electronFileReader is required for Electron file handles'
@@ -828,11 +824,11 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       });
       mockFileTreeIndexContext = createElectronIndexContext(2);
 
-      const { result } = renderIndexer({
+      const { result } = renderIndexer(() => ({
         electronFileReader,
         fileTree: [],
         selectedFiles: new Set(),
-      });
+      }));
 
       try {
         await act(async () => {
@@ -844,9 +840,12 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       expect(electronFileReader).toHaveBeenCalledTimes(2);
       expect(indexFilesMock).not.toHaveBeenCalled();
-      expect(records).toEqual(
-        expect.arrayContaining([{ level: LogLevel.ERROR, message: 'Failed to read Electron file' }])
-      );
+      expect(
+        records.filter(
+          (record) =>
+            record.level === LogLevel.ERROR && record.message === 'Failed to read Electron file'
+        )
+      ).toHaveLength(1);
     });
 
     it('streams Electron file reads in cooperative batches with a yield before overflow reads', async () => {
@@ -1103,6 +1102,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
           Map<string, { filePath: string; folderId: string; tokenCount: number }>
         >();
       (storeMock.getBatch as ReturnType<typeof vi.fn>).mockReturnValueOnce(deferredEntries.promise);
+      const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
       const warnings: string[] = [];
       const unsubscribe = addLogListener((record) => {
         if (
@@ -1130,6 +1130,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       }
 
       expect(warnings).toContain('Warm cache: cache ref became null during async operation');
+      expect(updateHotCacheSpy).not.toHaveBeenCalled();
     });
 
     it('does not hydrate a record that indexing resolved before the store read completed', async () => {
