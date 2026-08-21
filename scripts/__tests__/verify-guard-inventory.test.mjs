@@ -205,7 +205,17 @@ test('requires an exact basename or declared contract path for paired evidence',
           'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
         packageScripts: {},
         scriptsRoot: workspace,
-        testSources,
+        testSources: [
+          {
+            path: 'different-contract.test.mjs',
+            source: [
+              "import('../unrelated.mjs');",
+              `const fixture = "import('../example-guard.mjs')";`,
+              "run(); // 'scripts/example-guard.mjs'",
+              "run(/* 'scripts/example-guard.mjs' */);",
+            ].join('\n'),
+          },
+        ],
       }),
       ['example-guard.mjs: paired guard has no discoverable test under scripts/__tests__']
     );
@@ -219,7 +229,7 @@ test('requires an exact basename or declared contract path for paired evidence',
         testSources: [
           {
             path: 'different-contract.test.mjs',
-            source: "import '../example-guard.mjs';\n",
+            source: "import('../example-guard.mjs');\n",
           },
         ],
       }),
