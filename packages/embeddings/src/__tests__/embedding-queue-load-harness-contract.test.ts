@@ -18,12 +18,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 describe('embedding queue load harness contract', () => {
+  const packageRoot = path.resolve(import.meta.dirname, '../..');
   const harnessPath = path.resolve(
-    process.cwd(),
+    packageRoot,
     'src/__tests__/embedding-queue-load.integration.test.ts'
   );
-  const integrationConfigPath = path.resolve(process.cwd(), 'vitest.integration.config.mts');
-  const packageJsonPath = path.resolve(process.cwd(), 'package.json');
+  const integrationConfigPath = path.resolve(packageRoot, 'vitest.integration.config.mts');
+  const packageJsonPath = path.resolve(packageRoot, 'package.json');
 
   it('keeps the load harness in the serialized integration lane', async () => {
     expect(existsSync(harnessPath)).toBe(true);
@@ -51,8 +52,9 @@ describe('embedding queue load harness contract', () => {
     expect(hasExactArgument(integrationScript, '--no-file-parallelism')).toBe(true);
     expect(hasPoolArgument(integrationScript)).toBe(false);
     expect(hasPoolArgument(`${integrationScript} --pool=threads`)).toBe(true);
-    // Pin the equals form so a widened worker count cannot satisfy the same
-    // exact-token check through substring matching.
+    expect(hasPoolArgument(`${integrationScript} --pool threads`)).toBe(true);
+    // The positive worker-count contract intentionally pins the canonical
+    // equals form; a widened count cannot satisfy it through substring matching.
     expect(
       hasExactArgument(
         integrationScript.replace('--maxWorkers=1', '--maxWorkers=10'),

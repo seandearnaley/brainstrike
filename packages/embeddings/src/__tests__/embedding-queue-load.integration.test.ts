@@ -15,6 +15,7 @@ import type {
 
 const LOAD_TEST_TIMEOUT_MS = 90_000;
 const SCENARIO_COMPLETION_TIMEOUT_MS = 15_000;
+const FIRST_WAVE_RENDEZVOUS_TIMEOUT_MS = 5000;
 const JOB_COUNT = 12;
 const MAX_IN_FLIGHT_JOBS = 4;
 const EMBEDDING_DIMENSIONS = 8;
@@ -27,6 +28,7 @@ interface QueueLoadMetrics {
   readonly claimLimits: readonly number[];
   readonly completionLatencyMs: number;
   readonly concurrency: number;
+  readonly firstWaveArrivalCount: number;
   readonly firstWaveRendezvousReached: boolean;
   readonly jobCount: number;
   readonly leaseClaimCount: number;
@@ -62,6 +64,7 @@ class LoadTestEmbeddingService implements EmbeddingService {
     this.delayMs = delayMs;
     this.firstWaveSize = firstWaveSize;
     if (firstWaveSize === 1) {
+      this.firstWaveArrivals = 1;
       this.firstWaveRelease = Promise.resolve();
       this.releaseFirstWave = () => {};
       this.firstWaveRendezvousReached = true;
@@ -156,6 +159,10 @@ class LoadTestEmbeddingService implements EmbeddingService {
     return Promise.resolve();
   }
 
+  get firstWaveArrivalCount(): number {
+    return this.firstWaveArrivals;
+  }
+
   private async waitForFirstWave(): Promise<void> {
     if (this.firstWaveRendezvousReached) {
       return;
@@ -165,7 +172,26 @@ class LoadTestEmbeddingService implements EmbeddingService {
       this.firstWaveRendezvousReached = true;
       this.releaseFirstWave();
     }
-    await this.firstWaveRelease;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.firstWaveRelease,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            reject(
+              new Error(
+                `Timed out waiting for embedding load first wave: ${this.firstWaveArrivals}/${this.firstWaveSize} arrivals.`
+              )
+            );
+          }, FIRST_WAVE_RENDEZVOUS_TIMEOUT_MS);
+          timeout.unref();
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
   }
 }
 
@@ -237,6 +263,11 @@ async function runLoadScenario(params: {
   readonly concurrency: number;
   readonly scenario: string;
 }): Promise<QueueLoadMetrics> {
+  if (!(params.adaptive || JOB_COUNT >= params.concurrency)) {
+    throw new Error(
+      `Non-adaptive load scenarios require at least one first-wave job per loop: ${JOB_COUNT} jobs for concurrency ${params.concurrency}.`
+    );
+  }
   const db = await wasmLoader.createPGlite(`memory://${params.scenario}`);
   let restoreClaimSpy: (() => void) | undefined;
   let stopWorker: (() => Promise<void>) | undefined;
@@ -329,6 +360,7 @@ async function runLoadScenario(params: {
       claimLimits,
       completionLatencyMs: performance.now() - startedAt,
       concurrency: params.concurrency,
+      firstWaveArrivalCount: service.firstWaveArrivalCount,
       firstWaveRendezvousReached: service.firstWaveRendezvousReached,
       jobCount: JOB_COUNT,
       leaseClaimCount,
@@ -369,6 +401,7 @@ describe.sequential('embedding queue load matrix', () => {
         expect(result.maxAttempts).toBe(1);
         expect(result.firstWaveRendezvousReached).toBe(true);
         const expectedPeak = Math.min(concurrency, MAX_IN_FLIGHT_JOBS);
+        expect(result.firstWaveArrivalCount).toBe(expectedPeak);
         expect(result.peakClaimedJobs).toBe(expectedPeak);
         expect(result.peakVectorsInFlight).toBe(expectedPeak);
         expect(result.peakInputBytesInFlight).toBeGreaterThan(0);
