@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-
-import '../check-e2e-destructive-tags.mjs';
 
 const scriptPath = fileURLToPath(new URL('../check-e2e-destructive-tags.mjs', import.meta.url));
 
@@ -35,6 +33,23 @@ test('allows a factory-reset flow explicitly marked @destructive', async () => {
     );
 
     const result = spawnSync(process.execPath, [scriptPath], { cwd: workspace, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /E2E destructive tag check passed/);
+  });
+});
+
+test('runs when invoked through a symlink', async () => {
+  await withWorkspace(async (workspace) => {
+    const symlinkPath = path.join(workspace, 'check-e2e-destructive-tags-link.mjs');
+    await mkdir(path.join(workspace, 'apps', 'web', 'e2e'), { recursive: true });
+    await mkdir(path.join(workspace, 'apps', 'desktop', 'e2e'), { recursive: true });
+    await symlink(scriptPath, symlinkPath);
+
+    const result = spawnSync(process.execPath, [symlinkPath], {
+      cwd: workspace,
+      encoding: 'utf8',
+    });
+
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /E2E destructive tag check passed/);
   });

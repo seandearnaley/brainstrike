@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-
-import '../enforce-coverage.mjs';
 
 const scriptPath = fileURLToPath(new URL('../enforce-coverage.mjs', import.meta.url));
 let workspace;
@@ -55,6 +53,19 @@ after(async () => {
 
 test('requires artifacts only from instrumented coverage scripts', () => {
   const result = spawnSync(process.execPath, [scriptPath], {
+    cwd: workspace,
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /All package coverage thresholds satisfied\./);
+});
+
+test('runs when invoked through a symlink', async () => {
+  const symlinkPath = path.join(workspace, 'enforce-coverage-link.mjs');
+  await symlink(scriptPath, symlinkPath);
+
+  const result = spawnSync(process.execPath, [symlinkPath], {
     cwd: workspace,
     encoding: 'utf8',
   });

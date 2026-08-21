@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,14 +63,15 @@ export async function main() {
     for (const failure of failures) {
       console.error(`- ${failure.file}:${failure.line}: matched ${failure.label}`);
     }
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   console.log('E2E destructive tag check passed.');
 }
 
 const isDirectExecution =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isDirectExecution) {
   await main();

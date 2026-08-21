@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { glob } from 'glob';
 
@@ -84,7 +84,7 @@ export async function main() {
 }
 
 const isDirectExecution =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isDirectExecution) {
   await main();

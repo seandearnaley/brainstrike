@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-
-import '../forbid-no-memo.mjs';
 
 const scriptPath = fileURLToPath(new URL('../forbid-no-memo.mjs', import.meta.url));
 
@@ -26,6 +24,21 @@ test('allows normal React source without a compiler escape directive', async () 
     await writeFile(sourcePath, 'export const Component = () => null;\n');
 
     const result = spawnSync(process.execPath, [scriptPath], { cwd: workspace, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /No forbidden React compiler escape directives found/);
+  });
+});
+
+test('runs when invoked through a symlink', async () => {
+  await withWorkspace(async (workspace) => {
+    const symlinkPath = path.join(workspace, 'forbid-no-memo-link.mjs');
+    await symlink(scriptPath, symlinkPath);
+
+    const result = spawnSync(process.execPath, [symlinkPath], {
+      cwd: workspace,
+      encoding: 'utf8',
+    });
+
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /No forbidden React compiler escape directives found/);
   });
