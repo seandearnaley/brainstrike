@@ -115,6 +115,26 @@ Vector device preference is ONE canonical record (BST-1380):
      idle polling cadence. Diagnostics consume the stored poll timestamp; they
      must not synthesize queue freshness during React render.
 
+### Embedding input hash relocation benchmark (BST-393)
+
+- `packages/embeddings/src/__tests__/embedding-input-hash-benchmark.integration.test.ts`
+  compares the historical claim-path hash with the persisted-payload path from
+  BST-391 for batch sizes 1, 8, and 32 and source contents of 128 and 4096 bytes.
+- It reports median legacy worker-hot-path, persisted worker-hot-path, producer
+  hash, and relocated end-to-end durations. The relocated end-to-end value is
+  producer hashing plus the persisted worker path; this prevents the benchmark
+  from pretending that moving work upstream makes its CPU cost disappear.
+- Completion-path duplicate hashing is not benchmarked: BST-392 removed it
+  before this harness existed. The remaining comparison is the still-relevant
+  BST-391 claim-path relocation identified when BST-393 was re-groomed.
+- Timing is diagnostic output, not a threshold gate. The deterministic checks
+  require the legacy and persisted filters to classify the same chunks across
+  the full matrix. Source length still varies because `loadChunksBatch` reads
+  chunk content, while the SHA-256 identity itself remains fixed-size
+  `${contentHash}:${resolvedModelKey}` input.
+- Focused run:
+  `pnpm --filter @brainstrike/embeddings exec vitest run --config vitest.integration.config.mts --maxWorkers=1 --no-file-parallelism src/__tests__/embedding-input-hash-benchmark.integration.test.ts`.
+
 Foreground query coordination (desktop):
 - The hidden host runs BOTH background indexing and assistant query embeddings; a
   foreground query must never share the GPU with background indexing.
