@@ -286,7 +286,8 @@ test('ignores non-Static jobs and inline comments when deriving CI reachability'
     await writeFile(path.join(workspace, 'example-guard.mjs'), 'export {};\n');
 
     const issues = await validateGuardInventory({
-      inventorySource: 'example-guard.mjs → wired/paired/armed → protects an example invariant\n',
+      inventorySource:
+        'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant\n',
       packageScripts: {
         lint: 'pnpm run lint:example',
         'lint:ci': 'pnpm run lint:example',
@@ -467,7 +468,7 @@ test('requires an exact basename or declared contract path for paired evidence',
     assert.deepEqual(
       await validateGuardInventory({
         inventorySource:
-          'example-guard.mjs → wired/paired/armed → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
+          'example-guard.mjs → wired=yes/paired=yes/armed=yes → protects an example invariant; contract: scripts/__tests__/different-contract.test.mjs\n',
         packageScripts: {},
         scriptsRoot: workspace,
         testSources: [
@@ -575,7 +576,7 @@ test('direct execution remains armed through a symlink', async () => {
     );
     await writeFile(
       path.join(scriptsRoot, '_guard-inventory.md'),
-      'missing-guard.mjs → wired/paired/armed → protects a missing invariant\n'
+      'missing-guard.mjs → wired=yes/paired=yes/armed=yes → protects a missing invariant\n'
     );
     await writeFile(
       path.join(scriptsRoot, '__tests__', 'missing-guard.test.mjs'),
