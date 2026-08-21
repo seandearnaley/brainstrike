@@ -331,10 +331,10 @@ async function runLoadScenario(params: {
       `Embedding load scenarios require one job per first-wave loop: ${JOB_COUNT} jobs for a first wave of ${firstWaveSize}.`
     );
   }
+  const workerLoopRendezvous = new WorkerLoopRendezvous(params.concurrency);
   const db = await wasmLoader.createPGlite(`memory://${params.scenario}`);
   let restoreClaimSpy: (() => void) | undefined;
   let stopWorker: (() => Promise<void>) | undefined;
-  const workerLoopRendezvous = new WorkerLoopRendezvous(params.concurrency);
 
   try {
     await migrate(db);
@@ -451,6 +451,17 @@ async function runLoadScenario(params: {
 describe.sequential('embedding queue load matrix', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('rejects invalid concurrency before allocating PGlite', async () => {
+    const createPGliteSpy = vi.spyOn(wasmLoader, 'createPGlite').mockImplementation(async () => {
+      throw new Error('PGlite allocation should not be reached.');
+    });
+
+    await expect(
+      runLoadScenario({ adaptive: false, concurrency: 0, scenario: 'invalid-concurrency' })
+    ).rejects.toThrow('Load-test worker-loop rendezvous requires a positive integer');
+    expect(createPGliteSpy).not.toHaveBeenCalled();
   });
 
   it(
