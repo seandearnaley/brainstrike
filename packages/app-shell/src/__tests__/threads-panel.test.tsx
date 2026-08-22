@@ -4,7 +4,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
-import { ActionRegistryProvider } from '@brainstrike/ui';
+import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -55,37 +55,59 @@ vi.mock('@tanstack/react-virtual', () => ({
   ),
 }));
 
-const { dbMocks, fileExplorerMocks, groupRows, mockDb, placementRows, threadRows } = vi.hoisted(
-  () => ({
-    dbMocks: {
-      activeRunError: null as Error | null,
-      activeRunQueryEnabled: [] as boolean[],
-      activeRunRows: [] as Record<string, unknown>[],
-      activeRunSweepError: null as Error | null,
-      database: undefined as unknown,
-      deleteFailureThreadId: null as string | null,
-      initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
-      initializing: false,
-      metadataFailureThreadId: null as string | null,
-      providerError: null as Error | null,
-    },
-    fileExplorerMocks: {
-      rootDirectoryHandle: {
-        name: 'workspace-a',
-        path: '/tmp/workspace-a',
-      } as { name: string; path: string } | null,
-    },
-    groupRows: [] as Record<string, unknown>[],
-    mockDb: {
-      exec: vi.fn(() => Promise.resolve()),
-      query: vi.fn<
-        (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>
-      >(() => Promise.resolve({ rows: [] })),
-    },
-    placementRows: [] as Record<string, unknown>[],
-    threadRows: [] as Record<string, unknown>[],
-  })
-);
+const {
+  dbMocks,
+  fileExplorerMocks,
+  gitMocks,
+  groupRows,
+  mockDb,
+  placementRows,
+  rootRows,
+  threadRows,
+} = vi.hoisted(() => ({
+  dbMocks: {
+    activeRunError: null as Error | null,
+    activeRunQueryEnabled: [] as boolean[],
+    activeRunRows: [] as Record<string, unknown>[],
+    activeRunSweepError: null as Error | null,
+    awaitingApprovalError: null as Error | null,
+    awaitingApprovalRows: [] as Record<string, unknown>[],
+    database: undefined as unknown,
+    deleteFailureThreadId: null as string | null,
+    initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
+    initializing: false,
+    metadataFailureThreadId: null as string | null,
+    providerError: null as Error | null,
+    rootsQueryError: null as Error | null,
+  },
+  fileExplorerMocks: {
+    rootDirectoryHandle: {
+      name: 'workspace-a',
+      path: '/tmp/workspace-a',
+    } as { name: string; path: string } | null,
+  },
+  gitMocks: {
+    available: true,
+    deferredLoads: [] as boolean[],
+    worktrees: [] as {
+      branch: string | null;
+      /** Workspace root ids containing this worktree; defaults to none. */
+      containment?: readonly string[];
+      detached: boolean;
+      path: string;
+    }[],
+  },
+  groupRows: [] as Record<string, unknown>[],
+  mockDb: {
+    exec: vi.fn(() => Promise.resolve()),
+    query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>>(
+      () => Promise.resolve({ rows: [] })
+    ),
+  },
+  placementRows: [] as Record<string, unknown>[],
+  rootRows: [] as Record<string, unknown>[],
+  threadRows: [] as Record<string, unknown>[],
+}));
 
 function parseMetadataObject(value: unknown): Record<string, unknown> {
   if (typeof value !== 'string') {
@@ -228,13 +250,60 @@ vi.mock('@brainstrike/db/react', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
-  usePGliteLiveQuery: (options: { readonly enabled: boolean }) => {
+  // Routed BY cacheKey, never by call order: the panel now runs two live
+  // projections with identical row shapes ({ threadId }), so an order-based
+  // double would happily feed the running spinners the approval rows.
+  usePGliteLiveQuery: (options: { readonly cacheKey: string; readonly enabled: boolean }) => {
+    if (options.cacheKey.startsWith('["threads-awaiting-approval"')) {
+      return {
+        error: dbMocks.awaitingApprovalError,
+        loading: false,
+        refresh: vi.fn(),
+        rows: options.enabled ? dbMocks.awaitingApprovalRows : [],
+      };
+    }
+    if (!options.cacheKey.startsWith('["active-assistant-thread-ids"')) {
+      throw new Error(`Unrouted thread panel live query: ${options.cacheKey}`);
+    }
     dbMocks.activeRunQueryEnabled.push(options.enabled);
     return {
       error: dbMocks.activeRunError,
       loading: false,
       refresh: vi.fn(),
       rows: options.enabled ? dbMocks.activeRunRows : [],
+    };
+  },
+}));
+
+// The branch chips' inventory: `deferInitialLoad` keeps `inventory` null, the
+// same observable pre-first-load state the real hook reports, so the folder-mode
+// gate stays visible to these tests.
+vi.mock('../changes/use-git-inventory', () => ({
+  useGitInventory: (options?: { readonly deferInitialLoad?: boolean }) => {
+    const deferred = Boolean(options?.deferInitialLoad);
+    gitMocks.deferredLoads.push(deferred);
+    return {
+      available: gitMocks.available,
+      error: null,
+      inventory:
+        deferred || !gitMocks.available
+          ? null
+          : {
+              errors: [],
+              repositories: [
+                {
+                  identity: { commonDir: '/tmp/workspace-a/.git', root: '/tmp/workspace-a' },
+                  worktrees: gitMocks.worktrees.map(({ containment, ...worktree }) => ({
+                    ...worktree,
+                    containment: containment ?? 'outside-roots',
+                    provenance: 'primary',
+                    trust: 'validated',
+                  })),
+                },
+              ],
+            },
+      loading: false,
+      refresh: vi.fn(),
     };
   },
 }));
@@ -269,6 +338,7 @@ function renderThreadsPanel(): ReturnType<typeof createTestActionRegistry> {
   render(
     <ActionRegistryProvider registry={actionRegistry.registry}>
       <ThreadsPanel />
+      <Toaster />
     </ActionRegistryProvider>
   );
   return actionRegistry;
@@ -288,6 +358,14 @@ beforeEach(() => {
   dbMocks.activeRunError = null;
   dbMocks.activeRunRows = [];
   dbMocks.activeRunSweepError = null;
+  dbMocks.awaitingApprovalError = null;
+  dbMocks.awaitingApprovalRows = [];
+  dbMocks.rootsQueryError = null;
+  gitMocks.available = true;
+  gitMocks.deferredLoads = [];
+  gitMocks.worktrees = [];
+  rootRows.splice(0, rootRows.length);
+  resetToastStore();
   dbMocks.deleteFailureThreadId = null;
   dbMocks.initializing = false;
   dbMocks.initializationStatus = 'ready';
@@ -302,11 +380,18 @@ beforeEach(() => {
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},
+    // Persisted and module-scope: without this reset, a test that opens a
+    // thread leaves every later test's "unseen" watermark already stamped.
+    lastViewedAtByThreadId: {},
     loadStateByResourceId: {},
     openThreadIdsByResourceId: {},
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},
     threadsByResourceId: {},
+    // The real store stamps this at creation, which is AFTER these fixtures'
+    // 2026-04 completion times — so the suite pins it to 0 and the tests that
+    // care about the floor set it themselves.
+    unseenBaselineAt: 0,
   });
   threadRows.splice(
     0,
@@ -554,6 +639,13 @@ beforeEach(() => {
           };
         }),
       };
+    }
+    if (sql.includes('FROM roots WHERE id = ANY')) {
+      if (dbMocks.rootsQueryError) {
+        throw dbMocks.rootsQueryError;
+      }
+      const requestedIds = (params?.[0] ?? []) as readonly string[];
+      return { rows: rootRows.filter((row) => requestedIds.includes(String(row['id']))) };
     }
     if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
       return { rows: [...latestRunRows] };
@@ -1962,5 +2054,514 @@ describe('ThreadsPanel groups', () => {
     });
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('none');
+  });
+});
+
+describe('ThreadsPanel folders', () => {
+  const WORKSPACE_ROOT = {
+    displayName: 'workspace-a',
+    id: 'root-1',
+    path: '/tmp/workspace-a',
+  };
+
+  function bindThreadToRoot(threadId: string, root = WORKSPACE_ROOT): void {
+    const row = threadRows.find((candidate) => candidate['id'] === threadId);
+    if (!row) {
+      throw new Error(`Cannot bind unknown thread ${threadId}.`);
+    }
+    row['metadata'] = JSON.stringify({
+      ...parseMetadataObject(row['metadata']),
+      operatingRootDisplayName: root.displayName,
+      operatingRootId: root.id,
+      operatingRootPath: root.path,
+    });
+    if (!rootRows.some((candidate) => candidate['id'] === root.id)) {
+      rootRows.push({ displayName: root.displayName, id: root.id, path: root.path });
+    }
+  }
+
+  function rowFor(title: string): HTMLElement {
+    const row = screen.getByText(title).closest<HTMLElement>('[data-testid="thread-row"]');
+    if (!row) {
+      throw new Error(`Expected a rendered row for ${title}.`);
+    }
+    return row;
+  }
+
+  async function enterFolderGrouping(): Promise<void> {
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Folder' }));
+    await screen.findAllByTestId('thread-folder-count');
+  }
+
+  it('groups threads by their bound workspace folder with a trailing No folder section', async () => {
+    bindThreadToRoot('thread-a');
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    const sections = screen.getAllByTestId('thread-group-section');
+    expect(sections).toHaveLength(2);
+    const folderSection = sections[0] as HTMLElement;
+    const unassignedSection = sections[1] as HTMLElement;
+    expect(within(folderSection).getByText('workspace-a')).toBeVisible();
+    expect(within(folderSection).getByTestId('thread-folder-count')).toHaveTextContent('1');
+    expect(within(unassignedSection).getByText('No folder')).toBeVisible();
+    expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
+    expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('folder');
+    // A folder is not a custom group, and "No folder" is not a folder: there is
+    // nothing for a new thread there to be bound to.
+    expect(
+      within(unassignedSection).queryByTestId('thread-folder-new-thread')
+    ).not.toBeInTheDocument();
+    expect(within(folderSection).getByTestId('thread-folder-new-thread')).toBeVisible();
+  });
+
+  // `collapsedGroupIds` is persisted, and folder sections mint their own keys.
+  // Group keys are pruned when their group is deleted; nothing pruned a folder
+  // key when the root behind it went away.
+  it('prunes collapse keys for roots that no longer have a folder section', async () => {
+    bindThreadToRoot('thread-a');
+    act(() => {
+      useAssistantThreadGroupsStore.setState({
+        collapsedGroupIds: {
+          'folder-unassigned': true,
+          'folder:root-1': true,
+          'folder:root-deleted': true,
+          'group-research': true,
+        },
+      });
+    });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    await waitFor(() => {
+      expect(
+        useAssistantThreadGroupsStore.getState().collapsedGroupIds['folder:root-deleted']
+      ).toBeUndefined();
+    });
+    const collapsed = useAssistantThreadGroupsStore.getState().collapsedGroupIds;
+    expect(collapsed['folder:root-1']).toBe(true);
+    expect(collapsed['folder-unassigned']).toBe(true);
+    expect(collapsed['group-research']).toBe(true);
+  });
+
+  it('renders a groupBy already rehydrated as folder instead of throwing on first paint', async () => {
+    bindThreadToRoot('thread-a');
+    // Persistence has accepted 'folder' since BST-1403, so the render path must
+    // honor it on MOUNT, not only when the popover switches into it.
+    act(() => {
+      useAssistantThreadGroupsStore.setState({ groupBy: 'folder' });
+    });
+
+    expect(() => renderThreadsPanel()).not.toThrow();
+
+    expect((await screen.findAllByTestId('thread-folder-count')).length).toBeGreaterThan(0);
+  });
+
+  it('offers folder sort without Custom and drives folderSortBy', async () => {
+    bindThreadToRoot('thread-a');
+    bindThreadToRoot('thread-b');
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    expect(await screen.findByRole('radio', { name: 'Custom' })).toBeVisible();
+    fireEvent.click(screen.getByRole('radio', { name: 'Folder' }));
+
+    // Folder sections have no manual order, so Custom is not on offer there.
+    expect(screen.queryByRole('radio', { name: 'Custom' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Name' }));
+    expect(useAssistantThreadGroupsStore.getState().folderSortBy).toBe('name');
+    // The manual-order presentations keep their own preference untouched.
+    expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
+    await waitFor(() => {
+      const titles = screen
+        .getAllByTestId('thread-row')
+        .map((row) => within(row).getByText(/thread/i).textContent);
+      expect(titles).toEqual(['First thread', 'Second thread']);
+    });
+  });
+
+  it('narrows the list to running threads through the Show only filters', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    // The three boxes are ONE labelled group, not three loose checkboxes that
+    // happen to sit under a heading: a screen reader announces "Show only" when
+    // focus enters, which is the only thing that says these narrow the list.
+    const showOnly = await screen.findByRole('group', { name: 'Show only' });
+    expect(within(showOnly).getAllByRole('checkbox')).toHaveLength(3);
+    fireEvent.click(within(showOnly).getByRole('checkbox', { name: 'Running' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+    });
+    expect(screen.getByText('Second thread')).toBeVisible();
+    expect(screen.queryByText('First thread')).not.toBeInTheDocument();
+    expect(useAssistantThreadGroupsStore.getState().threadFilters.running).toBe(true);
+    // The trigger's dot reports a narrowed list, not only a non-default sort.
+    expect(screen.getByTestId('threads-view-options-dot')).toBeInTheDocument();
+
+    // Two filters read as OR, not AND: ticking Unseen widens the list again.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Unseen' }));
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+  });
+
+  it('names the filters when they hide every thread instead of showing an empty tree', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Needs you' }));
+
+    expect(await screen.findByTestId('threads-filtered-empty-card')).toBeVisible();
+    expect(screen.queryByTestId('thread-row')).not.toBeInTheDocument();
+  });
+
+  it('shows a needs-you glyph that outranks the running spinner', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
+    dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
+    renderThreadsPanel();
+
+    const needsYou = await screen.findByTestId('thread-needs-you-glyph');
+    expect(needsYou).toHaveAccessibleName('Second thread needs your approval');
+    expect(within(rowFor('Second thread')).queryByTestId('thread-active-spinner')).toBeNull();
+  });
+
+  // Pinned because the fill is the ONLY thing this glyph says: `bg-amber-500`
+  // measured 1.91:1 against the light row surface (WCAG 1.4.11 wants 3:1), and
+  // a palette edit that quietly restores a lighter amber would take the dot
+  // back below the floor with every other assertion still green. Computed
+  // ratios against the surfaces CDT sampled: amber-700 on rgb(243,241,239) =
+  // 4.47:1; amber-500 on rgb(41,39,37) = 6.97:1.
+  it('paints the needs-you dot with a per-theme amber that clears the contrast floor', async () => {
+    dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
+    renderThreadsPanel();
+
+    const needsYou = await screen.findByTestId('thread-needs-you-glyph');
+    expect(needsYou).toHaveClass('bg-amber-700', 'dark:bg-amber-500');
+    expect(needsYou.className).not.toMatch(/(?:^|\s)bg-amber-500(?:\s|$)/);
+  });
+
+  it('surfaces an approval projection failure instead of showing every thread unblocked', async () => {
+    // Rows AND an error: without the rows the glyph could never have rendered
+    // and the absence assertion below would pass for the wrong reason. With
+    // them, it says what it means — a FAILED projection reports no thread ids,
+    // so the panel names the failure instead of glyphing one row.
+    dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
+    dbMocks.awaitingApprovalError = new Error('approval live query failed');
+    renderThreadsPanel();
+
+    expect(await screen.findByTestId('thread-approvals-error')).toHaveTextContent(
+      'Approval status unavailable: approval live query failed'
+    );
+    expect(screen.queryByTestId('thread-needs-you-glyph')).not.toBeInTheDocument();
+  });
+
+  // The fresh-install / post-upgrade storm: with no watermark for any thread,
+  // an unfloored derivation dots EVERY thread that ever finished a run.
+  it('paints no unseen dot for runs that completed before the store existed', async () => {
+    useAssistantThreadStore.setState({
+      unseenBaselineAt: new Date('2026-04-22T12:00:00Z').getTime(),
+    });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    expect(screen.queryAllByTestId('thread-unseen-glyph')).toHaveLength(0);
+    expect(screen.queryAllByTestId('thread-failed-glyph')).toHaveLength(0);
+  });
+
+  it('marks a completed thread unseen until it is opened', async () => {
+    renderThreadsPanel();
+
+    // The panel opens on the newest thread, and a thread you are looking at is
+    // never unseen — so exactly the other one carries the glyph.
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-unseen-glyph')).toHaveLength(1);
+    });
+    expect(within(rowFor('Second thread')).queryByTestId('thread-unseen-glyph')).toBeNull();
+    const firstRow = rowFor('First thread');
+    expect(within(firstRow).getByTestId('thread-unseen-glyph')).toHaveAccessibleName(
+      'First thread has unseen activity'
+    );
+
+    fireEvent.click(within(firstRow).getByText('First thread'));
+
+    await waitFor(() => {
+      expect(within(rowFor('First thread')).queryByTestId('thread-unseen-glyph')).toBeNull();
+    });
+    expect(
+      useAssistantThreadStore.getState().lastViewedAtByThreadId['thread-a']
+    ).toBeGreaterThanOrEqual(new Date('2026-04-22T09:00:10Z').getTime());
+  });
+
+  it('chips the folder branch on the bound row only, and only in folder grouping', async () => {
+    bindThreadToRoot('thread-a');
+    // Trailing separator on purpose: the folder row carries the RAW roots.path
+    // and the branch map is keyed by the normalized one.
+    gitMocks.worktrees = [{ branch: 'main', detached: false, path: '/tmp/workspace-a/' }];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    // Grouped mode never pays for the repo/worktree scan, so it shows no chip.
+    expect(screen.queryByText('main')).not.toBeInTheDocument();
+    expect(gitMocks.deferredLoads.at(-1)).toBe(true);
+
+    await enterFolderGrouping();
+
+    expect(gitMocks.deferredLoads.at(-1)).toBe(false);
+    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
+    expect(within(badges).getByText('main')).toBeVisible();
+    // First badge: the one the container query keeps at narrow panel widths.
+    expect(badges.firstElementChild).toHaveTextContent('main');
+    expect(within(rowFor('Second thread')).queryByText('main')).not.toBeInTheDocument();
+  });
+
+  // The symlink skew live e2e found: `roots.path` keeps the MOUNTED path,
+  // git reports the REALPATH, so the exact-path join misses and the chip
+  // silently vanished — while the composer's chip, asking git by rootId,
+  // still said `main` for the same root.
+  it('chips a folder whose mounted path is a symlink of the path git reports', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      {
+        branch: 'main',
+        containment: ['root-1'],
+        detached: false,
+        path: '/private/tmp/workspace-a',
+      },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
+    expect(within(badges).getByText('main')).toBeVisible();
+  });
+
+  // Two worktrees inside the folder: the folder has no branch of its own, and
+  // picking one of them would be a fabricated chip.
+  it('chips nothing when the folder contains more than one worktree', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      { branch: 'main', containment: ['root-1'], detached: false, path: '/private/tmp/repo-one' },
+      { branch: 'dev', containment: ['root-1'], detached: false, path: '/private/tmp/repo-two' },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    expect(screen.queryByText('main')).not.toBeInTheDocument();
+    expect(screen.queryByText('dev')).not.toBeInTheDocument();
+    // The badges slot still holds the provider/model pills, so the claim is
+    // that the BRANCH is not among them — the first span is the branch when
+    // there is one (that ordering is asserted by the exact-path test above).
+    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
+    expect(badges.firstElementChild).toHaveTextContent('OpenRouter');
+  });
+
+  // `git worktree list --porcelain` emits `bare` with NEITHER a `branch` line
+  // nor a `detached` line, so a bare worktree arrives as {branch: null,
+  // detached: false} — the one shape that is neither a name nor a detached
+  // HEAD. Rendered, it was a GitBranch icon with no label holding the first
+  // badge slot the narrow-panel container query protects.
+  it('chips nothing for a bare worktree, which has neither a branch nor a detached HEAD', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      { branch: null, containment: ['root-1'], detached: false, path: '/private/tmp/workspace-a' },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    expect(screen.queryByText('detached')).not.toBeInTheDocument();
+    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
+    // No empty first pill: the provider is back in the slot the branch would
+    // have taken, so the branch chip was not rendered label-less.
+    expect(badges.firstElementChild).toHaveTextContent('OpenRouter');
+  });
+
+  // Drag-reorder rewrites the whole listed section's ranks. Under a filter the
+  // rendered section is PARTIAL, so the rewrite would renumber the visible
+  // threads and interleave them with the hidden ones' untouched ranks. The
+  // affordance withdraws rather than lying, exactly as it does in folder mode.
+  it('withdraws the row drag affordance while a Show only filter narrows the list', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(rowFor('Second thread').closest('[draggable="true"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Running' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+    });
+    expect(rowFor('Second thread').closest('[draggable="true"]')).toBeNull();
+  });
+
+  // The filtered-empty card told the user to "clear the filters in view
+  // options" while the popover offered only the three individual boxes.
+  it('offers the clear-filters control its filtered-empty card points at', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    const showOnly = await screen.findByRole('group', { name: 'Show only' });
+    // Nothing to clear yet: a control that cannot do anything is not offered.
+    expect(within(showOnly).queryByRole('button', { name: 'Clear filters' })).toBeNull();
+    fireEvent.click(within(showOnly).getByRole('checkbox', { name: 'Needs you' }));
+
+    expect(await screen.findByTestId('threads-filtered-empty-card')).toBeVisible();
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filters' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(useAssistantThreadGroupsStore.getState().threadFilters.needsYou).toBe(false);
+    expect(screen.queryByTestId('threads-view-options-dot')).not.toBeInTheDocument();
+  });
+
+  // Every radio input carried NO `name`, so the browser treated all of them as
+  // ONE implicit group per document: ArrowDown off the last "Group by" option
+  // landed on the first "Sort by" option AND selected it, silently discarding
+  // the user's sort. A distinct `name` per radiogroup makes the native
+  // grouping match the ARIA grouping. JSDOM cannot dispatch real arrow-key
+  // radio navigation (that is the browser's own behaviour, not the DOM's), so
+  // this pins the CAUSE — the names — and the live re-check confirms the keys.
+  it('gives each radiogroup its own native name so arrows cannot cross into another group', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    const namesIn = (group: HTMLElement): Set<string> =>
+      new Set(
+        Array.from(group.querySelectorAll<HTMLInputElement>('input[type="radio"]')).map(
+          (input) => input.name
+        )
+      );
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+
+    const groupBy = await screen.findByRole('radiogroup', { name: 'Group by' });
+    const sortBy = screen.getByRole('radiogroup', { name: 'Sort by' });
+    expect(namesIn(groupBy)).toEqual(new Set(['threads-group-by']));
+    expect(namesIn(sortBy)).toEqual(new Set(['threads-sort-by']));
+
+    // Folder mode swaps Sort by's options for the folder-only pair; they are a
+    // different setting and must not share the recency/name group either.
+    fireEvent.click(screen.getByRole('radio', { name: 'Folder' }));
+
+    await waitFor(() => {
+      expect(namesIn(screen.getByRole('radiogroup', { name: 'Sort by' }))).toEqual(
+        new Set(['threads-folder-sort'])
+      );
+    });
+    expect(namesIn(screen.getByRole('radiogroup', { name: 'Group by' }))).toEqual(
+      new Set(['threads-group-by'])
+    );
+  });
+
+  it('creates a thread already bound to the folder it was started from', async () => {
+    bindThreadToRoot('thread-a');
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await enterFolderGrouping();
+    mockDb.query.mockClear();
+
+    fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
+
+    await waitFor(() => {
+      const metadataCall = mockDb.query.mock.calls.find(([sql]) => sql.includes('SET metadata'));
+      expect(parseMetadataObject(metadataCall?.[1]?.[1])).toMatchObject({
+        operatingRootDisplayName: 'workspace-a',
+        operatingRootId: 'root-1',
+        operatingRootPath: '/tmp/workspace-a',
+      });
+    });
+    expect(
+      mockDb.query.mock.calls.some(([sql]) => sql.includes('INSERT INTO mastra_threads'))
+    ).toBe(true);
+    // ONE metadata write for the whole binding, not one key at a time.
+    expect(mockDb.query.mock.calls.filter(([sql]) => sql.includes('SET metadata'))).toHaveLength(1);
+  });
+
+  it('toasts when a thread started from a folder cannot be created', async () => {
+    bindThreadToRoot('thread-a');
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await enterFolderGrouping();
+    mockDb.query.mockImplementationOnce(() => Promise.reject(new Error('thread insert failed')));
+
+    fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
+
+    expect(await screen.findByText('New thread in workspace-a failed')).toBeVisible();
+  });
+
+  it('offers neither drag handles nor group membership actions in folder grouping', async () => {
+    bindThreadToRoot('thread-a');
+    groupRows.push({
+      color: null,
+      icon: null,
+      id: 'group-research',
+      name: 'Research',
+      rank: 'a0',
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+    });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(rowFor('First thread').closest('[draggable="true"]')).not.toBeNull();
+
+    await enterFolderGrouping();
+
+    const folderRow = rowFor('First thread');
+    // A folder is not a custom group: re-binding is the composer's folder chip,
+    // so the row offers no drag source and no membership actions.
+    expect(folderRow.closest('[draggable="true"]')).toBeNull();
+    fireEvent.contextMenu(screen.getByText('First thread'));
+    expect(await screen.findByRole('menuitem', { name: 'Rename…' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: 'Move to Research' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Remove from Group' })).not.toBeInTheDocument();
   });
 });

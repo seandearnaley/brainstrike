@@ -2,10 +2,10 @@
  * "Unseen" for the Threads panel (BST-1404): threads whose most recent run
  * reached a TERMINAL state after the user last looked at them.
  *
- * The watermark (`lastViewedAtByThreadId`, epoch ms) lives in
- * `assistant-thread-store.ts` and is idempotent + monotonic there; this module
- * owns only the two halves the panel needs — the pure derivation, and the
- * effect that advances the watermark for the ACTIVE thread.
+ * The watermark (`lastViewedAtByThreadId`, epoch ms) and the `unseenBaselineAt`
+ * floor beneath it live in `assistant-thread-store.ts` and are monotonic there;
+ * this module owns only the two halves the panel needs — the pure derivation,
+ * and the effect that advances the watermark for the ACTIVE thread.
  */
 import type { AssistantMemoryThread, AssistantThreadRunStatus } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
@@ -29,6 +29,15 @@ export interface UnseenThreadIdsArgs {
   readonly activeThreadId: string | null;
   readonly lastViewedAtByThreadId: Readonly<Record<string, number>>;
   readonly threads: readonly AssistantMemoryThread[];
+  /**
+   * Epoch ms below which nothing is unseen — `unseenBaselineAt` from the thread
+   * store, stamped once at first run and again on the v3 -> v4 migrate.
+   *
+   * A FLOOR under the per-thread watermark, never a replacement for it: without
+   * it an empty watermark record reads as "the user has never seen anything",
+   * and every thread whose latest run ever completed lights up on first launch.
+   */
+  readonly unseenBaselineAt: number;
 }
 
 /**
@@ -41,6 +50,7 @@ export function deriveUnseenThreadIds({
   activeThreadId,
   lastViewedAtByThreadId,
   threads,
+  unseenBaselineAt,
 }: UnseenThreadIdsArgs): UnseenThreadIds {
   const unseen = new Set<string>();
   const failedUnseen = new Set<string>();
@@ -53,7 +63,8 @@ export function deriveUnseenThreadIds({
     if (completedAt === null || thread.id === activeThreadId) {
       continue;
     }
-    if (completedAt.getTime() <= (lastViewedAtByThreadId[thread.id] ?? 0)) {
+    const seenUpTo = Math.max(lastViewedAtByThreadId[thread.id] ?? 0, unseenBaselineAt);
+    if (completedAt.getTime() <= seenUpTo) {
       continue;
     }
     unseen.add(thread.id);
@@ -66,10 +77,16 @@ export function deriveUnseenThreadIds({
 
 /** {@link deriveUnseenThreadIds}, memoized on its inputs. */
 export function useUnseenThreadIds(args: UnseenThreadIdsArgs): UnseenThreadIds {
-  const { activeThreadId, lastViewedAtByThreadId, threads } = args;
+  const { activeThreadId, lastViewedAtByThreadId, threads, unseenBaselineAt } = args;
   return useMemo(
-    () => deriveUnseenThreadIds({ activeThreadId, lastViewedAtByThreadId, threads }),
-    [activeThreadId, lastViewedAtByThreadId, threads]
+    () =>
+      deriveUnseenThreadIds({
+        activeThreadId,
+        lastViewedAtByThreadId,
+        threads,
+        unseenBaselineAt,
+      }),
+    [activeThreadId, lastViewedAtByThreadId, threads, unseenBaselineAt]
   );
 }
 

@@ -22,6 +22,9 @@
  * and `available` still reports the bridge honestly, so a caller can tell
  * "not requested" from "no bridge".
  *
+ * BARE WORKTREES ARE OMITTED. They carry no checkout, hence no branch, and the
+ * chip has nothing to say about them — see the loop below.
+ *
  * TWO LOOKUPS, TRIED IN THIS ORDER — path first, then root id.
  *
  * 1. `byRootPath` — EXACT PATH EQUALITY on the normalized worktree path. The
@@ -65,7 +68,7 @@ const NO_BRANCHES: ReadonlyMap<string, ThreadBranchInfo> = new Map();
 const AMBIGUOUS = Symbol('ambiguous-containment');
 
 export interface ThreadBranchInfo {
-  /** `null` on a detached HEAD or a bare worktree — never a synthesized name. */
+  /** `null` on a detached HEAD — never a synthesized name. */
   readonly branch: string | null;
   readonly detached: boolean;
 }
@@ -111,6 +114,15 @@ function projectBranches(inventory: GitInventory): {
   const claims = new Map<string, ThreadBranchInfo | typeof AMBIGUOUS>();
   for (const repository of inventory.repositories) {
     for (const worktree of repository.worktrees) {
+      if (worktree.bare) {
+        // A bare worktree is `branch: null, detached: false` — it has no
+        // checkout, so there is no branch it is "on". Mapping it would hand
+        // the row a ThreadBranchInfo with nothing to render: an icon-only
+        // pill with no text. Absent is the same answer these maps already
+        // give for every other root they cannot name — and it is why a bare
+        // worktree does not make its root's containment ambiguous either.
+        continue;
+      }
       const info: ThreadBranchInfo = { branch: worktree.branch, detached: worktree.detached };
       byRootPath.set(normalizeRootPathForLookup(worktree.path), info);
       claimContainedRootIds(claims, worktree.containment, info);

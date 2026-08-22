@@ -880,7 +880,29 @@ describe('per-thread viewed watermark', () => {
     expect(useAssistantThreadStore.getState().lastViewedAtByThreadId).toEqual({});
   });
 
-  it('fills only the new key when migrating a version-3 blob', () => {
+  // One persisted number, stamped once, that answers "unseen since when" on a
+  // store that has never viewed anything. It is part of the persisted slice —
+  // a baseline that reset itself on every launch would re-open the storm on
+  // the next one.
+  it('persists an unseen baseline and re-stamps it on reset', () => {
+    expect(typeof useAssistantThreadStore.getState().unseenBaselineAt).toBe('number');
+
+    const partialize = useAssistantThreadStore.persist.getOptions().partialize;
+    if (!partialize) {
+      throw new Error('expected a partialize');
+    }
+    expect(partialize(useAssistantThreadStore.getState())).toMatchObject({
+      unseenBaselineAt: useAssistantThreadStore.getState().unseenBaselineAt,
+    });
+
+    vi.spyOn(Date, 'now').mockReturnValue(9999);
+    resetAssistantThreadStore();
+    expect(useAssistantThreadStore.getState().unseenBaselineAt).toBe(9999);
+    vi.mocked(Date.now).mockRestore();
+  });
+
+  it('fills only the new keys when migrating a version-3 blob', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(4242);
     const persisted = {
       activeThreadIdByResourceId: { [workspaceId]: 'thread-a' },
       draftRuntimeByThreadId: { 'thread-a': { model: 'gpt-5.2' } },
@@ -891,16 +913,37 @@ describe('per-thread viewed watermark', () => {
     expect(migrateAssistantThreadPersistedState(persisted, 3)).toEqual({
       ...persisted,
       lastViewedAtByThreadId: {},
+      unseenBaselineAt: 4242,
     });
+    vi.mocked(Date.now).mockRestore();
+  });
+
+  // The upgrade stamp is what keeps an upgrading user's pre-existing threads
+  // "already seen": the v3 blob carries no thread ids and no run timestamps, so
+  // there is nothing to seed per-thread watermarks FROM, and without a baseline
+  // every thread with a completed run would light up on first launch.
+  it('stamps a numeric unseen baseline on the v3 -> v4 upgrade', () => {
+    const before = Date.now();
+
+    const migrated = migrateAssistantThreadPersistedState(
+      { activeThreadIdByResourceId: {} },
+      3
+    ) as unknown as { readonly unseenBaselineAt: unknown };
+
+    expect(typeof migrated.unseenBaselineAt).toBe('number');
+    expect(migrated.unseenBaselineAt as number).toBeGreaterThanOrEqual(before);
   });
 
   it('passes a malformed blob through untouched instead of repairing it', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(4242);
     const malformed = { activeThreadIdByResourceId: 'not-a-record', junk: 1 };
 
     expect(migrateAssistantThreadPersistedState(malformed, 3)).toEqual({
       ...malformed,
       lastViewedAtByThreadId: {},
+      unseenBaselineAt: 4242,
     });
+    vi.mocked(Date.now).mockRestore();
   });
 
   it('rejects a blob from before the key was introduced instead of reviving it', () => {

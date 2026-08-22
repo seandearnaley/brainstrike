@@ -2004,15 +2004,80 @@ Where state lives (do not relitigate):
   so this is a deferral, not a silent disable; the flip itself performs the load
   exactly once. Keyed by EXACT normalized worktree path (never `containment`, which is many-to-one and
   would let a root that merely contains repositories borrow one of their
-  branches). Desktop only; web reports `available: false` and renders no chip.
+  branches). BARE worktrees are omitted from that map: they carry no checkout,
+  hence no branch, and a mapped bare entry (`branch: null, detached: false`)
+  would render as an icon-only chip with no text.
+  Desktop only; web reports `available: false` and renders no chip.
+- Folder grouping's SURFACE (BST-1405) is the same treegrid: folder sections are
+  real expandable parents whose node id IS `section.id`
+  (`folder:${rootId}` / `folder-unassigned`), so one id addresses the row, its
+  disclosure limit, its collapsed flag and its membership
+  (`getThreadPanelMemberSectionId` / `getThreadPanelCollapseId` in
+  `thread-panel-visible-rows.ts`; a section id this module did not mint throws
+  rather than becoming an unreachable node). `ThreadPanelVisibleRow` group rows
+  carry a `header` — `group` | `ungrouped` | `folder` | `unassigned` — because
+  the custom-groups **Ungrouped** section and the folder view's **No folder**
+  section are different facts and must not collapse into one. Sort is
+  `folderSortBy` (Recency/Name; **Custom is not offered** — a folder section has
+  nowhere to persist a drag) and `setSortBy` THROWS if called in folder mode.
+  There is NO drag shell and no `move-to-group`/`remove-from-group` row action
+  in folder mode, and `resolveThreadsPanelDrop` answers `none` for a folders
+  view before any resolver runs (the drop monitor is global, so this is a
+  reachable input, not a dead branch); the header's tooltip says why —
+  re-binding is the composer's folder chip. The header's one action is **New
+  thread here**: `createThread` then ONE `updateThreadMetadata` carrying the
+  whole binding (`operatingRootDisplayName` + `operatingRootId`, plus
+  `operatingRootPath` only when the root has one — the repository rejects a
+  partial triple), toasting on failure. Panel chrome stays TWO rows: the
+  `Show only` filters (Running / Needs you / Unseen) live INSIDE the view-options
+  popover, they are a UNION not an intersection, they light the trigger's dot
+  like any other non-default view, and when they empty the list the panel names
+  THEM (`threads-filtered-empty-card`) instead of claiming there are no threads.
+  In folder grouping an unresolved or failed folder map replaces the treegrid
+  (`threads-folders-loading-card` / `threads-folders-error-card`) rather than
+  filing every thread under "No folder".
+- Run state gets ONE badge slot per row, not three: `thread-row-status-glyph.tsx`
+  owns the priority `needs-you > running > failed-unseen > done-unseen` as a
+  pure function (a thread parked on an approval is also "running"; a failed run
+  is also "unseen"). Every glyph carries an `aria-label` naming its thread, and
+  the running state keeps the original spinner testid and `motion-reduce`
+  behavior.
+- ONE LIVE QUERY PER SIGNAL, NEVER PER ROW. The active-run projection
+  (`use-active-assistant-thread-ids.ts`) has two siblings — the awaiting-approval
+  projection (`use-threads-awaiting-approval.ts`, one resource-scoped live query
+  over `brainstrike_assistant_run_events`) and the unseen watermark
+  (`use-unseen-thread-ids.ts`, pure over threads already loaded, plus one
+  batched `roots` read for folder rows). Each one reports its own failure and
+  the panel renders that failure explicitly — `thread-activity-error`,
+  `thread-approvals-error`, and the folder cards above — rather than presenting
+  the resulting empty set as "every thread is idle / unblocked / in no folder".
 - The per-thread viewed watermark `lastViewedAtByThreadId` (epoch ms) lives in
   `assistant-thread-store.ts` (`brainstrike-assistant-threads-v1`, state
-  version 4, partialized; `migrate` fills ONLY that key for older blobs and
-  passes the rest through — the threads blob has never been validated on load
-  and must not start being silently repaired). `markThreadViewed` is idempotent
-  and monotonic (never lowers an existing watermark); thread deletion prunes it
-  and `resetAssistantThreadStore` clears it. Selection/tab actions do NOT mark
-  implicitly — the panel decides when a thread counts as seen.
+  version 4, partialized; `migrate` fills ONLY that key and `unseenBaselineAt`
+  for older blobs and passes the rest through — the threads blob has never been
+  validated on load and must not start being silently repaired).
+  `markThreadViewed` is idempotent and monotonic (never lowers an existing
+  watermark); thread deletion prunes it and `resetAssistantThreadStore` clears
+  it. Selection/tab actions do NOT mark implicitly — the panel decides when a
+  thread counts as seen.
+- `unseenBaselineAt` (epoch ms, persisted in the same slice) is the FLOOR under
+  that watermark, and `deriveUnseenThreadIds` compares against
+  `max(watermark, baseline)`. Without it an empty watermark record reads as "the
+  user has never seen anything", so a fresh install — and the first launch after
+  this shipped — would dot EVERY thread whose latest run ever completed, on the
+  one signal that is supposed to mean "this finished while you were away". It is
+  stamped at store creation, again by the v3 -> v4 migrate (the v3 blob carries
+  no thread ids and no run timestamps, so per-thread watermarks CANNOT be seeded
+  from it), and re-stamped by `resetAssistantThreadStore`. It is only ever
+  raised, never lowered, and never inferred from a run.
+- Folder sections mint persisted collapse keys (`folder:${rootId}`) in
+  `collapsedGroupIds`, so `pruneFolderCollapseIds` in
+  `assistant-thread-groups-store.ts` is the symmetric half of the group-key
+  prune `deleteGroup` does. Call it ONLY with a live root set you actually know
+  — the panel calls it from RESOLVED folder rows, because an empty folder map is
+  also what loading, a failed `roots` query and every non-folder grouping mode
+  look like, and pruning on that would wipe every folder's collapse state. Group
+  keys and the `folder-unassigned` sentinel are never touched.
 - The Threads panel uses shared `TreeTable` as its only scroll owner. Folder
   rows are real expandable treegrid parents with Left/Right keyboard behavior.
   Disclosed section rows are virtualized and capped at 50 initially, with an
@@ -2038,7 +2103,8 @@ id arrays and first paint does not project offscreen groups) → panel state
 `ThreadsPanel` so the toolbar and the treegrid read one source of truth rather
 than two copies) → body arbitration `thread-panel-content-state.ts` (pure: tree
 or which state card, read by BOTH the body and the toolbar so they cannot
-disagree) → drop resolution `threads-panel-dnd.ts` (pure intent reducer) →
+disagree; it also owns `hasActiveThreadFilters`) → view surface
+`threads-panel-view-options.tsx` (the one popover: grouping, sorting, filters) → drop resolution `threads-panel-dnd.ts` (pure intent reducer) →
 element wiring `threads-panel-dnd-elements.tsx`.
 
 Cost of that ownership: a checkbox toggle or Show more now re-renders all of
@@ -2048,6 +2114,13 @@ fine at user-paced click rates, worth revisiting if the panel grows. Semantic co
 owned once in `assistant-thread-presentation.ts` and shared by rows, folders,
 and tabs. Keyboard/a11y fallback for
 every drag operation: row context-menu "Move to <group>" / "Remove from Group".
+
+Paired tests for folder grouping: the `ThreadsPanel folders` suite in
+`threads-panel.test.tsx` (whose `usePGliteLiveQuery` double routes rows BY
+`cacheKey` — the two projections have identical `{ threadId }` row shapes and an
+order-based double would feed one the other's rows), plus the folders cases in
+`thread-panel-visible-rows.test.ts`, `threads-panel-dnd.test.ts` and
+`thread-panel-content-state.test.ts`.
 
 Paired tests: `migration-054-assistant-thread-groups.test.ts` and
 `migration-056-assistant-thread-group-presentation.test.ts` (packages/db),

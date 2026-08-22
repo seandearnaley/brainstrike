@@ -13,10 +13,11 @@ function worktree(
   path: string,
   branch: string | null,
   detached: boolean,
-  containment: Worktree['containment'] = ['root-a']
+  containment: Worktree['containment'] = ['root-a'],
+  bare = false
 ): Worktree {
   return {
-    bare: false,
+    bare,
     branch,
     containment,
     current: false,
@@ -137,6 +138,33 @@ describe('useThreadBranchByRootPath', () => {
     rerender();
 
     expect(result.current.byRootPath).toBe(first);
+  });
+
+  // A bare worktree is `branch: null, detached: false` — neither half of what
+  // a chip can say. Mapped, it becomes a `ThreadBranchInfo` the row renders as
+  // an icon with NO text: an empty pill. Absent, the row renders no chip, which
+  // is the same rule this map already applies to every other unknown.
+  it('omits a bare worktree, which has no branch to report', () => {
+    mockInventory({
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: '/work/bare.git', repositoryRoot: '/work/bare.git' },
+          worktrees: [
+            worktree('/work/bare.git', null, false, ['root-a'], true),
+            worktree('/work/b', 'dev', false),
+          ],
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
+
+    expect(result.current.byRootPath.has('/work/bare.git')).toBe(false);
+    expect(result.current.byRootPath.get('/work/b')).toEqual({ branch: 'dev', detached: false });
+    // ...and being skipped, it does not make its root's containment ambiguous:
+    // the one worktree that DOES have a branch still answers for `root-a`.
+    expect(result.current.byRootId.get('root-a')).toEqual({ branch: 'dev', detached: false });
   });
 
   // Exact-path matching only: a root that merely CONTAINS worktrees has no

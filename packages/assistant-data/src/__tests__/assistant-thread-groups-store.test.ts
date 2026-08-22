@@ -517,6 +517,41 @@ describe('useAssistantThreadGroupsStore', () => {
     });
   });
 
+  // The symmetric half of `deleteGroup`'s prune: folder sections mint their own
+  // collapse keys (`folder:${rootId}`), and nothing deletes them when the root
+  // behind one is gone.
+  it('prunes folder collapse keys for roots that no longer have a section', () => {
+    useAssistantThreadGroupsStore.setState({
+      collapsedGroupIds: {
+        'folder-unassigned': true,
+        'folder:root-gone': true,
+        'folder:root-live': true,
+        'group-1': true,
+      },
+    });
+
+    useAssistantThreadGroupsStore.getState().pruneFolderCollapseIds(['root-live']);
+
+    expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({
+      // The "No folder" sentinel is not keyed by a root and always exists.
+      'folder-unassigned': true,
+      'folder:root-live': true,
+      // A GROUP key is not this action's business — `deleteGroup` owns those.
+      'group-1': true,
+    });
+  });
+
+  it('leaves the collapse record untouched when nothing needs pruning', () => {
+    useAssistantThreadGroupsStore.setState({
+      collapsedGroupIds: { 'folder:root-live': true, 'group-1': true },
+    });
+    const before = useAssistantThreadGroupsStore.getState().collapsedGroupIds;
+
+    useAssistantThreadGroupsStore.getState().pruneFolderCollapseIds(['root-live']);
+
+    expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toBe(before);
+  });
+
   it('toggles group collapse and updates independent view preferences', () => {
     const store = useAssistantThreadGroupsStore.getState();
 

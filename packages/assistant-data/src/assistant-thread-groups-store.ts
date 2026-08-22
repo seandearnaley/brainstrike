@@ -7,10 +7,12 @@ import type {
   AssistantThreadGroupsRepository,
   AssistantThreadPlacement,
 } from './assistant-thread-groups-repository';
-import type {
-  ThreadsPanelFolderSortBy,
-  ThreadsPanelGroupBy,
-  ThreadsPanelSortBy,
+import {
+  FOLDER_SECTION_ID_PREFIX,
+  folderSectionId,
+  type ThreadsPanelFolderSortBy,
+  type ThreadsPanelGroupBy,
+  type ThreadsPanelSortBy,
 } from './thread-list-sections';
 
 type ThreadGroupsLoadState =
@@ -86,6 +88,21 @@ interface AssistantThreadGroupsState {
   ) => Promise<void>;
   placementsByThreadId: Record<string, AssistantThreadPlacement>;
   pruneDeletedThreadPlacements: (threadIds: readonly string[]) => void;
+  /**
+   * Drops `folder:${rootId}` collapse keys for roots not in `liveRootIds` —
+   * the symmetric half of the group-key prune in `deleteGroup`.
+   *
+   * Folder sections are a VIEW over threads (there are no empty ones), so the
+   * live set is the roots that currently have a section. Group keys and the
+   * `folder-unassigned` sentinel are never touched: the sentinel is not keyed
+   * by a root, and group keys belong to `deleteGroup`.
+   *
+   * CALL IT ONLY WITH A SET YOU ACTUALLY KNOW. "No sections resolved" is not
+   * evidence that no root has one — it is also what loading, a failed folder
+   * query, and every non-folder grouping mode look like — and pruning on that
+   * would silently wipe every folder's collapse state.
+   */
+  pruneFolderCollapseIds: (liveRootIds: readonly string[]) => void;
   removeThreadPlacement: (
     repository: AssistantThreadGroupsRepository,
     threadId: string
@@ -500,6 +517,21 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
             )
           ),
         }));
+      },
+      pruneFolderCollapseIds: (liveRootIds: readonly string[]): void => {
+        const liveSectionIds = new Set(liveRootIds.map((rootId) => folderSectionId(rootId)));
+        set((state) => {
+          const kept = Object.entries(state.collapsedGroupIds).filter(
+            ([key]) => !key.startsWith(FOLDER_SECTION_ID_PREFIX) || liveSectionIds.has(key)
+          );
+          if (kept.length === Object.keys(state.collapsedGroupIds).length) {
+            // Same state object: zustand skips the notification entirely, so
+            // the panel effect that calls this on every folder-row resolution
+            // cannot loop through its own subscribers.
+            return state;
+          }
+          return { collapsedGroupIds: Object.fromEntries(kept) as Record<string, true> };
+        });
       },
       removeThreadPlacement: async (
         repository: AssistantThreadGroupsRepository,
