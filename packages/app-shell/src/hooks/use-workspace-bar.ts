@@ -9,6 +9,7 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry } from '@brainstrike/types';
+import { useCopyToClipboard } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type AssistantOperatingRootCandidate,
@@ -295,11 +296,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       });
     };
   }, [platform]);
-  const onCopyPath = useCallback((path: string) => {
-    navigator.clipboard
-      .writeText(path)
-      .catch((error: unknown) => logger.error('Copy path failed', { error, path }));
-  }, []);
+  // Routed through the shared clipboard service (never raw navigator): a
+  // present-but-broken Electron bridge is surfaced, not silently bypassed.
+  const { copyToClipboard } = useCopyToClipboard();
+  const onCopyPath = useCallback(
+    (path: string) => {
+      copyToClipboard(path);
+    },
+    [copyToClipboard]
+  );
 
   const checkout = useThreadCheckoutStatus(primaryRootId ?? null);
 
