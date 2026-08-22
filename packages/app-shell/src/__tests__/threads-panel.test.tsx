@@ -89,7 +89,13 @@ const {
   gitMocks: {
     available: true,
     deferredLoads: [] as boolean[],
-    worktrees: [] as { branch: string | null; detached: boolean; path: string }[],
+    worktrees: [] as {
+      branch: string | null;
+      /** Workspace root ids containing this worktree; defaults to none. */
+      containment?: readonly string[];
+      detached: boolean;
+      path: string;
+    }[],
   },
   groupRows: [] as Record<string, unknown>[],
   mockDb: {
@@ -287,9 +293,9 @@ vi.mock('../changes/use-git-inventory', () => ({
               repositories: [
                 {
                   identity: { commonDir: '/tmp/workspace-a/.git', root: '/tmp/workspace-a' },
-                  worktrees: gitMocks.worktrees.map((worktree) => ({
+                  worktrees: gitMocks.worktrees.map(({ containment, ...worktree }) => ({
                     ...worktree,
-                    containment: 'outside-roots',
+                    containment: containment ?? 'outside-roots',
                     provenance: 'primary',
                     trust: 'validated',
                   })),
@@ -2240,6 +2246,21 @@ describe('ThreadsPanel folders', () => {
     expect(within(rowFor('Second thread')).queryByTestId('thread-active-spinner')).toBeNull();
   });
 
+  // Pinned because the fill is the ONLY thing this glyph says: `bg-amber-500`
+  // measured 1.91:1 against the light row surface (WCAG 1.4.11 wants 3:1), and
+  // a palette edit that quietly restores a lighter amber would take the dot
+  // back below the floor with every other assertion still green. Computed
+  // ratios against the surfaces CDT sampled: amber-700 on rgb(243,241,239) =
+  // 4.47:1; amber-500 on rgb(41,39,37) = 6.97:1.
+  it('paints the needs-you dot with a per-theme amber that clears the contrast floor', async () => {
+    dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
+    renderThreadsPanel();
+
+    const needsYou = await screen.findByTestId('thread-needs-you-glyph');
+    expect(needsYou).toHaveClass('bg-amber-700', 'dark:bg-amber-500');
+    expect(needsYou.className).not.toMatch(/(?:^|\s)bg-amber-500(?:\s|$)/);
+  });
+
   it('surfaces an approval projection failure instead of showing every thread unblocked', async () => {
     // Rows AND an error: without the rows the glyph could never have rendered
     // and the absence assertion below would pass for the wrong reason. With
@@ -2316,6 +2337,95 @@ describe('ThreadsPanel folders', () => {
     // First badge: the one the container query keeps at narrow panel widths.
     expect(badges.firstElementChild).toHaveTextContent('main');
     expect(within(rowFor('Second thread')).queryByText('main')).not.toBeInTheDocument();
+  });
+
+  // The symlink skew live e2e found: `roots.path` keeps the MOUNTED path,
+  // git reports the REALPATH, so the exact-path join misses and the chip
+  // silently vanished — while the composer's chip, asking git by rootId,
+  // still said `main` for the same root.
+  it('chips a folder whose mounted path is a symlink of the path git reports', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      {
+        branch: 'main',
+        containment: ['root-1'],
+        detached: false,
+        path: '/private/tmp/workspace-a',
+      },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
+    expect(within(badges).getByText('main')).toBeVisible();
+  });
+
+  // Two worktrees inside the folder: the folder has no branch of its own, and
+  // picking one of them would be a fabricated chip.
+  it('chips nothing when the folder contains more than one worktree', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      { branch: 'main', containment: ['root-1'], detached: false, path: '/private/tmp/repo-one' },
+      { branch: 'dev', containment: ['root-1'], detached: false, path: '/private/tmp/repo-two' },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    expect(screen.queryByText('main')).not.toBeInTheDocument();
+    expect(screen.queryByText('dev')).not.toBeInTheDocument();
+    // The badges slot still holds the provider/model pills, so the claim is
+    // that the BRANCH is not among them — the first span is the branch when
+    // there is one (that ordering is asserted by the exact-path test above).
+    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
+    expect(badges.firstElementChild).toHaveTextContent('OpenRouter');
+  });
+
+  // Every radio input carried NO `name`, so the browser treated all of them as
+  // ONE implicit group per document: ArrowDown off the last "Group by" option
+  // landed on the first "Sort by" option AND selected it, silently discarding
+  // the user's sort. A distinct `name` per radiogroup makes the native
+  // grouping match the ARIA grouping. JSDOM cannot dispatch real arrow-key
+  // radio navigation (that is the browser's own behaviour, not the DOM's), so
+  // this pins the CAUSE — the names — and the live re-check confirms the keys.
+  it('gives each radiogroup its own native name so arrows cannot cross into another group', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    const namesIn = (group: HTMLElement): Set<string> =>
+      new Set(
+        Array.from(group.querySelectorAll<HTMLInputElement>('input[type="radio"]')).map(
+          (input) => input.name
+        )
+      );
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+
+    const groupBy = await screen.findByRole('radiogroup', { name: 'Group by' });
+    const sortBy = screen.getByRole('radiogroup', { name: 'Sort by' });
+    expect(namesIn(groupBy)).toEqual(new Set(['threads-group-by']));
+    expect(namesIn(sortBy)).toEqual(new Set(['threads-sort-by']));
+
+    // Folder mode swaps Sort by's options for the folder-only pair; they are a
+    // different setting and must not share the recency/name group either.
+    fireEvent.click(screen.getByRole('radio', { name: 'Folder' }));
+
+    await waitFor(() => {
+      expect(namesIn(screen.getByRole('radiogroup', { name: 'Sort by' }))).toEqual(
+        new Set(['threads-folder-sort'])
+      );
+    });
+    expect(namesIn(screen.getByRole('radiogroup', { name: 'Group by' }))).toEqual(
+      new Set(['threads-group-by'])
+    );
   });
 
   it('creates a thread already bound to the folder it was started from', async () => {

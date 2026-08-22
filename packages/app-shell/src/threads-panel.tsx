@@ -94,7 +94,10 @@ import {
   THREAD_CONTROL_TITLE_CLASS_NAME,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
-import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
+import type {
+  ThreadBranchByRootPathState,
+  ThreadBranchInfo,
+} from './hooks/use-thread-branch-by-root-path';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
@@ -247,9 +250,16 @@ interface ThreadMoveTarget {
   readonly name: string;
 }
 
+/**
+ * The branch projection the rows join against — both keys, without the
+ * bridge-availability flag the panel itself reads. See
+ * {@link resolveThreadBranch} for the order they are tried in.
+ */
+type ThreadBranchLookup = Pick<ThreadBranchByRootPathState, 'byRootId' | 'byRootPath'>;
+
 function ThreadRows({
   activeThreadIds,
-  branchByRootPath,
+  branchLookup,
   failedUnseenThreadIds,
   folderMode,
   membershipByThreadId,
@@ -265,8 +275,8 @@ function ThreadRows({
   unseenThreadIds,
 }: {
   readonly activeThreadIds: ReadonlySet<string>;
-  /** Keyed by NORMALIZED root path — see `use-thread-branch-by-root-path.ts`. */
-  readonly branchByRootPath: ReadonlyMap<string, ThreadBranchInfo>;
+  /** Both branch joins — see {@link resolveThreadBranch}. */
+  readonly branchLookup: ThreadBranchLookup;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
   /**
    * Folder grouping: a folder section is a view over the thread's own root
@@ -311,7 +321,7 @@ function ThreadRows({
           threadId={thread.id}
         >
           <ThreadRowItem
-            branch={resolveThreadBranch(thread, branchByRootPath)}
+            branch={resolveThreadBranch(thread, branchLookup)}
             confirmingDeleteThreadId={confirmingDeleteThreadId}
             customizingThreadId={customizingThreadId}
             deleteError={deleteError}
@@ -436,19 +446,37 @@ function ThreadRowDragScope({
 /**
  * The branch of the folder this thread works in, or `null`.
  *
- * The folder rows carry the RAW `roots.path` while the branch map is keyed by
- * the NORMALIZED path, so the join has to normalize — an un-normalized key
- * matches nothing and the chip silently never appears.
+ * TWO JOINS, path first then root id — both keyed lookups are documented on
+ * `use-thread-branch-by-root-path.ts`, which owns the projection.
+ *
+ * 1. PATH. The folder rows carry the RAW `roots.path` while `byRootPath` is
+ *    keyed by the NORMALIZED path, so this join has to normalize — an
+ *    un-normalized key matches nothing and the chip silently never appears.
+ *    That normalization seam is trim + trailing-separator strip only.
+ * 2. ROOT ID. Normalization is not symlink resolution: `roots.path` keeps the
+ *    MOUNTED path and git reports the REALPATH, so a root mounted through a
+ *    symlink (`/var/...` vs `/private/var/...`) never matches by path.
+ *    `byRootId` is keyed by DB `roots.id`, the same id space as
+ *    `metadata.operatingRootId`, and holds only root ids owned unambiguously
+ *    by ONE worktree — so this fallback resolves the symlinked root without
+ *    ever guessing for a folder that holds several repositories.
  */
 function resolveThreadBranch(
   thread: AssistantMemoryThread,
-  branchByRootPath: ReadonlyMap<string, ThreadBranchInfo>
+  branchLookup: ThreadBranchLookup
 ): ThreadBranchInfo | null {
   const rootPath = thread.metadata?.operatingRootPath;
-  if (!rootPath) {
+  const byPath = rootPath
+    ? branchLookup.byRootPath.get(normalizeRootPathForLookup(rootPath))
+    : undefined;
+  if (byPath) {
+    return byPath;
+  }
+  const rootId = thread.metadata?.operatingRootId;
+  if (!rootId) {
     return null;
   }
-  return branchByRootPath.get(normalizeRootPathForLookup(rootPath)) ?? null;
+  return branchLookup.byRootId.get(rootId) ?? null;
 }
 
 function ThreadRowItem({
@@ -2110,7 +2138,7 @@ function ThreadBulkSelectionOverlay({
 
 function ThreadPanelTree({
   activeThreadIds,
-  branchByRootPath,
+  branchLookup,
   failedUnseenThreadIds,
   groupHandlers,
   membershipByThreadId,
@@ -2131,7 +2159,7 @@ function ThreadPanelTree({
   view,
 }: {
   readonly activeThreadIds: ReadonlySet<string>;
-  readonly branchByRootPath: ReadonlyMap<string, ThreadBranchInfo>;
+  readonly branchLookup: ThreadBranchLookup;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
@@ -2202,7 +2230,7 @@ function ThreadPanelTree({
   const rowsProps = useMemo<Omit<ThreadRowsProps, 'threads'>>(
     () => ({
       activeThreadIds,
-      branchByRootPath,
+      branchLookup,
       failedUnseenThreadIds,
       folderMode,
       membershipByThreadId,
@@ -2221,7 +2249,7 @@ function ThreadPanelTree({
     }),
     [
       activeThreadIds,
-      branchByRootPath,
+      branchLookup,
       failedUnseenThreadIds,
       folderMode,
       membershipByThreadId,
@@ -2379,7 +2407,7 @@ function resolveSortPresentation(groupBy: ThreadsPanelGroupBy): ThreadPanelSortP
 
 function ThreadsPanelContent({
   activeThreadIds,
-  branchByRootPath,
+  branchLookup,
   databaseError,
   databaseStartupLoading,
   failedUnseenThreadIds,
@@ -2407,7 +2435,7 @@ function ThreadsPanelContent({
   view,
 }: {
   readonly activeThreadIds: ReadonlySet<string>;
-  readonly branchByRootPath: ReadonlyMap<string, ThreadBranchInfo>;
+  readonly branchLookup: ThreadBranchLookup;
   readonly databaseError: Error | null;
   readonly databaseStartupLoading: boolean;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
@@ -2463,7 +2491,7 @@ function ThreadsPanelContent({
   return (
     <ThreadPanelTree
       activeThreadIds={activeThreadIds}
-      branchByRootPath={branchByRootPath}
+      branchLookup={branchLookup}
       failedUnseenThreadIds={failedUnseenThreadIds}
       groupHandlers={groupHandlers}
       membershipByThreadId={membershipByThreadId}
@@ -2763,7 +2791,11 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     return [...rootIds];
   }, [folderGrouping, threads]);
   const folderRows = useThreadFolderRows(database, threadRootIds);
-  const { byRootPath } = useThreadBranchByRootPath({ enabled: folderGrouping });
+  const { byRootId, byRootPath } = useThreadBranchByRootPath({ enabled: folderGrouping });
+  const branchLookup = useMemo<ThreadBranchLookup>(
+    () => ({ byRootId, byRootPath }),
+    [byRootId, byRootPath]
+  );
 
   // Folder sections mint persisted collapse keys; this is the symmetric prune
   // to the one `deleteGroup` does for group keys. The RESOLVED folder rows are
@@ -3178,7 +3210,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 overflow-hidden'}>
         <ThreadsPanelContent
           activeThreadIds={activeThreads.threadIds}
-          branchByRootPath={byRootPath}
+          branchLookup={branchLookup}
           databaseError={databaseError}
           databaseStartupLoading={databaseStartupLoading}
           failedUnseenThreadIds={unseenThreadIds.failedUnseen}

@@ -51,12 +51,34 @@ const THREAD_FILTER_OPTIONS: readonly {
   { label: 'Unseen', value: 'unseen' },
 ];
 
+/**
+ * The `name` of each radiogroup's inputs. NOT decoration: without a `name` the
+ * browser treats every radio on the page as ONE implicit group, so ArrowDown
+ * off the last "Group by" option moved into "Sort by" AND selected it, quietly
+ * discarding the user's sort — and every radio was its own tab stop, six of
+ * them before the first "Show only" checkbox. A distinct name per group makes
+ * the NATIVE grouping match the `role="radiogroup"` grouping, which is what
+ * confines the arrow keys and collapses each group to one roving tab stop. A
+ * hand-rolled keydown handler would only re-implement that, worse.
+ *
+ * `folder-sort` is separate from `sort` because folder mode swaps in a
+ * different option set backed by different state, in the same visual slot.
+ */
+const RADIO_GROUP_NAMES = {
+  folderSort: 'threads-folder-sort',
+  group: 'threads-group-by',
+  sort: 'threads-sort-by',
+} as const;
+
 function ViewOptionRadio({
   checked,
+  groupName,
   label,
   onSelect,
 }: {
   readonly checked: boolean;
+  /** See {@link RADIO_GROUP_NAMES} — one distinct name per radiogroup. */
+  readonly groupName: string;
   readonly label: string;
   readonly onSelect: () => void;
 }): ReactElement {
@@ -66,7 +88,14 @@ function ViewOptionRadio({
         checked ? 'bg-accent/60 font-medium' : ''
       }`}
     >
-      <input checked={checked} className="sr-only" onChange={onSelect} type="radio" value={label} />
+      <input
+        checked={checked}
+        className="sr-only"
+        name={groupName}
+        onChange={onSelect}
+        type="radio"
+        value={label}
+      />
       <span>{label}</span>
       {checked ? <Check className="h-3.5 w-3.5" /> : null}
     </label>
@@ -157,6 +186,7 @@ export function ThreadsViewOptionsPopover({
             {GROUP_BY_OPTIONS.map((option) => (
               <ViewOptionRadio
                 checked={groupBy === option.value}
+                groupName={RADIO_GROUP_NAMES.group}
                 key={option.value}
                 label={option.label}
                 onSelect={() => onGroupByChange(option.value)}
@@ -169,6 +199,7 @@ export function ThreadsViewOptionsPopover({
               ? FOLDER_SORT_BY_OPTIONS.map((option) => (
                   <ViewOptionRadio
                     checked={folderSortBy === option.value}
+                    groupName={RADIO_GROUP_NAMES.folderSort}
                     key={option.value}
                     label={option.label}
                     onSelect={() => onFolderSortByChange(option.value)}
@@ -177,6 +208,7 @@ export function ThreadsViewOptionsPopover({
               : SORT_BY_OPTIONS.map((option) => (
                   <ViewOptionRadio
                     checked={sortBy === option.value}
+                    groupName={RADIO_GROUP_NAMES.sort}
                     key={option.value}
                     label={option.label}
                     onSelect={() => onSortByChange(option.value)}

@@ -42,13 +42,27 @@ const DOT_PRESENTATION = {
     testId: 'thread-failed-glyph',
   },
   'needs-you': {
-    // Raw palette value on purpose, unlike its `bg-primary` / `bg-destructive`
-    // siblings: `packages/ui/src/globals.css` defines `--bs-warning` but never
-    // maps it to a `--warning` semantic var or a `--color-warning` @theme entry
-    // in either app, so there is no `bg-warning` utility to use and inventing
-    // the token here is a design-system change, not a glyph change. Wants a
-    // live contrast check in both themes.
-    className: 'bg-amber-500',
+    // A RAW, PER-THEME palette pair on purpose, unlike its `bg-primary` /
+    // `bg-destructive` siblings — and NOT the `--bs-warning` token.
+    //
+    // `packages/ui/src/globals.css` defines `--bs-warning` but never maps it to
+    // a `--warning` semantic var or a `--color-warning` @theme entry, so there
+    // is no `bg-warning` utility. Wiring one the way `--bs-destructive` is
+    // wired would not fix anything here: `--bs-warning` is `hsl(38 92% 50%)`,
+    // which measures 1.89:1 against the light row surface — it is a SURFACE
+    // token, paired with a dark `--bs-warning-foreground` to sit behind text,
+    // not a mark that has to contrast with the page. Darkening it to clear the
+    // floor would break that pairing for every future consumer.
+    //
+    // So the glyph carries the per-theme pair the rest of this codebase
+    // already uses for amber (`text-amber-700 dark:text-amber-300` and
+    // siblings). Measured against the surfaces CDT sampled — rgb(243,241,239)
+    // light, rgb(41,39,37) dark — `amber-700` is 4.47:1 in light (was 1.91:1
+    // with `amber-500`, below WCAG 1.4.11's 3:1 for non-text UI) and
+    // `amber-500` stays at 6.97:1 in dark, i.e. exactly what it measured
+    // before. A single class cannot serve both: `amber-600` is 2.84:1 in
+    // light and `amber-700` is 2.96:1 in dark.
+    className: 'bg-amber-700 dark:bg-amber-500',
     describe: (title: string) => `${title} needs your approval`,
     testId: 'thread-needs-you-glyph',
   },
