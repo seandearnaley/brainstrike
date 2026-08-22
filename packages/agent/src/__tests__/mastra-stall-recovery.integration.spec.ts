@@ -173,21 +173,29 @@ function stalledChildModel(): LanguageModelV2 {
 }
 
 interface Collected {
+  chunks: StreamChunk[];
   finalText: string;
-  runEvents: Array<{ kind: string; status?: string }>;
+  runEvents: Array<{ kind: string; metadata?: Record<string, unknown>; status?: string }>;
 }
 
 async function collect(iterator: AsyncIterable<StreamChunk>): Promise<Collected> {
-  const runEvents: Array<{ kind: string; status?: string }> = [];
+  const runEvents: Array<{ kind: string; metadata?: Record<string, unknown>; status?: string }> =
+    [];
+  const chunks: StreamChunk[] = [];
   let finalText = '';
   for await (const chunk of iterator) {
+    chunks.push(chunk);
     if (chunk.type === 'run-event') {
-      runEvents.push({ kind: chunk.event.kind, status: chunk.event.status });
+      runEvents.push({
+        kind: chunk.event.kind,
+        ...(chunk.event.metadata ? { metadata: chunk.event.metadata } : {}),
+        status: chunk.event.status,
+      });
     } else if (chunk.type === 'text-delta') {
       finalText += chunk.value;
     }
   }
-  return { finalText, runEvents };
+  return { chunks, finalText, runEvents };
 }
 
 function makeTool(spy: (input: { pattern: string }) => Promise<{ matches: string[] }>) {
@@ -361,6 +369,76 @@ describe('stall recovery (real Mastra loop)', () => {
       (event) => event.kind === 'subagent.failed' || event.kind === 'subagent.finished'
     );
     expect(settled).toHaveLength(2);
+  }, 30_000);
+
+  it('reports ONE run.started for a recovered turn, and a full stall breadcrumb', async () => {
+    // A continuation is a fresh `agent.stream`, so Mastra re-emits `start`.
+    // Left alone, one turn shows two "Assistant run started" rows and every
+    // started/finished aggregation double-counts recovered runs (review of
+    // #2590). `run.resumed` is what marks the new attempt.
+    const { model } = stallThenAnswerModel(1);
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u7', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: {
+          'brainstrike.grepSearch': makeTool(() => Promise.resolve({ matches: ['found'] })),
+        },
+      }
+    );
+    const { runEvents } = await collect(iterator);
+
+    expect(runEvents.filter((event) => event.kind === 'run.started')).toHaveLength(1);
+    expect(runEvents.filter((event) => event.kind === 'run.resumed')).toHaveLength(1);
+
+    // A RECOVERED stall is followed by no `run.failed`, so its `run.stalled` is
+    // the only durable record — it must carry the whole BST-1408 breadcrumb.
+    const stalled = runEvents.find((event) => event.kind === 'run.stalled');
+    expect(stalled?.metadata).toEqual(
+      expect.objectContaining({
+        attempt: 1,
+        maxAttempts: 2,
+        phase: 'awaiting-output',
+      })
+    );
+    expect(stalled?.metadata?.['lastPartType']).toBe('step-start');
+  }, 30_000);
+
+  it('bills a recovered turn for the stalled attempt too', async () => {
+    // The stalled attempt really did spend tokens on a completed step. Starting
+    // the continuation's counters at zero made every recovered turn
+    // under-report to the run ledger and spend analytics (review of #2590).
+    const { model } = stallThenAnswerModel(1);
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u8', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+      {
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: {
+          'brainstrike.grepSearch': makeTool(() => Promise.resolve({ matches: ['found'] })),
+        },
+      }
+    );
+    const { chunks } = await collect(iterator);
+    const finish = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'message-finish' }> =>
+        chunk.type === 'message-finish'
+    );
+
+    // Exactly two billed steps across the turn: attempt 1's tool-call step, and
+    // the continuation's answer. (Attempt 1's stalled step produced nothing and
+    // reports no usage.) The scripted model bills 1 input + 1 output per step,
+    // so the turn total is 2 — and it was 1 before this fix, because the
+    // continuation's own finish is cumulative over ITS stream alone.
+    expect(finish?.usage?.completionTokens).toBe(2);
+    expect(finish?.usage?.promptTokens).toBe(2);
+    // Context sizes describe the LATEST step's prompt, not the turn's spend, so
+    // they must not accumulate — claiming a context window that never existed
+    // would be worse than under-reporting it.
+    expect(finish?.usage?.contextOutputTokens).toBe(1);
   }, 30_000);
 
   it('does not resurrect a turn the user cancelled during the stall', async () => {

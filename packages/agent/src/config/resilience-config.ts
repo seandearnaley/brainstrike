@@ -86,10 +86,26 @@ function readEnv(name: string): string | undefined {
   return process.env[name];
 }
 
-function resolvePositiveIntMs(envName: string, defaultValue: number, override?: number): number {
+/**
+ * Strict positive-integer parse with an explicit UNIT in the error text.
+ *
+ * The unit is a parameter rather than a hardcoded `(ms)` because
+ * `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` is a COUNT — reporting a bad attempt
+ * budget as "must be a positive integer (ms)" is a strict-parse error that
+ * lies about what it wants, on the one knob an operator is most likely to set
+ * by hand (review of #2590).
+ */
+function resolvePositiveInt(
+  envName: string,
+  unit: string,
+  defaultValue: number,
+  override?: number
+): number {
   if (typeof override === 'number') {
     if (!Number.isInteger(override) || override <= 0) {
-      throw new Error(`${envName} override must be a positive integer (ms), received ${override}.`);
+      throw new Error(
+        `${envName} override must be a positive integer (${unit}), received ${override}.`
+      );
     }
     return override;
   }
@@ -99,9 +115,13 @@ function resolvePositiveIntMs(envName: string, defaultValue: number, override?: 
   }
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${envName} must be a positive integer (ms), received "${raw}".`);
+    throw new Error(`${envName} must be a positive integer (${unit}), received "${raw}".`);
   }
   return parsed;
+}
+
+function resolvePositiveIntMs(envName: string, defaultValue: number, override?: number): number {
+  return resolvePositiveInt(envName, 'ms', defaultValue, override);
 }
 
 export function resolveToolTimeoutMs(override?: number): number {
@@ -125,8 +145,9 @@ export function resolveStreamFirstOutputMs(override?: number): number {
 }
 
 export function resolveStreamStallAttempts(override?: number): number {
-  return resolvePositiveIntMs(
+  return resolvePositiveInt(
     'BRAINSTRIKE_STREAM_STALL_ATTEMPTS',
+    'attempts',
     DEFAULT_STREAM_STALL_ATTEMPTS,
     override
   );

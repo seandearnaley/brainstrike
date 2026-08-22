@@ -46,7 +46,7 @@ below are LIVE.
 
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
-   `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
+   `StreamStalledError`). `streamAttemptChunks` wraps the raw Mastra iterator.
    The window is PHASE-AWARE (BST-1408): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS`
    governs the wait for the provider to produce its first OUTPUT **in each
    step**, `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is producing —
@@ -671,19 +671,56 @@ runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
   `undefined` means we could not tell, and continuing would re-send the request
   as if the turn never started — every completed tool would execute a second
   time. A turn that cannot prove what it produced does NOT resume.
-- **Four refusals, all terminal:** user cancel (a decision, not a transport
-  fault), budget exhausted, unreadable produced messages, and
-  `ToolCallInputStreamingTimeoutError` (a generation fault — re-sending the same
-  prompt has no reason to change it). Recovery covers `StreamStalledError` only.
+  An empty list is additionally CORROBORATED against what the attempt was
+  observed to do: `terminalToolCallStates` gains an entry per completed tool
+  call, so `produced.length === 0` while tools demonstrably ran is a
+  contradiction and refuses recovery too. That trust would otherwise rest
+  entirely on the reader, and being wrong reaches the re-execution outcome
+  through the branch treated as safe.
+- **Five refusals, all terminal:** user cancel (a decision, not a transport
+  fault), budget exhausted, unreadable produced messages, produced messages that
+  contradict completed tools, and `ToolCallInputStreamingTimeoutError` (a
+  generation fault — re-sending the same prompt has no reason to change it).
+  Recovery covers `StreamStalledError` only.
 - **Recovery is never silent.** Each stall emits `run.stalled` and each
-  continuation `run.resumed`, both carrying attempt/budget and the stall's
-  phase + parts-seen. A refused stall's `run.stalled` names the refusal.
-- **Per-attempt state.** `ToolLifecycleState` is built per attempt
-  (`createTurnAttemptLifecycleState`) — its timers and step counters describe one
-  provider call, and carrying them across a recovery would mis-time latency and
-  double-count steps. The turn keeps a reference only to settle the failed
-  attempt's in-flight delegations, so a replaced attempt can never leave an
-  orphaned `subagent.started`.
+  continuation `run.resumed`, both carrying attempt/budget and the stall's full
+  BST-1408 breadcrumb (phase, parts-seen, `lastPartType`). A RECOVERED stall is
+  followed by no `run.failed`, so its `run.stalled` is the only durable record
+  of it and must carry the whole breadcrumb, not a subset. A refused stall's
+  `run.stalled` names the refusal.
+- **Per-attempt state, EXCEPT billing.** `ToolLifecycleState` is built per
+  attempt (`createTurnAttemptLifecycleState`), and the split is not uniform:
+  latency and in-flight lifecycle (`streamStartedAtMs`, `firstTextLatencyMs`,
+  the delegation tracker, the tool-call maps) are per attempt, because carrying
+  them would mis-time latency and re-settle tools the replaced attempt already
+  settled. BILLING is per TURN — a recovered turn really did spend the stalled
+  attempt's tokens, and the `message-finish` is what the run ledger and spend
+  analytics persist. `stepBilledCostUsd` / `stepCount` / the billed-cost flags
+  carry directly; TOKENS ride separate `carried*` fields because Mastra's finish
+  usage is cumulative over ONE stream and `stepped*` keeps its per-stream
+  meaning for the steered finish. Context sizes never accumulate: they describe
+  the latest step's prompt, and inflating them would claim a context window that
+  never existed.
+- **A replaced attempt SETTLES what it started.** The turn drains both
+  `makeCancelledDelegationRunEventChunks` AND
+  `makePendingToolOutputRunEventChunks` before discarding the attempt — the same
+  pair the terminal path drains. Without the second, a tool whose only terminal
+  observation was a `tool-output` part loses its `tool.completed` row and its
+  duration outright, because the continuation treats that tool result as INPUT
+  and never re-emits it.
+- **One turn reports one `run.started`.** A continuation is a fresh
+  `agent.stream`, so Mastra re-emits `start` and the mapper would produce a
+  second `run.started`; `withoutDuplicateRunStarted` drops it, and `run.resumed`
+  is what marks the new attempt. Left in, the timeline shows two "Assistant run
+  started" rows for one turn and every started/finished aggregation
+  double-counts recovered runs.
+- **A continuation that cannot be CONSTRUCTED terminates like everything else.**
+  `handleStreamFailure` already disposes the runtime and rethrows, so the turn
+  must not dispose again (`dispose()` has no idempotency guard, and a throw from
+  a second `mcpClient.disconnect()` would replace the original error). The turn
+  yields the same visible-text + `run.failed` + error-finish triple instead of
+  throwing mid-stream, which would have been the one ending whose cause is
+  invisible in the durable timeline.
 - **Only the INITIAL leg recovers.** Approval- and suspend-resume consume a
   one-shot approval/snapshot that cannot be re-issued, so they run through the
   same turn runner with `maxAttempts: 1` and keep the pre-BST-1409 behavior.
@@ -882,7 +919,7 @@ renderer reload, or a dropped socket.
 
 Mastra title generation has its own finish-boundary lifecycle. The PGlite
 memory factory opts into top-level `generateTitle`, while
-`streamChunksFromMastra` starts the public
+`streamAttemptChunks` starts the public
 `Agent.generateTitleFromUserMessage` request before yielding the terminal
 finish. The downstream data-stream consumer stops pulling immediately after
 that finish, so the generator's `finally` must await the already-started title

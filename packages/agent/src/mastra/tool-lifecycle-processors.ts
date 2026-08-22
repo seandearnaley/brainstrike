@@ -44,6 +44,19 @@ interface OutputOnlyToolEvent {
 }
 
 export interface ToolLifecycleState {
+  /**
+   * Token totals from EARLIER attempts of the same turn (BST-1409), zero on a
+   * turn that never stalled.
+   *
+   * Mastra's finish usage is cumulative across the steps of ONE stream, so a
+   * continuation's finish reports only its own attempt. These are added back in
+   * {@link makeFinishChunk} so the ledger a recovered turn persists is the
+   * turn's real spend rather than its last attempt's. Kept separate from
+   * `stepped*` because those retain their per-stream meaning for the steered
+   * finish, which reads them directly.
+   */
+  carriedCompletionTokens: number;
+  carriedPromptTokens: number;
   delegationLifecycle: DelegationLifecycleTracker;
   firstTextLatencyMs?: number;
   /**
@@ -98,11 +111,18 @@ export function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleStat
   const p = asMastraStreamPart(part);
   const usage = readStreamPartUsage(p) ?? {};
   const promptTokensRaw = usage.promptTokens ?? usage.inputTokens;
-  const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
+  const attemptPromptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
+  const promptTokens = attemptPromptTokens + lifecycleState.carriedPromptTokens;
   const completionTokensRaw = usage.completionTokens ?? usage.outputTokens;
-  const completionTokens = Number.isFinite(completionTokensRaw) ? (completionTokensRaw ?? 0) : 0;
-  const contextInputTokens = lifecycleState.latestStepPromptTokens ?? promptTokens;
-  const contextOutputTokens = lifecycleState.latestStepCompletionTokens ?? completionTokens;
+  const attemptCompletionTokens = Number.isFinite(completionTokensRaw)
+    ? (completionTokensRaw ?? 0)
+    : 0;
+  const completionTokens = attemptCompletionTokens + lifecycleState.carriedCompletionTokens;
+  // CONTEXT sizes describe the latest step's prompt, not the turn's spend, so
+  // they stay on this attempt's numbers — adding earlier attempts would claim a
+  // context window that never existed.
+  const contextInputTokens = lifecycleState.latestStepPromptTokens ?? attemptPromptTokens;
+  const contextOutputTokens = lifecycleState.latestStepCompletionTokens ?? attemptCompletionTokens;
   const finishCost = readOpenRouterBilledCost(p);
   if (lifecycleState.requiresBilledCost && lifecycleState.sawStepWithoutBilledCost) {
     // Mastra makes terminal token usage cumulative, but copies providerMetadata

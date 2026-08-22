@@ -222,9 +222,15 @@ describe('resilience-config', () => {
     expect(resolveStreamStallAttempts()).toBe(1);
   });
 
-  it('throws on a malformed stall-attempt budget (no silent coercion)', () => {
+  it('throws on a malformed stall-attempt budget, naming the right UNIT', () => {
+    // A count reported as "must be a positive integer (ms)" is a strict-parse
+    // error that lies about what it wants — on the one knob an operator is most
+    // likely to hand-set.
     process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = 'twice';
-    expect(() => resolveStreamStallAttempts()).toThrow(/BRAINSTRIKE_STREAM_STALL_ATTEMPTS/);
+    expect(() => resolveStreamStallAttempts()).toThrow(
+      /BRAINSTRIKE_STREAM_STALL_ATTEMPTS must be a positive integer \(attempts\)/
+    );
+    expect(() => resolveStreamStallAttempts()).not.toThrow(/\(ms\)/);
   });
 
   it('throws on a zero stall-attempt budget (a turn always gets one attempt)', () => {

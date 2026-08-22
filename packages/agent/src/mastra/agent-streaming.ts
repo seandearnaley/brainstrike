@@ -99,8 +99,10 @@ import {
 } from './runtime-configuration';
 import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
 import {
+  makeErrorFinishChunk,
   makeRunDetailEventChunk,
   makeRunEventChunk,
+  makeRunFailedChunk,
   makeSyntheticFinishChunk,
 } from './stream-run-event-chunks';
 import {
@@ -1254,24 +1256,47 @@ async function* streamAttemptChunks({
 }
 
 /**
- * Build the per-ATTEMPT {@link ToolLifecycleState}.
+ * Build a {@link ToolLifecycleState} for ONE attempt.
  *
- * Per attempt, not per turn: `streamStartedAtMs`, the step counters, and the
- * delegation tracker all describe one provider call, and carrying them across a
- * recovery would mis-time latency and double-count steps. The turn keeps a
- * reference only so it can settle the failed attempt's delegations.
+ * The split is deliberate and not uniform (review of #2590):
+ *
+ * - LATENCY and in-flight lifecycle are per attempt. `streamStartedAtMs`,
+ *   `firstTextLatencyMs`, the delegation tracker, and the tool-call maps all
+ *   describe one provider call; carrying them would mis-time latency and would
+ *   re-settle tools the replaced attempt already settled.
+ * - BILLING is per TURN. A recovered turn really did spend the stalled
+ *   attempt's tokens, and the `message-finish` this state produces is what the
+ *   run ledger and spend analytics persist. Starting the continuation at zero
+ *   made every recovered turn under-report, so `carried` seeds those
+ *   accumulators from the attempt being replaced.
  */
-function createTurnAttemptLifecycleState(runtimeData: RuntimeData | undefined): ToolLifecycleState {
+function createTurnAttemptLifecycleState(
+  runtimeData: RuntimeData | undefined,
+  carried?: ToolLifecycleState
+): ToolLifecycleState {
   return {
+    // Prior attempts' totals, added back at the finish. `stepped*` is the
+    // replaced attempt's own cumulative sum, so accumulating it here makes this
+    // the turn's running total across every attempt so far.
+    carriedCompletionTokens:
+      (carried?.carriedCompletionTokens ?? 0) + (carried?.steppedCompletionTokens ?? 0),
+    carriedPromptTokens: (carried?.carriedPromptTokens ?? 0) + (carried?.steppedPromptTokens ?? 0),
     delegationLifecycle: createDelegationLifecycleTracker(),
     includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
     outputOnlyToolEvents: new Map(),
     requiresBilledCost: runtimeData?.provider === 'openrouter',
     ...(runtimeData?.steering ? { steering: runtimeData.steering } : {}),
-    sawStepBilledCost: false,
-    sawStepWithoutBilledCost: false,
-    stepBilledCostUsd: 0,
-    stepCount: 0,
+    // Billing observations carry: `sawStepBilledCost` in particular gates the
+    // OpenRouter "a step omitted its billed cost" throw, and a continuation
+    // that forgot the earlier attempt's billed steps would resolve the turn's
+    // cost from the final step alone.
+    sawStepBilledCost: carried?.sawStepBilledCost ?? false,
+    sawStepWithoutBilledCost: carried?.sawStepWithoutBilledCost ?? false,
+    stepBilledCostUsd: carried?.stepBilledCostUsd ?? 0,
+    stepCount: carried?.stepCount ?? 0,
+    // PER ATTEMPT, unlike the billing fields above: the steered finish reports
+    // these directly as Mastra's cross-step sum for ONE stream, and the turn's
+    // multi-attempt total rides `carried*` instead.
     steppedCompletionTokens: 0,
     steppedPromptTokens: 0,
     streamStartedAtMs: Date.now(),
@@ -1357,6 +1382,7 @@ async function* runTurnAttempts(params: {
   firstAttempt: TurnAttempt;
   makeContinuation: (input: {
     attempt: number;
+    carriedLifecycleState: ToolLifecycleState;
     continuationMessages: readonly MastraDBMessage[] | undefined;
   }) => Promise<TurnAttempt>;
   maxAttempts: number;
@@ -1364,15 +1390,49 @@ async function* runTurnAttempts(params: {
   runtimeData: RuntimeData | undefined;
 }): AsyncIterableIterator<StreamChunk> {
   const { firstAttempt, makeContinuation, maxAttempts, runtime, runtimeData } = params;
+  // `handleStreamFailure` disposes the runtime before it rethrows, so a
+  // continuation that fails to construct must NOT be disposed again by the
+  // finally below: `dispose()` has no idempotency guard, and a throw from a
+  // second `mcpClient.disconnect()` would REPLACE the original error on its way
+  // to the consumer (review of #2590).
+  let runtimeDisposed = false;
   try {
     let continuationMessages: readonly MastraDBMessage[] | undefined;
+    let carriedLifecycleState: ToolLifecycleState | undefined;
     let pending: TurnAttempt | undefined = firstAttempt;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const current = pending ?? (await makeContinuation({ attempt, continuationMessages }));
-      pending = undefined;
+      let current: TurnAttempt;
+      if (pending) {
+        current = pending;
+        pending = undefined;
+      } else {
+        try {
+          current = await makeContinuation({
+            attempt,
+            carriedLifecycleState: carriedLifecycleState as ToolLifecycleState,
+            continuationMessages,
+          });
+        } catch (error) {
+          // Every other terminal path in this function yields the visible
+          // text + durable `run.failed` + error-finish triple. A continuation
+          // failure throwing mid-stream instead would end the turn with no
+          // `run.failed` row and no `thread_runs.error` — the one ending whose
+          // cause is invisible in the durable timeline.
+          runtimeDisposed = true;
+          yield* makeContinuationFailureTermination(error, runtimeData);
+          return;
+        }
+      }
       let stall: StreamStalledError | undefined;
       try {
-        yield* current.chunks;
+        // A continuation is a fresh `agent.stream`, so Mastra emits its own
+        // `start` part and the mapper turns it into a SECOND `run.started`.
+        // One turn starts once: the duplicate is dropped here, and `run.resumed`
+        // (emitted immediately before) is what says a new attempt began. Left
+        // in, the timeline shows two "Assistant run started" rows for one turn
+        // and every started/finished aggregation double-counts recovered runs
+        // (review of #2590).
+        yield* attempt === 1 ? current.chunks : withoutDuplicateRunStarted(current.chunks);
       } catch (error) {
         if (!isStreamWatchdogError(error)) {
           throw error;
@@ -1389,30 +1449,85 @@ async function* runTurnAttempts(params: {
       const produced = current.readProducedMessages();
       const reason = resolveStallRecoveryRefusal({
         attempt,
+        lifecycleState: current.lifecycleState,
         maxAttempts,
         produced,
         runtimeData,
       });
-      // Whatever happens next, this attempt's in-flight delegations need a
-      // terminal event — a recovered turn must not leave an orphaned
-      // `subagent.started` from the attempt it replaced.
-      yield* makeCancelledDelegationRunEventChunks(current.lifecycleState);
       yield makeStallRunEventChunk(stall, attempt, maxAttempts, reason);
       if (reason) {
         yield* makeStreamWatchdogTermination(stall, current.lifecycleState, runtimeData);
         return;
       }
+      // An attempt being replaced still has to SETTLE what it started, exactly
+      // as the terminal path does (`makeStreamStalledTermination` drains both):
+      // an orphaned `subagent.started` would render a forever-running
+      // delegation, and a tool whose only terminal observation was a
+      // `tool-output` part would lose its `tool.completed` row and its duration
+      // outright, because the continuation treats that tool result as INPUT and
+      // never re-emits it. The whole lifecycle state is discarded with the
+      // attempt, so this is the last chance to flush either.
+      yield* makeCancelledDelegationRunEventChunks(current.lifecycleState);
+      yield* makePendingToolOutputRunEventChunks(current.lifecycleState);
       continuationMessages = produced;
+      carriedLifecycleState = current.lifecycleState;
       yield makeResumedRunEventChunk(attempt + 1, maxAttempts, produced?.length ?? 0);
     }
   } finally {
-    await runtime.dispose();
+    if (!runtimeDisposed) {
+      await runtime.dispose();
+    }
+  }
+}
+
+/**
+ * Terminal chunks for a continuation that could not be constructed. Mirrors the
+ * watchdog terminations' shape so every abnormal ending of a turn looks the same
+ * downstream; the runtime is already disposed by `handleStreamFailure`.
+ */
+function* makeContinuationFailureTermination(
+  error: unknown,
+  runtimeData: RuntimeData | undefined
+): Generator<StreamChunk> {
+  const detail = error instanceof Error ? error.message : String(error);
+  logger.error(
+    {
+      code: 'mastra_agent_stream_continuation_failed',
+      detail,
+      ...(runtimeData?.model ? { model: runtimeData.model } : {}),
+      ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
+    },
+    'mastra stream continuation could not be constructed'
+  );
+  const visible = 'The model stream stalled, and the continuation could not be started.';
+  yield { type: 'text-delta', value: visible };
+  yield makeRunFailedChunk('Assistant run failed', visible, {
+    code: 'mastra_agent_stream_continuation_failed',
+  });
+  yield makeErrorFinishChunk();
+}
+
+/**
+ * Drop the `run.started` a continuation attempt re-emits. See its call site for
+ * why one turn must report one start.
+ */
+async function* withoutDuplicateRunStarted(
+  chunks: AsyncIterableIterator<StreamChunk>
+): AsyncIterableIterator<StreamChunk> {
+  let dropped = false;
+  for await (const chunk of chunks) {
+    if (!dropped && chunk.type === 'run-event' && chunk.event.kind === 'run.started') {
+      dropped = true;
+      continue;
+    }
+    yield chunk;
   }
 }
 
 /** Why this stall may NOT be recovered, or `undefined` when it may. */
 function resolveStallRecoveryRefusal(input: {
   attempt: number;
+  lifecycleState: ToolLifecycleState;
   maxAttempts: number;
   produced: readonly MastraDBMessage[] | undefined;
   runtimeData: RuntimeData | undefined;
@@ -1427,6 +1542,17 @@ function resolveStallRecoveryRefusal(input: {
   if (input.produced === undefined) {
     return 'produced-messages-unreadable';
   }
+  // CORROBORATION, not paranoia (review of #2590). `[]` is trusted to mean "the
+  // attempt produced nothing", which makes continuing from the request alone
+  // safe. But that trust rests entirely on the reader, and the attempt holds
+  // INDEPENDENT evidence of what it did: `terminalToolCallStates` gains an entry
+  // on every completed tool call. An empty message list while tools demonstrably
+  // ran is a contradiction — whatever the cause, resuming on it would re-execute
+  // every one of those tools, which is the exact outcome the `undefined` branch
+  // exists to prevent, reached through the branch treated as safe.
+  if (input.produced.length === 0 && input.lifecycleState.terminalToolCallStates.size > 0) {
+    return 'produced-messages-contradict-completed-tools';
+  }
   return;
 }
 
@@ -1437,26 +1563,25 @@ function makeStallRunEventChunk(
   refusal: string | undefined
 ): StreamChunk {
   const detail = `No stream output for ${error.inactivityMs}ms (${error.phase}) on attempt ${attempt} of ${maxAttempts}.`;
-  logger.warn(
-    {
-      attempt,
-      code: 'mastra_agent_stream_attempt_stalled',
-      inactivityMs: error.inactivityMs,
-      maxAttempts,
-      partsSeen: error.partsSeen,
-      phase: error.phase,
-      ...(refusal ? { refusal } : {}),
-    },
-    'mastra stream attempt stalled'
-  );
-  return makeRunDetailEventChunk('run.stalled', 'info', 'Model stream stalled', detail, {
+  // A RECOVERED stall is followed by no `run.failed`, so this event is the only
+  // durable record of it — it must therefore carry the full BST-1408 breadcrumb,
+  // not a subset (review of #2590). `lastPartType` is the field that says
+  // whether the provider went quiet after reasoning, a tool delta, or the
+  // framework prologue.
+  const diagnostic = {
     attempt,
     inactivityMs: error.inactivityMs,
     maxAttempts,
     partsSeen: error.partsSeen,
     phase: error.phase,
+    ...(error.lastPartType ? { lastPartType: error.lastPartType } : {}),
     ...(refusal ? { refusal } : {}),
-  });
+  };
+  logger.warn(
+    { code: 'mastra_agent_stream_attempt_stalled', ...diagnostic },
+    'mastra stream attempt stalled'
+  );
+  return makeRunDetailEventChunk('run.stalled', 'info', 'Model stream stalled', detail, diagnostic);
 }
 
 function makeResumedRunEventChunk(
@@ -1728,7 +1853,8 @@ async function createStreamIteratorFromRuntime(
   const { runtime, runtimeData } = params;
   return runTurnAttempts({
     firstAttempt: await createInitialTurnAttempt(params, undefined),
-    makeContinuation: (input) => createInitialTurnAttempt(params, input.continuationMessages),
+    makeContinuation: (input) =>
+      createInitialTurnAttempt(params, input.continuationMessages, input.carriedLifecycleState),
     maxAttempts: runtime.resilienceConfig.streamStallAttempts,
     runtime,
     runtimeData,
@@ -1744,11 +1870,12 @@ async function createInitialTurnAttempt(
     requireToolApproval,
     sanitizedNameMap,
   }: StreamIterationParams,
-  continuationMessages: readonly MastraDBMessage[] | undefined
+  continuationMessages: readonly MastraDBMessage[] | undefined,
+  carriedLifecycleState?: ToolLifecycleState
 ): Promise<TurnAttempt> {
   const mastraMessages = convertMessagesToMastra(messages);
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
-  const lifecycleState = createTurnAttemptLifecycleState(runtimeData);
+  const lifecycleState = createTurnAttemptLifecycleState(runtimeData, carriedLifecycleState);
 
   try {
     // A continuation re-sends the original request FOLLOWED BY everything the
