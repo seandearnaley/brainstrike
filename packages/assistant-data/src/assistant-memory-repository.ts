@@ -1019,6 +1019,29 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_thread_idx
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_run_idx
   ON ${ASSISTANT_RUN_EVENTS_TABLE} (run_id, sequence ASC, occurred_at ASC);
 
+-- Threads-panel "needs you" projection (BST-1404). Both indexes above lead with
+-- thread_id or run_id, so that query — which is resource-scoped and kind-scoped
+-- — full-scanned the largest assistant table on BOTH sides of its anti-join, on
+-- every run_events notify. These two partial indexes cover the two sides. They
+-- live HERE and only here: this table is created solely by this bootstrap and
+-- must never get a numbered migration (see docs/agents/assistant-persistence.md,
+-- RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP), and IF NOT EXISTS re-runs on every
+-- handle init, so existing installs pick them up — the same upgrade path as the
+-- turn_message_id ADD COLUMN above.
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_pause_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id)
+  WHERE kind = 'tool.approval.requested';
+
+-- The anti-join side. Keyed additionally on the extracted toolCallId, which is
+-- the equality the NOT EXISTS pairs on; jsonb ->> is immutable, so it is
+-- indexable as an expression. run_id trails it because the anti-join also
+-- excludes the SAME-run tool.started the pausing leg emits before the pause
+-- (Mastra gates inside toolCallStep); carrying it here keeps that exclusion on
+-- the index rather than sending every candidate row to a heap fetch.
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_answer_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id, (metadata->>'toolCallId'), run_id)
+  WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported');
+
 -- Terminal provider forensics (Flight Recorder P3). Bootstrapped here and
 -- created by migration 076; keep the table/index shape byte-identical to that
 -- migration. There is intentionally no FK because the numbered runner has no
