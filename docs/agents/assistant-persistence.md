@@ -1964,10 +1964,16 @@ Where state lives (do not relitigate):
   identity). This is NOT a custom group — `buildThreadListSections` returns a
   `{ kind: 'folders' }` view whose sections carry a `ThreadListSectionHeader`
   discriminated union (`group` | `folder` | `unassigned`) and a `section.id`
-  (`group.id`, `folder:${rootId}`, `folder:unassigned`). Folder display rows are
-  supplied BY THE CALLER as `folderRowsByRootId` (one `roots` query for the
-  whole panel — `assistant-data` stays DB-free) and folder mode without them
-  throws. A thread whose root id is missing, blank, or has no display row lands
+  (`group.id`, `folder:${rootId}`, `folder-unassigned` — the sentinel is
+  HYPHENATED on purpose, so it can never collide with a `folder:` id built from
+  a root whose id is literally `unassigned`). Folder display rows are supplied
+  BY THE CALLER as `folderRowsByRootId` (one `roots` query for the whole panel —
+  `assistant-data` stays DB-free), and folder mode cannot arrive without them:
+  `BuildThreadListSectionsInput` is a union discriminated on `groupBy`, so the
+  compiler — not a runtime throw — requires the folder arm to carry
+  `folderRowsByRootId` and `folderSortBy`, and the other arm to carry `groups`,
+  `placements`, and `sortBy`. A thread whose root id is missing, blank, or has
+  no display row lands
   in the trailing "No folder" section, which is omitted when empty; the pure
   builder never logs, the calling hook does.
 - The caller is `use-thread-folder-rows.ts` (BST-1404): ONE batched
@@ -2002,12 +2008,27 @@ Where state lives (do not relitigate):
   repo/worktree scan across every workspace root (BST-1116 W6 finding 4) and the
   chips exist only in folders grouping — entering that grouping is the gesture,
   so this is a deferral, not a silent disable; the flip itself performs the load
-  exactly once. Keyed by EXACT normalized worktree path (never `containment`, which is many-to-one and
-  would let a root that merely contains repositories borrow one of their
-  branches). BARE worktrees are omitted from that map: they carry no checkout,
+  exactly once. TWO KEYED LOOKUPS, tried in that order by `resolveThreadBranch`
+  (`threads-panel.tsx`). FIRST the EXACT normalized worktree path. THEN
+  `byRootId`, keyed by DB `roots.id` — the same id space as
+  `metadata.operatingRootId` — holding only ids that appear in the
+  `containment` of EXACTLY ONE worktree. `containment` is many-to-one, so it is
+  the FALLBACK and never the primary key: a root that merely contains several
+  repositories is absent from `byRootId` rather than borrowing one of their
+  branches. BARE worktrees are omitted from both maps: they carry no checkout,
   hence no branch, and a mapped bare entry (`branch: null, detached: false`)
-  would render as an icon-only chip with no text.
+  would render as an icon-only chip with no text (they therefore do not make a
+  root's containment ambiguous either).
   Desktop only; web reports `available: false` and renders no chip.
+  WHY THE ID JOIN EXISTS (BST-1406 → fixed in BST-1404/1405):
+  `normalizeRootPathForLookup` trims and strips trailing separators — it does
+  NOT resolve symlinks, and it cannot: `roots.path` keeps the path the folder
+  was MOUNTED through while git reports the REALPATH. A root mounted through a
+  symlink (the macOS `/var` → `/private/var` tmpdir is the reproducer) matched
+  nothing by path, so its rows got no branch badge while the composer's branch
+  chip — which asks git with that path as cwd instead of joining on it — still
+  showed one. Same root, two answers. `containment` is computed in MAIN against
+  realpath'd root paths, so the id join is immune to that skew.
 - Folder grouping's SURFACE (BST-1405) is the same treegrid: folder sections are
   real expandable parents whose node id IS `section.id`
   (`folder:${rootId}` / `folder-unassigned`), so one id addresses the row, its
@@ -2090,6 +2111,24 @@ Where state lives (do not relitigate):
   not a state card — is on screen AND search is idle. Search results replace the
   tree in a hidden subtree that also contains the bulk-action overlay, so a live
   toggle there would select threads with no feedback and no way to clear.
+- E2E (BST-1406): `apps/desktop/e2e/threads-panel-folders.desktop.test.ts`
+  (one `@smoke` test in the PR lane, one regression sibling) and
+  `apps/web/e2e/threads-panel-folders.test.ts` (`@web-smoke`). Threads are
+  SEEDED as `mastra_threads` rows through the renderer's `electronAPI.db`
+  bridge (`e2e/utils/seed-threads.ts`) because the binding is written at the
+  FIRST REQUEST, so the only product gesture that mints a bound thread — "New
+  thread here" — needs a folder section that only a bound thread can produce.
+  The seed reads the DURABLE `roots.id` back from the database rather than
+  reusing the adapter root id, and the desktop fixture `realpath`s its temp
+  repo: `roots.path` keeps whatever path was mounted while git reports the
+  resolved one, and the branch join's FIRST attempt (below) is exact-path with
+  no symlink resolution — resolving the fixture keeps that spec grading the
+  path join rather than the containment-id fallback behind it. The web
+  spec additionally pins that `window.changes` does not exist there at all —
+  the structural reason the badge is desktop-only, which still holds for a
+  bound thread. Both specs also pin the EMPTY-resource bootstrap thread
+  (`loadResourceThreadsForGeneration` creates one when `listThreads` is empty):
+  it has never made a request, so it belongs in "No folder".
 
 Layers: repository `assistant-thread-groups-repository.ts` → store
 `assistant-thread-groups-store.ts` → pure view-model `thread-list-sections.ts`

@@ -1697,6 +1697,40 @@ Flow (desktop assistant server → agent runtime):
    map, so it never reaches the resume gate. A non-empty `askTools` always gates
    exactly the ask set regardless of posture.
 
+THE PAUSE IS ALSO A DURABLE ROW (BST-1402). Every approval pause writes a
+`tool.approval.requested` run event to `brainstrike_assistant_run_events`
+carrying the paused call's `toolCallId`. It exists so a LIST-WIDE question —
+"which threads are waiting on me?" — can be answered in SQL: rediscovering
+pauses from Mastra's suspended-workflow snapshot is a per-thread round trip and
+cannot be run for a whole thread list. Its consumer is the Threads panel's
+"needs you" projection (`use-threads-awaiting-approval.ts`, one resource-scoped
+live query; see `docs/agents/assistant-persistence.md` § THREAD GROUPS). Two
+properties of that row are load-bearing:
+- RESOLUTION IS DERIVED AND RUN-AGNOSTIC. Nothing marks the row answered. A
+  pause is resolved by the LATER existence of `tool.started` / `tool.completed`
+  / `tool.failed` / `tool.resume.unsupported` for the SAME
+  `metadata->>'toolCallId'`. It must be paired on that id and never on
+  `run_id`: the approve/decline resume is a SEPARATE leg that mints its own
+  `runId` and its own `thread_runs` row, so the event that answers a pause
+  always carries a different run id than the pause. `sequence` is per-run and
+  therefore meaningless across the two legs, and no ordering guard is needed
+  because no outcome for a call can precede the pause that gated it.
+  `tool.started` counts as resolved here (a tool that started was approved)
+  even though the run-timeline derivation does not treat it as terminal — the
+  two ask different questions.
+- IT DELIBERATELY IGNORES `thread_runs.status`. A leg that pauses for approval
+  finishes with `finishReason: 'tool-calls'`, which every terminal writer
+  records as `completed`, so a `status = 'running'` join would make the
+  projection permanently EMPTY while the user's obligation and the suspended
+  Mastra snapshot both outlive that row. For the same reason the startup
+  run-reap does not gate it.
+- AN ABANDONED PAUSE STAYS LIT (BST-1417, known). The only thing that clears
+  the glyph is an outcome event for that `toolCallId`. A pause the user never
+  answers — and whose suspended snapshot is later discarded — leaves the row
+  unresolved forever, so its thread keeps the "needs you" glyph with no pause
+  left to answer. Lighting it is the safe direction (never silently drop an
+  obligation), but it is a real dead end, not a design intent to defend.
+
 APPROVAL ACTION MESSAGES ARE BOOKKEEPING, NOT CONVERSATION: clicking
 Approve/Decline (and the suspend notice's Approve/Reject/Answer) appends a user
 message whose `metadata.custom` + `runConfig.custom` carry the action under

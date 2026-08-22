@@ -2913,8 +2913,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
   it('hydrates a persisted tool.resume.unsupported row (survives a thread reload)', async () => {
     // BST-558 finding C: the `brainstrike.tool-suspend` data part is transient
-    // (aui-data, never persisted), so the live notice is gone after a reload.
-    // The durable surface is this run event — it has to survive the read path.
+    // (aui-data, never persisted). Since BST-1084 `appendSuspendedPauseMessages`
+    // re-appends that notice on reload for pauses that are STILL suspended, but
+    // only at the END of the thread and only while one is pending. The durable
+    // IN-TRANSCRIPT surface is this run event — it has to survive the read path.
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM brainstrike_assistant_run_events')) {

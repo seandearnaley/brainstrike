@@ -148,6 +148,34 @@ specs cannot drift apart. The web counterpart is `apps/web/e2e/workspace-bar.tes
 Web's smaller capability surface (no git bridge, no recents ledger) is pinned
 separately by `apps/web/e2e/workspace-bar.test.ts`.
 
+### 5. Threads Panel Folder Grouping (`threads-panel-folders.desktop.test.ts`)
+Drives the Threads panel's `Group by → Folder` view against a REAL `git init`'d
+folder (see `docs/agents/assistant-persistence.md`, THREAD GROUPS):
+- Folder sections keyed by each thread's primary root, with a live count and a
+  trailing **No folder** section that carries no "New thread here" action.
+- The `⎇ branch` badge on bound rows (real `window.changes` git inventory) and
+  no badge at all on an unbound row.
+- "New thread here" creating a thread born BOUND to that folder (the section's
+  count moves 2 → 3 while "No folder" does not).
+- `Show only → Running` with no runs emptying the list into
+  `threads-filtered-empty-card`, and clearing it restoring every row.
+
+Only the first test is `@smoke`; the second runs in the `regression` project.
+Threads are SEEDED as `mastra_threads` rows via `utils/seed-threads.ts` (the
+shared `electronAPI.db` bridge) because a thread's folder binding is written at
+its FIRST REQUEST — so no product gesture mints a bound thread before one
+exists. That helper also reads the DURABLE `roots.id` back from the database
+(never the adapter root id) and probes `to_regclass('mastra_threads')` rather
+than retrying a failing INSERT. The spec `realpath`s its temp repo on purpose:
+the branch join tries exact path equality FIRST (no symlink resolution) and
+only then the containment-id fallback, so resolving the macOS
+`/var` → `/private/var` tmpdir keeps this spec grading the path join rather
+than the fallback. Root and
+repo fixtures are the shared `utils/git-fixtures.ts` + `utils/seed-root.ts`.
+The web counterpart is `apps/web/e2e/threads-panel-folders.test.ts`
+(one test, `@web-smoke`), which pins the option, the "No folder" catch-all, and
+the absence of both the branch badge and the `window.changes` bridge.
+
 ## 🛠 Key Features
 
 ### Dialog Mocking
