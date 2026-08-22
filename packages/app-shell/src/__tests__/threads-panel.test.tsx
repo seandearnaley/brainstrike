@@ -2388,6 +2388,75 @@ describe('ThreadsPanel folders', () => {
     expect(badges.firstElementChild).toHaveTextContent('OpenRouter');
   });
 
+  // `git worktree list --porcelain` emits `bare` with NEITHER a `branch` line
+  // nor a `detached` line, so a bare worktree arrives as {branch: null,
+  // detached: false} — the one shape that is neither a name nor a detached
+  // HEAD. Rendered, it was a GitBranch icon with no label holding the first
+  // badge slot the narrow-panel container query protects.
+  it('chips nothing for a bare worktree, which has neither a branch nor a detached HEAD', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      { branch: null, containment: ['root-1'], detached: false, path: '/private/tmp/workspace-a' },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    expect(screen.queryByText('detached')).not.toBeInTheDocument();
+    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
+    // No empty first pill: the provider is back in the slot the branch would
+    // have taken, so the branch chip was not rendered label-less.
+    expect(badges.firstElementChild).toHaveTextContent('OpenRouter');
+  });
+
+  // Drag-reorder rewrites the whole listed section's ranks. Under a filter the
+  // rendered section is PARTIAL, so the rewrite would renumber the visible
+  // threads and interleave them with the hidden ones' untouched ranks. The
+  // affordance withdraws rather than lying, exactly as it does in folder mode.
+  it('withdraws the row drag affordance while a Show only filter narrows the list', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-b' }];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(rowFor('Second thread').closest('[draggable="true"]')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Running' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+    });
+    expect(rowFor('Second thread').closest('[draggable="true"]')).toBeNull();
+  });
+
+  // The filtered-empty card told the user to "clear the filters in view
+  // options" while the popover offered only the three individual boxes.
+  it('offers the clear-filters control its filtered-empty card points at', async () => {
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    const showOnly = await screen.findByRole('group', { name: 'Show only' });
+    // Nothing to clear yet: a control that cannot do anything is not offered.
+    expect(within(showOnly).queryByRole('button', { name: 'Clear filters' })).toBeNull();
+    fireEvent.click(within(showOnly).getByRole('checkbox', { name: 'Needs you' }));
+
+    expect(await screen.findByTestId('threads-filtered-empty-card')).toBeVisible();
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear filters' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(useAssistantThreadGroupsStore.getState().threadFilters.needsYou).toBe(false);
+    expect(screen.queryByTestId('threads-view-options-dot')).not.toBeInTheDocument();
+  });
+
   // Every radio input carried NO `name`, so the browser treated all of them as
   // ONE implicit group per document: ArrowDown off the last "Group by" option
   // landed on the first "Sort by" option AND selected it, silently discarding

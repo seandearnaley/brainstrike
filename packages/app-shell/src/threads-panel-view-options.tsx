@@ -132,11 +132,14 @@ function ViewOptionCheckbox({
 /**
  * The panel's only view surface: grouping, sorting AND the Show only filters.
  * The filters live INSIDE this popover on purpose — panel chrome is two rows,
- * and a filter bar would be a third.
+ * and a filter bar would be a third. That makes this popover the ONLY place a
+ * filter can be undone, so it also carries the clear-all the filtered-empty
+ * card sends the user to.
  */
 export function ThreadsViewOptionsPopover({
   folderSortBy,
   groupBy,
+  onClearThreadFilters,
   onFolderSortByChange,
   onGroupByChange,
   onSortByChange,
@@ -146,6 +149,7 @@ export function ThreadsViewOptionsPopover({
 }: {
   readonly folderSortBy: ThreadsPanelFolderSortBy;
   readonly groupBy: ThreadsPanelGroupBy;
+  readonly onClearThreadFilters: () => void;
   readonly onFolderSortByChange: (folderSortBy: ThreadsPanelFolderSortBy) => void;
   readonly onGroupByChange: (groupBy: ThreadsPanelGroupBy) => void;
   readonly onSortByChange: (sortBy: ThreadsPanelSortBy) => void;
@@ -154,11 +158,11 @@ export function ThreadsViewOptionsPopover({
   readonly threadFilters: ThreadFilters;
 }): ReactElement {
   const folderGrouping = groupBy === 'folder';
+  const filtersActive = hasActiveThreadFilters(threadFilters);
   // The dot answers "is the list you see the default list", so an active filter
   // lights it exactly like a non-default grouping does: a narrowed list with no
   // visible marker is the panel silently hiding threads.
-  const hasNonDefaultView =
-    groupBy !== 'custom-groups' || sortBy !== 'recency' || hasActiveThreadFilters(threadFilters);
+  const hasNonDefaultView = groupBy !== 'custom-groups' || sortBy !== 'recency' || filtersActive;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -227,6 +231,22 @@ export function ThreadsViewOptionsPopover({
                 onToggle={(checked) => onThreadFilterChange(option.value, checked)}
               />
             ))}
+            {/* The one-shot reset the empty-list card points at ("Clear the
+                filters in view options"). Rendered only while something is
+                ticked: with a default list it would be a control that cannot
+                change anything. It lives INSIDE the fieldset so the group a
+                screen reader announces is the group it clears. */}
+            {filtersActive ? (
+              <Button
+                className="mt-1 w-full justify-start font-normal text-muted-foreground"
+                onClick={onClearThreadFilters}
+                size="xs"
+                type="button"
+                variant="ghost"
+              >
+                Clear filters
+              </Button>
+            ) : null}
           </fieldset>
         </div>
       </PopoverContent>

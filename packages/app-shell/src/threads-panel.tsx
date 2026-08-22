@@ -270,6 +270,7 @@ function ThreadRows({
   onRenameThread,
   onSelectThread,
   onUpdateThreadMetadata,
+  rowsDraggable,
   selectedThreadId,
   threads,
   unseenThreadIds,
@@ -295,6 +296,11 @@ function ThreadRows({
     threadId: string,
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
+  /**
+   * False in folder grouping AND while a "Show only" filter narrows the list —
+   * see {@link ThreadRowDragScope} for why both withdraw the affordance.
+   */
+  readonly rowsDraggable: boolean;
   readonly selectedThreadId: string | undefined;
   readonly threads: readonly AssistantMemoryThread[];
   readonly unseenThreadIds: ReadonlySet<string>;
@@ -315,7 +321,7 @@ function ThreadRows({
     <div className="space-y-2">
       {threads.map((thread) => (
         <ThreadRowDragScope
-          draggable={!folderMode}
+          draggable={rowsDraggable}
           groupId={folderMode ? null : (membershipByThreadId.get(thread.id) ?? null)}
           key={thread.id}
           threadId={thread.id}
@@ -417,10 +423,19 @@ function ThreadRows({
 /**
  * The row's drag source, or a layout-equivalent plain wrapper.
  *
- * Folder grouping renders rows WITHOUT the drag shell rather than with a
- * disabled one: `draggable="true"` with no honored drop is an affordance that
- * lies. A folder is not a container a thread can be dropped into — the binding
- * is the thread's own `metadata.operatingRootId`.
+ * TWO states render rows WITHOUT the drag shell rather than with a disabled
+ * one: `draggable="true"` with no honored drop is an affordance that lies.
+ *
+ * 1. FOLDER GROUPING. A folder is not a container a thread can be dropped
+ *    into — the binding is the thread's own `metadata.operatingRootId`.
+ * 2. AN ACTIVE "Show only" FILTER. The rendered section is partial, and a
+ *    positional drop rewrites the whole listed section's ranks in one fresh
+ *    sequence, so reordering under a filter would interleave the visible
+ *    threads with the hidden ones' untouched ranks — a scrambled manual order
+ *    the user only discovers after clearing the filter. `Move to …` on the row
+ *    stays available, so membership is still reachable while filtered.
+ *
+ * `resolveThreadsPanelDrop` mirrors both, because the drop monitor is global.
  */
 function ThreadRowDragScope({
   children,
@@ -460,8 +475,28 @@ function ThreadRowDragScope({
  *    `metadata.operatingRootId`, and holds only root ids owned unambiguously
  *    by ONE worktree — so this fallback resolves the symlinked root without
  *    ever guessing for a folder that holds several repositories.
+ *
+ * A resolved worktree with NEITHER a branch nor a detached HEAD is a BARE one:
+ * `git worktree list --porcelain` emits `bare` with no `branch` and no
+ * `detached` line, and the parsers start every record at
+ * `{branch: null, detached: false}`. It is `null` here rather than a chip,
+ * because there is no name to render and `detached` would be a lie — an empty
+ * pill would otherwise hold the first badge slot the narrow-panel container
+ * query protects, and `ThreadMetadataBadges`' `if (!(branch || …))` early
+ * return would count it as content.
  */
 function resolveThreadBranch(
+  thread: AssistantMemoryThread,
+  branchLookup: ThreadBranchLookup
+): ThreadBranchInfo | null {
+  const resolved = lookupThreadBranch(thread, branchLookup);
+  if (!resolved) {
+    return null;
+  }
+  return resolved.branch || resolved.detached ? resolved : null;
+}
+
+function lookupThreadBranch(
   thread: AssistantMemoryThread,
   branchLookup: ThreadBranchLookup
 ): ThreadBranchInfo | null {
@@ -2155,6 +2190,7 @@ function ThreadPanelTree({
   onUpdateThreadMetadata,
   selectedThreadId,
   selection,
+  threadFiltersActive,
   unseenThreadIds,
   view,
 }: {
@@ -2182,6 +2218,8 @@ function ThreadPanelTree({
   ) => Promise<void>;
   readonly selectedThreadId: string | undefined;
   readonly selection: ThreadPanelSelection;
+  /** Withdraws the row drag affordance — see {@link ThreadRowDragScope}. */
+  readonly threadFiltersActive: boolean;
   readonly unseenThreadIds: ReadonlySet<string>;
   readonly view: ThreadListView;
 }): ReactElement {
@@ -2244,6 +2282,7 @@ function ThreadPanelTree({
       onRenameThread,
       onSelectThread,
       onUpdateThreadMetadata,
+      rowsDraggable: !(folderMode || threadFiltersActive),
       selectedThreadId,
       unseenThreadIds,
     }),
@@ -2261,6 +2300,7 @@ function ThreadPanelTree({
       onSelectThread,
       onUpdateThreadMetadata,
       selectedThreadId,
+      threadFiltersActive,
       unseenThreadIds,
     ]
   );
@@ -2508,6 +2548,7 @@ function ThreadsPanelContent({
       onUpdateThreadMetadata={onUpdateThreadMetadata}
       selectedThreadId={selectedThreadId}
       selection={selection}
+      threadFiltersActive={threadFiltersActive}
       unseenThreadIds={unseenThreadIds}
       view={view}
     />
@@ -2537,6 +2578,7 @@ function ThreadsPanelToolbar({
   newGroupDisabled,
   newThreadDisabled,
   newThreadTitle,
+  onClearThreadFilters,
   onCreateGroup,
   onCreateThread,
   onFolderSortByChange,
@@ -2553,6 +2595,7 @@ function ThreadsPanelToolbar({
   readonly newGroupDisabled: boolean;
   readonly newThreadDisabled: boolean;
   readonly newThreadTitle: string;
+  readonly onClearThreadFilters: () => void;
   readonly onCreateGroup: () => void;
   readonly onCreateThread: () => void;
   readonly onFolderSortByChange: (folderSortBy: ThreadsPanelFolderSortBy) => void;
@@ -2614,6 +2657,7 @@ function ThreadsPanelToolbar({
         <ThreadsViewOptionsPopover
           folderSortBy={folderSortBy}
           groupBy={groupBy}
+          onClearThreadFilters={onClearThreadFilters}
           onFolderSortByChange={onFolderSortByChange}
           onGroupByChange={onGroupByChange}
           onSortByChange={onSortByChange}
@@ -2718,6 +2762,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   const setSortBy = useAssistantThreadGroupsStore((state) => state.setSortBy);
   const setFolderSortBy = useAssistantThreadGroupsStore((state) => state.setFolderSortBy);
   const setThreadFilter = useAssistantThreadGroupsStore((state) => state.setThreadFilter);
+  const clearThreadFilters = useAssistantThreadGroupsStore((state) => state.clearThreadFilters);
   const toggleGroupCollapsed = useAssistantThreadGroupsStore((state) => state.toggleGroupCollapsed);
   const ensureGroups = useAssistantThreadGroupsStore((state) => state.ensureGroups);
   const createGroup = useAssistantThreadGroupsStore((state) => state.createGroup);
@@ -3084,6 +3129,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
         return;
       }
       const intent = resolveThreadsPanelDrop({
+        filtersActive: threadFiltersActive,
         groupIdByThreadId: membershipByThreadId,
         source,
         target,
@@ -3115,6 +3161,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       moveThreadToGroup,
       reorderGroups,
       resourceId,
+      threadFiltersActive,
       view,
     ]
   );
@@ -3154,6 +3201,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
             ? 'Create a new Mastra memory thread for this workspace.'
             : 'The assistant memory database is still initializing.'
         }
+        onClearThreadFilters={clearThreadFilters}
         onCreateGroup={handleCreateGroup}
         onCreateThread={() => {
           if (!(repository && resourceId)) {

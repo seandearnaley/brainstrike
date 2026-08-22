@@ -146,11 +146,17 @@ function resolveGroupReorder({
 }
 
 export function resolveThreadsPanelDrop({
+  filtersActive,
   groupIdByThreadId,
   source,
   target,
   view,
 }: {
+  /**
+   * True while at least one "Show only" filter is narrowing the list, which
+   * makes every rendered section PARTIAL. See the row short-circuit below.
+   */
+  readonly filtersActive: boolean;
   readonly groupIdByThreadId: ReadonlyMap<string, string | null>;
   readonly source: ThreadsPanelDragSource;
   readonly target: ThreadsPanelDropTarget;
@@ -162,6 +168,21 @@ export function resolveThreadsPanelDrop({
     // composer's folder chip. The panel therefore renders no drag sources in
     // this mode, but the drop monitor is global — so a drop that arrives from
     // somewhere else resolves to no intent rather than throwing at the user.
+    return NONE;
+  }
+  if (filtersActive && source.type === 'thread-row') {
+    // A filtered section is a PARTIAL section, and `applyThreadOrder` rewrites
+    // the ranks of everything it is handed with ONE fresh key sequence — its
+    // "manual order is always fully materialized" only holds when the entries
+    // are the WHOLE section. Reordering what the filter left visible would
+    // renumber those threads while the hidden ones keep their old ranks, so
+    // clearing the filter would reveal the two sequences interleaved: an order
+    // the user never chose, with nothing anywhere reporting it. The panel
+    // therefore renders no row drag source while a filter is active — the same
+    // "no affordance beats one that lies" call folder grouping makes — and
+    // this mirrors it for the global drop monitor. Group-header drags are
+    // untouched: a section is minted per GROUP, not per surviving thread, so a
+    // group reorder is still a complete rewrite.
     return NONE;
   }
   if (source.type === 'thread-row') {
