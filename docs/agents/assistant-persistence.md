@@ -857,6 +857,44 @@ active treatment under reduced motion.
 Paired coverage: `packages/app-shell/src/__tests__/threads-panel.test.tsx` and
 the concurrent-run case in `apps/web/e2e/assistant-ui-panel.test.ts`.
 
+### Threads-panel awaiting-approval projection (BST-1404)
+
+The panel's second — and last — live query,
+`packages/app-shell/src/hooks/use-threads-awaiting-approval.ts`, answers "which
+threads are parked on a tool approval the user has not answered", under the same
+BST-1244 discipline: one resource-scoped subscription for the whole list, no
+second activity store, no polling, no per-thread round trip. This is the reason
+the durable `tool.approval.requested` row exists at all; rediscovering a pause
+from the Mastra suspended-workflow snapshot is per-thread and cannot answer a
+list-wide question.
+
+Two rulings the SQL depends on (do not relitigate):
+
+- **Resolution is paired on `metadata->>'toolCallId'`, run-agnostically.** The
+  approval-resume leg mints its OWN runId and `thread_runs` row, so the
+  `tool.started` / `tool.completed` / `tool.failed` / `tool.resume.unsupported`
+  that answers a pause carries a DIFFERENT `run_id` than the pause. `sequence`
+  is per-run and meaningless across the two legs; no ordering guard is needed
+  because no outcome for a call can precede the pause that gated that call. A
+  pause row with a NULL `toolCallId` is excluded — nothing could ever answer it,
+  and `NULL = NULL` inside the `NOT EXISTS` would pin the badge forever.
+- **The query does NOT read `thread_runs.status`.** A leg that pauses for
+  approval finishes with `finishReason: 'tool-calls'`, which every terminal
+  writer records as `status = 'completed'`, while the user's obligation and the
+  suspended Mastra snapshot both outlive that row. Filtering on
+  `status = 'running'` would make this projection permanently EMPTY. For the
+  same reason it needs no web startup-reap gating (unlike the active-run
+  projection above): the reap only corrects stale `running` rows, and this query
+  reads none. It is gated on the schema bootstrap alone, because
+  `brainstrike_assistant_run_events` is renderer-lazy.
+
+Note that `tool.started` counts as a resolution HERE and deliberately does not
+in `assistant-run-event-derivation.ts`: the timeline asks whether the pause row
+has reached a terminal state (a still-executing tool has not), while the panel
+asks whether the user still has to answer (a tool that started was approved).
+
+Paired coverage: `packages/app-shell/src/__tests__/use-threads-awaiting-approval.test.ts`.
+
 ### RUN ERROR PROVIDER FORENSICS (Flight Recorder P3)
 
 `brainstrike_assistant_run_errors` is the durable one-row-per-run provider
@@ -1896,6 +1934,31 @@ Where state lives (do not relitigate):
   throws. A thread whose root id is missing, blank, or has no display row lands
   in the trailing "No folder" section, which is omitted when empty; the pure
   builder never logs, the calling hook does.
+- The caller is `use-thread-folder-rows.ts` (BST-1404): ONE batched
+  `roots WHERE id = ANY($1)` per distinct id set, value-keyed on the sorted
+  deduped list, and a `logger.warn` ONCE per id that has no `roots` row. It is
+  deliberately NOT a live query — `reconcileRoots` never modifies a matched
+  row's `id`/`kind`/`path`/`display_name` and disconnecting a root flips
+  `status` rather than deleting the row, so the columns it reads are immutable
+  and there is no live-ness to subscribe to. A newly connected folder reaches
+  the panel through the INPUT instead (binding a thread to it changes that
+  thread's `operatingRootId`, hence the id set, hence the query). Its `rootIds`
+  are THREAD-DERIVED, so **a mounted folder with no threads produces no
+  section**: a folder section is a view over threads, not a mirror of the mount
+  list, and unlike a user-created group there is no durable object whose
+  emptiness must stay visible.
+- Unseen/needs-attention badges come from `use-unseen-thread-ids.ts` (BST-1404):
+  a pure `deriveUnseenThreadIds` (terminal `latestRun` completed after the
+  thread's watermark, active thread excluded, `failedUnseen ⊂ unseen`; a
+  terminal run with NO `completedAt` is excluded rather than given a substitute
+  timestamp) plus `useMarkActiveThreadViewed`, which stamps the watermark on the
+  way in AND out of a thread and again whenever the active thread's run reaches a
+  new `completedAt` while it is still active — so a run finishing in the
+  foreground can never later read as unseen. Folder branch chips come from
+  `use-thread-branch-by-root-path.ts`: ONE eager `useGitInventory()`, keyed by
+  EXACT normalized worktree path (never `containment`, which is many-to-one and
+  would let a root that merely contains repositories borrow one of their
+  branches). Desktop only; web reports `available: false` and renders no chip.
 - The per-thread viewed watermark `lastViewedAtByThreadId` (epoch ms) lives in
   `assistant-thread-store.ts` (`brainstrike-assistant-threads-v1`, state
   version 4, partialized; `migrate` fills ONLY that key for older blobs and
