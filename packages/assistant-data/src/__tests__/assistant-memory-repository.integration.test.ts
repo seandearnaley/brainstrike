@@ -2103,6 +2103,118 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('persists secondaryRootIds as a deduped string array', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.updateThreadMetadata('thread-1', {
+      secondaryRootIds: ['db-root-b', 'db-root-c', 'db-root-b'],
+    });
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const persisted = JSON.parse(String(update?.[1]?.[1])) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual(['db-root-b', 'db-root-c']);
+  });
+
+  it('accepts an empty secondaryRootIds array as "no secondaries" and persists []', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: [],
+      })
+    ).resolves.toBeUndefined();
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const persisted = JSON.parse(String(update?.[1]?.[1])) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual([]);
+  });
+
+  it('persists a deduped secondaryRootIds array for the bulk metadata update path', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('UPDATE mastra_threads')) {
+        return { rows: [{ allFound: true, updatedThreadCount: 2 }] };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.updateThreadsMetadata(['thread-1', 'thread-2'], {
+      secondaryRootIds: ['a', 'b', 'a'],
+    });
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const params = update?.[1] as unknown[] | undefined;
+    const persisted = JSON.parse(String(params?.at(-1))) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual(['a', 'b']);
+  });
+
+  it('rejects secondaryRootIds that are not an array of non-empty strings', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: ['db-root-b', ''],
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: 'db-root-b' as never,
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('rejects whitespace-only secondaryRootIds entries', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: ['a', '   '],
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
+  it('throws on a malformed persisted secondaryRootIds while loading instead of coercing it', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (!sql.includes('FROM mastra_threads')) {
+        return { rows: [] };
+      }
+      return {
+        rows: [
+          {
+            createdAt: new Date('2026-08-21T09:00:00Z'),
+            id: 'thread-bad-secondaries',
+            metadata: JSON.stringify({ secondaryRootIds: [42] }),
+            resourceId: 'workspace-a',
+            title: 'Bad secondaries',
+            updatedAt: new Date('2026-08-21T09:00:00Z'),
+          },
+        ],
+      };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(repository.listThreads('workspace-a')).rejects.toThrow(
+      'Invalid assistant thread metadata secondary root ids.'
+    );
+  });
+
   it('rejects an incomplete operating-root binding while loading persisted metadata', async () => {
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
