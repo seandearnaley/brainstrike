@@ -112,6 +112,7 @@ import {
   makeTripwireTermination,
 } from './stream-termination';
 import {
+  CHILD_SYNTHESIS_PROMPT,
   createDelegationConfig,
   createDelegationLifecycleTracker,
   createDelegationOutcomeCapture,
@@ -1079,6 +1080,57 @@ function isMastraProviderOutputPart(part: unknown): boolean {
   return type === undefined || !MASTRA_SCAFFOLDING_PART_TYPES.has(type);
 }
 
+/**
+ * One no-tools turn on a child that ran out of steps mid-tool-loop (BST-1410).
+ *
+ * `toolChoice: 'none'` is what makes this bounded: the child physically cannot
+ * call another tool, so the turn always terminates in text. The request ends on
+ * an explicit USER message rather than the child's own trailing assistant turn
+ * — a prompt ending in an assistant message is prefill, which several providers
+ * reject outright (the condition `PrefillErrorHandler` exists to recover from),
+ * and manufacturing it here would be gratuitous.
+ */
+function createChildAnswerSynthesizer(
+  runtime: MastraAgentRuntime
+): (input: {
+  readonly messages: readonly MastraDBMessage[];
+  readonly personaId: string;
+}) => Promise<string | undefined> {
+  return async ({ messages, personaId }) => {
+    const child = runtime.subAgentsById.get(personaId);
+    if (!child) {
+      return;
+    }
+    // `stream`, not `generate`: `generate` dispatches to the model's
+    // `doGenerate`, and this codebase's model paths (including the local host)
+    // are driven entirely through `doStream`. Mastra's own delegation tool
+    // takes the same route for v2 models, and — like it — the stream must be
+    // drained before `text` resolves.
+    const result = await child.stream(
+      [...messages, { content: CHILD_SYNTHESIS_PROMPT, role: 'user' }],
+      {
+        // BOTH guards, deliberately. `toolChoice: 'none'` withholds the tool
+        // DEFINITIONS, but a model that emits a tool call anyway would still
+        // have it executed, because the agent's tool map is unchanged — the
+        // step-capped-child spec caught exactly that (a third tool execution on
+        // the synthesis turn). An empty `activeTools` makes the call
+        // unresolvable in the loop instead, so compliance is not assumed.
+        activeTools: [],
+        disableBackgroundTasks: true,
+        maxSteps: 1,
+        // The AI SDK's ToolChoice union takes the bare string for the
+        // non-specific modes; only `{ type: 'tool' }` is an object.
+        toolChoice: 'none',
+      }
+    );
+    for await (const _part of result.fullStream) {
+      // Drain: `text` does not resolve until the stream completes.
+    }
+    const text = await result.text;
+    return typeof text === 'string' ? text : undefined;
+  };
+}
+
 const resolveFullStream = (
   result: unknown
 ): NodeReadableStream<unknown> | ReadableStream<unknown> | undefined => {
@@ -1925,6 +1977,7 @@ async function createInitialTurnAttempt(
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,
+              synthesizeChildAnswer: createChildAnswerSynthesizer(runtime),
             }),
           }
         : {}),
@@ -2142,6 +2195,7 @@ async function createToolApprovalTurnAttempt({
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,
+              synthesizeChildAnswer: createChildAnswerSynthesizer(runtime),
             }),
           }
         : {}),
@@ -2749,6 +2803,7 @@ async function createToolResumeTurnAttempt({
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,
+              synthesizeChildAnswer: createChildAnswerSynthesizer(runtime),
             }),
           }
         : {}),

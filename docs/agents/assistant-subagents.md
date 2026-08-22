@@ -183,9 +183,35 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
     a destructive-red state. `SUBAGENT_NO_ANSWER_OUTCOME` lives in
     `assistant-contract/personas.ts` because it is the wire between the
     agent-side emitter and the card.
+  - **Forced synthesis turn.** Before giving up, a child that gathered SOMETHING
+    (`subAgentToolResults` non-empty) gets ONE more turn with its tools
+    withheld, so four minutes of exploration produces an answer instead of
+    orphaned tool results. Two guards, deliberately BOTH: `toolChoice: 'none'`
+    withholds the tool DEFINITIONS, and `activeTools: []` makes a call
+    unresolvable in the loop for a model that emits one anyway — the
+    step-capped live-loop spec caught exactly that (a third tool execution on
+    the synthesis turn), so compliance is not assumed. `maxSteps: 1` bounds it,
+    and the request ends on an explicit USER message
+    (`CHILD_SYNTHESIS_PROMPT`) rather than the child's trailing assistant turn,
+    because a prompt ending in an assistant message is prefill — the condition
+    `PrefillErrorHandler` exists to recover from, not to manufacture.
+  - The synthesizer uses `child.stream(...)` and DRAINS `fullStream` before
+    awaiting `text`, matching what Mastra's own delegation tool does for v2
+    models. `child.generate(...)` dispatches to the model's `doGenerate`, which
+    this codebase's model paths (including the local host) do not implement —
+    the first attempt silently produced nothing for exactly that reason.
+  - A synthesis failure logs `subagent_delegation_synthesis_failed` and falls
+    through to the explicit no-answer reason. That is not a silent fallback: the
+    parent still learns truthfully that nothing was analysed, and a synthesis
+    error must never take down the parent run.
+  - Reaching the child outside Mastra's own delegation call needs the child
+    `Agent`, so the runtime exposes `subAgentsById`. That is its only consumer
+    today.
   - Paired tests: `subagent-delegation.spec.ts` (hook), the step-capped
-    live-loop case in `mastra-subagent-execution.integration.spec.ts` (a child
-    scripted to never stop calling tools, reproducing the incident end-to-end),
+    and synthesis live-loop cases in
+    `mastra-subagent-execution.integration.spec.ts` (one child scripted to never
+    stop calling tools, reproducing the incident end-to-end; one that answers
+    once its tools are withheld, proving the synthesis turn is real),
     `subagent-tool-rows.test.ts` (outcome reader + concurrent-delegation
     scoping), `subagent-execution-card.test.tsx` (card status).
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry

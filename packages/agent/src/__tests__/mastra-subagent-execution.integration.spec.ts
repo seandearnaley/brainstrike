@@ -260,6 +260,56 @@ function createStepCappedChildSupervisorModel(childToolCallPrefix: string): Lang
   };
 }
 
+/**
+ * Like {@link createStepCappedChildSupervisorModel}, but the CHILD answers when
+ * its tools are withheld (`toolChoice: 'none'` or an empty tool set) — the shape
+ * a forced synthesis turn takes. Proves the synthesis call is real: without it
+ * the child never emits text at all.
+ */
+function createSynthesizingChildSupervisorModel(): LanguageModelV2 {
+  let childTurn = 0;
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      if (toolNamesOf(options).includes(DELEGATION_TOOL)) {
+        return Promise.resolve({
+          stream: enqueue(
+            promptHasToolResult(options)
+              ? finalTextStream('PARENT_ANSWER: acknowledged.')
+              : toolCallStream(
+                  DELEGATION_TOOL,
+                  'delegation-call-1',
+                  JSON.stringify({ prompt: 'survey the workspace' })
+                )
+          ),
+        });
+      }
+      const toolsWithheld =
+        toolNamesOf(options).length === 0 ||
+        (options as { toolChoice?: { type?: string } }).toolChoice?.type === 'none';
+      if (toolsWithheld) {
+        return Promise.resolve({
+          stream: enqueue(finalTextStream('CHILD_SYNTHESIS: three matches under src/.')),
+        });
+      }
+      childTurn += 1;
+      return Promise.resolve({
+        stream: enqueue(
+          toolCallStream(
+            CHILD_TOOL,
+            `child-call-${childTurn}`,
+            JSON.stringify({ pattern: `flag-${childTurn}` })
+          )
+        ),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
 interface CollectedStream {
   delegationToolEvents: StreamChunk[];
   finalText: string;
@@ -306,6 +356,46 @@ function makeChildTool(spy: (inputData: { pattern: string }) => Promise<{ matche
 describe('mastra subagent delegation (real @mastra/core supervisor loop)', () => {
   beforeEach(() => {
     modelHolder.current = undefined;
+  });
+
+  it('gives a step-capped child one no-tools turn to write the summary it never reached', async () => {
+    // BST-1410. Reporting the failure honestly is necessary but wasteful: the
+    // child had already done four minutes of real exploration. One forced turn
+    // with tools withheld converts that work into an answer instead of 30
+    // orphaned tool results — and it cannot loop, because it cannot call tools.
+    const executeSpy = vi.fn((_inputData: { pattern: string }) =>
+      Promise.resolve({ matches: ['a match'] })
+    );
+    modelHolder.current = createSynthesizingChildSupervisorModel();
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-synth', parts: [{ text: 'survey the workspace', type: 'text' }], role: 'user' }],
+      {
+        personas: [{ ...testPersona, maxSteps: 2 }],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.grepSearch': makeChildTool(executeSpy) },
+      }
+    );
+
+    const { delegationToolEvents, runEvents } = await collect(iterator);
+
+    expect(executeSpy).toHaveBeenCalledTimes(2);
+
+    const successEvent = delegationToolEvents.find(
+      (event) => event.type === 'tool-event' && event.status === 'success'
+    );
+    const resultText =
+      successEvent && successEvent.type === 'tool-event'
+        ? (successEvent.payload as { result?: { text?: string } }).result?.text
+        : undefined;
+    expect(resultText).toContain('CHILD_SYNTHESIS: three matches under src/.');
+    expect(resultText).not.toContain('never wrote its summary');
+
+    // A delegation that DID end up answering is a success again.
+    const subagentTerminals = runEvents
+      .map((event) => event.kind)
+      .filter((kind) => kind === 'subagent.finished' || kind === 'subagent.failed');
+    expect(subagentTerminals).toEqual(['subagent.finished']);
   });
 
   it('reports a step-capped child as a failed delegation carrying an explicit reason', async () => {

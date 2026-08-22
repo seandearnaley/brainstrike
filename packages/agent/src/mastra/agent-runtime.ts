@@ -157,6 +157,13 @@ export interface MastraAgentRuntime {
   resilienceConfig: AssistantResilienceConfig;
   /** Per-run budget shared by fresh producers and runtime projection guards. */
   resolvedToolResultBudget: ScaledToolResultBudget;
+  /**
+   * Persona id → the constructed child `Agent`, for callers that must reach a
+   * child OUTSIDE Mastra's own delegation call — today only the forced
+   * synthesis turn a step-capped child gets (BST-1410). Empty when the run
+   * registered no personas.
+   */
+  subAgentsById: ReadonlyMap<string, Agent>;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
@@ -608,6 +615,7 @@ export async function createMastraAgentRuntime(
     personasById,
     resilienceConfig,
     resolvedToolResultBudget,
+    subAgentsById: new Map(Object.entries(subAgents)),
     tokenDiagnostics,
     ...(discoverySurface ? { toolDiscovery: discoverySurface.metadata } : {}),
     toolHistoryFilter,

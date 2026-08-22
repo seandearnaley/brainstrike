@@ -22,7 +22,7 @@
 import type { AssistantRunEventMetadata } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { ScopedLogger } from '@brainstrike/logging';
-import type { DelegationConfig } from '@mastra/core/agent';
+import type { DelegationConfig, MastraDBMessage } from '@mastra/core/agent';
 
 export const MAX_CONCURRENT_DELEGATIONS = 2;
 export const MAX_DELEGATIONS_PER_RUN = 8;
@@ -63,6 +63,13 @@ export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
   };
 }
 
+/** What a step-capped child is asked for when its tools are withheld. */
+export const CHILD_SYNTHESIS_PROMPT =
+  'You have reached your step limit and can make no further tool calls. Using ONLY what ' +
+  'you already found above, write your summary now: what you looked for, what you found, ' +
+  'and the concrete file paths. If the task is only partly covered, say exactly which part ' +
+  'you covered and which you did not.';
+
 export interface CreateDelegationConfigParams {
   /** Optional sink for delegations that returned no answer (see above). */
   readonly delegationOutcomes?: DelegationOutcomeCapture;
@@ -77,6 +84,17 @@ export interface CreateDelegationConfigParams {
   readonly onChildUsage?: (report: SubagentChildUsageReport) => void;
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
+  /**
+   * Run ONE no-tools turn on the child so a step-capped exploration still
+   * produces an answer (BST-1410). Supplied by the runtime layer, which owns
+   * the child `Agent` instances. Absent (or resolving empty) leaves the
+   * explicit no-answer reason in place — that reason is itself truthful and the
+   * attempt is logged, so nothing degrades silently.
+   */
+  readonly synthesizeChildAnswer?: (input: {
+    readonly messages: readonly MastraDBMessage[];
+    readonly personaId: string;
+  }) => Promise<string | undefined>;
 }
 
 function readTokenCount(value: unknown): number {
@@ -158,6 +176,42 @@ function describeMissingChildAnswer(persona: AssistantPersonaDefinition, result:
 }
 
 /**
+ * Run the forced synthesis turn, converting any failure into `undefined` so the
+ * caller falls through to the explicit no-answer reason.
+ *
+ * Swallowing here is NOT a silent fallback: the failure is logged with its own
+ * code, and the path it falls through to still tells the parent truthfully that
+ * the delegation produced no analysis. What must never happen is a synthesis
+ * error taking down the parent run.
+ */
+async function synthesizeOrLog(
+  params: CreateDelegationConfigParams,
+  context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0]
+): Promise<string | undefined> {
+  try {
+    const synthesized = await params.synthesizeChildAnswer?.({
+      messages: context.messages,
+      personaId: context.primitiveId,
+    });
+    const trimmed = synthesized?.trim();
+    if (trimmed) {
+      params.logger.info('Subagent wrote its summary in a forced synthesis turn', {
+        code: 'subagent_delegation_synthesis_recovered',
+        personaId: context.primitiveId,
+      });
+      return trimmed;
+    }
+  } catch (error) {
+    params.logger.warn('Subagent synthesis turn failed', {
+      code: 'subagent_delegation_synthesis_failed',
+      error: error instanceof Error ? error.message : String(error),
+      personaId: context.primitiveId,
+    });
+  }
+  return;
+}
+
+/**
  * Build a per-run delegation config. Call ONCE per run (the closure carries the
  * run's in-flight + total counters).
  */
@@ -170,7 +224,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
   let total = 0;
 
   return {
-    onDelegationComplete: (context) => {
+    onDelegationComplete: async (context) => {
       inFlight = Math.max(0, inFlight - 1);
       params.logger.info('Subagent delegation completed', {
         code: 'subagent_delegation_completed',
@@ -198,6 +252,16 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
         personaId: context.primitiveId,
         ...(toolCallCount === undefined ? {} : { toolCallCount }),
       });
+      // The child already did the work; it simply never reached a step where it
+      // could write the answer. One turn with tools WITHHELD converts that work
+      // into a summary, and it cannot loop because it cannot call tools. Only
+      // worth attempting when the child actually gathered something.
+      if (params.synthesizeChildAnswer && toolCallCount) {
+        const synthesized = await synthesizeOrLog(params, context);
+        if (synthesized) {
+          return { resultText: synthesized };
+        }
+      }
       params.delegationOutcomes?.recordNoAnswer(context.toolCallId);
       return { resultText: describeMissingChildAnswer(persona, context.result) };
     },

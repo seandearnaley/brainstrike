@@ -1,7 +1,7 @@
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { ScopedLogger } from '@brainstrike/logging';
 import type { DelegationStartContext } from '@mastra/core/agent';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createDelegationConfig,
   createDelegationLifecycleTracker,
@@ -130,10 +130,10 @@ describe('createDelegationConfig: a child that returned no answer', () => {
   // delegation for the rest of the turn. Mastra's own `resultText` docs name
   // this exact case as what the seam exists for.
 
-  it('replaces an empty result with an explicit reason naming the tool-call count', () => {
+  it('replaces an empty result with an explicit reason naming the tool-call count', async () => {
     const config = createDelegationConfig({ logger: silentLogger, personasById });
     config.onDelegationStart?.(startContext());
-    const result = config.onDelegationComplete?.(
+    const result = await config.onDelegationComplete?.(
       completeContext({
         result: {
           subAgentToolResults: Array.from({ length: 30 }, (_unused, index) => ({
@@ -155,20 +155,20 @@ describe('createDelegationConfig: a child that returned no answer', () => {
     expect((result as { resultText: string }).resultText).not.toContain('undefined');
   });
 
-  it('distinguishes a child that did nothing at all from one that ran out of steps', () => {
+  it('distinguishes a child that did nothing at all from one that ran out of steps', async () => {
     const config = createDelegationConfig({ logger: silentLogger, personasById });
     config.onDelegationStart?.(startContext());
-    const result = config.onDelegationComplete?.(
+    const result = await config.onDelegationComplete?.(
       completeContext({ result: { subAgentToolResults: [], text: '   ' } })
     );
 
     expect(result).toMatchObject({ resultText: expect.stringContaining('no tool calls') });
   });
 
-  it('leaves a real answer untouched', () => {
+  it('leaves a real answer untouched', async () => {
     const config = createDelegationConfig({ logger: silentLogger, personasById });
     config.onDelegationStart?.(startContext());
-    const result = config.onDelegationComplete?.(
+    const result = await config.onDelegationComplete?.(
       completeContext({
         result: { subAgentToolResults: [{ toolCallId: 'c1' }], text: 'Found it.' },
       })
@@ -177,7 +177,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
     expect(result).toBeUndefined();
   });
 
-  it('records the under-delivering delegation so the timeline can show it', () => {
+  it('records the under-delivering delegation so the timeline can show it', async () => {
     const outcomes = createDelegationOutcomeCapture();
     const config = createDelegationConfig({
       delegationOutcomes: outcomes,
@@ -185,16 +185,93 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       personasById,
     });
     config.onDelegationStart?.(startContext());
-    config.onDelegationComplete?.(
+    await config.onDelegationComplete?.(
       completeContext({ result: { text: '' }, toolCallId: 'call-empty' })
     );
     config.onDelegationStart?.(startContext());
-    config.onDelegationComplete?.(
+    await config.onDelegationComplete?.(
       completeContext({ result: { text: 'Found it.' }, toolCallId: 'call-answered' })
     );
 
     expect(outcomes.returnedNoAnswer('call-empty')).toBe(true);
     expect(outcomes.returnedNoAnswer('call-answered')).toBe(false);
+  });
+
+  it('prefers a forced synthesis answer over the no-answer reason', async () => {
+    const outcomes = createDelegationOutcomeCapture();
+    const config = createDelegationConfig({
+      delegationOutcomes: outcomes,
+      logger: silentLogger,
+      personasById,
+      synthesizeChildAnswer: () => Promise.resolve('  Three matches under src/.  '),
+    });
+    config.onDelegationStart?.(startContext());
+    const result = await config.onDelegationComplete?.(
+      completeContext({
+        result: { subAgentToolResults: [{ toolCallId: 'c1' }], text: '' },
+        toolCallId: 'call-synth',
+      })
+    );
+
+    expect(result).toEqual({ resultText: 'Three matches under src/.' });
+    // A delegation that ended up answering is NOT flagged for the timeline.
+    expect(outcomes.returnedNoAnswer('call-synth')).toBe(false);
+  });
+
+  it('falls through to the no-answer reason when synthesis fails, and still flags it', async () => {
+    // Not a silent fallback: the failure is logged with its own code, and the
+    // text the parent receives still says truthfully that nothing was analysed.
+    // What must never happen is a synthesis error taking down the parent run.
+    const outcomes = createDelegationOutcomeCapture();
+    const config = createDelegationConfig({
+      delegationOutcomes: outcomes,
+      logger: silentLogger,
+      personasById,
+      synthesizeChildAnswer: () => Promise.reject(new Error('provider exploded')),
+    });
+    config.onDelegationStart?.(startContext());
+    const result = await config.onDelegationComplete?.(
+      completeContext({
+        result: { subAgentToolResults: [{ toolCallId: 'c1' }], text: '' },
+        toolCallId: 'call-synth-failed',
+      })
+    );
+
+    expect(result).toMatchObject({
+      resultText: expect.stringContaining('never wrote its summary'),
+    });
+    expect(outcomes.returnedNoAnswer('call-synth-failed')).toBe(true);
+  });
+
+  it('does not attempt synthesis when the child gathered nothing to summarise', async () => {
+    const synthesize = vi.fn(() => Promise.resolve('should not be called'));
+    const config = createDelegationConfig({
+      logger: silentLogger,
+      personasById,
+      synthesizeChildAnswer: synthesize,
+    });
+    config.onDelegationStart?.(startContext());
+    await config.onDelegationComplete?.(
+      completeContext({ result: { subAgentToolResults: [], text: '' } })
+    );
+
+    expect(synthesize).not.toHaveBeenCalled();
+  });
+
+  it('treats a blank synthesis answer as no answer', async () => {
+    const config = createDelegationConfig({
+      logger: silentLogger,
+      personasById,
+      synthesizeChildAnswer: () => Promise.resolve('   \n  '),
+    });
+    config.onDelegationStart?.(startContext());
+    const result = await config.onDelegationComplete?.(
+      completeContext({ result: { subAgentToolResults: [{ toolCallId: 'c1' }], text: '' } })
+    );
+
+    expect(result).toMatchObject({
+      resultText: expect.stringContaining('never wrote its summary'),
+    });
   });
 
   it('still frees the concurrency slot for an empty delegation', () => {
