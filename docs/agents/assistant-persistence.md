@@ -1964,10 +1964,16 @@ Where state lives (do not relitigate):
   identity). This is NOT a custom group — `buildThreadListSections` returns a
   `{ kind: 'folders' }` view whose sections carry a `ThreadListSectionHeader`
   discriminated union (`group` | `folder` | `unassigned`) and a `section.id`
-  (`group.id`, `folder:${rootId}`, `folder:unassigned`). Folder display rows are
-  supplied BY THE CALLER as `folderRowsByRootId` (one `roots` query for the
-  whole panel — `assistant-data` stays DB-free) and folder mode without them
-  throws. A thread whose root id is missing, blank, or has no display row lands
+  (`group.id`, `folder:${rootId}`, `folder-unassigned` — the sentinel is
+  HYPHENATED on purpose, so it can never collide with a `folder:` id built from
+  a root whose id is literally `unassigned`). Folder display rows are supplied
+  BY THE CALLER as `folderRowsByRootId` (one `roots` query for the whole panel —
+  `assistant-data` stays DB-free), and folder mode cannot arrive without them:
+  `BuildThreadListSectionsInput` is a union discriminated on `groupBy`, so the
+  compiler — not a runtime throw — requires the folder arm to carry
+  `folderRowsByRootId` and `folderSortBy`, and the other arm to carry `groups`,
+  `placements`, and `sortBy`. A thread whose root id is missing, blank, or has
+  no display row lands
   in the trailing "No folder" section, which is omitted when empty; the pure
   builder never logs, the calling hook does.
 - The caller is `use-thread-folder-rows.ts` (BST-1404): ONE batched
