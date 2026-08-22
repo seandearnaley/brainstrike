@@ -139,9 +139,11 @@ export async function waitForMastraMemorySchema(page: Page, timeoutMs = 60_000):
 }
 
 /**
- * Insert one `mastra_threads` row per spec and return their ids, newest first
- * (each row is stamped one second apart so a recency sort is deterministic
- * rather than tie-broken by id).
+ * Insert one `mastra_threads` row per spec and return their ids in SPEC ORDER,
+ * which is oldest first: the stamps start at `now - specs.length` seconds and
+ * step forward one second per row, so `ids[0]` carries the EARLIEST
+ * `createdAt`. The one-second spacing is what makes a recency sort
+ * deterministic rather than tie-broken by id.
  *
  * Only the columns the memory schema requires are written — the same tuple
  * `seedCompactionSummaryThread` uses — so this helper cannot drift from the

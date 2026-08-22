@@ -158,6 +158,19 @@ async function seedFoldersFixture(page: Page): Promise<{ repo: string }> {
   // INSERT's transaction rather than merely fail it.
   await openThreadsPanel(page);
   await waitForMastraMemorySchema(page);
+  // The bootstrap thread is a PRECONDITION of the counts below, not a
+  // bystander. An EMPTY resource mints one — `loadResourceThreadsForGeneration`
+  // in `assistant-thread-store.ts` calls `createThread` when `listThreads`
+  // comes back empty — and both tests read `No folder` as TWO threads: that one
+  // plus the seeded unbound row. The schema probe proves only that the RELATION
+  // exists, and nothing orders these INSERTs against that `listThreads`, so
+  // seeding first could make it non-empty; the bootstrap thread would then
+  // never be created and `No folder` would render 1. Waiting for the row makes
+  // the ordering a fact rather than a race against `DatabaseWorkScheduler`.
+  // (`assistant-compaction.desktop.test.ts` gets the same ordering for free:
+  // `seedCompactionSummaryThread` reads `resourceId` off an existing
+  // `mastra_threads` row and throws when there is none.)
+  await expect(page.getByTestId('thread-row')).toHaveCount(1, { timeout: 30_000 });
   await seedThreadRows(page, [
     { folder: null, title: UNBOUND_THREAD_TITLE },
     { folder: root, title: BOUND_THREAD_TITLES[0] },
