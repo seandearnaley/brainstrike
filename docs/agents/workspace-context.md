@@ -1020,11 +1020,14 @@ additional explorer/status chrome):
     depend on the main-process git inventory having ARMED a watcher for that
     root's repository, which only happens inside an inventory build — so roots
     registered after app-ready are nudged into discovery by
-    `use-roots-reconciliation.ts` calling `changes.inventory()` once per
-    registration (BST-1397; see "Discovery refresh on root registration" in
-    `docs/agents/changeset-diff.md` § REFRESH SEAMS). Without that nudge a
-    mid-session Add Folder / Recents root gets no metadata push at all and the
-    chip only updates on reload.
+    `use-roots-reconciliation.ts` calling `changes.inventory({ maxAgeMs: 0 })`
+    once per registration (BST-1397; see "Discovery refresh on root
+    registration" in `docs/agents/changeset-diff.md` § REFRESH SEAMS). The
+    forced option is what makes the nudge reliable: it guarantees a build that
+    started after the registration, so the TTL cache and in-flight coalescing
+    cannot serve back a snapshot that predates the new `roots` row. Without
+    that nudge a mid-session Add Folder / Recents root gets no metadata push
+    at all and the chip only updates on reload.
 - DEFERRED (v1 ruling): a root-header right-click context action ("Set as
   main" / Disconnect / Copy path / Reveal) — root headers have no
   ContextTarget kind yet; it is a coherent follow-up surface.
