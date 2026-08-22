@@ -982,15 +982,37 @@ additional explorer/status chrome):
     (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
     `fs:listRecentRoots`), minus folders already mounted in this workspace.
     `fs:addRootByPath` re-mounts ONLY a path present in that ledger and is the
-    single sanctioned picker-less mount (BST-1395): the ledger IS the
-    authorization, so a renderer cannot turn an arbitrary string into
-    workspace access. Desktop-only — web has no ledger and therefore no
-    `onAddRecent` affordance (capability gating, not an `isElectron()` check).
+    single sanctioned picker-less mount (BST-1395): a stray or stale path
+    string cannot become workspace access, and every path the ledger accepts
+    was already granted through the OS picker or a successful restore. It is a
+    correctness gate at the SAME trust class as `rootsList` + `fs:restoreRoots`
+    — the renderer can already write main storage through the `storage:*`
+    bridge — NOT a hardening boundary against a compromised renderer. Narrowing
+    `storage:*` with a key allowlist would raise that floor for every main-owned
+    key at once and is tracked separately. Paths are keyed with a stripped
+    trailing separator, so `/ws/alpha/` and `/ws/alpha` are one slot. A CORRUPT
+    ledger is quarantined to `recentRootsList.corrupt`, logged at ERROR, and
+    reset (mirroring `readStoredRootsOrQuarantine`) rather than left permanently
+    unrecoverable; until the next grant re-populates it, `addRootByPath` rejects
+    with the normal "never granted" remedy. The cap (`RECENT_ROOTS_LIMIT`, 50)
+    is storage hygiene, deliberately far above realistic mount counts so
+    connected roots cannot evict disconnected grants. Desktop-only — web has no
+    ledger and therefore no `onAddRecent` affordance (capability gating, not an
+    `isElectron()` check).
+  - Reveal: the chip NEVER hardcodes an OS name. `WorkspaceBarProps.reveal`
+    pairs `{ label, onReveal }` so supplying a handler without a label is a
+    type error, and app-shell feeds it the platform-aware `revealLabel()`
+    exported from `@brainstrike/file-explorer-ui/context-actions`.
   - Branch chip: READ-ONLY `window.git.status` for the primary root
-    (branch/detached, ahead/behind, dirty dot), refetched on every accepted
-    `changes:invalidated` event — no polling. Desktop-only, and absent for a
-    non-repository root or a failed status; a failure is logged and NEVER
-    rendered as "clean".
+    (branch/detached, ahead/behind, dirty dot) — no polling. It refetches on
+    BOTH live-refresh signals: every accepted `changes:invalidated`
+    git-metadata push AND the primary root's own git-scope nonce
+    (`selectGitScopeRefreshNonce`), which is what carries WORKING-TREE edits.
+    Metadata pushes report topology only, so on that nonce alone the dirty dot
+    went stale the moment a file changed without a branch operation. Desktop-
+    only, and absent for a non-repository root or a failed status; a failure is
+    logged and NEVER rendered as "clean". It is withheld whenever `primaryRoot`
+    is absent, so a branch never renders with no folder beside it.
 - DEFERRED (v1 ruling): a root-header right-click context action ("Set as
   main" / Disconnect / Copy path / Reveal) — root headers have no
   ContextTarget kind yet; it is a coherent follow-up surface.

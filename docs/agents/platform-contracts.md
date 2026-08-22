@@ -176,10 +176,15 @@ fresh start:
 - `recentRootsList` (BST-1395) — the ledger of folders the user has ALREADY
   granted this app (`workspace-recent-roots.ts`). Deliberately SEPARATE from
   `rootsList`: disconnecting a root must not revoke the grant, because the
-  grant is the ONLY authorization for the picker-less `fs:addRootByPath` that
-  the composer workspace bar's Recents list drives. Reset therefore has to
-  clear it — a surviving ledger would keep authorizing picker-less mounts of
-  folders a "true fresh start" says were never granted.
+  grant is what points the picker-less `fs:addRootByPath` — driven by the
+  composer workspace bar's Recents list — at a previously granted folder. It
+  sits in the SAME trust class as `rootsList` + `fs:restoreRoots`, not above
+  it. Reset therefore has to clear it — a surviving ledger would keep offering
+  picker-less mounts of folders a "true fresh start" says were never granted.
+- `recentRootsList.corrupt` — quarantined bytes from a malformed
+  `recentRootsList`, the exact counterpart of `rootsList.corrupt`. Written once
+  alongside an ERROR log so a corrupt ledger self-heals instead of bricking
+  Recents; covered by the same wholesale userData wipe.
 - `lastFolderPath` — presentation-only.
 
 If main-process storage ever moves outside `userData` (or gains a preserved
