@@ -12,7 +12,6 @@ import {
 } from '../assistant-ui-panel-wrapper-runtime';
 
 interface UseAssistantThreadRootBindingArgs {
-  readonly activeRootCount: number;
   readonly assistantThreadRepository: AssistantThreadRepository | null;
   readonly currentMainRoot?: AssistantOperatingRootCandidate | undefined;
   readonly database: DbHandle | null;
@@ -37,7 +36,6 @@ interface UseAssistantThreadRootBindingResult {
 }
 
 export function useAssistantThreadRootBinding({
-  activeRootCount,
   assistantThreadRepository,
   currentMainRoot,
   database,
@@ -56,13 +54,14 @@ export function useAssistantThreadRootBinding({
   const displayRootBinding = selectedThreadMetadataPending
     ? undefined
     : (threadRootBinding ?? currentMainRoot);
-  const operatingRoot =
-    activeRootCount >= 2 && displayRootBinding
-      ? {
-          displayName: displayRootBinding.displayName,
-          ...(displayRootBinding.path ? { path: displayRootBinding.path } : {}),
-        }
-      : undefined;
+  // No root-count gate: the workspace bar is ORIENTATION, not disambiguation,
+  // so a single-root workspace shows its root too (BST-1397).
+  const operatingRoot = displayRootBinding
+    ? {
+        displayName: displayRootBinding.displayName,
+        ...(displayRootBinding.path ? { path: displayRootBinding.path } : {}),
+      }
+    : undefined;
   const resolveThreadRootBinding = useCallback(async () => {
     if (selectedThreadMetadataPending) {
       throw new Error(
