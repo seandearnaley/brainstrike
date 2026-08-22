@@ -128,6 +128,22 @@ Tests Inter-Process Communication between main and renderer:
 - Concurrent IPC calls
 - Communication reliability
 
+### 4. Composer Workspace Bar (`workspace-bar.desktop.test.ts`)
+Drives the composer workspace bar against REAL on-disk folders — nothing about
+the bar is mocked (see `docs/agents/workspace-context.md`, MAIN vs FOCUSED):
+- Folder chip visible at a SINGLE root, labelled with the primary root's name.
+- Branch chip (read-only `window.git.status`) shows `main` + `data-dirty` for a
+  real `git init`'d repo, and is ABSENT for a non-git folder.
+- Recents: a path seeded into main's `recentRootsList` ledger re-mounts through
+  the picker-less `fs:addRootByPath` and is recorded as a thread secondary
+  (`+1`).
+- "Add folder…" (OS picker bypassed by `BRAINSTRIKE_E2E_REAL_ROOT_PATH`) mounts
+  globally AND attaches to the thread as a secondary.
+
+Only the first test is `@smoke`; the rest run in the `regression` project.
+Web's smaller capability surface (no git bridge, no recents ledger) is pinned
+separately by `apps/web/e2e/workspace-bar.test.ts`.
+
 ## 🛠 Key Features
 
 ### Dialog Mocking

@@ -165,6 +165,27 @@ dedicated wiring. That coverage is pinned by the BST-1061 regression test in
 unpack dir ever moves outside userData, it needs explicit reset wiring plus an
 update here.
 
+Desktop MAIN-PROCESS storage (`ElectronStorageAdapter`, one
+`electron-storage.json` under `app.getPath('userData')`) is covered by the same
+wholesale userData wipe — no per-key wiring. The keys it owns that MATTER for a
+fresh start:
+
+- `rootsList` — the connected workspace roots, owned only by
+  `apps/desktop/src/ipc-domains/workspace-root-registry.ts` (see
+  workspace-context.md, MAIN vs FOCUSED).
+- `recentRootsList` (BST-1395) — the ledger of folders the user has ALREADY
+  granted this app (`workspace-recent-roots.ts`). Deliberately SEPARATE from
+  `rootsList`: disconnecting a root must not revoke the grant, because the
+  grant is the ONLY authorization for the picker-less `fs:addRootByPath` that
+  the composer workspace bar's Recents list drives. Reset therefore has to
+  clear it — a surviving ledger would keep authorizing picker-less mounts of
+  folders a "true fresh start" says were never granted.
+- `lastFolderPath` — presentation-only.
+
+If main-process storage ever moves outside `userData` (or gains a preserved
+entry name), every one of these needs explicit reset wiring plus an update
+here.
+
 Desktop reset order:
 1. Dispose embeddings.
 2. Clear UI state.
