@@ -4,6 +4,7 @@ import type { ActionOutcome } from '@brainstrike/context-actions';
 import type { DbHandle } from '@brainstrike/db/react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useWorkspaceBar } from '../hooks/use-workspace-bar';
 
 // `fs` is only dereferenced when the mocked useFileSystem() is CALLED (render
@@ -60,9 +61,11 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => loggerMock,
 }));
+// The STANDALONE `toast` export, not `useToast()`: the bar raises toasts but
+// never renders the toast list, so it must not subscribe to the store.
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
-  useToast: () => ({ dismiss: vi.fn(), toast: toastSpy, toasts: [] }),
+  toast: toastSpy,
 }));
 vi.mock('@brainstrike/context-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/context-actions')>()),
@@ -91,6 +94,18 @@ const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: strin
 // How many times the live-root probe for a path must MISS before the row
 // appears — models roots reconciliation writing the row after the add resolves.
 const liveRootMisses = new Map<string, number>();
+// Holds the live-root probe open so a test can land a thread switch WHILE the
+// final lookup is in flight (the window a retry-loop-only cancellation check
+// cannot see).
+let liveRootGate: { promise: Promise<void>; release: () => void } | null = null;
+function openLiveRootGate(): { promise: Promise<void>; release: () => void } {
+  let release = (): void => undefined;
+  const promise = new Promise<void>((resolve) => {
+    release = () => resolve();
+  });
+  liveRootGate = { promise, release };
+  return liveRootGate;
+}
 
 const isSecondaryLookup = (sql: unknown) => typeof sql === 'string' && sql.includes('= ANY');
 
@@ -105,6 +120,9 @@ const query = vi.fn(async (sql: string, params?: unknown[]) => {
     };
   }
   if (sql.includes('FROM roots')) {
+    if (liveRootGate) {
+      await liveRootGate.promise;
+    }
     // PATH-specific on purpose: an "add folder" test must not pass by
     // resolving some other root's row.
     const path = params?.[0] as string;
@@ -162,17 +180,23 @@ function copyPathOf(props: { readonly onCopyPath?: ((path: string) => void) | un
   return onCopyPath;
 }
 
+interface BarProps {
+  readonly selectedMemoryThreadId: string | undefined;
+}
+
 async function setup(metadata: Record<string, unknown> = {}) {
   seedThread(metadata);
-  const rendered = renderHook(() =>
-    useWorkspaceBar({
-      assistantThreadRepository,
-      currentMainRoot,
-      database,
-      memoryResourceId: RESOURCE_ID,
-      rootDescriptors,
-      selectedMemoryThreadId: THREAD_ID,
-    })
+  const rendered = renderHook(
+    (props: BarProps) =>
+      useWorkspaceBar({
+        assistantThreadRepository,
+        currentMainRoot,
+        database,
+        memoryResourceId: RESOURCE_ID,
+        rootDescriptors,
+        selectedMemoryThreadId: props.selectedMemoryThreadId,
+      }),
+    { initialProps: { selectedMemoryThreadId: THREAD_ID } satisfies BarProps }
   );
   // Let the mount-time roots/recents reads settle inside act so no state
   // update escapes the test's act() scope.
@@ -183,6 +207,8 @@ async function setup(metadata: Record<string, unknown> = {}) {
 beforeEach(() => {
   currentFs = fs;
   liveRootMisses.clear();
+  liveRootGate = null;
+  useChangesLiveRefreshStore.getState().reset();
   clipboardWriteText.mockReset();
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
   checkoutSpy.mockClear();
@@ -245,6 +271,30 @@ describe('useWorkspaceBar', () => {
     // Never an invented id.
     expect(checkoutSpy).not.toHaveBeenCalledWith('adapter-main');
     expect(checkoutSpy).toHaveBeenCalledWith(null);
+  });
+
+  it('re-resolves the MAIN root after a changes invalidation instead of staying blank forever', async () => {
+    vi.useFakeTimers();
+    liveRootMisses.set('/ws/brainstrike', Number.POSITIVE_INFINITY);
+    const { result } = await setup();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(result.current.primaryRoot).toBeUndefined();
+    expect(loggerMock.warn).toHaveBeenCalledTimes(1);
+    // Reconciliation has since written the row and announced it.
+    liveRootMisses.set('/ws/brainstrike', 0);
+    await act(async () => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/ws/brainstrike/.git',
+        repositoryRoot: '/ws/brainstrike',
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(result.current.primaryRoot?.rootId).toBe('r-main-db');
   });
 
   it('resolves secondaryRootIds to display rows from the roots table', async () => {
@@ -327,6 +377,89 @@ describe('useWorkspaceBar', () => {
     });
     expect(updateThreadMetadata).not.toHaveBeenCalled();
     expect(loggerMock.error).toHaveBeenCalled();
+  });
+
+  it('abandons an in-flight folder attachment when the selected thread changes', async () => {
+    vi.useFakeTimers();
+    liveRootMisses.set('/ws/docs', 3);
+    const { rerender, result } = await setup();
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
+    await act(async () => {
+      rerender({ selectedMemoryThreadId: 'thread-2' });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    // The write captured thread-1's folder set; landing it now would replace
+    // thread-2's folders with thread-1's.
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it('abandons an in-flight folder attachment when the thread changes during the final lookup', async () => {
+    const { rerender, result } = await setup();
+    const gate = openLiveRootGate();
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    await act(async () => {
+      rerender({ selectedMemoryThreadId: 'thread-2' });
+    });
+    await act(async () => {
+      gate.release();
+    });
+    await act(async () => {});
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it('abandons an in-flight folder attachment when the hook unmounts', async () => {
+    vi.useFakeTimers();
+    liveRootMisses.set('/ws/docs', 3);
+    const { result, unmount } = await setup();
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it('serializes two rapid Add folder writes so neither id is dropped', async () => {
+    const { result } = await setup();
+    fs.addRootDirectory
+      .mockResolvedValueOnce({
+        kind: 'directory',
+        name: 'docs',
+        path: '/ws/docs',
+        platform: 'electron',
+        rootId: 'adapter-docs',
+      })
+      .mockResolvedValueOnce({
+        kind: 'directory',
+        name: 'site',
+        path: '/ws/site',
+        platform: 'electron',
+        rootId: 'adapter-site',
+      });
+    await act(async () => {
+      result.current.onAddFolder();
+      result.current.onAddFolder();
+    });
+    await act(async () => {});
+    // Both lookups settle in the same tick: an unserialized second write would
+    // read the pre-click set and persist ['r-site'] alone.
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+        secondaryRootIds: ['r-docs', 'r-site'],
+      })
+    );
   });
 
   it('does not rewrite the thread when the added folder is already the primary', async () => {

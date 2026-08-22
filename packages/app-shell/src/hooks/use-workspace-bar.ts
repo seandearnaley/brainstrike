@@ -10,12 +10,13 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry } from '@brainstrike/types';
-import { useToast } from '@brainstrike/ui';
+import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AssistantOperatingRootCandidate,
   resolveAssistantOperatingRootBinding,
 } from '../assistant-operating-root';
+import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -51,8 +52,23 @@ const EMPTY_SECONDARY_ROOT_IDS: readonly string[] = [];
 const NO_ROOTS: readonly WorkspaceBarRoot[] = [];
 const NO_RECENT_ENTRIES: readonly RecentRootEntry[] = [];
 // Root ids are uuidv7, so a space can never occur inside one — the joined key
-// is a faithful VALUE identity for the id list.
+// is a faithful VALUE identity for the id list. (If ids ever gain a format that
+// can contain a space, this key stops distinguishing `['a b']` from `['a','b']`
+// and must change with it.)
 const SECONDARY_ID_SEPARATOR = ' ';
+
+/** The thread folder set a queued write derives its next value from. */
+interface ThreadFolders {
+  readonly primaryRootId: string | undefined;
+  readonly secondaryRootIds: readonly string[];
+  readonly threadId: string | undefined;
+}
+
+/** One queued metadata write, or `null` to skip it (already satisfied/stale). */
+interface ThreadFoldersWrite {
+  readonly binding?: Record<string, string>;
+  readonly ids: readonly string[];
+}
 
 /**
  * A folder's durable `roots` row is written by the roots-reconciliation effect
@@ -147,7 +163,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedMemoryThreadId,
   } = args;
   const fileSystem = useFileSystem();
-  const { toast } = useToast();
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
   const threadMetadataSecondaryRootIds = selectedMemoryThreadId
@@ -174,15 +189,24 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedMemoryThreadId,
   });
 
-  // Cancels an in-flight reconciliation wait on unmount or when the selected
-  // thread changes: a folder added while thread A was open must never be
-  // written onto thread B.
-  const cancelledRef = useRef(false);
+  // Cancellation for an in-flight reconciliation wait. Unmount and thread
+  // identity are SEPARATE signals on purpose: a single flag reset by an effect
+  // keyed on the thread id is a no-op, because React runs the cleanup AND the
+  // new effect body in the same commit — the flag is back to `false` before any
+  // pending retry observes the switch, and the in-flight write (which captured
+  // thread A's callbacks) then replaces thread B's folder set with thread A's.
+  // The unmount flag is re-armed on mount so StrictMode's double-invoke does
+  // not leave the hook permanently "cancelled".
+  const unmountedRef = useRef(false);
   useEffect(() => {
-    cancelledRef.current = false;
+    unmountedRef.current = false;
     return () => {
-      cancelledRef.current = true;
+      unmountedRef.current = true;
     };
+  }, []);
+  const activeThreadIdRef = useRef(selectedMemoryThreadId);
+  useEffect(() => {
+    activeThreadIdRef.current = selectedMemoryThreadId;
   }, [selectedMemoryThreadId]);
 
   // The primary's DURABLE id. With a persisted binding it is already a
@@ -197,7 +221,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     readonly path: string;
     readonly rootId: string;
   } | null>(null);
-  const warnedMainRootPathsRef = useRef(new Set<string>());
+  const warnedMainRootPathsRef = useRef<Set<string> | null>(null);
+  // Exhausting the retry budget must not be terminal for the session: the same
+  // reconciliation signal the checkout chip refetches on re-triggers the
+  // resolve, so a row written after the budget ran out is still picked up.
+  // Read-only here — the refcounted subscription that FEEDS this nonce is
+  // acquired by `useThreadCheckoutStatus` below, which this hook always calls.
+  const invalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
   useEffect(() => {
     if (bindingRootId || !(database && mainRootPath && mainRootDisplayName)) {
       setMainRootRow(null);
@@ -215,8 +245,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       }
       if (lookup.kind === 'unresolved') {
         setMainRootRow(null);
-        if (!warnedMainRootPathsRef.current.has(mainRootPath)) {
-          warnedMainRootPathsRef.current.add(mainRootPath);
+        warnedMainRootPathsRef.current ??= new Set<string>();
+        const warnedPaths = warnedMainRootPathsRef.current;
+        if (!warnedPaths.has(mainRootPath)) {
+          warnedPaths.add(mainRootPath);
           logger.warn(
             'the MAIN root has no unique live roots row; the workspace bar shows no primary',
             { error: lookup.error, path: mainRootPath }
@@ -224,12 +256,16 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
         return;
       }
-      setMainRootRow({ path: mainRootPath, rootId: lookup.rootId });
+      setMainRootRow((previous) =>
+        previous?.path === mainRootPath && previous.rootId === lookup.rootId
+          ? previous
+          : { path: mainRootPath, rootId: lookup.rootId }
+      );
     });
     return () => {
       cancelled = true;
     };
-  }, [bindingRootId, database, mainRootDisplayName, mainRootPath]);
+  }, [bindingRootId, database, invalidationNonce, mainRootDisplayName, mainRootPath]);
   // Optional chain on BOTH sides: with no MAIN root at all the two paths are
   // both `undefined` and would trivially "match" — `?.` keeps that undefined.
   const primaryRootId =
@@ -345,22 +381,75 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // The reconciliation wait below can span seconds, so the folder set captured
   // when the user clicked may be stale by the time the write happens (a removal
   // in between would be undone). Read the CURRENT set through this ref instead.
-  const threadFoldersRef = useRef({ primaryRootId, secondaryRootIds });
+  // It carries the thread it describes, so a queued write can prove it is still
+  // deriving from the thread it was started for.
+  const threadFoldersRef = useRef<ThreadFolders>({
+    primaryRootId,
+    secondaryRootIds,
+    threadId: selectedMemoryThreadId,
+  });
   useEffect(() => {
-    threadFoldersRef.current = { primaryRootId, secondaryRootIds };
-  }, [primaryRootId, secondaryRootIds]);
+    threadFoldersRef.current = {
+      primaryRootId,
+      secondaryRootIds,
+      threadId: selectedMemoryThreadId,
+    };
+  }, [primaryRootId, secondaryRootIds, selectedMemoryThreadId]);
+
+  /**
+   * Serializes thread-folder writes. Two Add-folder clicks whose lookups settle
+   * in the same tick would otherwise both derive from the pre-click set and the
+   * second would drop the first's id. Each queued write derives from the ids
+   * the PREVIOUS queued write actually persisted (the store update behind
+   * `threadFoldersRef` has not landed yet at that point), falling back to the
+   * live set when the queue is idle or the previous write failed.
+   */
+  const writeTailRef = useRef<Promise<readonly string[] | null> | null>(null);
+  const enqueueThreadFoldersWrite = useCallback(
+    (derive: (current: ThreadFolders) => ThreadFoldersWrite | null): Promise<void> => {
+      const previous = writeTailRef.current;
+      const settled = (async (): Promise<readonly string[] | null> => {
+        const previousIds = previous ? await previous : null;
+        const live = threadFoldersRef.current;
+        const request = derive(previousIds ? { ...live, secondaryRootIds: previousIds } : live);
+        if (!request) {
+          return previousIds;
+        }
+        await writeThreadFolders(request.ids, request.binding);
+        return request.ids;
+      })();
+      // The tail must never reject: the next write awaits it, and a failed
+      // write means "fall back to the live set", not "poison the queue".
+      writeTailRef.current = settled.then(
+        (ids) => ids,
+        () => null
+      );
+      return settled.then(() => undefined);
+    },
+    [writeThreadFolders]
+  );
 
   const recordAddedAsSecondary = useCallback(
     async (handle: { readonly name: string; readonly path: string }) => {
       if (!database) {
         throw new Error('Cannot record a thread folder before the workspace database is ready.');
       }
+      // Compare the CAPTURED thread against the live one: a switch away is what
+      // cancels, and it must stay observable after the ref catches up.
+      const startedForThreadId = selectedMemoryThreadId;
+      const isCancelled = () =>
+        unmountedRef.current || activeThreadIdRef.current !== startedForThreadId;
       const lookup = await resolveRootIdAfterReconciliation(
         database,
         { displayName: handle.name, path: handle.path },
-        () => cancelledRef.current
+        isCancelled
       );
       if (lookup.kind === 'cancelled') {
+        return;
+      }
+      // Re-checked AFTER a successful lookup too: a switch landing during the
+      // final query would otherwise still let the write through.
+      if (isCancelled()) {
         return;
       }
       if (lookup.kind === 'unresolved') {
@@ -375,16 +464,22 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         });
         return;
       }
-      const current = threadFoldersRef.current;
-      if (
-        lookup.rootId === current.primaryRootId ||
-        current.secondaryRootIds.includes(lookup.rootId)
-      ) {
-        return;
-      }
-      await writeThreadFolders([...current.secondaryRootIds, lookup.rootId]);
+      await enqueueThreadFoldersWrite((current) => {
+        // The queue may have held this write across a thread switch; the folder
+        // set it would derive from is then another thread's.
+        if (current.threadId !== startedForThreadId) {
+          return null;
+        }
+        if (
+          lookup.rootId === current.primaryRootId ||
+          current.secondaryRootIds.includes(lookup.rootId)
+        ) {
+          return null;
+        }
+        return { ids: [...current.secondaryRootIds, lookup.rootId] };
+      });
     },
-    [database, toast, writeThreadFolders]
+    [database, enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
 
   const addRootDirectory = fileSystem.addRootDirectory;
@@ -411,34 +506,40 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const onMakePrimary = useCallback(
     (rootId: string) => {
       const next = secondaryRoots.find((root) => root.rootId === rootId);
-      if (!next?.path) {
+      const nextPath = next?.path;
+      if (!(next && nextPath)) {
         logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
         return;
       }
-      const demoted = primaryRootId && primaryRootId !== rootId ? [primaryRootId] : [];
-      const remaining = secondaryRootIds.filter((id) => id !== rootId);
       // ONE metadata write: the thread binding keys and the secondary set move
       // together, so the store never shows an intermediate state with the new
       // primary still listed as a secondary. These are the same three
       // operatingRoot* keys persistThreadRootBinding writes (the sanitizer's
       // all-or-nothing rule), through the same store action — the global MAIN
       // root is deliberately untouched.
-      writeThreadFolders([...remaining, ...demoted], {
-        operatingRootDisplayName: next.displayName,
-        operatingRootId: rootId,
-        operatingRootPath: next.path,
+      void enqueueThreadFoldersWrite((current) => {
+        const demoted =
+          current.primaryRootId && current.primaryRootId !== rootId ? [current.primaryRootId] : [];
+        return {
+          binding: {
+            operatingRootDisplayName: next.displayName,
+            operatingRootId: rootId,
+            operatingRootPath: nextPath,
+          },
+          ids: [...current.secondaryRootIds.filter((id) => id !== rootId), ...demoted],
+        };
       }).catch((error: unknown) => logger.error('Make primary failed', { error, rootId }));
     },
-    [primaryRootId, secondaryRootIds, secondaryRoots, writeThreadFolders]
+    [enqueueThreadFoldersWrite, secondaryRoots]
   );
 
   const onRemoveSecondary = useCallback(
     (rootId: string) => {
-      writeThreadFolders(secondaryRootIds.filter((id) => id !== rootId)).catch((error: unknown) =>
-        logger.error('Remove secondary failed', { error, rootId })
-      );
+      void enqueueThreadFoldersWrite((current) => ({
+        ids: current.secondaryRootIds.filter((id) => id !== rootId),
+      })).catch((error: unknown) => logger.error('Remove secondary failed', { error, rootId }));
     },
-    [secondaryRootIds, writeThreadFolders]
+    [enqueueThreadFoldersWrite]
   );
 
   // Resolved ONCE per hook instance, not per render — the capability check IS
@@ -457,25 +558,22 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // Routed through the shared clipboard service (never raw navigator): a
   // present-but-broken Electron bridge is surfaced, not silently bypassed —
   // and its failure is rendered, not swallowed.
-  const onCopyPath = useCallback(
-    (path: string) => {
-      clipboard
-        .writeText(path)
-        .then((outcome) => {
-          if (outcome.ok) {
-            return;
-          }
-          logger.error('Copy path failed', { error: outcome.error, path });
-          toast({ description: outcome.error, title: 'Copy path failed', variant: 'destructive' });
-        })
-        .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          logger.error('Copy path threw', { error: message, path });
-          toast({ description: message, title: 'Copy path failed', variant: 'destructive' });
-        });
-    },
-    [toast]
-  );
+  const onCopyPath = useCallback((path: string) => {
+    void clipboard
+      .writeText(path)
+      .then((outcome) => {
+        if (outcome.ok) {
+          return;
+        }
+        logger.error('Copy path failed', { error: outcome.error, path });
+        toast({ description: outcome.error, title: 'Copy path failed', variant: 'destructive' });
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('Copy path threw', { error: message, path });
+        toast({ description: message, title: 'Copy path failed', variant: 'destructive' });
+      });
+  }, []);
 
   const checkout = useThreadCheckoutStatus(primaryRootId ?? null);
 
