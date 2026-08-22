@@ -2010,15 +2010,19 @@ Where state lives (do not relitigate):
   so this is a deferral, not a silent disable; the flip itself performs the
   load. Leaving folder grouping makes the hook inactive, so later push
   invalidations do not pay for full inventory scans; re-entering performs a
-  fresh load. TWO KEYED LOOKUPS are available to `resolveThreadBranch`
-  (`threads-panel.tsx`). FIRST `byRootId`, keyed by DB `roots.id` — the same id space as
-  `metadata.operatingRootId` — holding only ids that appear in the
+  fresh load. THREE KEYED LOOKUPS are available to `resolveThreadBranch`
+  (`threads-panel.tsx`). FIRST `byRootId`, keyed by DB `roots.id` — the same id
+  space as `metadata.operatingRootId` — holding only ids that appear in the
   `containment` of EXACTLY ONE worktree. A present durable id is authoritative:
-  a miss renders no chip, rather than falling through to a display path that a
-  replacement root may now occupy. THEN, only for a legacy thread with no
-  durable id, the exact normalized worktree path is the fallback. A root that
-  merely contains several repositories is absent from `byRootId` rather than
-  borrowing one of their branches. BARE worktrees are omitted from both maps: they carry no checkout,
+  an id-only miss checks `byRootIdAndPath` for the SAME durable id plus the
+  thread's exact normalized worktree path. This restores a root checkout when
+  its root also contains a nested agent worktree without borrowing a branch
+  from a replacement root mounted at the same display path. THEN, only for a
+  legacy thread with no durable id, `byRootPath` uses the exact normalized
+  worktree path as the fallback. A root that merely contains several
+  repositories remains absent from `byRootId`; it gets a chip only when the
+  durable id plus exact path identifies one of its claimed worktrees. BARE
+  worktrees are omitted from all three maps: they carry no checkout,
   hence no branch, and a mapped bare entry (`branch: null, detached: false`)
   would render as an icon-only chip with no text (they therefore do not make a
   root's containment ambiguous either).
