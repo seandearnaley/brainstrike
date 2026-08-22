@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { streamMastraAgent } from '../mastra/agent-streaming';
 import {
+  findRunEventChunks,
   resetMastraStreamHarness,
   setMockStreamParts,
   setStreamPartDelayMs,
@@ -195,6 +196,86 @@ describe('mastra streaming: wall-clock watchdog termination', () => {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_CALL_INPUT_MS');
       } else {
         process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = previousToolCallInput;
+      }
+    }
+  });
+  it('tolerates a slow first output, then reports the streaming stall with its breadcrumb', async () => {
+    // BST-1408, both halves in one case.
+    //
+    // POSITIVE half: the first output arrives far later than the inter-output
+    // window allows. Under the old single-window watchdog that alone killed the
+    // turn; a reasoning request routinely spends minutes there.
+    //
+    // NEGATIVE half: once output IS flowing, the tighter inter-output window
+    // governs, and the resulting `run.failed` must name WHICH silence fired,
+    // what the provider last sent, and how far the stream got. The 2026-08-22
+    // incident had to be reconstructed by inference for want of exactly that.
+    //
+    // NOTE: this harness feeds a hand-written part list with NO framework
+    // prologue, so `step-start` here stands in for provider output. The
+    // prologue's real effect on the phase boundary is covered by
+    // mastra-stream-first-output.integration.spec.ts, which drives the real
+    // Mastra loop — the mocked harness structurally cannot see it.
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '30';
+    // ~33x headroom on the half that asserts a NEGATIVE (the first output must
+    // NOT trip), because only slowness can break that direction. The stall half
+    // asserts a POSITIVE, which host contention can only make more certain.
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '2000';
+    setStreamPartDelayMs(60);
+    setMockStreamParts([
+      { type: 'step-start' },
+      { payload: { text: 'thinking' }, type: 'reasoning-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-slow-start', parts: [{ text: 'think hard', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      const chunks = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      const failures = findRunEventChunks(chunks, 'run.failed');
+      expect(failures).toHaveLength(1);
+      expect(failures[0]?.event.metadata).toEqual(
+        expect.objectContaining({
+          code: 'stream_inactivity_timeout',
+          inactivityMs: 30,
+          // `step-start` is scaffolding, so the wide window covered the gap
+          // after it and the stream reached the reasoning delta; the tight
+          // window then governed the NEXT gap. Two parts seen, and the
+          // breadcrumb names the last real provider output.
+          lastPartType: 'reasoning-delta',
+          partsSeen: 2,
+          phase: 'streaming',
+        })
+      );
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'error', type: 'message-finish' })
+      );
+    } finally {
+      setStreamPartDelayMs(0);
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousFirstOutput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
       }
     }
   });

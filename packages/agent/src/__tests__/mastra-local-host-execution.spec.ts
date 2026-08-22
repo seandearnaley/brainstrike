@@ -249,6 +249,10 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '30';
+    // The host never produces output, so this stall is `awaiting-output` and
+    // the first-output window governs it (BST-1408).
+    const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '30';
 
     let activeGeneration = false;
     let generationCount = 0;
@@ -348,6 +352,11 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
       ).toContain('recovered');
       expect(generationCount).toBe(2);
     } finally {
+      if (previousFirstOutput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
+      }
       if (previousToolTimeout === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {

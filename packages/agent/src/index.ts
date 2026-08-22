@@ -122,11 +122,13 @@ export {
 export {
   type AssistantResilienceConfig,
   DEFAULT_APPROVAL_STALE_MS,
+  DEFAULT_STREAM_FIRST_OUTPUT_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
   DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
   resolveApprovalStaleMs,
   resolveAssistantResilienceConfig,
+  resolveStreamFirstOutputMs,
   resolveStreamInactivityMs,
   resolveToolCallInputMs,
   resolveToolTimeoutMs,

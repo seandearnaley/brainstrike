@@ -1014,6 +1014,46 @@ function buildToolLoopOptions(
   };
 }
 
+/**
+ * Name a raw Mastra part for the stall diagnostic. Knowing WHAT the provider
+ * last sent before going quiet (`reasoning-delta` vs `tool-call-delta` vs
+ * `step-start`) is the difference between diagnosing a stall from a debug
+ * bundle and reconstructing it by inference (BST-1408).
+ */
+function describeMastraStreamPartType(part: unknown): string | undefined {
+  if (typeof part !== 'object' || part === null) {
+    return;
+  }
+  const type = (part as { type?: unknown }).type;
+  // Bounded through the shared diagnostic formatter: the value is provider
+  // data, and a stall breadcrumb must not carry an unbounded string.
+  return typeof type === 'string' ? formatDiagnosticChunkType(type) : undefined;
+}
+
+/**
+ * Mastra part types the FRAMEWORK emits at stream/step open, before the
+ * provider is asked for anything.
+ *
+ * Measured through the real loop (review of #2586): `start` lands at t+0ms and
+ * `step-start` ~7ms later, while the provider's first real part follows
+ * hundreds of milliseconds afterwards — and a fresh `step-start` opens every
+ * subsequent step too. Counting these as "the provider started" would end the
+ * wide first-output window within milliseconds and measure every real
+ * time-to-first-token against the tight inter-output one, which is precisely
+ * the failure this split exists to prevent.
+ *
+ * Deliberately a CLOSED list of scaffolding rather than an allowlist of output
+ * kinds: a Mastra release that adds a new provider part type must default to
+ * "this is output" (tightening the window on a part we know arrived from the
+ * provider), never to "this is free" (silently widening it forever).
+ */
+const MASTRA_SCAFFOLDING_PART_TYPES: ReadonlySet<string> = new Set(['start', 'step-start']);
+
+function isMastraProviderOutputPart(part: unknown): boolean {
+  const type = describeMastraStreamPartType(part);
+  return type === undefined || !MASTRA_SCAFFOLDING_PART_TYPES.has(type);
+}
+
 const resolveFullStream = (
   result: unknown
 ): NodeReadableStream<unknown> | ReadableStream<unknown> | undefined => {
@@ -1115,8 +1155,15 @@ async function* streamChunksFromMastra({
     );
     const source = withInactivityTimeout(
       toolInputBoundedSource,
-      runtime.resilienceConfig.streamInactivityMs,
-      (error) => streamAbortContext.abort(error)
+      {
+        firstOutputMs: runtime.resilienceConfig.streamFirstOutputMs,
+        interOutputMs: runtime.resilienceConfig.streamInactivityMs,
+      },
+      {
+        countsAsProviderOutput: isMastraProviderOutputPart,
+        describePart: describeMastraStreamPartType,
+        onTimeout: (error) => streamAbortContext.abort(error),
+      }
     );
     for await (const part of source) {
       const { chunks, finished } = await processMastraStreamPart(
