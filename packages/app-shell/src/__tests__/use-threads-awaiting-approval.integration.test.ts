@@ -110,6 +110,54 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
   });
 
+  // THE PRODUCER ORDERING, and the reason `tool.started` needs a same-run
+  // exclusion. Mastra's approval gate runs INSIDE `toolCallStep`, i.e. after
+  // the model's `tool-call` part has already streamed — so the PAUSING leg
+  // emits `tool.started` for this very `toolCallId` BEFORE the pause. Pinned
+  // against the live Mastra loop in
+  // `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
+  // ('tool.started' then 'tool.approval.requested'). Without the exclusion
+  // every pause is instantly answered by its own pre-pause event and the
+  // "needs you" glyph never lights for anyone.
+  it('keeps a pause whose OWN run already emitted tool.started for that call', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-prepause');
+    await seedEvent('run-prepause', 'tool.started', 'call-prepause');
+    await seedEvent('run-prepause', 'tool.approval.requested', 'call-prepause');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
+  // …and the exclusion is exactly that narrow: the resume leg mints a NEW
+  // runId, so a `tool.started` (or any terminal) from a different run is a real
+  // answer and still clears the thread.
+  it('drops that pause once a DIFFERENT run answers the same call', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-prepause');
+    await seedEvent('run-prepause', 'tool.started', 'call-prepause');
+    await seedEvent('run-prepause', 'tool.approval.requested', 'call-prepause');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-resume');
+    await seedEvent('run-resume', 'tool.completed', 'call-prepause');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
+  // The approve path re-yields the tool start on the resume leg, and that
+  // different-run `tool.started` alone is enough to clear the obligation —
+  // the user has answered even though the tool has not finished.
+  it('drops that pause on a DIFFERENT run tool.started alone', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-prepause');
+    await seedEvent('run-prepause', 'tool.started', 'call-prepause');
+    await seedEvent('run-prepause', 'tool.approval.requested', 'call-prepause');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-resume');
+    await seedEvent('run-resume', 'tool.started', 'call-prepause');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
   it('does not let an answer for a DIFFERENT toolCallId resolve the pause', async () => {
     const thread = await repository.createThread(RESOURCE_ID);
     await seedRun(thread.id, RESOURCE_ID, 'run-paused');
@@ -189,6 +237,9 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     ]);
     expect(indexes.rows[1]?.indexdef).toContain("kind = 'tool.approval.requested'::text");
     expect(indexes.rows[0]?.indexdef).toContain('toolCallId');
+    // The same-run `tool.started` exclusion is evaluated on this side, so the
+    // answer index carries run_id too.
+    expect(indexes.rows[0]?.indexdef).toContain('run_id');
   });
 
   // The correction this query exists for: a paused leg is recorded

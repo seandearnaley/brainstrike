@@ -14,8 +14,8 @@
  * a pause carries a different `run_id` than the pause. It is paired on
  * `metadata->>'toolCallId'`, which is globally unique per tool call and is the
  * durable identity of the thing being answered. `sequence` is per-run and
- * therefore meaningless across the two legs; no ordering guard is needed
- * because no outcome for a call can precede the pause that gated that call.
+ * therefore meaningless across the two legs, so ordering is NOT expressed as a
+ * comparison — it is expressed as ONE same-run exclusion, below.
  *
  * IT DELIBERATELY DOES NOT READ `thread_runs.status`. A leg that pauses for
  * approval finishes with `finishReason: 'tool-calls'`, which every terminal
@@ -34,6 +34,26 @@ import { useMemo } from 'react';
  * timeline asks "has this pause row reached a terminal state" — where a
  * still-executing tool is not one — while this panel asks "does the user still
  * have to answer", and a tool that has STARTED was already approved.
+ *
+ * ...with EXACTLY ONE exception, and it is load-bearing. Mastra's approval gate
+ * runs INSIDE `toolCallStep`, i.e. AFTER the model's `tool-call` part has
+ * already streamed. That part maps to `status: 'start'`
+ * (`packages/agent/src/mastra/tool-event-mapper.ts`) and so to a `tool.started`
+ * run event carrying the SAME `toolCallId`, on the PAUSING leg, BEFORE the
+ * pause row. Observed order on the live loop, pinned in
+ * `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`:
+ * `['tool.started', 'tool.approval.requested']`. Matching `tool.started` on
+ * `toolCallId` alone would therefore let every pause answer ITSELF and the
+ * "needs you" glyph would never light for anyone.
+ *
+ * The exclusion is `run_id`-shaped rather than order-shaped because the runs
+ * already carry the ordering: the pre-pause `tool.started` is emitted by the
+ * pausing leg and so shares the pause's `run_id`, while the approve path
+ * re-yields the tool start on a RESUME leg that minted a NEW runId. So a
+ * same-run `tool.started` is always the pre-pause one and a different-run one
+ * is always post-approve — no `sequence`/`occurred_at` comparison needed, and
+ * `sequence` could not serve anyway (it is per-run). The three terminal kinds
+ * need no such exclusion: none of them can be emitted by the leg that paused.
  *
  * Exported for the real-PGlite lane
  * (`__tests__/use-threads-awaiting-approval.integration.test.ts`), which proves
@@ -60,6 +80,7 @@ export const THREADS_AWAITING_APPROVAL_SQL = `
           'tool.failed',
           'tool.resume.unsupported'
         )
+        AND NOT (answer.kind = 'tool.started' AND answer.run_id = requested.run_id)
     )
   ORDER BY "threadId" ASC
 `;

@@ -868,16 +868,33 @@ the durable `tool.approval.requested` row exists at all; rediscovering a pause
 from the Mastra suspended-workflow snapshot is per-thread and cannot answer a
 list-wide question.
 
-Two rulings the SQL depends on (do not relitigate):
+Three rulings the SQL depends on (do not relitigate):
 
 - **Resolution is paired on `metadata->>'toolCallId'`, run-agnostically.** The
   approval-resume leg mints its OWN runId and `thread_runs` row, so the
   `tool.started` / `tool.completed` / `tool.failed` / `tool.resume.unsupported`
   that answers a pause carries a DIFFERENT `run_id` than the pause. `sequence`
-  is per-run and meaningless across the two legs; no ordering guard is needed
-  because no outcome for a call can precede the pause that gated that call. A
-  pause row with a NULL `toolCallId` is excluded — nothing could ever answer it,
-  and `NULL = NULL` inside the `NOT EXISTS` would pin the badge forever.
+  is per-run and meaningless across the two legs, so ordering is never expressed
+  as a comparison. A pause row with a NULL `toolCallId` is excluded — nothing
+  could ever answer it, and `NULL = NULL` inside the `NOT EXISTS` would pin the
+  badge forever.
+- **A `tool.started` from the PAUSING run is excluded, and that exclusion is the
+  whole ordering guard.** Mastra's approval gate runs INSIDE `toolCallStep`,
+  i.e. after the model's `tool-call` part has already streamed; that part maps
+  to `status: 'start'` (`packages/agent/src/mastra/tool-event-mapper.ts`) and so
+  to a `tool.started` run event carrying the SAME `toolCallId`, emitted BEFORE
+  the pause row. The observed live order is
+  `['tool.started', 'tool.approval.requested']`, pinned against the real
+  `@mastra/core` approval loop in
+  `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`.
+  Pairing `tool.started` on `toolCallId` alone therefore let every pause answer
+  ITSELF, and the "needs you" glyph never lit for anyone. The fix is
+  `AND NOT (answer.kind = 'tool.started' AND answer.run_id = requested.run_id)`:
+  the runs already carry the ordering, because the pre-pause start shares the
+  pause's `run_id` while the approve path re-yields the tool start on a resume
+  leg with a NEW runId. So clear-on-approve is preserved with no `sequence` /
+  `occurred_at` comparison. The three terminal kinds need no such exclusion —
+  none of them can be emitted by the leg that paused.
 - **The query does NOT read `thread_runs.status`.** A leg that pauses for
   approval finishes with `finishReason: 'tool-calls'`, which every terminal
   writer records as `status = 'completed'`, while the user's obligation and the
@@ -896,8 +913,10 @@ asks whether the user still has to answer (a tool that started was approved).
 Both sides of that anti-join are served by two PARTIAL indexes on
 `brainstrike_assistant_run_events` — `…_approval_pause_idx`
 `(resource_id, thread_id) WHERE kind = 'tool.approval.requested'` and
-`…_approval_answer_idx` `(resource_id, thread_id, (metadata->>'toolCallId'))`
-over the four answer kinds. Every pre-existing index on that table leads with
+`…_approval_answer_idx`
+`(resource_id, thread_id, (metadata->>'toolCallId'), run_id)` over the four
+answer kinds (`run_id` trails so the same-run `tool.started` exclusion above
+stays on the index). Every pre-existing index on that table leads with
 `thread_id` or `run_id`, so without these the query full-scanned the largest
 assistant table twice on every `run_events` notify. They live in
 `buildAssistantThreadRunsSchemaSql` and NOWHERE else: this table admits no

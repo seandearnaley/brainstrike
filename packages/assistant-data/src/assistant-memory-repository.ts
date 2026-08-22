@@ -1034,9 +1034,12 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_pause_idx
 
 -- The anti-join side. Keyed additionally on the extracted toolCallId, which is
 -- the equality the NOT EXISTS pairs on; jsonb ->> is immutable, so it is
--- indexable as an expression.
+-- indexable as an expression. run_id trails it because the anti-join also
+-- excludes the SAME-run tool.started the pausing leg emits before the pause
+-- (Mastra gates inside toolCallStep); carrying it here keeps that exclusion on
+-- the index rather than sending every candidate row to a heap fetch.
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_answer_idx
-  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id, (metadata->>'toolCallId'))
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id, (metadata->>'toolCallId'), run_id)
   WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported');
 
 -- Terminal provider forensics (Flight Recorder P3). Bootstrapped here and

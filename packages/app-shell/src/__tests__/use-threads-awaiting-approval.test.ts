@@ -101,18 +101,32 @@ describe('useThreadsAwaitingApproval', () => {
     expect(query).toContain('AS "threadId"');
   });
 
-  // RUN-AGNOSTIC RESOLUTION. The approval-resume leg mints a NEW runId and a
-  // NEW `thread_runs` row, so the `tool.completed` / `tool.failed` that answers
-  // a pause carries a DIFFERENT run_id than the pause itself. Pairing on
-  // `run_id` (or on the per-run `sequence`) can never close the pause and would
-  // pin "needs you" on every thread that ever asked.
-  it('resolves a pause on toolCallId across runs, never on run_id or sequence', () => {
+  // RUN-AGNOSTIC PAIRING. The approval-resume leg mints a NEW runId and a NEW
+  // `thread_runs` row, so the `tool.completed` / `tool.failed` that answers a
+  // pause carries a DIFFERENT run_id than the pause itself. Pairing on `run_id`
+  // (or on the per-run `sequence`, which is meaningless across two runs) could
+  // never close the pause and would pin "needs you" on every thread that ever
+  // asked.
+  it('pairs a pause to its answer on toolCallId across runs, never on sequence', () => {
     renderAwaitingApproval();
     const query = lastLiveQueryArgs().query ?? '';
 
     expect(query).toContain("metadata->>'toolCallId'");
-    expect(query).not.toContain('run_id');
     expect(query).not.toContain('sequence');
+  });
+
+  // The single run-scoped clause, and it EXCLUDES rather than pairs. Mastra
+  // gates approval inside `toolCallStep`, so the pausing leg emits
+  // `tool.started` for the same `toolCallId` BEFORE the pause row (order pinned
+  // in `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`).
+  // Without this, every pause answers itself and the glyph never lights.
+  it('never lets the pausing run own tool.started answer its own pause', () => {
+    renderAwaitingApproval();
+    const query = lastLiveQueryArgs().query ?? '';
+
+    expect(query).toContain(
+      "NOT (answer.kind = 'tool.started' AND answer.run_id = requested.run_id)"
+    );
   });
 
   it('treats every answer to a pause as a resolution, including the tool starting', () => {

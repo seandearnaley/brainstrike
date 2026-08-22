@@ -617,6 +617,25 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(approval?.toolCallId).toBeTruthy();
     expect(askExecute).not.toHaveBeenCalled();
 
+    // ── The producer→projection ORDERING contract (BST-1404) ──
+    // Mastra's approval gate runs INSIDE `toolCallStep`, i.e. AFTER the model's
+    // `tool-call` part has already streamed. That part maps to a `status:'start'`
+    // tool event and therefore to a `tool.started` run event carrying the SAME
+    // `toolCallId` — so on the pausing leg `tool.started` PRECEDES
+    // `tool.approval.requested`. Anything that resolves a pause by looking for a
+    // later `tool.*` with a matching `toolCallId` must exclude this same-run
+    // `tool.started`, or every pause is answered by its own pre-pause event and
+    // the Threads panel's "needs you" glyph never lights
+    // (`packages/app-shell/src/hooks/use-threads-awaiting-approval.ts`).
+    // This is the only place the live Mastra emission order can be observed.
+    const suspendRunEventKinds = suspendChunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .filter((chunk) => chunk.event.metadata?.toolCallId === 'call-ask-approve-1')
+      .map((chunk) => chunk.event.kind);
+    expect(suspendRunEventKinds).toEqual(['tool.started', 'tool.approval.requested']);
+
     // ── Phase 2: APPROVE → the tool EXECUTES and the run continues ──
     // The resume passes requireToolApproval: true, exactly as the desktop
     // assistant-server does — Mastra's approve/decline resume relies on it.
