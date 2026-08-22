@@ -215,6 +215,110 @@ function createStalledChildSupervisorModel(): LanguageModelV2 {
   };
 }
 
+/**
+ * A supervisor model whose CHILD never stops calling tools, so the child
+ * exhausts its `maxSteps` cap ON a tool-calls step and Mastra returns
+ * `{ text: '' }` with `success: true` — the exact shape both delegations
+ * produced in run-7eb0e370 (BST-1410).
+ */
+function createStepCappedChildSupervisorModel(childToolCallPrefix: string): LanguageModelV2 {
+  let childTurn = 0;
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      const isParent = toolNamesOf(options).includes(DELEGATION_TOOL);
+      if (isParent) {
+        return Promise.resolve({
+          stream: enqueue(
+            promptHasToolResult(options)
+              ? finalTextStream('PARENT_ANSWER: acknowledged.')
+              : toolCallStream(
+                  DELEGATION_TOOL,
+                  'delegation-call-1',
+                  JSON.stringify({ prompt: 'survey the workspace' })
+                )
+          ),
+        });
+      }
+      childTurn += 1;
+      // NEVER a final text turn: the child keeps calling its tool until the cap
+      // cuts it off mid-loop.
+      return Promise.resolve({
+        stream: enqueue(
+          toolCallStream(
+            CHILD_TOOL,
+            `${childToolCallPrefix}-${childTurn}`,
+            JSON.stringify({ pattern: `flag-${childTurn}` })
+          )
+        ),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
+/**
+ * Like {@link createStepCappedChildSupervisorModel}, but the CHILD answers when
+ * its tools are withheld (`toolChoice: 'none'` or an empty tool set) — the shape
+ * a forced synthesis turn takes. Proves the synthesis call is real: without it
+ * the child never emits text at all.
+ */
+function createSynthesizingChildSupervisorModel(): {
+  model: LanguageModelV2;
+  /** The prompt the SYNTHESIS turn actually received, once it happens. */
+  synthesisPrompt: { current: LanguageModelV2CallOptions['prompt'] | undefined };
+} {
+  let childTurn = 0;
+  const synthesisPrompt: { current: LanguageModelV2CallOptions['prompt'] | undefined } = {
+    current: undefined,
+  };
+  const model: LanguageModelV2 = {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: (options: LanguageModelV2CallOptions) => {
+      if (toolNamesOf(options).includes(DELEGATION_TOOL)) {
+        return Promise.resolve({
+          stream: enqueue(
+            promptHasToolResult(options)
+              ? finalTextStream('PARENT_ANSWER: acknowledged.')
+              : toolCallStream(
+                  DELEGATION_TOOL,
+                  'delegation-call-1',
+                  JSON.stringify({ prompt: 'survey the workspace' })
+                )
+          ),
+        });
+      }
+      const toolsWithheld =
+        toolNamesOf(options).length === 0 ||
+        (options as { toolChoice?: { type?: string } }).toolChoice?.type === 'none';
+      if (toolsWithheld) {
+        synthesisPrompt.current = options.prompt;
+        return Promise.resolve({
+          stream: enqueue(finalTextStream('CHILD_SYNTHESIS: three matches under src/.')),
+        });
+      }
+      childTurn += 1;
+      return Promise.resolve({
+        stream: enqueue(
+          toolCallStream(
+            CHILD_TOOL,
+            `child-call-${childTurn}`,
+            JSON.stringify({ pattern: `flag-${childTurn}` })
+          )
+        ),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+  return { model, synthesisPrompt };
+}
+
 interface CollectedStream {
   delegationToolEvents: StreamChunk[];
   finalText: string;
@@ -261,6 +365,109 @@ function makeChildTool(spy: (inputData: { pattern: string }) => Promise<{ matche
 describe('mastra subagent delegation (real @mastra/core supervisor loop)', () => {
   beforeEach(() => {
     modelHolder.current = undefined;
+  });
+
+  it('gives a step-capped child one no-tools turn to write the summary it never reached', async () => {
+    // BST-1410. Reporting the failure honestly is necessary but wasteful: the
+    // child had already done four minutes of real exploration. One forced turn
+    // with tools withheld converts that work into an answer instead of 30
+    // orphaned tool results — and it cannot loop, because it cannot call tools.
+    const executeSpy = vi.fn((_inputData: { pattern: string }) =>
+      Promise.resolve({ matches: ['a match'] })
+    );
+    const { model, synthesisPrompt } = createSynthesizingChildSupervisorModel();
+    modelHolder.current = model;
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-synth', parts: [{ text: 'survey the workspace', type: 'text' }], role: 'user' }],
+      {
+        personas: [{ ...testPersona, maxSteps: 2 }],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.grepSearch': makeChildTool(executeSpy) },
+      }
+    );
+
+    const { delegationToolEvents, runEvents } = await collect(iterator);
+
+    expect(executeSpy).toHaveBeenCalledTimes(2);
+
+    const successEvent = delegationToolEvents.find(
+      (event) => event.type === 'tool-event' && event.status === 'success'
+    );
+    const resultText =
+      successEvent && successEvent.type === 'tool-event'
+        ? (successEvent.payload as { result?: { text?: string } }).result?.text
+        : undefined;
+    expect(resultText).toContain('CHILD_SYNTHESIS: three matches under src/.');
+    expect(resultText).not.toContain('never wrote its summary');
+
+    // THE assertion that separates synthesis from FABRICATION (review of
+    // #2587). `CHILD_SYNTHESIS_PROMPT` says "using ONLY what you already found
+    // above", and that depends entirely on `context.messages` being the CHILD's
+    // conversation rather than the parent's or an empty array. Without this, a
+    // fake that answers regardless of its prompt stays green while production
+    // hands the parent an invented summary — labelled `subagent.finished`, in
+    // green, which is strictly worse than the empty result being fixed here.
+    const synthesisJson = JSON.stringify(synthesisPrompt.current);
+    expect(synthesisJson).toContain('flag-1');
+    expect(synthesisJson).toContain('flag-2');
+    expect(synthesisJson).toContain('a match');
+    // ...and the request ends on a USER turn, so it is never prefill.
+    const lastMessage = synthesisPrompt.current?.at(-1);
+    expect(lastMessage?.role).toBe('user');
+    expect(JSON.stringify(lastMessage)).toContain('step limit');
+
+    // A delegation that DID end up answering is a success again.
+    const subagentTerminals = runEvents
+      .map((event) => event.kind)
+      .filter((kind) => kind === 'subagent.finished' || kind === 'subagent.failed');
+    expect(subagentTerminals).toEqual(['subagent.finished']);
+  });
+
+  it('reports a step-capped child as a failed delegation carrying an explicit reason', async () => {
+    // BST-1410 regression. In run-7eb0e370 both delegations used exactly 8 step
+    // clusters (the explore persona's cap), returned `text: ""` with
+    // `success: true`, and the supervisor — correctly reading that as useless —
+    // abandoned delegation for the rest of an 18-minute turn. A delegation that
+    // never answered must never reach the parent, or the timeline, as a success.
+    const executeSpy = vi.fn((_inputData: { pattern: string }) =>
+      Promise.resolve({ matches: ['a match'] })
+    );
+    modelHolder.current = createStepCappedChildSupervisorModel('child-call');
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u-capped', parts: [{ text: 'survey the workspace', type: 'text' }], role: 'user' }],
+      {
+        // Two steps rather than the production eight: the cliff is the same
+        // shape, and the scripted child reaches it in two turns instead of
+        // eight.
+        personas: [{ ...testPersona, maxSteps: 2 }],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.grepSearch': makeChildTool(executeSpy) },
+      }
+    );
+
+    const { delegationToolEvents, runEvents } = await collect(iterator);
+
+    // The child really did run out of steps mid-tool-loop.
+    expect(executeSpy).toHaveBeenCalledTimes(2);
+
+    // The delegation's TERMINAL subagent event is a failure, not a completion.
+    const subagentKinds = runEvents
+      .map((event) => event.kind)
+      .filter((kind) => kind === 'subagent.finished' || kind === 'subagent.failed');
+    expect(subagentKinds).toEqual(['subagent.failed']);
+
+    // The PARENT sees an explicit reason instead of an empty string.
+    const successEvent = delegationToolEvents.find(
+      (event) => event.type === 'tool-event' && event.status === 'success'
+    );
+    const resultText =
+      successEvent && successEvent.type === 'tool-event'
+        ? (successEvent.payload as { result?: { text?: string } }).result?.text
+        : undefined;
+    expect(resultText).toContain('never wrote its summary');
+    expect(resultText).toContain('2 tool calls');
   });
 
   it('delegates to a real child agent whose tool executes, and surfaces subagent.* run events', async () => {

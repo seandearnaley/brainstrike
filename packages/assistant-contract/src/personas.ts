@@ -68,6 +68,19 @@ export interface AssistantPersonaDefinition {
 /** The delegation tool prefix Mastra assigns to `agents`-config children. */
 export const SUBAGENT_DELEGATION_TOOL_PREFIX = 'agent-';
 
+/**
+ * The `metadata.outcome` value on a `subagent.failed` run event marking a
+ * delegation whose child ran but returned no written answer (BST-1410).
+ *
+ * Lives in the contract because it is the wire between the agent-side emitter
+ * (`tool-lifecycle-processors.ts`) and the renderer's SubagentCard. Both that
+ * case and a hard child `tool-error` are `subagent.failed`/`failed`, so the
+ * card must not have to tell them apart by sniffing a human label. A bounded
+ * enum string is neither args nor results, so it respects the ids/labels-only
+ * rule for subagent metadata.
+ */
+export const SUBAGENT_NO_ANSWER_OUTCOME = 'no-answer';
+
 export function delegationToolNameForPersona(id: AssistantPersonaId): string {
   return `${SUBAGENT_DELEGATION_TOOL_PREFIX}${id}`;
 }
