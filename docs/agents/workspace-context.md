@@ -940,8 +940,9 @@ enrichment. Only the DB result may populate the trusted manifest/tool inventory;
 renderer fields can order or focus roots but can never substitute adapter ids
 for the durable selectors accepted by native tools.
 
-**Surfaced UI** (all forest-mode/multi-root only; single root shows ZERO new
-chrome):
+**Surfaced UI** (the composer WORKSPACE BAR below is always visible; every
+OTHER surface here is forest-mode/multi-root only, so a single root shows no
+additional explorer/status chrome):
 - Root section headers (`root-section-header.tsx` + sidebar wiring): "Main"
   badge on the main root (exactly one; the badge MOVES when main changes —
   sections never reorder), persistent focused affordance (`data-focused`
@@ -950,11 +951,83 @@ chrome):
   left, beside the database item): main root name (+N), popover listing every
   mounted root (path or "browser folder", Main badge, Focused marker) with a
   per-row "Set as main" → `setMainRoot`.
-- Composer chip (`packages/assistant-ui/src/operating-root-chip.tsx`):
-  "in {thread root}" at the top of the composer stack — a SIBLING of
-  ThreadContextMeter (never nest it there; the meter is being reworked), fed
-  by the wrapper's `operatingRoot` prop only at 2+ roots. Before a thread's first
-  request it previews the current Main root; after binding it remains stable.
+- Composer **workspace bar** (`packages/assistant-ui/src/workspace-bar/`,
+  wired by `packages/app-shell/src/hooks/use-workspace-bar.ts` +
+  `use-thread-checkout-status.ts`, mounted in the composer stack as a SIBLING
+  of ThreadContextMeter — never nest it there; the meter is being reworked).
+  It replaced `operating-root-chip.tsx` (retired in BST-1396) and is ALWAYS
+  visible, single root included: BST-1396 removed the >=2-roots gate because
+  the bar's job is ORIENTATION, not disambiguation. Zero roots render the
+  "Choose a folder" CTA rather than nothing.
+  - Folder chip: this thread's PRIMARY (= persisted `operatingRootId`, else
+    the current MAIN root) plus `metadata.secondaryRootIds` as a `+N` badge
+    and per-root rows. The primary's `rootId` is ALWAYS a durable `roots.id`
+    — with no persisted binding, the MAIN root's row is resolved BY PATH
+    (never an adapter id), and an unresolvable path leaves the chip's primary
+    undefined rather than inventing one.
+  - **"Make primary" re-binds the THREAD** through the same three
+    `operatingRoot*` metadata keys `persistThreadRootBinding` writes, in ONE
+    metadata write together with the secondary set. It NEVER calls
+    `setMainRoot` — the global MAIN root is a workspace-wide ordering choice
+    and stays untouched. "Remove from thread" likewise only edits
+    `secondaryRootIds`; it never disconnects the folder from the workspace.
+  - "Add folder…" adds the folder GLOBALLY (the existing multi-root
+    `addRootDirectory` flow) AND records it as a thread secondary. The durable
+    `roots` row is written by the roots-reconciliation effect, so the id
+    lookup polls on a BOUNDED budget (20 x 250 ms, ~5 s). Exhaustion is not a
+    silent no-op: it logs and raises a "Folder added, but not attached to this
+    thread" toast. The canonical fix — an awaitable "root registered" seam on
+    `roots/use-roots-reconciliation.ts` — is a recorded follow-up.
+  - Recents come from main's `recentRootsList` ledger
+    (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
+    `fs:listRecentRoots`), minus folders already mounted in this workspace.
+    `fs:addRootByPath` re-mounts ONLY a path present in that ledger and is the
+    single sanctioned picker-less mount (BST-1395). Scope that claim exactly:
+    the ledger is the authorization gate for `addRootByPath`, so **the BAR**
+    cannot mount an arbitrary path — every path it can offer was already
+    granted through the OS picker or a successful restore, and a stray or stale
+    path string is rejected. It is NOT a hardening boundary against a
+    compromised renderer: main-process storage is itself renderer-writable
+    through the unrestricted `storage:setItem` bridge, which puts the ledger in
+    the SAME trust class as `rootsList` + `fs:restoreRoots`. A renderer that can
+    call `storage:setItem` can write its own grant and then "re-mount" it. So
+    this is a correctness gate, not a security boundary. Hardening `storage:*`
+    with a main-owned key allowlist would raise the floor for every main-owned
+    key at once and is a separate follow-up. Paths are keyed with a stripped
+    trailing separator, so `/ws/alpha/` and `/ws/alpha` are one slot. A CORRUPT
+    ledger is quarantined to `recentRootsList.corrupt`, logged at ERROR, and
+    reset (mirroring `readStoredRootsOrQuarantine`) rather than left permanently
+    unrecoverable; until the next grant re-populates it, `addRootByPath` rejects
+    with the normal "never granted" remedy. The cap (`RECENT_ROOTS_LIMIT`, 50)
+    is storage hygiene, deliberately far above realistic mount counts so
+    connected roots cannot evict disconnected grants. Desktop-only — web has no
+    ledger and therefore no `onAddRecent` affordance (capability gating, not an
+    `isElectron()` check).
+  - Reveal: the chip NEVER hardcodes an OS name. `WorkspaceBarProps.reveal`
+    pairs `{ label, onReveal }` so supplying a handler without a label is a
+    type error, and app-shell feeds it the platform-aware `revealLabel()`
+    exported from `@brainstrike/file-explorer-ui/context-actions`.
+  - Branch chip: READ-ONLY `window.git.status` for the primary root
+    (branch/detached, ahead/behind, dirty dot) — no polling. It refetches on
+    BOTH live-refresh signals: every accepted `changes:invalidated`
+    git-metadata push AND the primary root's own git-scope nonce
+    (`selectGitScopeRefreshNonce`), which is what carries WORKING-TREE edits.
+    Metadata pushes report topology only, so on that nonce alone the dirty dot
+    went stale the moment a file changed without a branch operation. Desktop-
+    only, and absent for a non-repository root or a failed status; a failure is
+    logged and NEVER rendered as "clean". It is withheld whenever `primaryRoot`
+    is absent, so a branch never renders with no folder beside it. Both signals
+    depend on the main-process git inventory having ARMED a watcher for that
+    root's repository, which only happens inside an inventory build — so roots
+    registered after app-ready are nudged into discovery by
+    `use-roots-reconciliation.ts` calling `changes.inventory({ maxAgeMs: 0 })`
+    once per registration (BST-1397; see "Discovery refresh on root
+    registration" in `docs/agents/changeset-diff.md` § REFRESH SEAMS). The
+    forced option is what makes the nudge reliable: it guarantees a build that
+    started after the registration, so the TTL cache and in-flight coalescing
+    cannot serve back a snapshot that predates the new `roots` row. Without
+    that nudge a mid-session Add Folder / Recents root gets no metadata push
+    at all and the chip only updates on reload.
 - DEFERRED (v1 ruling): a root-header right-click context action ("Set as
   main" / Disconnect / Copy path / Reveal) — root headers have no
   ContextTarget kind yet; it is a coherent follow-up surface.
@@ -979,7 +1052,13 @@ zero/unavailable state, exact ids, Main/Focused priority) +
 `mastra-tool-execution.integration.spec.ts` (turn-one qualified read),
 `apps/desktop/src/__tests__/assistant-server/agent-stream-init-and-memory.integration.test.ts`
 (client root inventory replacement),
-`packages/assistant-ui/src/__tests__/operating-root-chip.test.tsx`,
+`packages/assistant-ui/src/__tests__/workspace-bar.test.tsx` +
+`packages/app-shell/src/__tests__/use-workspace-bar.test.tsx` +
+`packages/app-shell/src/__tests__/use-thread-checkout-status.test.ts` +
+`apps/desktop/src/__tests__/ipc-domains/workspace-root-registry-recent-roots.test.ts`
+(ledger + `addRootByPath` authorization) +
+`apps/desktop/e2e/workspace-bar.desktop.test.ts` +
+`apps/web/e2e/workspace-bar.test.ts` (chips, recents re-mount, web omission),
 `apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
 (orderWorkspaceRoots + enrichment reorder), and the
 `hooks primaryCwd follows the declared main root` describe in

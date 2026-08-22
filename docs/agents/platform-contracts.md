@@ -165,6 +165,46 @@ dedicated wiring. That coverage is pinned by the BST-1061 regression test in
 unpack dir ever moves outside userData, it needs explicit reset wiring plus an
 update here.
 
+Desktop MAIN-PROCESS storage (`ElectronStorageAdapter`, one
+`electron-storage.json` under `app.getPath('userData')`) is covered by the same
+wholesale userData wipe — no per-key wiring. The keys it owns that MATTER for a
+fresh start:
+
+- `rootsList` — the connected workspace roots, owned only by
+  `apps/desktop/src/ipc-domains/workspace-root-registry.ts` (see
+  workspace-context.md, MAIN vs FOCUSED).
+- `rootsList.corrupt` — quarantined bytes from a malformed `rootsList`, written
+  once alongside an ERROR log by `readStoredRootsOrQuarantine` so a corrupt
+  list self-heals instead of bricking root restore. It still holds the paths
+  the user had granted, so reset must take it too.
+- `recentRootsList` (BST-1395) — the ledger of folders the user has ALREADY
+  granted this app (`workspace-recent-roots.ts`). Deliberately SEPARATE from
+  `rootsList`: disconnecting a root must not revoke the grant, because the
+  grant is what points the picker-less `fs:addRootByPath` — driven by the
+  composer workspace bar's Recents list — at a previously granted folder. It
+  sits in the SAME trust class as `rootsList` + `fs:restoreRoots`, not above
+  it. Reset therefore has to clear it — a surviving ledger would keep offering
+  picker-less mounts of folders a "true fresh start" says were never granted.
+- `recentRootsList.corrupt` — quarantined bytes from a malformed
+  `recentRootsList`, the exact counterpart of `rootsList.corrupt`. Written once
+  alongside an ERROR log so a corrupt ledger self-heals instead of bricking
+  Recents; covered by the same wholesale userData wipe.
+- `notesVaultRoots` (`NOTES_VAULT_ROOTS_STORAGE_KEY`,
+  `apps/desktop/src/notes-vault-ipc-handlers.ts`) — the notes-vault sibling of
+  `rootsList`: granted vault folders, re-opened without a picker. Same
+  reasoning, same wipe.
+- `lastFolderPath` — presentation-only.
+
+That coverage is pinned by
+`apps/desktop/src/__tests__/main/desktop-factory-reset-storage-ledgers.test.ts`,
+which seeds a REAL `electron-storage.json` (all of the keys above, including
+both `.corrupt` quarantines) into a REAL temp userData dir and asserts the file
+is gone and `logs` is the only surviving entry.
+
+If main-process storage ever moves outside `userData` (or gains a preserved
+entry name), every one of these needs explicit reset wiring plus an update
+here.
+
 Desktop reset order:
 1. Dispose embeddings.
 2. Clear UI state.

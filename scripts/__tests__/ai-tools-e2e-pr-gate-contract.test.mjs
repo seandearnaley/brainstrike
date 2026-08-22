@@ -33,6 +33,7 @@ const DESKTOP_SMOKE_COMMAND = [
   'e2e/secrets-settings.test.ts',
   'e2e/terminal-panel.desktop.test.ts',
   'e2e/tools-settings.desktop.test.ts',
+  'e2e/workspace-bar.desktop.test.ts',
   '--project=smoke',
   '--workers=1',
   '--retries=0',

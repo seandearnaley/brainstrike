@@ -519,6 +519,42 @@ Paired renderer tests:
 `changes-live-refresh-store.test.ts`, `use-changeset.test.ts`, and
 `use-git-inventory.test.ts`.
 
+**Discovery refresh on root registration (BST-1397).** The inventory only arms
+per-repository watchers INSIDE a build, and builds only run on `getSnapshot()`
+(the eager app-ready call plus renderer `changes:inventory` IPC calls), while
+`loadRoots()` reads the DB `roots` table — so a root whose row lands after
+app-ready would otherwise never be discovered. The renderer's roots
+reconciliation (`packages/app-shell/src/roots/use-roots-reconciliation.ts`)
+therefore calls `changes.inventory({ maxAgeMs: 0 })` once after the boot
+reconcile registers at least one root, and once after each mid-session
+`registerRoot`, so roots added after app-ready get their git-metadata watcher
+without a Changes surface ever being opened (this is what keeps the composer
+workspace bar's Branch chip live — see `docs/agents/workspace-context.md`).
+
+`maxAgeMs: 0` is load-bearing, not decoration. A plain `inventory()` would be
+served the 5s TTL cache, or coalesced onto an in-flight build whose
+`loadRoots()` had already run — either way a snapshot that predates the row
+just written, and a nudge that arms nothing. Forced means the service
+GUARANTEES a build that STARTED AFTER the call: with a build in flight it
+awaits that build and then runs exactly ONE more, and every forced call
+arriving before that follow-up starts shares it (one extra build for the
+batch, never one per caller). A forced follow-up whose service was stopped
+while it waited rejects with the typed `GitInventoryStoppedError` rather than
+building against a closing DB. The value crosses the IPC boundary validated —
+absent, or an integer >= 0; anything else is a visible `ok: false`, never
+coerced.
+
+Still best-effort, not authoritative: `resolveChangesBridge()` is null on web
+(a real no-op), and BOTH a rejected call and an `ok: false` `GitResult` log a
+warning rather than being dropped. The Changes surface's own `inventory()`
+remains the authoritative consumer, and this seam adds no polling. Paired
+tests: `packages/app-shell/src/__tests__/use-roots-reconciliation.test.tsx`
+("git inventory discovery refresh"),
+`apps/desktop/src/__tests__/assistant-server/git-inventory-service-lifecycle.test.ts`
+("forced refresh guarantees a build that started after the call"), and the
+`maxAgeMs` options-bag block in
+`apps/desktop/src/__tests__/ipc-domains/changes-ipc-handlers.test.ts`.
+
 The "agent-run changesets refresh on `onRunFinished`" acceptance criterion, by
 contrast, is STILL not wired to the real UI today:
 `assistant-ui-panel-wrapper.tsx` does call `useChangeset(mainRootId,
