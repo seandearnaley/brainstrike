@@ -40,8 +40,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * cannot strand a Running spinner), but it reports a CLIENT capability error for
  * that one call. This row reports something different and thread-level: the RUN
  * is still suspended and this build cannot answer it. The transient
- * `brainstrike.tool-suspend` notice that would otherwise say so is `aui-data` —
- * gone after a reload — leaving this row the only surviving explanation.
+ * `brainstrike.tool-suspend` notice that would otherwise say so is `aui-data`,
+ * so it does not survive a reload on its own; since BST-1084
+ * `appendSuspendedPauseMessages` re-appends it for pauses that are STILL
+ * suspended, while this row is the record that outlives an answered one.
  *
  * Because it is a `tool.*` kind carrying a `toolCallId`, and the mapper always
  * emits a `tool-call` part for that id, `resolveAssistantRunEventRenderPlan` and
@@ -52,7 +54,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * exemption: they carry no `toolCallId` and are not `tool.*`.
  *
  * `tool.approval.requested` (BST-1402) is included and needs the SAME exemption,
- * for a DIFFERENT reason than BST-558. A still-pending pause does get its
+ * for the same structural reason as BST-558's row (see the corrected note
+ * above: neither notice is lost on reload). A still-pending pause does get its
  * actionable `brainstrike.tool-approval` notice back after a reload
  * (`listSuspendedMastraRuns` rediscovers the suspended snapshot), so this row is
  * not the only surviving evidence — but that notice is a synthetic message

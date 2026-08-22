@@ -295,6 +295,11 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
   // or its row spins for the whole thread. Splitting every declared non-started
   // kind across these two tables forces a future kind to be classified HERE
   // instead of quietly inheriting "no terminal, spins forever".
+  // LIMIT of this guard: it forces every kind to be CLASSIFIED, but it cannot
+  // check the classification — the contract carries no status, so a kind that is
+  // actually emitted as `running` and filed under NEVER_RUNNING passes silently.
+  // Verify by hand against the emitters: `rg "makeRunEventChunk\(\s*'<kind>'" packages/agent/src`
+  // and check the status argument.
   const RUNNING_WITH_EXPLICIT_TERMINALS = [
     ['tool.approval.requested', ['tool.completed', 'tool.failed', 'tool.resume.unsupported']],
   ] as const;
