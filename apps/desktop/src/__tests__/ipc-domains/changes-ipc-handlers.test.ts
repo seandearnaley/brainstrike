@@ -452,4 +452,55 @@ describe('createChangesIpcHandlers.inventory (BST-1114 T0)', () => {
 
     expect(result).toEqual({ error: 'the service has been stopped', ok: false });
   });
+
+  // BST-1397: the renderer's post-registration nudge forces a rebuild through
+  // this boundary, so `maxAgeMs` is now renderer-supplied and validated here.
+  describe('maxAgeMs options bag', () => {
+    function handlersWithSpy(): {
+      getSnapshot: ReturnType<typeof vi.fn>;
+      handlers: ReturnType<typeof createChangesIpcHandlers>;
+    } {
+      const service = fakeInventoryService({ ...INVENTORY, capturedAt: 7 });
+      return {
+        getSnapshot: service.getSnapshot,
+        handlers: createChangesIpcHandlers({
+          resolveInventoryService: () => service as never,
+          service: fakeService() as never,
+        }),
+      };
+    }
+
+    it('passes a forced refresh through to the service', async () => {
+      const { getSnapshot, handlers } = handlersWithSpy();
+
+      await handlers.inventory({ maxAgeMs: 0 });
+
+      expect(getSnapshot).toHaveBeenCalledWith({ maxAgeMs: 0 });
+    });
+
+    it('treats an omitted options bag as "no override"', async () => {
+      const { getSnapshot, handlers } = handlersWithSpy();
+
+      await handlers.inventory();
+
+      expect(getSnapshot).toHaveBeenCalledWith({});
+    });
+
+    it.each([
+      ['a non-object payload', 5],
+      ['an array payload', []],
+      ['a non-numeric maxAgeMs', { maxAgeMs: '0' }],
+      ['a negative maxAgeMs', { maxAgeMs: -1 }],
+      ['a fractional maxAgeMs', { maxAgeMs: 1.5 }],
+      ['a non-finite maxAgeMs', { maxAgeMs: Number.NaN }],
+      ['an unsupported key', { maxAgeMs: 0, refresh: true }],
+    ])('rejects %s instead of coercing it', async (_label, options) => {
+      const { getSnapshot, handlers } = handlersWithSpy();
+
+      const result = await handlers.inventory(options);
+
+      expect(result.ok).toBe(false);
+      expect(getSnapshot).not.toHaveBeenCalled();
+    });
+  });
 });

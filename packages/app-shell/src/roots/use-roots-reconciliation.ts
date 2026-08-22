@@ -35,7 +35,11 @@ function refreshGitInventoryAfterRootRegistration(bridge: ChangesBridge | null):
     return;
   }
   void bridge
-    .inventory()
+    // FORCED (`maxAgeMs: 0`): the ordinary read would serve the TTL cache, or
+    // coalesce onto a build whose `loadRoots()` already ran — either way a
+    // snapshot that predates the row just written, and the nudge would be
+    // swallowed with nothing to show for it.
+    .inventory({ maxAgeMs: 0 })
     .then((result) => {
       if (!result.ok) {
         logger.warn('git inventory refresh after root registration failed', {

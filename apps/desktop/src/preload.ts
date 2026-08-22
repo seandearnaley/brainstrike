@@ -1326,7 +1326,11 @@ if (shouldExposeBridge('changes')) {
     finalizeRewinds: (payload: { threadId: string }) =>
       ipcRenderer.invoke(CHANGES_FINALIZE_REWINDS_CHANNEL, payload),
     // Repository/worktree topology for the Changes surface (BST-1114 T0).
-    inventory: () => ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL),
+    // `{ maxAgeMs: 0 }` forces a rebuild that started after the call — the
+    // seam a renderer that just registered a root uses to get its repository
+    // discovered and watched (BST-1397).
+    inventory: (options?: { maxAgeMs?: number }) =>
+      ipcRenderer.invoke(CHANGES_INVENTORY_CHANNEL, options),
     // One-way main→renderer live-refresh pushes (changes:invalidated,
     // BST-1161 spec §6): external git activity on a repository. Returns the
     // unsubscribe function (terminal onData precedent).
