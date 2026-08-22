@@ -754,6 +754,29 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
       {
+        // Official Z.AI GLM-5.3 release/model/thinking docs, retrieved
+        // 2026-08-22, own the API ID, text-only modality, native 1M/128K
+        // limits, and mandatory max/high/low reasoning ladder with max default.
+        // OpenRouter Models and endpoint APIs own this fixed route's effective
+        // 1,048,576/131,072 ceilings and gateway pricing (BST-1414). The 128K
+        // fact is a hard maximum, not a distinct default combined reasoning +
+        // answer reservation, so vendorDefaultOutputTokens remains absent.
+        contextWindow: 1_048_576,
+        id: 'z-ai/glm-5.3',
+        label: 'GLM-5.3 (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 1.4, outputPerMTok: 4.4 },
+        reasoning: {
+          defaultEffort: 'max',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['max', 'high', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      },
+      {
         // Anonymous stealth-preview identity, route, modalities, context/output
         // limits, reasoning controls, tool/structured-output support, and zero
         // gateway pricing: OpenRouter Models and endpoint APIs, revalidated

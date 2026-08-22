@@ -200,6 +200,27 @@ describe('frontier model refresh (2026-07)', () => {
       });
     });
 
+    it('declares GLM 5.3 from the frozen OpenRouter catalog facts', () => {
+      const glm53 = getLlmModelDefinition('openrouter', 'z-ai/glm-5.3');
+
+      expect(glm53).toEqual({
+        contextWindow: 1_048_576,
+        id: 'z-ai/glm-5.3',
+        label: 'GLM-5.3 (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 1.4, outputPerMTok: 4.4 },
+        reasoning: {
+          defaultEffort: 'max',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['max', 'high', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      });
+    });
+
     it("declares the new models' authoritative OpenRouter reasoning options", () => {
       const spark = getLlmModelDefinition('openrouter', 'meta/muse-spark-1.1');
       const kimi = getLlmModelDefinition('openrouter', 'moonshotai/kimi-k3');

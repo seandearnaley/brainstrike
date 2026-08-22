@@ -164,7 +164,8 @@ describe('migration 107 in the production drizzle runner', () => {
       is_enabled: false,
       name: 'Ox Alpha (OpenRouter)',
       provider_id: 'openrouter',
-      sort_order: 1,
+      // Migration 108 prepends GLM 5.3 in the current full production sequence.
+      sort_order: 2,
       tagline: null,
     });
 
