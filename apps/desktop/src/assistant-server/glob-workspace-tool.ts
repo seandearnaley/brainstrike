@@ -118,6 +118,11 @@ async function walkRoot(args: {
         });
       }
     },
+    // Glob honours `.gitignore` (BST-1427): a static denylist cannot keep up
+    // with machine-local caches, and when it falls behind a glob returns
+    // `0 matches` rather than an error. See `respectGitignore` for why live
+    // grep deliberately does not opt in.
+    respectGitignore: true,
     root: args.root,
   });
   return { matches, scanLimited };

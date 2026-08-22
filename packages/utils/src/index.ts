@@ -15,6 +15,7 @@ export * from './file-content.js';
 export * from './file-system.js';
 export * from './file-utils.js';
 export * from './filter-utils.js';
+export * from './gitignore-matcher.js';
 export * from './hash-utils.js';
 export * from './hmr-utils.js';
 export * from './path-ancestors.js';

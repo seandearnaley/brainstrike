@@ -155,6 +155,60 @@ describe('runGlobWorkspace — ignore handling', () => {
     expect(result.scanLimited).toBe(false);
   });
 
+  it('prunes a cache directory that only .gitignore names (BST-1427)', async () => {
+    // The general fix for the class BST-1428 was one instance of. A denylist can
+    // only skip names someone enumerated; every directory that has actually hurt
+    // us was ALREADY gitignored. `vendor-cache` here stands for the ones nobody
+    // listed — bazel-*, .gradle, .m2, DerivedData, a relocated pnpm store —
+    // and the walk must prune it from `.gitignore` alone.
+    const root = await makeWorkspace([
+      '.gitignore',
+      'docs/architecture.md',
+      'vendor-cache/a/one.md',
+      'vendor-cache/b/two.md',
+    ]);
+    await fsPromises.writeFile(path.join(root, '.gitignore'), 'vendor-cache/\n', 'utf8');
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/docs/architecture.md']);
+  });
+
+  it('honours a NESTED .gitignore only within its own subtree (BST-1427)', async () => {
+    // `artifacts` deliberately is NOT a name the static floor knows, so the only
+    // thing that can prune it is the nested `.gitignore` — and only under the
+    // package that declares it.
+    const root = await makeWorkspace([
+      'packages/web/.gitignore',
+      'packages/web/artifacts/out.md',
+      'packages/api/artifacts/out.md',
+    ]);
+    await fsPromises.writeFile(path.join(root, 'packages/web/.gitignore'), 'artifacts/\n', 'utf8');
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/packages/api/artifacts/out.md']);
+  });
+
+  it('includeIgnored: true still surfaces gitignored files (BST-1427)', async () => {
+    const root = await makeWorkspace(['.gitignore', 'vendor-cache/one.md']);
+    await fsPromises.writeFile(path.join(root, '.gitignore'), 'vendor-cache/\n', 'utf8');
+    const result = await runGlobWorkspace(
+      { includeIgnored: true, pattern: '**/*.md' },
+      singleRoot(root)
+    );
+    expect(paths(result)).toContain('/vendor-cache/one.md');
+  });
+
+  it('falls back to the static floor for a root with no .gitignore (BST-1427)', async () => {
+    // A folder that is not a git repo has nothing to respect, so the static
+    // policy carries it alone. This is why the denylist stays: it is the floor,
+    // not the primary signal.
+    const root = await makeWorkspace([
+      'src/main.ts',
+      'node_modules/dep/index.ts',
+      '.pnpm-store/v10/cached.ts',
+    ]);
+    const result = await runGlobWorkspace({ pattern: '**/*.ts' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/src/main.ts']);
+  });
+
   it('excludes lockfiles and minified/map artifacts by default', async () => {
     const root = await makeWorkspace([
       'src/app.ts',

@@ -637,6 +637,47 @@ fallback.
   support requires a separate bounded Git-aware tracked-path watcher, not
   polling or broadening this recursive subscription.
 
+### WORKSPACE WALK: GITIGNORE IS THE PRIMARY SIGNAL, THE POLICY IS THE FLOOR
+
+`walkWorkspaceRoot` (`apps/desktop/src/assistant-server/workspace-file-walk.ts`)
+honours `.gitignore` when the caller passes `respectGitignore` (BST-1427), with
+`createBackgroundIndexingEntryPolicy('balanced')` beneath it as a floor.
+
+- **Why gitignore leads.** A hand-maintained denylist of directory names cannot
+  keep up with machine-local caches, and when it falls behind the failure is
+  SILENT: a glob returns `0 matches`, not an error. Every directory that has
+  actually hurt us was already gitignored — `.pnpm-store` (82,267 files here,
+  1.6x the 50,000 walk cap on its own; BST-1428), `.turbo`, `.claude/worktrees`
+  — and two of the three still needed a bespoke list entry. Respecting
+  `.gitignore` is what ripgrep, fd, VS Code, ESLint and Prettier all do.
+- **Why the floor stays.** A root that is not a git repo has no `.gitignore`,
+  and `.git` itself is never gitignored. The static policy carries those alone.
+- **DIRECTORIES MUST BE TESTED WITH A TRAILING SLASH** — do not relitigate. A
+  directory-only pattern (`dist/`) does NOT match the bare path `dist`, because
+  a bare path carries no directory signal. Asking the file form when deciding
+  whether to descend returns false, the walk enters the tree, and it then
+  rejects every file inside one at a time — which is the cap starvation this
+  exists to prevent. `GitignoreMatcher` therefore exposes `ignoresDirectory`
+  and `ignoresFile` as separate methods rather than one convenience call.
+- **Nested `.gitignore` files scope to their own subtree**, pushed on entry and
+  popped on exit, outermost-first so a deeper file can re-include what an outer
+  one ignored (git resolves last-match-wins). The presence check reuses the
+  directory listing the walk already has, so directories without one cost
+  nothing.
+- **Implementation is the `ignore` package**, chosen deliberately and pinned by
+  `gitignore-matcher.test.ts`: gitignore reimplementations disagree on edge
+  cases, so the behaviour depended on is asserted rather than assumed.
+- **LIVE GREP DELIBERATELY DOES NOT OPT IN.** Its ripgrep pass runs
+  `--no-ignore --hidden` so rg is a true SUPERSET and `policy.shouldIncludeFile`
+  stays the SINGLE authority trimming both engines identically — otherwise
+  results differ by whether rg is installed. Honouring `.gitignore` on the JS
+  side alone breaks that parity (the `rg-vs-walk parity` case catches it);
+  honouring it on both would require rg's Rust implementation and the `ignore`
+  package to agree on every edge case. Making grep gitignore-aware is its own
+  change: BST-1429.
+- Measured on this repo: walk `scanned` 6,735 → 5,558 and `kept` 5,144 → 4,997,
+  at 88ms → ~111ms. The cost is per-path matching, not the `.gitignore` reads.
+
   Parcel delivers only the bounded reportable defaults `dist`, `build`, and
   `.DS_Store` to a lightweight JS classifier. It matches the event path
   relative to the watched root, so opening a root beneath an ancestor named

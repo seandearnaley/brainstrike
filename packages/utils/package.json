@@ -4,6 +4,7 @@
   "dependencies": {
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
+    "ignore": "catalog:",
     "minimatch": "catalog:"
   },
   "devDependencies": {

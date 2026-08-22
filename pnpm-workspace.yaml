@@ -37,6 +37,10 @@ catalog:
   '@assistant-ui/react-data-stream': ^0.12.26
   '@assistant-ui/react-markdown': ^0.14.10
   '@assistant-ui/styles': ^0.3.7
+  # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
+  # implementation (eslint/prettier/lint-staged/globby all use it); already
+  # present transitively, promoted to a direct dep so the walk can rely on it.
+  ignore: ^7.0.5
   '@babel/core': ^8.0.1
   '@babel/plugin-transform-runtime': ^8.0.1
   '@babel/runtime': ^8.0.0
