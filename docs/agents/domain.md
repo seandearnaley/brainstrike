@@ -1,36 +1,36 @@
-# Domain Docs
+# Domain documentation for external skills
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+> **Consumer:** external domain-modeling and triage skills installed in an
+> agent environment. They are not vendored by this repository; this file tells
+> them how to consume Brainstrike's current contracts.
 
-## Before exploring, read these
+## Read order
 
-- **`CONTEXT.md`** at the repo root.
-- **`docs/adr/`**: read ADRs that touch the area you're about to work in.
+Before exploring a subsystem:
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
+1. Read `AGENTS.md` and use its routing table to select the matching
+   `docs/agents/` contract.
+2. Read relevant accepted decisions under `docs/adr/`.
+3. Verify terminology and behavior against current source and tests. Treat
+   dated plans, research, and archives as historical evidence.
 
-## File structure
+## Single-context glossary seam
 
-This repository uses a single-context layout:
+This repository uses a single-context domain layout. Its root glossary has not
+yet been created. If a domain-modeling session resolves durable vocabulary, the
+conventional root `CONTEXT.md` is the one glossary location; create or update it
+only from user-approved decisions.
 
-```text
-/
-├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-example-decision.md
-│   └── 0002-another-decision.md
-├── apps/
-└── packages/
-```
+Until that file exists, use the terminology in `AGENTS.md`, the routed
+`docs/agents/` contract, source, tests, and accepted ADRs. Do not cite a missing
+glossary, invent definitions, or treat synonyms as settled project language.
 
-## Use the glossary's vocabulary
+## Vocabulary and decisions
 
-When your output names a domain concept—in an issue title, refactor proposal, hypothesis, or test name—use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
+Once a root glossary exists, use its defined terms in issue titles, refactor
+proposals, hypotheses, and test names. A missing concept is either language the
+project does not use or a domain-modeling gap to surface; it is not permission
+to silently coin a competing term.
 
-If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use and should reconsider, or there's a real gap to note for `/domain-modeling`.
-
-## Flag ADR conflicts
-
-If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
-
-> _Contradicts ADR-0007, but worth reopening because…_
+If proposed work contradicts an accepted ADR, state the conflict and the reason
+to reopen the decision rather than silently overriding it.

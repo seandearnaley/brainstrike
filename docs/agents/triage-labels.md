@@ -1,15 +1,32 @@
-# Triage Labels
+# Linear triage vocabulary
 
-The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
+> **Consumer:** the external `triage` engineering skill. The skill is not
+> vendored by this repository; this file maps its canonical roles onto live
+> Brainstrike Linear concepts.
 
-| Label in mattpocock/skills | Label in our tracker | Meaning                                  |
-| -------------------------- | -------------------- | ---------------------------------------- |
-| `needs-triage`             | `needs-triage`       | Maintainer needs to evaluate this issue  |
-| `needs-info`               | `needs-info`         | Waiting on reporter for more information |
-| `ready-for-agent`          | `ready-for-agent`    | Fully specified, ready for an AFK agent  |
-| `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
-| `wontfix`                  | `wontfix`            | Will not be actioned                     |
+## Category roles
 
-When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
+| Canonical role | Linear representation |
+| --- | --- |
+| `bug` | `Bug` label |
+| `enhancement` | `Feature` for a new capability; `Improvement` for a change to existing behavior |
 
-Edit the right-hand column to match whatever vocabulary you actually use.
+## State roles
+
+| Canonical role | Linear representation | Current capability |
+| --- | --- | --- |
+| `needs-triage` | `needs-triage` label | Available |
+| `needs-info` | `needs-info` label | Available |
+| `ready-for-agent` | `agent-ready` label | Available |
+| `ready-for-human` | `needs-human` label | Available |
+| `wontfix` | `Canceled` issue state | Available; no state label is applied |
+
+Before applying a role, verify the label or state still exists in the live
+Brainstrike team. A missing representation is an unsupported capability: tell
+the maintainer which label is absent and wait for explicit authorization to
+create it. Do not substitute a similar label or state.
+
+Each triaged issue carries exactly one category representation and one state
+representation. Remove the prior state label when moving between label-backed
+states. Moving to `wontfix` removes any state-role label and transitions the
+issue to `Canceled` with the triage comment required by the external skill.
