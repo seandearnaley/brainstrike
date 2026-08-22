@@ -48,14 +48,13 @@ const UNBOUND_THREAD_TITLE = 'W2 unbound gamma';
  * `realpathSync` is load-bearing, not tidiness. On macOS `os.tmpdir()` is
  * `/var/folders/…`, a symlink to `/private/var/folders/…`; git reports the
  * resolved form, while the `roots.path` this fixture seeds keeps the symlink.
- * `useThreadBranchByRootPath` joins the two by EXACT normalized path equality
+ * `resolveThreadBranch` tries EXACT normalized path equality FIRST
  * (`normalizeRootPathForLookup` trims and strips trailing separators — it does
- * NOT resolve symlinks), so an unresolved fixture path silently produces no
- * branch badge and this spec would be asserting a fixture artifact instead of
- * the badge. Resolving here keeps the fixture honest; the divergence itself is
- * reported as a product finding (a symlinked root gets no badge in the Threads
- * panel even though the composer's branch chip, which asks git directly rather
- * than joining on a path, still shows one).
+ * NOT resolve symlinks) and only then falls back to the containment-id join
+ * that BST-1404 added for exactly this skew. Resolving the fixture path keeps
+ * this spec on the FIRST join, so the badge assertion below means "the path
+ * join works" rather than silently grading the fallback. The symlinked case
+ * itself is covered by unit tests on both the hook and the panel.
  */
 function freshRepo(label: string): string {
   return realpathSync(

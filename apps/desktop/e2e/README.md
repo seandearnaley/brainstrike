@@ -167,8 +167,10 @@ its FIRST REQUEST — so no product gesture mints a bound thread before one
 exists. That helper also reads the DURABLE `roots.id` back from the database
 (never the adapter root id) and probes `to_regclass('mastra_threads')` rather
 than retrying a failing INSERT. The spec `realpath`s its temp repo on purpose:
-the branch map joins on exact path equality with no symlink resolution, so the
-macOS `/var` → `/private/var` tmpdir would otherwise hide the badge. Root and
+the branch join tries exact path equality FIRST (no symlink resolution) and
+only then the containment-id fallback, so resolving the macOS
+`/var` → `/private/var` tmpdir keeps this spec grading the path join rather
+than the fallback. Root and
 repo fixtures are the shared `utils/git-fixtures.ts` + `utils/seed-root.ts`.
 The web counterpart is `apps/web/e2e/threads-panel-folders.test.ts`
 (one test, `@web-smoke`), which pins the option, the "No folder" catch-all, and

@@ -2002,18 +2002,27 @@ Where state lives (do not relitigate):
   repo/worktree scan across every workspace root (BST-1116 W6 finding 4) and the
   chips exist only in folders grouping — entering that grouping is the gesture,
   so this is a deferral, not a silent disable; the flip itself performs the load
-  exactly once. Keyed by EXACT normalized worktree path (never `containment`, which is many-to-one and
-  would let a root that merely contains repositories borrow one of their
-  branches). BARE worktrees are omitted from that map: they carry no checkout,
+  exactly once. TWO KEYED LOOKUPS, tried in that order by `resolveThreadBranch`
+  (`threads-panel.tsx`). FIRST the EXACT normalized worktree path. THEN
+  `byRootId`, keyed by DB `roots.id` — the same id space as
+  `metadata.operatingRootId` — holding only ids that appear in the
+  `containment` of EXACTLY ONE worktree. `containment` is many-to-one, so it is
+  the FALLBACK and never the primary key: a root that merely contains several
+  repositories is absent from `byRootId` rather than borrowing one of their
+  branches. BARE worktrees are omitted from both maps: they carry no checkout,
   hence no branch, and a mapped bare entry (`branch: null, detached: false`)
-  would render as an icon-only chip with no text.
+  would render as an icon-only chip with no text (they therefore do not make a
+  root's containment ambiguous either).
   Desktop only; web reports `available: false` and renders no chip.
-  KNOWN BOUND (BST-1406): `normalizeRootPathForLookup` trims and strips
-  trailing separators — it does NOT resolve symlinks. A root mounted through a
-  symlink (the macOS `/var` → `/private/var` tmpdir is the reproducer) never
-  matches the worktree path git reports, so its rows get no branch badge while
-  the composer's branch chip — which asks git with that path as cwd instead of
-  joining on it — still shows one. Same root, two answers.
+  WHY THE ID JOIN EXISTS (BST-1406 → fixed in BST-1404/1405):
+  `normalizeRootPathForLookup` trims and strips trailing separators — it does
+  NOT resolve symlinks, and it cannot: `roots.path` keeps the path the folder
+  was MOUNTED through while git reports the REALPATH. A root mounted through a
+  symlink (the macOS `/var` → `/private/var` tmpdir is the reproducer) matched
+  nothing by path, so its rows got no branch badge while the composer's branch
+  chip — which asks git with that path as cwd instead of joining on it — still
+  showed one. Same root, two answers. `containment` is computed in MAIN against
+  realpath'd root paths, so the id join is immune to that skew.
 - Folder grouping's SURFACE (BST-1405) is the same treegrid: folder sections are
   real expandable parents whose node id IS `section.id`
   (`folder:${rootId}` / `folder-unassigned`), so one id addresses the row, its
@@ -2106,8 +2115,9 @@ Where state lives (do not relitigate):
   The seed reads the DURABLE `roots.id` back from the database rather than
   reusing the adapter root id, and the desktop fixture `realpath`s its temp
   repo: `roots.path` keeps whatever path was mounted while git reports the
-  resolved one, and the branch map's exact-path join (below) has no symlink
-  resolution, so an unresolved fixture path silently yields no chip. The web
+  resolved one, and the branch join's FIRST attempt (below) is exact-path with
+  no symlink resolution — resolving the fixture keeps that spec grading the
+  path join rather than the containment-id fallback behind it. The web
   spec additionally pins that `window.changes` does not exist there at all —
   the structural reason the badge is desktop-only, which still holds for a
   bound thread. Both specs also pin the EMPTY-resource bootstrap thread
