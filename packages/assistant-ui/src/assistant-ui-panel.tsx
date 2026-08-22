@@ -83,14 +83,11 @@ import { RewindComposerBridge } from './message-rewind-action';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { UserMessage } from './user-message';
 
+export type { ComposerAttachmentsAvailability } from './composer-input';
 // Re-exported for the suites that mount these against a real runtime
 // (user-action-bar-copy, assistant-chat-polish.browser) — extraction moved the
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
-
-import { WorkspaceBar, type WorkspaceBarProps } from './workspace-bar/workspace-bar';
-
-export type { ComposerAttachmentsAvailability } from './composer-input';
 
 import { ComposerMentionPopover } from './composer-mention-popover';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
@@ -429,11 +426,18 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   threadKey?: string;
   toolMenu?: AssistantToolMenuConfig;
   /**
-   * Composer workspace bar (folder · branch). App-shell ALWAYS passes it when
-   * the assistant is mounted in a workspace shell; absent = no bar (storybook /
-   * bare embeds).
+   * Composer workspace bar (folder · branch) SLOT. App-shell renders the bar
+   * host and passes the element; absent = no bar (storybook / bare embeds).
+   *
+   * A ReactNode, deliberately NOT `WorkspaceBarProps`: the bar's state comes
+   * from two live-refresh subscriptions, and composing its props in app-shell's
+   * panel wrapper made every git push re-render that ~1800-line component.
+   * Owning the subscriptions in a small app-shell host and handing this package
+   * the finished element keeps assistant-ui store-free AND keeps the re-render
+   * scoped to the bar. `WorkspaceBar` + its prop types stay exported for the
+   * host to use.
    */
-  workspaceBar?: WorkspaceBarProps;
+  workspaceBar?: ReactNode;
 }
 
 export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
@@ -765,8 +769,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   selectedProvider: string | undefined;
   slashCommands: readonly SlashCommand[];
   toolMenu?: AssistantToolMenuConfig | undefined;
-  /** Composer workspace bar (folder · branch); absent → no bar. */
-  workspaceBar?: WorkspaceBarProps | undefined;
+  /** Composer workspace bar (folder · branch) slot; absent → no bar. */
+  workspaceBar?: ReactNode | undefined;
 }
 
 /**
@@ -1197,7 +1201,7 @@ const ChatThreadUI = ({
   onComposerTextChange?: ((text: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
-  workspaceBar?: WorkspaceBarProps | undefined;
+  workspaceBar?: ReactNode | undefined;
 }) => {
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const composerDisabled = isComposerDisabled || isHistoryLoading;
@@ -1298,12 +1302,11 @@ const ChatThreadUI = ({
            * This required aggressive CSS overrides (see overrides.css).
            */}
           <div className="bs-composer-shell" data-testid="assistant-composer-shell">
-            {/* Composer workspace bar (folder · branch) — its own module, a
-            SIBLING at the top of the composer stack (never nested inside
-            ThreadContextMeter, which is being reworked separately). Always
-            rendered when app-shell supplies it; zero roots render the
-            "Choose a folder" CTA. */}
-            {workspaceBar ? <WorkspaceBar {...workspaceBar} /> : null}
+            {/* Composer workspace bar (folder · branch) — an app-shell-rendered
+            SLOT, a SIBLING at the top of the composer stack (never nested
+            inside ThreadContextMeter, which is being reworked separately).
+            app-shell renders the bar host; assistant-ui stays store-free. */}
+            {workspaceBar ?? null}
             <ThreadContextMeter
               contextWindow={contextWindow}
               cumulativeUsage={cumulativeUsage}

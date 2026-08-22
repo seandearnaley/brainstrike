@@ -105,19 +105,26 @@ describe('assistant UI panel architecture', () => {
     expect(source.split('\n').length).toBeLessThanOrEqual(1880);
   });
 
-  it('mounts the composer workspace bar as an owned module above the context meter', () => {
+  it('keeps the composer workspace bar an app-shell-rendered SLOT above the context meter', () => {
     // BST-1396: the workspace bar (folder · branch) replaces the WS6
     // operating-root chip. It is a SIBLING at the top of the composer stack —
-    // never nested inside ThreadContextMeter, which is reworked separately —
-    // and it is always rendered when app-shell passes `workspaceBar` (zero
-    // roots render the "Choose a folder" CTA, not an empty bar).
+    // never nested inside ThreadContextMeter, which is reworked separately.
+    //
+    // The prop is a ReactNode SLOT, not the bar's props: app-shell renders the
+    // bar host (`WorkspaceBarHost`, which owns useWorkspaceBar's two
+    // live-refresh subscriptions), so a git push no longer re-renders the
+    // 1800-line wrapper that composed those props. This package stays
+    // store-free either way — it just no longer needs the props' shape.
     const source = readSource('assistant-ui-panel.tsx');
-    expect(source).toContain("from './workspace-bar/workspace-bar'");
+    expect(source).toContain('workspaceBar?: ReactNode');
+    // The bar is NOT constructed here any more; only the slot is rendered.
+    expect(source).not.toContain('<WorkspaceBar');
+    expect(source).not.toContain("from './workspace-bar/workspace-bar'");
 
     const composerShellStart = source.indexOf('className="bs-composer-shell"');
     expect(composerShellStart).toBeGreaterThan(-1);
     const composerShellSource = source.slice(composerShellStart);
-    const workspaceBarStart = composerShellSource.indexOf('<WorkspaceBar');
+    const workspaceBarStart = composerShellSource.indexOf('{workspaceBar ?? null}');
     const contextMeterStart = composerShellSource.indexOf('<ThreadContextMeter');
     expect(workspaceBarStart).toBeGreaterThan(-1);
     expect(workspaceBarStart).toBeLessThan(contextMeterStart);
@@ -126,7 +133,20 @@ describe('assistant UI panel architecture', () => {
     expect(source).not.toContain('OperatingRootChip');
     expect(source).not.toContain('operatingRoot');
 
+    // The bar module and its types stay exported for the app-shell host.
     expect(readSource('workspace-bar/workspace-bar.tsx')).toContain('export const WorkspaceBar');
+    const indexSource = readSource('index.ts');
+    expect(indexSource).toContain("from './workspace-bar/workspace-bar'");
+    for (const exported of [
+      'WorkspaceBar,',
+      'type WorkspaceBarCheckout,',
+      'type WorkspaceBarProps,',
+      'type WorkspaceBarRecentRoot,',
+      'type WorkspaceBarReveal,',
+      'type WorkspaceBarRoot,',
+    ]) {
+      expect(indexSource).toContain(exported);
+    }
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
