@@ -47,10 +47,11 @@ below are LIVE.
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
    `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
-   The window is PHASE-AWARE (BST-1408): `BRAINSTRIKE_STREAM_FIRST_PART_MS`
-   governs the wait for the very first part, `BRAINSTRIKE_STREAM_INACTIVITY_MS`
-   every gap after it — see the config list below for why they must not be
-   re-merged. A stream stall emits a visible assistant message, a terminal
+   The window is PHASE-AWARE (BST-1408): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS`
+   governs the wait for the provider to produce its first OUTPUT **in each
+   step**, `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is producing —
+   see the config list below for why they must not be re-merged, and why the
+   phase boundary is provider output rather than "the first part". A stream stall emits a visible assistant message, a terminal
    `run.failed` event, and an error finish so the renderer does not remain
    in-flight forever.
    The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
@@ -649,19 +650,47 @@ Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rul
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
-  BETWEEN parts, once the provider has started emitting. Scoped to inter-part
-  gaps only since BST-1408.
-- `BRAINSTRIKE_STREAM_FIRST_PART_MS` (default 600000) — the budget from stream
-  start until the FIRST part arrives. DELIBERATELY decoupled from the inactivity
-  window and never tighter than it, for the same reason the tool-call-input
-  budget is (BST-839): the two answer different questions — "has the provider
-  started answering yet?" versus "is it still delivering?". Sharing one number
-  killed a healthy 18-minute turn, because a cold request carrying ~169k prompt
-  tokens at `reasoning.effort: 'max'` can spend minutes producing nothing
-  observable, which is indistinguishable from a wedged transport at the
-  stream-part layer. Same explicit-vs-default resolution as the input budget: two
-  EXPLICIT values in a contradictory shape throw; an unset first-part window
-  widens to the inactivity window.
+  between parts, once the provider is demonstrably producing OUTPUT. Scoped to
+  that phase only since BST-1408.
+- `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` (default 600000) — the budget for the
+  provider to produce its first output, **per step, not per stream**.
+  DELIBERATELY decoupled from the inactivity window and never tighter than it,
+  for the same reason the tool-call-input budget is (BST-839): the two answer
+  different questions — "has the provider started answering yet?" versus "is it
+  still delivering?". Sharing one number killed a healthy 18-minute turn,
+  because a request carrying ~169k prompt tokens at `reasoning.effort: 'max'`
+  can spend minutes producing nothing observable, which is indistinguishable
+  from a wedged transport at the stream-part layer. Same explicit-vs-default
+  resolution as the input budget: two EXPLICIT values in a contradictory shape
+  throw; an unset first-output window widens to the inactivity window.
+
+  **THE PHASE BOUNDARY IS PROVIDER OUTPUT, NOT "THE FIRST PART" — do not
+  relitigate.** Measured through the real Mastra loop, a turn's raw parts are:
+
+  ```
+  start       t+0ms      <- framework, instant
+  step-start  t+7ms      <- framework, instant
+  tool-call   t+312ms    <- provider, after 305ms of thinking
+  step-start  t+321ms    <- framework, instant
+  text-start  t+723ms    <- provider, after 402ms of thinking
+  ```
+
+  A rule that ends the wide window at the first RAW part therefore covers ~0ms
+  of provider time and measures every real time-to-first-token against the tight
+  one — which is the exact failure the split exists to prevent. Worse, Mastra
+  opens EVERY step with that prologue, so time-to-first-output recurs throughout
+  a turn: the captured incident's fatal gap was a MID-TURN step's TTFT
+  (`run.step.started` 07:51:41 → silence → killed 07:56:48), not the opening
+  one. `withInactivityTimeout` therefore takes a `countsAsProviderOutput`
+  classifier; `MASTRA_SCAFFOLDING_PART_TYPES` (`start`, `step-start`) both KEEPS
+  and RE-ARMS the wide window, so each step gets its own budget. That set is a
+  CLOSED list of scaffolding rather than an allowlist of output kinds: a Mastra
+  release adding a new provider part type must default to "this is output"
+  (tightening on a part known to come from the provider), never to "this is
+  free". The real-loop coverage is
+  `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts` —
+  it exists because the shared fake-Mastra harness feeds a hand-written part
+  list with NO prologue and structurally cannot see this.
 - `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
   time for one incomplete streamed tool input; argument deltas do not reset it.
   Decoupled from — and never tighter than — the inactivity window (BST-839).
@@ -677,11 +706,19 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
 - Invariant: tool timeout < stream inactivity <= tool-call input budget, and
-  stream inactivity <= stream first-part window (both `<=` comparisons are
-  enforced only against an explicitly configured value; see above).
+  stream inactivity <= stream first-output window (both `<=` comparisons are
+  enforced only against an explicitly configured value; see above). The
+  FOUNDATIONAL tool-timeout ordering is checked before any derived window, so a
+  config breaking several invariants names the first thing to fix.
 - The stall diagnostic and the durable `run.failed` metadata carry `phase`
-  (`first-part` | `inter-part`), `partsSeen`, and — when the caller can name it
-  — `lastPartType` (BST-1408). `inactivityMs` alone could not say WHICH silence
+  (`awaiting-output` | `streaming`), `partsSeen` (scaffolding included — it is
+  transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
+  the "prologue arrived, provider never did" story), and `lastPartType`
+  (BST-1408). `lastPartType` is the last part the caller could NAME: an
+  undescribable part leaves the previous name in place rather than erasing the
+  breadcrumb. The user-visible text differs by phase too — a step that never
+  started reads "produced no output within Xms of the request starting", not
+  "stalled ... without output", which implied it had been streaming. `inactivityMs` alone could not say WHICH silence
   fired or what the provider last sent, so the 2026-08-22 incident had to be
   reconstructed by inference from run-event timestamps. The watchdog itself
   stays generic over the stream element: `describePart` supplies the Mastra part

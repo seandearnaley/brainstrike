@@ -2,13 +2,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_APPROVAL_STALE_MS,
-  DEFAULT_STREAM_FIRST_PART_MS,
+  DEFAULT_STREAM_FIRST_OUTPUT_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
   DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
   resolveApprovalStaleMs,
   resolveAssistantResilienceConfig,
-  resolveStreamFirstPartMs,
+  resolveStreamFirstOutputMs,
   resolveStreamInactivityMs,
   resolveToolCallInputMs,
   resolveToolTimeoutMs,
@@ -18,7 +18,7 @@ describe('resilience-config', () => {
   const KEYS = [
     'BRAINSTRIKE_TOOL_TIMEOUT_MS',
     'BRAINSTRIKE_STREAM_INACTIVITY_MS',
-    'BRAINSTRIKE_STREAM_FIRST_PART_MS',
+    'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS',
     'BRAINSTRIKE_TOOL_CALL_INPUT_MS',
     'BRAINSTRIKE_APPROVAL_STALE_MS',
   ] as const;
@@ -55,7 +55,7 @@ describe('resilience-config', () => {
 
   it('resolves the documented assistant resilience defaults together', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
-      streamFirstPartMs: DEFAULT_STREAM_FIRST_PART_MS,
+      streamFirstOutputMs: DEFAULT_STREAM_FIRST_OUTPUT_MS,
       streamInactivityMs: DEFAULT_STREAM_INACTIVITY_MS,
       toolCallInputMs: DEFAULT_TOOL_CALL_INPUT_MS,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
@@ -67,7 +67,7 @@ describe('resilience-config', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '50';
     process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '75';
     expect(resolveAssistantResilienceConfig()).toEqual({
-      streamFirstPartMs: DEFAULT_STREAM_FIRST_PART_MS,
+      streamFirstOutputMs: DEFAULT_STREAM_FIRST_OUTPUT_MS,
       streamInactivityMs: 50,
       toolCallInputMs: 75,
       toolTimeoutMs: 25,
@@ -106,7 +106,7 @@ describe('resilience-config', () => {
     // unset default simply resolves wide enough to satisfy the invariant.
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '900000';
     expect(resolveAssistantResilienceConfig()).toEqual({
-      streamFirstPartMs: 900_000,
+      streamFirstOutputMs: 900_000,
       streamInactivityMs: 900_000,
       toolCallInputMs: 900_000,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
@@ -138,59 +138,72 @@ describe('resilience-config', () => {
     expect(() => resolveApprovalStaleMs()).toThrow(/BRAINSTRIKE_APPROVAL_STALE_MS/);
   });
 
-  it('gives the first part a window far wider than an inter-part gap', () => {
-    // A cold request carrying a large prompt at high reasoning effort can take
-    // minutes to emit ANYTHING. That is a different question from "how long a
-    // gap is tolerable once parts are already flowing" (BST-1408), so the two
-    // must not share one number.
-    expect(resolveStreamFirstPartMs()).toBe(DEFAULT_STREAM_FIRST_PART_MS);
-    expect(DEFAULT_STREAM_FIRST_PART_MS).toBeGreaterThan(DEFAULT_STREAM_INACTIVITY_MS);
+  it('gives the first output a window far wider than an inter-output gap', () => {
+    // A request carrying a large prompt at high reasoning effort can take
+    // minutes to emit ANYTHING, in EVERY step. That is a different question
+    // from "how long a gap is tolerable once output is already flowing"
+    // (BST-1408), so the two must not share one number.
+    expect(resolveStreamFirstOutputMs()).toBe(DEFAULT_STREAM_FIRST_OUTPUT_MS);
+    expect(DEFAULT_STREAM_FIRST_OUTPUT_MS).toBeGreaterThan(DEFAULT_STREAM_INACTIVITY_MS);
   });
 
-  it('uses a valid first-part env override', () => {
-    process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'] = '450000';
-    expect(resolveStreamFirstPartMs()).toBe(450_000);
+  it('uses a valid first-output env override', () => {
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '450000';
+    expect(resolveStreamFirstOutputMs()).toBe(450_000);
   });
 
-  it('prefers an explicit first-part override argument over env', () => {
-    process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'] = '450000';
-    expect(resolveStreamFirstPartMs(7000)).toBe(7000);
+  it('prefers an explicit first-output override argument over env', () => {
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '450000';
+    expect(resolveStreamFirstOutputMs(7000)).toBe(7000);
   });
 
-  it('throws on a malformed first-part env value (no silent coercion)', () => {
-    process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'] = 'eventually';
-    expect(() => resolveStreamFirstPartMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_PART_MS/);
+  it('throws on a malformed first-output env value (no silent coercion)', () => {
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = 'eventually';
+    expect(() => resolveStreamFirstOutputMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS/);
   });
 
-  it('throws on a non-positive first-part env value', () => {
-    process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'] = '0';
-    expect(() => resolveStreamFirstPartMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_PART_MS/);
+  it('throws on a non-positive first-output env value', () => {
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '0';
+    expect(() => resolveStreamFirstOutputMs()).toThrow(/BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS/);
   });
 
-  it('throws when BOTH windows are set explicitly and the first-part one is tighter', () => {
+  it('throws when BOTH windows are set explicitly and the first-output one is tighter', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
-    process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'] = '119999';
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '119999';
     expect(() => resolveAssistantResilienceConfig()).toThrow(
-      /BRAINSTRIKE_STREAM_FIRST_PART_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
+      /BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
     );
   });
 
-  it('keeps the default first-part window when it already exceeds inactivity', () => {
+  it('keeps the default first-output window when it already exceeds inactivity', () => {
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
-    expect(resolveAssistantResilienceConfig().streamFirstPartMs).toBe(DEFAULT_STREAM_FIRST_PART_MS);
+    expect(resolveAssistantResilienceConfig().streamFirstOutputMs).toBe(
+      DEFAULT_STREAM_FIRST_OUTPUT_MS
+    );
   });
 
   it('resolves every window together when all four are set explicitly', () => {
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '25';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '50';
-    process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'] = '90';
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '90';
     process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '75';
     expect(resolveAssistantResilienceConfig()).toEqual({
-      streamFirstPartMs: 90,
+      streamFirstOutputMs: 90,
       streamInactivityMs: 50,
       toolCallInputMs: 75,
       toolTimeoutMs: 25,
     });
+  });
+
+  it('reports the FOUNDATIONAL ordering first when several invariants break', () => {
+    // A config that breaks both orderings must name the tool-timeout rule, not
+    // the derived first-output one that only fails as a consequence.
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '200000';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '100000';
+    expect(() => resolveAssistantResilienceConfig()).toThrow(
+      /BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS/
+    );
   });
 
   it('throws when the tool timeout is not shorter than stream inactivity', () => {

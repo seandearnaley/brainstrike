@@ -199,26 +199,32 @@ describe('mastra streaming: wall-clock watchdog termination', () => {
       }
     }
   });
-  it('tolerates a slow first part, then reports the inter-part stall with its breadcrumb', async () => {
+  it('tolerates a slow first output, then reports the streaming stall with its breadcrumb', async () => {
     // BST-1408, both halves in one case.
     //
-    // POSITIVE half: the first part arrives far later than the inter-part
+    // POSITIVE half: the first output arrives far later than the inter-output
     // window allows. Under the old single-window watchdog that alone killed the
-    // turn; a cold reasoning request routinely spends minutes there.
+    // turn; a reasoning request routinely spends minutes there.
     //
-    // NEGATIVE half: once parts ARE flowing, the tighter inter-part window
+    // NEGATIVE half: once output IS flowing, the tighter inter-output window
     // governs, and the resulting `run.failed` must name WHICH silence fired,
     // what the provider last sent, and how far the stream got. The 2026-08-22
     // incident had to be reconstructed by inference for want of exactly that.
+    //
+    // NOTE: this harness feeds a hand-written part list with NO framework
+    // prologue, so `step-start` here stands in for provider output. The
+    // prologue's real effect on the phase boundary is covered by
+    // mastra-stream-first-output.integration.spec.ts, which drives the real
+    // Mastra loop — the mocked harness structurally cannot see it.
     const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
-    const previousFirstPart = process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'];
+    const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '30';
-    // ~33x headroom on the half that asserts a NEGATIVE (the first part must
+    // ~33x headroom on the half that asserts a NEGATIVE (the first output must
     // NOT trip), because only slowness can break that direction. The stall half
     // asserts a POSITIVE, which host contention can only make more certain.
-    process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'] = '2000';
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '2000';
     setStreamPartDelayMs(60);
     setMockStreamParts([
       { type: 'step-start' },
@@ -242,9 +248,13 @@ describe('mastra streaming: wall-clock watchdog termination', () => {
         expect.objectContaining({
           code: 'stream_inactivity_timeout',
           inactivityMs: 30,
-          lastPartType: 'step-start',
-          partsSeen: 1,
-          phase: 'inter-part',
+          // `step-start` is scaffolding, so the wide window covered the gap
+          // after it and the stream reached the reasoning delta; the tight
+          // window then governed the NEXT gap. Two parts seen, and the
+          // breadcrumb names the last real provider output.
+          lastPartType: 'reasoning-delta',
+          partsSeen: 2,
+          phase: 'streaming',
         })
       );
       expect(chunks).toContainEqual(
@@ -262,10 +272,10 @@ describe('mastra streaming: wall-clock watchdog termination', () => {
       } else {
         process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
       }
-      if (previousFirstPart === undefined) {
-        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_PART_MS');
+      if (previousFirstOutput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
       } else {
-        process.env['BRAINSTRIKE_STREAM_FIRST_PART_MS'] = previousFirstPart;
+        process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
       }
     }
   });

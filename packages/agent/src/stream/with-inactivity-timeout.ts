@@ -1,11 +1,17 @@
 /**
- * Which silence killed the stream. A stall BEFORE the first part means the
- * provider never started answering; a stall AFTER it means the provider started
- * and then went quiet. Conflating the two is what killed a healthy 18-minute
- * turn (BST-1408), and recording which one fired is what makes the failure
- * class provable from a debug bundle instead of reconstructible by inference.
+ * Which silence killed the stream.
+ *
+ * `awaiting-output` — the provider has not produced anything yet FOR THE
+ * CURRENT STEP. `streaming` — it started and then went quiet.
+ *
+ * Not once per stream: time-to-first-output recurs at every step, because the
+ * framework opens each one before the provider answers (see
+ * {@link StreamInactivityOptions.countsAsProviderOutput}). Conflating the two
+ * silences killed a healthy 18-minute turn (BST-1408), and recording which one
+ * fired is what makes the failure class provable from a debug bundle instead of
+ * reconstructible by inference.
  */
-export type StreamStallPhase = 'first-part' | 'inter-part';
+export type StreamStallPhase = 'awaiting-output' | 'streaming';
 
 /**
  * The two DELIBERATELY decoupled silence budgets. Resolved together (and
@@ -13,13 +19,35 @@ export type StreamStallPhase = 'first-part' | 'inter-part';
  * `../config/resilience-config.ts` for why they must not be re-merged.
  */
 export interface StreamInactivityWindows {
-  /** Budget from stream start until the FIRST part arrives. */
-  readonly firstPartMs: number;
-  /** Budget for every gap once at least one part has been delivered. */
-  readonly interPartMs: number;
+  /** Budget for the provider to produce its first output in each step. */
+  readonly firstOutputMs: number;
+  /** Budget for every gap once the provider is demonstrably producing output. */
+  readonly interOutputMs: number;
 }
 
 export interface StreamInactivityOptions<T> {
+  /**
+   * Whether a part is PROVIDER output, as opposed to framework scaffolding.
+   *
+   * This is the whole reason the phase means anything. Measured against the
+   * real `@mastra/core` loop, a turn's raw parts arrive as:
+   *
+   *     start       t+0ms      <- framework, instant
+   *     step-start  t+7ms      <- framework, instant
+   *     tool-call   t+312ms    <- provider, after 305ms of thinking
+   *     ...
+   *     step-start  t+321ms    <- framework, instant
+   *     text-start  t+723ms    <- provider, after 402ms of thinking
+   *
+   * Treating any part as "the provider started" therefore ends the wide window
+   * within milliseconds and measures every real time-to-first-token against the
+   * tight one. Scaffolding parts keep the stream in `awaiting-output` AND
+   * re-arm it, so each step gets its own budget.
+   *
+   * Absent means every part counts as output — the honest default for a caller
+   * with no framework prologue to discount.
+   */
+  readonly countsAsProviderOutput?: (part: T) => boolean;
   /**
    * Name the part kind for the stall diagnostic. The watchdog is generic over
    * the stream element, so domain knowledge (Mastra part types) is supplied by
@@ -37,11 +65,20 @@ export interface StreamStalledErrorContext {
 
 export class StreamStalledError extends Error {
   readonly code = 'stream_inactivity_timeout';
-  /** The window that actually expired — first-part or inter-part. */
+  /** The window that actually expired — first-output or inter-output. */
   readonly inactivityMs: number;
-  /** What the source last delivered, when the caller can name it. */
+  /**
+   * The last part the caller could NAME, which is not necessarily the last part
+   * delivered: an undescribable part leaves the previous name in place rather
+   * than erasing the breadcrumb, since "we saw 7 parts and cannot say what any
+   * of them were" is the reconstruct-by-inference state this exists to remove.
+   */
   readonly lastPartType: string | undefined;
-  /** How many parts arrived before the silence. Zero implies `first-part`. */
+  /**
+   * Every part delivered before the silence, scaffolding included — it is
+   * transport activity, and `partsSeen: 2` next to `phase: 'awaiting-output'`
+   * is precisely the "prologue arrived, provider never did" story.
+   */
   readonly partsSeen: number;
   readonly phase: StreamStallPhase;
 
@@ -61,12 +98,12 @@ export class StreamStalledError extends Error {
  * Used around the raw Mastra stream so a wedged provider/tool can never freeze
  * the data-stream session forever.
  *
- * The window is PHASE-AWARE: `firstPartMs` governs the wait for the very first
- * item, `interPartMs` every gap after it. The two answer different questions —
- * "has the provider started answering?" versus "is it still delivering?" — and
- * a cold request with a large prompt at high reasoning effort routinely spends
- * minutes on the former while a mid-stream gap that long is genuinely
- * suspicious.
+ * The window is PHASE-AWARE: `firstOutputMs` governs the wait for the provider
+ * to say anything in the current step, `interOutputMs` every gap once it has.
+ * The two answer different questions — "has the provider started answering?"
+ * versus "is it still delivering?" — and a request with a large prompt at high
+ * reasoning effort routinely spends minutes on the former, in EVERY step, while
+ * a gap that long mid-output is genuinely suspicious.
  */
 export async function* withInactivityTimeout<T>(
   source: AsyncIterable<T>,
@@ -76,10 +113,10 @@ export async function* withInactivityTimeout<T>(
   const iterator = source[Symbol.asyncIterator]();
   let partsSeen = 0;
   let lastPartType: string | undefined;
+  let phase: StreamStallPhase = 'awaiting-output';
   try {
     while (true) {
-      const phase: StreamStallPhase = partsSeen === 0 ? 'first-part' : 'inter-part';
-      const windowMs = phase === 'first-part' ? windows.firstPartMs : windows.interPartMs;
+      const windowMs = phase === 'awaiting-output' ? windows.firstOutputMs : windows.interOutputMs;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const watchdog = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
@@ -97,7 +134,12 @@ export async function* withInactivityTimeout<T>(
           return;
         }
         partsSeen += 1;
-        lastPartType = options?.describePart?.(result.value);
+        lastPartType = options?.describePart?.(result.value) ?? lastPartType;
+        // Scaffolding both KEEPS and RE-ARMS the wide window: a fresh step has
+        // its own time-to-first-output, so a step opened after a tool result
+        // must not inherit the previous step's `streaming` phase.
+        const isOutput = options?.countsAsProviderOutput?.(result.value) ?? true;
+        phase = isOutput ? 'streaming' : 'awaiting-output';
         yield result.value;
       } finally {
         if (timer) {

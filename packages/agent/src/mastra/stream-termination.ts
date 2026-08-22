@@ -169,10 +169,12 @@ function makeStreamStalledTermination(
     },
     'mastra stream stalled by inactivity timeout'
   );
-  const visibleMessage =
-    localRuntimeName && model
-      ? `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`
-      : `The model stream stalled after ${error.inactivityMs}ms without output.`;
+  // Now that the phase is known, the two silences read differently — and the
+  // wording points at the window an operator would actually reach for. A
+  // never-started step rendered as "stalled ... without output" implied the
+  // model had been streaming and stopped, which is the opposite of what
+  // happened (review of #2586).
+  const visibleMessage = resolveStalledVisibleMessage(error, localRuntimeName, model);
   return [
     // A stall mid-delegation must never leave an orphaned `subagent.started`
     // with no terminal counterpart — mirror the abort branches' drain.
@@ -188,6 +190,24 @@ function makeStreamStalledTermination(
     }),
     makeErrorFinishChunk(),
   ];
+}
+
+/**
+ * The user-visible stall text. Local runtimes keep their runner-specific
+ * remedy; every other provider gets a message that names WHICH silence fired.
+ */
+function resolveStalledVisibleMessage(
+  error: StreamStalledError,
+  localRuntimeName: string | null,
+  model: string | undefined
+): string {
+  if (localRuntimeName && model) {
+    return `${localRuntimeName} model "${model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`;
+  }
+  if (error.phase === 'awaiting-output') {
+    return `The model produced no output within ${error.inactivityMs}ms of the request starting.`;
+  }
+  return `The model stream stalled after ${error.inactivityMs}ms without output.`;
 }
 
 function makeToolCallInputTimeoutTermination(

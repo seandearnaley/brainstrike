@@ -1030,6 +1030,30 @@ function describeMastraStreamPartType(part: unknown): string | undefined {
   return typeof type === 'string' ? formatDiagnosticChunkType(type) : undefined;
 }
 
+/**
+ * Mastra part types the FRAMEWORK emits at stream/step open, before the
+ * provider is asked for anything.
+ *
+ * Measured through the real loop (review of #2586): `start` lands at t+0ms and
+ * `step-start` ~7ms later, while the provider's first real part follows
+ * hundreds of milliseconds afterwards — and a fresh `step-start` opens every
+ * subsequent step too. Counting these as "the provider started" would end the
+ * wide first-output window within milliseconds and measure every real
+ * time-to-first-token against the tight inter-output one, which is precisely
+ * the failure this split exists to prevent.
+ *
+ * Deliberately a CLOSED list of scaffolding rather than an allowlist of output
+ * kinds: a Mastra release that adds a new provider part type must default to
+ * "this is output" (tightening the window on a part we know arrived from the
+ * provider), never to "this is free" (silently widening it forever).
+ */
+const MASTRA_SCAFFOLDING_PART_TYPES: ReadonlySet<string> = new Set(['start', 'step-start']);
+
+function isMastraProviderOutputPart(part: unknown): boolean {
+  const type = describeMastraStreamPartType(part);
+  return type === undefined || !MASTRA_SCAFFOLDING_PART_TYPES.has(type);
+}
+
 const resolveFullStream = (
   result: unknown
 ): NodeReadableStream<unknown> | ReadableStream<unknown> | undefined => {
@@ -1132,10 +1156,11 @@ async function* streamChunksFromMastra({
     const source = withInactivityTimeout(
       toolInputBoundedSource,
       {
-        firstPartMs: runtime.resilienceConfig.streamFirstPartMs,
-        interPartMs: runtime.resilienceConfig.streamInactivityMs,
+        firstOutputMs: runtime.resilienceConfig.streamFirstOutputMs,
+        interOutputMs: runtime.resilienceConfig.streamInactivityMs,
       },
       {
+        countsAsProviderOutput: isMastraProviderOutputPart,
         describePart: describeMastraStreamPartType,
         onTimeout: (error) => streamAbortContext.abort(error),
       }
