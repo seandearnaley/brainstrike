@@ -142,6 +142,12 @@ function compareFolderRows(left: ThreadFolderRow, right: ThreadFolderRow): numbe
   return byDisplayName === 0 ? left.rootId.localeCompare(right.rootId) : byDisplayName;
 }
 
+/** One folder's threads plus the row that opened the bucket. */
+interface FolderBucket {
+  readonly folder: ThreadFolderRow;
+  readonly threads: AssistantMemoryThread[];
+}
+
 /**
  * Folder sections for the Threads panel: one section per resolved workspace
  * folder (alphabetical by display name), with a trailing "No folder" section
@@ -153,12 +159,10 @@ function buildFolderSections({
   folderRowsByRootId,
   folderSortBy,
   threads,
-}: {
-  readonly folderRowsByRootId: ReadonlyMap<string, ThreadFolderRow>;
-  readonly folderSortBy: ThreadsPanelFolderSortBy;
-  readonly threads: readonly AssistantMemoryThread[];
-}): ThreadListFolderSection[] {
-  const threadsByRootId = new Map<string, AssistantMemoryThread[]>();
+}: BuildThreadListSectionsFolderInput): ThreadListFolderSection[] {
+  // The bucket carries the row that opened it, so the section pass never has to
+  // look the row up a second time (a lookup that could only ever succeed).
+  const bucketsByRootId = new Map<string, FolderBucket>();
   const unassignedThreads: AssistantMemoryThread[] = [];
   for (const thread of threads) {
     const rootId = getThreadPrimaryRootId(thread);
@@ -167,27 +171,21 @@ function buildFolderSections({
       unassignedThreads.push(thread);
       continue;
     }
-    const bucket = threadsByRootId.get(folder.rootId);
+    const bucket = bucketsByRootId.get(folder.rootId);
     if (bucket === undefined) {
-      threadsByRootId.set(folder.rootId, [thread]);
+      bucketsByRootId.set(folder.rootId, { folder, threads: [thread] });
       continue;
     }
-    bucket.push(thread);
+    bucket.threads.push(thread);
   }
 
   const compareThreads = folderSortBy === 'name' ? compareByName : compareByRecency;
-  const sections: ThreadListFolderSection[] = [...threadsByRootId.entries()]
-    .map(([rootId, sectionThreads]) => {
-      const folder = folderRowsByRootId.get(rootId);
-      if (folder === undefined) {
-        throw new Error(`Missing thread folder row for ${rootId}`);
-      }
-      return {
-        header: { folder, kind: 'folder' as const },
-        id: folderSectionId(rootId),
-        threads: [...sectionThreads].sort(compareThreads),
-      };
-    })
+  const sections: ThreadListFolderSection[] = [...bucketsByRootId.values()]
+    .map((bucket) => ({
+      header: { folder: bucket.folder, kind: 'folder' as const },
+      id: folderSectionId(bucket.folder.rootId),
+      threads: bucket.threads.sort(compareThreads),
+    }))
     .sort((left, right) => compareFolderRows(left.header.folder, right.header.folder));
   if (unassignedThreads.length > 0) {
     sections.push({
@@ -227,44 +225,49 @@ export function buildThreadMembership({
 }
 
 /**
- * Pure grouping/sorting core for the Threads panel. Placements referencing
- * unknown threads are ignored; placements referencing deleted groups fall back
- * to Ungrouped. Groups are ordered by their fractional rank; the Ungrouped
- * section always renders last (after every group). Folder grouping is a
- * separate mode with its own view kind: it ignores groups, placements, and
- * `sortBy` entirely and needs `folderRowsByRootId` + `folderSortBy`.
+ * Folder grouping's inputs. It ignores groups, placements, and `sortBy`
+ * entirely, so those are not accepted here at all - the folder rows and the
+ * folder sort are mandatory instead.
  */
-export function buildThreadListSections({
-  folderRowsByRootId,
-  folderSortBy,
-  groupBy,
-  groups,
-  placements,
-  sortBy,
-  threads,
-}: {
-  /** Required when `groupBy` is `folder`; resolved from `roots` by the caller. */
-  readonly folderRowsByRootId?: ReadonlyMap<string, ThreadFolderRow>;
-  /** Required when `groupBy` is `folder`. */
-  readonly folderSortBy?: ThreadsPanelFolderSortBy;
-  readonly groupBy: ThreadsPanelGroupBy;
+export interface BuildThreadListSectionsFolderInput {
+  /** Resolved from `roots` by the caller; this package stays DB-free. */
+  readonly folderRowsByRootId: ReadonlyMap<string, ThreadFolderRow>;
+  readonly folderSortBy: ThreadsPanelFolderSortBy;
+  readonly groupBy: 'folder';
+  readonly threads: readonly AssistantMemoryThread[];
+}
+
+/** Group/flat grouping's inputs. Folder rows are meaningless in these modes. */
+export interface BuildThreadListSectionsGroupInput {
+  readonly groupBy: Exclude<ThreadsPanelGroupBy, 'folder'>;
   readonly groups: readonly AssistantThreadGroup[];
   readonly placements: readonly AssistantThreadPlacement[];
   readonly sortBy: ThreadsPanelSortBy;
   readonly threads: readonly AssistantMemoryThread[];
-}): ThreadListView {
-  if (groupBy === 'folder') {
-    if (folderRowsByRootId === undefined || folderSortBy === undefined) {
-      throw new Error(
-        'buildThreadListSections: folder grouping requires folder rows and a folder sort.'
-      );
-    }
-    return {
-      kind: 'folders',
-      sections: buildFolderSections({ folderRowsByRootId, folderSortBy, threads }),
-    };
+}
+
+/**
+ * Discriminated on `groupBy` so the compiler - not a runtime throw - enforces
+ * that folder grouping arrives with its folder rows and folder sort, and that
+ * the other modes arrive with their groups, placements, and `sortBy`.
+ */
+export type BuildThreadListSectionsInput =
+  | BuildThreadListSectionsFolderInput
+  | BuildThreadListSectionsGroupInput;
+
+/**
+ * Pure grouping/sorting core for the Threads panel. Placements referencing
+ * unknown threads are ignored; placements referencing deleted groups fall back
+ * to Ungrouped. Groups are ordered by their fractional rank; the Ungrouped
+ * section always renders last (after every group). Folder grouping is a
+ * separate mode with its own view kind and its own input arm.
+ */
+export function buildThreadListSections(input: BuildThreadListSectionsInput): ThreadListView {
+  if (input.groupBy === 'folder') {
+    return { kind: 'folders', sections: buildFolderSections(input) };
   }
 
+  const { groupBy, groups, placements, sortBy, threads } = input;
   const threadIds = new Set(threads.map((thread) => thread.id));
   const livePlacements = placements.filter((placement) => threadIds.has(placement.threadId));
   const rankByThreadId = new Map<string, string>();

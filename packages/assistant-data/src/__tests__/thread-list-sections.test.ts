@@ -447,9 +447,6 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
-      groups: [],
-      placements: [],
-      sortBy: 'recency',
       threads: [
         folderThread('1', 'root-a', '2026-07-01T00:00:00Z'),
         folderThread('2', 'root-b', '2026-07-02T00:00:00Z'),
@@ -483,9 +480,6 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
-      groups: [],
-      placements: [],
-      sortBy: 'recency',
       threads: [folderThread('1', 'root-a', '2026-07-01T00:00:00Z')],
     });
 
@@ -499,9 +493,6 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
-      groups: [],
-      placements: [],
-      sortBy: 'recency',
       threads: [folderThread('1', 'root-zzz', '2026-07-01T00:00:00Z')],
     });
 
@@ -517,9 +508,6 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'name',
       groupBy: 'folder',
-      groups: [],
-      placements: [],
-      sortBy: 'recency',
       threads: [
         makeThread({ id: '1', operatingRootId: 'root-a', title: 'zeta' }),
         makeThread({ id: '2', operatingRootId: 'root-a', title: 'Alpha' }),
@@ -536,34 +524,28 @@ describe('folder grouping', () => {
     expect(view.sections[1]?.threads.map((thread) => thread.title)).toEqual(['Aardvark', 'beta']);
   });
 
-  it('ignores custom groups and placements while folder mode is on', () => {
-    const view = buildThreadListSections({
+  // The folder arm of the input union is what enforces folder mode's contract:
+  // the compiler rejects both shapes below, so there is no runtime guard left
+  // to exercise. `@ts-expect-error` fails the type-check if either ever starts
+  // compiling again.
+  it('accepts no group inputs in folder mode and demands folder rows, at compile time', () => {
+    const ignoringGroups = buildThreadListSections({
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
+      // @ts-expect-error -- folder grouping ignores custom groups, so it takes none.
       groups: [makeGroup({ id: 'group-a', rank: 'a0' })],
-      placements: [makePlacement({ groupId: 'group-a', rank: 'a0', threadId: '1' })],
-      sortBy: 'custom',
       threads: [folderThread('1', 'root-a', '2026-07-01T00:00:00Z')],
     });
-
-    expect(view.kind).toBe('folders');
-    if (view.kind !== 'folders') {
+    expect(ignoringGroups.kind).toBe('folders');
+    if (ignoringGroups.kind !== 'folders') {
       throw new Error('expected folders');
     }
-    expect(view.sections.map((section) => section.id)).toEqual(['folder:root-a']);
-  });
+    expect(ignoringGroups.sections.map((section) => section.id)).toEqual(['folder:root-a']);
 
-  it('throws when folder mode is requested without folder rows', () => {
-    expect(() =>
-      buildThreadListSections({
-        groupBy: 'folder',
-        groups: [],
-        placements: [],
-        sortBy: 'recency',
-        threads: [],
-      })
-    ).toThrow('folder rows');
+    // @ts-expect-error -- folder grouping requires folder rows and a folder sort.
+    const missingRows = buildThreadListSections({ groupBy: 'folder', threads: [] });
+    expect(missingRows.kind).toBe('folders');
   });
 
   it('getGroupMemberIds answers folder section ids and folder-unassigned', () => {
@@ -571,9 +553,6 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
-      groups: [],
-      placements: [],
-      sortBy: 'recency',
       threads: [
         folderThread('1', 'root-a', '2026-07-01T00:00:00Z'),
         folderThread('2', null, '2026-07-02T00:00:00Z'),
