@@ -1635,4 +1635,88 @@ describe('useFileSystem', () => {
       expect(result.current?.rootDirectoryHandles[0]?.rootId).toBe(rootId);
     });
   });
+  describe('multi-root: addRootDirectoryByPath / listRecentRoots (desktop capability)', () => {
+    const descriptor: RootDescriptor = {
+      displayName: 'alpha',
+      handle: { kind: 'directory', name: 'alpha', path: '/ws/alpha', platform: 'electron' },
+      kind: 'path',
+      permissionState: 'granted',
+      persisted: true,
+      rootId: 'root-alpha',
+    };
+
+    function createAdapterStub(): FileSystemAdapter {
+      return {
+        exists: vi.fn().mockResolvedValue(true),
+        readDirectory: vi.fn().mockResolvedValue([]),
+        readFile: vi.fn().mockResolvedValue(''),
+        requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
+      };
+    }
+
+    function wrapperFor(adapter: FileSystemAdapter) {
+      const storageAdapter = createStorageAdapter('web');
+      return ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+    }
+
+    it('registers the root on a successful picker-less add', async () => {
+      const addRootByPath = vi.fn().mockResolvedValue(descriptor);
+      const listRecentRoots = vi
+        .fn()
+        .mockResolvedValue([{ displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' }]);
+      const adapter: FileSystemAdapter = { ...createAdapterStub(), addRootByPath, listRecentRoots };
+
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
+        wrapper: wrapperFor(adapter),
+      });
+
+      expect(result.current?.addRootDirectoryByPath).toBeDefined();
+      await act(async () => {
+        await result.current?.addRootDirectoryByPath?.('/ws/alpha');
+      });
+
+      expect(addRootByPath).toHaveBeenCalledWith('/ws/alpha');
+      expect(result.current?.rootDirectoryHandles[0]).toMatchObject(descriptor.handle);
+      expect(mockAddActiveRoot).toHaveBeenCalledWith({
+        displayName: 'alpha',
+        path: '/ws/alpha',
+        rootId: 'root-alpha',
+      });
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('root-alpha');
+      expect(await result.current?.listRecentRoots?.()).toEqual([
+        { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
+      ]);
+    });
+
+    it('surfaces a rejected path instead of resolving to null', async () => {
+      const adapter: FileSystemAdapter = {
+        ...createAdapterStub(),
+        addRootByPath: vi
+          .fn()
+          .mockRejectedValue(
+            new Error('Folder was never granted in this app; use Add Folder to grant it.')
+          ),
+        listRecentRoots: vi.fn().mockResolvedValue([]),
+      };
+
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
+        wrapper: wrapperFor(adapter),
+      });
+
+      await expect(result.current?.addRootDirectoryByPath?.('/ws/never')).rejects.toThrow(
+        'Folder was never granted in this app; use Add Folder to grant it.'
+      );
+      expect(mockAddActiveRoot).not.toHaveBeenCalled();
+    });
+
+    it('omits both on an adapter without the capability (web)', () => {
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
+        wrapper: wrapperFor(createAdapterStub()),
+      });
+
+      expect(result.current?.addRootDirectoryByPath).toBeUndefined();
+      expect(result.current?.listRecentRoots).toBeUndefined();
+    });
+  });
 });

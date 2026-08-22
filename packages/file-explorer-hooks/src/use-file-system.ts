@@ -459,6 +459,50 @@ export function useFileSystem({
     }
   }, [fileSystemAdapter, isFileSystemAccessSupported, updateCurrentFolderId, addActiveRoot]);
 
+  const adapterAddRootByPath = fileSystemAdapter.addRootByPath;
+  const adapterListRecentRoots = fileSystemAdapter.listRecentRoots;
+
+  /**
+   * Desktop-only: re-mount a PREVIOUSLY GRANTED folder by path. Main's
+   * recent-roots ledger is what authorizes it, so an unknown path rejects
+   * visibly rather than resolving to null (unlike a picker cancellation, there
+   * is no user to have cancelled). Post-add registration mirrors
+   * addRootDirectory. `undefined` when the adapter lacks the capability — the
+   * capability check IS the platform gate (web omits it, never stubs it).
+   */
+  const addRootDirectoryByPath = useMemo(() => {
+    if (typeof adapterAddRootByPath !== 'function') {
+      return;
+    }
+    return async (rootPath: string): Promise<DirectoryHandle | null> => {
+      dispatch({ loading: true, type: 'setAccessLoading' });
+      try {
+        const { handle, rootId, displayName, persisted } = await adapterAddRootByPath.call(
+          fileSystemAdapter,
+          rootPath
+        );
+        dispatch({ handle, rootId, type: 'addOrFocusHandle' });
+        updateCurrentFolderId(rootId);
+        if (persisted) {
+          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+        }
+        return handle;
+      } catch (error) {
+        throw mapFileSystemError(error);
+      } finally {
+        dispatch({ loading: false, type: 'setAccessLoading' });
+      }
+    };
+  }, [adapterAddRootByPath, addActiveRoot, fileSystemAdapter, updateCurrentFolderId]);
+
+  /** Desktop-only companion to addRootDirectoryByPath; see its note. */
+  const listRecentRoots = useMemo(() => {
+    if (typeof adapterListRecentRoots !== 'function') {
+      return;
+    }
+    return () => adapterListRecentRoots.call(fileSystemAdapter);
+  }, [adapterListRecentRoots, fileSystemAdapter]);
+
   /**
    * Disconnect a root (multi-root). Forgets the platform persistence
    * (authoritatively), removes the handle + path→rootId entry, shifts focus when
@@ -797,9 +841,11 @@ export function useFileSystem({
     () => ({
       addExternalRootHandle,
       addRootDirectory,
+      addRootDirectoryByPath,
       clearRootDirectory,
       isAccessLoading,
       isFileSystemAccessSupported,
+      listRecentRoots,
       registerRestoredHandles,
       removeRootDirectory,
       rootDirectoryHandle,
@@ -817,6 +863,8 @@ export function useFileSystem({
       isAccessLoading,
       addExternalRootHandle,
       addRootDirectory,
+      addRootDirectoryByPath,
+      listRecentRoots,
       registerRestoredHandles,
       removeRootDirectory,
       selectRootDirectory,

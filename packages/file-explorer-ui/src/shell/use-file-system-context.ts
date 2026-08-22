@@ -628,9 +628,16 @@ export function useFileSystemInstance() {
     () => ({
       /** Add an additional root directory (multi-root, Phase 4+). */
       addRootDirectory: coreApi.addRootDirectory,
+      /**
+       * Desktop-only: re-mount a previously granted folder without a picker.
+       * `undefined` when the adapter lacks the capability (web).
+       */
+      addRootDirectoryByPath: coreApi.addRootDirectoryByPath,
       clearRootDirectory,
       isAccessLoading: coreApi.isAccessLoading,
       isFileSystemAccessSupported,
+      /** Desktop-only companion to addRootDirectoryByPath; see its note. */
+      listRecentRoots: coreApi.listRecentRoots,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
       /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */

@@ -103,9 +103,12 @@ describe('useFileExplorer', () => {
     vi.mocked(useFileSystem).mockReturnValue({
       addExternalRootHandle: vi.fn(),
       addRootDirectory: vi.fn().mockResolvedValue(mockRootHandle),
+      // Web-shaped adapter: the desktop-only capabilities are absent, not stubbed.
+      addRootDirectoryByPath: undefined,
       clearRootDirectory: vi.fn(),
       isAccessLoading: false,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ reason: '', supported: true }),
+      listRecentRoots: undefined,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       removeRootDirectory: vi.fn().mockResolvedValue(null),
       rootDirectoryHandle: mockRootHandle,
@@ -179,9 +182,11 @@ describe('useFileExplorer', () => {
     vi.mocked(useFileSystem).mockReturnValue({
       addExternalRootHandle: vi.fn(),
       addRootDirectory: vi.fn().mockResolvedValue(null),
+      addRootDirectoryByPath: undefined,
       clearRootDirectory: vi.fn(),
       isAccessLoading: false,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ reason: '', supported: true }),
+      listRecentRoots: undefined,
       registerRestoredHandles: vi.fn().mockResolvedValue(undefined),
       removeRootDirectory: vi.fn().mockResolvedValue(null),
       rootDirectoryHandle: null,
