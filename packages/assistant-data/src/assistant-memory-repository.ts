@@ -1494,11 +1494,15 @@ function optionalSecondaryRootIds(value: unknown): readonly string[] | undefined
     throw new Error('Invalid assistant thread metadata secondary root ids.');
   }
   const ids: string[] = [];
+  const seen = new Set<string>();
   for (const entry of value) {
-    if (typeof entry !== 'string' || entry.length === 0) {
+    // Trim-empty matches `optionalString`'s semantics: a whitespace-only id is
+    // no id at all, so it is rejected rather than silently persisted.
+    if (typeof entry !== 'string' || !entry.trim()) {
       throw new Error('Invalid assistant thread metadata secondary root ids.');
     }
-    if (!ids.includes(entry)) {
+    if (!seen.has(entry)) {
+      seen.add(entry);
       ids.push(entry);
     }
   }
@@ -1623,9 +1627,7 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   assertOptionalThreadMetadataString(metadata.operatingRootId, 'operating root id');
   assertOptionalThreadMetadataString(metadata.operatingRootPath, 'operating root path');
   assertOptionalThreadMetadataString(metadata.source, 'source');
-  if (metadata.secondaryRootIds !== undefined) {
-    optionalSecondaryRootIds(metadata.secondaryRootIds);
-  }
+  optionalSecondaryRootIds(metadata.secondaryRootIds);
   if (metadata.modelSettings !== undefined && !optionalRecord(metadata.modelSettings)) {
     throw new Error('Invalid assistant thread metadata model settings.');
   }

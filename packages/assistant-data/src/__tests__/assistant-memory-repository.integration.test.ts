@@ -2174,6 +2174,21 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
+  it('rejects whitespace-only secondaryRootIds entries', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: ['a', '   '],
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata secondary root ids.');
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE mastra_threads'),
+      expect.anything()
+    );
+  });
+
   it('throws on a malformed persisted secondaryRootIds while loading instead of coercing it', async () => {
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
