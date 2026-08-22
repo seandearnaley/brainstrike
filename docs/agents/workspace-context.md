@@ -1074,7 +1074,8 @@ Distinct from the MAIN/FOCUSED concept above: this is the durable `RootId`
 UUID stamped on a `DirectoryHandle` (`DirectoryHandle.rootId?: RootId`,
 `packages/types/src/file-system.ts`) when a folder becomes a registered root.
 It self-identifies the handle for capability/mount resolution
-(`apps/desktop/src/ipc-domains/workspace-root-registry.ts` `resolveMountedRoot`)
+(`apps/desktop/src/ipc-domains/workspace-root-mounts.ts`
+`WorkspaceRootMountTable.resolveForRead`)
 and collision-proof folder-state keys — two same-named web roots share a
 `path` (the FSA API hides the absolute path) but never a `rootId`.
 
@@ -1116,11 +1117,12 @@ imported by `apps/desktop` or `apps/web`; `processDirectoryEntry` had only
 test callers) but both are public package exports. **Before adding a seventh
 rebuild site, check this list — the class has recurred four times.**
 
-**Behavior decision (pinned, desktop):** `resolveMountedRoot` short-circuits
-to `this.mounted.get(rootId)` before ever consulting path containment. With
+**Behavior decision (pinned, desktop):** `WorkspaceRootMountTable.resolveForRead`
+(`apps/desktop/src/ipc-domains/workspace-root-mounts.ts`) short-circuits to its
+own `this.mounted.get(rootId)` before ever consulting path containment. With
 nested mounted roots, a read whose `rootId` was inherited from an outer
 traversal anchor therefore resolves against the OUTER mount, not the
-innermost path-matched one `findMountedRootForAbsolutePath` would otherwise
+innermost path-matched one `findForAbsolutePath` would otherwise
 pick. This is the intended behavior, not a side effect: reads made during a
 traversal started from root R are authorized and attributed under R's
 capability. A self-identifying nested root still wins, because the caller

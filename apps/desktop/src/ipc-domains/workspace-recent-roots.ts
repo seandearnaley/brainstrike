@@ -3,7 +3,7 @@ import { AccessError, type DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { RecentRootEntry } from '@brainstrike/types';
-import { pathsEqual } from './workspace-root-read';
+import { pathsEqual } from './workspace-root-paths';
 
 /**
  * Storage hygiene, not authorization intent: the cap bounds how much of this
