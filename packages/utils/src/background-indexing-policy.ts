@@ -63,6 +63,14 @@ const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '.vercel',
   '.parcel-cache',
   '.vite',
+  // A repo-local pnpm content-addressable store. Present in the full-root
+  // SAFETY list from the start but missing here, which is incoherent: full-root
+  // is the more permissive preset. The gap blinded every workspace tool — a
+  // store of ~82k files is 1.6x the workspace walk's 50,000-file cap on its own,
+  // so the walk exhausted its budget inside the store (alphabetically ahead of
+  // `apps/`, `docs/`, `packages/`) and globs returned 0 matches for patterns
+  // that plainly match. Pinned by the preset-coherence test.
+  '.pnpm-store',
   '.venv',
   'venv',
   '__pycache__',
@@ -81,6 +89,28 @@ const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   'vendor',
   'generated',
   '__generated__',
+]);
+
+/**
+ * Exported so the preset-coherence test can assert the invariant structurally:
+ * balanced must never traverse what full-root excludes for SAFETY. Full-root is
+ * the more permissive preset, so a leak in that direction is always a bug.
+ */
+export const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES: readonly string[] = Object.freeze([
+  '.git',
+  '.turbo',
+  '.cache',
+  '.nyc_output',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  '.vercel',
+  '.parcel-cache',
+  '.vite',
+  '.pnpm-store',
+  'node_modules',
+  'coverage',
+  'dist',
 ]);
 
 const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
