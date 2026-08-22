@@ -32,6 +32,20 @@ describe('assistant panel wrapper workspace-bar wiring', () => {
     expect(source).not.toMatch(/\{\.\.\.operatingRoot\b/u);
   });
 
+  // The memo above only bails out while every prop is referentially stable, so
+  // an inline object/array/arrow literal in the element below silently defeats
+  // it — a fresh identity every wrapper render, with no type error and no
+  // visible symptom beyond the re-render this split exists to remove.
+  it('passes the host only referentially stable props', () => {
+    const source = readSource('assistant-ui-panel-wrapper.tsx');
+    const element = /<WorkspaceBarHost\b[\s\S]*?\/>/u.exec(source)?.[0];
+
+    expect(element).toBeDefined();
+    for (const literal of ['={{', '={[', '={(']) {
+      expect(element).not.toContain(literal);
+    }
+  });
+
   it('keeps the host memoized so ordinary wrapper renders never reach the bar', () => {
     const hostSource = readSource('workspace-bar/workspace-bar-host.tsx');
 

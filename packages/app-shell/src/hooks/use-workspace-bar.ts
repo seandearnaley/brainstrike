@@ -122,12 +122,23 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
+ * Electron's `ipcRenderer.invoke` re-throws a main-process rejection in the
+ * renderer with its own envelope prepended — `Error invoking remote method
+ * '<channel>': Error: <the real message>`. That prefix is IPC plumbing, not
+ * something a user can act on, and it pushes the actual remedy off the front
+ * of a toast. Stripped here, at the one place a failure becomes user-facing
+ * text; the message itself is never rewritten.
+ */
+const IPC_INVOKE_ENVELOPE = /^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/u;
+
+/**
  * The text a user is shown when an action fails. Always the ORIGINATING
  * message — the main process explains what to do about a revoked grant, and a
  * generic "something went wrong" would throw that remedy away.
  */
 function describeFailure(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(IPC_INVOKE_ENVELOPE, '');
 }
 
 /**

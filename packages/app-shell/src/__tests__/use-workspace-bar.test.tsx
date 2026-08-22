@@ -806,6 +806,27 @@ describe('useWorkspaceBar', () => {
     });
   });
 
+  it("strips Electron's remote-method wrapper so the toast shows the actionable remedy", async () => {
+    // What the renderer ACTUALLY receives: `ipcRenderer.invoke` re-wraps a
+    // main-process throw, so the message main wrote arrives buried behind
+    // `Error invoking remote method '<channel>': Error: `. Showing that
+    // verbatim buries the remedy the user needs behind IPC plumbing.
+    fs.addRootDirectoryByPath.mockRejectedValueOnce(
+      new Error(
+        "Error invoking remote method 'fs:addRootByPath': Error: Folder was never granted in this app; use Add Folder to grant it."
+      )
+    );
+    const { result } = await setup();
+    await act(async () => {
+      result.current.onAddRecent?.('/ws/alpha');
+    });
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Folder was never granted in this app; use Add Folder to grant it.',
+      title: "Couldn't open recent folder",
+      variant: 'destructive',
+    });
+  });
+
   it('surfaces a failed Make primary and a failed Remove folder', async () => {
     const { result } = await setup({
       operatingRootDisplayName: 'brainstrike',
