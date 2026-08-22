@@ -190,9 +190,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   );
   const recentRoots = useMemo<readonly WorkspaceBarRecentRoot[]>(
     () =>
-      recentEntries
-        .filter((entry) => !mountedPaths.has(entry.path))
-        .map((entry) => ({ displayName: entry.displayName, path: entry.path })),
+      recentEntries.flatMap((entry) =>
+        mountedPaths.has(entry.path) ? [] : [{ displayName: entry.displayName, path: entry.path }]
+      ),
     [mountedPaths, recentEntries]
   );
 

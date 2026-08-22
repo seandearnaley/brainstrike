@@ -145,6 +145,7 @@ import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadat
 import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
+import { useWorkspaceBar } from './hooks/use-workspace-bar';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
@@ -792,7 +793,7 @@ export function AssistantUiPanelWrapper({
     repository: assistantThreadRepository,
     resourceId: memoryResourceId,
   });
-  const { operatingRoot, persistThreadRootBinding, resolveThreadRootBinding, threadRootBinding } =
+  const { persistThreadRootBinding, resolveThreadRootBinding, threadRootBinding } =
     useAssistantThreadRootBinding({
       assistantThreadRepository,
       ...(mainRootId && rootDescriptors?.[mainRootId]
@@ -802,6 +803,19 @@ export function AssistantUiPanelWrapper({
       memoryResourceId,
       selectedMemoryThreadId,
     });
+  // The composer workspace bar reads the SAME thread binding (pure store
+  // selectors, no duplicated effects) and adds this thread's secondary folders,
+  // the recent-roots ledger, and the read-only checkout.
+  const workspaceBar = useWorkspaceBar({
+    assistantThreadRepository,
+    ...(mainRootId && rootDescriptors?.[mainRootId]
+      ? { currentMainRoot: rootDescriptors[mainRootId] }
+      : {}),
+    database: db,
+    memoryResourceId,
+    rootDescriptors,
+    selectedMemoryThreadId,
+  });
   const composerDraftCommand = useAssistantComposerCommandStore((state) =>
     selectedMemoryThreadId ? state.commandsByThreadId[selectedMemoryThreadId]?.[0] : undefined
   );
@@ -1803,13 +1817,13 @@ export function AssistantUiPanelWrapper({
                 onThreadRunStart={markUserAuthoredSend}
                 onToolApprovalRequired={onToolApprovalRequired}
                 onUsage={handleUsage}
-                {...(operatingRoot ? { operatingRoot } : {})}
                 pickerModels={pickerModels}
                 pickerProviders={pickerProviders}
                 prepareRequestData={prepareRequestDataWithFinalization}
                 providerGroups={providerGroups}
                 providerSettings={effectiveProviderSettings}
                 recentModels={validRecentModels}
+                workspaceBar={workspaceBar}
                 {...webBodyLimitProps(desktopAssistantBackendAvailable)}
                 requestData={requestData}
                 slashCommands={slashCommands}
