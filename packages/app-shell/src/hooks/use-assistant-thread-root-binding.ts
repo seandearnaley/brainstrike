@@ -32,6 +32,14 @@ interface UseAssistantThreadRootBindingResult {
   readonly resolveThreadRootBinding: () => Promise<
     Omit<AssistantOperatingRootBinding, 'persisted'> | undefined
   >;
+  /**
+   * The selected thread's row has not reached the store yet, so its metadata
+   * reads as EMPTY. Every WRITE derived from that metadata must be refused
+   * while this is true (an "absent" folder set is indistinguishable from a
+   * genuinely empty one), which is why it is part of the public result rather
+   * than a private detail of the two write helpers below.
+   */
+  readonly selectedThreadMetadataPending: boolean;
   readonly threadRootBinding: AssistantOperatingRootBinding | undefined;
 }
 
@@ -116,6 +124,7 @@ export function useAssistantThreadRootBinding({
     operatingRoot,
     persistThreadRootBinding,
     resolveThreadRootBinding,
+    selectedThreadMetadataPending,
     threadRootBinding,
   };
 }

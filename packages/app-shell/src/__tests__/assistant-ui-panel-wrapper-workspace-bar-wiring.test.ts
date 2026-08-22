@@ -10,19 +10,33 @@ function readSource(relativePath: string): string {
 }
 
 /**
- * The tripwire the type system cannot provide on its own: the bar's props are
- * structurally close enough that swapping the composed `workspaceBar` object
- * back for the older per-field `operatingRoot*` wiring would still type-check
- * while silently rendering a different bar. Pinning the one line that carries
- * the whole object makes that swap a test failure.
+ * The tripwire the type system cannot provide on its own: the panel's
+ * `workspaceBar` prop is a ReactNode, so ANY element type-checks there —
+ * including one whose props were composed by calling `useWorkspaceBar` back in
+ * the wrapper. That would silently reinstate the re-render this split removed
+ * (the bar's two live-refresh subscriptions dragging the whole ~1850-line
+ * wrapper along on every git push). Pinning the composition site makes that
+ * regression a test failure.
  */
 describe('assistant panel wrapper workspace-bar wiring', () => {
-  it('passes the composed workspaceBar object, never loose operatingRoot props', () => {
+  it('renders the memoized bar HOST and never calls useWorkspaceBar itself', () => {
     const source = readSource('assistant-ui-panel-wrapper.tsx');
 
-    expect(source).toContain('workspaceBar={workspaceBar}');
-    expect(source).toContain('useWorkspaceBar({');
+    expect(source).toContain('<WorkspaceBarHost');
+    expect(source).toContain("from './workspace-bar/workspace-bar-host'");
+    // The subscriptions must not live in this component, in any form.
+    expect(source).not.toContain('useWorkspaceBar(');
+    expect(source).not.toContain("from './hooks/use-workspace-bar'");
+    // Nor may the loose per-field wiring the composed bar replaced come back.
     expect(source).not.toMatch(/\boperatingRoot=\{/u);
     expect(source).not.toMatch(/\{\.\.\.operatingRoot\b/u);
+  });
+
+  it('keeps the host memoized so ordinary wrapper renders never reach the bar', () => {
+    const hostSource = readSource('workspace-bar/workspace-bar-host.tsx');
+
+    expect(hostSource).toContain('memo(function WorkspaceBarHost');
+    expect(hostSource).toContain('useWorkspaceBar(args)');
+    expect(hostSource).toContain('<WorkspaceBar {...barProps} />');
   });
 });

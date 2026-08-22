@@ -47,12 +47,20 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => cur
 const showItemInFolder = vi.fn(async () => ({ ok: true }));
 
 const { checkoutSpy, clipboardWriteText, loggerMock, toastSpy } = vi.hoisted(() => ({
-  checkoutSpy: vi.fn((_root: { readonly path: string; readonly rootId: string } | null) => ({
-    ahead: 0,
-    behind: 0,
-    branch: 'main',
-    dirty: false,
-  })),
+  checkoutSpy: vi.fn(
+    (
+      _root: {
+        readonly adapterRootId: string | null;
+        readonly dbRootId: string;
+        readonly path: string;
+      } | null
+    ) => ({
+      ahead: 0,
+      behind: 0,
+      branch: 'main',
+      dirty: false,
+    })
+  ),
   clipboardWriteText: vi.fn(),
   loggerMock: {
     debug: vi.fn(),
@@ -162,9 +170,12 @@ const assistantThreadRepository = {
   updateThreadMetadata,
 } as unknown as AssistantThreadRepository;
 const currentMainRoot = { displayName: 'brainstrike', path: '/ws/brainstrike' };
-// `rootId` here is the ADAPTER id — it must never reach the bar.
+// Keyed by the file-explorer ADAPTER rootId (the production store builds it as
+// `Object.fromEntries(roots.map((r) => [r.rootId, r]))`). It is deliberately
+// UNRELATED to the DB `roots.id` above: the durable id must never be borrowed
+// as an adapter id, nor the reverse.
 const rootDescriptors = {
-  'r-main': { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'adapter-main' },
+  'adapter-main': { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'adapter-main' },
 };
 
 interface SeededThread {
@@ -248,6 +259,7 @@ beforeEach(() => {
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
   checkoutSpy.mockClear();
   toastSpy.mockClear();
+  loggerMock.debug.mockClear();
   loggerMock.error.mockClear();
   loggerMock.warn.mockClear();
   query.mockClear();
@@ -287,10 +299,41 @@ describe('useWorkspaceBar', () => {
   it('resolves the unbound primary by PATH in the durable roots table, never the adapter id', async () => {
     const { result } = await setup();
     await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
-    // The checkout read is a DB-space consumer: it must see the roots row id.
-    expect(checkoutSpy).toHaveBeenCalledWith({ path: '/ws/brainstrike', rootId: 'r-main-db' });
-    expect(checkoutSpy).not.toHaveBeenCalledWith(
-      expect.objectContaining({ rootId: 'adapter-main' })
+    // The bar itself is DB-space: the rendered chip carries the roots row id.
+    expect(result.current.primaryRoot?.rootId).toBe('r-main-db');
+  });
+
+  it('asks for the checkout with BOTH ids: the DB row for git, the adapter id for refresh mapping', async () => {
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
+    // `window.git.status` speaks the DB space; the FILE_EXPLORER_REFRESH_EVENT
+    // registration speaks the ADAPTER space. Collapsing them silently strands
+    // the dirty dot for every legacy path-matched root.
+    expect(checkoutSpy).toHaveBeenCalledWith({
+      adapterRootId: 'adapter-main',
+      dbRootId: 'r-main-db',
+      path: '/ws/brainstrike',
+    });
+  });
+
+  it('registers no working-tree scope for a primary that is not mounted in this workspace', async () => {
+    // The thread is bound to a folder that is NOT among the mounted roots, so
+    // no descriptor supplies an adapter id. Registering the DB id instead would
+    // silently match nothing while looking correct.
+    const { result } = await setup({
+      operatingRootDisplayName: 'site',
+      operatingRootId: 'r-site',
+      operatingRootPath: '/ws/site',
+    });
+    await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-site'));
+    expect(checkoutSpy).toHaveBeenCalledWith({
+      adapterRootId: null,
+      dbRootId: 'r-site',
+      path: '/ws/site',
+    });
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      expect.stringContaining('not mounted'),
+      expect.objectContaining({ path: '/ws/site' })
     );
   });
 
@@ -306,9 +349,9 @@ describe('useWorkspaceBar', () => {
       expect.stringContaining('no unique live roots row'),
       expect.objectContaining({ path: '/ws/brainstrike' })
     );
-    // Never an invented id.
+    // Never an invented id — the adapter id must not stand in for the DB row.
     expect(checkoutSpy).not.toHaveBeenCalledWith(
-      expect.objectContaining({ rootId: 'adapter-main' })
+      expect.objectContaining({ dbRootId: 'adapter-main' })
     );
     expect(checkoutSpy).toHaveBeenCalledWith(null);
   });
@@ -724,6 +767,108 @@ describe('useWorkspaceBar', () => {
     expect(toastSpy).toHaveBeenCalledWith({
       description: 'Desktop clipboard bridge rejected the write',
       title: 'Copy path failed',
+      variant: 'destructive',
+    });
+  });
+
+  it('surfaces a failed Add folder with the platform message, never a bare log', async () => {
+    fs.addRootDirectory.mockRejectedValueOnce(new Error('The folder picker was unavailable.'));
+    const { result } = await setup();
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    expect(loggerMock.error).toHaveBeenCalledWith('Add folder failed', expect.anything());
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'The folder picker was unavailable.',
+      title: 'Add folder failed',
+      variant: 'destructive',
+    });
+  });
+
+  it('surfaces a recent folder that can no longer be opened, quoting the main-process reason', async () => {
+    // The exact message main returns when a path is no longer in the grant
+    // ledger; a generic "something went wrong" would hide the remedy.
+    fs.addRootDirectoryByPath.mockRejectedValueOnce(
+      new Error('Folder was never granted in this app; use Add Folder to grant it.')
+    );
+    const { result } = await setup();
+    await act(async () => {
+      result.current.onAddRecent?.('/ws/alpha');
+    });
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Recent folder could not be re-mounted',
+      expect.objectContaining({ path: '/ws/alpha' })
+    );
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Folder was never granted in this app; use Add Folder to grant it.',
+      title: "Couldn't open recent folder",
+      variant: 'destructive',
+    });
+  });
+
+  it('surfaces a failed Make primary and a failed Remove folder', async () => {
+    const { result } = await setup({
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'r-main-db',
+      operatingRootPath: '/ws/brainstrike',
+      secondaryRootIds: ['r-docs'],
+    });
+    await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(1));
+
+    updateThreadMetadata.mockRejectedValueOnce(new Error('metadata write rejected'));
+    await act(async () => {
+      result.current.onMakePrimary('r-docs');
+    });
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'metadata write rejected',
+        title: 'Make primary failed',
+        variant: 'destructive',
+      })
+    );
+
+    updateThreadMetadata.mockRejectedValueOnce(new Error('metadata write rejected'));
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'metadata write rejected',
+        title: 'Remove folder failed',
+        variant: 'destructive',
+      })
+    );
+  });
+
+  it('refuses a folder write while the selected thread metadata is still loading', async () => {
+    // The thread is selected but its row has not arrived in the store yet, so
+    // `secondaryRootIds` reads as EMPTY — writing now would persist an empty
+    // folder set over whatever the thread actually has.
+    seedThreads([{ id: OTHER_THREAD_ID, metadata: {} }], THREAD_ID);
+    const { result } = renderHook(() =>
+      useWorkspaceBar({
+        assistantThreadRepository,
+        currentMainRoot,
+        database,
+        memoryResourceId: RESOURCE_ID,
+        rootDescriptors,
+        selectedMemoryThreadId: THREAD_ID,
+      })
+    );
+    await act(async () => {});
+
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    await act(async () => {});
+
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Cannot update thread folders before the selected thread metadata is loaded'
+    );
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: expect.stringContaining('moment'),
+      title: 'Thread is still loading',
       variant: 'destructive',
     });
   });

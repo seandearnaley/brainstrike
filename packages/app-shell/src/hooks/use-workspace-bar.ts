@@ -61,6 +61,13 @@ const SECONDARY_ID_SEPARATOR = ' ';
 
 /** The thread folder set a queued write derives its next value from. */
 interface ThreadFolders {
+  /**
+   * The selected thread's row has not reached the store yet, so
+   * `secondaryRootIds` below reads as EMPTY for a reason that has nothing to do
+   * with the thread's actual folders. Deriving a write from it would persist
+   * that emptiness.
+   */
+  readonly metadataPending: boolean;
   readonly primaryRootId: string | undefined;
   readonly secondaryRootIds: readonly string[];
   readonly threadId: string | undefined;
@@ -112,6 +119,110 @@ type RootRowLookup =
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * The text a user is shown when an action fails. Always the ORIGINATING
+ * message — the main process explains what to do about a revoked grant, and a
+ * generic "something went wrong" would throw that remedy away.
+ */
+function describeFailure(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A folder write raised before the selected thread's row reached the store.
+ * Refusing is the same rule `persistThreadRootBinding` applies — an absent
+ * folder set is indistinguishable from an empty one — but unlike a thread
+ * switch the user asked for this, so it is both logged and surfaced.
+ */
+function refuseWriteBeforeThreadMetadata(): void {
+  logger.error('Cannot update thread folders before the selected thread metadata is loaded');
+  toast({
+    description: "This thread's folders have not loaded yet — try again in a moment.",
+    title: 'Thread is still loading',
+    variant: 'destructive',
+  });
+}
+
+/**
+ * The folder set a queued write derives its next value from. Only a tail from
+ * THIS thread describes this write's starting point — the hook is long-lived,
+ * so the ref outlives a thread switch and an unconditional chain would write
+ * thread A's folder set onto thread B. A chained tail is never "pending": it
+ * describes a write that already landed.
+ */
+function writeStartingPoint(
+  live: ThreadFolders,
+  tail: ThreadFoldersWriteTail | null,
+  startedForThreadId: string
+): ThreadFolders {
+  return tail?.threadId === startedForThreadId
+    ? {
+        metadataPending: false,
+        primaryRootId: tail.primaryRootId,
+        secondaryRootIds: tail.ids,
+        threadId: live.threadId,
+      }
+    : live;
+}
+
+/**
+ * Logs ONCE per path when the thread's primary folder is not mounted in this
+ * workspace (bound elsewhere, or unmounted since), so no descriptor supplies an
+ * adapter rootId. Nothing is invented for it — but the gap is observable: that
+ * root's branch chip tracks git-metadata pushes only, never working-tree edits.
+ */
+function useUnmappedPrimaryRootNotice(
+  primaryRootPath: string | undefined,
+  primaryAdapterRootId: string | null
+): void {
+  const loggedPathsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!primaryRootPath || primaryAdapterRootId) {
+      return;
+    }
+    loggedPathsRef.current ??= new Set<string>();
+    const loggedPaths = loggedPathsRef.current;
+    if (loggedPaths.has(primaryRootPath)) {
+      return;
+    }
+    loggedPaths.add(primaryRootPath);
+    logger.debug(
+      'the primary root is not mounted in this workspace; working-tree edits are not mapped to its branch chip',
+      { path: primaryRootPath }
+    );
+  }, [primaryAdapterRootId, primaryRootPath]);
+}
+
+/**
+ * The primary's ADAPTER rootId, used for the working-tree refresh registration
+ * and nothing else — `null` when no mounted root has that path.
+ *
+ * `rootDescriptors` is keyed by adapter rootId, and PATH is the ONLY thing the
+ * adapter and DB id spaces share, so the primary's durable `roots.id` cannot
+ * look it up. That is the whole point: for a legacy path-matched root the two
+ * ids differ, and registering the durable one matches nothing. Path-matching
+ * covers the persisted-binding and MAIN-fallback cases at once — the MAIN
+ * root's descriptor is keyed by `activeRootIds[0]`, and its path IS the MAIN
+ * path.
+ */
+function usePrimaryAdapterRootId(
+  rootDescriptors: Readonly<Record<string, WorkspaceBarRootDescriptor>> | undefined,
+  primaryRootPath: string | undefined
+): string | null {
+  const adapterRootIdByPath = useMemo(() => {
+    const byPath = new Map<string, string>();
+    for (const [adapterRootId, descriptor] of Object.entries(rootDescriptors ?? {})) {
+      byPath.set(descriptor.path, adapterRootId);
+    }
+    return byPath;
+  }, [rootDescriptors]);
+  const primaryAdapterRootId = primaryRootPath
+    ? (adapterRootIdByPath.get(primaryRootPath) ?? null)
+    : null;
+  useUnmappedPrimaryRootNotice(primaryRootPath, primaryAdapterRootId);
+  return primaryAdapterRootId;
 }
 
 /**
@@ -201,13 +312,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         : secondaryRootIdsKey.split(SECONDARY_ID_SEPARATOR),
     [secondaryRootIdsKey]
   );
-  const { operatingRoot, threadRootBinding } = useAssistantThreadRootBinding({
-    assistantThreadRepository,
-    ...(currentMainRoot ? { currentMainRoot } : {}),
-    database,
-    memoryResourceId,
-    selectedMemoryThreadId,
-  });
+  const { operatingRoot, selectedThreadMetadataPending, threadRootBinding } =
+    useAssistantThreadRootBinding({
+      assistantThreadRepository,
+      ...(currentMainRoot ? { currentMainRoot } : {}),
+      database,
+      memoryResourceId,
+      selectedMemoryThreadId,
+    });
 
   // Cancellation for an in-flight reconciliation wait. Unmount and thread
   // identity are SEPARATE signals on purpose: a single flag reset by an effect
@@ -429,17 +541,19 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // It carries the thread it describes, so a queued write can prove it is still
   // deriving from the thread it was started for.
   const threadFoldersRef = useRef<ThreadFolders>({
+    metadataPending: selectedThreadMetadataPending,
     primaryRootId,
     secondaryRootIds,
     threadId: selectedMemoryThreadId,
   });
   useEffect(() => {
     threadFoldersRef.current = {
+      metadataPending: selectedThreadMetadataPending,
       primaryRootId,
       secondaryRootIds,
       threadId: selectedMemoryThreadId,
     };
-  }, [primaryRootId, secondaryRootIds, selectedMemoryThreadId]);
+  }, [primaryRootId, secondaryRootIds, selectedMemoryThreadId, selectedThreadMetadataPending]);
 
   /**
    * Serializes thread-folder writes. Two Add-folder clicks whose lookups settle
@@ -489,17 +603,16 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         if (unmountedRef.current || live.threadId !== startedForThreadId) {
           return tail;
         }
-        // Only a tail from THIS thread describes this write's starting point.
-        const chainedTail = tail?.threadId === startedForThreadId ? tail : null;
-        const request = derive(
-          chainedTail
-            ? {
-                primaryRootId: chainedTail.primaryRootId,
-                secondaryRootIds: chainedTail.ids,
-                threadId: live.threadId,
-              }
-            : live
-        );
+        // The same refusal `persistThreadRootBinding` makes: the thread's row
+        // has not landed, so its folder set reads as empty for a reason that
+        // has nothing to do with its folders. Writing now would persist that
+        // emptiness over the real set — and unlike a thread switch, the user
+        // asked for this and has to be told it did not happen.
+        if (live.metadataPending) {
+          refuseWriteBeforeThreadMetadata();
+          return tail;
+        }
+        const request = derive(writeStartingPoint(live, tail, startedForThreadId));
         if (!request) {
           return tail;
         }
@@ -583,7 +696,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const onAddFolder = useCallback(() => {
     addRootDirectory()
       .then((handle) => (handle ? recordAddedAsSecondary(handle) : undefined))
-      .catch((error: unknown) => logger.error('Add folder failed', { error }));
+      .catch((error: unknown) => {
+        logger.error('Add folder failed', { error });
+        toast({
+          description: describeFailure(error),
+          title: 'Add folder failed',
+          variant: 'destructive',
+        });
+      });
   }, [addRootDirectory, recordAddedAsSecondary]);
 
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
@@ -601,9 +721,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       }
       addRootDirectoryByPath(path)
         .then((handle) => (handle ? recordAddedAsSecondary(handle) : undefined))
-        .catch((error: unknown) =>
-          logger.error('Recent folder could not be re-mounted', { error, path })
-        );
+        .catch((error: unknown) => {
+          logger.error('Recent folder could not be re-mounted', { error, path });
+          toast({
+            description: describeFailure(error),
+            title: "Couldn't open recent folder",
+            variant: 'destructive',
+          });
+        });
     },
     [addRootDirectoryByPath, recordAddedAsSecondary]
   );
@@ -634,7 +759,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           ids: [...current.secondaryRootIds.filter((id) => id !== rootId), ...demoted],
           primaryRootId: rootId,
         };
-      }).catch((error: unknown) => logger.error('Make primary failed', { error, rootId }));
+      }).catch((error: unknown) => {
+        logger.error('Make primary failed', { error, rootId });
+        toast({
+          description: describeFailure(error),
+          title: 'Make primary failed',
+          variant: 'destructive',
+        });
+      });
     },
     [enqueueThreadFoldersWrite, secondaryRoots, selectedMemoryThreadId]
   );
@@ -644,7 +776,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => ({
         ids: current.secondaryRootIds.filter((id) => id !== rootId),
         primaryRootId: current.primaryRootId,
-      })).catch((error: unknown) => logger.error('Remove secondary failed', { error, rootId }));
+      })).catch((error: unknown) => {
+        logger.error('Remove secondary failed', { error, rootId });
+        toast({
+          description: describeFailure(error),
+          title: 'Remove folder failed',
+          variant: 'destructive',
+        });
+      });
     },
     [enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
@@ -689,8 +828,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   }, []);
 
   const primaryRootPath = primaryRoot?.path;
+  const primaryAdapterRootId = usePrimaryAdapterRootId(rootDescriptors, primaryRootPath);
   const checkout = useThreadCheckoutStatus(
-    primaryRootId && primaryRootPath ? { path: primaryRootPath, rootId: primaryRootId } : null
+    primaryRootId && primaryRootPath
+      ? {
+          adapterRootId: primaryAdapterRootId,
+          dbRootId: primaryRootId,
+          path: primaryRootPath,
+        }
+      : null
   );
 
   return {

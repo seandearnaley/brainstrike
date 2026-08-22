@@ -1,11 +1,36 @@
+import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useThreadCheckoutStatus } from '../hooks/use-thread-checkout-status';
 
+// The two id spaces the chip straddles, deliberately DIFFERENT: `window.git`
+// speaks the durable `roots.id`, while the FILE_EXPLORER_REFRESH_EVENT mapping
+// in use-changes-live-refresh keys registrations on the file-explorer ADAPTER
+// rootId. They coincide for reconciled-insert roots and diverge for legacy
+// path-matched ones — a fixture that used one value could not tell them apart.
+const ADAPTER_ROOT_ID = 'adapter-a';
+const DB_ROOT_ID = 'db-a';
+
 const status = vi.fn();
 
+const { loggerMock } = vi.hoisted(() => ({
+  loggerMock: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  },
+}));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => loggerMock,
+}));
+
 beforeEach(() => {
+  loggerMock.warn.mockClear();
   useChangesLiveRefreshStore.getState().reset();
   (window as Window & { git?: unknown }).git = {
     aheadBehind: vi.fn(),
@@ -45,7 +70,11 @@ describe('useThreadCheckoutStatus', () => {
       },
     });
     const { result } = renderHook(() =>
-      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+      useThreadCheckoutStatus({
+        adapterRootId: ADAPTER_ROOT_ID,
+        dbRootId: DB_ROOT_ID,
+        path: '/ws/a',
+      })
     );
     await waitFor(() =>
       expect(result.current).toEqual({ ahead: 2, behind: 0, branch: 'main', dirty: false })
@@ -91,7 +120,11 @@ describe('useThreadCheckoutStatus', () => {
     };
     status.mockResolvedValue(cleanStatus);
     const { result } = renderHook(() =>
-      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+      useThreadCheckoutStatus({
+        adapterRootId: ADAPTER_ROOT_ID,
+        dbRootId: DB_ROOT_ID,
+        path: '/ws/a',
+      })
     );
     await waitFor(() => expect(result.current?.dirty).toBe(false));
     expect(status).toHaveBeenCalledTimes(1);
@@ -133,7 +166,11 @@ describe('useThreadCheckoutStatus', () => {
       },
     });
     const { result } = renderHook(() =>
-      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+      useThreadCheckoutStatus({
+        adapterRootId: ADAPTER_ROOT_ID,
+        dbRootId: DB_ROOT_ID,
+        path: '/ws/a',
+      })
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     expect(result.current).toBeUndefined();
@@ -143,7 +180,11 @@ describe('useThreadCheckoutStatus', () => {
 
     (window as Window & { git?: unknown }).git = undefined;
     const { result: noBridge } = renderHook(() =>
-      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+      useThreadCheckoutStatus({
+        adapterRootId: ADAPTER_ROOT_ID,
+        dbRootId: DB_ROOT_ID,
+        path: '/ws/a',
+      })
     );
     expect(noBridge.current).toBeUndefined();
     expect(status).toHaveBeenCalledTimes(1);
@@ -152,10 +193,130 @@ describe('useThreadCheckoutStatus', () => {
   it('surfaces a failed status as undefined and logs — never a fake clean state', async () => {
     status.mockResolvedValueOnce({ error: 'boom', ok: false });
     const { result } = renderHook(() =>
-      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+      useThreadCheckoutStatus({
+        adapterRootId: ADAPTER_ROOT_ID,
+        dbRootId: DB_ROOT_ID,
+        path: '/ws/a',
+      })
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     expect(result.current).toBeUndefined();
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'git status for the workspace bar failed',
+      expect.objectContaining({ dbRootId: DB_ROOT_ID, error: 'boom' })
+    );
+  });
+
+  it('asks git with the DB root id but registers the working-tree scope under the ADAPTER id', async () => {
+    const cleanStatus = {
+      ok: true,
+      value: {
+        ahead: 0,
+        behind: 0,
+        branch: 'main',
+        clean: true,
+        files: [],
+        isRepository: true,
+        upstream: null,
+      },
+    };
+    status.mockResolvedValue(cleanStatus);
+    renderHook(() =>
+      useThreadCheckoutStatus({
+        adapterRootId: ADAPTER_ROOT_ID,
+        dbRootId: DB_ROOT_ID,
+        path: '/ws/a',
+      })
+    );
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
+    // The bridge speaks the DB id space, and only that one.
+    expect(status).toHaveBeenCalledWith(DB_ROOT_ID);
+    expect(status).not.toHaveBeenCalledWith(ADAPTER_ROOT_ID);
+
+    // A working-tree batch announced under the DB id matches no registration:
+    // the canonical pipeline names roots by their ADAPTER id.
+    act(() => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: 'src/a.ts', type: 'modified' }],
+              rootId: DB_ROOT_ID,
+              rootPath: '/ws/a',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
+
+    // Announced under the adapter id it DOES match, so the dirty dot follows.
+    act(() => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: 'src/a.ts', type: 'modified' }],
+              rootId: ADAPTER_ROOT_ID,
+              rootPath: '/ws/a',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(2));
+  });
+
+  it('registers nothing when the primary root is not mounted, but still tracks metadata pushes', async () => {
+    const cleanStatus = {
+      ok: true,
+      value: {
+        ahead: 0,
+        behind: 0,
+        branch: 'main',
+        clean: true,
+        files: [],
+        isRepository: true,
+        upstream: null,
+      },
+    };
+    status.mockResolvedValue(cleanStatus);
+    renderHook(() =>
+      useThreadCheckoutStatus({ adapterRootId: null, dbRootId: DB_ROOT_ID, path: '/ws/a' })
+    );
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
+
+    // No registration: a working-tree batch cannot be mapped to this root.
+    act(() => {
+      window.dispatchEvent(
+        createFileExplorerRefreshEvent({
+          roots: [
+            {
+              changes: [{ kind: 'file', path: 'src/a.ts', type: 'modified' }],
+              rootId: ADAPTER_ROOT_ID,
+              rootPath: '/ws/a',
+            },
+          ],
+          scope: 'incremental',
+          source: 'watcher',
+        })
+      );
+    });
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
+
+    // The shared owner is still held, so git-METADATA pushes still refetch.
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/ws/a/.git',
+        repositoryRoot: '/ws/a',
+      });
+    });
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(2));
   });
 
   it('never renders one root checkout under another root', async () => {
@@ -179,7 +340,11 @@ describe('useThreadCheckoutStatus', () => {
     );
     const { rerender, result } = renderHook(
       ({ rootId }: { rootId: string }) =>
-        useThreadCheckoutStatus({ path: `/ws/${rootId}`, rootId }),
+        useThreadCheckoutStatus({
+          adapterRootId: `adapter-${rootId}`,
+          dbRootId: rootId,
+          path: `/ws/${rootId}`,
+        }),
       { initialProps: { rootId: 'root-a' } }
     );
     await waitFor(() => expect(result.current?.branch).toBe('root-a-branch'));
