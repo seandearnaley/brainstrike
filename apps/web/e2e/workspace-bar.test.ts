@@ -12,6 +12,11 @@ import { type FileTree, mockBrowserApis } from './utils/mock-fs';
  * (which goes through the FSA picker — mocked here by `mockBrowserApis`, the
  * same seam `file-explorer.test.ts` uses). Web omits what it cannot do rather
  * than stubbing it, and this pins that.
+ *
+ * ONE test, tagged `@web-smoke` so it runs on every PR: the CTA→named-root
+ * transition and the branch-chip omission share the same app boot and the same
+ * readiness precondition, so splitting them would buy a second full boot and
+ * nothing else.
  */
 const ROOT_NAME = 'workspace-bar-root';
 const TREE: FileTree = { 'alpha.ts': null };
@@ -30,9 +35,9 @@ test.describe('Workspace bar (web)', () => {
     await waitForDatabaseReady(page);
   });
 
-  test('the folder chip is the CTA with zero roots and names the root after adding one', async ({
-    page,
-  }) => {
+  test('the folder chip is the CTA with zero roots, names the root after adding one, and never shows a branch chip', {
+    tag: '@web-smoke',
+  }, async ({ page }) => {
     const chip = page.getByTestId('workspace-bar-folder-chip');
     await expect(chip).toBeVisible({ timeout: 30_000 });
     await expect(chip).toContainText('Choose a folder');
@@ -42,18 +47,11 @@ test.describe('Workspace bar (web)', () => {
 
     await expect(chip).toContainText(ROOT_NAME, { timeout: 30_000 });
     await expect(chip).not.toContainText('Choose a folder');
-  });
 
-  test('never renders the branch chip — web has no git bridge', async ({ page }) => {
-    const chip = page.getByTestId('workspace-bar-folder-chip');
-    await expect(chip).toBeVisible({ timeout: 30_000 });
-
-    await chip.click();
-    await page.getByTestId('workspace-bar-add-folder').click();
-    // The chip carrying the root's NAME proves the primary's durable `roots.id`
-    // resolved — the only input a checkout lookup could have keyed on. On
-    // desktop the Branch chip is mounted by this point; here it must not exist.
-    await expect(chip).toContainText(ROOT_NAME, { timeout: 30_000 });
+    // The chip carrying the root's NAME (asserted above) proves the primary's
+    // durable `roots.id` resolved — the only input a checkout lookup could
+    // have keyed on. On desktop the Branch chip is mounted by this point;
+    // here it must not exist, because web has no `window.git`.
     await expect(page.getByTestId('workspace-bar-branch-chip')).toHaveCount(0);
   });
 });

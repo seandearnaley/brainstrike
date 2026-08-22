@@ -13,93 +13,57 @@
  * ledgers can never leak between tests. Every temp dir is tracked and removed
  * in `afterAll`.
  *
- * Root setup mirrors `git-panel.desktop.test.ts`: seed `rootsList` (the real
- * path) into `electronAPI.storage`, then reload — main restores the root and
- * the renderer reconciles the durable `roots` row the bar resolves against.
+ * Root setup uses the shared `seedRoot` helper (`e2e/utils/seed-root.ts`,
+ * lifted from `git-panel.desktop.test.ts`): seed the ledgers (the real paths)
+ * into `electronAPI.storage`, then reload — main restores the root and the
+ * renderer reconciles the durable `roots` row the bar resolves against.
  */
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
+import {
+  freshNonGitDir as createFreshNonGitDir,
+  freshRepo as createFreshRepo,
+  createTempDirTracker,
+} from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { type SeedRootOptions, seedRoot as seedWorkspaceRoot } from './utils/seed-root';
 
-// execFile (no shell) — args pass straight to git, so temp paths with spaces or
-// metacharacters can never be re-interpreted (no command injection, no quoting).
-function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' });
-}
-
-const tempDirs: string[] = [];
-function trackDir(dir: string): string {
-  tempDirs.push(dir);
-  return dir;
-}
+const tempDirs = createTempDirTracker();
 
 function freshRepo(label: string): string {
-  const dir = trackDir(mkdtempSync(path.join(tmpdir(), `bst-bar-${label}-`)));
-  git(dir, ['init', '-b', 'main']);
-  git(dir, ['config', 'user.email', 'e2e@brainstrike.invalid']);
-  git(dir, ['config', 'user.name', 'Brainstrike E2E']);
-  writeFileSync(path.join(dir, 'hello.ts'), 'export const value = 1;\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-m', 'initial commit']);
-  return dir;
+  return createFreshRepo({ label, prefix: 'bst-bar-', tracker: tempDirs });
 }
 
 function freshNonGitDir(label: string): string {
-  const dir = trackDir(mkdtempSync(path.join(tmpdir(), `bst-bar-plain-${label}-`)));
-  writeFileSync(path.join(dir, 'note.ts'), 'export const note = 1;\n');
-  return dir;
+  return createFreshNonGitDir({
+    label,
+    prefix: 'bst-bar-plain-',
+    seedFile: { contents: 'export const note = 1;\n', name: 'note.ts' },
+    tracker: tempDirs,
+  });
 }
 
 const ROOT_ID = 'w1-workspace-bar-root-00000000-0000-4000-8000-000000000010';
 
 /**
- * Seed ONE connected root and reload.
- *
- * Background indexing is seeded OFF (same shape as
- * `add-root-ui.smoke.desktop.test.ts`): the bar reads the `roots` table and
- * `window.git`, never the index, so driving the embedding pipeline here would
- * only add minutes and flake surface.
+ * Seed ONE connected root (optionally alongside recent-roots grants) and
+ * reload. Background indexing is seeded OFF: the bar reads the `roots` table
+ * and `window.git`, never the index, so driving the embedding pipeline here
+ * would only add minutes and flake surface.
  */
-async function seedRoot(page: Page, rootPath: string): Promise<void> {
-  await page.evaluate(
-    async ({ rootPath: p, rootId }) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('lastFolderPath', p);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: p, rootId }])
-      );
-      localStorage.setItem(
-        'background-indexing-preferences.v1',
-        JSON.stringify({
-          state: {
-            enabled: false,
-            indexingPolicyPreset: 'full-root',
-            managedCollectionId: null,
-            mode: 'root-folder-cache',
-            paused: true,
-          },
-          version: 4,
-        })
-      );
-    },
-    { rootId: ROOT_ID, rootPath }
-  );
-  const { reloadRenderer } = await loadElectronHelpers();
-  await reloadRenderer(page, 'w1-workspace-bar-seed-root');
+async function seedRoot(
+  page: Page,
+  rootPath: string,
+  options: Pick<SeedRootOptions, 'recentPaths'> = {}
+): Promise<void> {
+  await seedWorkspaceRoot(page, rootPath, {
+    disableBackgroundIndexing: true,
+    reloadReason: 'w1-workspace-bar-seed-root',
+    rootId: ROOT_ID,
+    ...options,
+  });
 }
 
 /**
@@ -132,16 +96,14 @@ test.beforeAll(() => {
 test.afterAll(() => {
   // Assigning undefined coerces to the string "undefined"; delete truly unsets.
   delete process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'];
-  for (const dir of tempDirs) {
-    rmSync(dir, { force: true, recursive: true });
-  }
+  tempDirs.removeAll();
 });
 
 test.describe('Workspace bar (desktop)', () => {
   test('@smoke shows the folder chip for a SINGLE root and the branch chip for a git repo', async ({
     window: page,
   }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(90_000);
     const repo = freshRepo('repo');
     await seedRoot(page, repo);
     await openComposer(page);
@@ -159,7 +121,6 @@ test.describe('Workspace bar (desktop)', () => {
   });
 
   test('hides the branch chip for a non-git folder', async ({ window: page }) => {
-    test.setTimeout(120_000);
     const plain = freshNonGitDir('plain');
     await seedRoot(page, plain);
     await openComposer(page);
@@ -172,8 +133,11 @@ test.describe('Workspace bar (desktop)', () => {
     // issues its `window.git.status` call for. So the status round-trip is in
     // flight (or done) by now. Sampling across a bounded window keeps this from
     // passing vacuously against a chip that simply had not mounted yet.
+    // FOLLOW-UP: the deterministic form needs a renderer-observable
+    // "checkout resolution settled" signal — expose `data-checkout-state` on
+    // `workspace-bar` — and this loop goes away.
     const branchChip = page.getByTestId('workspace-bar-branch-chip');
-    for (let sample = 0; sample < 4; sample += 1) {
+    for (let sample = 0; sample < 2; sample += 1) {
       await expect(branchChip).toHaveCount(0);
       await page.waitForTimeout(500);
     }
@@ -185,27 +149,19 @@ test.describe('Workspace bar (desktop)', () => {
     test.setTimeout(150_000);
     const primary = freshRepo('primary');
     const recent = freshNonGitDir('recent');
-    await seedRoot(page, primary);
-
-    // Seed main's ledger directly: the path was "previously granted", which is
-    // the ONLY thing that authorizes the picker-less `fs:addRootByPath`.
-    await page.evaluate(async (p) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('recentRootsList', JSON.stringify([{ lastGrantedAt: 1, path: p }]));
-    }, recent);
-    const { reloadRenderer } = await loadElectronHelpers();
-    await reloadRenderer(page, 'w1-workspace-bar-seed-recent');
+    // The recents grant is seeded in the SAME write as `rootsList`, before the
+    // only reload: the boot that reload triggers runs `restoreRoots` →
+    // `recordRecentRootIfNew`, a read-modify-write on `recentRootsList`, and a
+    // seed landing after it would race that write. Being present in the ledger
+    // is the ONLY thing that authorizes the picker-less `fs:addRootByPath`.
+    await seedRoot(page, primary, { recentPaths: [recent] });
     await openComposer(page);
 
     const folderChip = page.getByTestId('workspace-bar-folder-chip');
     await expect(folderChip).toContainText(path.basename(primary), { timeout: 30_000 });
+    // No secondaries yet — so the "+1" below is this click's effect, not a
+    // badge that was already on screen.
+    await expect(folderChip).not.toContainText('+', { timeout: 5000 });
 
     await folderChip.click();
     const recentItem = page.getByTestId(`workspace-bar-recent-${recent}`);
@@ -217,11 +173,17 @@ test.describe('Workspace bar (desktop)', () => {
     await expect(folderChip).toContainText('+1', { timeout: 60_000 });
 
     // …and the re-mounted folder is a real workspace root, not just a label:
-    // its own row is listed inside the chip menu.
+    // it has its own ROOT ROW in the chip menu. Reopened explicitly rather than
+    // assumed-closed after the item select, and scoped to the open menu so a
+    // stray occurrence of the folder name elsewhere on the page cannot satisfy
+    // it.
     await folderChip.click();
-    await expect(page.getByText(path.basename(recent), { exact: true }).first()).toBeVisible({
-      timeout: 15_000,
-    });
+    const menu = page.getByRole('menu');
+    await expect(menu).toBeVisible({ timeout: 15_000 });
+    // Two ROOT rows now (primary + the re-mounted secondary), each keyed by a
+    // durable `roots.id`; the name check is scoped to the same open menu.
+    await expect(menu.getByTestId(/^workspace-bar-root-/)).toHaveCount(2, { timeout: 15_000 });
+    await expect(menu.getByText(path.basename(recent), { exact: true })).toHaveCount(1);
     await page.keyboard.press('Escape');
   });
 
@@ -235,6 +197,8 @@ test.describe('Workspace bar (desktop)', () => {
 
     const folderChip = page.getByTestId('workspace-bar-folder-chip');
     await expect(folderChip).toContainText(path.basename(primary), { timeout: 30_000 });
+    // No secondaries yet — the "+1" below must be produced by the add.
+    await expect(folderChip).not.toContainText('+', { timeout: 5000 });
 
     await folderChip.click();
     await page.getByTestId('workspace-bar-add-folder').click();
