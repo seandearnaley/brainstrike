@@ -88,3 +88,11 @@ export {
   useToolApprovalGrants,
 } from './tool-approval-grant-context';
 export * from './tool-fallback';
+export {
+  WorkspaceBar,
+  type WorkspaceBarCheckout,
+  type WorkspaceBarProps,
+  type WorkspaceBarRecentRoot,
+  type WorkspaceBarReveal,
+  type WorkspaceBarRoot,
+} from './workspace-bar/workspace-bar';
