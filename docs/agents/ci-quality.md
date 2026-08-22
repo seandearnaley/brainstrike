@@ -267,59 +267,39 @@ this way on the next bump rather than assuming the tree regressed.
 ### Warden guard inventory (BST-675)
 
 `scripts/_guard-inventory.md` is the authoritative set of scripts classified as
-Warden guards. A row declares that the script is wired, has a paired test under
-`scripts/__tests__`, and that test contains a negative control that proves the
-guard can fail; the corroboration boundary for each claim is defined below.
-`scripts/verify-guard-inventory.mjs` validates the inventory in both local and
-CI lint paths; malformed rows, duplicate names, and classified scripts that no
-longer exist fail closed.
+Warden guards. A row names the paired executable contract that owns the guard's
+negative controls: by default `scripts/__tests__/<guard>.test.mjs`, or the exact
+`contract:` path declared in the row. `wired/paired/armed` remains reviewed
+classification data; the verifier does not infer shell, package-script, or test
+execution from source text.
 
-The verifier derives two sets. The complete wired set traverses root
-package-script calls from local `lint` and `coverage:enforce` plus package
-scripts actually invoked by required Static workflow steps. The CI-required set
-uses only the workflow-derived graph. The required workflow command graph must
-reach `lint:ci`; leaving that script in `package.json` or reaching a guard only
-from local `lint` does not count as CI wiring. The verifier rejects both missing
-required rows and a classified root guard leaf that is no longer reachable.
-Direct workflow guards (including the pre-install lockfile check) are part of
-both derived sets.
+The required Static job has one canonical, unconditional, blocking runner:
+`pnpm test:scripts`. The package script must resolve exactly to
+`scripts/run-script-contracts.mjs`, and the workflow contract pins the approved
+Static admission condition, rejects a conditional runner step, and rejects
+step- or job-level `continue-on-error`. Exact structural matching means a shell
+comment containing `pnpm test:scripts`, a disabled Static job, or a second
+lookalike command cannot satisfy the contract.
 
-Workflow evidence is YAML-parsed from `test.yml` and scoped specifically to
-`jobs.static.steps[*].run`. A command in another job or text inside a YAML
-comment is not executable Static evidence and cannot make a required-path claim
-green. A Static step with a literal-false `if` condition is likewise excluded:
-text that GitHub Actions will never execute is not required-path wiring.
+The canonical runner discovers the same non-recursive
+`scripts/__tests__/*.test.mjs` set as the former Node glob invocation. Before
+execution it rejects malformed/duplicate inventory rows, missing guard files,
+and contract paths outside that discovered set. It then uses Node's test-runner
+event stream to require at least one real, non-skipped, non-todo passing test
+from every declared contract file. Node's synthetic per-file wrapper result does
+not count. A contract whose only tests are skipped therefore fails even when the
+underlying Node suite would otherwise exit zero.
 
-`wired` is machine-corroborated for guards discoverable through the complete
-root package-script and workflow command graph. Rows reached through the
-CI-derived graph declare `channel: required-path`; the verifier rejects the
-declaration if the guard disappears from that graph, so a local-only binding
-cannot masquerade as required CI enforcement. Other classified guards, such as
-the nightly `coverage:enforce` gate, are enforced outside the required PR path,
-by package-level build scripts, or by their paired contract under the required
-Static `test:scripts` step; those rows remain reviewed declarations. Moving a
-guard between channels requires updating the inventory and contract together.
-
-A `paired` claim is machine-checked against either the guard's exact-basename
-test or an explicit `contract: scripts/__tests__/<name>.test.mjs` annotation in
-the row. The resolved test must either invoke a binding statically imported from
-the exact guard module, or execute an exact `import.meta.url`-resolved guard path
-as the child-process program or as the first argument to `process.execPath`, then
-assert the returned status. Merely passing the path as an unrelated subprocess
-argument is insufficient, as are bare side-effect imports, filenames, comments,
-unrelated path construction, unasserted subprocesses, and source-string
-fixtures. This evidence is read from the JavaScript syntax tree. Discovery is
-intentionally non-recursive because `test:scripts` is non-recursive. `armed` is
-a reviewed, human-maintained declaration:
-arbitrary negative-control behavior cannot be derived safely from source text,
-so the verifier does not pretend to corroborate it. The named contract tests
-own those behavioral controls, and changes to an `armed` claim must update them
-together.
+`armed` remains a reviewed claim about the named contract's negative controls;
+there is deliberately no JavaScript-AST heuristic that pretends to prove which
+callback executed. Review changes to an inventory row and its contract
+together. The executable receipt proves that the declared contract ran and was
+not wholly disabled, while the contract assertions prove the guard's behavior.
 
 Guard-shaped tools are not classified merely because they live under
 `scripts/`. In particular, `scan-hooks.cjs` remains a manual diagnostic and
 `ts7-parity-check.mjs` remains an opt-in parity sweep that requires an external
-TS7 binary. Promote either only by adding required-path wiring, a paired armed
+TS7 binary. Promote either only by adding required-path behavior, a paired armed
 control, and an inventory row in the same change.
 
 ### App test-tsconfig programs (`tsconfig.test.json`)
