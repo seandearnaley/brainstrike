@@ -84,6 +84,15 @@ below are LIVE.
    consumer. For the built-in local provider this signal crosses
    `LlmHostChatModel → LocalLlmHostClient → LlmHostManager`, removes the exact
    pending request, and sends the hidden renderer's cancel command.
+   When watchdog expiry or caller Stop aborts a memory-backed turn, the stream
+   adapter persists the user input plus completed visible tool work from
+   Mastra's live `MessageList`, marks the assistant row
+   `[Assistant turn aborted before completion.]`, and excludes the incomplete
+   tail before runtime disposal. Stop therefore cannot resurrect execution on
+   the next turn. The same finalizer covers approval and suspended-tool resume
+   streams, while Mastra read-only memory remains write-free. Ordinary
+   completion still uses Mastra's finish writer only; teardown never performs a
+   second normal write.
 
 4. **Mastra error-processor layer (LIVE)** —
    `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +

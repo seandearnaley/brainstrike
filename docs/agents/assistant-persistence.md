@@ -163,6 +163,30 @@ contracts keep reloaded threads identical to live ones:
      (`ok:false`) hydrates as a failed tool call even though Mastra persists
      the invocation itself with `state:'result'`; the execution and replay
      paths must never maintain independent guarded-error code lists.
+
+Mastra deliberately skips its normal finish writer when an abort signal wins.
+For terminal watchdog aborts and user cancellation only, `agent-streaming.ts`
+therefore owns one bounded abort-finalization seam over Mastra's public live
+`MessageList`: it drains the unsaved user input, retains response parts only
+through the last completed tool invocation, drops non-renderable snapshots and
+all incomplete tool/text work, appends the model-visible
+`[Assistant turn aborted before completion.]` marker, and awaits
+`Memory.saveMessages` before disposing the per-run runtime — including when a
+recovery continuation fails during construction. A text-only partial response
+has no completed work and is intentionally omitted under Contract A. Initial,
+approval-resume, and suspended-tool resume streams share this Brainstrike-owned
+terminal seam; read-only memory streams skip it and remain write-free. If the
+snapshot write itself fails, the seam emits the structured
+`mastra_agent_aborted_turn_persist_failed` server error and preserves the turn's
+existing terminal chunks and cleanup instead of throwing after termination. A
+normally finished turn marks the seam closed before teardown, leaving Mastra's
+existing writer exactly-once. The live-loop PGlite proof covers normal
+completion, watchdog abort, user Stop, resumed streams, next-turn recall, and
+non-reexecution of completed tools. An individual provider attempt that stalls
+but is replaced by a successful continuation is not an aborted turn and does
+not persist an abort snapshot; abort finalization runs only when the turn itself
+becomes terminal.
+
 3. **Edited-prompt branch topology:** Mastra remains the only writer of message
    CONTENT, but its rows do not retain assistant-ui's parent graph. The client
    history adapter therefore persists only `{messageId,parentId}` edges in
