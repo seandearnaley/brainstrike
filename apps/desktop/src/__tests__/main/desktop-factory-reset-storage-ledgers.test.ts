@@ -4,6 +4,23 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetDesktopApplicationData } from '../../desktop-factory-reset';
 
+// The reset reports its outcome at warn level. Capturing the logger keeps the
+// suite's output pristine AND turns "the wipe was reported" into an assertion.
+const { loggerMock } = vi.hoisted(() => ({
+  loggerMock: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  },
+}));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => loggerMock,
+}));
+
 /**
  * FACTORY RESET CONTRACT pin for the MAIN-PROCESS grant ledgers (BST-1395,
  * sibling of the BST-1061 python-runtime pin in `desktop-factory-reset.test.ts`).
@@ -25,6 +42,7 @@ describe('resetDesktopApplicationData — main-process storage grant ledgers', (
   let userDataPath: string;
 
   beforeEach(() => {
+    loggerMock.warn.mockClear();
     userDataPath = mkdtempSync(path.join(tmpdir(), 'bst-reset-ledgers-'));
   });
 
@@ -62,5 +80,9 @@ describe('resetDesktopApplicationData — main-process storage grant ledgers', (
     // `logs` is the ONLY preserved entry; the store must not join it.
     expect(result.preservedPaths).toEqual([path.join(userDataPath, 'logs')]);
     expect(readdirSync(userDataPath)).toEqual(['logs']);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'Desktop application data reset completed',
+      expect.objectContaining({ deletedPaths: [storePath] })
+    );
   });
 });
