@@ -5,7 +5,7 @@ import {
   getFileSizeConfig,
   isFullyQualifiedFileSystemPath,
 } from '@brainstrike/file-system';
-import type { SecureWorkspaceRoot } from './workspace-root-registry';
+import type { SecureWorkspaceRoot } from './workspace-root-types';
 
 /** Native secure-fs reads cap one operation at 16MB. */
 const NATIVE_MAX_READ_BYTES = 16 * 1024 * 1024;
