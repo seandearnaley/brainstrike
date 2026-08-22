@@ -47,7 +47,7 @@ interface ThreadListSectionBase {
 export interface ThreadListGroupSection extends ThreadListSectionBase {
   readonly header: ThreadListGroupHeader;
 }
-/** `id` is `folder:${rootId}` or `folder:unassigned`. */
+/** `id` is `folder:${rootId}` or `folder-unassigned`. */
 export interface ThreadListFolderSection extends ThreadListSectionBase {
   readonly header: ThreadListFolderHeader | ThreadListUnassignedHeader;
 }
@@ -62,8 +62,13 @@ export type ThreadListView =
     }
   | { readonly kind: 'folders'; readonly sections: readonly ThreadListFolderSection[] };
 
-/** Section id of the trailing "No folder" bucket in folder mode. */
-export const UNASSIGNED_FOLDER_SECTION_ID = 'folder:unassigned';
+/**
+ * Section id of the trailing "No folder" bucket in folder mode. Deliberately
+ * NOT of the form `folder:${rootId}` (a hyphen, not the colon `folderSectionId`
+ * uses) so no root id — including one literally named "unassigned" — can ever
+ * produce this id via `folderSectionId` and collide with the sentinel.
+ */
+export const UNASSIGNED_FOLDER_SECTION_ID = 'folder-unassigned';
 
 /** Section id for a folder section bound to `rootId`. */
 export function folderSectionId(rootId: string): string {
@@ -328,7 +333,7 @@ function resolveSectionThreads(
 
 /**
  * Thread ids belonging to ONE section, addressed by `section.id` (a group id in
- * custom-groups mode, `folder:${rootId}` / `folder:unassigned` in folder mode).
+ * custom-groups mode, `folder:${rootId}` / `folder-unassigned` in folder mode).
  * `null` addresses the custom-groups Ungrouped section, which has no section id
  * of its own; folder mode has no such section and answers empty.
  */

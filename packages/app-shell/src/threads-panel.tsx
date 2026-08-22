@@ -17,6 +17,7 @@ import {
   createPgliteAssistantThreadRepository,
   getGroupMemberIds,
   type ThreadListView,
+  type ThreadOrderPresentation,
   type ThreadsPanelGroupBy,
   type ThreadsPanelSortBy,
   useAssistantThreadGroupsStore,
@@ -2250,6 +2251,25 @@ function ThreadPanelTree({
   );
 }
 
+// `folder` mode has no manual sort order to persist (buildThreadListSections
+// sorts folder sections itself) and no rendering yet — Task 3/4 wires the
+// picker. Exhaustive over ThreadsPanelGroupBy so a future group-by value
+// fails loudly here instead of silently landing on `'grouped'`.
+function resolveSortPresentation(groupBy: ThreadsPanelGroupBy): ThreadOrderPresentation {
+  switch (groupBy) {
+    case 'none':
+      return 'flat';
+    case 'custom-groups':
+      return 'grouped';
+    case 'folder':
+      throw new Error('Folder grouping is not rendered yet (BST-1404/BST-1405 wire the panel).');
+    default: {
+      const exhaustive: never = groupBy;
+      throw new Error(`Unknown thread group-by presentation: ${JSON.stringify(exhaustive)}.`);
+    }
+  }
+}
+
 function ThreadsPanelContent({
   activeThreadIds,
   databaseError,
@@ -2564,7 +2584,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     () => buildThreadMembership({ groups, placements, threads }),
     [groups, placements, threads]
   );
-  const sortPresentation = groupBy === 'none' ? 'flat' : 'grouped';
+  const sortPresentation = resolveSortPresentation(groupBy);
   const sortBy = sortPresentation === 'flat' ? flatSortBy : groupedSortBy;
   const view = useMemo(
     () => buildThreadListSections({ groupBy, groups, placements, sortBy, threads }),

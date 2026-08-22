@@ -6,9 +6,11 @@ import type {
 } from '../assistant-thread-groups-repository';
 import {
   buildThreadListSections,
+  folderSectionId,
   getGroupMemberIds,
   getThreadPrimaryRootId,
   type ThreadFolderRow,
+  UNASSIGNED_FOLDER_SECTION_ID,
 } from '../thread-list-sections';
 
 function makeThread(overrides: {
@@ -463,7 +465,7 @@ describe('folder grouping', () => {
     expect(view.sections.map((section) => section.id)).toEqual([
       'folder:root-b',
       'folder:root-a',
-      'folder:unassigned',
+      'folder-unassigned',
     ]);
     const folderSection = view.sections[1];
     expect(folderSection?.header.kind).toBe('folder');
@@ -507,7 +509,7 @@ describe('folder grouping', () => {
     if (unknown.kind !== 'folders') {
       throw new Error('expected folders');
     }
-    expect(unknown.sections.map((section) => section.id)).toEqual(['folder:unassigned']);
+    expect(unknown.sections.map((section) => section.id)).toEqual(['folder-unassigned']);
   });
 
   it('sorts threads inside a folder by name when folderSortBy is name', () => {
@@ -564,7 +566,7 @@ describe('folder grouping', () => {
     ).toThrow('folder rows');
   });
 
-  it('getGroupMemberIds answers folder section ids and folder:unassigned', () => {
+  it('getGroupMemberIds answers folder section ids and folder-unassigned', () => {
     const view = buildThreadListSections({
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
@@ -581,8 +583,12 @@ describe('folder grouping', () => {
     const members = getGroupMemberIds(view, 'folder:root-a');
     expect(members).toEqual(['1']);
     expect(getGroupMemberIds(view, 'folder:root-a')).toBe(members);
-    expect(getGroupMemberIds(view, 'folder:unassigned')).toEqual(['2']);
+    expect(getGroupMemberIds(view, 'folder-unassigned')).toEqual(['2']);
     expect(getGroupMemberIds(view, 'folder:root-unknown')).toEqual([]);
     expect(getGroupMemberIds(view, null)).toEqual([]);
+  });
+
+  it('never lets a root literally named "unassigned" collide with the No folder sentinel', () => {
+    expect(folderSectionId('unassigned')).not.toBe(UNASSIGNED_FOLDER_SECTION_ID);
   });
 });

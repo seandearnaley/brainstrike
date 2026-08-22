@@ -98,20 +98,37 @@ type PersistedAssistantThreadState = Pick<
   | 'selectedThreadByResourceId'
 >;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
 /**
- * Version 4 introduced the per-thread viewed watermark. This migrate fills THAT
- * key and nothing else: the persisted threads state has never been validated on
- * load, and starting to repair it here would silently rewrite a user's tabs.
+ * Version 4 introduced the per-thread viewed watermark (`lastViewedAtByThreadId`).
+ * This migrate only knows how to bridge a version-3 blob into version 4 by
+ * filling that one key — every other field is passed through UNVALIDATED
+ * (deliberately: the persisted threads state has never been validated on
+ * load, and starting to repair it here would silently rewrite a user's open
+ * tabs). Any other version — including one older than 3 (an unrecorded shape
+ * this migrate was never written against) or one newer than 4 (a downgrade,
+ * where hydrating would silently accept fields this build doesn't know about)
+ * — is unsupported and must throw rather than be hydrated verbatim.
  */
 export function migrateAssistantThreadPersistedState(
   persistedState: unknown,
   version: number
 ): PersistedAssistantThreadState {
-  const persisted = persistedState as PersistedAssistantThreadState;
-  if (version >= 4) {
-    return persisted;
+  if (version !== 3) {
+    throw new Error(`Unsupported persisted assistant thread state version: ${version}.`);
   }
-  return { ...persisted, lastViewedAtByThreadId: {} };
+  if (!isRecord(persistedState)) {
+    throw new Error('Invalid persisted assistant thread state.');
+  }
+  // Deliberately unvalidated below this point: only the top-level shape (a
+  // record) is checked. The inner fields (activeThreadIdByResourceId, etc.)
+  // are passed through as-is, matching the load path, which has never
+  // validated them either.
+  const migrated: Record<string, unknown> = { ...persistedState, lastViewedAtByThreadId: {} };
+  return migrated as PersistedAssistantThreadState;
 }
 
 const resourceThreadLoadPromises = new Map<string, Promise<void>>();

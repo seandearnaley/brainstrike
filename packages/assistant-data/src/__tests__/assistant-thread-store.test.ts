@@ -901,6 +901,35 @@ describe('per-thread viewed watermark', () => {
       ...malformed,
       lastViewedAtByThreadId: {},
     });
-    expect(migrateAssistantThreadPersistedState(malformed, 4)).toEqual(malformed);
+  });
+
+  it('rejects a blob from before the key was introduced instead of reviving it', () => {
+    const persisted = {
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-a' },
+    };
+
+    expect(() => migrateAssistantThreadPersistedState(persisted, 1)).toThrow(
+      'Unsupported persisted assistant thread state version: 1.'
+    );
+  });
+
+  it('rejects a blob from a newer (downgrade) build instead of accepting it unchanged', () => {
+    const persisted = {
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-a' },
+      lastViewedAtByThreadId: { 'thread-a': 1000 },
+    };
+
+    expect(() => migrateAssistantThreadPersistedState(persisted, 5)).toThrow(
+      'Unsupported persisted assistant thread state version: 5.'
+    );
+  });
+
+  it('rejects a non-object persisted blob', () => {
+    expect(() => migrateAssistantThreadPersistedState('not-an-object', 3)).toThrow(
+      'Invalid persisted assistant thread state.'
+    );
+    expect(() => migrateAssistantThreadPersistedState(null, 3)).toThrow(
+      'Invalid persisted assistant thread state.'
+    );
   });
 });
