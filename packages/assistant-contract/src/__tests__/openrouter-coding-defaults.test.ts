@@ -69,6 +69,17 @@ describe('resolveOpenRouterCodingMaxOutputTokens', () => {
 });
 
 describe('resolveOpenRouterAutoRuntimeProfile', () => {
+  it('sends Ox Alpha its mandatory max default without widening the coding output ceiling', () => {
+    const oxAlpha = listProviderLlmModels('openrouter').find(({ id }) => id === 'stealth/ox-alpha');
+    if (!oxAlpha) {
+      throw new Error('Ox Alpha is missing from the OpenRouter registry');
+    }
+    expect(resolveOpenRouterAutoRuntimeProfile(oxAlpha)).toEqual({
+      maxOutputTokens: 32_000,
+      reasoningEffort: 'max',
+    });
+  });
+
   it('sends the vendor default effort when the catalog records no override', () => {
     expect(
       resolveOpenRouterAutoRuntimeProfile({

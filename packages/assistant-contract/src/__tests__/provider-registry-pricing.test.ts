@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { listProviderLlmModels, listProviders } from '../provider-registry.js';
 
+const KNOWN_FREE_PRICED_MODEL_KEYS = new Set(['openrouter/stealth/ox-alpha']);
+
 describe('model pricing metadata', () => {
-  it('every declared pricing has positive finite input/output per-MTok rates', () => {
+  it('keeps paid rates positive and limits zero rates to reviewed free routes', () => {
     for (const provider of listProviders()) {
       for (const model of provider.models) {
         if (model.type !== 'llm' || model.pricing === undefined) {
@@ -13,8 +15,14 @@ describe('model pricing metadata', () => {
         expect(Number.isFinite(outputPerMTok), `${provider.id}/${model.id} outputPerMTok`).toBe(
           true
         );
-        expect(inputPerMTok, `${provider.id}/${model.id} inputPerMTok`).toBeGreaterThan(0);
-        expect(outputPerMTok, `${provider.id}/${model.id} outputPerMTok`).toBeGreaterThan(0);
+        const modelKey = `${provider.id}/${model.id}`;
+        if (KNOWN_FREE_PRICED_MODEL_KEYS.has(modelKey)) {
+          expect(inputPerMTok, `${modelKey} inputPerMTok`).toBe(0);
+          expect(outputPerMTok, `${modelKey} outputPerMTok`).toBe(0);
+          continue;
+        }
+        expect(inputPerMTok, `${modelKey} inputPerMTok`).toBeGreaterThan(0);
+        expect(outputPerMTok, `${modelKey} outputPerMTok`).toBeGreaterThan(0);
       }
     }
   });
@@ -111,6 +119,13 @@ describe('model pricing metadata', () => {
     for (const model of listProviderLlmModels('local')) {
       expect(model.pricing, `local/${model.id}`).toBeUndefined();
     }
+  });
+
+  it('records Ox Alpha as free during its OpenRouter stealth preview', () => {
+    const oxAlpha = listProviderLlmModels('openrouter').find(
+      (model) => model.id === 'stealth/ox-alpha'
+    );
+    expect(oxAlpha?.pricing).toEqual({ inputPerMTok: 0, outputPerMTok: 0 });
   });
 
   it('new hosted models carry current base-rate estimates', () => {
