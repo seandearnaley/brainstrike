@@ -3,10 +3,12 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type {
   WorkspaceBarProps,
   WorkspaceBarRecentRoot,
+  WorkspaceBarReveal,
   WorkspaceBarRoot,
 } from '@brainstrike/assistant-ui';
 import { createClipboardService } from '@brainstrike/context-actions';
 import type { DbHandle } from '@brainstrike/db/react';
+import { revealLabel } from '@brainstrike/file-explorer-ui/context-actions';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry } from '@brainstrike/types';
@@ -247,8 +249,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // acquired by `useThreadCheckoutStatus` below, which this hook always calls.
   const invalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
   useEffect(() => {
+    // No clearing branch: the state is PATH-tagged and the read below ignores a
+    // row resolved for any other path, so a bail-out needs no synchronous
+    // setState (react-hooks/set-state-in-effect).
     if (bindingRootId || !(database && mainRootPath && mainRootDisplayName)) {
-      setMainRootRow(null);
       return;
     }
     let cancelled = false;
@@ -297,10 +301,19 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
       : undefined;
 
-  const [secondaryRoots, setSecondaryRoots] = useState<readonly WorkspaceBarRoot[]>(NO_ROOTS);
+  // Id-list-tagged, for the same reason `mainRootRow` is path-tagged: a
+  // resolution for one id list is never rendered under another, and a bail-out
+  // needs no clearing setState (react-hooks/set-state-in-effect).
+  const [resolvedSecondaries, setResolvedSecondaries] = useState<{
+    readonly key: string;
+    readonly roots: readonly WorkspaceBarRoot[];
+  } | null>(null);
+  const secondaryRoots =
+    database && resolvedSecondaries?.key === secondaryRootIdsKey
+      ? resolvedSecondaries.roots
+      : NO_ROOTS;
   useEffect(() => {
     if (!(database && secondaryRootIds.length > 0)) {
-      setSecondaryRoots(NO_ROOTS);
       return;
     }
     let cancelled = false;
@@ -314,8 +327,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           return;
         }
         const byId = new Map(result.rows.map((row) => [row.id, row]));
-        setSecondaryRoots(
-          secondaryRootIds.flatMap((id) => {
+        setResolvedSecondaries({
+          key: secondaryRootIdsKey,
+          roots: secondaryRootIds.flatMap((id) => {
             const row = byId.get(id);
             if (!row) {
               logger.warn('secondary root id has no roots row', { id });
@@ -328,41 +342,54 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
                 rootId: row.id,
               },
             ];
-          })
-        );
+          }),
+        });
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           logger.error('failed to load the thread secondary roots', { error });
-          setSecondaryRoots(NO_ROOTS);
+          // Tagged with the key it failed for, so the failure is not retried on
+          // every render and no other id list inherits an empty result.
+          setResolvedSecondaries({ key: secondaryRootIdsKey, roots: NO_ROOTS });
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [database, secondaryRootIds]);
+  }, [database, secondaryRootIds, secondaryRootIdsKey]);
 
   // The ledger is read once per capability identity; which entries are still
   // OFFERABLE is a render-time question (a folder mounted or disconnected this
   // session must leave/re-enter the list without another IPC round-trip).
-  const [recentEntries, setRecentEntries] = useState<readonly RecentRootEntry[]>(NO_RECENT_ENTRIES);
   const listRecentRoots = fileSystem.listRecentRoots;
+  // Source-tagged: entries read through one capability are never rendered after
+  // the adapter swaps it out, so losing the capability needs no clearing
+  // setState (react-hooks/set-state-in-effect).
+  const [loadedRecents, setLoadedRecents] = useState<{
+    readonly entries: readonly RecentRootEntry[];
+    readonly source: NonNullable<typeof listRecentRoots>;
+  } | null>(null);
+  // `listRecentRoots` is checked FIRST: with no capability it is `undefined`,
+  // and `null?.source` would be `undefined` too — the two must not "match".
+  const recentEntries =
+    listRecentRoots && loadedRecents?.source === listRecentRoots
+      ? loadedRecents.entries
+      : NO_RECENT_ENTRIES;
   useEffect(() => {
     if (!listRecentRoots) {
-      setRecentEntries(NO_RECENT_ENTRIES);
       return;
     }
     let cancelled = false;
     listRecentRoots()
       .then((entries) => {
         if (!cancelled) {
-          setRecentEntries(entries);
+          setLoadedRecents({ entries, source: listRecentRoots });
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           logger.error('failed to list the recent roots', { error });
-          setRecentEntries(NO_RECENT_ENTRIES);
+          setLoadedRecents({ entries: NO_RECENT_ENTRIES, source: listRecentRoots });
         }
       });
     return () => {
@@ -449,9 +476,17 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       const settled = (async (): Promise<ThreadFoldersWriteTail | null> => {
         const tail = previous ? await previous : null;
         const live = threadFoldersRef.current;
-        // The queue may have held this write across a thread switch or an
-        // unmount; the state it would derive from is no longer this write's.
-        if (unmountedRef.current || !startedForThreadId || live.threadId !== startedForThreadId) {
+        // A write with NO thread is a caller bug, not an expected outcome: the
+        // action fired while nothing was selected. Skipping it silently is what
+        // makes "the folder did not attach" look like a UI glitch.
+        if (!startedForThreadId) {
+          logger.error('Cannot update thread folders without an active thread');
+          return tail;
+        }
+        // A thread switch or an unmount, by contrast, is the ordinary reason a
+        // queued write no longer applies — the state it would derive from is no
+        // longer this write's. Those stay silent.
+        if (unmountedRef.current || live.threadId !== startedForThreadId) {
           return tail;
         }
         // Only a tail from THIS thread describes this write's starting point.
@@ -552,18 +587,26 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   }, [addRootDirectory, recordAddedAsSecondary]);
 
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
-  const onAddRecent = useMemo(() => {
-    if (!addRootDirectoryByPath) {
-      return;
-    }
-    return (path: string): void => {
+  // Always defined; the CAPABILITY decides whether the prop is supplied (see
+  // the return). Gating the spread on `addRootDirectoryByPath` rather than on
+  // this callback keeps the render-time condition free of the ref-derived
+  // values `recordAddedAsSecondary` closes over (react-hooks/refs).
+  const onAddRecent = useCallback(
+    (path: string): void => {
+      if (!addRootDirectoryByPath) {
+        logger.error('Recent folder re-mount requested without the picker-less capability', {
+          path,
+        });
+        return;
+      }
       addRootDirectoryByPath(path)
         .then((handle) => (handle ? recordAddedAsSecondary(handle) : undefined))
         .catch((error: unknown) =>
           logger.error('Recent folder could not be re-mounted', { error, path })
         );
-    };
-  }, [addRootDirectoryByPath, recordAddedAsSecondary]);
+    },
+    [addRootDirectoryByPath, recordAddedAsSecondary]
+  );
 
   const onMakePrimary = useCallback(
     (rootId: string) => {
@@ -609,14 +652,20 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // Resolved ONCE per hook instance, not per render — the capability check IS
   // the platform gate; web omits the affordance rather than stubbing it.
   const platform = useMemo(() => resolvePlatformBridge(), []);
-  const onRevealRoot = useMemo(() => {
+  // The label travels WITH the handler (WorkspaceBarReveal): the chip must
+  // never name an OS it cannot open, and `revealLabel()` is the same
+  // platform-aware helper the file-explorer context actions use.
+  const reveal = useMemo<WorkspaceBarReveal | undefined>(() => {
     if (!platform) {
       return;
     }
-    return (path: string): void => {
-      platform.showItemInFolder(path).catch((error: unknown) => {
-        logger.error('Reveal folder failed', { error, path });
-      });
+    return {
+      label: revealLabel(),
+      onReveal: (path: string): void => {
+        platform.showItemInFolder(path).catch((error: unknown) => {
+          logger.error('Reveal folder failed', { error, path });
+        });
+      },
     };
   }, [platform]);
   // Routed through the shared clipboard service (never raw navigator): a
@@ -639,18 +688,25 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       });
   }, []);
 
-  const checkout = useThreadCheckoutStatus(primaryRootId ?? null);
+  const primaryRootPath = primaryRoot?.path;
+  const checkout = useThreadCheckoutStatus(
+    primaryRootId && primaryRootPath ? { path: primaryRootPath, rootId: primaryRootId } : null
+  );
 
   return {
-    ...(checkout ? { checkout } : {}),
+    // Gated on `primaryRoot`, not just on `checkout`: the branch chip describes
+    // the primary folder, so it must never outlive the row it describes — a
+    // resolved id whose `operatingRoot` has not landed yet would otherwise
+    // render a branch with no folder beside it.
+    ...(primaryRoot && checkout ? { checkout } : {}),
     onAddFolder,
-    ...(onAddRecent ? { onAddRecent } : {}),
+    ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,
     onMakePrimary,
     onRemoveSecondary,
-    ...(onRevealRoot ? { onRevealRoot } : {}),
     ...(primaryRoot ? { primaryRoot } : {}),
     recentRoots,
+    ...(reveal ? { reveal } : {}),
     secondaryRoots,
   };
 }

@@ -5,6 +5,7 @@ import type {
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { ActionOutcome } from '@brainstrike/context-actions';
 import type { DbHandle } from '@brainstrike/db/react';
+import { revealLabel } from '@brainstrike/file-explorer-ui/context-actions';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
@@ -40,8 +41,13 @@ const webFs: Pick<typeof fs, 'addRootDirectory'> &
 let currentFs: typeof fs | typeof webFs = fs;
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => currentFs }));
 
+// The reveal affordance is capability-gated on the real `window.platform`
+// bridge — installed here rather than mocked so the capability check under
+// test is the production one.
+const showItemInFolder = vi.fn(async () => ({ ok: true }));
+
 const { checkoutSpy, clipboardWriteText, loggerMock, toastSpy } = vi.hoisted(() => ({
-  checkoutSpy: vi.fn((_rootId: string | null) => ({
+  checkoutSpy: vi.fn((_root: { readonly path: string; readonly rootId: string } | null) => ({
     ahead: 0,
     behind: 0,
     branch: 'main',
@@ -218,7 +224,7 @@ async function setup(metadata: Record<string, unknown> = {}) {
         rootDescriptors,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
       }),
-    { initialProps: { selectedMemoryThreadId: THREAD_ID } satisfies BarProps }
+    { initialProps: { selectedMemoryThreadId: THREAD_ID } as BarProps }
   );
   // Let the mount-time roots/recents reads settle inside act so no state
   // update escapes the test's act() scope.
@@ -227,6 +233,12 @@ async function setup(metadata: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  (window as Window & { platform?: unknown }).platform = {
+    openExternal: vi.fn(async () => ({ ok: true })),
+    openPath: vi.fn(async () => ({ ok: true })),
+    showItemInFolder,
+  };
+  showItemInFolder.mockClear();
   useAssistantThreadStore.setState({ updateThreadMetadata: realUpdateThreadMetadata });
   currentFs = fs;
   liveRootMisses.clear();
@@ -246,6 +258,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.deleteProperty(window, 'platform');
   vi.useRealTimers();
 });
 
@@ -275,8 +288,10 @@ describe('useWorkspaceBar', () => {
     const { result } = await setup();
     await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
     // The checkout read is a DB-space consumer: it must see the roots row id.
-    expect(checkoutSpy).toHaveBeenCalledWith('r-main-db');
-    expect(checkoutSpy).not.toHaveBeenCalledWith('adapter-main');
+    expect(checkoutSpy).toHaveBeenCalledWith({ path: '/ws/brainstrike', rootId: 'r-main-db' });
+    expect(checkoutSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ rootId: 'adapter-main' })
+    );
   });
 
   it('warns and shows no primary when the MAIN root has no live roots row', async () => {
@@ -292,7 +307,9 @@ describe('useWorkspaceBar', () => {
       expect.objectContaining({ path: '/ws/brainstrike' })
     );
     // Never an invented id.
-    expect(checkoutSpy).not.toHaveBeenCalledWith('adapter-main');
+    expect(checkoutSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ rootId: 'adapter-main' })
+    );
     expect(checkoutSpy).toHaveBeenCalledWith(null);
   });
 
@@ -530,6 +547,44 @@ describe('useWorkspaceBar', () => {
     );
     // ONE write: the store must never show the new primary as a secondary too.
     expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
+  });
+
+  it('withholds the checkout while the primary root is absent', async () => {
+    vi.useFakeTimers();
+    // The primary never resolves, so `primaryRoot` stays undefined — but the
+    // checkout hook is mocked to always answer. The branch chip must not
+    // render a branch with no folder beside it.
+    liveRootMisses.set('/ws/brainstrike', Number.POSITIVE_INFINITY);
+    const { result } = await setup();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(result.current.primaryRoot).toBeUndefined();
+    expect(result.current.checkout).toBeUndefined();
+  });
+
+  it('supplies the reveal action with the platform label, never a hardcoded OS name', async () => {
+    const { result } = await setup();
+    expect(result.current.reveal?.label).toBe(revealLabel());
+    result.current.reveal?.onReveal('/ws/brainstrike');
+    expect(showItemInFolder).toHaveBeenCalledWith('/ws/brainstrike');
+  });
+
+  it('logs instead of silently skipping a folder write with no active thread', async () => {
+    const { rerender, result } = await setup({ secondaryRootIds: ['r-docs'] });
+    rerender({ selectedMemoryThreadId: undefined });
+
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+
+    // A write fired with nothing selected is a caller bug, not the ordinary
+    // thread-switch skip — it must be loud, and it must not write.
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Cannot update thread folders without an active thread'
+    );
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
   });
 
   it('offers no recents and no re-mount affordance on web (capabilities absent)', async () => {

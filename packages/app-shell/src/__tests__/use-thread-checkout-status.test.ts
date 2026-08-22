@@ -44,7 +44,9 @@ describe('useThreadCheckoutStatus', () => {
         upstream: 'origin/main',
       },
     });
-    const { result } = renderHook(() => useThreadCheckoutStatus('root-a'));
+    const { result } = renderHook(() =>
+      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+    );
     await waitFor(() =>
       expect(result.current).toEqual({ ahead: 2, behind: 0, branch: 'main', dirty: false })
     );
@@ -74,6 +76,49 @@ describe('useThreadCheckoutStatus', () => {
     expect(status).toHaveBeenCalledTimes(2);
   });
 
+  it('refetches on a WORKING-TREE refresh for its own repository, and not for another', async () => {
+    const cleanStatus = {
+      ok: true,
+      value: {
+        ahead: 0,
+        behind: 0,
+        branch: 'main',
+        clean: true,
+        files: [],
+        isRepository: true,
+        upstream: null,
+      },
+    };
+    status.mockResolvedValue(cleanStatus);
+    const { result } = renderHook(() =>
+      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+    );
+    await waitFor(() => expect(result.current?.dirty).toBe(false));
+    expect(status).toHaveBeenCalledTimes(1);
+
+    // A working-tree edit under ANOTHER repository must not churn this chip.
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestWorkingTreeRefresh(['/ws/other']);
+    });
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
+
+    // Its own repository's working tree changed: the dirty dot must follow,
+    // even though no git-METADATA push accompanied the edit.
+    status.mockResolvedValue({
+      ok: true,
+      value: {
+        ...cleanStatus.value,
+        clean: false,
+        files: [{ path: 'a', staged: false, status: 'M', unstaged: true, untracked: false }],
+      },
+    });
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestWorkingTreeRefresh(['/ws/a']);
+    });
+    await waitFor(() => expect(result.current?.dirty).toBe(true));
+    expect(status).toHaveBeenCalledTimes(2);
+  });
+
   it('returns undefined for a non-repository, a null root, and when the bridge is absent', async () => {
     status.mockResolvedValueOnce({
       ok: true,
@@ -87,7 +132,9 @@ describe('useThreadCheckoutStatus', () => {
         upstream: null,
       },
     });
-    const { result } = renderHook(() => useThreadCheckoutStatus('root-a'));
+    const { result } = renderHook(() =>
+      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+    );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     expect(result.current).toBeUndefined();
 
@@ -95,14 +142,18 @@ describe('useThreadCheckoutStatus', () => {
     expect(nullRoot.current).toBeUndefined();
 
     (window as Window & { git?: unknown }).git = undefined;
-    const { result: noBridge } = renderHook(() => useThreadCheckoutStatus('root-a'));
+    const { result: noBridge } = renderHook(() =>
+      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+    );
     expect(noBridge.current).toBeUndefined();
     expect(status).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces a failed status as undefined and logs — never a fake clean state', async () => {
     status.mockResolvedValueOnce({ error: 'boom', ok: false });
-    const { result } = renderHook(() => useThreadCheckoutStatus('root-a'));
+    const { result } = renderHook(() =>
+      useThreadCheckoutStatus({ path: '/ws/a', rootId: 'root-a' })
+    );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     expect(result.current).toBeUndefined();
   });
@@ -127,7 +178,8 @@ describe('useThreadCheckoutStatus', () => {
       })
     );
     const { rerender, result } = renderHook(
-      ({ rootId }: { rootId: string }) => useThreadCheckoutStatus(rootId),
+      ({ rootId }: { rootId: string }) =>
+        useThreadCheckoutStatus({ path: `/ws/${rootId}`, rootId }),
       { initialProps: { rootId: 'root-a' } }
     );
     await waitFor(() => expect(result.current?.branch).toBe('root-a-branch'));
