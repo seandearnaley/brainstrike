@@ -893,7 +893,24 @@ in `assistant-run-event-derivation.ts`: the timeline asks whether the pause row
 has reached a terminal state (a still-executing tool has not), while the panel
 asks whether the user still has to answer (a tool that started was approved).
 
-Paired coverage: `packages/app-shell/src/__tests__/use-threads-awaiting-approval.test.ts`.
+Both sides of that anti-join are served by two PARTIAL indexes on
+`brainstrike_assistant_run_events` — `…_approval_pause_idx`
+`(resource_id, thread_id) WHERE kind = 'tool.approval.requested'` and
+`…_approval_answer_idx` `(resource_id, thread_id, (metadata->>'toolCallId'))`
+over the four answer kinds. Every pre-existing index on that table leads with
+`thread_id` or `run_id`, so without these the query full-scanned the largest
+assistant table twice on every `run_events` notify. They live in
+`buildAssistantThreadRunsSchemaSql` and NOWHERE else: this table admits no
+numbered migration (see RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP above), and the
+`IF NOT EXISTS` bootstrap re-runs per handle init, so existing installs pick
+them up — the same upgrade path as that blob's `turn_message_id` ADD COLUMN.
+
+Paired coverage: `packages/app-shell/src/__tests__/use-threads-awaiting-approval.test.ts`
+(query text) and `…/use-threads-awaiting-approval.integration.test.ts` (real
+PGlite: the SELECT's OUTCOME over rows seeded through the production repository
+writers, including the cross-run resolution, the per-thread/per-resource
+scoping, and the paused-run-row-is-`completed` case that a status-correlated
+query would fail — a substring assertion cannot catch that class of error).
 
 ### RUN ERROR PROVIDER FORENSICS (Flight Recorder P3)
 
@@ -1946,7 +1963,13 @@ Where state lives (do not relitigate):
   are THREAD-DERIVED, so **a mounted folder with no threads produces no
   section**: a folder section is a view over threads, not a mirror of the mount
   list, and unlike a user-created group there is no durable object whose
-  emptiness must stay visible.
+  emptiness must stay visible. A failed `roots` query is reported as
+  `error`, NOT as an empty resolved map: an empty map with `loading: false`
+  renders every thread under "No folder", which is the same silent degrade the
+  run-state indicators above already refuse. Its `rowsByRootId` carries the RAW
+  `roots.path`, while the branch map below is keyed by NORMALIZED path — a
+  consumer joining the two must normalize first or the chip silently never
+  appears.
 - Unseen/needs-attention badges come from `use-unseen-thread-ids.ts` (BST-1404):
   a pure `deriveUnseenThreadIds` (terminal `latestRun` completed after the
   thread's watermark, active thread excluded, `failedUnseen ⊂ unseen`; a
@@ -1955,8 +1978,12 @@ Where state lives (do not relitigate):
   way in AND out of a thread and again whenever the active thread's run reaches a
   new `completedAt` while it is still active — so a run finishing in the
   foreground can never later read as unseen. Folder branch chips come from
-  `use-thread-branch-by-root-path.ts`: ONE eager `useGitInventory()`, keyed by
-  EXACT normalized worktree path (never `containment`, which is many-to-one and
+  `use-thread-branch-by-root-path.ts`: ONE `useGitInventory()` GATED on
+  `enabled` (`deferInitialLoad: !enabled`) because one load is a full
+  repo/worktree scan across every workspace root (BST-1116 W6 finding 4) and the
+  chips exist only in folders grouping — entering that grouping is the gesture,
+  so this is a deferral, not a silent disable; the flip itself performs the load
+  exactly once. Keyed by EXACT normalized worktree path (never `containment`, which is many-to-one and
   would let a root that merely contains repositories borrow one of their
   branches). Desktop only; web reports `available: false` and renders no chip.
 - The per-thread viewed watermark `lastViewedAtByThreadId` (epoch ms) lives in

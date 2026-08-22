@@ -1,0 +1,210 @@
+/**
+ * The "needs you" projection against REAL PGlite and REAL table shapes.
+ *
+ * The sibling unit suite asserts substrings of the query text, which cannot
+ * catch the class of error this query was corrected for: a
+ * `thread_runs.status = 'running'` join is a perfectly well-formed string that
+ * would make the projection permanently EMPTY. Only executing the SELECT over
+ * seeded rows falsifies that.
+ *
+ * Rows are seeded through the production repository writers
+ * (`createThread` → `createThreadRun` → `appendThreadRunEvent`), which also run
+ * the renderer-lazy `ASSISTANT_THREAD_RUNS_SCHEMA_SQL` bootstrap that OWNS
+ * these tables — there is no numbered migration for them (see
+ * `docs/agents/assistant-persistence.md`, RUN-EVENT / THREAD-RUN SCHEMA
+ * OWNERSHIP). Parents therefore exist before children by construction: the
+ * Mastra threads row before the `thread_runs` row before the `run_events` row,
+ * which the FKs require.
+ */
+import type { AssistantRunEventKind } from '@brainstrike/assistant-contract';
+import {
+  type AssistantThreadRepository,
+  createPgliteAssistantThreadRepository,
+} from '@brainstrike/assistant-data';
+import { wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { THREADS_AWAITING_APPROVAL_SQL } from '../hooks/use-threads-awaiting-approval';
+
+const RESOURCE_ID = 'workspace-a';
+const OTHER_RESOURCE_ID = 'workspace-b';
+
+let database: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
+let repository: AssistantThreadRepository;
+let sequence = 0;
+
+/**
+ * Seeded `completed`, which is what production records for BOTH legs: a leg
+ * that pauses for approval finishes with `finishReason: 'tool-calls'` and every
+ * terminal writer stores that as `completed`. Seeding `running` would let a
+ * status-correlated query pass this suite while being permanently empty in the
+ * real database.
+ */
+async function seedRun(threadId: string, resourceId: string, runId: string): Promise<void> {
+  await repository.createThreadRun({
+    id: runId,
+    model: 'test-model',
+    provider: 'test-provider',
+    resourceId,
+    runtimeKind: 'browser',
+    status: 'completed',
+    threadId,
+  });
+}
+
+async function seedEvent(
+  runId: string,
+  kind: AssistantRunEventKind,
+  toolCallId: string | null
+): Promise<void> {
+  sequence += 1;
+  await repository.appendThreadRunEvent(runId, {
+    id: `${runId}-${kind}-${sequence}`,
+    kind,
+    label: kind,
+    ...(toolCallId === null ? {} : { metadata: { toolCallId } }),
+    sequence,
+    status: kind === 'tool.approval.requested' ? 'running' : 'completed',
+    timestamp: new Date(Date.UTC(2026, 7, 20, 12, sequence)).toISOString(),
+  });
+}
+
+async function awaitingApprovalThreadIds(resourceId: string): Promise<readonly string[]> {
+  const result = await database.query<{ threadId: string }>(THREADS_AWAITING_APPROVAL_SQL, [
+    resourceId,
+  ]);
+  return result.rows.map((row) => row.threadId);
+}
+
+beforeEach(async () => {
+  sequence = 0;
+  database = await wasmLoader.createPGlite('memory://');
+  repository = createPgliteAssistantThreadRepository(database as DbHandle);
+});
+
+afterEach(async () => {
+  await database.close();
+});
+
+describe('threads-awaiting-approval query on real PGlite', () => {
+  it('returns a thread whose approval pause has no answer', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-pending');
+    await seedEvent('run-pending', 'tool.approval.requested', 'call-pending');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
+  // The load-bearing case. The resume leg mints its OWN runId (and its own
+  // thread_runs row), so the answering event carries a DIFFERENT run_id than
+  // the pause. Pairing is on toolCallId alone; a run-correlated query would
+  // never close this pause.
+  it('drops a thread whose pause was answered from a DIFFERENT run', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-paused');
+    await seedEvent('run-paused', 'tool.approval.requested', 'call-answered');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-resume');
+    await seedEvent('run-resume', 'tool.completed', 'call-answered');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
+  it('does not let an answer for a DIFFERENT toolCallId resolve the pause', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-paused');
+    await seedEvent('run-paused', 'tool.approval.requested', 'call-pending');
+    await seedRun(thread.id, RESOURCE_ID, 'run-other');
+    await seedEvent('run-other', 'tool.completed', 'call-unrelated');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
+  it('treats each of the four answer kinds as a resolution', async () => {
+    const answered: readonly AssistantRunEventKind[] = [
+      'tool.started',
+      'tool.completed',
+      'tool.failed',
+      'tool.resume.unsupported',
+    ];
+    for (const [index, kind] of answered.entries()) {
+      const thread = await repository.createThread(RESOURCE_ID);
+      await seedRun(thread.id, RESOURCE_ID, `run-pause-${index}`);
+      await seedEvent(`run-pause-${index}`, 'tool.approval.requested', `call-${index}`);
+      await seedRun(thread.id, RESOURCE_ID, `run-answer-${index}`);
+      await seedEvent(`run-answer-${index}`, kind, `call-${index}`);
+    }
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
+  // A pause nothing could ever answer must not pin the badge forever: with both
+  // sides NULL the metadata equality is NULL, so the NOT EXISTS would hold.
+  it('excludes a pause row with no toolCallId', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-null');
+    await seedEvent('run-null', 'tool.approval.requested', null);
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
+  it('never leaks another workspace or another thread into the result', async () => {
+    const mine = await repository.createThread(RESOURCE_ID);
+    await seedRun(mine.id, RESOURCE_ID, 'run-mine');
+    await seedEvent('run-mine', 'tool.approval.requested', 'call-mine');
+
+    const theirs = await repository.createThread(OTHER_RESOURCE_ID);
+    await seedRun(theirs.id, OTHER_RESOURCE_ID, 'run-theirs');
+    await seedEvent('run-theirs', 'tool.approval.requested', 'call-theirs');
+
+    // Same toolCallId as `mine`, answered in ANOTHER thread: the pause is
+    // scoped per thread, so this must not close `mine`.
+    const sibling = await repository.createThread(RESOURCE_ID);
+    await seedRun(sibling.id, RESOURCE_ID, 'run-sibling');
+    await seedEvent('run-sibling', 'tool.completed', 'call-mine');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([mine.id]);
+    expect(await awaitingApprovalThreadIds(OTHER_RESOURCE_ID)).toEqual([theirs.id]);
+  });
+
+  // The two partial indexes exist for THIS query and live in the same
+  // bootstrap blob that creates the table (no numbered migration may exist for
+  // it). Asserted by existence, not by EXPLAIN: at these row counts the planner
+  // correctly prefers a sequential scan, so a plan assertion would be theatre.
+  it('bootstraps the partial indexes that serve this query', async () => {
+    // The bootstrap is LAZY — a repository call is what runs it.
+    await repository.createThread(RESOURCE_ID);
+
+    const indexes = await database.query<{ indexdef: string; indexname: string }>(
+      `SELECT indexname, indexdef
+       FROM pg_indexes
+       WHERE tablename = 'brainstrike_assistant_run_events'
+         AND indexname LIKE '%approval%'
+       ORDER BY indexname`
+    );
+
+    expect(indexes.rows.map((row) => row.indexname)).toEqual([
+      'brainstrike_assistant_run_events_approval_answer_idx',
+      'brainstrike_assistant_run_events_approval_pause_idx',
+    ]);
+    expect(indexes.rows[1]?.indexdef).toContain("kind = 'tool.approval.requested'::text");
+    expect(indexes.rows[0]?.indexdef).toContain('toolCallId');
+  });
+
+  // The correction this query exists for: a paused leg is recorded
+  // `status = 'completed'` (finishReason 'tool-calls'), so any predicate on the
+  // run row's status would empty the projection.
+  it('still returns the thread when the paused run row is completed', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-completed');
+    await seedEvent('run-completed', 'tool.approval.requested', 'call-pending');
+    await repository.completeThreadRun('run-completed', { status: 'completed' });
+
+    const runStatus = await database.query<{ status: string }>(
+      'SELECT status FROM brainstrike_assistant_thread_runs WHERE id = $1',
+      ['run-completed']
+    );
+    expect(runStatus.rows[0]?.status).toBe('completed');
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+});

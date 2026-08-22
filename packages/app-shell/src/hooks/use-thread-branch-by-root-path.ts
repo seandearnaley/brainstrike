@@ -4,10 +4,23 @@
  *
  * ONE `useGitInventory()` for the whole panel — the inventory already spans
  * every repository and worktree across every root, so a per-folder git call
- * would be N round trips for data one call already carries. Loading is EAGER
- * (not `deferInitialLoad`): the chips are part of first paint of the folders
- * view, and a deferred load with no gesture to `refresh()` from would be a
- * silent disable.
+ * would be N round trips for data one call already carries.
+ *
+ * GATED ON `enabled`, which maps to `deferInitialLoad: !enabled`. One
+ * inventory load is a FULL repository/worktree scan across every workspace root
+ * — the cost that made `deferInitialLoad` exist at all (BST-1116 W6 review
+ * finding 4, where merely mounting the git panel header paid for it). Branch
+ * chips exist ONLY in the Threads panel's `groupBy: 'folder'` view, so an
+ * ungated hook would charge that scan to every panel mount in every grouping
+ * mode.
+ *
+ * This is NOT the silent disable that hook's doc forbids: ENTERING folders
+ * grouping is the gesture. `enabled` flips with the grouping mode, and because
+ * `deferInitialLoad` is a dependency of the inventory hook's own load effect,
+ * that flip performs the load — exactly once, with no second `refresh()` call
+ * here that would double the scan. While `enabled` is false the map is empty
+ * and `available` still reports the bridge honestly, so a caller can tell
+ * "not requested" from "no bridge".
  *
  * MATCHING IS EXACT PATH EQUALITY, not `WorktreeDescriptor.containment`.
  * `containment` answers "which roots contain this worktree", which is
@@ -39,8 +52,13 @@ export interface ThreadBranchByRootPathState {
   readonly byRootPath: ReadonlyMap<string, ThreadBranchInfo>;
 }
 
-export function useThreadBranchByRootPath(): ThreadBranchByRootPathState {
-  const { available, inventory } = useGitInventory();
+export function useThreadBranchByRootPath({
+  enabled,
+}: {
+  /** True only while the branch chips can actually be rendered — see above. */
+  readonly enabled: boolean;
+}): ThreadBranchByRootPathState {
+  const { available, inventory } = useGitInventory({ deferInitialLoad: !enabled });
   const byRootPath = useMemo<ReadonlyMap<string, ThreadBranchInfo>>(() => {
     if (!inventory) {
       // `null` is "not resolved yet", NOT "no repositories" — either way there

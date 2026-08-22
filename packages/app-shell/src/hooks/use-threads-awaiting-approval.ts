@@ -34,8 +34,15 @@ import { useMemo } from 'react';
  * timeline asks "has this pause row reached a terminal state" — where a
  * still-executing tool is not one — while this panel asks "does the user still
  * have to answer", and a tool that has STARTED was already approved.
+ *
+ * Exported for the real-PGlite lane
+ * (`__tests__/use-threads-awaiting-approval.integration.test.ts`), which proves
+ * this SELECT's OUTCOME against seeded rows. Substring assertions over the
+ * query text cannot: the very error this query was corrected FOR (a
+ * `thread_runs.status = 'running'` join that makes the projection permanently
+ * empty) reads as a perfectly well-formed string.
  */
-const THREADS_AWAITING_APPROVAL_SQL = `
+export const THREADS_AWAITING_APPROVAL_SQL = `
   SELECT DISTINCT requested.thread_id AS "threadId"
   FROM brainstrike_assistant_run_events requested
   WHERE requested.resource_id = $1

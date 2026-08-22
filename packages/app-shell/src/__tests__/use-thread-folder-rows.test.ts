@@ -38,6 +38,7 @@ const DATABASE = { query } as unknown as DbHandle;
 
 beforeEach(() => {
   query.mockReset();
+  loggerMock.error.mockClear();
   loggerMock.warn.mockClear();
   query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
     if (!sql.includes('FROM roots')) {
@@ -134,7 +135,10 @@ describe('useThreadFolderRows', () => {
     expect(loggerMock.warn).toHaveBeenCalledTimes(1);
   });
 
-  it('reports the failed id set as resolved-empty and logs the error without retrying it', async () => {
+  // The failure must be REPORTABLE, not just logged: an empty map with
+  // `loading: false` and no error renders every thread under "No folder",
+  // which is the silent degrade this projection's sibling already refuses.
+  it('surfaces the query failure as an error instead of an empty resolved map', async () => {
     query.mockRejectedValue(new Error('boom'));
     const { result } = renderHook(() => useThreadFolderRows(DATABASE, ['root-a']));
 
@@ -144,8 +148,39 @@ describe('useThreadFolderRows', () => {
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
+    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.error?.message).toBe('boom');
     expect(result.current.rowsByRootId.size).toBe(0);
     expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports no error on a resolved id set', async () => {
+    const { result } = renderHook(() => useThreadFolderRows(DATABASE, ['root-a']));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.error).toBeNull();
+  });
+
+  // A failure belongs to the id set it failed FOR. A later set that resolves
+  // must not inherit it (and must not be blocked by it).
+  it('clears the error when a different id set resolves', async () => {
+    query.mockRejectedValueOnce(new Error('boom'));
+    const { rerender, result } = renderHook(
+      (rootIds: readonly string[]) => useThreadFolderRows(DATABASE, rootIds),
+      { initialProps: ['root-a'] as readonly string[] }
+    );
+    await waitFor(() => {
+      expect(result.current.error).toBeInstanceOf(Error);
+    });
+
+    rerender(['root-b']);
+
+    await waitFor(() => {
+      expect(result.current.rowsByRootId.size).toBe(1);
+    });
+    expect(result.current.error).toBeNull();
   });
 
   // Value-keyed results: a resolution for one id set must never be rendered
