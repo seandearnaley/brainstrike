@@ -519,6 +519,24 @@ Paired renderer tests:
 `changes-live-refresh-store.test.ts`, `use-changeset.test.ts`, and
 `use-git-inventory.test.ts`.
 
+**Discovery refresh on root registration (BST-1397).** The inventory only arms
+per-repository watchers INSIDE a build, and builds only run on `getSnapshot()`
+(the eager app-ready call plus renderer `changes:inventory` IPC calls), while
+`loadRoots()` reads the DB `roots` table — so a root whose row lands after
+app-ready would otherwise never be discovered. The renderer's roots
+reconciliation (`packages/app-shell/src/roots/use-roots-reconciliation.ts`)
+therefore calls `changes.inventory()` once after the boot reconcile registers
+at least one root, and once after each mid-session `registerRoot`, so roots
+added after app-ready get their git-metadata watcher without a Changes surface
+ever being opened (this is what keeps the composer workspace bar's Branch chip
+live — see `docs/agents/workspace-context.md`). Best-effort, not authoritative:
+`resolveChangesBridge()` is null on web (a real no-op), and BOTH a rejected
+call and an `ok: false` `GitResult` log a warning rather than being dropped.
+The Changes surface's own `inventory()` remains the authoritative consumer, and
+this seam adds no polling. Paired test:
+`packages/app-shell/src/__tests__/use-roots-reconciliation.test.tsx`
+("git inventory discovery refresh").
+
 The "agent-run changesets refresh on `onRunFinished`" acceptance criterion, by
 contrast, is STILL not wired to the real UI today:
 `assistant-ui-panel-wrapper.tsx` does call `useChangeset(mainRootId,

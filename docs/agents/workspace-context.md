@@ -1016,7 +1016,15 @@ additional explorer/status chrome):
     went stale the moment a file changed without a branch operation. Desktop-
     only, and absent for a non-repository root or a failed status; a failure is
     logged and NEVER rendered as "clean". It is withheld whenever `primaryRoot`
-    is absent, so a branch never renders with no folder beside it.
+    is absent, so a branch never renders with no folder beside it. Both signals
+    depend on the main-process git inventory having ARMED a watcher for that
+    root's repository, which only happens inside an inventory build — so roots
+    registered after app-ready are nudged into discovery by
+    `use-roots-reconciliation.ts` calling `changes.inventory()` once per
+    registration (BST-1397; see "Discovery refresh on root registration" in
+    `docs/agents/changeset-diff.md` § REFRESH SEAMS). Without that nudge a
+    mid-session Add Folder / Recents root gets no metadata push at all and the
+    chip only updates on reload.
 - DEFERRED (v1 ruling): a root-header right-click context action ("Set as
   main" / Disconnect / Copy path / Reveal) — root headers have no
   ContextTarget kind yet; it is a coherent follow-up surface.
