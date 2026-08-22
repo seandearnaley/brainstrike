@@ -32,6 +32,7 @@ const DESKTOP_SMOKE_COMMAND = [
   'e2e/local-runtime-probe.desktop.test.ts',
   'e2e/secrets-settings.test.ts',
   'e2e/terminal-panel.desktop.test.ts',
+  'e2e/threads-panel-folders.desktop.test.ts',
   'e2e/tools-settings.desktop.test.ts',
   'e2e/workspace-bar.desktop.test.ts',
   '--project=smoke',

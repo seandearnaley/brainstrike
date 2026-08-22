@@ -2008,6 +2008,12 @@ Where state lives (do not relitigate):
   hence no branch, and a mapped bare entry (`branch: null, detached: false`)
   would render as an icon-only chip with no text.
   Desktop only; web reports `available: false` and renders no chip.
+  KNOWN BOUND (BST-1406): `normalizeRootPathForLookup` trims and strips
+  trailing separators — it does NOT resolve symlinks. A root mounted through a
+  symlink (the macOS `/var` → `/private/var` tmpdir is the reproducer) never
+  matches the worktree path git reports, so its rows get no branch badge while
+  the composer's branch chip — which asks git with that path as cwd instead of
+  joining on it — still shows one. Same root, two answers.
 - Folder grouping's SURFACE (BST-1405) is the same treegrid: folder sections are
   real expandable parents whose node id IS `section.id`
   (`folder:${rootId}` / `folder-unassigned`), so one id addresses the row, its
@@ -2090,6 +2096,23 @@ Where state lives (do not relitigate):
   not a state card — is on screen AND search is idle. Search results replace the
   tree in a hidden subtree that also contains the bulk-action overlay, so a live
   toggle there would select threads with no feedback and no way to clear.
+- E2E (BST-1406): `apps/desktop/e2e/threads-panel-folders.desktop.test.ts`
+  (one `@smoke` test in the PR lane, one regression sibling) and
+  `apps/web/e2e/threads-panel-folders.test.ts` (`@web-smoke`). Threads are
+  SEEDED as `mastra_threads` rows through the renderer's `electronAPI.db`
+  bridge (`e2e/utils/seed-threads.ts`) because the binding is written at the
+  FIRST REQUEST, so the only product gesture that mints a bound thread — "New
+  thread here" — needs a folder section that only a bound thread can produce.
+  The seed reads the DURABLE `roots.id` back from the database rather than
+  reusing the adapter root id, and the desktop fixture `realpath`s its temp
+  repo: `roots.path` keeps whatever path was mounted while git reports the
+  resolved one, and the branch map's exact-path join (below) has no symlink
+  resolution, so an unresolved fixture path silently yields no chip. The web
+  spec additionally pins that `window.changes` does not exist there at all —
+  the structural reason the badge is desktop-only, which still holds for a
+  bound thread. Both specs also pin the EMPTY-resource bootstrap thread
+  (`loadResourceThreadsForGeneration` creates one when `listThreads` is empty):
+  it has never made a request, so it belongs in "No folder".
 
 Layers: repository `assistant-thread-groups-repository.ts` → store
 `assistant-thread-groups-store.ts` → pure view-model `thread-list-sections.ts`
