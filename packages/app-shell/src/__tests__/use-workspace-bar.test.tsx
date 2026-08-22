@@ -1,4 +1,7 @@
-import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
+import type {
+  AssistantThreadMetadata,
+  AssistantThreadRepository,
+} from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { ActionOutcome } from '@brainstrike/context-actions';
 import type { DbHandle } from '@brainstrike/db/react';
@@ -74,6 +77,7 @@ vi.mock('@brainstrike/context-actions', async (importOriginal) => ({
 
 const RESOURCE_ID = 'workspace-a';
 const THREAD_ID = 'thread-1';
+const OTHER_THREAD_ID = 'thread-2';
 
 // The DURABLE `roots.id` per path. Deliberately DIFFERENT from the adapter
 // rootIds above (`adapter-*`) and from the descriptor id below: the two id
@@ -140,6 +144,10 @@ const query = vi.fn(async (sql: string, params?: unknown[]) => {
 // metadata)`, so this spy sees the REPOSITORY signature — which is exactly the
 // persisted payload worth pinning.
 const updateThreadMetadata = vi.fn(async () => {});
+// The real store action, restored per test: one case below swaps it for a
+// persist-only forwarder to model the window where a write has landed in the
+// repository but its store update has not reached React yet.
+const realUpdateThreadMetadata = useAssistantThreadStore.getState().updateThreadMetadata;
 // Hoisted on purpose: the wrapper passes store/context references, which are
 // stable across renders. Fresh literals per render would only exercise a
 // caller-side identity bug, not this hook.
@@ -153,22 +161,36 @@ const rootDescriptors = {
   'r-main': { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'adapter-main' },
 };
 
-function seedThread(metadata: Record<string, unknown>) {
+interface SeededThread {
+  readonly id: string;
+  readonly metadata: Record<string, unknown>;
+}
+
+function seedThreads(threads: readonly SeededThread[], selectedId: string) {
   useAssistantThreadStore.setState({
     ...useAssistantThreadStore.getState(),
-    selectedThreadByResourceId: { [RESOURCE_ID]: THREAD_ID },
+    selectedThreadByResourceId: { [RESOURCE_ID]: selectedId },
     threadsByResourceId: {
-      [RESOURCE_ID]: [
-        {
-          createdAt: new Date(),
-          id: THREAD_ID,
-          metadata,
-          resourceId: RESOURCE_ID,
-          title: 't',
-          updatedAt: new Date(),
-        },
-      ],
+      [RESOURCE_ID]: threads.map((thread) => ({
+        createdAt: new Date(),
+        id: thread.id,
+        metadata: thread.metadata,
+        resourceId: RESOURCE_ID,
+        title: 't',
+        updatedAt: new Date(),
+      })),
     },
+  });
+}
+
+function seedThread(metadata: Record<string, unknown>) {
+  seedThreads([{ id: THREAD_ID, metadata }], THREAD_ID);
+}
+
+/** Flush the microtask chain a queued metadata write runs on. */
+async function flush() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
   });
 }
 
@@ -205,6 +227,7 @@ async function setup(metadata: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  useAssistantThreadStore.setState({ updateThreadMetadata: realUpdateThreadMetadata });
   currentFs = fs;
   liveRootMisses.clear();
   liveRootGate = null;
@@ -525,6 +548,113 @@ describe('useWorkspaceBar', () => {
     expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
       secondaryRootIds: ['r-site'],
     });
+  });
+
+  it("derives a newly selected thread's write from ITS folders, never the previous thread's write tail", async () => {
+    vi.useFakeTimers();
+    const { rerender, result } = await setup({ secondaryRootIds: ['r-docs', 'r-site'] });
+    await flush();
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-site'],
+    });
+    // Thread 2 is selected and carries its OWN folder set. The hook is
+    // long-lived in the wrapper, so every ref survives the switch.
+    await act(async () => {
+      seedThreads(
+        [
+          { id: THREAD_ID, metadata: { secondaryRootIds: ['r-site'] } },
+          { id: OTHER_THREAD_ID, metadata: { secondaryRootIds: ['r-alpha-db', 'r-main-db'] } },
+        ],
+        OTHER_THREAD_ID
+      );
+      rerender({ selectedMemoryThreadId: OTHER_THREAD_ID });
+    });
+    await flush();
+    await act(async () => {
+      result.current.onRemoveSecondary('r-alpha-db');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(OTHER_THREAD_ID, {
+      secondaryRootIds: ['r-main-db'],
+    });
+  });
+
+  it('derives from the LIVE folder set once the write queue has drained', async () => {
+    vi.useFakeTimers();
+    const { result } = await setup({ secondaryRootIds: ['r-docs', 'r-site'] });
+    await flush();
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-site'],
+    });
+    // The queue is idle, and another surface has since changed the thread's
+    // folders: the next write must read the live set, not the drained tail.
+    await act(async () => {
+      seedThread({ secondaryRootIds: ['r-site', 'r-alpha-db'] });
+    });
+    await flush();
+    await act(async () => {
+      result.current.onRemoveSecondary('r-site');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenLastCalledWith(THREAD_ID, {
+      secondaryRootIds: ['r-alpha-db'],
+    });
+  });
+
+  it('chains two Make primary clicks so the second demotes the first, dropping and duplicating nothing', async () => {
+    vi.useFakeTimers();
+    const { result } = await setup({
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'r-main-db',
+      operatingRootPath: '/ws/brainstrike',
+      secondaryRootIds: ['r-docs', 'r-site'],
+    });
+    await flush();
+    expect(result.current.secondaryRoots).toHaveLength(2);
+    // The production window, made deterministic: the first write PERSISTS, but
+    // its store update has not reached the render (and therefore the folder
+    // ref) by the time the queued second write derives.
+    await act(async () => {
+      useAssistantThreadStore.setState({
+        updateThreadMetadata: async (
+          repository: AssistantThreadRepository,
+          _resourceId: string,
+          threadId: string,
+          metadata: AssistantThreadMetadata
+        ) => {
+          await repository.updateThreadMetadata(threadId, metadata);
+        },
+      });
+    });
+    // Both clicks land inside ONE write round-trip: the second derives from
+    // what the first persisted — ids AND the primary it just installed.
+    await act(async () => {
+      result.current.onMakePrimary('r-docs');
+      result.current.onMakePrimary('r-site');
+    });
+    await flush();
+    expect(updateThreadMetadata).toHaveBeenNthCalledWith(1, THREAD_ID, {
+      operatingRootDisplayName: 'docs',
+      operatingRootId: 'r-docs',
+      operatingRootPath: '/ws/docs',
+      secondaryRootIds: ['r-site', 'r-main-db'],
+    });
+    expect(updateThreadMetadata).toHaveBeenNthCalledWith(2, THREAD_ID, {
+      operatingRootDisplayName: 'site',
+      operatingRootId: 'r-site',
+      operatingRootPath: '/ws/site',
+      secondaryRootIds: ['r-main-db', 'r-docs'],
+    });
+    // Each Make primary is still exactly one write.
+    expect(updateThreadMetadata).toHaveBeenCalledTimes(2);
   });
 
   it('surfaces a failed Copy path instead of swallowing it', async () => {

@@ -68,6 +68,21 @@ interface ThreadFolders {
 interface ThreadFoldersWrite {
   readonly binding?: Record<string, string>;
   readonly ids: readonly string[];
+  /**
+   * The primary in effect AFTER this write — unchanged for every write except
+   * "Make primary", which installs a new one. The next queued write chains on
+   * BOTH fields, so a second Make primary demotes the primary the first one
+   * just installed rather than the one the render still shows.
+   */
+  readonly primaryRootId: string | undefined;
+}
+
+/** What a queued write persisted, for the next write in the queue to chain on. */
+interface ThreadFoldersWriteTail {
+  readonly ids: readonly string[];
+  readonly primaryRootId: string | undefined;
+  /** The thread the ids belong to — they are meaningless for any other. */
+  readonly threadId: string;
 }
 
 /**
@@ -134,7 +149,10 @@ async function resolveRootIdAfterReconciliation(
  *   Its `rootId` is ALWAYS a durable `roots.id`: with no persisted binding the
  *   MAIN root's row is resolved by PATH, never borrowed from the file-system
  *   adapter's own id space (`window.git.status` and `secondaryRootIds` both
- *   speak the DB space).
+ *   speak the DB space). Re-resolving that row on `anyInvalidationNonce` is
+ *   OPPORTUNISTIC — a row written with no accompanying changes invalidation
+ *   stays unseen until the next one — and remains so until the await-root-
+ *   registration seam below exists.
  * - SECONDARIES = `metadata.secondaryRootIds` resolved against the `roots`
  *   table for display. The assistant panel renders as a sibling of the
  *   RootIdentityProvider subtree, so there is no root-identity context to read
@@ -399,31 +417,77 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   /**
    * Serializes thread-folder writes. Two Add-folder clicks whose lookups settle
    * in the same tick would otherwise both derive from the pre-click set and the
-   * second would drop the first's id. Each queued write derives from the ids
-   * the PREVIOUS queued write actually persisted (the store update behind
-   * `threadFoldersRef` has not landed yet at that point), falling back to the
-   * live set when the queue is idle or the previous write failed.
+   * second would drop the first's id. So a queued write derives from what the
+   * PREVIOUS queued write actually persisted — its ids AND the primary it
+   * installed — because the store update behind `threadFoldersRef` has not
+   * reached the render at that point in the microtask chain.
+   *
+   * The tail is thread-scoped and drainable, both deliberately:
+   *
+   * - it carries the thread it describes and is consumed ONLY by a write
+   *   started for that same thread. This hook is long-lived in the wrapper, so
+   *   the ref outlives a thread switch; consuming it unconditionally would
+   *   write thread A's folder set onto thread B.
+   * - `pendingWriteCountRef` clears the tail the moment the queue drains, so
+   *   the next write reads LIVE state rather than a stale value from an
+   *   already-settled round of writes (metadata changed by another surface in
+   *   between must not be reverted). The tail is a hand-off between writes that
+   *   overlap, never a cache of the persisted state.
+   *
+   * A write whose thread is no longer selected — or that outlives the hook —
+   * is skipped rather than landed on whatever thread is current now.
    */
-  const writeTailRef = useRef<Promise<readonly string[] | null> | null>(null);
+  const writeTailRef = useRef<Promise<ThreadFoldersWriteTail | null> | null>(null);
+  const pendingWriteCountRef = useRef(0);
   const enqueueThreadFoldersWrite = useCallback(
-    (derive: (current: ThreadFolders) => ThreadFoldersWrite | null): Promise<void> => {
+    (
+      startedForThreadId: string | undefined,
+      derive: (current: ThreadFolders) => ThreadFoldersWrite | null
+    ): Promise<void> => {
       const previous = writeTailRef.current;
-      const settled = (async (): Promise<readonly string[] | null> => {
-        const previousIds = previous ? await previous : null;
+      pendingWriteCountRef.current += 1;
+      const settled = (async (): Promise<ThreadFoldersWriteTail | null> => {
+        const tail = previous ? await previous : null;
         const live = threadFoldersRef.current;
-        const request = derive(previousIds ? { ...live, secondaryRootIds: previousIds } : live);
+        // The queue may have held this write across a thread switch or an
+        // unmount; the state it would derive from is no longer this write's.
+        if (unmountedRef.current || !startedForThreadId || live.threadId !== startedForThreadId) {
+          return tail;
+        }
+        // Only a tail from THIS thread describes this write's starting point.
+        const chainedTail = tail?.threadId === startedForThreadId ? tail : null;
+        const request = derive(
+          chainedTail
+            ? {
+                primaryRootId: chainedTail.primaryRootId,
+                secondaryRootIds: chainedTail.ids,
+                threadId: live.threadId,
+              }
+            : live
+        );
         if (!request) {
-          return previousIds;
+          return tail;
         }
         await writeThreadFolders(request.ids, request.binding);
-        return request.ids;
+        return {
+          ids: request.ids,
+          primaryRootId: request.primaryRootId,
+          threadId: startedForThreadId,
+        };
       })();
       // The tail must never reject: the next write awaits it, and a failed
       // write means "fall back to the live set", not "poison the queue".
-      writeTailRef.current = settled.then(
-        (ids) => ids,
+      const tailed = settled.then(
+        (tail) => tail,
         () => null
       );
+      writeTailRef.current = tailed;
+      void tailed.then(() => {
+        pendingWriteCountRef.current -= 1;
+        if (pendingWriteCountRef.current === 0) {
+          writeTailRef.current = null;
+        }
+      });
       return settled.then(() => undefined);
     },
     [writeThreadFolders]
@@ -464,19 +528,17 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         });
         return;
       }
-      await enqueueThreadFoldersWrite((current) => {
-        // The queue may have held this write across a thread switch; the folder
-        // set it would derive from is then another thread's.
-        if (current.threadId !== startedForThreadId) {
-          return null;
-        }
+      await enqueueThreadFoldersWrite(startedForThreadId, (current) => {
         if (
           lookup.rootId === current.primaryRootId ||
           current.secondaryRootIds.includes(lookup.rootId)
         ) {
           return null;
         }
-        return { ids: [...current.secondaryRootIds, lookup.rootId] };
+        return {
+          ids: [...current.secondaryRootIds, lookup.rootId],
+          primaryRootId: current.primaryRootId,
+        };
       });
     },
     [database, enqueueThreadFoldersWrite, selectedMemoryThreadId]
@@ -517,7 +579,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       // operatingRoot* keys persistThreadRootBinding writes (the sanitizer's
       // all-or-nothing rule), through the same store action — the global MAIN
       // root is deliberately untouched.
-      void enqueueThreadFoldersWrite((current) => {
+      void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
         const demoted =
           current.primaryRootId && current.primaryRootId !== rootId ? [current.primaryRootId] : [];
         return {
@@ -527,19 +589,21 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
             operatingRootPath: nextPath,
           },
           ids: [...current.secondaryRootIds.filter((id) => id !== rootId), ...demoted],
+          primaryRootId: rootId,
         };
       }).catch((error: unknown) => logger.error('Make primary failed', { error, rootId }));
     },
-    [enqueueThreadFoldersWrite, secondaryRoots]
+    [enqueueThreadFoldersWrite, secondaryRoots, selectedMemoryThreadId]
   );
 
   const onRemoveSecondary = useCallback(
     (rootId: string) => {
-      void enqueueThreadFoldersWrite((current) => ({
+      void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => ({
         ids: current.secondaryRootIds.filter((id) => id !== rootId),
+        primaryRootId: current.primaryRootId,
       })).catch((error: unknown) => logger.error('Remove secondary failed', { error, rootId }));
     },
-    [enqueueThreadFoldersWrite]
+    [enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
 
   // Resolved ONCE per hook instance, not per render — the capability check IS
