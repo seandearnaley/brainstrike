@@ -32,11 +32,21 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'subagent.tool.completed',
   'subagent.tool.failed',
   'subagent.tool.started',
-  // The approval PAUSE itself, as a durable event (BST-1402). Until now the
-  // pause existed ONLY as the transient `tool-approval-required` stream chunk:
-  // the visible thread's notice renders it, a reload erases it, and nothing
-  // recorded that a run had stopped and asked. The Threads panel's "needs you"
-  // projection reads THIS row.
+  // The approval PAUSE itself, as a durable event (BST-1402). The pause is NOT
+  // otherwise unrecorded: a STILL-PENDING one is rediscovered on load from the
+  // Mastra suspended-workflow snapshot (`listSuspendedMastraRuns` +
+  // `appendSuspendedPauseMessages`), which re-appends the real actionable
+  // `brainstrike.tool-approval` notice. This row exists for the two things that
+  // rediscovery cannot do:
+  //   1. It is a CHEAP CROSS-THREAD PROJECTION SURFACE. The Threads panel's
+  //      "needs you" column is one SQL query over
+  //      `brainstrike_assistant_run_events`; rediscovery is a per-thread round
+  //      trip through workflow storage and cannot be run for every thread in a
+  //      list.
+  //   2. It records pauses that were LATER ANSWERED. Rediscovery only ever
+  //      surfaces snapshots that are still suspended, so without this row the
+  //      history of "this run stopped and asked" disappears the moment the user
+  //      answers.
   //
   // Deliberately NOT spelled `.started`, and deliberately WITHOUT a resolution
   // counterpart. No tool ran: a `.started` spelling would make

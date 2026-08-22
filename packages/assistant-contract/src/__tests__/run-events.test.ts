@@ -27,6 +27,18 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
     // `.started`. A `tool.approval.started` spelling would time the USER's
     // deliberation as tool execution and pair against `tool.completed` as if a
     // tool had run.
-    expect('tool.approval.requested'.endsWith('.started')).toBe(false);
+    const startedKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.endsWith('.started'));
+    expect(startedKinds).not.toContain('tool.approval.requested');
+    // And `.started` really is the lifecycle namespace it is being kept out of:
+    // every kind in it declares the success terminal the suffix pairing derives.
+    // (A pause has no such terminal — it is answered by an unrelated call's
+    // outcome — which is exactly why it is not spelled `.started`.)
+    for (const started of startedKinds) {
+      const stem = started.slice(0, -'.started'.length);
+      const terminals = (ASSISTANT_RUN_EVENT_KINDS as readonly string[]).filter(
+        (kind) => kind === `${stem}.completed` || kind === `${stem}.finished`
+      );
+      expect(terminals).toHaveLength(1);
+    }
   });
 });

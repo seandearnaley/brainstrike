@@ -272,11 +272,14 @@ export function makeApprovalRequiredChunks(
     // BST-1402: the DURABLE record of the pause, emitted BEFORE the transient
     // `tool-approval-required` chunk so a consumer that tears the stream down
     // the instant it sees the pause still persisted the fact that this run is
-    // parked on the user. `tool-approval-required` is `aui-data` — the notice
-    // it drives dies on reload — so this run event is the only surviving
-    // evidence, and it is what the Threads panel's "needs you" projection
-    // reads. Deliberately NOT a `tool.started`: no tool ran (see the kind's
-    // contract note). Resolution is derived from the next event for this same
+    // parked on the user. It does NOT replace the notice: `tool-approval-required`
+    // is `aui-data`, and a reload rebuilds the actionable notice from the Mastra
+    // suspended-workflow snapshot instead (`listSuspendedMastraRuns`). This row
+    // is the cheap cross-thread projection the Threads panel's "needs you"
+    // column queries — one SQL read over the run-events table, where snapshot
+    // rediscovery is a per-thread round trip that only sees STILL-PENDING
+    // pauses. See the kind's contract note. Deliberately NOT a `tool.started`:
+    // no tool ran. Resolution is derived from the next event for this same
     // `toolCallId` (approve => `tool.completed`, decline => `tool.failed`,
     // unanswerable => `tool.resume.unsupported`) or the run leaving 'running',
     // so there is no resolution event to emit here.

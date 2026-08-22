@@ -51,12 +51,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * at all (review of PR #1977). `run.failed`/`run.cancelled` never needed the
  * exemption: they carry no `toolCallId` and are not `tool.*`.
  *
- * `tool.approval.requested` (BST-1402) is included for the SAME reason and needs
- * the SAME exemption: the `brainstrike.tool-approval` notice that prompts the
- * user is `aui-data` and does not survive a reload, while the mapper does emit a
- * `tool-call` part for the paused call — so without the exemption the only
- * durable record that the run stopped and asked would be suppressed as "already
- * carded" at every detail level.
+ * `tool.approval.requested` (BST-1402) is included and needs the SAME exemption,
+ * for a DIFFERENT reason than BST-558. A still-pending pause does get its
+ * actionable `brainstrike.tool-approval` notice back after a reload
+ * (`listSuspendedMastraRuns` rediscovers the suspended snapshot), so this row is
+ * not the only surviving evidence — but that notice is a synthetic message
+ * appended at the END of the thread and exists ONLY while the pause is pending.
+ * This row is the in-transcript record, at the point the run actually stopped
+ * and asked, and the only one that survives the pause being answered. It is a
+ * `tool.*` kind carrying the paused call's `toolCallId` and the mapper always
+ * emits a `tool-call` part for that id, so without the exemption it would be
+ * suppressed as "already carded" at every detail level.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   const event = readAssistantRunEvent(data);
@@ -164,6 +169,17 @@ function nextMatchingEventIndex(
   const scopeId = metadataKey === null ? undefined : event.metadata?.[metadataKey];
   const scoped = metadataKey !== null && typeof scopeId === 'string';
   const runId = event.runId;
+
+  // Run-AGNOSTIC lookup for kinds whose durable identity is the `toolCallId`
+  // (see `isRunAgnosticTerminalKind`): the answering terminal legitimately
+  // carries a DIFFERENT runId, so the run-scoped buckets below can never find
+  // it. `byKindAndScope` indexes every event carrying the scope key regardless
+  // of runId, which is exactly the pairing wanted here.
+  if (scoped && isRunAgnosticTerminalKind(event.kind)) {
+    return (
+      index.byKindAndScope.get(scopeKey(kind, metadataKey, scopeId)) ?? Number.POSITIVE_INFINITY
+    );
+  }
 
   if (!runId) {
     return (
@@ -458,12 +474,42 @@ const EXPLICIT_TERMINAL_KINDS: Partial<
 };
 
 /**
+ * True when this kind's terminals must be matched WITHOUT comparing `runId`,
+ * on `toolCallId` alone.
+ *
+ * WHY: an approval pause is answered by a SEPARATE resume leg, and that leg
+ * mints its own runId and its own `thread_runs` row (`prepareRequestData` calls
+ * `createThreadRunId()` per leg; `stream-init` opens a run row for it). The
+ * paused leg meanwhile emits NO run terminal at all — it returns `finished`
+ * at the pause and desktop only UPDATEs `thread_runs.status`. So the pause row
+ * carries run A while the `tool.completed` / `tool.failed` that answers it
+ * carries run B, and a run-scoped pairing can never close it. Live streaming
+ * hid this because live run-event parts carry no `runId`; hydrated parts carry
+ * the persisted one, so every RELOADED thread that ever contained an approval
+ * would render a permanent "Awaiting your approval" spinner — including
+ * long-answered ones.
+ *
+ * `toolCallId` is globally unique per call, which is exactly why it is this
+ * kind's scope key: it is the durable identity of the thing being answered,
+ * and the run is not. Scoping is NOT dropped — a terminal for any other
+ * `toolCallId` still cannot close this row.
+ *
+ * Deliberately narrow: only kinds that declare an EXPLICIT terminal list AND
+ * scope on `toolCallId`. Every `.started` kind keeps run-scoped matching, and
+ * so do the generic `run.failed` / `run.cancelled` / `run.finished` fallbacks
+ * (they are per-run facts, not per-call ones).
+ */
+function isRunAgnosticTerminalKind(kind: AssistantRunEventKind): boolean {
+  return EXPLICIT_TERMINAL_KINDS[kind] !== undefined && scopeMetadataKey(kind) === 'toolCallId';
+}
+
+/**
  * Every terminal kind that can close a `running` row: the explicit list when the
  * kind declares one, otherwise its suffix-derived completed/failed pair. Empty
  * means the row has no terminal of its own and only the generic end-of-run
  * fallbacks apply.
  */
-function getTerminalKinds(kind: AssistantRunEventKind): readonly AssistantRunEventKind[] {
+export function getTerminalKinds(kind: AssistantRunEventKind): readonly AssistantRunEventKind[] {
   const explicit = EXPLICIT_TERMINAL_KINDS[kind];
   if (explicit) {
     return explicit;
@@ -489,14 +535,20 @@ function resolveFromLaterRunEvent(
   candidate: AssistantRunEvent,
   terminalKinds: readonly AssistantRunEventKind[]
 ): AssistantRunEventStatus | null {
-  if (!hasSameRunScope(event, candidate)) {
-    return null;
-  }
   // Mirrors the indexed path: the matched TERMINAL's own status, never a status
   // derived from its kind (an aborted or declined delegation's `subagent.failed`
   // carries 'cancelled'), and scoped so a terminal only closes its own row.
-  if (terminalKinds.includes(candidate.kind) && hasSameScope(event, candidate)) {
+  // `isRunAgnosticTerminalKind` skips the run check for kinds answered by a
+  // separate resume leg — see its comment; every other kind stays run-scoped.
+  if (
+    terminalKinds.includes(candidate.kind) &&
+    hasSameScope(event, candidate) &&
+    (isRunAgnosticTerminalKind(event.kind) || hasSameRunScope(event, candidate))
+  ) {
     return candidate.status;
+  }
+  if (!hasSameRunScope(event, candidate)) {
+    return null;
   }
   if (candidate.kind === 'run.failed' || candidate.kind === 'run.cancelled') {
     return candidate.status;
@@ -592,12 +644,14 @@ export function resolveAssistantRunEventRenderPlan(
     return HIDDEN;
   }
   // Card suppression exists so a `tool.*` row never double-reports a status the
-  // ToolFallback card already owns. An always-visible kind is exempt: it is not
-  // a status for that call (the card reports a CLIENT capability error; this row
-  // explains why the RUN is still suspended), and the mapper guarantees the
-  // suppressing `tool-call` part exists for exactly this `toolCallId` — so
-  // without the exemption the row would be hidden at every detail level, which
-  // is the opposite of what `isAlwaysVisibleRunEvent` means.
+  // ToolFallback card already owns. Every always-visible kind is exempt,
+  // because none of them IS a status for that call — they report a
+  // thread-level fact the card cannot: that the run is suspended and this build
+  // cannot answer it (`tool.resume.unsupported`), or that the run stopped and
+  // asked the user (`tool.approval.requested`). The mapper guarantees the
+  // suppressing `tool-call` part exists for exactly these `toolCallId`s, so
+  // without the exemption those rows would be hidden at EVERY detail level,
+  // which is the opposite of what `isAlwaysVisibleRunEvent` means.
   if (!isAlwaysVisibleRunEvent(event) && hasToolCallPartForEvent(messages, event)) {
     return HIDDEN;
   }

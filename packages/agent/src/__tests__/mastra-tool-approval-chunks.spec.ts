@@ -131,11 +131,13 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
   });
 
   it('emits a durable tool.approval.requested run event BEFORE the approval-required chunk', async () => {
-    // BST-1402: the approval PAUSE is durable. `tool-approval-required` is an
-    // `aui-data` transient the visible thread's notice renders and a reload
-    // erases, so before this event nothing recorded that a run is parked on the
-    // user. The run event is persisted by `observeDesktopAssistantRunEvents`
-    // and is what the Threads panel's "needs you" projection reads.
+    // BST-1402: the approval PAUSE is durable. It does not replace the
+    // `tool-approval-required` transient — a reload rebuilds the actionable
+    // notice from the Mastra suspended snapshot — but that rediscovery is a
+    // per-thread round trip that only sees STILL-PENDING pauses. The run event
+    // is persisted by `observeDesktopAssistantRunEvents` and is the cheap
+    // cross-thread row the Threads panel's "needs you" projection queries, and
+    // the only record that outlives the pause being answered.
     setMockStreamParts([
       {
         payload: {
@@ -435,8 +437,9 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         type: 'tool-approval-required',
       })
     );
-    // BST-1402: the durable row carries the resolved risk too, so a reloaded
-    // thread can still say WHY the run stopped and asked.
+    // BST-1402: the durable row carries the resolved risk too, so the
+    // cross-thread projection can say WHY a run stopped and asked without
+    // reopening that thread's suspended snapshot.
     expect(findRunEventChunks(chunks, 'tool.approval.requested')).toEqual([
       expect.objectContaining({
         event: expect.objectContaining({
