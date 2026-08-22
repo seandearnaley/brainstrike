@@ -16,6 +16,17 @@ export interface WorkspaceBarRecentRoot {
   readonly path: string;
 }
 
+/**
+ * The platform's "reveal in the OS file manager" action. Label and handler
+ * travel together so the chip can never name an OS it has no way to open:
+ * supplying one without the other is a type error. The caller owns the label
+ * (Finder / File Explorer / …); this package never hardcodes an OS name.
+ */
+export interface WorkspaceBarReveal {
+  readonly label: string;
+  readonly onReveal: (path: string) => void;
+}
+
 /** Read-only git state for the primary root (desktop). */
 export interface WorkspaceBarCheckout {
   readonly ahead: number | null;
@@ -34,7 +45,6 @@ export interface WorkspaceBarProps {
   readonly onCopyPath?: ((path: string) => void) | undefined;
   readonly onMakePrimary: (rootId: string) => void;
   readonly onRemoveSecondary: (rootId: string) => void;
-  readonly onRevealRoot?: ((path: string) => void) | undefined;
   /**
    * undefined = no folder connected → the chip renders the "Choose a folder"
    * CTA. Secondaries are only meaningful alongside a primary — callers must
@@ -44,6 +54,8 @@ export interface WorkspaceBarProps {
    */
   readonly primaryRoot?: WorkspaceBarRoot | undefined;
   readonly recentRoots: readonly WorkspaceBarRecentRoot[];
+  /** Present only when the platform can reveal a path in its file manager. */
+  readonly reveal?: WorkspaceBarReveal | undefined;
   readonly secondaryRoots: readonly WorkspaceBarRoot[];
 }
 

@@ -93,5 +93,6 @@ export {
   type WorkspaceBarCheckout,
   type WorkspaceBarProps,
   type WorkspaceBarRecentRoot,
+  type WorkspaceBarReveal,
   type WorkspaceBarRoot,
 } from './workspace-bar/workspace-bar';

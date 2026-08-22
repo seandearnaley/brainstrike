@@ -40,10 +40,7 @@ interface RootAction {
 function rootActions(
   root: WorkspaceBarRoot,
   isPrimary: boolean,
-  handlers: Pick<
-    FolderChipProps,
-    'onCopyPath' | 'onMakePrimary' | 'onRemoveSecondary' | 'onRevealRoot'
-  >
+  handlers: Pick<FolderChipProps, 'onCopyPath' | 'onMakePrimary' | 'onRemoveSecondary' | 'reveal'>
 ): readonly RootAction[] {
   const actions: RootAction[] = [];
   if (!isPrimary) {
@@ -56,12 +53,13 @@ function rootActions(
   }
   const { path } = root;
   if (path) {
-    const { onCopyPath, onRevealRoot } = handlers;
-    if (onRevealRoot) {
+    const { onCopyPath, reveal } = handlers;
+    if (reveal) {
       actions.push({
         icon: FolderOpen,
-        label: 'Reveal in Finder',
-        onSelect: () => onRevealRoot(path),
+        // The platform names its own file manager; this package never does.
+        label: reveal.label,
+        onSelect: () => reveal.onReveal(path),
         testId: `workspace-bar-reveal-${root.rootId}`,
       });
     }
@@ -98,9 +96,11 @@ const RootRowContent = ({
     ) : (
       <Folder aria-hidden="true" className="size-3.5 shrink-0" />
     )}
-    <span className="truncate">{root.displayName}</span>
+    {/* flex-1 (not ml-auto) claims the free space: a sub-trigger adds its own
+        ml-auto chevron, and two ml-auto siblings split the gap unevenly. */}
+    <span className="flex-1 truncate">{root.displayName}</span>
     {isPrimary ? (
-      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide">
+      <span className="shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide">
         Primary
       </span>
     ) : null}
@@ -116,7 +116,7 @@ const RootRow = ({
   readonly root: WorkspaceBarRoot;
 } & Pick<
   FolderChipProps,
-  'onCopyPath' | 'onMakePrimary' | 'onRemoveSecondary' | 'onRevealRoot'
+  'onCopyPath' | 'onMakePrimary' | 'onRemoveSecondary' | 'reveal'
 >): ReactElement => {
   const actions = rootActions(root, isPrimary, handlers);
   const testId = `workspace-bar-root-${root.rootId}`;
@@ -162,9 +162,9 @@ export const FolderChip = ({
   onCopyPath,
   onMakePrimary,
   onRemoveSecondary,
-  onRevealRoot,
   primaryRoot,
   recentRoots,
+  reveal,
   secondaryRoots,
 }: FolderChipProps): ReactElement => {
   const secondaryCount = primaryRoot ? secondaryRoots.length : 0;
@@ -180,7 +180,7 @@ export const FolderChip = ({
       .filter((path): path is string => Boolean(path))
   );
   const visibleRecents = recentRoots.filter((recent) => !mountedPaths.has(recent.path));
-  const rootHandlers = { onCopyPath, onMakePrimary, onRemoveSecondary, onRevealRoot };
+  const rootHandlers = { onCopyPath, onMakePrimary, onRemoveSecondary, reveal };
 
   return (
     <DropdownMenu>

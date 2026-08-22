@@ -184,7 +184,10 @@ describe('WorkspaceBar', () => {
   it('offers Reveal / Copy path per root only when the platform supplies the handlers', async () => {
     const user = setup();
     const onCopyPath = vi.fn();
-    const onRevealRoot = vi.fn();
+    const onReveal = vi.fn();
+    // The label is the platform's, never the chip's: this one is deliberately
+    // not "Reveal in Finder", so a hardcoded OS name would fail here.
+    const reveal = { label: 'Reveal in File Explorer', onReveal };
     const { rerender } = render(<WorkspaceBar {...baseProps()} />);
 
     await openFolderMenu(user);
@@ -193,7 +196,7 @@ describe('WorkspaceBar', () => {
     expect(screen.getByTestId('workspace-bar-root-r-main')).not.toHaveAttribute('role', 'menuitem');
     await user.keyboard('{Escape}');
 
-    rerender(<WorkspaceBar {...baseProps({ onCopyPath, onRevealRoot })} />);
+    rerender(<WorkspaceBar {...baseProps({ onCopyPath, reveal })} />);
     await openFolderMenu(user);
     await openRootSubmenu(user, 'r-main');
 
@@ -204,8 +207,10 @@ describe('WorkspaceBar', () => {
     expect(screen.queryByTestId('workspace-bar-remove-secondary-r-main')).not.toBeInTheDocument();
     expect(screen.queryByTestId('workspace-bar-make-primary-r-main')).not.toBeInTheDocument();
 
-    await user.click(await screen.findByTestId('workspace-bar-reveal-r-main'));
-    expect(onRevealRoot).toHaveBeenCalledWith('/ws/brainstrike');
+    const revealItem = await screen.findByTestId('workspace-bar-reveal-r-main');
+    expect(revealItem).toHaveTextContent('Reveal in File Explorer');
+    await user.click(revealItem);
+    expect(onReveal).toHaveBeenCalledWith('/ws/brainstrike');
 
     await openFolderMenu(user);
     await openRootSubmenu(user, 'r-main');
