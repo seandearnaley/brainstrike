@@ -30,6 +30,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 import {
   GIT_INVENTORY_SNAPSHOT_TTL_MS,
   GIT_INVENTORY_STOP_DRAIN_TIMEOUT_MS,
+  GitInventoryStoppedError,
 } from '../../assistant-server/git-inventory-service';
 import {
   GIT_INVENTORY_WATCH_BATCH_MS,
@@ -615,8 +616,130 @@ describe('createGitInventoryService', () => {
 
       await service.getSnapshot();
       expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+      // Well inside the TTL, and the cache is clean — a forced call rebuilds
+      // anyway. (Case (b) of the BST-1397 forced-refresh contract.)
       await service.getSnapshot({ maxAgeMs: 0 });
       expect(loadRootsSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // BST-1397: `maxAgeMs: 0` is the seam a caller that JUST wrote a `roots` row
+  // uses to guarantee the inventory rebuild — and therefore the per-repository
+  // watcher arming — sees it. Plain coalescing silently defeats that: the
+  // in-flight build's `loadRoots()` already ran, so its result predates the
+  // new row and the renderer's nudge is swallowed.
+  describe('forced refresh guarantees a build that started after the call', () => {
+    /**
+     * A `loadRoots` whose FIRST call blocks until released, and which each
+     * time reports whatever roots the test has registered by the moment it
+     * ran — so "did this build see the late root?" is directly observable.
+     */
+    type LoadRootsSpy = ReturnType<
+      typeof vi.fn<() => Promise<readonly { id: string; path: string }[]>>
+    >;
+
+    function makeGatedLoadRoots(roots: { id: string; path: string }[]): {
+      readonly loadRootsSpy: LoadRootsSpy;
+      readonly release: () => void;
+    } {
+      let release = (): void => undefined;
+      const firstCallGate = new Promise<void>((resolve) => {
+        release = () => resolve();
+      });
+      let calls = 0;
+      const loadRootsSpy: LoadRootsSpy = vi.fn(
+        async (): Promise<readonly { id: string; path: string }[]> => {
+          calls += 1;
+          const observed = [...roots];
+          if (calls === 1) {
+            await firstCallGate;
+          }
+          return observed;
+        }
+      );
+      return { loadRootsSpy, release };
+    }
+
+    it('awaits the in-flight build and then runs exactly ONE more, returning the later snapshot', async () => {
+      const { fs, rootDir, rootId } = await makeSingleRepoRoot('brainstrike-git-inv-svc-forced-');
+      const roots: { id: string; path: string }[] = [];
+      const { loadRootsSpy, release } = makeGatedLoadRoots(roots);
+      const fake = createFakeWatchDirectory();
+      const service = makeService({
+        fs,
+        loadRootsSpy,
+        run: makeWorktreeListRunner(),
+        watchDirectory: fake.watchDirectory,
+      });
+
+      const inFlight = service.getSnapshot();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+
+      // The registration the forced call is reporting: it lands AFTER the
+      // in-flight build read the roots table.
+      roots.push({ id: rootId, path: rootDir });
+      const forced = service.getSnapshot({ maxAgeMs: 0 });
+      release();
+
+      const [stale, fresh] = await Promise.all([inFlight, forced]);
+      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
+      expect(stale.repositories).toHaveLength(0);
+      expect(fresh.repositories).toHaveLength(1);
+    });
+
+    it('coalesces two concurrent forced calls onto ONE follow-up build', async () => {
+      const roots: { id: string; path: string }[] = [];
+      const { loadRootsSpy, release } = makeGatedLoadRoots(roots);
+      const fake = createFakeWatchDirectory();
+      const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
+
+      const inFlight = service.getSnapshot();
+      await vi.advanceTimersByTimeAsync(0);
+
+      const forcedA = service.getSnapshot({ maxAgeMs: 0 });
+      const forcedB = service.getSnapshot({ maxAgeMs: 0 });
+      release();
+
+      const [, a, b] = await Promise.all([inFlight, forcedA, forcedB]);
+      // One initial build plus ONE follow-up — never one per forced caller.
+      expect(loadRootsSpy).toHaveBeenCalledTimes(2);
+      expect(a).toEqual(b);
+    });
+
+    it('leaves the plain coalescing path alone: an unforced call still shares the in-flight build', async () => {
+      const roots: { id: string; path: string }[] = [];
+      const { loadRootsSpy, release } = makeGatedLoadRoots(roots);
+      const fake = createFakeWatchDirectory();
+      const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
+
+      const inFlight = service.getSnapshot();
+      await vi.advanceTimersByTimeAsync(0);
+      const joined = service.getSnapshot();
+      release();
+
+      await Promise.all([inFlight, joined]);
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a forced follow-up whose service was stopped while it waited, instead of building against a closed DB', async () => {
+      const roots: { id: string; path: string }[] = [];
+      const { loadRootsSpy, release } = makeGatedLoadRoots(roots);
+      const fake = createFakeWatchDirectory();
+      const service = makeService({ loadRootsSpy, watchDirectory: fake.watchDirectory });
+
+      const inFlight = service.getSnapshot();
+      await vi.advanceTimersByTimeAsync(0);
+      const forced = service.getSnapshot({ maxAgeMs: 0 });
+      const forcedSettled = expect(forced).rejects.toBeInstanceOf(GitInventoryStoppedError);
+
+      const stopping = service.stop();
+      release();
+      await inFlight;
+      await stopping;
+      await forcedSettled;
+
+      expect(loadRootsSpy).toHaveBeenCalledTimes(1);
     });
   });
 

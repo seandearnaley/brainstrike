@@ -12,7 +12,6 @@ import {
 } from '../assistant-ui-panel-wrapper-runtime';
 
 interface UseAssistantThreadRootBindingArgs {
-  readonly activeRootCount: number;
   readonly assistantThreadRepository: AssistantThreadRepository | null;
   readonly currentMainRoot?: AssistantOperatingRootCandidate | undefined;
   readonly database: DbHandle | null;
@@ -33,11 +32,18 @@ interface UseAssistantThreadRootBindingResult {
   readonly resolveThreadRootBinding: () => Promise<
     Omit<AssistantOperatingRootBinding, 'persisted'> | undefined
   >;
+  /**
+   * The selected thread's row has not reached the store yet, so its metadata
+   * reads as EMPTY. Every WRITE derived from that metadata must be refused
+   * while this is true (an "absent" folder set is indistinguishable from a
+   * genuinely empty one), which is why it is part of the public result rather
+   * than a private detail of the two write helpers below.
+   */
+  readonly selectedThreadMetadataPending: boolean;
   readonly threadRootBinding: AssistantOperatingRootBinding | undefined;
 }
 
 export function useAssistantThreadRootBinding({
-  activeRootCount,
   assistantThreadRepository,
   currentMainRoot,
   database,
@@ -56,13 +62,14 @@ export function useAssistantThreadRootBinding({
   const displayRootBinding = selectedThreadMetadataPending
     ? undefined
     : (threadRootBinding ?? currentMainRoot);
-  const operatingRoot =
-    activeRootCount >= 2 && displayRootBinding
-      ? {
-          displayName: displayRootBinding.displayName,
-          ...(displayRootBinding.path ? { path: displayRootBinding.path } : {}),
-        }
-      : undefined;
+  // No root-count gate: the workspace bar is ORIENTATION, not disambiguation,
+  // so a single-root workspace shows its root too (BST-1397).
+  const operatingRoot = displayRootBinding
+    ? {
+        displayName: displayRootBinding.displayName,
+        ...(displayRootBinding.path ? { path: displayRootBinding.path } : {}),
+      }
+    : undefined;
   const resolveThreadRootBinding = useCallback(async () => {
     if (selectedThreadMetadataPending) {
       throw new Error(
@@ -117,6 +124,7 @@ export function useAssistantThreadRootBinding({
     operatingRoot,
     persistThreadRootBinding,
     resolveThreadRootBinding,
+    selectedThreadMetadataPending,
     threadRootBinding,
   };
 }

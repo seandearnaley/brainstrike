@@ -34,7 +34,6 @@ describe('useAssistantThreadRootBinding', () => {
     const repository = { updateThreadMetadata } as unknown as AssistantThreadRepository;
     const { result } = renderHook(() =>
       useAssistantThreadRootBinding({
-        activeRootCount: 2,
         assistantThreadRepository: repository,
         currentMainRoot: {
           displayName: 'Current Main',
@@ -61,5 +60,35 @@ describe('useAssistantThreadRootBinding', () => {
     expect(result.current.operatingRoot).toBeUndefined();
     expect(query).not.toHaveBeenCalled();
     expect(updateThreadMetadata).not.toHaveBeenCalled();
+  });
+
+  it('exposes operatingRoot for a single-root workspace (the bar is always visible)', () => {
+    useAssistantThreadStore.setState({
+      ...useAssistantThreadStore.getState(),
+      threadsByResourceId: {
+        [RESOURCE_ID]: [
+          {
+            createdAt: new Date(),
+            id: THREAD_ID,
+            metadata: {},
+            resourceId: RESOURCE_ID,
+            title: 't',
+            updatedAt: new Date(),
+          },
+        ],
+      },
+    });
+    const { result } = renderHook(() =>
+      useAssistantThreadRootBinding({
+        assistantThreadRepository: {
+          updateThreadMetadata: vi.fn(async () => {}),
+        } as unknown as AssistantThreadRepository,
+        currentMainRoot: { displayName: 'Only', path: '/ws/only' },
+        database: { query: vi.fn() } as unknown as DbHandle,
+        memoryResourceId: RESOURCE_ID,
+        selectedMemoryThreadId: THREAD_ID,
+      })
+    );
+    expect(result.current.operatingRoot).toEqual({ displayName: 'Only', path: '/ws/only' });
   });
 });

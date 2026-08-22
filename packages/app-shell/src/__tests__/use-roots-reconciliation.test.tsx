@@ -1,8 +1,31 @@
 import type { DbHandle } from '@brainstrike/db/react';
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
-import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
-import { renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import type {
+  FileSystemAdapter,
+  GitInventory,
+  GitResult,
+  RootDescriptor,
+} from '@brainstrike/types';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Asserting through the MOCKED logger rather than a live listener: the real
+// logger writes the warnings these tests provoke to the console (noisy output
+// in an otherwise pristine run) and raising the level to see them left the
+// process-wide log level mutated for every suite that followed.
+const loggerMock = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  fatal: vi.fn(),
+  info: vi.fn(),
+  trace: vi.fn(),
+  warn: vi.fn(),
+}));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => loggerMock,
+}));
+
+import { CHANGES_BRIDGE_REQUIRED_METHODS, type ChangesBridge } from '../changes/changes-bridge';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 
 // Helper to build a RootDescriptor whose handle.path is `path`
@@ -53,6 +76,13 @@ function makeDb(): { db: DbHandle; query: ReturnType<typeof vi.fn> } {
 }
 
 describe('useRootsReconciliation', () => {
+  // The mock is module-scoped, so every suite shares one spy: without this a
+  // "was logged" assertion could pass on a call an earlier test made.
+  beforeEach(() => {
+    loggerMock.error.mockClear();
+    loggerMock.warn.mockClear();
+  });
+
   it('no-ops when the adapter lacks restoreRoots', async () => {
     const adapter = makeAdapter();
     const { db, query } = makeDb();
@@ -112,32 +142,21 @@ describe('useRootsReconciliation', () => {
   });
 
   it('logs at error level and swallows when restoreRoots rejects', async () => {
-    setLogLevel(LogLevel.ERROR);
-    const captured: LogRecord[] = [];
-    const removeListener = addLogListener((record) => {
-      if (record.scope === 'useRootsReconciliation') {
-        captured.push(record);
-      }
+    const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => {
+      throw new Error('handle store unavailable');
     });
+    const adapter = makeAdapter({ restoreRoots });
+    const { db, query } = makeDb();
 
-    try {
-      const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => {
-        throw new Error('handle store unavailable');
-      });
-      const adapter = makeAdapter({ restoreRoots });
-      const { db, query } = makeDb();
+    renderHook(() => useRootsReconciliation({ adapter, db }));
 
-      renderHook(() => useRootsReconciliation({ adapter, db }));
-
-      await waitFor(() => {
-        expect(captured.some((record) => record.message === 'Root reconciliation failed')).toBe(
-          true
-        );
-      });
-      expect(query).not.toHaveBeenCalled();
-    } finally {
-      removeListener();
-    }
+    await waitFor(() => {
+      expect(loggerMock.error).toHaveBeenCalledWith(
+        'Root reconciliation failed',
+        expect.anything()
+      );
+    });
+    expect(query).not.toHaveBeenCalled();
   });
 
   // (f) resolveDbRootId resolves to the db id for a known path after reconciliation
@@ -189,41 +208,27 @@ describe('useRootsReconciliation', () => {
 
   // (g) resolveDbRootId resolves null and warns for an unknown path
   it('resolveDbRootId resolves null and warns for an unknown path', async () => {
-    setLogLevel(LogLevel.WARN);
-    const captured: LogRecord[] = [];
-    const removeListener = addLogListener((record) => {
-      if (record.scope === 'useRootsReconciliation') {
-        captured.push(record);
-      }
+    const restoreRoots = vi.fn(
+      async (): Promise<RootDescriptor[]> => [
+        grantedRootWithPath('adapter-root-1', 'docs', '/workspace/docs'),
+      ]
+    );
+    const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+    const { db } = makeDbWithRootRow('/workspace/docs', 'db-root-id');
+
+    const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+    await waitFor(() => {
+      expect(restoreRoots).toHaveBeenCalledTimes(1);
     });
 
-    try {
-      const restoreRoots = vi.fn(
-        async (): Promise<RootDescriptor[]> => [
-          grantedRootWithPath('adapter-root-1', 'docs', '/workspace/docs'),
-        ]
-      );
-      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-      const { db } = makeDbWithRootRow('/workspace/docs', 'db-root-id');
-
-      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
-
-      await waitFor(() => {
-        expect(restoreRoots).toHaveBeenCalledTimes(1);
-      });
-
-      const resolved = await result.current.resolveDbRootId('/unknown/path');
-      expect(resolved).toBeNull();
-      expect(
-        captured.some(
-          (record) =>
-            record.level === LogLevel.WARN &&
-            (record.message as string).includes('no mapped db root id')
-        )
-      ).toBe(true);
-    } finally {
-      removeListener();
-    }
+    const resolved = await result.current.resolveDbRootId('/unknown/path');
+    expect(resolved).toBeNull();
+    expect(
+      loggerMock.warn.mock.calls.some(([message]) =>
+        String(message).includes('no mapped db root id')
+      )
+    ).toBe(true);
   });
 
   // (h) when reconciliation rejected internally, resolveDbRootId still settles with null (no hang)
@@ -414,6 +419,186 @@ describe('useRootsReconciliation', () => {
       await result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
 
       expect(query).not.toHaveBeenCalled();
+    });
+  });
+
+  // BST-1397: the main-process git inventory arms its per-repo git-metadata
+  // watchers ONLY inside a build, and builds only run from getSnapshot(). A
+  // root whose `roots` row appears after app-ready therefore never gets a
+  // watcher (and its Branch chip never live-updates) unless something calls
+  // `changes.inventory()`. Root registration is that moment.
+  describe('git inventory discovery refresh', () => {
+    function okInventory(): ReturnType<typeof vi.fn> {
+      return vi.fn(
+        async (): Promise<GitResult<GitInventory>> => ({
+          ok: true,
+          value: { errors: [], repositories: [] },
+        })
+      );
+    }
+
+    /**
+     * Installs a FULLY-formed `window.changes` (every method in
+     * `CHANGES_BRIDGE_REQUIRED_METHODS` — a partial bridge resolves to null and
+     * would make these assertions vacuous). Returns the uninstaller.
+     */
+    function installChangesBridge(inventory: ReturnType<typeof vi.fn>): () => void {
+      const bridge: Record<string, unknown> = {};
+      for (const method of CHANGES_BRIDGE_REQUIRED_METHODS) {
+        bridge[method] = method === 'inventory' ? inventory : vi.fn();
+      }
+      window.changes = bridge as Partial<ChangesBridge>;
+      return () => {
+        Reflect.deleteProperty(window, 'changes');
+      };
+    }
+
+    const REFRESH_FAILED = 'git inventory refresh after root registration failed';
+
+    function warnedRefreshFailure(): boolean {
+      return loggerMock.warn.mock.calls.some(([message]) => message === REFRESH_FAILED);
+    }
+
+    it('refreshes once after the boot reconcile and again after a mid-session registerRoot', async () => {
+      const rootPath = '/workspace/docs';
+      const inventory = okInventory();
+      const uninstall = installChangesBridge(inventory);
+
+      try {
+        const restoreRoots = vi.fn(
+          async (): Promise<RootDescriptor[]> => [
+            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+          ]
+        );
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        await waitFor(() => {
+          expect(inventory).toHaveBeenCalledTimes(1);
+        });
+        // FORCED, not a plain read: a TTL-cached or coalesced snapshot
+        // predates the row just written, so the nudge would arm nothing.
+        expect(inventory).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
+
+        await act(async () => {
+          await result.current.registerRoot(
+            grantedRootWithPath('root-new', 'new', '/workspace/new')
+          );
+        });
+
+        await waitFor(() => {
+          expect(inventory).toHaveBeenCalledTimes(2);
+        });
+        expect(inventory).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
+      } finally {
+        uninstall();
+      }
+    });
+
+    it('does not refresh when the boot reconcile registered no roots', async () => {
+      const inventory = okInventory();
+      const uninstall = installChangesBridge(inventory);
+
+      try {
+        const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        const { db } = makeDb();
+        const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        await waitFor(() => {
+          expect(restoreRoots).toHaveBeenCalledTimes(1);
+        });
+        await result.current.resolveDbRootId('/workspace/absent');
+        expect(inventory).not.toHaveBeenCalled();
+      } finally {
+        uninstall();
+      }
+    });
+
+    it('never touches a bridge on web, and reconciliation is unaffected', async () => {
+      Reflect.deleteProperty(window, 'changes');
+
+      const rootPath = '/workspace/docs';
+      const restoreRoots = vi.fn(
+        async (): Promise<RootDescriptor[]> => [
+          grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+        ]
+      );
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+      const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await waitFor(() => {
+        expect(result.current.dbRootIdByAdapterRootId.size).toBe(1);
+      });
+      await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('db-root-id');
+      await act(async () => {
+        await result.current.registerRoot(grantedRootWithPath('root-new', 'new', '/workspace/new'));
+      });
+      await expect(result.current.resolveDbRootId('/workspace/new')).resolves.toBe('root-new');
+
+      // A bridge dereferenced without the null guard would throw into
+      // performRootRegistration's catch — assert that never happened.
+      expect(warnedRefreshFailure()).toBe(false);
+      expect(loggerMock.error).not.toHaveBeenCalledWith(
+        'Mid-session root registration failed',
+        expect.anything()
+      );
+    });
+
+    it('warns and leaves reconciliation intact when the refresh rejects', async () => {
+      const inventory = vi.fn(async (): Promise<GitResult<GitInventory>> => {
+        throw new Error('inventory unavailable');
+      });
+      const uninstall = installChangesBridge(inventory);
+
+      try {
+        const rootPath = '/workspace/docs';
+        const restoreRoots = vi.fn(
+          async (): Promise<RootDescriptor[]> => [
+            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+          ]
+        );
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        await waitFor(() => {
+          expect(result.current.dbRootIdByAdapterRootId.size).toBe(1);
+        });
+        await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe('db-root-id');
+        await waitFor(() => {
+          expect(warnedRefreshFailure()).toBe(true);
+        });
+      } finally {
+        uninstall();
+      }
+    });
+
+    it('warns on a non-ok inventory result instead of dropping it', async () => {
+      const inventory = vi.fn(
+        async (): Promise<GitResult<GitInventory>> => ({ error: 'git not found', ok: false })
+      );
+      const uninstall = installChangesBridge(inventory);
+
+      try {
+        const rootPath = '/workspace/docs';
+        const restoreRoots = vi.fn(
+          async (): Promise<RootDescriptor[]> => [
+            grantedRootWithPath('adapter-root-1', 'docs', rootPath),
+          ]
+        );
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        const { db } = makeDbWithRootRow(rootPath, 'db-root-id');
+        renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        await waitFor(() => {
+          expect(warnedRefreshFailure()).toBe(true);
+        });
+      } finally {
+        uninstall();
+      }
     });
   });
 });

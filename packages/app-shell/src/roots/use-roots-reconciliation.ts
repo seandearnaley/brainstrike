@@ -2,9 +2,55 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ChangesBridge, resolveChangesBridge } from '../changes/changes-bridge';
 import { reconcileRoots } from './root-registry';
 
 const logger = createLogger('useRootsReconciliation');
+
+/**
+ * Best-effort git-inventory DISCOVERY nudge (BST-1397).
+ *
+ * The main-process git inventory arms its per-repository git-metadata watchers
+ * only inside an inventory BUILD, and a build only runs from `getSnapshot()`
+ * — the eager call at app-ready plus renderer `changes:inventory` IPC calls.
+ * `loadRoots()` reads the DB `roots` table, so a root whose row appears AFTER
+ * app-ready (mid-session Add Folder / Recents / `addRootByPath`, or a fresh
+ * install whose renderer reconciliation inserts rows after main's eager build)
+ * is never discovered: no watcher, no `changes:invalidated` push, and the
+ * composer's Branch chip stays stale until something else calls `inventory()`.
+ * Root registration is the exact moment a root becomes discoverable, so it is
+ * where the one nudge belongs. NOT polling — one call per registration event.
+ *
+ * Deliberately best-effort: the Changes surface's own `inventory()` remains the
+ * authoritative consumer, so a failure here is a WARN, never a thrown boot
+ * error. Both failure shapes are reported — a rejected call AND an `ok: false`
+ * `GitResult` — so a refused refresh is never silently dropped.
+ *
+ * `bridge === null` is web (or a malformed bridge, already logged by the
+ * resolver): there is no desktop inventory to arm, so this is a real no-op and
+ * never a stub.
+ */
+function refreshGitInventoryAfterRootRegistration(bridge: ChangesBridge | null): void {
+  if (bridge === null) {
+    return;
+  }
+  void bridge
+    // FORCED (`maxAgeMs: 0`): the ordinary read would serve the TTL cache, or
+    // coalesce onto a build whose `loadRoots()` already ran — either way a
+    // snapshot that predates the row just written, and the nudge would be
+    // swallowed with nothing to show for it.
+    .inventory({ maxAgeMs: 0 })
+    .then((result) => {
+      if (!result.ok) {
+        logger.warn('git inventory refresh after root registration failed', {
+          error: result.error,
+        });
+      }
+    })
+    .catch((error: unknown) => {
+      logger.warn('git inventory refresh after root registration failed', { error });
+    });
+}
 
 // Module-level set of root identities already warned about, so each unmapped
 // root only logs once across the lifetime of the app (not per-call).
@@ -120,6 +166,8 @@ async function performRootRegistration({
       dbRootIdMap.set(descriptor.rootId, dbRootId);
       dbRootIdMap.set(descriptor.handle.path, dbRootId);
       publishCanonicalMapping(descriptor.rootId, dbRootId);
+      // The root is now in the `roots` table the inventory's loadRoots() reads.
+      refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
     }
   } catch (err) {
     logger.error('Mid-session root registration failed', {
@@ -277,11 +325,20 @@ export function useRootsReconciliation({
         }
         // Publish ONLY the canonical adapter-id keys to reactive state (the
         // descriptor.rootId entries — never the path fallback keys).
+        let registeredAny = false;
         for (const descriptor of adapterRoots) {
           const dbRootId = dbRootIdMap.get(descriptor.rootId);
           if (dbRootId !== undefined) {
             publishCanonicalMapping(descriptor.rootId, dbRootId);
+            registeredAny = true;
           }
+        }
+        if (registeredAny) {
+          // ONE nudge for the whole boot batch — on a fresh install these rows
+          // land after main's eager app-ready build, which would otherwise be
+          // the only build of the session. Skipped when nothing registered:
+          // there is no new row for loadRoots() to find.
+          refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
         }
         resolve(dbRootIdMap);
       })

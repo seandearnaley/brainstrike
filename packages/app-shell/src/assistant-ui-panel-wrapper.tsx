@@ -152,6 +152,7 @@ import { useFileMentions } from './use-file-mentions';
 import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
 import { hasDesktopAssistantBridge, useSteerActiveRun } from './use-steer-active-run';
+import { WorkspaceBarHost } from './workspace-bar/workspace-bar-host';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -471,7 +472,6 @@ export function AssistantUiPanelWrapper({
   // MAIN = request-start operating root; FOCUSED = currentFolderId.
   const mainRootId = useFileExplorerStoreSelector((s) => s.activeRootIds?.[0]);
   const mainRootPath = mainRootId ? rootDescriptors?.[mainRootId]?.path : undefined;
-  const activeRootCount = useFileExplorerStoreSelector((s) => s.activeRootIds?.length ?? 0);
   // Multi-root write-back maps each open path to its client RootId so assistant
   // updates route correctly; the two id spaces share only the path.
   const pathToClientRootId = useMemo(() => {
@@ -793,9 +793,8 @@ export function AssistantUiPanelWrapper({
     repository: assistantThreadRepository,
     resourceId: memoryResourceId,
   });
-  const { operatingRoot, persistThreadRootBinding, resolveThreadRootBinding, threadRootBinding } =
+  const { persistThreadRootBinding, resolveThreadRootBinding, threadRootBinding } =
     useAssistantThreadRootBinding({
-      activeRootCount,
       assistantThreadRepository,
       ...(mainRootId && rootDescriptors?.[mainRootId]
         ? { currentMainRoot: rootDescriptors[mainRootId] }
@@ -1805,13 +1804,25 @@ export function AssistantUiPanelWrapper({
                 onThreadRunStart={markUserAuthoredSend}
                 onToolApprovalRequired={onToolApprovalRequired}
                 onUsage={handleUsage}
-                {...(operatingRoot ? { operatingRoot } : {})}
                 pickerModels={pickerModels}
                 pickerProviders={pickerProviders}
                 prepareRequestData={prepareRequestDataWithFinalization}
                 providerGroups={providerGroups}
                 providerSettings={effectiveProviderSettings}
                 recentModels={validRecentModels}
+                workspaceBar={
+                  // The host owns the bar's live-refresh subscriptions.
+                  <WorkspaceBarHost
+                    assistantThreadRepository={assistantThreadRepository}
+                    {...(mainRootId && rootDescriptors?.[mainRootId]
+                      ? { currentMainRoot: rootDescriptors[mainRootId] }
+                      : {})}
+                    database={db}
+                    memoryResourceId={memoryResourceId}
+                    rootDescriptors={rootDescriptors}
+                    selectedMemoryThreadId={selectedMemoryThreadId}
+                  />
+                }
                 {...webBodyLimitProps(desktopAssistantBackendAvailable)}
                 requestData={requestData}
                 slashCommands={slashCommands}

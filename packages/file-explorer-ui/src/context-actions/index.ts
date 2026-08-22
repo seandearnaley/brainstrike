@@ -6,6 +6,7 @@ export {
   fileEntryActions,
   openInDefaultAppAction,
   revealInOsAction,
+  revealLabel,
 } from './file-entry-actions';
 export { fileNodeToTarget } from './file-entry-target';
 export {

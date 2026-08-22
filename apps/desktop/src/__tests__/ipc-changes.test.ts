@@ -56,7 +56,7 @@ describe('registerChangesIpcHandlers', () => {
 
     const inventoryHandler = handleMock.mock.calls.find(
       ([channel]) => channel === DESKTOP_IPC_CHANNELS.changes.inventory
-    )?.[1] as (event: unknown) => unknown;
+    )?.[1] as (event: unknown, options?: unknown) => unknown;
     const resolveViewHandler = handleMock.mock.calls.find(
       ([channel]) => channel === DESKTOP_IPC_CHANNELS.changes.resolveView
     )?.[1] as (event: unknown, rootId: unknown, changeset: unknown) => unknown;
@@ -74,11 +74,17 @@ describe('registerChangesIpcHandlers', () => {
     await fileDiffHandler({}, 'root-1', { kind: 'agent-run' }, 'src/file.ts');
     expect(handlers.fileDiff).toHaveBeenCalledWith('root-1', { kind: 'agent-run' }, 'src/file.ts');
 
-    // BST-1114 T0: `inventory` takes no renderer arguments — assert the
-    // registered thunk forwards NOTHING (a `(...args) => handlers.inventory(...args)`
-    // slip would leak the raw IpcMainInvokeEvent into the handler).
-    await inventoryHandler({});
-    expect(handlers.inventory).toHaveBeenCalledWith();
+    // BST-1114 T0 / BST-1397: `inventory` takes ONE optional renderer argument
+    // (`{ maxAgeMs }`, the forced-refresh knob) — assert the registered thunk
+    // forwards exactly that argument and NEVER the raw IpcMainInvokeEvent (a
+    // `(...args) => handlers.inventory(...args)` slip would leak the event).
+    const fakeEvent = { sender: 'renderer' };
+    await inventoryHandler(fakeEvent);
+    expect(handlers.inventory).toHaveBeenLastCalledWith(undefined);
+    await inventoryHandler(fakeEvent, { maxAgeMs: 0 });
+    expect(handlers.inventory).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
+    expect(handlers.inventory).not.toHaveBeenCalledWith(fakeEvent, expect.anything());
+    expect(handlers.inventory).not.toHaveBeenCalledWith(fakeEvent);
   });
 
   it('disposer removes every registered channel', async () => {
