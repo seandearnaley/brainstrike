@@ -67,6 +67,37 @@ export function makeRunEventChunk(
 }
 
 /**
+ * Any run-event chunk that carries a SPECIFIC `detail`.
+ *
+ * Same reasoning as {@link makeRunFailedChunk}: `detail` is deliberately its
+ * own REQUIRED positional rather than another optional on `makeRunEventChunk`,
+ * whose trailing optionals are `metadata` and `timestamp` — both `string`-ish
+ * enough that a positional slip would type-check while writing a timestamp into
+ * the detail field. Used by the stall/resume events (BST-1409), whose whole
+ * value is the detail: "attempt 1 of 2, no output for 120000ms (inter-part)".
+ */
+export function makeRunDetailEventChunk(
+  kind: AssistantRunEventKind,
+  status: AssistantRunEventStatus,
+  label: string,
+  detail: string,
+  metadata?: AssistantRunEventMetadata
+): StreamChunk {
+  return {
+    event: {
+      detail,
+      id: `run-event-${generateUUID()}`,
+      kind,
+      label,
+      status,
+      timestamp: new Date().toISOString(),
+      ...(metadata ? { metadata } : {}),
+    },
+    type: 'run-event',
+  };
+}
+
+/**
  * A `run.failed` chunk that also carries a SPECIFIC `detail`.
  *
  * The three stream terminations all use the same generic label ("Assistant run

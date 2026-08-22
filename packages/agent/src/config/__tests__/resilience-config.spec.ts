@@ -4,12 +4,14 @@ import {
   DEFAULT_APPROVAL_STALE_MS,
   DEFAULT_STREAM_FIRST_OUTPUT_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
+  DEFAULT_STREAM_STALL_ATTEMPTS,
   DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
   resolveApprovalStaleMs,
   resolveAssistantResilienceConfig,
   resolveStreamFirstOutputMs,
   resolveStreamInactivityMs,
+  resolveStreamStallAttempts,
   resolveToolCallInputMs,
   resolveToolTimeoutMs,
 } from '../resilience-config';
@@ -19,6 +21,7 @@ describe('resilience-config', () => {
     'BRAINSTRIKE_TOOL_TIMEOUT_MS',
     'BRAINSTRIKE_STREAM_INACTIVITY_MS',
     'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS',
+    'BRAINSTRIKE_STREAM_STALL_ATTEMPTS',
     'BRAINSTRIKE_TOOL_CALL_INPUT_MS',
     'BRAINSTRIKE_APPROVAL_STALE_MS',
   ] as const;
@@ -57,6 +60,7 @@ describe('resilience-config', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamFirstOutputMs: DEFAULT_STREAM_FIRST_OUTPUT_MS,
       streamInactivityMs: DEFAULT_STREAM_INACTIVITY_MS,
+      streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: DEFAULT_TOOL_CALL_INPUT_MS,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
     });
@@ -69,6 +73,7 @@ describe('resilience-config', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamFirstOutputMs: DEFAULT_STREAM_FIRST_OUTPUT_MS,
       streamInactivityMs: 50,
+      streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 75,
       toolTimeoutMs: 25,
     });
@@ -108,6 +113,7 @@ describe('resilience-config', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamFirstOutputMs: 900_000,
       streamInactivityMs: 900_000,
+      streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 900_000,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
     });
@@ -190,6 +196,7 @@ describe('resilience-config', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamFirstOutputMs: 90,
       streamInactivityMs: 50,
+      streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 75,
       toolTimeoutMs: 25,
     });
@@ -204,6 +211,31 @@ describe('resilience-config', () => {
     expect(() => resolveAssistantResilienceConfig()).toThrow(
       /BRAINSTRIKE_TOOL_TIMEOUT_MS must be less than BRAINSTRIKE_STREAM_INACTIVITY_MS/
     );
+  });
+
+  it('defaults to a small stall-attempt budget, and 1 opts out of recovery', () => {
+    // A resume re-sends the whole prompt, so the budget is deliberately small;
+    // `1` reproduces the pre-BST-1409 immediately-terminal behavior exactly.
+    expect(resolveStreamStallAttempts()).toBe(DEFAULT_STREAM_STALL_ATTEMPTS);
+    expect(DEFAULT_STREAM_STALL_ATTEMPTS).toBe(2);
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '1';
+    expect(resolveStreamStallAttempts()).toBe(1);
+  });
+
+  it('throws on a malformed stall-attempt budget, naming the right UNIT', () => {
+    // A count reported as "must be a positive integer (ms)" is a strict-parse
+    // error that lies about what it wants — on the one knob an operator is most
+    // likely to hand-set.
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = 'twice';
+    expect(() => resolveStreamStallAttempts()).toThrow(
+      /BRAINSTRIKE_STREAM_STALL_ATTEMPTS must be a positive integer \(attempts\)/
+    );
+    expect(() => resolveStreamStallAttempts()).not.toThrow(/\(ms\)/);
+  });
+
+  it('throws on a zero stall-attempt budget (a turn always gets one attempt)', () => {
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '0';
+    expect(() => resolveStreamStallAttempts()).toThrow(/BRAINSTRIKE_STREAM_STALL_ATTEMPTS/);
   });
 
   it('throws when the tool timeout is not shorter than stream inactivity', () => {

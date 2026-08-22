@@ -943,6 +943,13 @@ describe('LlmHostManager', () => {
       // inter-output one (BST-1408).
       const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
       process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '1000';
+      // This case is about the watchdog cancelling the EXACT host request and
+      // the run terminating visibly, so it opts out of in-turn stall recovery
+      // (BST-1409); with the default budget the turn would continue instead.
+      // Recovery itself is pinned in the agent package's
+      // mastra-stall-recovery.integration.spec.ts.
+      const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
+      process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '1';
       const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
 
       try {
@@ -1069,6 +1076,11 @@ describe('LlmHostManager', () => {
           Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
         } else {
           process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
+        }
+        if (previousStallAttempts === undefined) {
+          Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_STALL_ATTEMPTS');
+        } else {
+          process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = previousStallAttempts;
         }
         if (previousToolTimeout === undefined) {
           Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');

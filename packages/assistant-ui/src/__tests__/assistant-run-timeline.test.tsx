@@ -560,6 +560,30 @@ describe('resolveAssistantRunEventStatus', () => {
 describe('resolveAssistantRunEventRenderPlan', () => {
   const ts = '2026-06-11T00:00:00.000Z';
 
+  it('keeps run.stalled and run.resumed visible in the timeline', () => {
+    // BST-1409's whole design rests on recovery being VISIBLE. These two carry
+    // no toolCallId and are not `.started` kinds, so neither the card-suppression
+    // rule nor the terminal-pairing rule may hide them — pinned here because a
+    // future suppression tweak that silently swallowed them would turn a
+    // deliberately reported retry back into a silent one.
+    for (const [kind, label] of [
+      ['run.stalled', 'Model stream stalled'],
+      ['run.resumed', 'Continuing after a stall'],
+    ] as const) {
+      const event = {
+        detail: 'Attempt 1 of 2.',
+        id: `r-${kind}`,
+        kind,
+        label,
+        metadata: { attempt: 1, maxAttempts: 2 },
+        status: 'info',
+        timestamp: ts,
+      };
+      const messages = [{ parts: [runEventPart(event)], role: 'assistant' }];
+      expect(resolveAssistantRunEventRenderPlan(messages, event).hidden).toBe(false);
+    }
+  });
+
   it('hides tool.* events when their tool-call part renders as a card', () => {
     const started = {
       id: 't1',
