@@ -52,6 +52,16 @@ export const DEFAULT_STREAM_FIRST_OUTPUT_MS = 600_000;
  */
 export const DEFAULT_TOOL_CALL_INPUT_MS = 600_000;
 /**
+ * How many provider ATTEMPTS one turn may spend before a stall becomes
+ * terminal (BST-1409). `1` disables recovery — the pre-BST-1409 behavior.
+ *
+ * Deliberately small. A resume re-sends the whole prompt (~169k tokens in the
+ * captured incident), so an unbounded budget would let a reliably-stalling
+ * route bill the same turn repeatedly. Two attempts covers the transient gap a
+ * healthy provider produces; a third would mostly buy cost.
+ */
+export const DEFAULT_STREAM_STALL_ATTEMPTS = 2;
+/**
  * Advisory age after which a rediscovered suspended approval is flagged `stale`
  * in the re-surfaced notice (24h). Deliberately generous and DECOUPLED from the
  * in-flight stream/tool timeouts above: a human approval may legitimately take
@@ -63,6 +73,8 @@ export const DEFAULT_APPROVAL_STALE_MS = 86_400_000;
 export interface AssistantResilienceConfig {
   streamFirstOutputMs: number;
   streamInactivityMs: number;
+  /** Provider attempts per turn; 1 means a stall is immediately terminal. */
+  streamStallAttempts: number;
   toolCallInputMs: number;
   toolTimeoutMs: number;
 }
@@ -112,6 +124,14 @@ export function resolveStreamFirstOutputMs(override?: number): number {
   );
 }
 
+export function resolveStreamStallAttempts(override?: number): number {
+  return resolvePositiveIntMs(
+    'BRAINSTRIKE_STREAM_STALL_ATTEMPTS',
+    DEFAULT_STREAM_STALL_ATTEMPTS,
+    override
+  );
+}
+
 export function resolveToolCallInputMs(override?: number): number {
   return resolvePositiveIntMs(
     'BRAINSTRIKE_TOOL_CALL_INPUT_MS',
@@ -136,6 +156,7 @@ export function resolveApprovalStaleMs(override?: number): number {
 export function resolveAssistantResilienceConfig(options?: {
   streamFirstOutputMs?: number;
   streamInactivityMs?: number;
+  streamStallAttempts?: number;
   toolCallInputMs?: number;
   toolTimeoutMs?: number;
 }): AssistantResilienceConfig {
@@ -150,6 +171,7 @@ export function resolveAssistantResilienceConfig(options?: {
     );
   }
   const streamFirstOutputMs = resolveStreamFirstOutputWindow(streamInactivityMs, options);
+  const streamStallAttempts = resolveStreamStallAttempts(options?.streamStallAttempts);
   const resolvedToolCallInputMs = resolveToolCallInputMs(options?.toolCallInputMs);
   // A tighter input budget than the inactivity window would fire before the
   // inactivity watchdog could ever observe a genuine stall, turning healthy
@@ -170,6 +192,7 @@ export function resolveAssistantResilienceConfig(options?: {
     return {
       streamFirstOutputMs,
       streamInactivityMs,
+      streamStallAttempts,
       toolCallInputMs: resolvedToolCallInputMs,
       toolTimeoutMs,
     };
@@ -177,6 +200,7 @@ export function resolveAssistantResilienceConfig(options?: {
   return {
     streamFirstOutputMs,
     streamInactivityMs,
+    streamStallAttempts,
     toolCallInputMs: Math.max(resolvedToolCallInputMs, streamInactivityMs),
     toolTimeoutMs,
   };

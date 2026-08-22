@@ -51,7 +51,9 @@ below are LIVE.
    governs the wait for the provider to produce its first OUTPUT **in each
    step**, `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is producing —
    see the config list below for why they must not be re-merged, and why the
-   phase boundary is provider output rather than "the first part". A stream stall emits a visible assistant message, a terminal
+   phase boundary is provider output rather than "the first part". Since
+   BST-1409 a stall ends the ATTEMPT, not the turn; see ATTEMPTS VS TURNS below.
+   Only an unrecoverable stall emits a visible assistant message, a terminal
    `run.failed` event, and an error finish so the renderer does not remain
    in-flight forever.
    The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
@@ -646,6 +648,56 @@ cannot be compacted away.
 > `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
 > clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
+### ATTEMPTS VS TURNS (BST-1409)
+
+A turn may span several provider ATTEMPTS. `runTurnAttempts` (agent-streaming.ts)
+owns the turn; `streamAttemptChunks` owns one attempt and now PROPAGATES a
+watchdog error instead of deciding the turn's fate. `runtime.dispose()` moved to
+the turn's `finally` and has exactly one owner across all three legs — the
+runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
+
+- **A stall ends the attempt.** The turn continues with a fresh
+  `agent.stream` carrying the original request plus everything the stalled
+  attempt produced, read from Mastra's in-memory `messageList` on the stream
+  result. Bounded by `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2).
+- **Why the message list, not memory.** An aborted stream persists NOTHING to
+  `mastra_messages` — measured, not assumed (BST-1415): not the completed tool
+  calls, not even the user's message. That is also why re-sending the original
+  request in a continuation is safe rather than duplicative: the continuation is
+  the turn's only writer.
+- **`readProducedMessages()` returns `undefined` vs `[]` and the difference is
+  SAFETY-CRITICAL.** `[]` means the attempt genuinely produced nothing (a stall
+  before the first step), so continuing from the request alone re-runs nothing.
+  `undefined` means we could not tell, and continuing would re-send the request
+  as if the turn never started — every completed tool would execute a second
+  time. A turn that cannot prove what it produced does NOT resume.
+- **Four refusals, all terminal:** user cancel (a decision, not a transport
+  fault), budget exhausted, unreadable produced messages, and
+  `ToolCallInputStreamingTimeoutError` (a generation fault — re-sending the same
+  prompt has no reason to change it). Recovery covers `StreamStalledError` only.
+- **Recovery is never silent.** Each stall emits `run.stalled` and each
+  continuation `run.resumed`, both carrying attempt/budget and the stall's
+  phase + parts-seen. A refused stall's `run.stalled` names the refusal.
+- **Per-attempt state.** `ToolLifecycleState` is built per attempt
+  (`createTurnAttemptLifecycleState`) — its timers and step counters describe one
+  provider call, and carrying them across a recovery would mis-time latency and
+  double-count steps. The turn keeps a reference only to settle the failed
+  attempt's in-flight delegations, so a replaced attempt can never leave an
+  orphaned `subagent.started`.
+- **Only the INITIAL leg recovers.** Approval- and suspend-resume consume a
+  one-shot approval/snapshot that cannot be re-issued, so they run through the
+  same turn runner with `maxAttempts: 1` and keep the pre-BST-1409 behavior.
+- **Construction failures still REJECT the returned promise.** The first attempt
+  is built eagerly, before the generator is returned: a run rejected before any
+  stream part must surface as a transport rejection the renderer renders as an
+  error block (see the renderer safety net above), never as a mid-stream throw.
+  Pinned by the `stream_failure`/`empty_stream` cases in `mastra-streaming.spec.ts`.
+- Paired tests: `mastra-stall-recovery.integration.spec.ts` (recovery, budget
+  exhaustion, opt-out, user-cancel, continuation prompt contents, orphan drain
+  across a recovery). Every recovery case asserts the TOOL-EXECUTION COUNT: a
+  continuation that lost the completed steps would still answer plausibly, it
+  would just re-run every tool first, so only the count proves the carry-forward.
+
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
@@ -691,6 +743,12 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts` —
   it exists because the shared fake-Mastra harness feeds a hand-written part
   list with NO prologue and structurally cannot see this.
+- `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2) — provider attempts per turn
+  before a stall becomes terminal. `1` disables recovery (the pre-BST-1409
+  behavior) and is what the terminal-path specs pin. Deliberately small: a
+  resume re-sends the whole prompt (~169k tokens in the captured incident), so
+  an unbounded budget would let a reliably-stalling route bill one turn
+  repeatedly.
 - `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
   time for one incomplete streamed tool input; argument deltas do not reset it.
   Decoupled from — and never tighter than — the inactivity window (BST-839).

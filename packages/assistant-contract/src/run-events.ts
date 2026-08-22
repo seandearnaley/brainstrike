@@ -22,6 +22,14 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'run.cancelled',
   'run.failed',
   'run.finished',
+  // A stalled ATTEMPT that the turn recovered from, and the continuation that
+  // followed (BST-1409). Deliberately NOT `run.failed`/`run.started`: the turn
+  // never failed and never restarted — one provider attempt went silent and was
+  // replaced, with every completed step carried forward. Reusing the terminal
+  // kinds would report a healthy turn as a failure in the durable timeline and
+  // double-count the run in anything that pairs started/finished.
+  'run.resumed',
+  'run.stalled',
   'run.started',
   'run.steered',
   'run.step.finished',

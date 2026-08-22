@@ -32,7 +32,12 @@ import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
-import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/agent';
+import type {
+  Agent,
+  AgentMemoryOption,
+  DelegationConfig,
+  MastraDBMessage,
+} from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
@@ -45,8 +50,11 @@ import {
 import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
-import { withInactivityTimeout } from '../stream/with-inactivity-timeout';
-import { withToolCallInputTimeout } from '../stream/with-tool-call-input-timeout';
+import { type StreamStalledError, withInactivityTimeout } from '../stream/with-inactivity-timeout';
+import {
+  ToolCallInputStreamingTimeoutError,
+  withToolCallInputTimeout,
+} from '../stream/with-tool-call-input-timeout';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
 import {
@@ -90,7 +98,11 @@ import {
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
 import { mapShellOutputStreamPart, SHELL_OUTPUT_STREAM_PART_TYPE } from './shell-output-stream';
-import { makeRunEventChunk, makeSyntheticFinishChunk } from './stream-run-event-chunks';
+import {
+  makeRunDetailEventChunk,
+  makeRunEventChunk,
+  makeSyntheticFinishChunk,
+} from './stream-run-event-chunks';
 import {
   isStreamWatchdogError,
   makeProviderErrorTermination,
@@ -694,6 +706,12 @@ interface StreamIterationParams {
 interface StreamGeneratorParams {
   /** Child-usage bridge for this leg's delegation config (personas enabled only). */
   delegationUsage?: DelegationUsageCapture;
+  /**
+   * Owned by the TURN, not the attempt (BST-1409): after a recoverable stall
+   * the turn still has to settle this attempt's in-flight delegations, and a
+   * state the attempt created privately would be gone by then.
+   */
+  lifecycleState: ToolLifecycleState;
   memory?: MastraMemory;
   /**
    * Run-start prompt breakdown to emit as the first StreamChunk (initial turn
@@ -1093,8 +1111,9 @@ function resolveMemoryOption(
   };
 }
 
-async function* streamChunksFromMastra({
+async function* streamAttemptChunks({
   delegationUsage,
+  lifecycleState,
   promptBreakdown,
   memory,
   runtime,
@@ -1109,22 +1128,6 @@ async function* streamChunksFromMastra({
   const calibrationState = { emitted: false };
   const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
-  const lifecycleState: ToolLifecycleState = {
-    delegationLifecycle: createDelegationLifecycleTracker(),
-    includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
-    outputOnlyToolEvents: new Map(),
-    requiresBilledCost: runtimeData?.provider === 'openrouter',
-    ...(runtimeData?.steering ? { steering: runtimeData.steering } : {}),
-    sawStepBilledCost: false,
-    sawStepWithoutBilledCost: false,
-    stepBilledCostUsd: 0,
-    stepCount: 0,
-    steppedCompletionTokens: 0,
-    steppedPromptTokens: 0,
-    streamStartedAtMs: Date.now(),
-    terminalToolCallStates: new Map(),
-    warnedUnknownChunkTypes: new Set(),
-  };
 
   try {
     // Run-start prompt breakdown (transient, display-only). Emitted BEFORE the
@@ -1221,21 +1224,21 @@ async function* streamChunksFromMastra({
       yield chunk;
     }
   } catch (error) {
-    if (!isStreamWatchdogError(error)) {
-      // Best-effort telemetry must not be lost on an ordinary stream/projector
-      // failure after earlier tool calls already completed — drain whatever
-      // was accumulated before propagating the failure (review fix).
-      yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
-      throw error;
-    }
-    const terminalChunks = runtimeData?.signal?.aborted
-      ? makeCancelledDelegationRunEventChunks(lifecycleState)
-      : makeStreamWatchdogTermination(error, lifecycleState, runtimeData);
+    // Best-effort telemetry must not be lost on an ordinary stream/projector
+    // failure after earlier tool calls already completed — drain whatever was
+    // accumulated before propagating the failure (review fix). Since BST-1409
+    // a WATCHDOG error propagates too: whether it ends the attempt or the whole
+    // turn is the turn layer's decision, not this generator's.
     yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
-    for (const chunk of terminalChunks) {
-      yield chunk;
+    if (isStreamWatchdogError(error) && runtimeData?.signal?.aborted) {
+      // A user Stop that raced the watchdog is a cancellation, not a stall:
+      // settle the delegations and end quietly, exactly as before.
+      for (const chunk of makeCancelledDelegationRunEventChunks(lifecycleState)) {
+        yield chunk;
+      }
+      return;
     }
-    return;
+    throw error;
   } finally {
     if (titleGenerationTask) {
       await titleGenerationTask;
@@ -1244,8 +1247,230 @@ async function* streamChunksFromMastra({
     streamAbortContext.dispose();
     logTokenDiagnostics(runtime, runtimeData, lifecycleState);
     logStreamOutcome(Boolean(runtimeData?.signal?.aborted));
+    // NOTE: `runtime.dispose()` is deliberately NOT here. The runtime outlives
+    // a single attempt so a recovered turn can stream again on it; the turn
+    // layer disposes exactly once (BST-1409).
+  }
+}
+
+/**
+ * Build the per-ATTEMPT {@link ToolLifecycleState}.
+ *
+ * Per attempt, not per turn: `streamStartedAtMs`, the step counters, and the
+ * delegation tracker all describe one provider call, and carrying them across a
+ * recovery would mis-time latency and double-count steps. The turn keeps a
+ * reference only so it can settle the failed attempt's delegations.
+ */
+function createTurnAttemptLifecycleState(runtimeData: RuntimeData | undefined): ToolLifecycleState {
+  return {
+    delegationLifecycle: createDelegationLifecycleTracker(),
+    includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
+    outputOnlyToolEvents: new Map(),
+    requiresBilledCost: runtimeData?.provider === 'openrouter',
+    ...(runtimeData?.steering ? { steering: runtimeData.steering } : {}),
+    sawStepBilledCost: false,
+    sawStepWithoutBilledCost: false,
+    stepBilledCostUsd: 0,
+    stepCount: 0,
+    steppedCompletionTokens: 0,
+    steppedPromptTokens: 0,
+    streamStartedAtMs: Date.now(),
+    terminalToolCallStates: new Map(),
+    warnedUnknownChunkTypes: new Set(),
+  };
+}
+
+/** One provider attempt within a turn, plus what a continuation would need. */
+interface TurnAttempt {
+  readonly chunks: AsyncIterableIterator<StreamChunk>;
+  readonly lifecycleState: ToolLifecycleState;
+  /**
+   * The assistant/tool messages this attempt produced, or `undefined` when they
+   * could not be read.
+   *
+   * The distinction is SAFETY-CRITICAL, not cosmetic. `[]` means the attempt
+   * genuinely produced nothing — a stall before the first step — so continuing
+   * from the original request alone is correct and re-runs nothing.
+   * `undefined` means we could not tell, and continuing would re-send the user
+   * request as if the turn had never started: every completed tool would run a
+   * second time. A turn that cannot prove what it produced must not resume.
+   */
+  readProducedMessages(): readonly MastraDBMessage[] | undefined;
+}
+
+/**
+ * Read the assistant/tool messages an attempt produced, from Mastra's own
+ * message list on the stream result.
+ *
+ * Mastra's `mastra_messages` is NOT a usable source here: an aborted stream
+ * persists nothing at all (BST-1415, measured — not even the user's message),
+ * so the in-memory list is the only record of what the attempt did.
+ *
+ * Narrowed rather than asserted, and `undefined` on ANY shape surprise: see
+ * {@link TurnAttempt.readProducedMessages} for why a wrong answer here would
+ * re-execute tools.
+ */
+function readAttemptProducedMessages(
+  streamResult: unknown
+): readonly MastraDBMessage[] | undefined {
+  if (typeof streamResult !== 'object' || streamResult === null) {
+    return;
+  }
+  const messageList = (streamResult as { messageList?: unknown }).messageList;
+  if (typeof messageList !== 'object' || messageList === null) {
+    return;
+  }
+  const response = (messageList as { get?: { response?: unknown } }).get?.response;
+  if (typeof response !== 'object' || response === null) {
+    return;
+  }
+  const db = (response as { db?: unknown }).db;
+  if (typeof db !== 'function') {
+    return;
+  }
+  const produced = (db as () => unknown).call(response);
+  return Array.isArray(produced) ? (produced as MastraDBMessage[]) : undefined;
+}
+
+/**
+ * Run ONE turn across up to `maxAttempts` provider attempts, and dispose the
+ * runtime exactly once when it ends (BST-1409).
+ *
+ * A stall ends an ATTEMPT. It ends the TURN only when the budget is spent, the
+ * user cancelled, or the attempt cannot prove what it produced. Everything the
+ * earlier attempts streamed has already been yielded to the consumer and stays
+ * yielded — recovery never rewinds the visible transcript, it only continues it.
+ *
+ * Recovery is scoped to `StreamStalledError`. A
+ * `ToolCallInputStreamingTimeoutError` means the model never finished writing a
+ * tool call's arguments, which is a generation fault rather than a silent
+ * transport, and re-sending the same prompt has no reason to change it.
+ */
+async function* runTurnAttempts(params: {
+  /**
+   * Built by the caller BEFORE the generator is returned, so a construction
+   * failure still rejects the promise `streamMastraAgent` returns. A run
+   * rejected before any stream part must surface as a transport rejection the
+   * renderer renders as an error block, not as a mid-stream throw
+   * (docs/agents/assistant-runtime.md, renderer safety net).
+   */
+  firstAttempt: TurnAttempt;
+  makeContinuation: (input: {
+    attempt: number;
+    continuationMessages: readonly MastraDBMessage[] | undefined;
+  }) => Promise<TurnAttempt>;
+  maxAttempts: number;
+  runtime: MastraAgentRuntime;
+  runtimeData: RuntimeData | undefined;
+}): AsyncIterableIterator<StreamChunk> {
+  const { firstAttempt, makeContinuation, maxAttempts, runtime, runtimeData } = params;
+  try {
+    let continuationMessages: readonly MastraDBMessage[] | undefined;
+    let pending: TurnAttempt | undefined = firstAttempt;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const current = pending ?? (await makeContinuation({ attempt, continuationMessages }));
+      pending = undefined;
+      let stall: StreamStalledError | undefined;
+      try {
+        yield* current.chunks;
+      } catch (error) {
+        if (!isStreamWatchdogError(error)) {
+          throw error;
+        }
+        if (error instanceof ToolCallInputStreamingTimeoutError) {
+          yield* makeStreamWatchdogTermination(error, current.lifecycleState, runtimeData);
+          return;
+        }
+        stall = error;
+      }
+      if (!stall) {
+        return;
+      }
+      const produced = current.readProducedMessages();
+      const reason = resolveStallRecoveryRefusal({
+        attempt,
+        maxAttempts,
+        produced,
+        runtimeData,
+      });
+      // Whatever happens next, this attempt's in-flight delegations need a
+      // terminal event — a recovered turn must not leave an orphaned
+      // `subagent.started` from the attempt it replaced.
+      yield* makeCancelledDelegationRunEventChunks(current.lifecycleState);
+      yield makeStallRunEventChunk(stall, attempt, maxAttempts, reason);
+      if (reason) {
+        yield* makeStreamWatchdogTermination(stall, current.lifecycleState, runtimeData);
+        return;
+      }
+      continuationMessages = produced;
+      yield makeResumedRunEventChunk(attempt + 1, maxAttempts, produced?.length ?? 0);
+    }
+  } finally {
     await runtime.dispose();
   }
+}
+
+/** Why this stall may NOT be recovered, or `undefined` when it may. */
+function resolveStallRecoveryRefusal(input: {
+  attempt: number;
+  maxAttempts: number;
+  produced: readonly MastraDBMessage[] | undefined;
+  runtimeData: RuntimeData | undefined;
+}): string | undefined {
+  if (input.runtimeData?.signal?.aborted) {
+    // A user Stop is a decision, not a transport fault.
+    return 'cancelled';
+  }
+  if (input.attempt >= input.maxAttempts) {
+    return 'budget-exhausted';
+  }
+  if (input.produced === undefined) {
+    return 'produced-messages-unreadable';
+  }
+  return;
+}
+
+function makeStallRunEventChunk(
+  error: StreamStalledError,
+  attempt: number,
+  maxAttempts: number,
+  refusal: string | undefined
+): StreamChunk {
+  const detail = `No stream output for ${error.inactivityMs}ms (${error.phase}) on attempt ${attempt} of ${maxAttempts}.`;
+  logger.warn(
+    {
+      attempt,
+      code: 'mastra_agent_stream_attempt_stalled',
+      inactivityMs: error.inactivityMs,
+      maxAttempts,
+      partsSeen: error.partsSeen,
+      phase: error.phase,
+      ...(refusal ? { refusal } : {}),
+    },
+    'mastra stream attempt stalled'
+  );
+  return makeRunDetailEventChunk('run.stalled', 'info', 'Model stream stalled', detail, {
+    attempt,
+    inactivityMs: error.inactivityMs,
+    maxAttempts,
+    partsSeen: error.partsSeen,
+    phase: error.phase,
+    ...(refusal ? { refusal } : {}),
+  });
+}
+
+function makeResumedRunEventChunk(
+  attempt: number,
+  maxAttempts: number,
+  carriedMessages: number
+): StreamChunk {
+  return makeRunDetailEventChunk(
+    'run.resumed',
+    'info',
+    'Continuing after a stall',
+    `Attempt ${attempt} of ${maxAttempts}, carrying ${carriedMessages} completed message${carriedMessages === 1 ? '' : 's'} forward.`,
+    { attempt, carriedMessages, maxAttempts }
+  );
 }
 
 function startMastraThreadTitleGeneration({
@@ -1489,19 +1714,52 @@ function* drainTokenEstimateCalibrationChunk(
   };
 }
 
-async function createStreamIteratorFromRuntime({
-  runtime,
-  runtimeData,
-  messages,
-  memory,
-  requireToolApproval,
-  sanitizedNameMap,
-}: StreamIterationParams): Promise<StreamIterator> {
+/**
+ * The initial turn. Recovery from a stalled attempt lives HERE and only here:
+ * a continuation is a plain `agent.stream` over the messages produced so far,
+ * which the approval- and suspend-resume legs cannot express — their entry
+ * points consume a one-shot approval/suspension that cannot be re-issued. Those
+ * legs still route through {@link runTurnAttempts} with a single attempt, so
+ * runtime disposal has exactly one owner across every leg.
+ */
+async function createStreamIteratorFromRuntime(
+  params: StreamIterationParams
+): Promise<StreamIterator> {
+  const { runtime, runtimeData } = params;
+  return runTurnAttempts({
+    firstAttempt: await createInitialTurnAttempt(params, undefined),
+    makeContinuation: (input) => createInitialTurnAttempt(params, input.continuationMessages),
+    maxAttempts: runtime.resilienceConfig.streamStallAttempts,
+    runtime,
+    runtimeData,
+  });
+}
+
+async function createInitialTurnAttempt(
+  {
+    runtime,
+    runtimeData,
+    messages,
+    memory,
+    requireToolApproval,
+    sanitizedNameMap,
+  }: StreamIterationParams,
+  continuationMessages: readonly MastraDBMessage[] | undefined
+): Promise<TurnAttempt> {
   const mastraMessages = convertMessagesToMastra(messages);
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
+  const lifecycleState = createTurnAttemptLifecycleState(runtimeData);
 
   try {
-    const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
+    // A continuation re-sends the original request FOLLOWED BY everything the
+    // stalled attempt produced, so the model continues from its own completed
+    // tool results instead of starting over. Re-sending the request is safe
+    // rather than duplicative: an aborted attempt persisted nothing at all
+    // (BST-1415), so the continuation is the turn's only writer.
+    const streamInput = [
+      ...mastraMessages,
+      ...(continuationMessages ?? []),
+    ] as unknown as Parameters<typeof runtime.agent.stream>[0];
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const delegationUsage =
       runtime.personasById.size > 0
@@ -1563,17 +1821,22 @@ async function createStreamIteratorFromRuntime({
       toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
     });
 
-    return streamChunksFromMastra({
-      ...(delegationUsage ? { delegationUsage } : {}),
-      ...(memory ? { memory } : {}),
-      promptBreakdown,
-      runtime,
-      stream: fullStream,
-      streamAbortContext,
-      titleMessages: messages,
-      ...(runtimeData ? { runtimeData } : {}),
-      ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
-    });
+    return {
+      chunks: streamAttemptChunks({
+        ...(delegationUsage ? { delegationUsage } : {}),
+        lifecycleState,
+        ...(memory ? { memory } : {}),
+        promptBreakdown,
+        runtime,
+        stream: fullStream,
+        streamAbortContext,
+        titleMessages: messages,
+        ...(runtimeData ? { runtimeData } : {}),
+        ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+      }),
+      lifecycleState,
+      readProducedMessages: () => readAttemptProducedMessages(streamResult),
+    };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra stream construction failed.'));
     streamAbortContext.dispose();
@@ -1672,15 +1935,35 @@ async function readResumedApprovalToolCall(
   };
 }
 
-async function createToolApprovalIteratorFromRuntime({
+/**
+ * Approval-resume. Routed through {@link runTurnAttempts} with a SINGLE attempt:
+ * an approval is consumed by `approveToolCall`/`declineToolCall` and cannot be
+ * re-issued, so this leg keeps the pre-BST-1409 terminal behavior on a stall.
+ * It still shares the turn runner so `runtime.dispose()` has one owner.
+ */
+async function createToolApprovalIteratorFromRuntime(
+  params: ToolApprovalIterationParams
+): Promise<StreamIterator> {
+  return runTurnAttempts({
+    firstAttempt: await createToolApprovalTurnAttempt(params),
+    // Unreachable at maxAttempts 1; present so the runner has one shape.
+    makeContinuation: () => createToolApprovalTurnAttempt(params),
+    maxAttempts: 1,
+    runtime: params.runtime,
+    runtimeData: params.runtimeData,
+  });
+}
+
+async function createToolApprovalTurnAttempt({
   runtime,
   runtimeData,
   action,
   memory,
   requireToolApproval,
   sanitizedNameMap,
-}: ToolApprovalIterationParams): Promise<StreamIterator> {
+}: ToolApprovalIterationParams): Promise<TurnAttempt> {
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
+  const lifecycleState = createTurnAttemptLifecycleState(runtimeData);
   try {
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
@@ -1758,16 +2041,24 @@ async function createToolApprovalIteratorFromRuntime({
       toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
     });
 
-    return streamChunksFromMastra({
-      ...(delegationUsage ? { delegationUsage } : {}),
-      promptBreakdown,
-      runtime,
-      stream: fullStream,
-      streamAbortContext,
-      ...(action.action === 'approve' ? { resumedApprovalToolCall } : {}),
-      ...(runtimeData ? { runtimeData } : {}),
-      ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
-    });
+    return {
+      chunks: streamAttemptChunks({
+        ...(delegationUsage ? { delegationUsage } : {}),
+        lifecycleState,
+        promptBreakdown,
+        runtime,
+        stream: fullStream,
+        streamAbortContext,
+        ...(action.action === 'approve' ? { resumedApprovalToolCall } : {}),
+        ...(runtimeData ? { runtimeData } : {}),
+        ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+      }),
+      lifecycleState,
+      // A resume leg never recovers (see createStreamIteratorFromRuntime), so
+      // this is never consulted; `undefined` states that honestly rather than
+      // implying an empty continuation would be safe.
+      readProducedMessages: () => undefined,
+    };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra approval-resume stream construction failed.'));
     streamAbortContext.dispose();
@@ -2205,14 +2496,32 @@ async function assertResumedCallIsSuspendPause(
   return { toolName: toolCall.toolName };
 }
 
-async function createToolResumeIteratorFromRuntime({
+/**
+ * Suspended-tool resume. Same single-attempt reasoning as the approval leg: the
+ * Mastra snapshot is consumed by `resumeStream` and cannot be replayed.
+ */
+async function createToolResumeIteratorFromRuntime(
+  params: ToolResumeIterationParams
+): Promise<StreamIterator> {
+  return runTurnAttempts({
+    firstAttempt: await createToolResumeTurnAttempt(params),
+    // Unreachable at maxAttempts 1; present so the runner has one shape.
+    makeContinuation: () => createToolResumeTurnAttempt(params),
+    maxAttempts: 1,
+    runtime: params.runtime,
+    runtimeData: params.runtimeData,
+  });
+}
+
+async function createToolResumeTurnAttempt({
   runtime,
   runtimeData,
   action,
   memory,
   sanitizedNameMap,
-}: ToolResumeIterationParams): Promise<StreamIterator> {
+}: ToolResumeIterationParams): Promise<TurnAttempt> {
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
+  const lifecycleState = createTurnAttemptLifecycleState(runtimeData);
   try {
     validateToolResumeAction(action);
     const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
@@ -2320,15 +2629,22 @@ async function createToolResumeIteratorFromRuntime({
       toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
     });
 
-    return streamChunksFromMastra({
-      ...(delegationUsage ? { delegationUsage } : {}),
-      promptBreakdown,
-      runtime,
-      stream: fullStream,
-      streamAbortContext,
-      ...(runtimeData ? { runtimeData } : {}),
-      ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
-    });
+    return {
+      chunks: streamAttemptChunks({
+        ...(delegationUsage ? { delegationUsage } : {}),
+        lifecycleState,
+        promptBreakdown,
+        runtime,
+        stream: fullStream,
+        streamAbortContext,
+        ...(runtimeData ? { runtimeData } : {}),
+        ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
+      }),
+      lifecycleState,
+      // See the approval-resume leg: a resume never recovers, so `undefined`
+      // is the honest answer rather than an empty continuation.
+      readProducedMessages: () => undefined,
+    };
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra suspended-tool stream construction failed.'));
     streamAbortContext.dispose();

@@ -447,6 +447,11 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '100';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '300';
+    // Terminal-drain case: opt out of in-turn stall recovery (BST-1409) so the
+    // run ends at the first stall. A recovered turn drains its failed attempt's
+    // delegations too — pinned separately in mastra-stall-recovery.integration.spec.ts.
+    const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '1';
     try {
       modelHolder.current = createStalledChildSupervisorModel();
 
@@ -477,6 +482,11 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       expect(cancelled?.metadata?.['parentToolCallId']).toBe('delegation-call-1');
       expect(cancelled?.metadata?.['personaId']).toBe('explore');
     } finally {
+      if (previousStallAttempts === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_STALL_ATTEMPTS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = previousStallAttempts;
+      }
       if (previousToolTimeout === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {
