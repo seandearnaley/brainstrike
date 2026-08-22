@@ -195,6 +195,39 @@ describe('resolveThreadsPanelDrop', () => {
     });
   });
 
+  it('resolves every drop to none in folder grouping instead of throwing at the user', () => {
+    const foldersView: ThreadListView = {
+      kind: 'folders',
+      sections: [
+        {
+          header: {
+            folder: { displayName: 'work', path: '/tmp/work', rootId: 'root-1' },
+            kind: 'folder',
+          },
+          id: 'folder:root-1',
+          threads: [makeThread('thread-1'), makeThread('thread-2')],
+        },
+      ],
+    };
+    // Folder sections carry no manual order and no membership, so the panel
+    // renders no drag sources there. A drop that reaches this reducer anyway
+    // (the monitor is global) must resolve to no intent, never throw.
+    for (const target of [
+      { edge: 'top', groupId: null, threadId: 'thread-2', type: 'thread-row' },
+      { groupId: 'group-a', type: 'group-header' },
+      { type: 'ungrouped-section' },
+    ] as const) {
+      expect(
+        resolveThreadsPanelDrop({
+          groupIdByThreadId: MEMBERSHIP,
+          source: { groupId: null, threadId: 'thread-1', type: 'thread-row' },
+          target,
+          view: foldersView,
+        })
+      ).toEqual({ kind: 'none' });
+    }
+  });
+
   it('returns none when a group header is dropped on a thread row', () => {
     const intent = resolveThreadsPanelDrop({
       groupIdByThreadId: MEMBERSHIP,

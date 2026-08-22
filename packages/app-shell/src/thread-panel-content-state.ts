@@ -1,4 +1,19 @@
-import type { AssistantMemoryThread, ThreadListView } from '@brainstrike/assistant-data';
+import type {
+  AssistantMemoryThread,
+  ThreadFilters,
+  ThreadListView,
+} from '@brainstrike/assistant-data';
+
+/**
+ * True when at least one Show only filter is narrowing the list.
+ *
+ * Lives beside the body arbitration because that is what reads it: a filtered
+ * list that came back empty gets a card naming the FILTERS, never the "no
+ * threads" card whose remedy would not bring any of them back.
+ */
+export function hasActiveThreadFilters(filters: ThreadFilters): boolean {
+  return filters.needsYou || filters.running || filters.unseen;
+}
 
 export type ThreadPanelLoadState =
   | { readonly status: 'idle' | 'loading' | 'ready' }
@@ -22,18 +37,37 @@ export type ThreadPanelContentState =
  * card stands in for it — otherwise the toolbar reports a count for rows that
  * are not on screen and offers to select threads the user cannot see.
  */
+/**
+ * Resolution state of the `roots` rows folder grouping is built from, or `null`
+ * outside folder grouping.
+ *
+ * Neither half is decoration. An unresolved or failed folder map is EMPTY, and
+ * an empty map groups every thread under "No folder" — the same silent degrade
+ * the panel already refuses for its run-state indicators. So both replace the
+ * treegrid rather than letting it state that as a fact.
+ */
+export interface ThreadPanelFolderGroupingState {
+  readonly error: Error | null;
+  readonly loading: boolean;
+}
+
 export function resolveThreadPanelContentState({
   databaseError,
   databaseStartupLoading,
+  folderGrouping = null,
   loadState,
   repositoryReady,
+  threadFiltersActive = false,
   threads,
   view,
 }: {
   readonly databaseError: Error | null;
   readonly databaseStartupLoading: boolean;
+  readonly folderGrouping?: ThreadPanelFolderGroupingState | null;
   readonly loadState: ThreadPanelLoadState | null;
   readonly repositoryReady: boolean;
+  /** True when `threads` has already been narrowed by the Show only filters. */
+  readonly threadFiltersActive?: boolean;
   readonly threads: readonly AssistantMemoryThread[];
   readonly view: ThreadListView;
 }): ThreadPanelContentState {
@@ -79,6 +113,36 @@ export function resolveThreadPanelContentState({
       kind: 'card',
       testId: 'threads-loading-card',
       title: 'Loading threads...',
+      variant: 'muted',
+    };
+  }
+  if (folderGrouping?.error) {
+    return {
+      description: folderGrouping.error.message,
+      kind: 'card',
+      testId: 'threads-folders-error-card',
+      title: 'Folder grouping unavailable',
+      variant: 'error',
+    };
+  }
+  if (folderGrouping?.loading) {
+    return {
+      description: 'Reading workspace folders from PGlite.',
+      kind: 'card',
+      testId: 'threads-folders-loading-card',
+      title: 'Loading folders...',
+      variant: 'muted',
+    };
+  }
+  if (threads.length === 0 && threadFiltersActive) {
+    // Never the "No threads found" card here: threads exist, the filters are
+    // simply hiding all of them, and that card's remedy (create a thread) would
+    // not bring any of them back.
+    return {
+      description: 'No thread matches Show only. Clear the filters in view options.',
+      kind: 'card',
+      testId: 'threads-filtered-empty-card',
+      title: 'No matching threads',
       variant: 'muted',
     };
   }

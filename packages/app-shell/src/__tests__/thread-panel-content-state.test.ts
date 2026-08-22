@@ -18,6 +18,7 @@ function thread(id: string): AssistantMemoryThread {
 const POPULATED_FLAT: ThreadListView = { kind: 'flat', threads: [thread('thread-a')] };
 const EMPTY_FLAT: ThreadListView = { kind: 'flat', threads: [] };
 const EMPTY_GROUPED: ThreadListView = { kind: 'grouped', sections: [], ungrouped: [] };
+const EMPTY_FOLDERS: ThreadListView = { kind: 'folders', sections: [] };
 
 function resolve(
   overrides: Partial<Parameters<typeof resolveThreadPanelContentState>[0]> = {}
@@ -124,6 +125,52 @@ describe('resolveThreadPanelContentState', () => {
     // The empty-state card is flat-only: grouped views render their (possibly
     // empty) sections rather than claiming there are no threads.
     expect(resolve({ threads: [], view: EMPTY_GROUPED })).toEqual({ kind: 'tree' });
+  });
+
+  it('replaces the tree while the folder rows for folder grouping are still resolving', () => {
+    // An unresolved folder map groups EVERY thread under "No folder"; showing
+    // the tree meanwhile would state that as a fact.
+    expect(
+      resolve({
+        folderGrouping: { error: null, loading: true },
+        view: EMPTY_FOLDERS,
+      })
+    ).toEqual({
+      description: 'Reading workspace folders from PGlite.',
+      kind: 'card',
+      testId: 'threads-folders-loading-card',
+      title: 'Loading folders...',
+      variant: 'muted',
+    });
+  });
+
+  it('replaces the tree with an explicit unavailable card when the folder rows fail', () => {
+    expect(
+      resolve({
+        folderGrouping: { error: new Error('roots query failed'), loading: false },
+        view: EMPTY_FOLDERS,
+      })
+    ).toEqual({
+      description: 'roots query failed',
+      kind: 'card',
+      testId: 'threads-folders-error-card',
+      title: 'Folder grouping unavailable',
+      variant: 'error',
+    });
+  });
+
+  it('names the filters when they are what emptied the list, instead of "no threads"', () => {
+    expect(resolve({ threadFiltersActive: true, threads: [], view: EMPTY_FLAT })).toEqual({
+      description: 'No thread matches Show only. Clear the filters in view options.',
+      kind: 'card',
+      testId: 'threads-filtered-empty-card',
+      title: 'No matching threads',
+      variant: 'muted',
+    });
+    // Without filters the list really is empty, and the card still says so.
+    expect(resolve({ threads: [], view: EMPTY_FLAT })).toMatchObject({
+      testId: 'threads-placeholder-card',
+    });
   });
 
   it('prefers the startup-loading card over the unavailable card while both could apply', () => {
