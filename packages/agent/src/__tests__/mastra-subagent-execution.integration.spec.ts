@@ -19,6 +19,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { CHILD_WRAP_UP_FEEDBACK } from '../mastra/build-persona-subagents';
 import type { PgliteDatabase } from '../pglite-mastra-memory';
 import type { StreamChunk } from '../types';
 
@@ -74,6 +75,9 @@ function parsePersistedParts(row: PersistedMessageRow): Record<string, unknown>[
 const USAGE = { inputTokens: 1, outputTokens: 1, totalTokens: 2 } as const;
 
 const DELEGATION_TOOL = 'agent-explore';
+// The REAL feedback text, imported rather than duplicated: a reworded policy
+// must not silently stop being asserted.
+const CHILD_WRAP_UP_MARKER = CHILD_WRAP_UP_FEEDBACK.slice(0, 48);
 // The parent tool map is keyed by original id `brainstrike.grepSearch`; the
 // sanitizer renames dots to underscores, so the model sees `brainstrike_grepSearch`.
 const CHILD_TOOL = 'brainstrike_grepSearch';
@@ -261,20 +265,22 @@ function createStepCappedChildSupervisorModel(childToolCallPrefix: string): Lang
 }
 
 /**
- * Like {@link createStepCappedChildSupervisorModel}, but the CHILD answers when
- * its tools are withheld (`toolChoice: 'none'` or an empty tool set) — the shape
- * a forced synthesis turn takes. Proves the synthesis call is real: without it
- * the child never emits text at all.
+ * Like {@link createStepCappedChildSupervisorModel}, but the CHILD answers once
+ * it sees the WRAP-UP instruction in its own prompt — the shape Mastra's
+ * `onIterationComplete` produces when it returns `{ continue: false, feedback }`
+ * (docs/subagents.md: "the model may get one final turn for a text response
+ * that incorporates the feedback").
+ *
+ * The fake answers ONLY on that signal, so the test cannot pass unless the
+ * feedback genuinely reached the child's next model call.
  */
-function createSynthesizingChildSupervisorModel(): {
+function createWrapUpChildSupervisorModel(): {
   model: LanguageModelV2;
-  /** The prompt the SYNTHESIS turn actually received, once it happens. */
-  synthesisPrompt: { current: LanguageModelV2CallOptions['prompt'] | undefined };
+  /** Every prompt the CHILD received, so the test can prove what it was told. */
+  childPrompts: LanguageModelV2CallOptions['prompt'][];
 } {
   let childTurn = 0;
-  const synthesisPrompt: { current: LanguageModelV2CallOptions['prompt'] | undefined } = {
-    current: undefined,
-  };
+  const childPrompts: LanguageModelV2CallOptions['prompt'][] = [];
   const model: LanguageModelV2 = {
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
@@ -291,13 +297,10 @@ function createSynthesizingChildSupervisorModel(): {
           ),
         });
       }
-      const toolsWithheld =
-        toolNamesOf(options).length === 0 ||
-        (options as { toolChoice?: { type?: string } }).toolChoice?.type === 'none';
-      if (toolsWithheld) {
-        synthesisPrompt.current = options.prompt;
+      childPrompts.push(options.prompt);
+      if (JSON.stringify(options.prompt).includes(CHILD_WRAP_UP_MARKER)) {
         return Promise.resolve({
-          stream: enqueue(finalTextStream('CHILD_SYNTHESIS: three matches under src/.')),
+          stream: enqueue(finalTextStream('CHILD_SUMMARY: three matches under src/.')),
         });
       }
       childTurn += 1;
@@ -316,7 +319,7 @@ function createSynthesizingChildSupervisorModel(): {
     specificationVersion: 'v2',
     supportedUrls: {},
   };
-  return { model, synthesisPrompt };
+  return { childPrompts, model };
 }
 
 interface CollectedStream {
@@ -367,29 +370,34 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     modelHolder.current = undefined;
   });
 
-  it('gives a step-capped child one no-tools turn to write the summary it never reached', async () => {
-    // BST-1410. Reporting the failure honestly is necessary but wasteful: the
-    // child had already done four minutes of real exploration. One forced turn
-    // with tools withheld converts that work into an answer instead of 30
-    // orphaned tool results — and it cannot loop, because it cannot call tools.
+  it("reserves the child's last step for a summary, via Mastra's iteration hook", async () => {
+    // BST-1410 follow-up. Reporting the failure honestly is necessary but
+    // wasteful: the child had already done real exploration. Mastra's own
+    // mechanism for this is `onIterationComplete` returning
+    // `{ continue: false, feedback }` — documented in docs/subagents.md as
+    // granting "one final turn for a text response that incorporates the
+    // feedback". The child therefore spends its LAST step summarising instead
+    // of being cut off mid-tool-loop.
+    //
+    // The fake answers ONLY when it sees the wrap-up marker in its own prompt,
+    // so this cannot pass unless the feedback genuinely reached the child's
+    // next model call.
     const executeSpy = vi.fn((_inputData: { pattern: string }) =>
       Promise.resolve({ matches: ['a match'] })
     );
-    const { model, synthesisPrompt } = createSynthesizingChildSupervisorModel();
+    const { childPrompts, model } = createWrapUpChildSupervisorModel();
     modelHolder.current = model;
 
     const iterator = await streamMastraAgent(
-      [{ id: 'u-synth', parts: [{ text: 'survey the workspace', type: 'text' }], role: 'user' }],
+      [{ id: 'u-wrap', parts: [{ text: 'survey the workspace', type: 'text' }], role: 'user' }],
       {
-        personas: [{ ...testPersona, maxSteps: 2 }],
+        personas: [{ ...testPersona, maxSteps: 3 }],
         runtime: { apiKey: 'test-key', provider: 'openai' },
         tools: { 'brainstrike.grepSearch': makeChildTool(executeSpy) },
       }
     );
 
     const { delegationToolEvents, runEvents } = await collect(iterator);
-
-    expect(executeSpy).toHaveBeenCalledTimes(2);
 
     const successEvent = delegationToolEvents.find(
       (event) => event.type === 'tool-event' && event.status === 'success'
@@ -398,31 +406,36 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
       successEvent && successEvent.type === 'tool-event'
         ? (successEvent.payload as { result?: { text?: string } }).result?.text
         : undefined;
-    expect(resultText).toContain('CHILD_SYNTHESIS: three matches under src/.');
+
+    // The child answered, so the parent gets analysis rather than the
+    // no-answer reason.
+    expect(resultText).toContain('CHILD_SUMMARY: three matches under src/.');
     expect(resultText).not.toContain('never wrote its summary');
 
-    // THE assertion that separates synthesis from FABRICATION (review of
-    // #2587). `CHILD_SYNTHESIS_PROMPT` says "using ONLY what you already found
-    // above", and that depends entirely on `context.messages` being the CHILD's
-    // conversation rather than the parent's or an empty array. Without this, a
-    // fake that answers regardless of its prompt stays green while production
-    // hands the parent an invented summary — labelled `subagent.finished`, in
-    // green, which is strictly worse than the empty result being fixed here.
-    const synthesisJson = JSON.stringify(synthesisPrompt.current);
-    expect(synthesisJson).toContain('flag-1');
-    expect(synthesisJson).toContain('flag-2');
-    expect(synthesisJson).toContain('a match');
-    // ...and the request ends on a USER turn, so it is never prefill.
-    const lastMessage = synthesisPrompt.current?.at(-1);
-    expect(lastMessage?.role).toBe('user');
-    expect(JSON.stringify(lastMessage)).toContain('step limit');
+    // The wrap-up turn saw the child's OWN gathered work — the summary is
+    // grounded, not invented.
+    const wrapUpPrompt = childPrompts.at(-1);
+    const wrapUpJson = JSON.stringify(wrapUpPrompt);
+    expect(wrapUpJson).toContain(CHILD_WRAP_UP_MARKER);
+    expect(wrapUpJson).toContain('flag-1');
+    expect(wrapUpJson).toContain('a match');
 
-    // A delegation that DID end up answering is a success again.
+    // THE discriminator between the canonical mechanism and a bolt-on extra
+    // stream. `maxSteps: 3` buys THREE model calls in total, and the wrap-up is
+    // the third — so exactly two tool-calling steps precede it. A synthesis turn
+    // issued as a SEPARATE stream would spend all three steps on tools and then
+    // add a fourth call on top, exceeding the budget the persona declared.
+    expect(executeSpy).toHaveBeenCalledTimes(2);
+    // ...and the wrap-up turn is part of the child's OWN loop, so its tools are
+    // still registered. An extra no-tools stream would show an empty tool set.
+    expect(JSON.stringify(wrapUpPrompt)).toContain('flag-2');
+
+    // A delegation that answered is a success again.
     const subagentTerminals = runEvents
       .map((event) => event.kind)
       .filter((kind) => kind === 'subagent.finished' || kind === 'subagent.failed');
     expect(subagentTerminals).toEqual(['subagent.finished']);
-  });
+  }, 30_000);
 
   it('reports a step-capped child as a failed delegation carrying an explicit reason', async () => {
     // BST-1410 regression. In run-7eb0e370 both delegations used exactly 8 step

@@ -133,6 +133,28 @@ describe('runGlobWorkspace — ignore handling', () => {
     expect(paths(result)).toEqual(['/src/main.ts']);
   });
 
+  it('excludes a repo-local pnpm store, which otherwise starves the walk cap', async () => {
+    // Field failure 2026-08-22: `.pnpm-store` was excluded by the `full-root`
+    // preset but not by `balanced`, which is the one the walk uses. A real store
+    // holds ~82k files — 1.6x the 50,000-file walk cap on its own — and sorts
+    // ahead of `apps/`, `docs/` and `packages/`, so the walk exhausted its
+    // budget inside the store and every glob returned 0 matches for patterns
+    // that plainly matched. The Explorer subagent then burned its whole step
+    // budget shelling out instead of using its primary discovery tool.
+    //
+    // Structurally guarded by the preset-coherence test in
+    // `@brainstrike/utils`; asserted HERE too so the walk's own behaviour is
+    // pinned at the tool boundary the model actually calls.
+    const root = await makeWorkspace([
+      'docs/architecture.md',
+      '.pnpm-store/v10/files/00/deadbeef.md',
+      '.pnpm-store/v10/files/01/cafebabe.md',
+    ]);
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/docs/architecture.md']);
+    expect(result.scanLimited).toBe(false);
+  });
+
   it('excludes lockfiles and minified/map artifacts by default', async () => {
     const root = await makeWorkspace([
       'src/app.ts',

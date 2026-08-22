@@ -22,7 +22,7 @@
 import type { AssistantRunEventMetadata } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { ScopedLogger } from '@brainstrike/logging';
-import type { DelegationConfig, MastraDBMessage } from '@mastra/core/agent';
+import type { DelegationConfig } from '@mastra/core/agent';
 
 export const MAX_CONCURRENT_DELEGATIONS = 2;
 export const MAX_DELEGATIONS_PER_RUN = 8;
@@ -63,20 +63,6 @@ export function createDelegationOutcomeCapture(): DelegationOutcomeCapture {
   };
 }
 
-/** What a step-capped child is asked for when its tools are withheld. */
-export const CHILD_SYNTHESIS_PROMPT =
-  'You have reached your step limit and can make no further tool calls. Using ONLY what ' +
-  'you already found above, write your summary now: what you looked for, what you found, ' +
-  'and the concrete file paths. If the task is only partly covered, say exactly which part ' +
-  'you covered and which you did not.';
-
-/** What a forced synthesis turn produced, plus the cost of producing it. */
-export interface SynthesizedChildAnswer {
-  readonly text: string;
-  /** The synthesis turn's OWN usage — a whole extra child model call. */
-  readonly usage?: unknown;
-}
-
 export interface CreateDelegationConfigParams {
   /** Optional sink for delegations that returned no answer (see above). */
   readonly delegationOutcomes?: DelegationOutcomeCapture;
@@ -91,17 +77,6 @@ export interface CreateDelegationConfigParams {
   readonly onChildUsage?: (report: SubagentChildUsageReport) => void;
   /** Persona id → definition; the `primitiveId` Mastra passes is the persona id. */
   readonly personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
-  /**
-   * Run ONE no-tools turn on the child so a step-capped exploration still
-   * produces an answer (BST-1410). Supplied by the runtime layer, which owns
-   * the child `Agent` instances. Absent (or resolving empty) leaves the
-   * explicit no-answer reason in place — that reason is itself truthful and the
-   * attempt is logged, so nothing degrades silently.
-   */
-  readonly synthesizeChildAnswer?: (input: {
-    readonly messages: readonly MastraDBMessage[];
-    readonly personaId: string;
-  }) => Promise<SynthesizedChildAnswer | undefined>;
 }
 
 function readTokenCount(value: unknown): number {
@@ -237,65 +212,13 @@ async function resolveMissingAnswerResult(
     personaId: context.primitiveId,
     ...(toolCallCount === undefined ? {} : { toolCallCount }),
   });
-  // The child already did the work; it simply never reached a step where it
-  // could write the answer. One turn with tools WITHHELD converts that work into
-  // a summary, and it cannot loop because it cannot call tools. Skipped only
-  // when the count is KNOWN to be zero: an unknown count means the child may
-  // well have gathered plenty, and refusing to try would discard it on a
-  // technicality.
-  if (params.synthesizeChildAnswer && toolCallCount !== 0) {
-    const synthesized = await synthesizeOrLog(params, context);
-    if (synthesized) {
-      // The synthesis turn's own cost, reported as a SECOND child-usage report
-      // for the same persona. `createDelegationUsageCapture` pushes one chunk
-      // per call, so two chunks for one delegation is the intended shape — and
-      // the alternative is silently under-reporting the very child this hook
-      // insists on billing.
-      const synthesisUsage = readDelegationUsage(synthesized.usage);
-      if (synthesisUsage && params.onChildUsage) {
-        params.onChildUsage({ ...synthesisUsage, personaId: context.primitiveId });
-      }
-      return { resultText: synthesized.text };
-    }
-  }
+  // No recovery attempt here, deliberately. A child that ran out of steps is
+  // given its summary turn INSIDE its own loop by `buildChildIterationPolicy`
+  // (Mastra's `onIterationComplete`), so reaching this point means even the
+  // reserved step produced nothing — there is no second mechanism to try, and
+  // adding one would be the bolt-on the iteration hook replaced.
   params.delegationOutcomes?.recordNoAnswer(context.toolCallId);
   return { resultText: describeMissingChildAnswer(persona, context.result) };
-}
-
-/**
- * Run the forced synthesis turn, converting any failure into `undefined` so the
- * caller falls through to the explicit no-answer reason.
- *
- * Swallowing here is NOT a silent fallback: the failure is logged with its own
- * code, and the path it falls through to still tells the parent truthfully that
- * the delegation produced no analysis. What must never happen is a synthesis
- * error taking down the parent run.
- */
-async function synthesizeOrLog(
-  params: CreateDelegationConfigParams,
-  context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0]
-): Promise<SynthesizedChildAnswer | undefined> {
-  try {
-    const synthesized = await params.synthesizeChildAnswer?.({
-      messages: context.messages,
-      personaId: context.primitiveId,
-    });
-    const trimmed = synthesized?.text.trim();
-    if (synthesized && trimmed) {
-      params.logger.info('Subagent wrote its summary in a forced synthesis turn', {
-        code: 'subagent_delegation_synthesis_recovered',
-        personaId: context.primitiveId,
-      });
-      return { ...synthesized, text: trimmed };
-    }
-  } catch (error) {
-    params.logger.warn('Subagent synthesis turn failed', {
-      code: 'subagent_delegation_synthesis_failed',
-      error: error instanceof Error ? error.message : String(error),
-      personaId: context.primitiveId,
-    });
-  }
-  return;
 }
 
 /**
