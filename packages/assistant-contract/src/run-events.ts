@@ -32,6 +32,37 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'subagent.tool.completed',
   'subagent.tool.failed',
   'subagent.tool.started',
+  // The approval PAUSE itself, as a durable event (BST-1402). The pause is NOT
+  // otherwise unrecorded: a STILL-PENDING one is rediscovered on load from the
+  // Mastra suspended-workflow snapshot (`listSuspendedMastraRuns` +
+  // `appendSuspendedPauseMessages`), which re-appends the real actionable
+  // `brainstrike.tool-approval` notice. This row exists for the two things that
+  // rediscovery cannot do:
+  //   1. It is a CHEAP CROSS-THREAD PROJECTION SURFACE. The Threads panel's
+  //      "needs you" column is one SQL query over
+  //      `brainstrike_assistant_run_events`; rediscovery is a per-thread round
+  //      trip through workflow storage and cannot be run for every thread in a
+  //      list.
+  //   2. It records pauses that were LATER ANSWERED. Rediscovery only ever
+  //      surfaces snapshots that are still suspended, so without this row the
+  //      history of "this run stopped and asked" disappears the moment the user
+  //      answers.
+  //
+  // Deliberately NOT spelled `.started`, and deliberately WITHOUT a resolution
+  // counterpart. No tool ran: a `.started` spelling would make
+  // `collectToolDurations` clock the USER's deliberation as tool execution and
+  // would pair the pause against `tool.completed` as if a call had run, while
+  // `RUN_LEDGER_AGGREGATION_SQL` counts only `tool.completed`/`tool.failed`, so
+  // this is never a tool call in the Task Ledger either. Resolution is DERIVED
+  // from events that already exist — the next event for the SAME
+  // `metadata.toolCallId` (approve => the resumed stream re-yields the tool
+  // start and eventually `tool.completed`; decline => `tool.failed`, "Tool call
+  // declined"; unanswerable => `tool.resume.unsupported`). The run status is
+  // NOT a resolution signal: the paused leg is recorded `completed` (it returns
+  // `finished` at the pause), so "the run left `status = 'running'`" is true the
+  // instant the pause is written. A `tool.approval.resolved` kind would be a second
+  // source of truth for a fact those terminals already carry.
+  'tool.approval.requested',
   'tool.completed',
   'tool.failed',
   // A suspending tool paused a run this build has no registered resume UI for
