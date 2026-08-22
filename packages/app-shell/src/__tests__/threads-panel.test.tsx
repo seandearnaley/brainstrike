@@ -1,4 +1,5 @@
 import {
+  type AssistantMemoryThread,
   useAssistantThreadGroupsStore,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
@@ -17,6 +18,7 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
+import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
@@ -279,7 +281,10 @@ vi.mock('@brainstrike/db/react', () => ({
 // same observable pre-first-load state the real hook reports, so the folder-mode
 // gate stays visible to these tests.
 vi.mock('../changes/use-git-inventory', () => ({
-  useGitInventory: (options?: { readonly deferInitialLoad?: boolean }) => {
+  useGitInventory: (options?: {
+    readonly active?: boolean;
+    readonly deferInitialLoad?: boolean;
+  }) => {
     const deferred = Boolean(options?.deferInitialLoad);
     gitMocks.deferredLoads.push(deferred);
     return {
@@ -515,7 +520,7 @@ beforeEach(() => {
     }
     if (sql.includes('SET metadata')) {
       const threadId = String(params?.[0]);
-      if (dbMocks.metadataFailureThreadId === threadId) {
+      if (dbMocks.metadataFailureThreadId === threadId || dbMocks.metadataFailureThreadId === '*') {
         throw new Error('Metadata update failed in PGlite.');
       }
       const row = threadRows.find((item) => item['id'] === threadId);
@@ -2317,9 +2322,14 @@ describe('ThreadsPanel folders', () => {
 
   it('chips the folder branch on the bound row only, and only in folder grouping', async () => {
     bindThreadToRoot('thread-a');
-    // Trailing separator on purpose: the folder row carries the RAW roots.path
-    // and the branch map is keyed by the normalized one.
-    gitMocks.worktrees = [{ branch: 'main', detached: false, path: '/tmp/workspace-a/' }];
+    gitMocks.worktrees = [
+      {
+        branch: 'main',
+        containment: ['root-1'],
+        detached: false,
+        path: '/tmp/workspace-a/',
+      },
+    ];
     renderThreadsPanel();
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -2337,6 +2347,44 @@ describe('ThreadsPanel folders', () => {
     // First badge: the one the container query keeps at narrow panel widths.
     expect(badges.firstElementChild).toHaveTextContent('main');
     expect(within(rowFor('Second thread')).queryByText('main')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the normalized display path only when a thread has no durable root id', () => {
+    const legacyThread: AssistantMemoryThread = {
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      id: 'legacy-thread',
+      metadata: { operatingRootPath: '/tmp/workspace-a/' },
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Legacy thread',
+      updatedAt: new Date('2026-04-22T09:00:00Z'),
+    };
+
+    expect(
+      lookupThreadBranch(legacyThread, {
+        byRootId: new Map(),
+        byRootPath: new Map([['/tmp/workspace-a', { branch: 'legacy-branch', detached: false }]]),
+      })
+    ).toEqual({ branch: 'legacy-branch', detached: false });
+  });
+
+  it('does not borrow a same-path replacement root branch when the durable root id differs', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      {
+        branch: 'replacement-branch',
+        containment: ['replacement-root'],
+        detached: false,
+        path: '/tmp/workspace-a',
+      },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    expect(within(rowFor('First thread')).queryByText('replacement-branch')).toBeNull();
   });
 
   // The symlink skew live e2e found: `roots.path` keeps the MOUNTED path,
@@ -2535,6 +2583,39 @@ describe('ThreadsPanel folders', () => {
     fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
 
     expect(await screen.findByText('New thread in workspace-a failed')).toBeVisible();
+  });
+
+  it('preserves a created thread in No folder when its folder binding fails', async () => {
+    bindThreadToRoot('thread-a');
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await enterFolderGrouping();
+    mockDb.query.mockClear();
+    dbMocks.metadataFailureThreadId = '*';
+
+    fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
+
+    expect(await screen.findByText('Thread created in No folder')).toBeVisible();
+    expect(
+      screen.getByText(
+        'Could not bind it to workspace-a: Metadata update failed in PGlite. Open the thread and select workspace-a to retry.'
+      )
+    ).toBeVisible();
+    await waitFor(() => {
+      const unassignedSection = screen
+        .getAllByTestId('thread-group-section')
+        .find((section) => within(section).queryByText('No folder'));
+      expect(unassignedSection).toBeDefined();
+      expect(
+        within(unassignedSection as HTMLElement).getByTestId('thread-folder-count')
+      ).toHaveTextContent('2');
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(3);
+    });
+    expect(
+      mockDb.query.mock.calls.some(([sql]) => sql.includes('DELETE FROM mastra_threads'))
+    ).toBe(false);
   });
 
   it('offers neither drag handles nor group membership actions in folder grouping', async () => {

@@ -2004,18 +2004,21 @@ Where state lives (do not relitigate):
   new `completedAt` while it is still active — so a run finishing in the
   foreground can never later read as unseen. Folder branch chips come from
   `use-thread-branch-by-root-path.ts`: ONE `useGitInventory()` GATED on
-  `enabled` (`deferInitialLoad: !enabled`) because one load is a full
+  `enabled` (`active: enabled`, `deferInitialLoad: !enabled`) because one load is a full
   repo/worktree scan across every workspace root (BST-1116 W6 finding 4) and the
   chips exist only in folders grouping — entering that grouping is the gesture,
-  so this is a deferral, not a silent disable; the flip itself performs the load
-  exactly once. TWO KEYED LOOKUPS, tried in that order by `resolveThreadBranch`
-  (`threads-panel.tsx`). FIRST the EXACT normalized worktree path. THEN
-  `byRootId`, keyed by DB `roots.id` — the same id space as
+  so this is a deferral, not a silent disable; the flip itself performs the
+  load. Leaving folder grouping makes the hook inactive, so later push
+  invalidations do not pay for full inventory scans; re-entering performs a
+  fresh load. TWO KEYED LOOKUPS are available to `resolveThreadBranch`
+  (`threads-panel.tsx`). FIRST `byRootId`, keyed by DB `roots.id` — the same id space as
   `metadata.operatingRootId` — holding only ids that appear in the
-  `containment` of EXACTLY ONE worktree. `containment` is many-to-one, so it is
-  the FALLBACK and never the primary key: a root that merely contains several
-  repositories is absent from `byRootId` rather than borrowing one of their
-  branches. BARE worktrees are omitted from both maps: they carry no checkout,
+  `containment` of EXACTLY ONE worktree. A present durable id is authoritative:
+  a miss renders no chip, rather than falling through to a display path that a
+  replacement root may now occupy. THEN, only for a legacy thread with no
+  durable id, the exact normalized worktree path is the fallback. A root that
+  merely contains several repositories is absent from `byRootId` rather than
+  borrowing one of their branches. BARE worktrees are omitted from both maps: they carry no checkout,
   hence no branch, and a mapped bare entry (`branch: null, detached: false`)
   would render as an icon-only chip with no text (they therefore do not make a
   root's containment ambiguous either).
@@ -2049,7 +2052,11 @@ Where state lives (do not relitigate):
   thread here**: `createThread` then ONE `updateThreadMetadata` carrying the
   whole binding (`operatingRootDisplayName` + `operatingRootId`, plus
   `operatingRootPath` only when the root has one — the repository rejects a
-  partial triple), toasting on failure. Panel chrome stays TWO rows: the
+  partial triple). A create failure reports clean failure. If creation succeeds
+  but metadata binding fails, the thread is preserved in **No folder** and the
+  destructive toast reports explicit partial success plus guidance to open the
+  thread and select the intended folder; it is never deleted to make the toast
+  look atomic. Panel chrome stays TWO rows: the
   `Show only` filters (Running / Needs you / Unseen) live INSIDE the view-options
   popover, they are a UNION not an intersection, they light the trigger's dot
   like any other non-default view, and when they empty the list the panel names
@@ -2121,9 +2128,9 @@ Where state lives (do not relitigate):
   The seed reads the DURABLE `roots.id` back from the database rather than
   reusing the adapter root id, and the desktop fixture `realpath`s its temp
   repo: `roots.path` keeps whatever path was mounted while git reports the
-  resolved one, and the branch join's FIRST attempt (below) is exact-path with
-  no symlink resolution — resolving the fixture keeps that spec grading the
-  path join rather than the containment-id fallback behind it. The web
+  resolved one. Resolving the fixture keeps its path projection coincident with
+  the checkout, while the unit suite separately grades the authoritative
+  containment-id join and the legacy path-only fallback. The web
   spec additionally pins that `window.changes` does not exist there at all —
   the structural reason the badge is desktop-only, which still holds for a
   bound thread. Both specs also pin the EMPTY-resource bootstrap thread

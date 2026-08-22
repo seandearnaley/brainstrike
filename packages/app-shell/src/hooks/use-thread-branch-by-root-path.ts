@@ -6,7 +6,8 @@
  * every repository and worktree across every root, so a per-folder git call
  * would be N round trips for data one call already carries.
  *
- * GATED ON `enabled`, which maps to `deferInitialLoad: !enabled`. One
+ * GATED ON `enabled`, which maps to both `active: enabled` and
+ * `deferInitialLoad: !enabled`. One
  * inventory load is a FULL repository/worktree scan across every workspace root
  * — the cost that made `deferInitialLoad` exist at all (BST-1116 W6 review
  * finding 4, where merely mounting the git panel header paid for it). Branch
@@ -16,22 +17,20 @@
  *
  * This is NOT the silent disable that hook's doc forbids: ENTERING folders
  * grouping is the gesture. `enabled` flips with the grouping mode, and because
- * `deferInitialLoad` is a dependency of the inventory hook's own load effect,
- * that flip performs the load — exactly once, with no second `refresh()` call
- * here that would double the scan. While `enabled` is false the map is empty
- * and `available` still reports the bridge honestly, so a caller can tell
- * "not requested" from "no bridge".
+ * the option change is a dependency of the inventory hook's own load effect,
+ * that flip performs the load with no second `refresh()` call here that would
+ * double the scan. Leaving folder grouping pauses invalidation-driven scans;
+ * re-entering performs a fresh load. While `enabled` is false the last map may
+ * remain in memory but is not rendered, and `available` still reports the
+ * bridge honestly.
  *
  * BARE WORKTREES ARE OMITTED. They carry no checkout, hence no branch, and the
  * chip has nothing to say about them — see the loop below.
  *
- * TWO LOOKUPS, TRIED IN THIS ORDER — path first, then root id.
+ * TWO LOOKUPS. The panel tries durable root id first, then path only for a
+ * legacy thread that has no root id.
  *
- * 1. `byRootPath` — EXACT PATH EQUALITY on the normalized worktree path. The
- *    cheapest, most specific answer: a root that IS a worktree checkout gets
- *    its real branch and nothing has to be inferred.
- *
- * 2. `byRootId` — the UNAMBIGUOUS subset of `WorktreeDescriptor.containment`.
+ * 1. `byRootId` — the UNAMBIGUOUS subset of `WorktreeDescriptor.containment`.
  *    The path join alone is not enough, because the two sides of it come from
  *    different producers: `roots.path` keeps the path the folder was MOUNTED
  *    through, while git reports the REALPATH. A root mounted through a symlink
@@ -48,11 +47,13 @@
  * A ROOT ID CONTAINED BY MORE THAN ONE WORKTREE IS OMITTED, never guessed at.
  * `containment` is many-to-one: a workspace root holding three repositories
  * contains three worktrees on three branches and HAS no branch of its own —
- * that ambiguity is exactly why containment is the FALLBACK and not the
- * primary key. Zero or 2+ containing worktrees ⇒ absent from `byRootId` ⇒ the
- * panel renders no chip, the same answer it already gives for any root it
- * cannot name. A worktree whose containment is `'outside-roots'` contributes
- * no id at all.
+ * Zero or 2+ containing worktrees ⇒ absent from `byRootId` ⇒ the panel renders
+ * no chip, the same answer it already gives for any root it cannot name. A
+ * worktree whose containment is `'outside-roots'` contributes no id at all.
+ *
+ * 2. `byRootPath` — EXACT PATH EQUALITY on the normalized worktree path, used
+ *    only for a legacy thread with no durable root id. It must never override
+ *    a present id: a replacement root may be mounted at the same display path.
  *
  * Desktop only: without the `window.changes` bridge `available` is false and
  * both maps are empty. Web omits the chip rather than inventing one.
@@ -143,7 +144,10 @@ export function useThreadBranchByRootPath({
   /** True only while the branch chips can actually be rendered — see above. */
   readonly enabled: boolean;
 }): ThreadBranchByRootPathState {
-  const { available, inventory } = useGitInventory({ deferInitialLoad: !enabled });
+  const { available, inventory } = useGitInventory({
+    active: enabled,
+    deferInitialLoad: !enabled,
+  });
   const { byRootId, byRootPath } = useMemo(() => {
     if (!inventory) {
       // `null` is "not resolved yet", NOT "no repositories" — either way there

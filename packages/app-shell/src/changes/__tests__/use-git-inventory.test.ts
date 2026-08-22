@@ -227,6 +227,44 @@ describe('useGitInventory', () => {
     });
   });
 
+  it('pauses invalidation scans while inactive and refreshes on reactivation', async () => {
+    const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
+    stubBridge({ inventory });
+
+    const { rerender, result } = renderHook(
+      (active: boolean) => useGitInventory({ active, deferInitialLoad: !active }),
+      { initialProps: false }
+    );
+    expect(inventory).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rerender(true);
+    });
+    expect(inventory).toHaveBeenCalledTimes(1);
+    expect(result.current.loading).toBe(false);
+
+    act(() => {
+      rerender(false);
+    });
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/repo/.git',
+        repositoryRoot: '/repo',
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(inventory).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rerender(true);
+    });
+    expect(inventory).toHaveBeenCalledTimes(2);
+    expect(result.current.loading).toBe(false);
+  });
+
   it('ignores a stale in-flight load when a newer refresh supersedes it', async () => {
     const slow = inventoryFixture();
     const fresh = inventoryFixture({ errors: ['newer'] });

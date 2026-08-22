@@ -476,9 +476,10 @@ stale/duplicate bridge deliveries; the store is registered in factory reset).
 nonce (`selectGitScopeRefreshNonce`; a git-metadata event the service could not
 map still counts for every repo, conservatively). A working-tree event bumps
 ONLY mapped repository-view nonces — never `anyInvalidationNonce` — so
-`useGitInventory` continues to refetch only on accepted git-metadata events and
-a deferred instance remains unloaded until its existing explicit load gate has
-been crossed.
+`useGitInventory` continues to refetch only on accepted git-metadata events. A
+deferred instance remains unloaded until its existing explicit load gate has
+been crossed, and an inactive instance suppresses those effect-driven refetches
+even after an earlier load; reactivation performs a fresh inventory read.
 
 Repository view evidence admitted by the canonical pipeline (including the
 default-filter marker above) is LOSSLESS and split by identity vocabulary:

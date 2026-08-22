@@ -80,7 +80,6 @@ import {
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { normalizeRootPathForLookup } from './assistant-selection-write-back';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import {
@@ -94,14 +93,12 @@ import {
   THREAD_CONTROL_TITLE_CLASS_NAME,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
-import type {
-  ThreadBranchByRootPathState,
-  ThreadBranchInfo,
-} from './hooks/use-thread-branch-by-root-path';
+import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
 import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
+import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
 import {
   filterThreadsByThreadFilters,
@@ -249,13 +246,6 @@ interface ThreadMoveTarget {
   readonly id: string;
   readonly name: string;
 }
-
-/**
- * The branch projection the rows join against — both keys, without the
- * bridge-availability flag the panel itself reads. See
- * {@link resolveThreadBranch} for the order they are tried in.
- */
-type ThreadBranchLookup = Pick<ThreadBranchByRootPathState, 'byRootId' | 'byRootPath'>;
 
 function ThreadRows({
   activeThreadIds,
@@ -461,20 +451,26 @@ function ThreadRowDragScope({
 /**
  * The branch of the folder this thread works in, or `null`.
  *
- * TWO JOINS, path first then root id — both keyed lookups are documented on
- * `use-thread-branch-by-root-path.ts`, which owns the projection.
+ * TWO JOINS, durable root id first then a legacy path fallback — both keyed
+ * lookups are documented on `use-thread-branch-by-root-path.ts`, which owns the
+ * projection.
  *
- * 1. PATH. The folder rows carry the RAW `roots.path` while `byRootPath` is
- *    keyed by the NORMALIZED path, so this join has to normalize — an
+ * 1. ROOT ID. `byRootId` is keyed by DB `roots.id`, the same id space as
+ *    `metadata.operatingRootId`, and holds only root ids owned unambiguously
+ *    by ONE worktree. A present durable id is authoritative: if it has no
+ *    match, the thread has no branch chip. Falling through to the display path
+ *    would let a replacement root mounted at the same path borrow the old
+ *    thread's branch.
+ * 2. PATH. Legacy threads without a durable root id can still use their
+ *    display-only path. The folder rows carry the RAW `roots.path` while
+ *    `byRootPath` is keyed by the NORMALIZED path, so this join has to normalize — an
  *    un-normalized key matches nothing and the chip silently never appears.
  *    That normalization seam is trim + trailing-separator strip only.
- * 2. ROOT ID. Normalization is not symlink resolution: `roots.path` keeps the
+ *    Normalization is not symlink resolution: `roots.path` keeps the
  *    MOUNTED path and git reports the REALPATH, so a root mounted through a
  *    symlink (`/var/...` vs `/private/var/...`) never matches by path.
- *    `byRootId` is keyed by DB `roots.id`, the same id space as
- *    `metadata.operatingRootId`, and holds only root ids owned unambiguously
- *    by ONE worktree — so this fallback resolves the symlinked root without
- *    ever guessing for a folder that holds several repositories.
+ *    The durable id lookup above resolves that skew without guessing for a
+ *    folder that holds several repositories.
  *
  * A resolved worktree with NEITHER a branch nor a detached HEAD is a BARE one:
  * `git worktree list --porcelain` emits `bare` with no `branch` and no
@@ -494,24 +490,6 @@ function resolveThreadBranch(
     return null;
   }
   return resolved.branch || resolved.detached ? resolved : null;
-}
-
-function lookupThreadBranch(
-  thread: AssistantMemoryThread,
-  branchLookup: ThreadBranchLookup
-): ThreadBranchInfo | null {
-  const rootPath = thread.metadata?.operatingRootPath;
-  const byPath = rootPath
-    ? branchLookup.byRootPath.get(normalizeRootPathForLookup(rootPath))
-    : undefined;
-  if (byPath) {
-    return byPath;
-  }
-  const rootId = thread.metadata?.operatingRootId;
-  if (!rootId) {
-    return null;
-  }
-  return branchLookup.byRootId.get(rootId) ?? null;
 }
 
 function ThreadRowItem({
@@ -3057,13 +3035,22 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
         return;
       }
       createThread(repository, resourceId)
-        .then((thread) =>
-          updateThreadMetadata(repository, resourceId, thread.id, {
-            operatingRootDisplayName: folder.displayName,
-            operatingRootId: folder.rootId,
-            ...(folder.path ? { operatingRootPath: folder.path } : {}),
-          })
-        )
+        .then(async (thread) => {
+          try {
+            await updateThreadMetadata(repository, resourceId, thread.id, {
+              operatingRootDisplayName: folder.displayName,
+              operatingRootId: folder.rootId,
+              ...(folder.path ? { operatingRootPath: folder.path } : {}),
+            });
+          } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            toast({
+              description: `Could not bind it to ${folder.displayName}: ${message} Open the thread and select ${folder.displayName} to retry.`,
+              title: 'Thread created in No folder',
+              variant: 'destructive',
+            });
+          }
+        })
         .catch((error: unknown) => {
           toast({
             description: error instanceof Error ? error.message : String(error),

@@ -43,6 +43,13 @@ const logger = createLogger('UseGitInventory');
 
 export interface UseGitInventoryOptions {
   /**
+   * Whether push invalidations may trigger inventory scans for this caller.
+   * Defaults to `true`. Setting this false pauses effect-driven loads without
+   * disabling an explicit {@link UseGitInventoryResult.refresh} call, and a
+   * later false -> true transition performs a fresh load.
+   */
+  readonly active?: boolean;
+  /**
    * Skip the mount-time load. OPT-IN, default `false` — the Changes surface
    * (`changes-surface.tsx`, the original caller) needs the inventory eagerly
    * for its source picker and its changed-files grouping, and must keep
@@ -82,7 +89,7 @@ export interface UseGitInventoryResult {
 }
 
 export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInventoryResult {
-  const { deferInitialLoad = false } = options;
+  const { active = true, deferInitialLoad = false } = options;
   // Resolved ONCE per hook instance, not per render — see doc comment.
   const bridge = useMemo(() => resolveChangesBridge(), []);
   const [inventory, setInventory] = useState<GitInventory | null>(null);
@@ -144,6 +151,12 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
   }, [anyInvalidationNonce, bridge]);
 
   useEffect(() => {
+    // A surface that has gone inactive must stop paying for full inventory
+    // scans even if it loaded earlier. Re-entry changes `active` back to true
+    // and this same effect performs a fresh load.
+    if (!active) {
+      return;
+    }
     // A deferred caller that has never requested a load stays unloaded even
     // across push invalidations — the deferral exists so merely mounting the
     // surface costs no repo scan, and a push event must not defeat it. Once a
@@ -153,7 +166,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
       return;
     }
     void refresh();
-  }, [deferInitialLoad, refresh]);
+  }, [active, deferInitialLoad, refresh]);
 
   return {
     available: bridge !== null,
