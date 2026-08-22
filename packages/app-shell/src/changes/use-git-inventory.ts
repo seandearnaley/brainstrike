@@ -108,8 +108,10 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
 
   // EXTERNAL GIT ACTIVITY (BST-1161, spec §6): the inventory spans every
   // repository, so ANY accepted `changes:invalidated` event re-reads it. A
-  // `refresh` dependency (same discipline as `use-changeset.ts`'s inputs), so
-  // the mount effect below re-fires on each accepted event.
+  // direct mount-effect dependency (same discipline as `use-changeset.ts`'s
+  // inputs), so the effect below re-fires on each accepted event without
+  // making the imperative `refresh` callback depend on an otherwise-unused
+  // value.
   useChangesLiveRefreshSubscription();
   const anyInvalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
 
@@ -157,7 +159,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
         setLoading(false);
       }
     }
-  }, [activation, anyInvalidationNonce, bridge]);
+  }, [activation, bridge]);
 
   useEffect(() => {
     // A surface that has gone inactive must stop paying for full inventory
@@ -169,13 +171,12 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
     // A deferred caller that has never requested a load stays unloaded even
     // across push invalidations — the deferral exists so merely mounting the
     // surface costs no repo scan, and a push event must not defeat it. Once a
-    // load HAS been requested, invalidations (which re-create `refresh` via
-    // `anyInvalidationNonce`) keep the loaded inventory fresh.
+    // load HAS been requested, invalidations keep the loaded inventory fresh.
     if (deferInitialLoad && !loadRequestedRef.current) {
       return;
     }
     void refresh();
-  }, [active, deferInitialLoad, refresh]);
+  }, [active, anyInvalidationNonce, deferInitialLoad, refresh]);
 
   return {
     available: bridge !== null,
