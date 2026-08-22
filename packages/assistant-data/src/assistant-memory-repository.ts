@@ -1634,6 +1634,25 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   }
 }
 
+/**
+ * Narrows metadata for persistence: `secondaryRootIds`, when present, is
+ * replaced with its deduped form (see `optionalSecondaryRootIds`) so every
+ * write path — single-thread or bulk — serializes the same normalized shape.
+ * Callers must validate the metadata first (`assertPersistableThreadMetadata`
+ * / `requireNonemptyThreadMetadata`); this does not re-validate.
+ */
+function normalizeThreadMetadataForPersistence(
+  metadata: AssistantThreadMetadata
+): AssistantThreadMetadata {
+  const dedupedSecondaryRootIds = metadata.secondaryRootIds
+    ? optionalSecondaryRootIds(metadata.secondaryRootIds)
+    : undefined;
+  return {
+    ...metadata,
+    ...(dedupedSecondaryRootIds ? { secondaryRootIds: dedupedSecondaryRootIds } : {}),
+  };
+}
+
 function requireAssistantThreadIds(threadIds: readonly string[]): readonly string[] {
   if (!Array.isArray(threadIds) || threadIds.length === 0) {
     throw new Error('At least one assistant thread id is required.');
@@ -3692,13 +3711,7 @@ export function createPgliteAssistantThreadRepository(
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);
-      const dedupedSecondaryRootIds = metadata.secondaryRootIds
-        ? optionalSecondaryRootIds(metadata.secondaryRootIds)
-        : undefined;
-      const normalized: AssistantThreadMetadata = {
-        ...metadata,
-        ...(dedupedSecondaryRootIds ? { secondaryRootIds: dedupedSecondaryRootIds } : {}),
-      };
+      const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
@@ -3713,6 +3726,7 @@ export function createPgliteAssistantThreadRepository(
     ): Promise<void> {
       requireAssistantThreadIds(threadIds);
       requireNonemptyThreadMetadata(metadata);
+      const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
       const metadataParameter = threadIds.length + 1;
       const result = await database.query<Record<string, unknown>>(
@@ -3735,7 +3749,7 @@ export function createPgliteAssistantThreadRepository(
          SELECT
           (SELECT all_found FROM validation) AS "allFound",
           (SELECT count(*) FROM updated_threads) AS "updatedThreadCount"`,
-        [...threadIds, JSON.stringify(metadata)]
+        [...threadIds, JSON.stringify(normalized)]
       );
       assertAllBulkThreadsFound(result.rows[0]);
     },

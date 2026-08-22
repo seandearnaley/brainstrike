@@ -2103,7 +2103,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
-  it('persists and reloads secondaryRootIds as a deduped string array', async () => {
+  it('persists secondaryRootIds as a deduped string array', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
 
@@ -2115,6 +2115,43 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     expect(update).toBeDefined();
     const persisted = JSON.parse(String(update?.[1]?.[1])) as { secondaryRootIds?: unknown };
     expect(persisted.secondaryRootIds).toEqual(['db-root-b', 'db-root-c']);
+  });
+
+  it('accepts an empty secondaryRootIds array as "no secondaries" and persists []', async () => {
+    const db = createMockDb();
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await expect(
+      repository.updateThreadMetadata('thread-1', {
+        secondaryRootIds: [],
+      })
+    ).resolves.toBeUndefined();
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const persisted = JSON.parse(String(update?.[1]?.[1])) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual([]);
+  });
+
+  it('persists a deduped secondaryRootIds array for the bulk metadata update path', async () => {
+    const db = createMockDb();
+    db.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('UPDATE mastra_threads')) {
+        return { rows: [{ allFound: true, updatedThreadCount: 2 }] };
+      }
+      return { rows: [] };
+    });
+    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
+
+    await repository.updateThreadsMetadata(['thread-1', 'thread-2'], {
+      secondaryRootIds: ['a', 'b', 'a'],
+    });
+
+    const update = db.query.mock.calls.find(([sql]) => sql.includes('UPDATE mastra_threads'));
+    expect(update).toBeDefined();
+    const params = update?.[1] as unknown[] | undefined;
+    const persisted = JSON.parse(String(params?.at(-1))) as { secondaryRootIds?: unknown };
+    expect(persisted.secondaryRootIds).toEqual(['a', 'b']);
   });
 
   it('rejects secondaryRootIds that are not an array of non-empty strings', async () => {
@@ -2137,7 +2174,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     );
   });
 
-  it('drops a malformed persisted secondaryRootIds while loading instead of coercing it', async () => {
+  it('throws on a malformed persisted secondaryRootIds while loading instead of coercing it', async () => {
     const db = createMockDb();
     db.query.mockImplementation(async (sql: string) => {
       if (!sql.includes('FROM mastra_threads')) {
