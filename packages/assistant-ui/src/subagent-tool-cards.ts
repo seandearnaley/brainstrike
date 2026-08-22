@@ -6,7 +6,12 @@ import {
 } from '@brainstrike/assistant-contract/personas';
 import { createElement, useMemo } from 'react';
 import { SubagentExecutionCard } from './subagent-execution-card';
-import { type SubAgentToolRow, serializeLiveSubagentToolRows } from './subagent-tool-rows';
+import {
+  readSubagentDelegationOutcome,
+  type SubAgentToolRow,
+  type SubagentDelegationOutcome,
+  serializeLiveSubagentToolRows,
+} from './subagent-tool-rows';
 
 /**
  * The registered delegation-tool component: reads the current message's parts
@@ -25,9 +30,16 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
   const liveRowsJson = useAuiState((state) =>
     serializeLiveSubagentToolRows(state.message.parts, props.toolCallId)
   );
+  // Read from the SAME message parts as the rows above. A string|undefined
+  // selector result is already value-stable under `useAuiState`'s `Object.is`
+  // comparison, so unlike the rows it needs no serialization dance.
+  const outcome = useAuiState((state) =>
+    readSubagentDelegationOutcome(state.message.parts, props.toolCallId)
+  ) as SubagentDelegationOutcome | undefined;
   const liveRows = useMemo(() => JSON.parse(liveRowsJson) as SubAgentToolRow[], [liveRowsJson]);
   return createElement(SubagentExecutionCard, {
     liveRows,
+    ...(outcome ? { outcome } : {}),
     result: props.result,
     status: props.status,
     toolCallId: props.toolCallId,

@@ -150,6 +150,44 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   deliberately does NOT feed the parent-run prompt-reconciliation aggregate
   `recordModelOutput` also updates; see assistant-persistence.md, `## TOOL-
   CALL TOKEN TELEMETRY`. This closes the BST-1190 follow-up gap.
+- **A child that never answered is NOT a success (BST-1410).** Mastra computes a
+  delegation result as `{ text: await streamResult.text, subAgentToolResults, usage }`.
+  When `maxSteps` cuts the child off ON a tool-calls step, `text` is `''` and
+  `onDelegationComplete` still reports `success: true` — which reaches the
+  supervisor as a successful-but-empty delegation. Observed in production
+  (run-7eb0e370, 2026-08-22): both delegations used exactly 8 step clusters
+  (the `explore` cap), made 34 and 30 child tool calls over ~8 minutes, returned
+  empty text, and the supervisor correctly judged them useless and abandoned
+  delegation for the rest of an 18-minute turn.
+  - `createDelegationConfig` now replaces an empty/whitespace `result.text` with
+    an explicit reason through Mastra's `resultText` override — the seam core
+    1.59 documents for exactly this case. The reason states only what is
+    OBSERVABLE (no answer written, N tool calls made) and names the step cap as
+    CONTEXT for re-scoping; the hook never receives a `finishReason`, so
+    asserting "it hit the cap" would be a guess.
+  - Child usage is reported BEFORE that branch returns: a child that burned
+    minutes and then failed to answer is exactly the case whose cost must still
+    be attributed.
+  - `createDelegationOutcomeCapture` (same construction site and lifetime as
+    `DelegationUsageCapture`, on all three stream legs) records the parent
+    toolCallId, and the mapper emits `subagent.failed`/`failed` with
+    `metadata.outcome = SUBAGENT_NO_ANSWER_OUTCOME` instead of
+    `subagent.finished`/`completed`. A capture is required rather than reading
+    the `tool-result` part, because by then `resultText` has ALREADY replaced
+    the empty text — emptiness is no longer observable there.
+  - The renderer reads that bounded `outcome` marker (never the human label,
+    which a hard child `tool-error` shares) via `readSubagentDelegationOutcome`,
+    scoped by `parentToolCallId` because two delegations run concurrently. The
+    SubagentCard then shows `No answer` in amber instead of `Completed` in
+    green: the delegation ran and its child rows stay browsable, so this is not
+    a destructive-red state. `SUBAGENT_NO_ANSWER_OUTCOME` lives in
+    `assistant-contract/personas.ts` because it is the wire between the
+    agent-side emitter and the card.
+  - Paired tests: `subagent-delegation.spec.ts` (hook), the step-capped
+    live-loop case in `mastra-subagent-execution.integration.spec.ts` (a child
+    scripted to never stop calling tools, reproducing the incident end-to-end),
+    `subagent-tool-rows.test.ts` (outcome reader + concurrent-delegation
+    scoping), `subagent-execution-card.test.tsx` (card status).
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
   (tool-output-limits.ts) so an oversized delegation result trims structurally
   (truncated + hint) instead of a hard size error.

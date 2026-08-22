@@ -13,7 +13,10 @@
  * `agent-streaming.ts` — `scripts/mastra-stream-chunk-contract.mjs` pins all
  * three to that file BY PATH. See docs/agents/mastra-boundary.md R6.
  */
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  type AssistantPersonaDefinition,
+  SUBAGENT_NO_ANSWER_OUTCOME,
+} from '@brainstrike/assistant-contract/personas';
 import type { AssistantRunEventMetadata } from '../run-events';
 import type { RuntimeData, StreamChunk, StreamChunkTool } from '../types';
 import {
@@ -29,7 +32,11 @@ import {
   readStreamPartUsage,
 } from './runtime-assembly/usage-metering';
 import { makeRunEventChunk } from './stream-run-event-chunks';
-import type { DelegationLifecycleTracker, SubagentChildUsageReport } from './subagent-delegation';
+import type {
+  DelegationLifecycleTracker,
+  DelegationOutcomeCapture,
+  SubagentChildUsageReport,
+} from './subagent-delegation';
 import {
   mapMastraToolEvent,
   readMastraStreamPartString,
@@ -58,6 +65,13 @@ export interface ToolLifecycleState {
   carriedCompletionTokens: number;
   carriedPromptTokens: number;
   delegationLifecycle: DelegationLifecycleTracker;
+  /**
+   * Which delegations returned no written answer (BST-1410). Absent when the
+   * run registered no personas. Read when mapping a delegation `tool-result`:
+   * emptiness is invisible on that part, because `resultText` has already
+   * replaced the empty text with its explanation by then.
+   */
+  delegationOutcomes?: DelegationOutcomeCapture;
   firstTextLatencyMs?: number;
   /**
    * Cache token classes are an Anthropic pricing contract (read 0.1×,
@@ -476,7 +490,8 @@ export type DelegationLifecyclePartType =
 /** The subagent.* run event that mirrors a delegation tool-call/result/error/decline. */
 function makeSubagentLifecycleChunk(
   partType: DelegationLifecyclePartType,
-  metadata: AssistantRunEventMetadata
+  metadata: AssistantRunEventMetadata,
+  returnedNoAnswer: boolean
 ): StreamChunk {
   if (partType === 'tool-call') {
     return makeRunEventChunk('subagent.started', 'running', 'Subagent started', metadata);
@@ -497,6 +512,23 @@ function makeSubagentLifecycleChunk(
       'Subagent delegation declined',
       metadata
     );
+  }
+  if (returnedNoAnswer) {
+    // BST-1410. The tool call returned, but the delegation did not do its job:
+    // the child wrote no summary, so the parent got tool results nobody
+    // analysed. Reporting that as `completed` is the silent success that made
+    // the supervisor abandon delegation for a whole turn. `'failed'`, not
+    // `'cancelled'`: nothing was cancelled and nobody chose this.
+    //
+    // `outcome` is the MACHINE-READABLE discriminator. Both this case and a
+    // hard child `tool-error` are `subagent.failed`/`failed`, so the card must
+    // not have to tell them apart by sniffing the label. It is a bounded enum
+    // string, not args or results, so it respects the ids/labels-only rule for
+    // subagent metadata.
+    return makeRunEventChunk('subagent.failed', 'failed', 'Subagent returned no answer', {
+      ...metadata,
+      outcome: SUBAGENT_NO_ANSWER_OUTCOME,
+    });
   }
   return makeRunEventChunk('subagent.finished', 'completed', 'Subagent completed', metadata);
 }
@@ -531,8 +563,13 @@ export function mapToolLifecyclePart(
       lifecycleState.delegationLifecycle.settled(delegation.parentToolCallId);
     }
   }
+  const returnedNoAnswer = Boolean(
+    partType === 'tool-result' &&
+      delegation.parentToolCallId &&
+      lifecycleState.delegationOutcomes?.returnedNoAnswer(delegation.parentToolCallId)
+  );
   return {
-    chunks: [...generic.chunks, makeSubagentLifecycleChunk(partType, metadata)],
+    chunks: [...generic.chunks, makeSubagentLifecycleChunk(partType, metadata, returnedNoAnswer)],
     finished: false,
   };
 }

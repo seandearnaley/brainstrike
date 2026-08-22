@@ -111,7 +111,12 @@ import {
   makeStreamWatchdogTermination,
   makeTripwireTermination,
 } from './stream-termination';
-import { createDelegationConfig, createDelegationLifecycleTracker } from './subagent-delegation';
+import {
+  createDelegationConfig,
+  createDelegationLifecycleTracker,
+  createDelegationOutcomeCapture,
+  type DelegationOutcomeCapture,
+} from './subagent-delegation';
 import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
 import {
   createDelegationUsageCapture,
@@ -1272,9 +1277,11 @@ async function* streamAttemptChunks({
  */
 function createTurnAttemptLifecycleState(
   runtimeData: RuntimeData | undefined,
+  delegationOutcomes: DelegationOutcomeCapture | undefined,
   carried?: ToolLifecycleState
 ): ToolLifecycleState {
   return {
+    ...(delegationOutcomes ? { delegationOutcomes } : {}),
     // Prior attempts' totals, added back at the finish. `stepped*` is the
     // replaced attempt's own cumulative sum, so accumulating it here makes this
     // the turn's running total across every attempt so far.
@@ -1875,7 +1882,16 @@ async function createInitialTurnAttempt(
 ): Promise<TurnAttempt> {
   const mastraMessages = convertMessagesToMastra(messages);
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
-  const lifecycleState = createTurnAttemptLifecycleState(runtimeData, carriedLifecycleState);
+  // Same lifetime as `delegationUsage`: written by the delegation hook, read by
+  // the chunk loop when it maps the delegation's terminal run event (BST-1410).
+  // Built BEFORE the lifecycle state because that state carries it.
+  const delegationOutcomes =
+    runtime.personasById.size > 0 ? createDelegationOutcomeCapture() : undefined;
+  const lifecycleState = createTurnAttemptLifecycleState(
+    runtimeData,
+    delegationOutcomes,
+    carriedLifecycleState
+  );
 
   try {
     // A continuation re-sends the original request FOLLOWED BY everything the
@@ -1905,6 +1921,7 @@ async function createInitialTurnAttempt(
       ...(delegationUsage
         ? {
             delegation: createDelegationConfig({
+              ...(delegationOutcomes ? { delegationOutcomes } : {}),
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,
@@ -2090,7 +2107,12 @@ async function createToolApprovalTurnAttempt({
   sanitizedNameMap,
 }: ToolApprovalIterationParams): Promise<TurnAttempt> {
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
-  const lifecycleState = createTurnAttemptLifecycleState(runtimeData);
+  // Same lifetime as `delegationUsage`: written by the delegation hook, read by
+  // the chunk loop when it maps the delegation's terminal run event (BST-1410).
+  // Built BEFORE the lifecycle state because that state carries it.
+  const delegationOutcomes =
+    runtime.personasById.size > 0 ? createDelegationOutcomeCapture() : undefined;
+  const lifecycleState = createTurnAttemptLifecycleState(runtimeData, delegationOutcomes);
   try {
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
@@ -2116,6 +2138,7 @@ async function createToolApprovalTurnAttempt({
       ...(delegationUsage
         ? {
             delegation: createDelegationConfig({
+              ...(delegationOutcomes ? { delegationOutcomes } : {}),
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,
@@ -2648,7 +2671,12 @@ async function createToolResumeTurnAttempt({
   sanitizedNameMap,
 }: ToolResumeIterationParams): Promise<TurnAttempt> {
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
-  const lifecycleState = createTurnAttemptLifecycleState(runtimeData);
+  // Same lifetime as `delegationUsage`: written by the delegation hook, read by
+  // the chunk loop when it maps the delegation's terminal run event (BST-1410).
+  // Built BEFORE the lifecycle state because that state carries it.
+  const delegationOutcomes =
+    runtime.personasById.size > 0 ? createDelegationOutcomeCapture() : undefined;
+  const lifecycleState = createTurnAttemptLifecycleState(runtimeData, delegationOutcomes);
   try {
     validateToolResumeAction(action);
     const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
@@ -2717,6 +2745,7 @@ async function createToolResumeTurnAttempt({
       ...(delegationUsage
         ? {
             delegation: createDelegationConfig({
+              ...(delegationOutcomes ? { delegationOutcomes } : {}),
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,

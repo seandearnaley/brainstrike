@@ -1,4 +1,5 @@
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
+import { SUBAGENT_NO_ANSWER_OUTCOME } from '@brainstrike/assistant-contract/personas';
 import { extractPrimaryArg } from './tool-summaries';
 
 export type SubAgentToolRowStatus = 'error' | 'running' | 'success';
@@ -37,6 +38,40 @@ export function readSubAgentToolRows(result: unknown): SubAgentToolRow[] {
       toolName,
     };
   });
+}
+
+/** How a delegation ended, beyond what the tool-call status can express. */
+export type SubagentDelegationOutcome = typeof SUBAGENT_NO_ANSWER_OUTCOME;
+
+/**
+ * This delegation's terminal outcome, when it is one the tool-call status
+ * cannot express (BST-1410).
+ *
+ * A child that exhausts its step cap mid-tool-loop still produces a SUCCESSFUL
+ * delegation tool call, so `status.type` reports it as complete — the same
+ * silent success that made a supervisor abandon delegation for a whole turn.
+ * The discriminator is the terminal run event's bounded `outcome` metadata,
+ * never the human label (a hard child failure shares the same kind and status).
+ *
+ * Scoped by `parentToolCallId` because MAX_CONCURRENT_DELEGATIONS is 2: an
+ * unscoped read would report one delegation's outcome on another's card.
+ */
+export function readSubagentDelegationOutcome(
+  parts: readonly unknown[],
+  parentToolCallId: string
+): SubagentDelegationOutcome | undefined {
+  for (const part of parts) {
+    const data = readAssistantRunEventDataPart(part);
+    const metadata = data?.metadata;
+    if (
+      metadata &&
+      metadata['parentToolCallId'] === parentToolCallId &&
+      metadata['outcome'] === SUBAGENT_NO_ANSWER_OUTCOME
+    ) {
+      return SUBAGENT_NO_ANSWER_OUTCOME;
+    }
+  }
+  return;
 }
 
 const SUBAGENT_TOOL_KIND_STATUS: Record<string, SubAgentToolRowStatus> = {

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createDelegationConfig,
   createDelegationLifecycleTracker,
+  createDelegationOutcomeCapture,
   MAX_CONCURRENT_DELEGATIONS,
   MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
@@ -119,6 +120,89 @@ describe('createDelegationConfig', () => {
     }
     // The (MAX+1)th start is rejected even though nothing is in flight.
     expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: false });
+  });
+});
+
+describe('createDelegationConfig: a child that returned no answer', () => {
+  // BST-1410. Both delegations in run-7eb0e370 used exactly 8 step clusters
+  // (the explore persona's cap) and returned `text: ""` with `success: true`.
+  // The supervisor read that as a successful-but-empty delegation and abandoned
+  // delegation for the rest of the turn. Mastra's own `resultText` docs name
+  // this exact case as what the seam exists for.
+
+  it('replaces an empty result with an explicit reason naming the tool-call count', () => {
+    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    config.onDelegationStart?.(startContext());
+    const result = config.onDelegationComplete?.(
+      completeContext({
+        result: {
+          subAgentToolResults: Array.from({ length: 30 }, (_unused, index) => ({
+            toolCallId: `child-${index}`,
+            toolName: 'brainstrike.grepSearch',
+          })),
+          text: '',
+        },
+      })
+    );
+
+    expect(result).toMatchObject({
+      resultText: expect.stringContaining('30 tool call'),
+    });
+    // The step cap is context the supervisor needs to re-scope its next
+    // delegation; it is NOT asserted as the proven cause, because the hook
+    // never sees a finishReason.
+    expect((result as { resultText: string }).resultText).toContain('8');
+    expect((result as { resultText: string }).resultText).not.toContain('undefined');
+  });
+
+  it('distinguishes a child that did nothing at all from one that ran out of steps', () => {
+    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    config.onDelegationStart?.(startContext());
+    const result = config.onDelegationComplete?.(
+      completeContext({ result: { subAgentToolResults: [], text: '   ' } })
+    );
+
+    expect(result).toMatchObject({ resultText: expect.stringContaining('no tool calls') });
+  });
+
+  it('leaves a real answer untouched', () => {
+    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    config.onDelegationStart?.(startContext());
+    const result = config.onDelegationComplete?.(
+      completeContext({
+        result: { subAgentToolResults: [{ toolCallId: 'c1' }], text: 'Found it.' },
+      })
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('records the under-delivering delegation so the timeline can show it', () => {
+    const outcomes = createDelegationOutcomeCapture();
+    const config = createDelegationConfig({
+      delegationOutcomes: outcomes,
+      logger: silentLogger,
+      personasById,
+    });
+    config.onDelegationStart?.(startContext());
+    config.onDelegationComplete?.(
+      completeContext({ result: { text: '' }, toolCallId: 'call-empty' })
+    );
+    config.onDelegationStart?.(startContext());
+    config.onDelegationComplete?.(
+      completeContext({ result: { text: 'Found it.' }, toolCallId: 'call-answered' })
+    );
+
+    expect(outcomes.returnedNoAnswer('call-empty')).toBe(true);
+    expect(outcomes.returnedNoAnswer('call-answered')).toBe(false);
+  });
+
+  it('still frees the concurrency slot for an empty delegation', () => {
+    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    config.onDelegationStart?.(startContext());
+    config.onDelegationStart?.(startContext());
+    config.onDelegationComplete?.(completeContext({ result: { text: '' } }));
+    expect(config.onDelegationStart?.(startContext())).toMatchObject({ proceed: true });
   });
 });
 

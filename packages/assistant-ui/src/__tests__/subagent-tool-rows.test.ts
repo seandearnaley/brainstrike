@@ -3,6 +3,7 @@ import {
   mergeSubagentToolRows,
   readLiveSubagentToolRows,
   readSubAgentToolRows,
+  readSubagentDelegationOutcome,
   serializeLiveSubagentToolRows,
 } from '../subagent-tool-rows';
 
@@ -32,6 +33,83 @@ function liveEventPart(args: {
     type: 'data',
   };
 }
+
+function terminalEventPart(args: {
+  kind: string;
+  outcome?: string;
+  parentToolCallId: string;
+  status: string;
+}) {
+  return {
+    data: {
+      id: `${args.kind}-${args.parentToolCallId}`,
+      kind: args.kind,
+      label: args.kind,
+      metadata: {
+        parentToolCallId: args.parentToolCallId,
+        personaId: 'explore',
+        ...(args.outcome ? { outcome: args.outcome } : {}),
+      },
+      status: args.status,
+      timestamp: '2026-07-10T00:00:00.000Z',
+    },
+    name: RUN_EVENT_NAME,
+    type: 'data',
+  };
+}
+
+describe('readSubagentDelegationOutcome', () => {
+  // BST-1410. A child that exhausts its step cap mid-tool-loop still produces a
+  // SUCCESSFUL delegation tool call, so `status.type` cannot distinguish it. The
+  // discriminator is the terminal run event's bounded `outcome` metadata — never
+  // the human label, which a hard child failure shares.
+  it("reports 'no-answer' for this delegation's terminal event", () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.failed',
+        outcome: 'no-answer',
+        parentToolCallId: 'delegation-1',
+        status: 'failed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBe('no-answer');
+  });
+
+  it('ignores a terminal event belonging to a DIFFERENT concurrent delegation', () => {
+    // MAX_CONCURRENT_DELEGATIONS is 2, so two delegations are open at once.
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.failed',
+        outcome: 'no-answer',
+        parentToolCallId: 'delegation-2',
+        status: 'failed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBeUndefined();
+  });
+
+  it('reports nothing for a hard failure or a cancellation (no outcome marker)', () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.failed',
+        parentToolCallId: 'delegation-1',
+        status: 'cancelled',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBeUndefined();
+  });
+
+  it('reports nothing for a delegation that answered', () => {
+    const parts = [
+      terminalEventPart({
+        kind: 'subagent.finished',
+        parentToolCallId: 'delegation-1',
+        status: 'completed',
+      }),
+    ];
+    expect(readSubagentDelegationOutcome(parts, 'delegation-1')).toBeUndefined();
+  });
+});
 
 describe('readSubAgentToolRows (persisted)', () => {
   it('maps subAgentToolResults to success/error rows keyed by child toolCallId', () => {
