@@ -117,6 +117,7 @@ import {
   createDelegationLifecycleTracker,
   createDelegationOutcomeCapture,
   type DelegationOutcomeCapture,
+  type SynthesizedChildAnswer,
 } from './subagent-delegation';
 import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
 import {
@@ -1083,24 +1084,38 @@ function isMastraProviderOutputPart(part: unknown): boolean {
 /**
  * One no-tools turn on a child that ran out of steps mid-tool-loop (BST-1410).
  *
- * `toolChoice: 'none'` is what makes this bounded: the child physically cannot
- * call another tool, so the turn always terminates in text. The request ends on
- * an explicit USER message rather than the child's own trailing assistant turn
- * — a prompt ending in an assistant message is prefill, which several providers
- * reject outright (the condition `PrefillErrorHandler` exists to recover from),
- * and manufacturing it here would be gratuitous.
+ * `toolChoice: 'none'` withholds the tool definitions and `activeTools: []`
+ * makes a call unresolvable in the loop, so the turn always terminates in text;
+ * `maxSteps: 1` bounds it regardless. The request ends on an explicit USER
+ * message rather than the child's trailing assistant turn — a prompt ending in
+ * an assistant message is prefill, which several providers reject outright (the
+ * condition `PrefillErrorHandler` exists to recover from), and manufacturing it
+ * here would be gratuitous.
+ *
+ * CANCELLABLE AND BOUNDED (review of #2587). Mastra AWAITS `onDelegationComplete`
+ * before the delegation tool result exists, so an unbounded synthesis stream
+ * would stall the delegation, which stalls the parent's tool loop — and no
+ * watchdog covers this path, because it is not part of the parent stream. The
+ * turn therefore rides the parent leg's abort signal (a user Stop must not
+ * leave a child burning a provider request nobody will read) AND its own
+ * deadline. The deadline is the inactivity window: a best-effort recovery that
+ * cannot finish inside the time a healthy stream is allowed to go quiet has
+ * already cost more than the answer is worth, and the caller falls through to
+ * the honest no-answer reason.
  */
 function createChildAnswerSynthesizer(
-  runtime: MastraAgentRuntime
+  runtime: MastraAgentRuntime,
+  parentSignal: AbortSignal
 ): (input: {
   readonly messages: readonly MastraDBMessage[];
   readonly personaId: string;
-}) => Promise<string | undefined> {
+}) => Promise<SynthesizedChildAnswer | undefined> {
   return async ({ messages, personaId }) => {
     const child = runtime.subAgentsById.get(personaId);
     if (!child) {
       return;
     }
+    const deadline = AbortSignal.timeout(runtime.resilienceConfig.streamInactivityMs);
     // `stream`, not `generate`: `generate` dispatches to the model's
     // `doGenerate`, and this codebase's model paths (including the local host)
     // are driven entirely through `doStream`. Mastra's own delegation tool
@@ -1109,6 +1124,7 @@ function createChildAnswerSynthesizer(
     const result = await child.stream(
       [...messages, { content: CHILD_SYNTHESIS_PROMPT, role: 'user' }],
       {
+        abortSignal: AbortSignal.any([parentSignal, deadline]),
         // BOTH guards, deliberately. `toolChoice: 'none'` withholds the tool
         // DEFINITIONS, but a model that emits a tool call anyway would still
         // have it executed, because the agent's tool map is unchanged — the
@@ -1127,7 +1143,15 @@ function createChildAnswerSynthesizer(
       // Drain: `text` does not resolve until the stream completes.
     }
     const text = await result.text;
-    return typeof text === 'string' ? text : undefined;
+    if (typeof text !== 'string') {
+      return;
+    }
+    // The synthesis turn is a WHOLE extra child model call — it replays
+    // everything the child gathered on the input side, which is the expensive
+    // half. Returning its usage is what keeps the recovered delegation's cost
+    // attributed; discarding it would under-report exactly the child the hook
+    // already insists on billing (review of #2587).
+    return { text, usage: await result.usage };
   };
 }
 
@@ -1977,7 +2001,10 @@ async function createInitialTurnAttempt(
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,
-              synthesizeChildAnswer: createChildAnswerSynthesizer(runtime),
+              synthesizeChildAnswer: createChildAnswerSynthesizer(
+                runtime,
+                streamAbortContext.signal
+              ),
             }),
           }
         : {}),
@@ -2195,7 +2222,10 @@ async function createToolApprovalTurnAttempt({
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,
-              synthesizeChildAnswer: createChildAnswerSynthesizer(runtime),
+              synthesizeChildAnswer: createChildAnswerSynthesizer(
+                runtime,
+                streamAbortContext.signal
+              ),
             }),
           }
         : {}),
@@ -2803,7 +2833,10 @@ async function createToolResumeTurnAttempt({
               logger,
               onChildUsage: delegationUsage.onChildUsage,
               personasById: runtime.personasById,
-              synthesizeChildAnswer: createChildAnswerSynthesizer(runtime),
+              synthesizeChildAnswer: createChildAnswerSynthesizer(
+                runtime,
+                streamAbortContext.signal
+              ),
             }),
           }
         : {}),

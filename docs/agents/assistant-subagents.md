@@ -200,6 +200,33 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
     models. `child.generate(...)` dispatches to the model's `doGenerate`, which
     this codebase's model paths (including the local host) do not implement —
     the first attempt silently produced nothing for exactly that reason.
+  - **Cancellable and BOUNDED.** Mastra AWAITS `onDelegationComplete` before the
+    delegation tool result exists, so an unbounded synthesis stream would stall
+    the delegation, which stalls the parent's tool loop — and no watchdog covers
+    this path, because it is not part of the parent stream. The turn therefore
+    rides the parent leg's abort signal (a user Stop must not leave a child
+    burning a provider request nobody will read) AND its own deadline
+    (`streamInactivityMs`: a best-effort recovery that cannot finish inside the
+    time a healthy stream may go quiet has already cost more than the answer is
+    worth).
+  - **The synthesis turn's usage is attributed**, as a SECOND `onChildUsage`
+    report for the same persona — `createDelegationUsageCapture` pushes one
+    chunk per call, so two chunks for one delegation is the intended shape. It
+    is a whole extra child model call that replays everything the child gathered
+    on the input side; discarding its usage would under-report exactly the child
+    this hook already insists on billing.
+  - **A FAILED delegation is not an unanswered one.** The hook fires for both,
+    and a child that threw plausibly arrives with empty text — giving it the
+    step-cap narrative would be a confident, wrong diagnosis of a provider
+    error, and would run a synthesis turn on an agent that just failed. Gated on
+    `context.success`; Mastra surfaces the failure through its own tool-error
+    path, which the mapper already maps to `subagent.failed`.
+  - **Unknown tool activity is reported as unknown**, never as "made no tool
+    calls". Absence of `subAgentToolResults` is LEGITIMATE — core's v1/legacy
+    delegation path returns `{ text }` alone — so it is a reportable unknown
+    rather than a shape drift to throw on. Synthesis is skipped only when the
+    count is KNOWN to be zero; an unknown count means the child may well have
+    gathered plenty.
   - A synthesis failure logs `subagent_delegation_synthesis_failed` and falls
     through to the explicit no-answer reason. That is not a silent fallback: the
     parent still learns truthfully that nothing was analysed, and a synthesis
@@ -211,7 +238,10 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
     and synthesis live-loop cases in
     `mastra-subagent-execution.integration.spec.ts` (one child scripted to never
     stop calling tools, reproducing the incident end-to-end; one that answers
-    once its tools are withheld, proving the synthesis turn is real),
+    once its tools are withheld, proving the synthesis turn is real AND
+    asserting the child's own tool RESULTS reached the synthesis prompt — a fake
+    that answers regardless of its prompt would otherwise stay green while
+    production handed the parent an invented summary),
     `subagent-tool-rows.test.ts` (outcome reader + concurrent-delegation
     scoping), `subagent-execution-card.test.tsx` (card status).
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry

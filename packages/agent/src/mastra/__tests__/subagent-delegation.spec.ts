@@ -203,7 +203,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
       delegationOutcomes: outcomes,
       logger: silentLogger,
       personasById,
-      synthesizeChildAnswer: () => Promise.resolve('  Three matches under src/.  '),
+      synthesizeChildAnswer: () => Promise.resolve({ text: '  Three matches under src/.  ' }),
     });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
@@ -244,7 +244,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
   });
 
   it('does not attempt synthesis when the child gathered nothing to summarise', async () => {
-    const synthesize = vi.fn(() => Promise.resolve('should not be called'));
+    const synthesize = vi.fn(() => Promise.resolve({ text: 'should not be called' }));
     const config = createDelegationConfig({
       logger: silentLogger,
       personasById,
@@ -262,7 +262,7 @@ describe('createDelegationConfig: a child that returned no answer', () => {
     const config = createDelegationConfig({
       logger: silentLogger,
       personasById,
-      synthesizeChildAnswer: () => Promise.resolve('   \n  '),
+      synthesizeChildAnswer: () => Promise.resolve({ text: '   \n  ' }),
     });
     config.onDelegationStart?.(startContext());
     const result = await config.onDelegationComplete?.(
@@ -272,6 +272,110 @@ describe('createDelegationConfig: a child that returned no answer', () => {
     expect(result).toMatchObject({
       resultText: expect.stringContaining('never wrote its summary'),
     });
+  });
+
+  it('leaves a FAILED delegation alone instead of diagnosing a step cap', async () => {
+    // The hook fires for failures too, and a child that threw plausibly arrives
+    // with empty text. Handing it the step-cap narrative would be a confident,
+    // wrong diagnosis of a provider error — and would run a synthesis turn on
+    // an agent that just failed.
+    const synthesize = vi.fn(() => Promise.resolve({ text: 'should not run' }));
+    const outcomes = createDelegationOutcomeCapture();
+    const config = createDelegationConfig({
+      delegationOutcomes: outcomes,
+      logger: silentLogger,
+      personasById,
+      synthesizeChildAnswer: synthesize,
+    });
+    config.onDelegationStart?.(startContext());
+    const result = await config.onDelegationComplete?.(
+      completeContext({
+        error: new Error('provider exploded'),
+        result: { subAgentToolResults: [{ toolCallId: 'c1' }], text: '' },
+        success: false,
+        toolCallId: 'call-failed',
+      })
+    );
+
+    expect(result).toBeUndefined();
+    expect(synthesize).not.toHaveBeenCalled();
+    expect(outcomes.returnedNoAnswer('call-failed')).toBe(false);
+  });
+
+  it('survives a delegation result whose text is not a string', async () => {
+    // The exported type says `string`, but the path most likely to carry an
+    // unexpected shape is the one that just went wrong.
+    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    config.onDelegationStart?.(startContext());
+    const result = await config.onDelegationComplete?.(
+      completeContext({ result: { subAgentToolResults: [], text: undefined } })
+    );
+
+    expect(result).toMatchObject({ resultText: expect.stringContaining('no tool calls') });
+  });
+
+  it('says the tool activity is UNKNOWN rather than claiming there was none', async () => {
+    // Absence is legitimate — core's v1/legacy delegation path returns `{ text }`
+    // with no `subAgentToolResults` — so this must read as a reportable unknown,
+    // never as "the child did nothing", which would steer the supervisor to redo
+    // work that may already be done.
+    const config = createDelegationConfig({ logger: silentLogger, personasById });
+    config.onDelegationStart?.(startContext());
+    const result = await config.onDelegationComplete?.(completeContext({ result: { text: '' } }));
+
+    expect(result).toMatchObject({
+      resultText: expect.stringContaining('tool activity could not be determined'),
+    });
+    expect((result as { resultText: string }).resultText).not.toContain('made no tool calls');
+  });
+
+  it('still attempts synthesis when the tool-call count is unknown', async () => {
+    // Skipped only when the count is KNOWN to be zero: an unknown count means
+    // the child may well have gathered plenty.
+    const synthesize = vi.fn(() => Promise.resolve({ text: 'Recovered summary.' }));
+    const config = createDelegationConfig({
+      logger: silentLogger,
+      personasById,
+      synthesizeChildAnswer: synthesize,
+    });
+    config.onDelegationStart?.(startContext());
+    const result = await config.onDelegationComplete?.(completeContext({ result: { text: '' } }));
+
+    expect(synthesize).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ resultText: 'Recovered summary.' });
+  });
+
+  it("attributes the synthesis turn's own token usage", async () => {
+    // A whole extra child model call, replaying everything the child gathered on
+    // the input side. Discarding its usage would under-report exactly the child
+    // this hook already insists on billing.
+    const usageReports: Array<{ inputTokens: number; outputTokens: number }> = [];
+    const config = createDelegationConfig({
+      logger: silentLogger,
+      onChildUsage: (report) => usageReports.push(report),
+      personasById,
+      synthesizeChildAnswer: () =>
+        Promise.resolve({
+          text: 'Recovered summary.',
+          usage: { inputTokens: 900, outputTokens: 40 },
+        }),
+    });
+    config.onDelegationStart?.(startContext());
+    await config.onDelegationComplete?.(
+      completeContext({
+        result: {
+          subAgentToolResults: [{ toolCallId: 'c1' }],
+          text: '',
+          usage: { inputTokens: 100, outputTokens: 5 },
+        },
+      })
+    );
+
+    // Two reports for one delegation: the capped run, then the synthesis turn.
+    expect(usageReports).toEqual([
+      { inputTokens: 100, outputTokens: 5, personaId: 'explore' },
+      { inputTokens: 900, outputTokens: 40, personaId: 'explore' },
+    ]);
   });
 
   it('still frees the concurrency slot for an empty delegation', () => {

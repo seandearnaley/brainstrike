@@ -266,9 +266,16 @@ function createStepCappedChildSupervisorModel(childToolCallPrefix: string): Lang
  * a forced synthesis turn takes. Proves the synthesis call is real: without it
  * the child never emits text at all.
  */
-function createSynthesizingChildSupervisorModel(): LanguageModelV2 {
+function createSynthesizingChildSupervisorModel(): {
+  model: LanguageModelV2;
+  /** The prompt the SYNTHESIS turn actually received, once it happens. */
+  synthesisPrompt: { current: LanguageModelV2CallOptions['prompt'] | undefined };
+} {
   let childTurn = 0;
-  return {
+  const synthesisPrompt: { current: LanguageModelV2CallOptions['prompt'] | undefined } = {
+    current: undefined,
+  };
+  const model: LanguageModelV2 = {
     doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
     doStream: (options: LanguageModelV2CallOptions) => {
       if (toolNamesOf(options).includes(DELEGATION_TOOL)) {
@@ -288,6 +295,7 @@ function createSynthesizingChildSupervisorModel(): LanguageModelV2 {
         toolNamesOf(options).length === 0 ||
         (options as { toolChoice?: { type?: string } }).toolChoice?.type === 'none';
       if (toolsWithheld) {
+        synthesisPrompt.current = options.prompt;
         return Promise.resolve({
           stream: enqueue(finalTextStream('CHILD_SYNTHESIS: three matches under src/.')),
         });
@@ -308,6 +316,7 @@ function createSynthesizingChildSupervisorModel(): LanguageModelV2 {
     specificationVersion: 'v2',
     supportedUrls: {},
   };
+  return { model, synthesisPrompt };
 }
 
 interface CollectedStream {
@@ -366,7 +375,8 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     const executeSpy = vi.fn((_inputData: { pattern: string }) =>
       Promise.resolve({ matches: ['a match'] })
     );
-    modelHolder.current = createSynthesizingChildSupervisorModel();
+    const { model, synthesisPrompt } = createSynthesizingChildSupervisorModel();
+    modelHolder.current = model;
 
     const iterator = await streamMastraAgent(
       [{ id: 'u-synth', parts: [{ text: 'survey the workspace', type: 'text' }], role: 'user' }],
@@ -390,6 +400,22 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
         : undefined;
     expect(resultText).toContain('CHILD_SYNTHESIS: three matches under src/.');
     expect(resultText).not.toContain('never wrote its summary');
+
+    // THE assertion that separates synthesis from FABRICATION (review of
+    // #2587). `CHILD_SYNTHESIS_PROMPT` says "using ONLY what you already found
+    // above", and that depends entirely on `context.messages` being the CHILD's
+    // conversation rather than the parent's or an empty array. Without this, a
+    // fake that answers regardless of its prompt stays green while production
+    // hands the parent an invented summary — labelled `subagent.finished`, in
+    // green, which is strictly worse than the empty result being fixed here.
+    const synthesisJson = JSON.stringify(synthesisPrompt.current);
+    expect(synthesisJson).toContain('flag-1');
+    expect(synthesisJson).toContain('flag-2');
+    expect(synthesisJson).toContain('a match');
+    // ...and the request ends on a USER turn, so it is never prefill.
+    const lastMessage = synthesisPrompt.current?.at(-1);
+    expect(lastMessage?.role).toBe('user');
+    expect(JSON.stringify(lastMessage)).toContain('step limit');
 
     // A delegation that DID end up answering is a success again.
     const subagentTerminals = runEvents

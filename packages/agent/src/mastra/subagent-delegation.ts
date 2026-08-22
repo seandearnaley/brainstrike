@@ -70,6 +70,13 @@ export const CHILD_SYNTHESIS_PROMPT =
   'and the concrete file paths. If the task is only partly covered, say exactly which part ' +
   'you covered and which you did not.';
 
+/** What a forced synthesis turn produced, plus the cost of producing it. */
+export interface SynthesizedChildAnswer {
+  readonly text: string;
+  /** The synthesis turn's OWN usage — a whole extra child model call. */
+  readonly usage?: unknown;
+}
+
 export interface CreateDelegationConfigParams {
   /** Optional sink for delegations that returned no answer (see above). */
   readonly delegationOutcomes?: DelegationOutcomeCapture;
@@ -94,7 +101,7 @@ export interface CreateDelegationConfigParams {
   readonly synthesizeChildAnswer?: (input: {
     readonly messages: readonly MastraDBMessage[];
     readonly personaId: string;
-  }) => Promise<string | undefined>;
+  }) => Promise<SynthesizedChildAnswer | undefined>;
 }
 
 function readTokenCount(value: unknown): number {
@@ -159,7 +166,22 @@ function readChildToolCallCount(result: unknown): number | undefined {
  */
 function describeMissingChildAnswer(persona: AssistantPersonaDefinition, result: unknown): string {
   const toolCallCount = readChildToolCallCount(result);
-  if (toolCallCount === undefined || toolCallCount === 0) {
+  if (toolCallCount === undefined) {
+    // NOT folded into the zero case (review of #2587): telling the parent a
+    // child "made no tool calls" when we simply cannot see them is the same
+    // genre of confidently-wrong report this whole change removes, and it would
+    // steer the supervisor to redo work that may already be done. Absence is
+    // legitimate — `@mastra/core`'s v1/legacy delegation path returns `{ text }`
+    // with no `subAgentToolResults` at all — so this is a reportable unknown,
+    // not a shape drift to throw on.
+    return (
+      `The ${persona.id} subagent returned no answer, and its tool activity could not be ` +
+      'determined. Treat the delegation as having produced nothing usable, but not as ' +
+      'evidence that the task is empty: re-delegate a narrower slice, or gather the ' +
+      'material directly.'
+    );
+  }
+  if (toolCallCount === 0) {
     return (
       `The ${persona.id} subagent returned no answer and made no tool calls, so this ` +
       'delegation produced nothing. Do not treat it as an empty result for the task — ' +
@@ -176,6 +198,71 @@ function describeMissingChildAnswer(persona: AssistantPersonaDefinition, result:
 }
 
 /**
+ * What the PARENT should see when a delegation came back without an answer, or
+ * `undefined` when it answered normally (or is not ours to comment on).
+ *
+ * Extracted from `onDelegationComplete` so that hook stays a lifecycle
+ * bookkeeper — decrement, log, attribute usage — and this owns the one question
+ * "did the child actually answer, and if not, what do we tell the supervisor?".
+ */
+async function resolveMissingAnswerResult(
+  params: CreateDelegationConfigParams,
+  context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0]
+): Promise<{ resultText: string } | undefined> {
+  const persona = params.personasById.get(context.primitiveId);
+  if (!persona) {
+    return;
+  }
+  // A FAILED delegation is not an unanswered one (review of #2587). The hook
+  // fires for both, and a child that threw plausibly arrives with empty text —
+  // handing it the step-cap narrative would be a confident, wrong diagnosis of
+  // a provider error, and would run a synthesis turn on an agent that just
+  // failed. Mastra surfaces the failure through its own tool-error path, which
+  // the mapper already maps to `subagent.failed`.
+  if (context.success === false) {
+    return;
+  }
+  // The exported type says `string`, but the one place a runtime shape is least
+  // likely to match is the path that just went wrong — and a TypeError thrown
+  // from inside this hook would be a bad way to find out.
+  const text = typeof context.result?.text === 'string' ? context.result.text : '';
+  if (text.trim() !== '') {
+    return;
+  }
+  const toolCallCount = readChildToolCallCount(context.result);
+  params.logger.warn('Subagent delegation returned no answer', {
+    code: 'subagent_delegation_empty_result',
+    durationMs: context.duration,
+    maxSteps: persona.maxSteps,
+    personaId: context.primitiveId,
+    ...(toolCallCount === undefined ? {} : { toolCallCount }),
+  });
+  // The child already did the work; it simply never reached a step where it
+  // could write the answer. One turn with tools WITHHELD converts that work into
+  // a summary, and it cannot loop because it cannot call tools. Skipped only
+  // when the count is KNOWN to be zero: an unknown count means the child may
+  // well have gathered plenty, and refusing to try would discard it on a
+  // technicality.
+  if (params.synthesizeChildAnswer && toolCallCount !== 0) {
+    const synthesized = await synthesizeOrLog(params, context);
+    if (synthesized) {
+      // The synthesis turn's own cost, reported as a SECOND child-usage report
+      // for the same persona. `createDelegationUsageCapture` pushes one chunk
+      // per call, so two chunks for one delegation is the intended shape — and
+      // the alternative is silently under-reporting the very child this hook
+      // insists on billing.
+      const synthesisUsage = readDelegationUsage(synthesized.usage);
+      if (synthesisUsage && params.onChildUsage) {
+        params.onChildUsage({ ...synthesisUsage, personaId: context.primitiveId });
+      }
+      return { resultText: synthesized.text };
+    }
+  }
+  params.delegationOutcomes?.recordNoAnswer(context.toolCallId);
+  return { resultText: describeMissingChildAnswer(persona, context.result) };
+}
+
+/**
  * Run the forced synthesis turn, converting any failure into `undefined` so the
  * caller falls through to the explicit no-answer reason.
  *
@@ -187,19 +274,19 @@ function describeMissingChildAnswer(persona: AssistantPersonaDefinition, result:
 async function synthesizeOrLog(
   params: CreateDelegationConfigParams,
   context: Parameters<NonNullable<DelegationConfig['onDelegationComplete']>>[0]
-): Promise<string | undefined> {
+): Promise<SynthesizedChildAnswer | undefined> {
   try {
     const synthesized = await params.synthesizeChildAnswer?.({
       messages: context.messages,
       personaId: context.primitiveId,
     });
-    const trimmed = synthesized?.trim();
-    if (trimmed) {
+    const trimmed = synthesized?.text.trim();
+    if (synthesized && trimmed) {
       params.logger.info('Subagent wrote its summary in a forced synthesis turn', {
         code: 'subagent_delegation_synthesis_recovered',
         personaId: context.primitiveId,
       });
-      return trimmed;
+      return { ...synthesized, text: trimmed };
     }
   } catch (error) {
     params.logger.warn('Subagent synthesis turn failed', {
@@ -240,30 +327,7 @@ export function createDelegationConfig(params: CreateDelegationConfigParams): De
       // Usage is reported BEFORE the empty-answer branch returns: a child that
       // burned minutes of an expensive model and then failed to answer is
       // exactly the case whose cost must still be attributed.
-      const persona = params.personasById.get(context.primitiveId);
-      if (!persona || context.result.text.trim() !== '') {
-        return;
-      }
-      const toolCallCount = readChildToolCallCount(context.result);
-      params.logger.warn('Subagent delegation returned no answer', {
-        code: 'subagent_delegation_empty_result',
-        durationMs: context.duration,
-        maxSteps: persona.maxSteps,
-        personaId: context.primitiveId,
-        ...(toolCallCount === undefined ? {} : { toolCallCount }),
-      });
-      // The child already did the work; it simply never reached a step where it
-      // could write the answer. One turn with tools WITHHELD converts that work
-      // into a summary, and it cannot loop because it cannot call tools. Only
-      // worth attempting when the child actually gathered something.
-      if (params.synthesizeChildAnswer && toolCallCount) {
-        const synthesized = await synthesizeOrLog(params, context);
-        if (synthesized) {
-          return { resultText: synthesized };
-        }
-      }
-      params.delegationOutcomes?.recordNoAnswer(context.toolCallId);
-      return { resultText: describeMissingChildAnswer(persona, context.result) };
+      return await resolveMissingAnswerResult(params, context);
     },
     onDelegationStart: (context) => {
       const persona = params.personasById.get(context.primitiveId);
