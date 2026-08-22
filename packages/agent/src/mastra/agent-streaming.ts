@@ -1014,6 +1014,22 @@ function buildToolLoopOptions(
   };
 }
 
+/**
+ * Name a raw Mastra part for the stall diagnostic. Knowing WHAT the provider
+ * last sent before going quiet (`reasoning-delta` vs `tool-call-delta` vs
+ * `step-start`) is the difference between diagnosing a stall from a debug
+ * bundle and reconstructing it by inference (BST-1408).
+ */
+function describeMastraStreamPartType(part: unknown): string | undefined {
+  if (typeof part !== 'object' || part === null) {
+    return;
+  }
+  const type = (part as { type?: unknown }).type;
+  // Bounded through the shared diagnostic formatter: the value is provider
+  // data, and a stall breadcrumb must not carry an unbounded string.
+  return typeof type === 'string' ? formatDiagnosticChunkType(type) : undefined;
+}
+
 const resolveFullStream = (
   result: unknown
 ): NodeReadableStream<unknown> | ReadableStream<unknown> | undefined => {
@@ -1115,8 +1131,14 @@ async function* streamChunksFromMastra({
     );
     const source = withInactivityTimeout(
       toolInputBoundedSource,
-      runtime.resilienceConfig.streamInactivityMs,
-      (error) => streamAbortContext.abort(error)
+      {
+        firstPartMs: runtime.resilienceConfig.streamFirstPartMs,
+        interPartMs: runtime.resilienceConfig.streamInactivityMs,
+      },
+      {
+        describePart: describeMastraStreamPartType,
+        onTimeout: (error) => streamAbortContext.abort(error),
+      }
     );
     for await (const part of source) {
       const { chunks, finished } = await processMastraStreamPart(

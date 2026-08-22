@@ -7,7 +7,28 @@
  * always wins, mirroring how `mcpTimeoutMs` is threaded through the runtime.
  */
 export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+/**
+ * Tolerated gap BETWEEN stream parts, once the provider has started emitting.
+ *
+ * Scoped to inter-part gaps only since BST-1408. Time-to-first-part is a
+ * different question and gets {@link DEFAULT_STREAM_FIRST_PART_MS}.
+ */
 export const DEFAULT_STREAM_INACTIVITY_MS = 120_000;
+/**
+ * Budget from stream start until the FIRST part arrives.
+ *
+ * DELIBERATELY decoupled from `DEFAULT_STREAM_INACTIVITY_MS` and much wider,
+ * for the same reason `DEFAULT_TOOL_CALL_INPUT_MS` is (BST-839): the two
+ * windows answer different questions. Inactivity asks "is the transport still
+ * delivering parts?"; this one asks "has the provider started answering yet?".
+ *
+ * Sharing one number killed a healthy 18-minute turn (BST-1408): a cold
+ * request carrying ~169k prompt tokens at `reasoning.effort: 'max'` can spend
+ * minutes producing nothing observable, which is indistinguishable from a
+ * wedged transport at the stream-part layer. The bound stays finite so a
+ * provider that never answers still cannot hold a turn open forever.
+ */
+export const DEFAULT_STREAM_FIRST_PART_MS = 600_000;
 /**
  * Absolute wall-clock budget for assembling ONE streamed tool-call input.
  *
@@ -31,6 +52,7 @@ export const DEFAULT_TOOL_CALL_INPUT_MS = 600_000;
 export const DEFAULT_APPROVAL_STALE_MS = 86_400_000;
 
 export interface AssistantResilienceConfig {
+  streamFirstPartMs: number;
   streamInactivityMs: number;
   toolCallInputMs: number;
   toolTimeoutMs: number;
@@ -73,6 +95,14 @@ export function resolveStreamInactivityMs(override?: number): number {
   );
 }
 
+export function resolveStreamFirstPartMs(override?: number): number {
+  return resolvePositiveIntMs(
+    'BRAINSTRIKE_STREAM_FIRST_PART_MS',
+    DEFAULT_STREAM_FIRST_PART_MS,
+    override
+  );
+}
+
 export function resolveToolCallInputMs(override?: number): number {
   return resolvePositiveIntMs(
     'BRAINSTRIKE_TOOL_CALL_INPUT_MS',
@@ -95,12 +125,14 @@ export function resolveApprovalStaleMs(override?: number): number {
 }
 
 export function resolveAssistantResilienceConfig(options?: {
+  streamFirstPartMs?: number;
   streamInactivityMs?: number;
   toolCallInputMs?: number;
   toolTimeoutMs?: number;
 }): AssistantResilienceConfig {
   const toolTimeoutMs = resolveToolTimeoutMs(options?.toolTimeoutMs);
   const streamInactivityMs = resolveStreamInactivityMs(options?.streamInactivityMs);
+  const streamFirstPartMs = resolveStreamFirstPartWindow(streamInactivityMs, options);
   const resolvedToolCallInputMs = resolveToolCallInputMs(options?.toolCallInputMs);
   if (toolTimeoutMs >= streamInactivityMs) {
     throw new Error(
@@ -123,11 +155,45 @@ export function resolveAssistantResilienceConfig(options?: {
         `BRAINSTRIKE_TOOL_CALL_INPUT_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${resolvedToolCallInputMs}ms and ${streamInactivityMs}ms.`
       );
     }
-    return { streamInactivityMs, toolCallInputMs: resolvedToolCallInputMs, toolTimeoutMs };
+    return {
+      streamFirstPartMs,
+      streamInactivityMs,
+      toolCallInputMs: resolvedToolCallInputMs,
+      toolTimeoutMs,
+    };
   }
   return {
+    streamFirstPartMs,
     streamInactivityMs,
     toolCallInputMs: Math.max(resolvedToolCallInputMs, streamInactivityMs),
     toolTimeoutMs,
   };
+}
+
+/**
+ * The first-part window can never be TIGHTER than the inter-part one: waiting
+ * for a provider to start is strictly harder than waiting for it to continue,
+ * so a narrower first window would fire before the inactivity watchdog could
+ * ever observe a real mid-stream stall.
+ *
+ * Resolution mirrors `BRAINSTRIKE_TOOL_CALL_INPUT_MS` exactly (BST-839): two
+ * EXPLICIT values in that shape are contradictory and throw, while an unset
+ * first-part window simply widens to satisfy the invariant rather than failing
+ * on a variable the user never set. That is default resolution, not a silent
+ * degradation — nothing configured is overridden.
+ */
+function resolveStreamFirstPartWindow(
+  streamInactivityMs: number,
+  options?: { streamFirstPartMs?: number }
+): number {
+  const resolved = resolveStreamFirstPartMs(options?.streamFirstPartMs);
+  if (hasExplicitValue('BRAINSTRIKE_STREAM_FIRST_PART_MS', options?.streamFirstPartMs)) {
+    if (resolved < streamInactivityMs) {
+      throw new Error(
+        `BRAINSTRIKE_STREAM_FIRST_PART_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${resolved}ms and ${streamInactivityMs}ms.`
+      );
+    }
+    return resolved;
+  }
+  return Math.max(resolved, streamInactivityMs);
 }

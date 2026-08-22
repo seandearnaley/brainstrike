@@ -148,8 +148,17 @@ function makeStreamStalledTermination(
   const model = runtimeData?.model?.trim();
   const localRuntimeName =
     provider === 'ollama' ? 'Ollama' : provider === 'lmstudio' ? 'LM Studio' : null;
+  // BST-1408: `inactivityMs` alone cannot say WHICH silence fired or what the
+  // provider was doing when it went quiet, so the 2026-08-22 stall had to be
+  // reconstructed by inference from run-event timestamps. `phase` separates
+  // "never started answering" from "started, then stopped"; `lastPartType` and
+  // `partsSeen` say how far the stream got. All three ride the durable
+  // run.failed metadata, so a debug bundle carries them without extra logging.
   const diagnosticContext = {
     inactivityMs: error.inactivityMs,
+    partsSeen: error.partsSeen,
+    phase: error.phase,
+    ...(error.lastPartType ? { lastPartType: error.lastPartType } : {}),
     ...(model ? { model } : {}),
     ...(provider ? { provider } : {}),
   };

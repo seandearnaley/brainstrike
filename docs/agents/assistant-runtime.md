@@ -47,8 +47,12 @@ below are LIVE.
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
    `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
-   A stream stall emits a visible assistant message, a terminal `run.failed`
-   event, and an error finish so the renderer does not remain in-flight forever.
+   The window is PHASE-AWARE (BST-1408): `BRAINSTRIKE_STREAM_FIRST_PART_MS`
+   governs the wait for the very first part, `BRAINSTRIKE_STREAM_INACTIVITY_MS`
+   every gap after it — see the config list below for why they must not be
+   re-merged. A stream stall emits a visible assistant message, a terminal
+   `run.failed` event, and an error finish so the renderer does not remain
+   in-flight forever.
    The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
    `BRAINSTRIKE_TOOL_CALL_INPUT_MS` window as an absolute deadline from the
    first streamed tool-input marker to its matching input end/complete call.
@@ -644,7 +648,20 @@ cannot be compacted away.
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
-- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
+- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
+  BETWEEN parts, once the provider has started emitting. Scoped to inter-part
+  gaps only since BST-1408.
+- `BRAINSTRIKE_STREAM_FIRST_PART_MS` (default 600000) — the budget from stream
+  start until the FIRST part arrives. DELIBERATELY decoupled from the inactivity
+  window and never tighter than it, for the same reason the tool-call-input
+  budget is (BST-839): the two answer different questions — "has the provider
+  started answering yet?" versus "is it still delivering?". Sharing one number
+  killed a healthy 18-minute turn, because a cold request carrying ~169k prompt
+  tokens at `reasoning.effort: 'max'` can spend minutes producing nothing
+  observable, which is indistinguishable from a wedged transport at the
+  stream-part layer. Same explicit-vs-default resolution as the input budget: two
+  EXPLICIT values in a contradictory shape throw; an unset first-part window
+  widens to the inactivity window.
 - `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
   time for one incomplete streamed tool input; argument deltas do not reset it.
   Decoupled from — and never tighter than — the inactivity window (BST-839).
@@ -659,9 +676,16 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   not include bearer tokens or silently restart/unload the external server. The
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity <= tool-call input budget (the
-  second comparison is enforced only against an explicitly configured input
-  budget; see above).
+- Invariant: tool timeout < stream inactivity <= tool-call input budget, and
+  stream inactivity <= stream first-part window (both `<=` comparisons are
+  enforced only against an explicitly configured value; see above).
+- The stall diagnostic and the durable `run.failed` metadata carry `phase`
+  (`first-part` | `inter-part`), `partsSeen`, and — when the caller can name it
+  — `lastPartType` (BST-1408). `inactivityMs` alone could not say WHICH silence
+  fired or what the provider last sent, so the 2026-08-22 incident had to be
+  reconstructed by inference from run-event timestamps. The watchdog itself
+  stays generic over the stream element: `describePart` supplies the Mastra part
+  type from the call site rather than the timer module assuming a shape.
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
   notice (see PERMISSION ENGINE §restart-safe rediscovery). Deliberately
