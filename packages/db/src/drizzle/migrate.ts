@@ -97,6 +97,7 @@ import { migration104GoogleGemini37Flash } from '../migrations/104-google-gemini
 import { migration105EmbeddingJobInputHash } from '../migrations/105-embedding-job-input-hash.js';
 import { migration106OpenRouterMuseSpark12 } from '../migrations/106-openrouter-muse-spark-1-2.js';
 import { migration107OpenRouterOxAlpha } from '../migrations/107-openrouter-ox-alpha.js';
+import { migration108OpenRouterGlm53 } from '../migrations/108-openrouter-glm-5-3.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -338,6 +339,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-105-embedding-job-input-hash', migration105EmbeddingJobInputHash),
   customMigration('custom-106-openrouter-muse-spark-1-2', migration106OpenRouterMuseSpark12),
   customMigration('custom-107-openrouter-ox-alpha', migration107OpenRouterOxAlpha),
+  customMigration('custom-108-openrouter-glm-5-3', migration108OpenRouterGlm53),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';
