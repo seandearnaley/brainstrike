@@ -140,7 +140,11 @@ the bar is mocked (see `docs/agents/workspace-context.md`, MAIN vs FOCUSED):
 - "Add folder…" (OS picker bypassed by `BRAINSTRIKE_E2E_REAL_ROOT_PATH`) mounts
   globally AND attaches to the thread as a secondary.
 
-Only the first test is `@smoke`; the rest run in the `regression` project.
+Only the first test is `@smoke`; the rest run in the `regression` project. Temp
+folder fixtures come from `utils/git-fixtures.ts` and the ledger seed from
+`utils/seed-root.ts` — both shared with `git-panel.desktop.test.ts`, so the two
+specs cannot drift apart. The web counterpart is `apps/web/e2e/workspace-bar.test.ts`
+(one test, tagged `@web-smoke` so it runs on every PR).
 Web's smaller capability surface (no git bridge, no recents ledger) is pinned
 separately by `apps/web/e2e/workspace-bar.test.ts`.
 

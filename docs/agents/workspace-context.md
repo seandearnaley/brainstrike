@@ -982,14 +982,18 @@ additional explorer/status chrome):
     (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
     `fs:listRecentRoots`), minus folders already mounted in this workspace.
     `fs:addRootByPath` re-mounts ONLY a path present in that ledger and is the
-    single sanctioned picker-less mount (BST-1395): a stray or stale path
-    string cannot become workspace access, and every path the ledger accepts
-    was already granted through the OS picker or a successful restore. It is a
-    correctness gate at the SAME trust class as `rootsList` + `fs:restoreRoots`
-    — the renderer can already write main storage through the `storage:*`
-    bridge — NOT a hardening boundary against a compromised renderer. Narrowing
-    `storage:*` with a key allowlist would raise that floor for every main-owned
-    key at once and is tracked separately. Paths are keyed with a stripped
+    single sanctioned picker-less mount (BST-1395). Scope that claim exactly:
+    the ledger is the authorization gate for `addRootByPath`, so **the BAR**
+    cannot mount an arbitrary path — every path it can offer was already
+    granted through the OS picker or a successful restore, and a stray or stale
+    path string is rejected. It is NOT a hardening boundary against a
+    compromised renderer: main-process storage is itself renderer-writable
+    through the unrestricted `storage:setItem` bridge, which puts the ledger in
+    the SAME trust class as `rootsList` + `fs:restoreRoots`. A renderer that can
+    call `storage:setItem` can write its own grant and then "re-mount" it. So
+    this is a correctness gate, not a security boundary. Hardening `storage:*`
+    with a main-owned key allowlist would raise the floor for every main-owned
+    key at once and is a separate follow-up. Paths are keyed with a stripped
     trailing separator, so `/ws/alpha/` and `/ws/alpha` are one slot. A CORRUPT
     ledger is quarantined to `recentRootsList.corrupt`, logged at ERROR, and
     reset (mirroring `readStoredRootsOrQuarantine`) rather than left permanently
@@ -1039,7 +1043,7 @@ zero/unavailable state, exact ids, Main/Focused priority) +
 (client root inventory replacement),
 `packages/assistant-ui/src/__tests__/workspace-bar.test.tsx` +
 `packages/app-shell/src/__tests__/use-workspace-bar.test.tsx` +
-`use-thread-checkout-status.test.ts` +
+`packages/app-shell/src/__tests__/use-thread-checkout-status.test.ts` +
 `apps/desktop/src/__tests__/ipc-domains/workspace-root-registry-recent-roots.test.ts`
 (ledger + `addRootByPath` authorization) +
 `apps/desktop/e2e/workspace-bar.desktop.test.ts` +
