@@ -57,8 +57,10 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // from events that already exist — the next event for the SAME
   // `metadata.toolCallId` (approve => the resumed stream re-yields the tool
   // start and eventually `tool.completed`; decline => `tool.failed`, "Tool call
-  // declined"; unanswerable => `tool.resume.unsupported`), or the run leaving
-  // `status = 'running'`. A `tool.approval.resolved` kind would be a second
+  // declined"; unanswerable => `tool.resume.unsupported`). The run status is
+  // NOT a resolution signal: the paused leg is recorded `completed` (it returns
+  // `finished` at the pause), so "the run left `status = 'running'`" is true the
+  // instant the pause is written. A `tool.approval.resolved` kind would be a second
   // source of truth for a fact those terminals already carry.
   'tool.approval.requested',
   'tool.completed',

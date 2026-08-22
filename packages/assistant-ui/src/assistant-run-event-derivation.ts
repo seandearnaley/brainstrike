@@ -482,7 +482,8 @@ const EXPLICIT_TERMINAL_KINDS: Partial<
  *
  * WHY: an approval pause is answered by a SEPARATE resume leg, and that leg
  * mints its own runId and its own `thread_runs` row (`prepareRequestData` calls
- * `createThreadRunId()` per leg; `stream-init` opens a run row for it). The
+ * the single `createThreadRunId` producer per leg; `stream-init` opens a run
+ * row for it). The
  * paused leg meanwhile emits NO run terminal at all — it returns `finished`
  * at the pause and desktop only UPDATEs `thread_runs.status`. So the pause row
  * carries run A while the `tool.completed` / `tool.failed` that answers it

@@ -281,8 +281,9 @@ export function makeApprovalRequiredChunks(
     // pauses. See the kind's contract note. Deliberately NOT a `tool.started`:
     // no tool ran. Resolution is derived from the next event for this same
     // `toolCallId` (approve => `tool.completed`, decline => `tool.failed`,
-    // unanswerable => `tool.resume.unsupported`) or the run leaving 'running',
-    // so there is no resolution event to emit here.
+    // unanswerable => `tool.resume.unsupported`); the run status is NOT a
+    // resolution signal, since the paused leg itself is recorded 'completed'.
+    // So there is no resolution event to emit here.
     makeRunEventChunk('tool.approval.requested', 'running', 'Awaiting your approval', {
       toolCallId,
       toolName,
