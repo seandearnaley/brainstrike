@@ -88,7 +88,7 @@ import { UserMessage } from './user-message';
 // source module, not the public import path.
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
-import { OperatingRootChip, type OperatingRootInfo } from './operating-root-chip';
+import { WorkspaceBar, type WorkspaceBarProps } from './workspace-bar/workspace-bar';
 
 export type { ComposerAttachmentsAvailability } from './composer-input';
 
@@ -397,12 +397,6 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   /** Called with the provider's exact token counts from a finish-message chunk. */
   onUsage?: (usage: AssistantUsage) => void;
   openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
-  /**
-   * The assistant's operating root (MAIN root — activeRootIds[0]), shown as a
-   * compact chip above the composer. App-shell passes it ONLY when 2+
-   * workspace roots are mounted; absent renders no chip (single-root/web).
-   */
-  operatingRoot?: OperatingRootInfo;
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
@@ -434,6 +428,12 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   slashCommands?: readonly SlashCommand[];
   threadKey?: string;
   toolMenu?: AssistantToolMenuConfig;
+  /**
+   * Composer workspace bar (folder · branch). App-shell ALWAYS passes it when
+   * the assistant is mounted in a workspace shell; absent = no bar (storybook /
+   * bare embeds).
+   */
+  workspaceBar?: WorkspaceBarProps;
 }
 
 export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
@@ -747,8 +747,6 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   onUsage?: ((usage: AssistantUsage) => void) | undefined;
-  /** Assistant operating root chip (multi-root only); absent → no chip. */
-  operatingRoot?: OperatingRootInfo | undefined;
   pickerModels: ModelPickerModel[];
   /** Composer plan-mode toggle; absent → no toggle rendered. */
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
@@ -767,6 +765,8 @@ interface ChatThreadProps extends ComposerDraftCommandBridgeProps {
   selectedProvider: string | undefined;
   slashCommands: readonly SlashCommand[];
   toolMenu?: AssistantToolMenuConfig | undefined;
+  /** Composer workspace bar (folder · branch); absent → no bar. */
+  workspaceBar?: WorkspaceBarProps | undefined;
 }
 
 /**
@@ -805,7 +805,7 @@ const LocalRuntimeChat = ({
   onFileMentionQueryChange,
   onComposerDraftCommandApplied,
   onComposerTextChange,
-  operatingRoot,
+  workspaceBar,
   planMode,
   toolMenu,
   requestData,
@@ -897,7 +897,7 @@ const LocalRuntimeChat = ({
           onRunFinished={onRunFinished}
           onThreadRunStart={onThreadRunStart}
           onToolApprovalRequired={onToolApprovalRequired}
-          {...(operatingRoot ? { operatingRoot } : {})}
+          {...(workspaceBar ? { workspaceBar } : {})}
           pickerModels={pickerModels}
           {...(planMode ? { planMode } : {})}
           providerGroups={providerGroups}
@@ -960,7 +960,7 @@ const DataStreamRuntimeChat = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
-  operatingRoot,
+  workspaceBar,
   planMode,
   attachmentsAvailability,
   toolMenu,
@@ -1093,7 +1093,7 @@ const DataStreamRuntimeChat = ({
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
             {...(onSteerActiveRun ? { onSteerActiveRun } : {})}
-            {...(operatingRoot ? { operatingRoot } : {})}
+            {...(workspaceBar ? { workspaceBar } : {})}
             pickerModels={pickerModels}
             {...(planMode ? { planMode } : {})}
             {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
@@ -1157,7 +1157,7 @@ const ChatThreadUI = ({
   onComposerDraftCommandApplied,
   onComposerTextChange,
   onSteerActiveRun,
-  operatingRoot,
+  workspaceBar,
   planMode,
   attachmentsAvailability,
   threadKey,
@@ -1170,7 +1170,6 @@ const ChatThreadUI = ({
   effectiveInputBudget?: number | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   onSteerActiveRun?: (() => Promise<boolean>) | undefined;
-  operatingRoot?: OperatingRootInfo | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -1198,6 +1197,7 @@ const ChatThreadUI = ({
   onComposerTextChange?: ((text: string) => void) | undefined;
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
+  workspaceBar?: WorkspaceBarProps | undefined;
 }) => {
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const composerDisabled = isComposerDisabled || isHistoryLoading;
@@ -1298,11 +1298,12 @@ const ChatThreadUI = ({
            * This required aggressive CSS overrides (see overrides.css).
            */}
           <div className="bs-composer-shell" data-testid="assistant-composer-shell">
-            {/* Multi-root operating-root chip ("in {main root}") — its own module,
-            a SIBLING at the top of the composer stack (never nested inside
-            ThreadContextMeter, which is being reworked separately). Renders
-            nothing unless app-shell passes operatingRoot (2+ roots). */}
-            <OperatingRootChip operatingRoot={operatingRoot} />
+            {/* Composer workspace bar (folder · branch) — its own module, a
+            SIBLING at the top of the composer stack (never nested inside
+            ThreadContextMeter, which is being reworked separately). Always
+            rendered when app-shell supplies it; zero roots render the
+            "Choose a folder" CTA. */}
+            {workspaceBar ? <WorkspaceBar {...workspaceBar} /> : null}
             <ThreadContextMeter
               contextWindow={contextWindow}
               cumulativeUsage={cumulativeUsage}
@@ -1422,7 +1423,7 @@ export const AssistantUiPanel = ({
   onStepUsage,
   onUsage,
   attachmentsAvailability,
-  operatingRoot,
+  workspaceBar,
   planModeEnabled,
   slashCommands = EMPTY_SLASH_COMMANDS,
   fileMentions = EMPTY_FILE_MENTIONS,
@@ -1506,7 +1507,7 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
-            operatingRoot={operatingRoot}
+            workspaceBar={workspaceBar}
             {...(onUsage ? { onUsage } : {})}
             fileMentions={fileMentions}
             onComposerDraftCommandApplied={onComposerDraftCommandApplied}
@@ -1552,8 +1553,8 @@ export const AssistantUiPanel = ({
             onStreamActivity={onStreamActivity}
             onThreadRunStart={onThreadRunStart}
             onToolApprovalRequired={onToolApprovalRequired}
-            operatingRoot={operatingRoot}
             prepareLocalModel={prepareLocalModel}
+            workspaceBar={workspaceBar}
             {...(onContextBreakdown ? { onContextBreakdown } : {})}
             onChildRunUsage={onChildRunUsage}
             onSteerActiveRun={onSteerActiveRun}

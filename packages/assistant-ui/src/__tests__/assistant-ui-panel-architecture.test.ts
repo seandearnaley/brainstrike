@@ -80,9 +80,10 @@ describe('assistant UI panel architecture', () => {
     // EditComposer's Input is disabled alongside the Send button while the
     // budget cap blocks sends — Enter in the input is a submit path too.
     // This panel accreted several independent features that each threaded a
-    // small prop/renderer through it: the multi-root operating-root chip (WS6;
-    // <OperatingRootChip /> mounts as a sibling at the top of the composer
-    // stack), the approval/suspend outcome chip (WS2), the context-breakdown
+    // small prop/renderer through it: the composer workspace bar (BST-1396;
+    // <WorkspaceBar /> mounts as a sibling at the top of the composer stack,
+    // replacing WS6's <OperatingRootChip /> one-for-one), the approval/suspend
+    // outcome chip (WS2), the context-breakdown
     // seam + null-renderer registration (context-ring WS8; assistantContext-
     // BreakdownDataUI mirrors assistantShellOutputDataUI's `render: () => null`
     // so the transient part never surfaces as a stray element), and the
@@ -102,6 +103,30 @@ describe('assistant UI panel architecture', () => {
     // clipboard/error handling all live in that module; this file only
     // imports + renders it.
     expect(source.split('\n').length).toBeLessThanOrEqual(1880);
+  });
+
+  it('mounts the composer workspace bar as an owned module above the context meter', () => {
+    // BST-1396: the workspace bar (folder · branch) replaces the WS6
+    // operating-root chip. It is a SIBLING at the top of the composer stack —
+    // never nested inside ThreadContextMeter, which is reworked separately —
+    // and it is always rendered when app-shell passes `workspaceBar` (zero
+    // roots render the "Choose a folder" CTA, not an empty bar).
+    const source = readSource('assistant-ui-panel.tsx');
+    expect(source).toContain("from './workspace-bar/workspace-bar'");
+
+    const composerShellStart = source.indexOf('className="bs-composer-shell"');
+    expect(composerShellStart).toBeGreaterThan(-1);
+    const composerShellSource = source.slice(composerShellStart);
+    const workspaceBarStart = composerShellSource.indexOf('<WorkspaceBar');
+    const contextMeterStart = composerShellSource.indexOf('<ThreadContextMeter');
+    expect(workspaceBarStart).toBeGreaterThan(-1);
+    expect(workspaceBarStart).toBeLessThan(contextMeterStart);
+
+    // The chip it replaces is gone for good — including its prop.
+    expect(source).not.toContain('OperatingRootChip');
+    expect(source).not.toContain('operatingRoot');
+
+    expect(readSource('workspace-bar/workspace-bar.tsx')).toContain('export const WorkspaceBar');
   });
 
   it('keeps provider settings and controls as owned panel modules', () => {
