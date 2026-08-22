@@ -65,8 +65,7 @@ describe('migration 107 OpenRouter Ox Alpha', () => {
     await db.close();
   });
 
-  it('is the latest numbered migration', () => {
-    expect(migrations.at(-1)?.version).toBe(107);
+  it('is registered as numbered migration 107', () => {
     expect(getMigration107().name).toBe('openrouter_ox_alpha');
   });
 

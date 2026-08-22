@@ -122,8 +122,8 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   /**
    * Approx. USD price per 1,000,000 tokens. Static display estimate only; provider-reported
    * billed cost remains authoritative. Omit when pricing is unknown or when a local/keyless
-   * model has no billing surface. Record explicit zeroes only when a hosted provider currently
-   * publishes a free route, so known-free pricing stays distinct from "cost unavailable."
+   * model has no billing surface. Explicit zeroes are permitted only when current provider
+   * evidence supports a reviewed free hosted route; they stay distinct from "cost unavailable."
    */
   pricing?: {
     /**
@@ -757,7 +757,10 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         // Anonymous stealth-preview identity, route, modalities, context/output
         // limits, reasoning controls, tool/structured-output support, and zero
         // gateway pricing: OpenRouter Models and endpoint APIs, revalidated
-        // 2026-08-22 (BST-1399). OpenRouter does not identify the vendor.
+        // 2026-08-22 (BST-1399). Revalidate the preview rate when this route
+        // leaves stealth. OpenRouter does not identify the vendor, so there is
+        // no vendor-authoritative default output window to record; Auto honors
+        // the mandatory published max effort under the generic coding ceiling.
         contextWindow: 1_048_576,
         id: 'stealth/ox-alpha',
         label: 'Ox Alpha (OpenRouter)',
