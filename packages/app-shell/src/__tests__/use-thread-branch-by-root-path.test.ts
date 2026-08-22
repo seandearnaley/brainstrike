@@ -7,15 +7,18 @@ vi.mock('../changes/use-git-inventory', () => ({ useGitInventory: useGitInventor
 
 import { useThreadBranchByRootPath } from '../hooks/use-thread-branch-by-root-path';
 
+type Worktree = GitInventory['repositories'][number]['worktrees'][number];
+
 function worktree(
   path: string,
   branch: string | null,
-  detached: boolean
-): GitInventory['repositories'][number]['worktrees'][number] {
+  detached: boolean,
+  containment: Worktree['containment'] = ['root-a']
+): Worktree {
   return {
     bare: false,
     branch,
-    containment: ['root-a'],
+    containment,
     current: false,
     detached,
     head: 'abc1234',
@@ -40,6 +43,24 @@ const INVENTORY: GitInventory = {
         // flag have to survive the projection.
         worktree('/work/a-wt/', null, true),
       ],
+    },
+  ],
+};
+
+/**
+ * One root, one worktree, and a MOUNTED path (`/var/...`) that git never
+ * reports because it resolves the symlink (`/private/var/...`). Only the
+ * containment id joins.
+ */
+const SYMLINKED_ROOT_INVENTORY: GitInventory = {
+  errors: [],
+  repositories: [
+    {
+      identity: {
+        gitCommonDir: '/private/var/folders/tmp/repo/.git',
+        repositoryRoot: '/private/var/folders/tmp/repo',
+      },
+      worktrees: [worktree('/private/var/folders/tmp/repo', 'main', false, ['root-symlinked'])],
     },
   ],
 };
@@ -127,5 +148,74 @@ describe('useThreadBranchByRootPath', () => {
 
     expect(result.current.byRootPath.has('/work')).toBe(false);
     expect(result.current.byRootPath.has('root-a')).toBe(false);
+  });
+
+  // The symlink case the exact-path join cannot answer (found by W2 task 5's
+  // e2e run): `roots.path` is the MOUNTED path, git reports the REALPATH, so
+  // `/var/...` never equals `/private/var/...` and the chip silently vanished.
+  // `containment` carries DB `roots.id` computed in main against realpath'd
+  // paths, so the id join answers it.
+  it('resolves a root whose mounted path differs from the realpath git reports', () => {
+    mockInventory(SYMLINKED_ROOT_INVENTORY);
+
+    const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
+
+    // The mounted path the panel would join on is absent — that is the defect.
+    expect(result.current.byRootPath.has('/var/folders/tmp/repo')).toBe(false);
+    expect(result.current.byRootId.get('root-symlinked')).toEqual({
+      branch: 'main',
+      detached: false,
+    });
+  });
+
+  // Two worktrees inside one root is exactly why containment was rejected as
+  // the PRIMARY key: the root has no branch of its own, and picking one of the
+  // two would be a fabricated chip.
+  it('refuses an ambiguous containment rather than guessing a branch', () => {
+    mockInventory(INVENTORY);
+
+    const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
+
+    expect(result.current.byRootId.has('root-a')).toBe(false);
+    expect(result.current.byRootId.size).toBe(0);
+  });
+
+  it('omits a worktree that sits outside every workspace root', () => {
+    mockInventory({
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: '/elsewhere/.git', repositoryRoot: '/elsewhere' },
+          worktrees: [worktree('/elsewhere', 'main', false, 'outside-roots')],
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
+
+    expect(result.current.byRootId.size).toBe(0);
+    expect(result.current.byRootPath.get('/elsewhere')).toEqual({
+      branch: 'main',
+      detached: false,
+    });
+  });
+
+  it('memoizes the id map on inventory identity', () => {
+    mockInventory(SYMLINKED_ROOT_INVENTORY);
+    const { rerender, result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
+    const first = result.current.byRootId;
+    expect(first.size).toBe(1);
+
+    rerender();
+
+    expect(result.current.byRootId).toBe(first);
+  });
+
+  it('reports an empty id map while the inventory is still unresolved', () => {
+    mockInventory(null);
+
+    const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
+
+    expect(result.current.byRootId.size).toBe(0);
   });
 });
