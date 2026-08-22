@@ -90,12 +90,17 @@ export interface UseGitInventoryResult {
 
 export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInventoryResult {
   const { active = true, deferInitialLoad = false } = options;
+  // A false -> true transition is a new inventory activation. Results from an
+  // older activation stay retained internally but are not exposed while the
+  // mandatory re-entry refresh is unresolved.
+  const activation = useMemo<object>(() => ({}), [active]);
   // Resolved ONCE per hook instance, not per render — see doc comment.
   const bridge = useMemo(() => resolveChangesBridge(), []);
   const [inventory, setInventory] = useState<GitInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const generationRef = useRef(0);
+  const resolvedActivationRef = useRef<object | null>(null);
   // True once ANY load has been requested (mount-time or a gesture's
   // `refresh()`). Gates push-driven refetches for deferred callers — see the
   // mount effect below.
@@ -114,6 +119,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
     const generation = generationRef.current;
     if (!bridge) {
       if (generation === generationRef.current) {
+        resolvedActivationRef.current = activation;
         setInventory(null);
         setError(null);
         setLoading(false);
@@ -127,9 +133,11 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
         return;
       }
       if (result.ok) {
+        resolvedActivationRef.current = activation;
         setInventory(result.value);
         setError(null);
       } else {
+        resolvedActivationRef.current = activation;
         setInventory(null);
         setError(result.error);
       }
@@ -143,12 +151,13 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
       const message = caught instanceof Error ? caught.message : String(caught);
       logger.error('Failed to load git inventory', { error: caught });
       if (generation === generationRef.current) {
+        resolvedActivationRef.current = activation;
         setInventory(null);
         setError(message);
         setLoading(false);
       }
     }
-  }, [anyInvalidationNonce, bridge]);
+  }, [activation, anyInvalidationNonce, bridge]);
 
   useEffect(() => {
     // A surface that has gone inactive must stop paying for full inventory
@@ -170,8 +179,8 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
 
   return {
     available: bridge !== null,
-    error,
-    inventory,
+    error: resolvedActivationRef.current === activation ? error : null,
+    inventory: resolvedActivationRef.current === activation ? inventory : null,
     loading,
     refresh,
   };

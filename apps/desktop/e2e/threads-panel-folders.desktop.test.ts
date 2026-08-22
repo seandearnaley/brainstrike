@@ -47,14 +47,13 @@ const UNBOUND_THREAD_TITLE = 'W2 unbound gamma';
  *
  * `realpathSync` is load-bearing, not tidiness. On macOS `os.tmpdir()` is
  * `/var/folders/…`, a symlink to `/private/var/folders/…`; git reports the
- * resolved form, while the `roots.path` this fixture seeds keeps the symlink.
- * `resolveThreadBranch` tries EXACT normalized path equality FIRST
- * (`normalizeRootPathForLookup` trims and strips trailing separators — it does
- * NOT resolve symlinks) and only then falls back to the containment-id join
- * that BST-1404 added for exactly this skew. Resolving the fixture path keeps
- * this spec on the FIRST join, so the badge assertion below means "the path
- * join works" rather than silently grading the fallback. The symlinked case
- * itself is covered by unit tests on both the hook and the panel.
+ * resolved form, so this fixture resolves the path before seeding `roots.path`.
+ * The branch lookup is durable-ID-first. Its unambiguous containment map handles
+ * symlink skew directly; when a root checkout and one of its nested worktrees
+ * both claim the same root id, an exact durable-id + normalized-path claim
+ * selects the root checkout without borrowing a same-path replacement root.
+ * Resolving the fixture path therefore keeps the live branch assertion focused
+ * on the ordinary real-path checkout rather than platform path spelling.
  */
 function freshRepo(label: string): string {
   return realpathSync(

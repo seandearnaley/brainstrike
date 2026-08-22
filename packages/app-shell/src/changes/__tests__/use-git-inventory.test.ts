@@ -265,6 +265,52 @@ describe('useGitInventory', () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it('does not expose the previous activation inventory while reactivation refreshes', async () => {
+    const stale = inventoryFixture({ errors: ['stale'] });
+    const fresh = inventoryFixture({ errors: ['fresh'] });
+    let call = 0;
+    const freshGate: { release: (() => void) | null } = { release: null };
+    const inventory = vi.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        return { ok: true, value: stale } as const;
+      }
+      await new Promise<void>((resolve) => {
+        freshGate.release = resolve;
+      });
+      return { ok: true, value: fresh } as const;
+    });
+    stubBridge({ inventory });
+
+    const { rerender, result } = renderHook(
+      (active: boolean) => useGitInventory({ active, deferInitialLoad: !active }),
+      { initialProps: true }
+    );
+    await waitFor(() => {
+      expect(result.current.inventory).toEqual(stale);
+    });
+
+    act(() => {
+      rerender(false);
+    });
+    expect(result.current.inventory).toBeNull();
+    expect(result.current.error).toBeNull();
+
+    act(() => {
+      rerender(true);
+    });
+    await waitFor(() => {
+      expect(inventory).toHaveBeenCalledTimes(2);
+      expect(result.current.loading).toBe(true);
+    });
+    expect(result.current.inventory).toBeNull();
+
+    freshGate.release?.();
+    await waitFor(() => {
+      expect(result.current.inventory).toEqual(fresh);
+    });
+  });
+
   it('ignores a stale in-flight load when a newer refresh supersedes it', async () => {
     const slow = inventoryFixture();
     const fresh = inventoryFixture({ errors: ['newer'] });

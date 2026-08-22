@@ -5,7 +5,10 @@ import type {
   ThreadBranchInfo,
 } from './hooks/use-thread-branch-by-root-path';
 
-export type ThreadBranchLookup = Pick<ThreadBranchByRootPathState, 'byRootId' | 'byRootPath'>;
+export type ThreadBranchLookup = Pick<
+  ThreadBranchByRootPathState,
+  'byRootId' | 'byRootIdAndPath' | 'byRootPath'
+>;
 
 export function lookupThreadBranch(
   thread: AssistantMemoryThread,
@@ -13,7 +16,15 @@ export function lookupThreadBranch(
 ): ThreadBranchInfo | null {
   const rootId = thread.metadata?.operatingRootId;
   if (rootId) {
-    return branchLookup.byRootId.get(rootId) ?? null;
+    const branchById = branchLookup.byRootId.get(rootId);
+    if (branchById) {
+      return branchById;
+    }
+    const rootPath = thread.metadata?.operatingRootPath;
+    return rootPath
+      ? (branchLookup.byRootIdAndPath.get(rootId)?.get(normalizeRootPathForLookup(rootPath)) ??
+          null)
+      : null;
   }
   const rootPath = thread.metadata?.operatingRootPath;
   return rootPath

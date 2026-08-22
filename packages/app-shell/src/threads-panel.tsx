@@ -2814,10 +2814,12 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     return [...rootIds];
   }, [folderGrouping, threads]);
   const folderRows = useThreadFolderRows(database, threadRootIds);
-  const { byRootId, byRootPath } = useThreadBranchByRootPath({ enabled: folderGrouping });
+  const { byRootId, byRootIdAndPath, byRootPath } = useThreadBranchByRootPath({
+    enabled: folderGrouping,
+  });
   const branchLookup = useMemo<ThreadBranchLookup>(
-    () => ({ byRootId, byRootPath }),
-    [byRootId, byRootPath]
+    () => ({ byRootId, byRootIdAndPath, byRootPath }),
+    [byRootId, byRootIdAndPath, byRootPath]
   );
 
   // Folder sections mint persisted collapse keys; this is the symmetric prune
@@ -3045,7 +3047,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
             toast({
-              description: `Could not bind it to ${folder.displayName}: ${message} Open the thread and select ${folder.displayName} to retry.`,
+              description: `Could not bind it to ${folder.displayName}. Open the thread and select ${folder.displayName} to retry. Error: ${message}`,
               title: 'Thread created in No folder',
               variant: 'destructive',
             });

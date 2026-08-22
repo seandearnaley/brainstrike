@@ -78,6 +78,7 @@ const {
     deleteFailureThreadId: null as string | null,
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
     initializing: false,
+    metadataFailureMessage: 'Metadata update failed in PGlite.',
     metadataFailureThreadId: null as string | null,
     providerError: null as Error | null,
     rootsQueryError: null as Error | null,
@@ -374,6 +375,7 @@ beforeEach(() => {
   dbMocks.deleteFailureThreadId = null;
   dbMocks.initializing = false;
   dbMocks.initializationStatus = 'ready';
+  dbMocks.metadataFailureMessage = 'Metadata update failed in PGlite.';
   dbMocks.metadataFailureThreadId = null;
   dbMocks.providerError = null;
   groupRows.splice(0, groupRows.length);
@@ -521,7 +523,7 @@ beforeEach(() => {
     if (sql.includes('SET metadata')) {
       const threadId = String(params?.[0]);
       if (dbMocks.metadataFailureThreadId === threadId || dbMocks.metadataFailureThreadId === '*') {
-        throw new Error('Metadata update failed in PGlite.');
+        throw new Error(dbMocks.metadataFailureMessage);
       }
       const row = threadRows.find((item) => item['id'] === threadId);
       if (row) {
@@ -2362,6 +2364,7 @@ describe('ThreadsPanel folders', () => {
     expect(
       lookupThreadBranch(legacyThread, {
         byRootId: new Map(),
+        byRootIdAndPath: new Map(),
         byRootPath: new Map([['/tmp/workspace-a', { branch: 'legacy-branch', detached: false }]]),
       })
     ).toEqual({ branch: 'legacy-branch', detached: false });
@@ -2385,6 +2388,34 @@ describe('ThreadsPanel folders', () => {
     await enterFolderGrouping();
 
     expect(within(rowFor('First thread')).queryByText('replacement-branch')).toBeNull();
+  });
+
+  it('keeps the root checkout branch when a nested worktree shares its durable root id', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      {
+        branch: 'main',
+        containment: ['root-1'],
+        detached: false,
+        path: '/tmp/workspace-a',
+      },
+      {
+        branch: 'feature/nested',
+        containment: ['root-1'],
+        detached: false,
+        path: '/tmp/workspace-a/.worktrees/feature',
+      },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
+    expect(within(badges).getByText('main')).toBeVisible();
+    expect(within(badges).queryByText('feature/nested')).toBeNull();
   });
 
   // The symlink skew live e2e found: `roots.path` keeps the MOUNTED path,
@@ -2594,13 +2625,14 @@ describe('ThreadsPanel folders', () => {
     await enterFolderGrouping();
     mockDb.query.mockClear();
     dbMocks.metadataFailureThreadId = '*';
+    dbMocks.metadataFailureMessage = 'Metadata update failed in PGlite';
 
     fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
 
     expect(await screen.findByText('Thread created in No folder')).toBeVisible();
     expect(
       screen.getByText(
-        'Could not bind it to workspace-a: Metadata update failed in PGlite. Open the thread and select workspace-a to retry.'
+        'Could not bind it to workspace-a. Open the thread and select workspace-a to retry. Error: Metadata update failed in PGlite'
       )
     ).toBeVisible();
     await waitFor(() => {
