@@ -101,6 +101,7 @@ import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approva
 import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { ThreadFolderHeader } from './thread-folder-header';
 import {
+  filterThreadsByThreadFilters,
   hasActiveThreadFilters,
   resolveThreadPanelContentState,
   type ThreadPanelFolderGroupingState,
@@ -2736,10 +2737,12 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     schemaReady: Object.hasOwn(threadsByResourceId, resourceId),
   });
   const lastViewedAtByThreadId = useAssistantThreadStore((state) => state.lastViewedAtByThreadId);
+  const unseenBaselineAt = useAssistantThreadStore((state) => state.unseenBaselineAt);
   const unseenThreadIds = useUnseenThreadIds({
     activeThreadId: selectedThreadId ?? null,
     lastViewedAtByThreadId,
     threads,
+    unseenBaselineAt,
   });
   useMarkActiveThreadViewed({ activeThreadId: selectedThreadId ?? null, threads });
 
@@ -2762,28 +2765,41 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   const folderRows = useThreadFolderRows(database, threadRootIds);
   const { byRootPath } = useThreadBranchByRootPath({ enabled: folderGrouping });
 
-  const threadFiltersActive = hasActiveThreadFilters(threadFilters);
-  // Filters are a union, not an intersection: ticking Running AND Unseen asks
-  // for "anything I might want to look at", which is what a user ticking two
-  // boxes means. An AND would answer with almost nothing, every time.
-  const filteredThreads = useMemo(() => {
-    if (!threadFiltersActive) {
-      return threads;
+  // Folder sections mint persisted collapse keys; this is the symmetric prune
+  // to the one `deleteGroup` does for group keys. The RESOLVED folder rows are
+  // the only honest live-root evidence the panel has — an empty map also means
+  // "still loading", "the folder query failed", or "not in folder grouping at
+  // all", and pruning on any of those would wipe every folder's collapse state.
+  const pruneFolderCollapseIds = useAssistantThreadGroupsStore(
+    (state) => state.pruneFolderCollapseIds
+  );
+  const folderRowsByRootId = folderRows.rowsByRootId;
+  const folderRowsResolved = !(folderRows.loading || folderRows.error);
+  useEffect(() => {
+    if (!(folderRowsResolved && folderRowsByRootId.size > 0)) {
+      return;
     }
-    return threads.filter(
-      (thread) =>
-        (threadFilters.running && activeThreads.threadIds.has(thread.id)) ||
-        (threadFilters.needsYou && threadsAwaitingApproval.threadIds.has(thread.id)) ||
-        (threadFilters.unseen && unseenThreadIds.unseen.has(thread.id))
-    );
-  }, [
-    activeThreads.threadIds,
-    threadFilters,
-    threadFiltersActive,
-    threads,
-    threadsAwaitingApproval.threadIds,
-    unseenThreadIds.unseen,
-  ]);
+    pruneFolderCollapseIds([...folderRowsByRootId.keys()]);
+  }, [folderRowsByRootId, folderRowsResolved, pruneFolderCollapseIds]);
+
+  const threadFiltersActive = hasActiveThreadFilters(threadFilters);
+  const filteredThreads = useMemo(
+    () =>
+      filterThreadsByThreadFilters({
+        filters: threadFilters,
+        needsYouThreadIds: threadsAwaitingApproval.threadIds,
+        runningThreadIds: activeThreads.threadIds,
+        threads,
+        unseenThreadIds: unseenThreadIds.unseen,
+      }),
+    [
+      activeThreads.threadIds,
+      threadFilters,
+      threads,
+      threadsAwaitingApproval.threadIds,
+      unseenThreadIds.unseen,
+    ]
+  );
 
   const membershipByThreadId = useMemo(
     () => buildThreadMembership({ groups, placements, threads: filteredThreads }),

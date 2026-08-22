@@ -70,9 +70,17 @@ export type ThreadListView =
  */
 export const UNASSIGNED_FOLDER_SECTION_ID = 'folder-unassigned';
 
+/**
+ * The prefix every root-bound folder section id carries. Exported so the one
+ * place that has to RECOGNIZE such an id without a root id in hand — the
+ * collapse-key prune in `assistant-thread-groups-store.ts` — reads it from here
+ * instead of re-spelling the literal.
+ */
+export const FOLDER_SECTION_ID_PREFIX = 'folder:';
+
 /** Section id for a folder section bound to `rootId`. */
 export function folderSectionId(rootId: string): string {
-  return `folder:${rootId}`;
+  return `${FOLDER_SECTION_ID_PREFIX}${rootId}`;
 }
 
 const EMPTY_THREAD_IDS: readonly string[] = Object.freeze([]);

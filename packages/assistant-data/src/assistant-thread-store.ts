@@ -66,6 +66,20 @@ interface AssistantThreadState {
   setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => void;
   threadIdsByResourceId: Record<string, string[]>;
   threadsByResourceId: Record<string, AssistantMemoryThread[]>;
+  /**
+   * Epoch ms below which NOTHING is unseen — stamped once, when this store
+   * first exists for a user (fresh install) or when their v3 blob is migrated.
+   *
+   * Without it, an empty `lastViewedAtByThreadId` reads as "the user has never
+   * seen anything", so every thread whose latest run ever completed would carry
+   * the done-unseen dot on first launch — a storm on the very signal that is
+   * supposed to mean "this finished while you were away". The v3 blob carries
+   * no thread ids and no run timestamps, so per-thread watermarks cannot be
+   * seeded from it; this one number is the honest floor instead. It is only
+   * ever raised (creation, migrate, reset) — never lowered, and never inferred
+   * from a run.
+   */
+  unseenBaselineAt: number;
   updateThreadMetadata: (
     repository: AssistantThreadRepository,
     resourceId: string,
@@ -96,6 +110,7 @@ type PersistedAssistantThreadState = Pick<
   | 'lastViewedAtByThreadId'
   | 'openThreadIdsByResourceId'
   | 'selectedThreadByResourceId'
+  | 'unseenBaselineAt'
 >;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -103,9 +118,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Version 4 introduced the per-thread viewed watermark (`lastViewedAtByThreadId`).
+ * Version 4 introduced the per-thread viewed watermark
+ * (`lastViewedAtByThreadId`) and the `unseenBaselineAt` floor beneath it.
  * This migrate only knows how to bridge a version-3 blob into version 4 by
- * filling that one key — every other field is passed through UNVALIDATED
+ * filling those two keys — every other field is passed through UNVALIDATED
  * (deliberately: the persisted threads state has never been validated on
  * load, and starting to repair it here would silently rewrite a user's open
  * tabs). Any other version — including one older than 3 (an unrecorded shape
@@ -127,7 +143,14 @@ export function migrateAssistantThreadPersistedState(
   // record) is checked. The inner fields (activeThreadIdByResourceId, etc.)
   // are passed through as-is, matching the load path, which has never
   // validated them either.
-  const migrated: Record<string, unknown> = { ...persistedState, lastViewedAtByThreadId: {} };
+  // The upgrade moment IS the baseline: an upgrading user's existing threads
+  // were all "seen" before this build shipped, and only runs completing after
+  // this point can be news to them.
+  const migrated: Record<string, unknown> = {
+    ...persistedState,
+    lastViewedAtByThreadId: {},
+    unseenBaselineAt: Date.now(),
+  };
   return migrated as PersistedAssistantThreadState;
 }
 
@@ -883,6 +906,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       },
       threadIdsByResourceId: {},
       threadsByResourceId: {},
+      unseenBaselineAt: Date.now(),
       updateThreadMetadata: async (
         repository: AssistantThreadRepository,
         resourceId: string,
@@ -945,6 +969,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         lastViewedAtByThreadId: state.lastViewedAtByThreadId,
         openThreadIdsByResourceId: state.openThreadIdsByResourceId,
         selectedThreadByResourceId: state.selectedThreadByResourceId,
+        unseenBaselineAt: state.unseenBaselineAt,
       }),
       version: 4,
     }
@@ -976,5 +1001,8 @@ export function resetAssistantThreadStore(): void {
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},
     threadsByResourceId: {},
+    // Re-stamped, not zeroed: a reset clears every watermark, so a zero floor
+    // would make every surviving run's completion read as news.
+    unseenBaselineAt: Date.now(),
   });
 }

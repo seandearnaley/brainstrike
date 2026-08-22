@@ -2004,7 +2004,10 @@ Where state lives (do not relitigate):
   so this is a deferral, not a silent disable; the flip itself performs the load
   exactly once. Keyed by EXACT normalized worktree path (never `containment`, which is many-to-one and
   would let a root that merely contains repositories borrow one of their
-  branches). Desktop only; web reports `available: false` and renders no chip.
+  branches). BARE worktrees are omitted from that map: they carry no checkout,
+  hence no branch, and a mapped bare entry (`branch: null, detached: false`)
+  would render as an icon-only chip with no text.
+  Desktop only; web reports `available: false` and renders no chip.
 - Folder grouping's SURFACE (BST-1405) is the same treegrid: folder sections are
   real expandable parents whose node id IS `section.id`
   (`folder:${rootId}` / `folder-unassigned`), so one id addresses the row, its
@@ -2050,12 +2053,31 @@ Where state lives (do not relitigate):
   the resulting empty set as "every thread is idle / unblocked / in no folder".
 - The per-thread viewed watermark `lastViewedAtByThreadId` (epoch ms) lives in
   `assistant-thread-store.ts` (`brainstrike-assistant-threads-v1`, state
-  version 4, partialized; `migrate` fills ONLY that key for older blobs and
-  passes the rest through — the threads blob has never been validated on load
-  and must not start being silently repaired). `markThreadViewed` is idempotent
-  and monotonic (never lowers an existing watermark); thread deletion prunes it
-  and `resetAssistantThreadStore` clears it. Selection/tab actions do NOT mark
-  implicitly — the panel decides when a thread counts as seen.
+  version 4, partialized; `migrate` fills ONLY that key and `unseenBaselineAt`
+  for older blobs and passes the rest through — the threads blob has never been
+  validated on load and must not start being silently repaired).
+  `markThreadViewed` is idempotent and monotonic (never lowers an existing
+  watermark); thread deletion prunes it and `resetAssistantThreadStore` clears
+  it. Selection/tab actions do NOT mark implicitly — the panel decides when a
+  thread counts as seen.
+- `unseenBaselineAt` (epoch ms, persisted in the same slice) is the FLOOR under
+  that watermark, and `deriveUnseenThreadIds` compares against
+  `max(watermark, baseline)`. Without it an empty watermark record reads as "the
+  user has never seen anything", so a fresh install — and the first launch after
+  this shipped — would dot EVERY thread whose latest run ever completed, on the
+  one signal that is supposed to mean "this finished while you were away". It is
+  stamped at store creation, again by the v3 -> v4 migrate (the v3 blob carries
+  no thread ids and no run timestamps, so per-thread watermarks CANNOT be seeded
+  from it), and re-stamped by `resetAssistantThreadStore`. It is only ever
+  raised, never lowered, and never inferred from a run.
+- Folder sections mint persisted collapse keys (`folder:${rootId}`) in
+  `collapsedGroupIds`, so `pruneFolderCollapseIds` in
+  `assistant-thread-groups-store.ts` is the symmetric half of the group-key
+  prune `deleteGroup` does. Call it ONLY with a live root set you actually know
+  — the panel calls it from RESOLVED folder rows, because an empty folder map is
+  also what loading, a failed `roots` query and every non-folder grouping mode
+  look like, and pruning on that would wipe every folder's collapse state. Group
+  keys and the `folder-unassigned` sentinel are never touched.
 - The Threads panel uses shared `TreeTable` as its only scroll owner. Folder
   rows are real expandable treegrid parents with Left/Right keyboard behavior.
   Disclosed section rows are virtualized and capped at 50 initially, with an

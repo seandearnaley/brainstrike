@@ -60,6 +60,7 @@ describe('deriveUnseenThreadIds', () => {
       activeThreadId: null,
       lastViewedAtByThreadId: { 'thread-a': 100 },
       threads: [thread('thread-a', run('completed', AT_200))],
+      unseenBaselineAt: 0,
     });
 
     expect([...result.unseen]).toEqual(['thread-a']);
@@ -71,6 +72,7 @@ describe('deriveUnseenThreadIds', () => {
       activeThreadId: null,
       lastViewedAtByThreadId: {},
       threads: [thread('thread-a', run('completed', new Date(1)))],
+      unseenBaselineAt: 0,
     });
 
     expect([...result.unseen]).toEqual(['thread-a']);
@@ -84,6 +86,7 @@ describe('deriveUnseenThreadIds', () => {
         thread('thread-a', run('completed', AT_200)),
         thread('thread-b', run('failed', AT_200)),
       ],
+      unseenBaselineAt: 0,
     });
 
     expect([...result.unseen]).toEqual([]);
@@ -97,6 +100,7 @@ describe('deriveUnseenThreadIds', () => {
         thread('thread-a', run('completed', AT_200)),
         thread('thread-b', run('failed', AT_200)),
       ],
+      unseenBaselineAt: 0,
     });
 
     expect([...result.unseen]).toEqual(['thread-b']);
@@ -107,6 +111,7 @@ describe('deriveUnseenThreadIds', () => {
       activeThreadId: null,
       lastViewedAtByThreadId: {},
       threads: [thread('thread-a', run('running', null)), thread('thread-b')],
+      unseenBaselineAt: 0,
     });
 
     expect([...result.unseen]).toEqual([]);
@@ -120,6 +125,7 @@ describe('deriveUnseenThreadIds', () => {
       activeThreadId: null,
       lastViewedAtByThreadId: {},
       threads: [thread('thread-a', run('cancelled', null))],
+      unseenBaselineAt: 0,
     });
 
     expect([...result.unseen]).toEqual([]);
@@ -136,6 +142,7 @@ describe('deriveUnseenThreadIds', () => {
         // Failed, but already seen — must not leak into `failedUnseen`.
         thread('thread-d', run('failed', AT_100)),
       ],
+      unseenBaselineAt: 0,
     });
 
     expect([...result.unseen].sort()).toEqual(['thread-a', 'thread-b', 'thread-c']);
@@ -145,11 +152,53 @@ describe('deriveUnseenThreadIds', () => {
     }
   });
 
+  // The fresh-install / post-upgrade storm. With no watermark at all, an
+  // unfloored derivation calls EVERY thread that ever finished a run unseen —
+  // a column of dots on precisely the signal that means "this finished while
+  // you were away".
+  it('excludes a completed run below the baseline when the thread has no watermark', () => {
+    const result = deriveUnseenThreadIds({
+      activeThreadId: null,
+      lastViewedAtByThreadId: {},
+      threads: [thread('thread-a', run('completed', AT_100))],
+      unseenBaselineAt: 150,
+    });
+
+    expect([...result.unseen]).toEqual([]);
+    expect([...result.failedUnseen]).toEqual([]);
+  });
+
+  it('marks a run that completed after the baseline unseen without any watermark', () => {
+    const result = deriveUnseenThreadIds({
+      activeThreadId: null,
+      lastViewedAtByThreadId: {},
+      threads: [thread('thread-a', run('failed', AT_200))],
+      unseenBaselineAt: 150,
+    });
+
+    expect([...result.unseen]).toEqual(['thread-a']);
+    expect([...result.failedUnseen]).toEqual(['thread-a']);
+  });
+
+  // The baseline is a FLOOR, not a replacement: a per-thread watermark that is
+  // later than it still decides, so opening a thread keeps clearing its dot.
+  it('lets a later per-thread watermark outrank the baseline', () => {
+    const result = deriveUnseenThreadIds({
+      activeThreadId: null,
+      lastViewedAtByThreadId: { 'thread-a': 250 },
+      threads: [thread('thread-a', run('completed', AT_200))],
+      unseenBaselineAt: 100,
+    });
+
+    expect([...result.unseen]).toEqual([]);
+  });
+
   it('counts a cancelled run as unseen', () => {
     const result = deriveUnseenThreadIds({
       activeThreadId: null,
       lastViewedAtByThreadId: {},
       threads: [thread('thread-a', run('cancelled', AT_200))],
+      unseenBaselineAt: 0,
     });
 
     expect([...result.unseen]).toEqual(['thread-a']);
@@ -162,7 +211,12 @@ describe('useUnseenThreadIds', () => {
     const threads = [thread('thread-a', run('failed', AT_200))];
     const lastViewedAtByThreadId = {};
     const { rerender, result } = renderHook(() =>
-      useUnseenThreadIds({ activeThreadId: null, lastViewedAtByThreadId, threads })
+      useUnseenThreadIds({
+        activeThreadId: null,
+        lastViewedAtByThreadId,
+        threads,
+        unseenBaselineAt: 0,
+      })
     );
     const first = result.current;
 
@@ -230,6 +284,7 @@ describe('useMarkActiveThreadViewed', () => {
         activeThreadId: null,
         lastViewedAtByThreadId: useAssistantThreadStore.getState().lastViewedAtByThreadId,
         threads: completed,
+        unseenBaselineAt: 0,
       }).unseen.size
     ).toBe(0);
   });

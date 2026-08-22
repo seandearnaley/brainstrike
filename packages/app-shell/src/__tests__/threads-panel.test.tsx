@@ -382,6 +382,10 @@ beforeEach(() => {
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},
     threadsByResourceId: {},
+    // The real store stamps this at creation, which is AFTER these fixtures'
+    // 2026-04 completion times — so the suite pins it to 0 and the tests that
+    // care about the floor set it themselves.
+    unseenBaselineAt: 0,
   });
   threadRows.splice(
     0,
@@ -2110,6 +2114,39 @@ describe('ThreadsPanel folders', () => {
     expect(within(folderSection).getByTestId('thread-folder-new-thread')).toBeVisible();
   });
 
+  // `collapsedGroupIds` is persisted, and folder sections mint their own keys.
+  // Group keys are pruned when their group is deleted; nothing pruned a folder
+  // key when the root behind it went away.
+  it('prunes collapse keys for roots that no longer have a folder section', async () => {
+    bindThreadToRoot('thread-a');
+    act(() => {
+      useAssistantThreadGroupsStore.setState({
+        collapsedGroupIds: {
+          'folder-unassigned': true,
+          'folder:root-1': true,
+          'folder:root-deleted': true,
+          'group-research': true,
+        },
+      });
+    });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    await waitFor(() => {
+      expect(
+        useAssistantThreadGroupsStore.getState().collapsedGroupIds['folder:root-deleted']
+      ).toBeUndefined();
+    });
+    const collapsed = useAssistantThreadGroupsStore.getState().collapsedGroupIds;
+    expect(collapsed['folder:root-1']).toBe(true);
+    expect(collapsed['folder-unassigned']).toBe(true);
+    expect(collapsed['group-research']).toBe(true);
+  });
+
   it('renders a groupBy already rehydrated as folder instead of throwing on first paint', async () => {
     bindThreadToRoot('thread-a');
     // Persistence has accepted 'folder' since BST-1403, so the render path must
@@ -2157,7 +2194,12 @@ describe('ThreadsPanel folders', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Running' }));
+    // The three boxes are ONE labelled group, not three loose checkboxes that
+    // happen to sit under a heading: a screen reader announces "Show only" when
+    // focus enters, which is the only thing that says these narrow the list.
+    const showOnly = await screen.findByRole('group', { name: 'Show only' });
+    expect(within(showOnly).getAllByRole('checkbox')).toHaveLength(3);
+    fireEvent.click(within(showOnly).getByRole('checkbox', { name: 'Running' }));
 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
@@ -2199,6 +2241,11 @@ describe('ThreadsPanel folders', () => {
   });
 
   it('surfaces an approval projection failure instead of showing every thread unblocked', async () => {
+    // Rows AND an error: without the rows the glyph could never have rendered
+    // and the absence assertion below would pass for the wrong reason. With
+    // them, it says what it means — a FAILED projection reports no thread ids,
+    // so the panel names the failure instead of glyphing one row.
+    dbMocks.awaitingApprovalRows = [{ threadId: 'thread-b' }];
     dbMocks.awaitingApprovalError = new Error('approval live query failed');
     renderThreadsPanel();
 
@@ -2206,6 +2253,21 @@ describe('ThreadsPanel folders', () => {
       'Approval status unavailable: approval live query failed'
     );
     expect(screen.queryByTestId('thread-needs-you-glyph')).not.toBeInTheDocument();
+  });
+
+  // The fresh-install / post-upgrade storm: with no watermark for any thread,
+  // an unfloored derivation dots EVERY thread that ever finished a run.
+  it('paints no unseen dot for runs that completed before the store existed', async () => {
+    useAssistantThreadStore.setState({
+      unseenBaselineAt: new Date('2026-04-22T12:00:00Z').getTime(),
+    });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    expect(screen.queryAllByTestId('thread-unseen-glyph')).toHaveLength(0);
+    expect(screen.queryAllByTestId('thread-failed-glyph')).toHaveLength(0);
   });
 
   it('marks a completed thread unseen until it is opened', async () => {

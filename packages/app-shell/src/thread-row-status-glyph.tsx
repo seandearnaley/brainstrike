@@ -42,6 +42,12 @@ const DOT_PRESENTATION = {
     testId: 'thread-failed-glyph',
   },
   'needs-you': {
+    // Raw palette value on purpose, unlike its `bg-primary` / `bg-destructive`
+    // siblings: `packages/ui/src/globals.css` defines `--bs-warning` but never
+    // maps it to a `--warning` semantic var or a `--color-warning` @theme entry
+    // in either app, so there is no `bg-warning` utility to use and inventing
+    // the token here is a design-system change, not a glyph change. Wants a
+    // live contrast check in both themes.
     className: 'bg-amber-500',
     describe: (title: string) => `${title} needs your approval`,
     testId: 'thread-needs-you-glyph',

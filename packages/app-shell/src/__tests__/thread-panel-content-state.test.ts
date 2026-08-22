@@ -1,6 +1,12 @@
-import type { AssistantMemoryThread, ThreadListView } from '@brainstrike/assistant-data';
+import type {
+  AssistantMemoryThread,
+  ThreadFilters,
+  ThreadListView,
+} from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
 import {
+  filterThreadsByThreadFilters,
+  hasActiveThreadFilters,
   resolveThreadPanelContentState,
   type ThreadPanelLoadState,
 } from '../thread-panel-content-state';
@@ -181,5 +187,75 @@ describe('resolveThreadPanelContentState', () => {
         repositoryReady: false,
       })
     ).toMatchObject({ testId: 'threads-loading-card' });
+  });
+});
+
+describe('hasActiveThreadFilters', () => {
+  it('is false only when every Show only box is clear', () => {
+    expect(hasActiveThreadFilters({ needsYou: false, running: false, unseen: false })).toBe(false);
+    expect(hasActiveThreadFilters({ needsYou: true, running: false, unseen: false })).toBe(true);
+    expect(hasActiveThreadFilters({ needsYou: false, running: true, unseen: false })).toBe(true);
+    expect(hasActiveThreadFilters({ needsYou: false, running: false, unseen: true })).toBe(true);
+  });
+});
+
+describe('filterThreadsByThreadFilters', () => {
+  const THREADS = [thread('running'), thread('needs-you'), thread('unseen'), thread('idle')];
+  const IDS = {
+    needsYouThreadIds: new Set(['needs-you']),
+    runningThreadIds: new Set(['running']),
+    unseenThreadIds: new Set(['unseen']),
+  };
+
+  function filterIds(filters: ThreadFilters): readonly string[] {
+    return filterThreadsByThreadFilters({ filters, threads: THREADS, ...IDS }).map(
+      (item) => item.id
+    );
+  }
+
+  // Pass-through by IDENTITY, not by value: the panel memoizes downstream work
+  // on this array, so an unfiltered list must not become a new array on every
+  // render.
+  it('returns the same array when no filter is active', () => {
+    expect(
+      filterThreadsByThreadFilters({
+        filters: { needsYou: false, running: false, unseen: false },
+        threads: THREADS,
+        ...IDS,
+      })
+    ).toBe(THREADS);
+  });
+
+  it('narrows to the threads one active filter names', () => {
+    expect(filterIds({ needsYou: false, running: true, unseen: false })).toEqual(['running']);
+    expect(filterIds({ needsYou: true, running: false, unseen: false })).toEqual(['needs-you']);
+    expect(filterIds({ needsYou: false, running: false, unseen: true })).toEqual(['unseen']);
+  });
+
+  // OR, not AND: two ticked boxes ask for "anything I might want to look at".
+  // An AND would answer with almost nothing — a thread is rarely running AND
+  // unseen at the same time.
+  it('unions two active filters instead of intersecting them', () => {
+    expect(filterIds({ needsYou: false, running: true, unseen: true })).toEqual([
+      'running',
+      'unseen',
+    ]);
+    expect(filterIds({ needsYou: true, running: true, unseen: true })).toEqual([
+      'running',
+      'needs-you',
+      'unseen',
+    ]);
+  });
+
+  it('can narrow to nothing rather than falling back to the whole list', () => {
+    expect(
+      filterThreadsByThreadFilters({
+        filters: { needsYou: true, running: false, unseen: false },
+        needsYouThreadIds: new Set<string>(),
+        runningThreadIds: new Set<string>(),
+        threads: THREADS,
+        unseenThreadIds: new Set<string>(),
+      })
+    ).toEqual([]);
   });
 });
