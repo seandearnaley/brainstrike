@@ -1875,10 +1875,35 @@ Where state lives (do not relitigate):
   `setGroupRanks` likewise) and silently switches Sort by → Custom so the drag
   is honored, never ignored. In Custom sort, unranked (new) threads render first
   by recency.
-- View prefs (`groupBy`, independent `flatSortBy` / `groupedSortBy`, collapsed)
-  persist via zustand `persist` (`brainstrike-assistant-thread-groups-v1`, state
-  version 2); the store registers a session resetter in
-  `register-factory-reset-session-stores.ts`.
+- View prefs (`groupBy`, independent `flatSortBy` / `groupedSortBy` /
+  `folderSortBy`, collapsed) persist via zustand `persist`
+  (`brainstrike-assistant-thread-groups-v1`, state version 3); the store
+  registers a session resetter in `register-factory-reset-session-stores.ts`.
+  `threadFilters` (needs-you / running / unseen) lives in the SAME store but is
+  session-only: it is deliberately excluded from `partialize` and cleared by
+  `reset()`. A malformed persisted blob still throws
+  (`requirePersistedGroupBy` / `requirePersistedSort` /
+  `requirePersistedFolderSort`) rather than being coerced.
+- `groupBy: 'folder'` (BST-1403) groups threads by the folder they work in: the
+  thread's primary root, `metadata.operatingRootId` (a durable `roots.id`;
+  `operatingRootDisplayName`/`operatingRootPath` are display-only and never an
+  identity). This is NOT a custom group — `buildThreadListSections` returns a
+  `{ kind: 'folders' }` view whose sections carry a `ThreadListSectionHeader`
+  discriminated union (`group` | `folder` | `unassigned`) and a `section.id`
+  (`group.id`, `folder:${rootId}`, `folder:unassigned`). Folder display rows are
+  supplied BY THE CALLER as `folderRowsByRootId` (one `roots` query for the
+  whole panel — `assistant-data` stays DB-free) and folder mode without them
+  throws. A thread whose root id is missing, blank, or has no display row lands
+  in the trailing "No folder" section, which is omitted when empty; the pure
+  builder never logs, the calling hook does.
+- The per-thread viewed watermark `lastViewedAtByThreadId` (epoch ms) lives in
+  `assistant-thread-store.ts` (`brainstrike-assistant-threads-v1`, state
+  version 4, partialized; `migrate` fills ONLY that key for older blobs and
+  passes the rest through — the threads blob has never been validated on load
+  and must not start being silently repaired). `markThreadViewed` is idempotent
+  and monotonic (never lowers an existing watermark); thread deletion prunes it
+  and `resetAssistantThreadStore` clears it. Selection/tab actions do NOT mark
+  implicitly — the panel decides when a thread counts as seen.
 - The Threads panel uses shared `TreeTable` as its only scroll owner. Folder
   rows are real expandable treegrid parents with Left/Right keyboard behavior.
   Disclosed section rows are virtualized and capped at 50 initially, with an

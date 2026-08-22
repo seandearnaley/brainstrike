@@ -43,10 +43,14 @@ function sectionThreadIds(view: ThreadListView, groupId: string | null): readonl
   if (view.kind === 'flat') {
     return view.threads.map((thread) => thread.id);
   }
+  if (view.kind === 'folders') {
+    // Folder sections carry no manual order, so they are never a drag scope.
+    throw new Error('resolveThreadsPanelDrop: folder grouping has no drag order.');
+  }
   if (groupId === null) {
     return view.ungrouped.map((thread) => thread.id);
   }
-  const section = view.sections.find((candidate) => candidate.group.id === groupId);
+  const section = view.sections.find((candidate) => candidate.header.group.id === groupId);
   return section ? section.threads.map((thread) => thread.id) : [];
 }
 
@@ -112,9 +116,17 @@ function resolveGroupReorder({
   if (view.kind !== 'grouped' || !target.edge || source.groupId === target.groupId) {
     return NONE;
   }
-  const currentIds = view.sections
-    .map((section) => section.group.id)
-    .filter((groupId) => groupId !== source.groupId);
+  // One pass collects both the rendered order and the order with the dragged
+  // group lifted out; the two are compared at the end to detect a no-op drop.
+  const previousIds: string[] = [];
+  const currentIds: string[] = [];
+  for (const section of view.sections) {
+    const groupId = section.header.group.id;
+    previousIds.push(groupId);
+    if (groupId !== source.groupId) {
+      currentIds.push(groupId);
+    }
+  }
   const targetIndex = currentIds.indexOf(target.groupId);
   if (targetIndex === -1) {
     return NONE;
@@ -125,7 +137,6 @@ function resolveGroupReorder({
     source.groupId,
     ...currentIds.slice(insertIndex),
   ];
-  const previousIds = view.sections.map((section) => section.group.id);
   if (orderedGroupIds.join('\0') === previousIds.join('\0')) {
     return NONE;
   }

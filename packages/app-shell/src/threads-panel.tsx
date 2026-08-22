@@ -17,6 +17,7 @@ import {
   createPgliteAssistantThreadRepository,
   getGroupMemberIds,
   type ThreadListView,
+  type ThreadOrderPresentation,
   type ThreadsPanelGroupBy,
   type ThreadsPanelSortBy,
   useAssistantThreadGroupsStore,
@@ -2084,8 +2085,8 @@ function ThreadPanelTree({
       new Map(
         view.kind === 'grouped'
           ? view.sections.flatMap((section) =>
-              section.group.color
-                ? ([[section.group.id, section.group.color]] as const)
+              section.header.group.color
+                ? ([[section.header.group.id, section.header.group.color]] as const)
                 : ([] as const)
             )
           : []
@@ -2248,6 +2249,37 @@ function ThreadPanelTree({
       ) : null}
     </div>
   );
+}
+
+// `folder` mode has no manual sort order to persist (buildThreadListSections
+// sorts folder sections itself) and no rendering yet — Task 3/4 wires the
+// picker. Persistence already accepts it, so it fails loudly here rather than
+// being coerced into another mode, and the narrowed return type is what lets
+// the section builder's non-folder input arm accept the value below.
+function resolveRenderableGroupBy(
+  groupBy: ThreadsPanelGroupBy
+): Exclude<ThreadsPanelGroupBy, 'folder'> {
+  if (groupBy === 'folder') {
+    throw new Error('Folder grouping is not rendered yet (BST-1404/BST-1405 wire the panel).');
+  }
+  return groupBy;
+}
+
+// Exhaustive over the renderable modes so a future group-by value fails loudly
+// here instead of silently landing on `'grouped'`.
+function resolveSortPresentation(
+  groupBy: Exclude<ThreadsPanelGroupBy, 'folder'>
+): ThreadOrderPresentation {
+  switch (groupBy) {
+    case 'none':
+      return 'flat';
+    case 'custom-groups':
+      return 'grouped';
+    default: {
+      const exhaustive: never = groupBy;
+      throw new Error(`Unknown thread group-by presentation: ${JSON.stringify(exhaustive)}.`);
+    }
+  }
 }
 
 function ThreadsPanelContent({
@@ -2564,11 +2596,13 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     () => buildThreadMembership({ groups, placements, threads }),
     [groups, placements, threads]
   );
-  const sortPresentation = groupBy === 'none' ? 'flat' : 'grouped';
+  const renderableGroupBy = resolveRenderableGroupBy(groupBy);
+  const sortPresentation = resolveSortPresentation(renderableGroupBy);
   const sortBy = sortPresentation === 'flat' ? flatSortBy : groupedSortBy;
   const view = useMemo(
-    () => buildThreadListSections({ groupBy, groups, placements, sortBy, threads }),
-    [groupBy, groups, placements, sortBy, threads]
+    () =>
+      buildThreadListSections({ groupBy: renderableGroupBy, groups, placements, sortBy, threads }),
+    [groups, placements, renderableGroupBy, sortBy, threads]
   );
   const moveTargets = useMemo(
     () => groups.map((group) => ({ id: group.id, name: group.name })),

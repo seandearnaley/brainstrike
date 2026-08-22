@@ -45,7 +45,9 @@ interface AssistantThreadState {
     repository: AssistantThreadRepository,
     resourceId: string
   ) => Promise<void>;
+  lastViewedAtByThreadId: Record<string, number>;
   loadStateByResourceId: Record<string, AssistantThreadLoadState>;
+  markThreadViewed: (threadId: string, viewedAt?: number) => void;
   openThreadIdsByResourceId: Record<string, string[]>;
   openThreadTab: (resourceId: string, threadId: string) => void;
   refreshResourceThreads: (
@@ -85,6 +87,48 @@ export interface AssistantThreadDraftRuntime {
   readonly providerOptions?: AssistantThreadProviderOptions;
   readonly providerSettings?: Record<string, AssistantProviderSettings>;
   readonly runtimeKind?: 'browser' | 'gateway' | 'hosted' | 'local';
+}
+
+type PersistedAssistantThreadState = Pick<
+  AssistantThreadState,
+  | 'activeThreadIdByResourceId'
+  | 'draftRuntimeByThreadId'
+  | 'lastViewedAtByThreadId'
+  | 'openThreadIdsByResourceId'
+  | 'selectedThreadByResourceId'
+>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/**
+ * Version 4 introduced the per-thread viewed watermark (`lastViewedAtByThreadId`).
+ * This migrate only knows how to bridge a version-3 blob into version 4 by
+ * filling that one key — every other field is passed through UNVALIDATED
+ * (deliberately: the persisted threads state has never been validated on
+ * load, and starting to repair it here would silently rewrite a user's open
+ * tabs). Any other version — including one older than 3 (an unrecorded shape
+ * this migrate was never written against) or one newer than 4 (a downgrade,
+ * where hydrating would silently accept fields this build doesn't know about)
+ * — is unsupported and must throw rather than be hydrated verbatim.
+ */
+export function migrateAssistantThreadPersistedState(
+  persistedState: unknown,
+  version: number
+): PersistedAssistantThreadState {
+  if (version !== 3) {
+    throw new Error(`Unsupported persisted assistant thread state version: ${version}.`);
+  }
+  if (!isRecord(persistedState)) {
+    throw new Error('Invalid persisted assistant thread state.');
+  }
+  // Deliberately unvalidated below this point: only the top-level shape (a
+  // record) is checked. The inner fields (activeThreadIdByResourceId, etc.)
+  // are passed through as-is, matching the load path, which has never
+  // validated them either.
+  const migrated: Record<string, unknown> = { ...persistedState, lastViewedAtByThreadId: {} };
+  return migrated as PersistedAssistantThreadState;
 }
 
 const resourceThreadLoadPromises = new Map<string, Promise<void>>();
@@ -539,6 +583,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
                 }
               : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
             draftRuntimeByThreadId: omitRecordKey(state.draftRuntimeByThreadId, threadId),
+            lastViewedAtByThreadId: omitRecordKey(state.lastViewedAtByThreadId, threadId),
             loadStateByResourceId: {
               ...state.loadStateByResourceId,
               [resourceId]: { status: 'ready' },
@@ -596,6 +641,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               ? { ...state.activeThreadIdByResourceId, [resourceId]: nextActiveThreadId }
               : omitRecordKey(state.activeThreadIdByResourceId, resourceId),
             draftRuntimeByThreadId: omitRecordKeys(state.draftRuntimeByThreadId, deletedThreadIds),
+            lastViewedAtByThreadId: omitRecordKeys(state.lastViewedAtByThreadId, deletedThreadIds),
             loadStateByResourceId: {
               ...state.loadStateByResourceId,
               [resourceId]: { status: 'ready' },
@@ -702,7 +748,26 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         resourceThreadLoadPromises.set(resourceId, loadPromise);
         return loadPromise;
       },
+      lastViewedAtByThreadId: {},
       loadStateByResourceId: {},
+      markThreadViewed: (threadId: string, viewedAt?: number): void => {
+        if (!threadId.trim()) {
+          throw new Error('Thread id is required.');
+        }
+        const nextViewedAt = viewedAt ?? Date.now();
+        // Idempotent and monotonic: a later read of an older run must never
+        // resurrect an unseen badge the user already cleared.
+        const currentViewedAt = get().lastViewedAtByThreadId[threadId];
+        if (currentViewedAt !== undefined && currentViewedAt >= nextViewedAt) {
+          return;
+        }
+        set((state) => ({
+          lastViewedAtByThreadId: {
+            ...state.lastViewedAtByThreadId,
+            [threadId]: nextViewedAt,
+          },
+        }));
+      },
       openThreadIdsByResourceId: {},
       openThreadTab: (resourceId: string, threadId: string) => {
         set((state) => ({
@@ -872,14 +937,16 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       },
     }),
     {
+      migrate: migrateAssistantThreadPersistedState,
       name: 'brainstrike-assistant-threads-v1',
-      partialize: (state) => ({
+      partialize: (state): PersistedAssistantThreadState => ({
         activeThreadIdByResourceId: state.activeThreadIdByResourceId,
         draftRuntimeByThreadId: state.draftRuntimeByThreadId,
+        lastViewedAtByThreadId: state.lastViewedAtByThreadId,
         openThreadIdsByResourceId: state.openThreadIdsByResourceId,
         selectedThreadByResourceId: state.selectedThreadByResourceId,
       }),
-      version: 3,
+      version: 4,
     }
   )
 );
@@ -903,6 +970,7 @@ export function resetAssistantThreadStore(): void {
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},
+    lastViewedAtByThreadId: {},
     loadStateByResourceId: {},
     openThreadIdsByResourceId: {},
     selectedThreadByResourceId: {},

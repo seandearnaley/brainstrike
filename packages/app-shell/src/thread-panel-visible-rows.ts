@@ -191,11 +191,17 @@ export function buildThreadPanelVisibleRows({
     });
     return { rows, visibleThreadIds };
   }
+  if (view.kind === 'folders') {
+    // Folder sections get their own rows when the panel is wired for folder
+    // grouping (BST-1403 thread-list UI); dropping them silently here would
+    // render an empty tree instead of the user's threads.
+    throw new Error('buildThreadPanelVisibleRows: folder grouping is not rendered yet.');
+  }
 
   for (const section of view.sections) {
     appendGroupedSection({
-      collapsed: Boolean(collapsedGroupIds[section.group.id]),
-      group: section.group,
+      collapsed: Boolean(collapsedGroupIds[section.header.group.id]),
+      group: section.header.group,
       limitsBySectionKey,
       rows,
       threads: section.threads,
