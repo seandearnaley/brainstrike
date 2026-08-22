@@ -656,12 +656,18 @@ export function useFileSystemInstance() {
       setFocusedRoot: coreApi.setFocusedRoot,
       setRootDirectoryHandle: setRootHandle,
     }),
-    // Only depend on data values, not functions - functions are stable closures
-    // that reference the latest values through the closure scope
+    // Data values plus the two capability-gated members. Locally-defined
+    // functions are stable closures that reach the latest values through
+    // closure scope, so they stay out; `addRootDirectoryByPath` and
+    // `listRecentRoots` are `useMemo`-stable per adapter but flip between
+    // `undefined` and defined as the adapter's capability appears, and that
+    // transition must re-publish the context value.
     [
+      coreApi.addRootDirectoryByPath,
       coreApi.rootDirectoryHandle,
       coreApi.rootDirectoryHandles,
       coreApi.isAccessLoading,
+      coreApi.listRecentRoots,
       coreApi.rootIdByPath,
     ]
   );

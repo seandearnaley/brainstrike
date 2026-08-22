@@ -5,8 +5,15 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { RecentRootEntry } from '@brainstrike/types';
 import { pathsEqual } from './workspace-root-read';
 
-export const RECENT_ROOTS_LIMIT = 20;
+/**
+ * Storage hygiene, not authorization intent: the cap bounds how much of this
+ * key we keep, and is deliberately far above the number of roots a user
+ * realistically keeps connected so mounting many folders cannot evict the
+ * disconnected grants the picker-less path depends on.
+ */
+export const RECENT_ROOTS_LIMIT = 50;
 export const RECENT_ROOTS_STORAGE_KEY = 'recentRootsList' as const;
+export const CORRUPT_RECENT_ROOTS_STORAGE_KEY = 'recentRootsList.corrupt' as const;
 
 const logger = createLogger('WorkspaceRecentRoots');
 
@@ -16,8 +23,15 @@ const logger = createLogger('WorkspaceRecentRoots');
  *
  * It is deliberately separate from `rootsList` (the currently-connected roots):
  * a disconnect removes a root from `rootsList` but must NOT revoke the grant,
- * because the grant is what authorizes the picker-less
- * `WorkspaceRootRegistry.addRootByPath`.
+ * because the grant is what lets `WorkspaceRootRegistry.addRootByPath` re-mount
+ * a folder without a picker.
+ *
+ * Trust class: the SAME as `rootsList` + `fs:restoreRoots`. The renderer can
+ * already write main storage through the `storage:*` bridge, so this ledger
+ * records prior grants and keeps the picker-less path pointed at previously
+ * granted folders — it is NOT a hardening boundary against a compromised
+ * renderer. Narrowing the `storage:*` bridge with a key allowlist would raise
+ * that floor for `rootsList` and this key alike, and is tracked separately.
  */
 export interface StoredRecentRoot {
   readonly lastGrantedAt: number;
@@ -25,10 +39,32 @@ export interface StoredRecentRoot {
 }
 
 /**
- * Pure validation, mirroring `parseStoredRoots`: a corrupt ledger THROWS rather
- * than silently resetting to empty. A silently-empty ledger would report that
- * no folder was ever granted and make `addRootByPath` reject folders the user
- * really did grant — a wrong answer dressed up as a legitimate one.
+ * Canonical ledger key for a folder path: `path.normalize` plus a stripped
+ * trailing separator, so `/ws/alpha/` and `/ws/alpha` occupy one slot instead
+ * of two. The filesystem root itself (`/`, `C:\`) legitimately ends in a
+ * separator and is left alone.
+ */
+function normalizeRecentRootPath(candidate: string): string {
+  const normalized = path.normalize(candidate);
+  if (normalized === path.parse(normalized).root) {
+    return normalized;
+  }
+  return normalized.endsWith(path.sep) ? normalized.slice(0, -1) : normalized;
+}
+
+/**
+ * Ledger-key equality. Entries written before trailing-separator stripping
+ * existed are normalized on read, so an older ledger keeps matching.
+ */
+function recentPathsEqual(left: string, right: string): boolean {
+  return pathsEqual(normalizeRecentRootPath(left), normalizeRecentRootPath(right));
+}
+
+/**
+ * Pure validation, mirroring `parseStoredRoots`: it throws on a corrupt ledger
+ * rather than coercing it to empty, and never performs I/O. Callers go through
+ * `readRecentRootsOrQuarantine`, which tells a corrupt value apart from an I/O
+ * failure by reading the raw bytes exactly once itself.
  */
 export function parseStoredRecentRoots(raw: string | null): StoredRecentRoot[] {
   if (raw === null) {
@@ -62,10 +98,38 @@ export function parseStoredRecentRoots(raw: string | null): StoredRecentRoot[] {
   });
 }
 
-export async function readRecentRoots(
+/**
+ * The ONLY ledger reader, mirroring `readStoredRootsOrQuarantine`: a corrupt
+ * value must not permanently brick Recents and the picker-less path, but it is
+ * never coerced away in silence — the raw bytes are preserved under
+ * `recentRootsList.corrupt` for diagnosis, the failure is logged at ERROR
+ * level (loudly, once), the key is reset, and the ledger self-heals from the
+ * next grant onward. Until it does, `addRootByPath` rejects with the normal
+ * "never granted" remedy, which points the user straight at Add Folder.
+ *
+ * The raw value is read exactly once. An I/O failure from that single read
+ * propagates uncaught (fail loud) rather than being mistaken for corruption;
+ * only a validation failure from `parseStoredRecentRoots` — thrown on that
+ * same already-read `raw` — triggers quarantine, so the bytes quarantined are
+ * provably the exact bytes that failed to parse.
+ */
+export async function readRecentRootsOrQuarantine(
   storage: ElectronStorageAdapter
 ): Promise<StoredRecentRoot[]> {
-  return parseStoredRecentRoots(await storage.getItem(RECENT_ROOTS_STORAGE_KEY));
+  const raw = await storage.getItem(RECENT_ROOTS_STORAGE_KEY);
+  try {
+    return parseStoredRecentRoots(raw);
+  } catch (error) {
+    if (raw !== null) {
+      await storage.setItem(CORRUPT_RECENT_ROOTS_STORAGE_KEY, raw);
+      await storage.removeItem(RECENT_ROOTS_STORAGE_KEY);
+    }
+    logger.error('Quarantined a corrupt recently-granted workspace folder ledger', {
+      error,
+      quarantineKey: CORRUPT_RECENT_ROOTS_STORAGE_KEY,
+    });
+    return [];
+  }
 }
 
 /**
@@ -78,25 +142,21 @@ export async function readRecentRoots(
  * `persistAddedRoot`), and `restoreRoots` must still complete. That write
  * failure is LOGGED, never swallowed silently, and it is self-announcing at
  * the point of use: the folder simply does not appear in Recents, and
- * `addRootByPath` rejects it with an actionable message. The READ that
- * precedes it stays fail-loud and OUTSIDE the try — `parseStoredRecentRoots`
- * throws on a corrupt ledger, and a failed read here must propagate rather
- * than be treated as a write failure and silently overwrite the evidence.
+ * `addRootByPath` rejects it with an actionable message.
+ *
+ * `lastGrantedAt` defaults to now; restore paths pass the stored `addedAt` so
+ * a relaunch does not rewrite grant history with launch timestamps.
  */
 export async function recordRecentRoot(
   storage: ElectronStorageAdapter,
-  presentationPath: string
+  presentationPath: string,
+  lastGrantedAt: number = Date.now()
 ): Promise<void> {
-  const normalized = path.normalize(presentationPath);
-  // Read + parse stay OUTSIDE the try: a corrupt ledger must throw (see the
-  // module doc comment above), never be swallowed as a write failure.
-  const existing = (await readRecentRoots(storage)).filter(
-    (entry) => !pathsEqual(entry.path, normalized)
+  const normalized = normalizeRecentRootPath(presentationPath);
+  const existing = (await readRecentRootsOrQuarantine(storage)).filter(
+    (entry) => !recentPathsEqual(entry.path, normalized)
   );
-  const next = [{ lastGrantedAt: Date.now(), path: normalized }, ...existing].slice(
-    0,
-    RECENT_ROOTS_LIMIT
-  );
+  const next = [{ lastGrantedAt, path: normalized }, ...existing].slice(0, RECENT_ROOTS_LIMIT);
   try {
     await storage.setItem(RECENT_ROOTS_STORAGE_KEY, JSON.stringify(next));
   } catch (error) {
@@ -111,16 +171,17 @@ export async function recordRecentRoot(
  */
 export async function recordRecentRootIfNew(
   storage: ElectronStorageAdapter,
-  presentationPath: string
+  presentationPath: string,
+  lastGrantedAt: number
 ): Promise<void> {
-  const normalized = path.normalize(presentationPath);
-  const alreadyRecorded = (await readRecentRoots(storage)).some((recent) =>
-    pathsEqual(recent.path, normalized)
+  const normalized = normalizeRecentRootPath(presentationPath);
+  const alreadyRecorded = (await readRecentRootsOrQuarantine(storage)).some((recent) =>
+    recentPathsEqual(recent.path, normalized)
   );
   if (alreadyRecorded) {
     return;
   }
-  await recordRecentRoot(storage, presentationPath);
+  await recordRecentRoot(storage, presentationPath, lastGrantedAt);
 }
 
 /**
@@ -131,7 +192,7 @@ export async function recordRecentRootIfNew(
 export async function listRecentRootEntries(
   storage: ElectronStorageAdapter
 ): Promise<readonly RecentRootEntry[]> {
-  return (await readRecentRoots(storage)).map((entry) => ({
+  return (await readRecentRootsOrQuarantine(storage)).map((entry) => ({
     displayName: path.basename(entry.path) || entry.path,
     lastGrantedAt: entry.lastGrantedAt,
     path: entry.path,
@@ -141,19 +202,20 @@ export async function listRecentRootEntries(
 /**
  * Turn a requested path into a mountable directory handle, or throw.
  *
- * The ledger is the ONLY authorization for the picker-less `addRootByPath`: an
- * unrecorded path is rejected outright rather than quietly granted, so a
- * renderer (or a compromised one) cannot turn an arbitrary string into
- * workspace access. It grants nothing new — every path it accepts was already
- * granted through the OS picker or a successful restore.
+ * The ledger is what gates the picker-less `addRootByPath`: an unrecorded path
+ * is rejected outright rather than quietly granted, so a stray or stale path
+ * string cannot become workspace access, and every path it accepts was already
+ * granted through the OS picker or a successful restore. It is a correctness
+ * gate at the same trust level as `rootsList`, not a hardening boundary — see
+ * the `StoredRecentRoot` doc comment.
  */
 export async function resolveGrantedRootHandle(
   storage: ElectronStorageAdapter,
   requestedPath: string
 ): Promise<DirectoryHandle> {
-  const normalized = path.normalize(requestedPath);
-  const granted = (await readRecentRoots(storage)).some((entry) =>
-    pathsEqual(entry.path, normalized)
+  const normalized = normalizeRecentRootPath(requestedPath);
+  const granted = (await readRecentRootsOrQuarantine(storage)).some((entry) =>
+    recentPathsEqual(entry.path, normalized)
   );
   if (!granted) {
     throw new AccessError(
