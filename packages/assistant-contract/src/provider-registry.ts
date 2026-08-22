@@ -120,9 +120,10 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   nativeToolSearch?: NativeToolSearchCapability;
   /**
-   * Approx. USD price per 1,000,000 tokens. ESTIMATE as of 2026-07-13 — list prices drift;
-   * treat as non-authoritative (override planned in settings). Omit for models with unknown
-   * or $0 (local/keyless) pricing — unknown pricing must render "cost unavailable", never $0.
+   * Approx. USD price per 1,000,000 tokens. Static display estimate only; provider-reported
+   * billed cost remains authoritative. Omit when pricing is unknown or when a local/keyless
+   * model has no billing surface. Record explicit zeroes only when a hosted provider currently
+   * publishes a free route, so known-free pricing stays distinct from "cost unavailable."
    */
   pricing?: {
     /**
@@ -752,6 +753,26 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // Curated current subset from OpenRouter's model catalog. Provider-reported
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
+      {
+        // Anonymous stealth-preview identity, route, modalities, context/output
+        // limits, reasoning controls, tool/structured-output support, and zero
+        // gateway pricing: OpenRouter Models and endpoint APIs, revalidated
+        // 2026-08-22 (BST-1399). OpenRouter does not identify the vendor.
+        contextWindow: 1_048_576,
+        id: 'stealth/ox-alpha',
+        label: 'Ox Alpha (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0, outputPerMTok: 0 },
+        reasoning: {
+          defaultEffort: 'max',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['max', 'high', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
       {
         // Capabilities and limits: official Qwen model card at commit
         // 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,

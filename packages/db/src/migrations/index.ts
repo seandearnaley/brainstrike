@@ -105,6 +105,7 @@ import { migration103OpenAiCodex } from './103-openai-codex.js';
 import { migration104GoogleGemini37Flash } from './104-google-gemini-3-7-flash.js';
 import { migration105EmbeddingJobInputHash } from './105-embedding-job-input-hash.js';
 import { migration106OpenRouterMuseSpark12 } from './106-openrouter-muse-spark-1-2.js';
+import { migration107OpenRouterOxAlpha } from './107-openrouter-ox-alpha.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -216,6 +217,7 @@ export const migrations: Migration[] = [
   migration104GoogleGemini37Flash,
   migration105EmbeddingJobInputHash,
   migration106OpenRouterMuseSpark12,
+  migration107OpenRouterOxAlpha,
 ];
 
 // Export base migrations (without chunks table) for test environments
