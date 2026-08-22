@@ -3,6 +3,7 @@ import type {
   FileHandle,
   FileSystemChange,
   IFileNode,
+  RecentRootEntry,
   RootDescriptor,
   WatcherHealthEvent,
   WatcherHealthTransition,
@@ -192,6 +193,11 @@ export interface ElectronFileSystemAPI {
    * RootId. requestDirectoryAccess() is the legacy single-root shim over this.
    */
   addRoot: () => Promise<RootDescriptor>;
+  /**
+   * Re-mount a PREVIOUSLY GRANTED folder (main's recent-roots ledger) without
+   * the OS picker. Rejects any path the ledger does not already carry.
+   */
+  addRootByPath: (path: string) => Promise<RootDescriptor>;
   exists: (path: string) => Promise<boolean>;
   /** Compact main-process watcher telemetry snapshot. */
   getWatcherTelemetry: () => Promise<{
@@ -207,6 +213,8 @@ export interface ElectronFileSystemAPI {
     degradedTransitions: number;
     setupLatencySamples: number;
   }>;
+  /** Newest-first recent folders from main's ledger (capped in main). */
+  listRecentRoots: () => Promise<readonly RecentRootEntry[]>;
   /**
    * Subscribe to fs:watch-event pushes (batched changes from main-process
    * watchers). Returns an unsubscribe function.

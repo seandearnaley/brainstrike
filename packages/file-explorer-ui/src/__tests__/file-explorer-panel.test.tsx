@@ -287,6 +287,8 @@ describe('FileExplorerPanel', () => {
     isFileSystemAccessSupportedMock = vi.fn(() => ({ reason: '', supported: true }));
     fileExplorerReturnValue = {
       addRootDirectory: vi.fn().mockResolvedValue(null),
+      // Web-shaped adapter: the desktop-only capabilities are absent, not stubbed.
+      addRootDirectoryByPath: undefined,
       applyFileFilters: applyFileFiltersMock,
       cancelChildLoading: vi.fn(),
       cancelExpandAll: vi.fn(),
@@ -313,6 +315,7 @@ describe('FileExplorerPanel', () => {
       isLoadingForSelectAll: false,
       isLoadingForSelection: false,
       isRestoringExpandedPaths: false,
+      listRecentRoots: undefined,
       loadChildren: vi.fn(),
       loadFileContent: vi.fn(),
       loadingFiles: new Set<string>(),

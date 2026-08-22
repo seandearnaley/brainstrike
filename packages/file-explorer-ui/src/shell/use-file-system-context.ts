@@ -628,9 +628,16 @@ export function useFileSystemInstance() {
     () => ({
       /** Add an additional root directory (multi-root, Phase 4+). */
       addRootDirectory: coreApi.addRootDirectory,
+      /**
+       * Desktop-only: re-mount a previously granted folder without a picker.
+       * `undefined` when the adapter lacks the capability (web).
+       */
+      addRootDirectoryByPath: coreApi.addRootDirectoryByPath,
       clearRootDirectory,
       isAccessLoading: coreApi.isAccessLoading,
       isFileSystemAccessSupported,
+      /** Desktop-only companion to addRootDirectoryByPath; see its note. */
+      listRecentRoots: coreApi.listRecentRoots,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
       /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
@@ -649,12 +656,18 @@ export function useFileSystemInstance() {
       setFocusedRoot: coreApi.setFocusedRoot,
       setRootDirectoryHandle: setRootHandle,
     }),
-    // Only depend on data values, not functions - functions are stable closures
-    // that reference the latest values through the closure scope
+    // Data values plus the two capability-gated members. Locally-defined
+    // functions are stable closures that reach the latest values through
+    // closure scope, so they stay out; `addRootDirectoryByPath` and
+    // `listRecentRoots` are `useMemo`-stable per adapter but flip between
+    // `undefined` and defined as the adapter's capability appears, and that
+    // transition must re-publish the context value.
     [
+      coreApi.addRootDirectoryByPath,
       coreApi.rootDirectoryHandle,
       coreApi.rootDirectoryHandles,
       coreApi.isAccessLoading,
+      coreApi.listRecentRoots,
       coreApi.rootIdByPath,
     ]
   );

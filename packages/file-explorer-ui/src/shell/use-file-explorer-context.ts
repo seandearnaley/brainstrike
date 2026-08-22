@@ -12,7 +12,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
-import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import type { FileExplorerState, IFileNode, RecentRootEntry } from '@brainstrike/types';
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { FileContentLoadIntent } from '../file-content-load-authority-context';
 import type { AddMultipleSelectedFilesChunked } from '../hooks/recursive-selection-utils';
@@ -58,6 +58,11 @@ type UseFileExplorerProps = Record<string, never>;
 interface UseFileExplorerReturn {
   /** Add an additional root directory (multi-root, Phase 4+). */
   addRootDirectory: (() => Promise<DirectoryHandle | null>) | undefined;
+  /**
+   * Desktop-only: re-mount a previously granted folder by path, no picker.
+   * `undefined` when the platform has no recent-roots ledger (web).
+   */
+  addRootDirectoryByPath: ((path: string) => Promise<DirectoryHandle | null>) | undefined;
   applyFileFilters: (
     includeFilters: string[],
     excludeFilters: string[],
@@ -110,6 +115,8 @@ interface UseFileExplorerReturn {
   isLoadingForSelection: boolean;
   /** Whether expanded directories are being restored from persisted state */
   isRestoringExpandedPaths: boolean;
+  /** Desktop-only companion to addRootDirectoryByPath; see its note. */
+  listRecentRoots: (() => Promise<readonly RecentRootEntry[]>) | undefined;
   /** Load children of a directory on expand (lazy loading) */
   loadChildren: (path: string) => Promise<void>;
   loadFileContent: (path: string, intent: FileContentLoadIntent) => Promise<void>;
@@ -245,6 +252,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     setRootDirectoryHandle,
     setAccessLoading: _hookSetAccessLoading, // Ignore the hook's local setter
     addRootDirectory,
+    addRootDirectoryByPath,
+    listRecentRoots,
     registerRestoredHandles,
     removeRootDirectory,
     setFocusedRoot,
@@ -551,6 +560,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   return {
     /** Add an additional root directory (multi-root, Phase 4+). */
     addRootDirectory,
+    /** Desktop-only: re-mount a previously granted folder by path, no picker. */
+    addRootDirectoryByPath,
     applyFileFilters: wrappedApplyFileFilters,
     cancelChildLoading,
     cancelExpandAll,
@@ -577,6 +588,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     isLoadingForSelectAll,
     isLoadingForSelection,
     isRestoringExpandedPaths,
+    /** Desktop-only companion to addRootDirectoryByPath; see its note. */
+    listRecentRoots,
     loadChildren,
     loadFileContent,
     loadingFiles: contentLoadingFiles,

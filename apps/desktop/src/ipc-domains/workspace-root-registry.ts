@@ -13,7 +13,7 @@ import {
 } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { RootDescriptor } from '@brainstrike/types';
+import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils';
 import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
@@ -23,6 +23,12 @@ import {
 } from '../assistant-server/workspace-roots';
 import { isFileNotFoundError } from '../file-read-errors';
 import { projectReadDenialDiagnostic, projectReadDenialError } from './read-denial-diagnostic';
+import {
+  listRecentRootEntries,
+  recordRecentRoot,
+  recordRecentRootIfNew,
+  resolveGrantedRootHandle,
+} from './workspace-recent-roots';
 import {
   assertNativeAbsoluteReadPath,
   isContained,
@@ -355,6 +361,9 @@ export class WorkspaceRootRegistry {
               logger.warn('Failed to update the last-folder presentation preference', { error });
             });
         }
+        // The grant happened whether or not rootsList persistence succeeded, so
+        // the ledger records it either way.
+        await recordRecentRoot(this.storage, entry.path);
         return descriptorFor(entry, 'granted', persisted);
       } finally {
         if (!probeAdopted) {
@@ -366,6 +375,15 @@ export class WorkspaceRootRegistry {
         }
       }
     });
+  }
+
+  /**
+   * Picker-less re-mount of a folder the user ALREADY granted; the recent-roots
+   * ledger is the only authorization (see resolveGrantedRootHandle). NOT
+   * wrapped in serializeMutation — it delegates to addRoot, which serializes.
+   */
+  async addRootByPath(requestedPath: string): Promise<RootDescriptor> {
+    return this.addRoot(await resolveGrantedRootHandle(this.storage, requestedPath));
   }
 
   dispose(): void {
@@ -380,6 +398,11 @@ export class WorkspaceRootRegistry {
       this.mounted.clear();
       this.sessionRootIds.clear();
     });
+  }
+
+  /** Newest-first ledger of previously granted folders. */
+  listRecentRoots(): Promise<readonly RecentRootEntry[]> {
+    return this.serializeMutation(() => listRecentRootEntries(this.storage));
   }
 
   readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
@@ -588,6 +611,8 @@ export class WorkspaceRootRegistry {
         retainedCanonicalPaths.add(pathKey(canonicalPath));
         retainedRootIds.add(entry.rootId);
         storedSurvivors.push(entry);
+        // eslint-disable-next-line react-doctor/async-await-in-loop -- ledger appends are read-modify-write on one storage key; the surrounding loop is already serial by design.
+        await recordRecentRootIfNew(this.storage, entry.path, entry.addedAt);
         descriptors.push(descriptorFor(entry, 'granted'));
       }
 

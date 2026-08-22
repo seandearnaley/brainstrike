@@ -7,6 +7,7 @@ export type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
+  RecentRootEntry,
   StreamingDirectoryReadOptions,
   WatcherBackendKind,
   WatcherFailure,
