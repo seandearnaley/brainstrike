@@ -1228,7 +1228,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedMemoryThreadId ? state.threadsByResourceId[memoryResourceId]?.find((t) => t.id === selectedMemoryThreadId) : undefined
   );
   const secondaryRootIds = useMemo(() => thread?.metadata?.secondaryRootIds ?? [], [thread?.metadata?.secondaryRootIds]);
-  const { operatingRoot, persistThreadRootBinding, threadRootBinding } = useAssistantThreadRootBinding({
+  const { operatingRoot, threadRootBinding } = useAssistantThreadRootBinding({
     assistantThreadRepository,
     ...(currentMainRoot ? { currentMainRoot } : {}),
     database,
@@ -1360,11 +1360,18 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       }
       const demoted = primaryRootId && primaryRootId !== rootId ? [primaryRootId] : [];
       const remaining = secondaryRootIds.filter((id) => id !== rootId);
-      persistThreadRootBinding({ displayName: next.displayName, path: next.path, rootId })
-        .then(() => writeSecondaries([...remaining, ...demoted]))
-        .catch((error: unknown) => logger.error('Make primary failed', { error, rootId }));
+      // ONE metadata write: binding + secondaries together, so the store never
+      // shows an intermediate state with the new primary still listed as a
+      // secondary. (persistThreadRootBinding is the request-lifecycle seam; the
+      // bar writes the same three operatingRoot* keys through the same store
+      // action, which keeps the sanitizer's all-or-nothing rule satisfied.)
+      writeSecondaries([...remaining, ...demoted], {
+        operatingRootDisplayName: next.displayName,
+        operatingRootId: rootId,
+        operatingRootPath: next.path,
+      }).catch((error: unknown) => logger.error('Make primary failed', { error, rootId }));
     },
-    [persistThreadRootBinding, primaryRootId, secondaryRootIds, secondaryRoots, writeSecondaries]
+    [primaryRootId, secondaryRootIds, secondaryRoots, writeSecondaries]
   );
 
   const onRemoveSecondary = useCallback(
@@ -1398,7 +1405,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   };
 }
 ```
-> Implementer notes: (1) the test's `onMakePrimary` expectation packs the binding + secondaries into ONE `updateThreadMetadata` call — if `persistThreadRootBinding` writes separately, pass the binding fields through `writeSecondaries`'s `extra` instead and assert accordingly (keep ONE write so the store never shows an intermediate state with the new primary still in the secondaries). (2) `resolvePlatformBridge` / `showItemInFolder`: confirm the method name in `packages/app-shell/src/platform-bridge.ts` and use the exact one. (3) The `roots` table read uses `$1::text[]` — PGlite accepts a JS array param for `= ANY`.
+> Implementer notes: (1) `onMakePrimary` is ONE `updateThreadMetadata` write (binding keys + `secondaryRootIds`) — matches the test exactly. (2) `resolvePlatformBridge` / `showItemInFolder`: confirm the method name in `packages/app-shell/src/platform-bridge.ts` and use the exact one. (3) The `roots` table read uses `$1::text[]` — PGlite accepts a JS array param for `= ANY`.
 
 Run → GREEN. Commit: `feat(BST-1397): useWorkspaceBar — primary/secondaries/recents/actions for the composer bar`.
 
