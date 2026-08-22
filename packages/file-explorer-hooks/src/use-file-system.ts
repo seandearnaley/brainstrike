@@ -500,7 +500,10 @@ export function useFileSystem({
     if (typeof adapterListRecentRoots !== 'function') {
       return;
     }
-    return () => adapterListRecentRoots.call(fileSystemAdapter);
+    return () =>
+      adapterListRecentRoots.call(fileSystemAdapter).catch((error: unknown) => {
+        throw mapFileSystemError(error);
+      });
   }, [adapterListRecentRoots, fileSystemAdapter]);
 
   /**

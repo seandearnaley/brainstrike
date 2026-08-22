@@ -26,6 +26,7 @@ import { projectReadDenialDiagnostic, projectReadDenialError } from './read-deni
 import {
   listRecentRootEntries,
   recordRecentRoot,
+  recordRecentRootIfNew,
   resolveGrantedRootHandle,
 } from './workspace-recent-roots';
 import {
@@ -611,7 +612,7 @@ export class WorkspaceRootRegistry {
         retainedRootIds.add(entry.rootId);
         storedSurvivors.push(entry);
         // eslint-disable-next-line react-doctor/async-await-in-loop -- ledger appends are read-modify-write on one storage key; the surrounding loop is already serial by design.
-        await recordRecentRoot(this.storage, entry.path);
+        await recordRecentRootIfNew(this.storage, entry.path);
         descriptors.push(descriptorFor(entry, 'granted'));
       }
 

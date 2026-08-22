@@ -1704,10 +1704,30 @@ describe('useFileSystem', () => {
         wrapper: wrapperFor(adapter),
       });
 
-      await expect(result.current?.addRootDirectoryByPath?.('/ws/never')).rejects.toThrow(
-        'Folder was never granted in this app; use Add Folder to grant it.'
-      );
+      await act(async () => {
+        await expect(result.current?.addRootDirectoryByPath?.('/ws/never')).rejects.toThrow(
+          'Folder was never granted in this app; use Add Folder to grant it.'
+        );
+      });
       expect(mockAddActiveRoot).not.toHaveBeenCalled();
+    });
+
+    it('routes a listRecentRoots rejection through mapFileSystemError', async () => {
+      const adapter: FileSystemAdapter = {
+        ...createAdapterStub(),
+        addRootByPath: vi.fn().mockResolvedValue(descriptor),
+        listRecentRoots: vi
+          .fn()
+          .mockRejectedValue(new AccessError('raw ledger read failure', '/ws/alpha', 'read')),
+      };
+
+      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
+        wrapper: wrapperFor(adapter),
+      });
+
+      await expect(result.current?.listRecentRoots?.()).rejects.toThrow(
+        'Unable to access the selected directory. Please check permissions and try again.'
+      );
     });
 
     it('omits both on an adapter without the capability (web)', () => {

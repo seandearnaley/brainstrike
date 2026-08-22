@@ -72,33 +72,55 @@ export async function readRecentRoots(
  * Append a grant to the ledger: newest first, deduped by path, capped at
  * RECENT_ROOTS_LIMIT.
  *
- * A ledger append must never fail the grant it is recording. The same broken
- * storage that fails here already degrades `rootsList` persistence to a
- * deliberate session-only mount (see `persistAddedRoot`), and `restoreRoots`
- * must still complete. The failure is LOGGED, never swallowed silently, and it
- * is self-announcing at the point of use: the folder simply does not appear in
- * Recents, and `addRootByPath` rejects it with an actionable message. READS
- * stay fail-loud — `parseStoredRecentRoots` throws on a corrupt ledger, and a
- * failed read here leaves the corrupt value in place rather than overwriting
- * the evidence.
+ * Only the WRITE (`storage.setItem`) may fail without failing the grant it is
+ * recording. The same broken storage that fails here already degrades
+ * `rootsList` persistence to a deliberate session-only mount (see
+ * `persistAddedRoot`), and `restoreRoots` must still complete. That write
+ * failure is LOGGED, never swallowed silently, and it is self-announcing at
+ * the point of use: the folder simply does not appear in Recents, and
+ * `addRootByPath` rejects it with an actionable message. The READ that
+ * precedes it stays fail-loud and OUTSIDE the try — `parseStoredRecentRoots`
+ * throws on a corrupt ledger, and a failed read here must propagate rather
+ * than be treated as a write failure and silently overwrite the evidence.
  */
 export async function recordRecentRoot(
   storage: ElectronStorageAdapter,
   presentationPath: string
 ): Promise<void> {
+  const normalized = path.normalize(presentationPath);
+  // Read + parse stay OUTSIDE the try: a corrupt ledger must throw (see the
+  // module doc comment above), never be swallowed as a write failure.
+  const existing = (await readRecentRoots(storage)).filter(
+    (entry) => !pathsEqual(entry.path, normalized)
+  );
+  const next = [{ lastGrantedAt: Date.now(), path: normalized }, ...existing].slice(
+    0,
+    RECENT_ROOTS_LIMIT
+  );
   try {
-    const normalized = path.normalize(presentationPath);
-    const existing = (await readRecentRoots(storage)).filter(
-      (entry) => !pathsEqual(entry.path, normalized)
-    );
-    const next = [{ lastGrantedAt: Date.now(), path: normalized }, ...existing].slice(
-      0,
-      RECENT_ROOTS_LIMIT
-    );
     await storage.setItem(RECENT_ROOTS_STORAGE_KEY, JSON.stringify(next));
   } catch (error) {
     logger.warn('Failed to record a recently granted workspace folder', { error });
   }
+}
+
+/**
+ * `recordRecentRoot`, but only when `presentationPath` isn't already in the
+ * ledger (see `restoreRoots`). Keeps a re-restore of an already-granted path
+ * from bumping its `lastGrantedAt` / applying slot pressure on every launch.
+ */
+export async function recordRecentRootIfNew(
+  storage: ElectronStorageAdapter,
+  presentationPath: string
+): Promise<void> {
+  const normalized = path.normalize(presentationPath);
+  const alreadyRecorded = (await readRecentRoots(storage)).some((recent) =>
+    pathsEqual(recent.path, normalized)
+  );
+  if (alreadyRecorded) {
+    return;
+  }
+  await recordRecentRoot(storage, presentationPath);
 }
 
 /**

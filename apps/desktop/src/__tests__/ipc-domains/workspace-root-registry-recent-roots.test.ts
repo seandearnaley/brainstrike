@@ -117,10 +117,61 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     expect((await registry.listRecentRoots()).map((entry) => entry.path)).toEqual(['/ws/gamma']);
   });
 
+  it('does not churn lastGrantedAt on a second restoreRoots for an already-recorded path', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const registry = createRegistry();
+      await storage.setItem(
+        'rootsList',
+        JSON.stringify([{ addedAt: 1, path: '/ws/gamma', rootId: 'r-gamma' }])
+      );
+
+      await registry.restoreRoots();
+      const firstGrantedAt = (await registry.listRecentRoots())[0]?.lastGrantedAt;
+      expect(firstGrantedAt).toBe(1_000_000);
+
+      // Advance the clock so a churned ledger entry would visibly differ.
+      vi.setSystemTime(2_000_000);
+      await registry.restoreRoots();
+      const secondGrantedAt = (await registry.listRecentRoots())[0]?.lastGrantedAt;
+
+      expect(secondGrantedAt).toBe(firstGrantedAt);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('surfaces a malformed ledger instead of silently starting over', async () => {
     const registry = createRegistry();
     await storage.setItem('recentRootsList', JSON.stringify([{ path: '/ws/alpha' }]));
 
     await expect(registry.listRecentRoots()).rejects.toThrow('recentRootsList entry is malformed.');
+  });
+
+  it('surfaces a corrupt ledger read from addRoot instead of degrading it to a session-only mount', async () => {
+    const registry = createRegistry();
+    await storage.setItem('recentRootsList', JSON.stringify([{ path: '/ws/alpha' }]));
+
+    await expect(registry.addRoot(rootHandle('/ws/beta'))).rejects.toThrow(
+      'recentRootsList entry is malformed.'
+    );
+  });
+
+  it('tolerates a recentRootsList write failure without failing addRoot (accepted deviation)', async () => {
+    const registry = createRegistry();
+    const setItemMock = vi.mocked(storage.setItem);
+    const originalSetItem = setItemMock.getMockImplementation();
+    setItemMock.mockImplementation(async (key: string, value: string) => {
+      if (key === 'recentRootsList') {
+        throw new Error('disk full');
+      }
+      await originalSetItem?.(key, value);
+    });
+
+    const descriptor = await registry.addRoot(rootHandle('/ws/gamma'));
+
+    expect(descriptor.permissionState).toBe('granted');
+    expect(await registry.listRecentRoots()).toEqual([]);
   });
 });
