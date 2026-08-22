@@ -3,7 +3,11 @@ import type {
   AssistantMemoryThread,
   AssistantThreadRepository,
 } from '../assistant-memory-repository';
-import { resetAssistantThreadStore, useAssistantThreadStore } from '../assistant-thread-store';
+import {
+  migrateAssistantThreadPersistedState,
+  resetAssistantThreadStore,
+  useAssistantThreadStore,
+} from '../assistant-thread-store';
 
 const workspaceId = '/tmp/workspace-a';
 
@@ -806,5 +810,97 @@ describe('useAssistantThreadStore tab sessions', () => {
       model: 'gpt-5.2',
       provider: 'openai',
     });
+  });
+});
+
+describe('per-thread viewed watermark', () => {
+  beforeEach(() => {
+    resetAssistantThreadStore();
+  });
+
+  it('records a watermark and never lowers an existing one', () => {
+    const store = useAssistantThreadStore.getState();
+
+    store.markThreadViewed('thread-a', 1000);
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId).toEqual({
+      'thread-a': 1000,
+    });
+
+    store.markThreadViewed('thread-a', 500);
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId['thread-a']).toBe(1000);
+
+    store.markThreadViewed('thread-a', 1000);
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId['thread-a']).toBe(1000);
+
+    store.markThreadViewed('thread-a', 2000);
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId['thread-a']).toBe(2000);
+  });
+
+  it('defaults the watermark to now and rejects a blank thread id', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(4242);
+    useAssistantThreadStore.getState().markThreadViewed('thread-a');
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId['thread-a']).toBe(4242);
+    vi.mocked(Date.now).mockRestore();
+
+    expect(() => useAssistantThreadStore.getState().markThreadViewed(' ')).toThrow(
+      'Thread id is required.'
+    );
+  });
+
+  it('prunes the watermark when threads are deleted', async () => {
+    const repository = createRepository();
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    const store = useAssistantThreadStore.getState();
+    store.markThreadViewed('thread-a', 1000);
+    store.markThreadViewed('thread-b', 2000);
+
+    await useAssistantThreadStore.getState().deleteThread(repository, workspaceId, 'thread-a');
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId).toEqual({
+      'thread-b': 2000,
+    });
+
+    await useAssistantThreadStore.getState().deleteThreads(repository, workspaceId, ['thread-b']);
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId).toEqual({});
+  });
+
+  it('persists the watermark and clears it on reset', async () => {
+    const repository = createRepository();
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    useAssistantThreadStore.getState().markThreadViewed('thread-a', 1000);
+
+    const partialize = useAssistantThreadStore.persist.getOptions().partialize;
+    if (!partialize) {
+      throw new Error('expected a partialize');
+    }
+    expect(partialize(useAssistantThreadStore.getState())).toMatchObject({
+      lastViewedAtByThreadId: { 'thread-a': 1000 },
+    });
+
+    resetAssistantThreadStore();
+    expect(useAssistantThreadStore.getState().lastViewedAtByThreadId).toEqual({});
+  });
+
+  it('fills only the new key when migrating a version-3 blob', () => {
+    const persisted = {
+      activeThreadIdByResourceId: { [workspaceId]: 'thread-a' },
+      draftRuntimeByThreadId: { 'thread-a': { model: 'gpt-5.2' } },
+      openThreadIdsByResourceId: { [workspaceId]: ['thread-a'] },
+      selectedThreadByResourceId: { [workspaceId]: 'thread-a' },
+    };
+
+    expect(migrateAssistantThreadPersistedState(persisted, 3)).toEqual({
+      ...persisted,
+      lastViewedAtByThreadId: {},
+    });
+  });
+
+  it('passes a malformed blob through untouched instead of repairing it', () => {
+    const malformed = { activeThreadIdByResourceId: 'not-a-record', junk: 1 };
+
+    expect(migrateAssistantThreadPersistedState(malformed, 3)).toEqual({
+      ...malformed,
+      lastViewedAtByThreadId: {},
+    });
+    expect(migrateAssistantThreadPersistedState(malformed, 4)).toEqual(malformed);
   });
 });

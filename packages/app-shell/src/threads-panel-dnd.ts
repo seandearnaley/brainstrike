@@ -43,10 +43,14 @@ function sectionThreadIds(view: ThreadListView, groupId: string | null): readonl
   if (view.kind === 'flat') {
     return view.threads.map((thread) => thread.id);
   }
+  if (view.kind === 'folders') {
+    // Folder sections carry no manual order, so they are never a drag scope.
+    throw new Error('resolveThreadsPanelDrop: folder grouping has no drag order.');
+  }
   if (groupId === null) {
     return view.ungrouped.map((thread) => thread.id);
   }
-  const section = view.sections.find((candidate) => candidate.group.id === groupId);
+  const section = view.sections.find((candidate) => candidate.header.group.id === groupId);
   return section ? section.threads.map((thread) => thread.id) : [];
 }
 
@@ -113,7 +117,7 @@ function resolveGroupReorder({
     return NONE;
   }
   const currentIds = view.sections
-    .map((section) => section.group.id)
+    .map((section) => section.header.group.id)
     .filter((groupId) => groupId !== source.groupId);
   const targetIndex = currentIds.indexOf(target.groupId);
   if (targetIndex === -1) {
@@ -125,7 +129,7 @@ function resolveGroupReorder({
     source.groupId,
     ...currentIds.slice(insertIndex),
   ];
-  const previousIds = view.sections.map((section) => section.group.id);
+  const previousIds = view.sections.map((section) => section.header.group.id);
   if (orderedGroupIds.join('\0') === previousIds.join('\0')) {
     return NONE;
   }

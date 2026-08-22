@@ -57,11 +57,13 @@ describe('buildThreadPanelVisibleRows', () => {
       kind: 'grouped',
       sections: [
         {
-          group: firstGroup,
+          header: { group: firstGroup, kind: 'group' },
+          id: firstGroup.id,
           threads: Array.from({ length: 55 }, (_, index) => thread(`a-${index}`)),
         },
         {
-          group: secondGroup,
+          header: { group: secondGroup, kind: 'group' },
+          id: secondGroup.id,
           threads: Array.from({ length: 3 }, (_, index) => thread(`b-${index}`)),
         },
       ],
@@ -95,7 +97,8 @@ describe('buildThreadPanelVisibleRows', () => {
       kind: 'grouped',
       sections: [
         {
-          group: collapsedGroup,
+          header: { group: collapsedGroup, kind: 'group' },
+          id: collapsedGroup.id,
           threads: Array.from({ length: 60 }, (_, index) => thread(`hidden-${index}`)),
         },
       ],
@@ -121,7 +124,7 @@ describe('buildThreadPanelVisibleRows', () => {
     const emptyGroup = group('group-empty');
     const view: ThreadListView = {
       kind: 'grouped',
-      sections: [{ group: emptyGroup, threads: [] }],
+      sections: [{ header: { group: emptyGroup, kind: 'group' }, id: emptyGroup.id, threads: [] }],
       ungrouped: [],
     };
 
@@ -142,7 +145,13 @@ describe('buildThreadPanelVisibleRows', () => {
   it('uses stable structural IDs and preserves thread IDs', () => {
     const view: ThreadListView = {
       kind: 'grouped',
-      sections: [{ group: group('group-a'), threads: [thread('thread-a')] }],
+      sections: [
+        {
+          header: { group: group('group-a'), kind: 'group' },
+          id: 'group-a',
+          threads: [thread('thread-a')],
+        },
+      ],
       ungrouped: [thread('thread-b')],
     };
 

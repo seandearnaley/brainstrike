@@ -2084,8 +2084,8 @@ function ThreadPanelTree({
       new Map(
         view.kind === 'grouped'
           ? view.sections.flatMap((section) =>
-              section.group.color
-                ? ([[section.group.id, section.group.color]] as const)
+              section.header.group.color
+                ? ([[section.header.group.id, section.header.group.color]] as const)
                 : ([] as const)
             )
           : []

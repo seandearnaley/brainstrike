@@ -26,8 +26,16 @@ const GROUP_B = makeGroup('group-b', 'a1');
 const GROUPED_VIEW: ThreadListView = {
   kind: 'grouped',
   sections: [
-    { group: GROUP_A, threads: [makeThread('thread-1'), makeThread('thread-2')] },
-    { group: GROUP_B, threads: [makeThread('thread-3')] },
+    {
+      header: { group: GROUP_A, kind: 'group' },
+      id: GROUP_A.id,
+      threads: [makeThread('thread-1'), makeThread('thread-2')],
+    },
+    {
+      header: { group: GROUP_B, kind: 'group' },
+      id: GROUP_B.id,
+      threads: [makeThread('thread-3')],
+    },
   ],
   ungrouped: [makeThread('thread-4'), makeThread('thread-5')],
 };

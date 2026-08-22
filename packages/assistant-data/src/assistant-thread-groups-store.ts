@@ -7,7 +7,11 @@ import type {
   AssistantThreadGroupsRepository,
   AssistantThreadPlacement,
 } from './assistant-thread-groups-repository';
-import type { ThreadsPanelGroupBy, ThreadsPanelSortBy } from './thread-list-sections';
+import type {
+  ThreadsPanelFolderSortBy,
+  ThreadsPanelGroupBy,
+  ThreadsPanelSortBy,
+} from './thread-list-sections';
 
 type ThreadGroupsLoadState =
   | { readonly status: 'idle' }
@@ -20,11 +24,24 @@ export interface ThreadOrderEntry {
   readonly threadId: string;
 }
 
+/**
+ * The two presentations that own a MANUAL order. Folder mode deliberately is
+ * not one of them: folder sections are name/recency only, so a drag there has
+ * nowhere to persist and `setFolderSortBy` is its dedicated view-pref action.
+ */
 export type ThreadOrderPresentation = 'flat' | 'grouped';
+
+/** Session-only Threads-panel filters; never persisted, cleared by `reset()`. */
+export interface ThreadFilters {
+  readonly needsYou: boolean;
+  readonly running: boolean;
+  readonly unseen: boolean;
+}
 
 interface PersistedAssistantThreadGroupsState {
   readonly collapsedGroupIds: Record<string, true>;
   readonly flatSortBy: ThreadsPanelSortBy;
+  readonly folderSortBy: ThreadsPanelFolderSortBy;
   readonly groupBy: ThreadsPanelGroupBy;
   readonly groupedSortBy: ThreadsPanelSortBy;
 }
@@ -36,6 +53,7 @@ interface AssistantThreadGroupsState {
     presentation: ThreadOrderPresentation,
     orderedEntries: readonly ThreadOrderEntry[]
   ) => Promise<void>;
+  clearThreadFilters: () => void;
   collapsedGroupIds: Record<string, true>;
   createGroup: (
     repository: AssistantThreadGroupsRepository,
@@ -49,6 +67,7 @@ interface AssistantThreadGroupsState {
   ) => Promise<void>;
   ensureGroups: (repository: AssistantThreadGroupsRepository, resourceId: string) => Promise<void>;
   flatSortBy: ThreadsPanelSortBy;
+  folderSortBy: ThreadsPanelFolderSortBy;
   groupBy: ThreadsPanelGroupBy;
   groupedSortBy: ThreadsPanelSortBy;
   groupsByResourceId: Record<string, AssistantThreadGroup[]>;
@@ -87,6 +106,7 @@ interface AssistantThreadGroupsState {
     orderedGroupIds: readonly string[]
   ) => Promise<void>;
   reset: () => void;
+  setFolderSortBy: (folderSortBy: ThreadsPanelFolderSortBy) => void;
   setGroupBy: (groupBy: ThreadsPanelGroupBy) => void;
   setGroupColor: (
     repository: AssistantThreadGroupsRepository,
@@ -101,6 +121,8 @@ interface AssistantThreadGroupsState {
     icon: AssistantThreadIconId | null
   ) => Promise<void>;
   setSortBy: (presentation: ThreadOrderPresentation, sortBy: ThreadsPanelSortBy) => void;
+  setThreadFilter: (filter: keyof ThreadFilters, enabled: boolean) => void;
+  threadFilters: ThreadFilters;
   toggleGroupCollapsed: (groupId: string) => void;
 }
 
@@ -134,11 +156,19 @@ function requireThreadIds(threadIds: readonly string[]): readonly string[] {
   return threadIds;
 }
 
+const DEFAULT_THREAD_FILTERS: ThreadFilters = {
+  needsYou: false,
+  running: false,
+  unseen: false,
+};
+
 const DEFAULT_VIEW_STATE = {
   collapsedGroupIds: {} as Record<string, true>,
   flatSortBy: 'recency' as ThreadsPanelSortBy,
+  folderSortBy: 'recency' as ThreadsPanelFolderSortBy,
   groupBy: 'custom-groups' as ThreadsPanelGroupBy,
   groupedSortBy: 'recency' as ThreadsPanelSortBy,
+  threadFilters: DEFAULT_THREAD_FILTERS,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -153,10 +183,17 @@ function requirePersistedSort(value: unknown): ThreadsPanelSortBy {
 }
 
 function requirePersistedGroupBy(value: unknown): ThreadsPanelGroupBy {
-  if (value === 'custom-groups' || value === 'none') {
+  if (value === 'custom-groups' || value === 'folder' || value === 'none') {
     return value;
   }
   throw new Error(`Invalid persisted thread grouping: ${String(value)}.`);
+}
+
+function requirePersistedFolderSort(value: unknown): ThreadsPanelFolderSortBy {
+  if (value === 'name' || value === 'recency') {
+    return value;
+  }
+  throw new Error(`Invalid persisted thread folder sort: ${String(value)}.`);
 }
 
 function requireCollapsedGroupIds(value: unknown): Record<string, true> {
@@ -185,6 +222,7 @@ export function migrateAssistantThreadGroupsPersistedState(
     return {
       collapsedGroupIds,
       flatSortBy: legacySortBy,
+      folderSortBy: DEFAULT_VIEW_STATE.folderSortBy,
       groupBy,
       groupedSortBy: legacySortBy,
     };
@@ -192,6 +230,11 @@ export function migrateAssistantThreadGroupsPersistedState(
   return {
     collapsedGroupIds,
     flatSortBy: requirePersistedSort(persistedState['flatSortBy']),
+    // Folder grouping arrived in version 3; older blobs adopt the default.
+    folderSortBy:
+      version < 3
+        ? DEFAULT_VIEW_STATE.folderSortBy
+        : requirePersistedFolderSort(persistedState['folderSortBy']),
     groupBy,
     groupedSortBy: requirePersistedSort(persistedState['groupedSortBy']),
   };
@@ -234,6 +277,9 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
             ...Object.fromEntries(placements.map((placement) => [placement.threadId, placement])),
           },
         }));
+      },
+      clearThreadFilters: () => {
+        set({ threadFilters: DEFAULT_THREAD_FILTERS });
       },
       createGroup: async (
         repository: AssistantThreadGroupsRepository,
@@ -535,6 +581,9 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
           placementsByThreadId: {},
         });
       },
+      setFolderSortBy: (folderSortBy: ThreadsPanelFolderSortBy) => {
+        set({ folderSortBy });
+      },
       setGroupBy: (groupBy: ThreadsPanelGroupBy) => {
         set({ groupBy });
       },
@@ -573,6 +622,9 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       setSortBy: (presentation: ThreadOrderPresentation, sortBy: ThreadsPanelSortBy) => {
         set(presentation === 'flat' ? { flatSortBy: sortBy } : { groupedSortBy: sortBy });
       },
+      setThreadFilter: (filter: keyof ThreadFilters, enabled: boolean) => {
+        set((state) => ({ threadFilters: { ...state.threadFilters, [filter]: enabled } }));
+      },
       toggleGroupCollapsed: (groupId: string) => {
         set((state) => {
           if (state.collapsedGroupIds[groupId]) {
@@ -592,10 +644,11 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       partialize: (state): PersistedAssistantThreadGroupsState => ({
         collapsedGroupIds: state.collapsedGroupIds,
         flatSortBy: state.flatSortBy,
+        folderSortBy: state.folderSortBy,
         groupBy: state.groupBy,
         groupedSortBy: state.groupedSortBy,
       }),
-      version: 2,
+      version: 3,
     }
   )
 );

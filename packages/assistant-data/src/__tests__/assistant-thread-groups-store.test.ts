@@ -542,6 +542,7 @@ describe('useAssistantThreadGroupsStore', () => {
     ).toEqual({
       collapsedGroupIds: { 'group-1': true },
       flatSortBy: 'name',
+      folderSortBy: 'recency',
       groupBy: 'none',
       groupedSortBy: 'name',
     });
@@ -553,12 +554,100 @@ describe('useAssistantThreadGroupsStore', () => {
     ).toThrow('Invalid persisted thread sort: oldest.');
   });
 
+  it('adds the default folder sort to a version-2 blob and keeps folder grouping', () => {
+    expect(
+      migrateAssistantThreadGroupsPersistedState(
+        {
+          collapsedGroupIds: {},
+          flatSortBy: 'recency',
+          groupBy: 'folder',
+          groupedSortBy: 'name',
+        },
+        2
+      )
+    ).toEqual({
+      collapsedGroupIds: {},
+      flatSortBy: 'recency',
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      groupedSortBy: 'name',
+    });
+  });
+
+  it('rejects a malformed persisted folder sort instead of guessing', () => {
+    expect(() =>
+      migrateAssistantThreadGroupsPersistedState(
+        {
+          collapsedGroupIds: {},
+          flatSortBy: 'recency',
+          folderSortBy: 'custom',
+          groupBy: 'folder',
+          groupedSortBy: 'recency',
+        },
+        3
+      )
+    ).toThrow('Invalid persisted thread folder sort: custom.');
+  });
+
+  it('persists the folder sort but keeps session filters out of storage', () => {
+    const store = useAssistantThreadGroupsStore.getState();
+
+    expect(useAssistantThreadGroupsStore.getState().folderSortBy).toBe('recency');
+    store.setFolderSortBy('name');
+    store.setGroupBy('folder');
+    expect(useAssistantThreadGroupsStore.getState().folderSortBy).toBe('name');
+    expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('folder');
+
+    const partialize = useAssistantThreadGroupsStore.persist.getOptions().partialize;
+    if (!partialize) {
+      throw new Error('expected a partialize');
+    }
+    expect(partialize(useAssistantThreadGroupsStore.getState())).toEqual({
+      collapsedGroupIds: {},
+      flatSortBy: 'recency',
+      folderSortBy: 'name',
+      groupBy: 'folder',
+      groupedSortBy: 'recency',
+    });
+  });
+
+  it('toggles session thread filters and clears them wholesale', () => {
+    const store = useAssistantThreadGroupsStore.getState();
+
+    expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      needsYou: false,
+      running: false,
+      unseen: false,
+    });
+
+    store.setThreadFilter('running', true);
+    store.setThreadFilter('unseen', true);
+    expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      needsYou: false,
+      running: true,
+      unseen: true,
+    });
+
+    store.setThreadFilter('running', false);
+    expect(useAssistantThreadGroupsStore.getState().threadFilters.running).toBe(false);
+
+    store.setThreadFilter('needsYou', true);
+    useAssistantThreadGroupsStore.getState().clearThreadFilters();
+    expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      needsYou: false,
+      running: false,
+      unseen: false,
+    });
+  });
+
   it('reset restores defaults', async () => {
     const repository = makeRepository({ groups: [makeGroup({ id: 'group-1', rank: 'a0' })] });
     const store = useAssistantThreadGroupsStore.getState();
     await store.ensureGroups(repository, RESOURCE_ID);
     store.setSortBy('flat', 'name');
     store.setSortBy('grouped', 'custom');
+    store.setFolderSortBy('name');
+    store.setThreadFilter('running', true);
     store.toggleGroupCollapsed('group-1');
 
     useAssistantThreadGroupsStore.getState().reset();
@@ -568,7 +657,9 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(state.placementsByThreadId).toEqual({});
     expect(state.flatSortBy).toBe('recency');
     expect(state.groupedSortBy).toBe('recency');
+    expect(state.folderSortBy).toBe('recency');
     expect(state.groupBy).toBe('custom-groups');
     expect(state.collapsedGroupIds).toEqual({});
+    expect(state.threadFilters).toEqual({ needsYou: false, running: false, unseen: false });
   });
 });
