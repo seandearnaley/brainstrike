@@ -183,65 +183,40 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
     a destructive-red state. `SUBAGENT_NO_ANSWER_OUTCOME` lives in
     `assistant-contract/personas.ts` because it is the wire between the
     agent-side emitter and the card.
-  - **Forced synthesis turn.** Before giving up, a child that gathered SOMETHING
-    (`subAgentToolResults` non-empty) gets ONE more turn with its tools
-    withheld, so four minutes of exploration produces an answer instead of
-    orphaned tool results. Two guards, deliberately BOTH: `toolChoice: 'none'`
-    withholds the tool DEFINITIONS, and `activeTools: []` makes a call
-    unresolvable in the loop for a model that emits one anyway — the
-    step-capped live-loop spec caught exactly that (a third tool execution on
-    the synthesis turn), so compliance is not assumed. `maxSteps: 1` bounds it,
-    and the request ends on an explicit USER message
-    (`CHILD_SYNTHESIS_PROMPT`) rather than the child's trailing assistant turn,
-    because a prompt ending in an assistant message is prefill — the condition
-    `PrefillErrorHandler` exists to recover from, not to manufacture.
-  - The synthesizer uses `child.stream(...)` and DRAINS `fullStream` before
-    awaiting `text`, matching what Mastra's own delegation tool does for v2
-    models. `child.generate(...)` dispatches to the model's `doGenerate`, which
-    this codebase's model paths (including the local host) do not implement —
-    the first attempt silently produced nothing for exactly that reason.
-  - **Cancellable and BOUNDED.** Mastra AWAITS `onDelegationComplete` before the
-    delegation tool result exists, so an unbounded synthesis stream would stall
-    the delegation, which stalls the parent's tool loop — and no watchdog covers
-    this path, because it is not part of the parent stream. The turn therefore
-    rides the parent leg's abort signal (a user Stop must not leave a child
-    burning a provider request nobody will read) AND its own deadline
-    (`streamInactivityMs`: a best-effort recovery that cannot finish inside the
-    time a healthy stream may go quiet has already cost more than the answer is
-    worth).
-  - **The synthesis turn's usage is attributed**, as a SECOND `onChildUsage`
-    report for the same persona — `createDelegationUsageCapture` pushes one
-    chunk per call, so two chunks for one delegation is the intended shape. It
-    is a whole extra child model call that replays everything the child gathered
-    on the input side; discarding its usage would under-report exactly the child
-    this hook already insists on billing.
-  - **A FAILED delegation is not an unanswered one.** The hook fires for both,
-    and a child that threw plausibly arrives with empty text — giving it the
-    step-cap narrative would be a confident, wrong diagnosis of a provider
-    error, and would run a synthesis turn on an agent that just failed. Gated on
-    `context.success`; Mastra surfaces the failure through its own tool-error
-    path, which the mapper already maps to `subagent.failed`.
-  - **Unknown tool activity is reported as unknown**, never as "made no tool
-    calls". Absence of `subAgentToolResults` is LEGITIMATE — core's v1/legacy
-    delegation path returns `{ text }` alone — so it is a reportable unknown
-    rather than a shape drift to throw on. Synthesis is skipped only when the
-    count is KNOWN to be zero; an unknown count means the child may well have
-    gathered plenty.
-  - A synthesis failure logs `subagent_delegation_synthesis_failed` and falls
-    through to the explicit no-answer reason. That is not a silent fallback: the
-    parent still learns truthfully that nothing was analysed, and a synthesis
-    error must never take down the parent run.
-  - Reaching the child outside Mastra's own delegation call needs the child
-    `Agent`, so the runtime exposes `subAgentsById`. That is its only consumer
-    today.
+  - **The child's LAST step is reserved for its summary — via Mastra's own
+    `onIterationComplete` hook, not a bolt-on.** `buildChildIterationPolicy`
+    (build-persona-subagents.ts) rides the child Agent's `defaultOptions`, so it
+    applies when Mastra invokes the delegation internally: `Agent.stream()`
+    deep-merges `defaultOptions` with the per-call options the delegation tool
+    passes, and that call sets `maxSteps` but never `onIterationComplete`
+    (verified against `@mastra/core@1.59.0`). On the step before the cap the
+    policy returns `{ continue: false, feedback: CHILD_WRAP_UP_FEEDBACK }`; core
+    appends the feedback to the child's own message list and grants exactly one
+    more model call before stopping — the behaviour `docs/subagents.md`
+    documents as "one final turn for a text response that incorporates the
+    feedback".
+  - **IN-LOOP is the point.** The summary turn inherits the child's abort
+    signal, usage accounting, memory scoping and gathered context for free, and
+    is spent from the persona's DECLARED budget rather than added on top of it:
+    a `maxSteps: 8` child still costs at most eight model calls. This replaced a
+    hand-rolled second `agent.stream()` call with its own abort signal, deadline,
+    `activeTools: []`/`toolChoice` juggling, usage plumbing, and a
+    `runtime.subAgentsById` field — all of which the framework hook makes
+    unnecessary. Do not reintroduce a second stream.
+  - Core only injects the feedback when the model intended to continue (it
+    checks `stepResult.isContinued`), so a child that already answered is never
+    interrupted. The policy additionally no-ops when the cap is unknown or is
+    less than two steps — reserving the only turn a one-step child has would
+    consume the budget it was given.
   - Paired tests: `subagent-delegation.spec.ts` (hook), the step-capped
-    and synthesis live-loop cases in
+    and wrap-up live-loop cases in
     `mastra-subagent-execution.integration.spec.ts` (one child scripted to never
     stop calling tools, reproducing the incident end-to-end; one that answers
-    once its tools are withheld, proving the synthesis turn is real AND
-    asserting the child's own tool RESULTS reached the synthesis prompt — a fake
-    that answers regardless of its prompt would otherwise stay green while
-    production handed the parent an invented summary),
+    only when it sees the wrap-up feedback in its own prompt, which pins both
+    that the feedback reached the child's next model call AND that the reserve
+    is spent from the declared budget — the tool-execution count discriminates
+    it from a bolt-on extra stream), plus `child-iteration-policy.spec.ts` for
+    the policy in isolation,
     `subagent-tool-rows.test.ts` (outcome reader + concurrent-delegation
     scoping), `subagent-execution-card.test.tsx` (card status).
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry

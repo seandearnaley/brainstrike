@@ -19,7 +19,7 @@ import {
   assertReadOnlyPersona,
 } from '@brainstrike/assistant-contract/personas';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
-import { Agent, type ToolsInput } from '@mastra/core/agent';
+import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import {
   resolveToolResultBudgetForModel,
@@ -78,6 +78,62 @@ export interface BuildPersonaSubAgentsParams {
   /** Forwarded to `applyToolModelOutputProjections` for every child (BST-1196
    * subagent telemetry attribution — see its call site in agent-runtime.ts). */
   readonly toolOutputObserver?: ModelOutputProjectionObserver;
+}
+
+/**
+ * The wrap-up instruction a child receives on its reserved final step.
+ *
+ * Exported so the paired specs can assert the child's LAST prompt actually
+ * carried it — a summary the child produced without seeing this would be
+ * ungrounded, which is worse than the empty result this replaces.
+ */
+export const CHILD_WRAP_UP_FEEDBACK =
+  'You are at your step limit and this is your final turn — no further tool calls will run. ' +
+  'Using ONLY what you already found above, write your summary now: what you looked for, ' +
+  'what you found, and the concrete file paths. If you covered only part of the task, say ' +
+  'exactly which part you covered and which you did not.';
+
+/**
+ * Reserve a child's LAST step for its summary, using Mastra's own
+ * `onIterationComplete` hook (docs/subagents.md).
+ *
+ * A child cut off mid-tool-loop returns `text: ''`, which reaches the supervisor
+ * as a successful-but-empty delegation (BST-1410). Mastra's documented remedy is
+ * to return `{ continue: false, feedback }` from this hook: core appends the
+ * feedback to the child's own message list and grants exactly one more model
+ * call before stopping ("the model may get one final turn for a text response
+ * that incorporates the feedback").
+ *
+ * IN-LOOP is the whole point, and why this replaced a bolt-on second
+ * `agent.stream()` call. Riding the child's own loop means the summary turn
+ * inherits its abort signal, its usage accounting, its memory scoping, and its
+ * gathered context for free, and — critically — it is spent from the persona's
+ * DECLARED step budget rather than added on top of it. A child with
+ * `maxSteps: 8` still costs at most eight model calls.
+ *
+ * Core only injects the feedback when the model intended to continue (it checks
+ * `stepResult.isContinued`), so a child that already answered is never
+ * interrupted, and a child that stopped on its own is left alone.
+ */
+export function buildChildIterationPolicy(): NonNullable<
+  AgentExecutionOptions['onIterationComplete']
+> {
+  return ({ iteration, maxIterations, text }) => {
+    if (typeof maxIterations !== 'number' || maxIterations < 2) {
+      // Nothing to reserve: a one-step child has no earlier step to spend on
+      // tools, so forcing a wrap-up would consume its only turn.
+      return;
+    }
+    // Fire on the step BEFORE the cap so the reserved turn still fits inside it.
+    if (iteration < maxIterations - 1) {
+      return;
+    }
+    if (text.trim() !== '') {
+      // Already answering — do not interrupt a child that is mid-summary.
+      return;
+    }
+    return { continue: false, feedback: CHILD_WRAP_UP_FEEDBACK };
+  };
 }
 
 function buildOriginalToSanitized(
@@ -290,6 +346,11 @@ export function buildPersonaSubAgents(
     // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps
     // (subagent-delegation.ts) resolve the persona by that id.
     subAgents[persona.id] = new Agent({
+      // Carried on the CHILD so it applies when Mastra invokes the delegation
+      // internally: `Agent.stream()` deep-merges `defaultOptions` with the
+      // per-call options the delegation tool passes, and that call sets
+      // `maxSteps` but never `onIterationComplete`.
+      defaultOptions: { onIterationComplete: buildChildIterationPolicy() },
       description: persona.description,
       id: persona.id,
       instructions: buildChildInstructions(persona, keptOriginalNames),
