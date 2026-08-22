@@ -11,12 +11,6 @@ import type {
 export const MAX_DIRECTORY_ENTRIES = 10_000;
 const TRUNCATION_NODE_BASENAME = '…truncated…' as const;
 
-/** Case-folds on Windows so alias comparisons match the platform's semantics. */
-export function pathKey(value: string): string {
-  const normalized = path.normalize(value);
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-}
-
 export function descriptorFor(
   entry: StoredWorkspaceRoot,
   permissionState: 'granted' | 'unknown',

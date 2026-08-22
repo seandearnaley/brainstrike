@@ -28,11 +28,10 @@ import {
   buildDirectoryListing,
   descriptorFor,
   MAX_DIRECTORY_ENTRIES,
-  pathKey,
 } from './workspace-root-nodes';
+import { pathKey, pathsEqual } from './workspace-root-paths';
 import {
   assertNativeAbsoluteReadPath,
-  pathsEqual,
   type ResolvedWorkspaceRead,
   readResolvedWorkspaceFile,
   resolveReadAgainstMountedRoot,

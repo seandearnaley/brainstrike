@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { pathsEqual } from './workspace-root-read';
+import { pathsEqual } from './workspace-root-paths';
 import type { StoredWorkspaceRoot } from './workspace-root-types';
 
 const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
@@ -32,7 +32,7 @@ function isStoredWorkspaceRoot(value: unknown): value is StoredWorkspaceRoot {
  * it here, rather than letting a storage exception get relabeled as
  * "corrupt".
  */
-export function parseStoredRoots(raw: string | null): StoredWorkspaceRoot[] {
+function parseStoredRoots(raw: string | null): StoredWorkspaceRoot[] {
   if (raw === null) {
     return [];
   }

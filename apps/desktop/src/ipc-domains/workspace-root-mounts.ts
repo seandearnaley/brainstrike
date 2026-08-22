@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import { isContained, pathsEqual } from './workspace-root-read';
+import { isContained, pathsEqual } from './workspace-root-paths';
 import type {
   MountedWorkspaceRoot,
   SecureWorkspaceRoot,
@@ -11,7 +11,9 @@ import type {
 const logger = createLogger('WorkspaceRootRegistry');
 
 /**
- * Owns the live secure-root capabilities and the session/persisted split.
+ * Owns the live secure-root capabilities and the session/persisted split —
+ * both halves of that state, including the session-flag lifecycle (see
+ * `unmount`).
  * Every capability close in the registry funnels through here, so "which
  * rootIds are mounted" and "who may close a capability" have exactly one
  * home. Lookups are lexical only — realpath authorization stays in
@@ -122,7 +124,17 @@ export class WorkspaceRootMountTable {
     return canonicalPath;
   }
 
+  /**
+   * Clears the session flag with the mount, so "unmounted" can never leave a
+   * stale session id behind for a later mount of the same rootId to inherit —
+   * `persistedMountedPaths()` would then silently omit a live persisted root
+   * and `markRootsDisconnectedExcept` would demote it in the database. No
+   * caller reaches that state today (review on #2584 traced it unreachable);
+   * enforcing it here is what makes the claim above true of this class rather
+   * than of its callers.
+   */
   unmount(rootId: string): void {
+    this.sessionRootIds.delete(rootId);
     const mounted = this.mounted.get(rootId);
     if (!mounted) {
       return;
