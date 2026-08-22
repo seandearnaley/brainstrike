@@ -50,6 +50,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * the code path, never the outcome, and the row would render at no detail level
  * at all (review of PR #1977). `run.failed`/`run.cancelled` never needed the
  * exemption: they carry no `toolCallId` and are not `tool.*`.
+ *
+ * `tool.approval.requested` (BST-1402) is included for the SAME reason and needs
+ * the SAME exemption: the `brainstrike.tool-approval` notice that prompts the
+ * user is `aui-data` and does not survive a reload, while the mapper does emit a
+ * `tool-call` part for the paused call — so without the exemption the only
+ * durable record that the run stopped and asked would be suppressed as "already
+ * carded" at every detail level.
  */
 export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   const event = readAssistantRunEvent(data);
@@ -59,6 +66,7 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
   return (
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||
+    event.kind === 'tool.approval.requested' ||
     event.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
   );
 }
@@ -122,7 +130,11 @@ const SCOPE_METADATA_KEYS = ['toolCallId', 'parentToolCallId'] as const;
  * `mapDelegationToolOutput` puts on the started AND terminal chunks.
  */
 function scopeMetadataKey(kind: AssistantRunEventKind): string | null {
-  if (kind === 'tool.started' || kind === 'subagent.tool.started') {
+  if (
+    kind === 'tool.started' ||
+    kind === 'subagent.tool.started' ||
+    kind === 'tool.approval.requested'
+  ) {
     return 'toolCallId';
   }
   if (kind === 'subagent.started') {
@@ -178,20 +190,15 @@ function resolveIndexedRunEventStatus(
   if (event.status !== 'running') {
     return event.status;
   }
-  const completedKind = getMatchingCompletedKind(event.kind);
-  const failedKind = getMatchingFailedKind(event.kind);
-  if (!(completedKind || failedKind)) {
+  const terminalKinds = getTerminalKinds(event.kind);
+  if (terminalKinds.length === 0) {
     return event.status;
   }
 
   const metadataKey = scopeMetadataKey(event.kind);
-  const candidates: number[] = [];
-  if (completedKind) {
-    candidates.push(nextMatchingEventIndex(index, completedKind, event, metadataKey));
-  }
-  if (failedKind) {
-    candidates.push(nextMatchingEventIndex(index, failedKind, event, metadataKey));
-  }
+  const candidates = terminalKinds.map((terminalKind) =>
+    nextMatchingEventIndex(index, terminalKind, event, metadataKey)
+  );
   candidates.push(
     nextMatchingEventIndex(index, 'run.failed', event, null),
     nextMatchingEventIndex(index, 'run.cancelled', event, null)
@@ -428,6 +435,46 @@ export function getMatchingFailedKind(kind: AssistantRunEventKind): AssistantRun
   return resolveTerminalKind(kind, FAILED_SUFFIXES);
 }
 
+/**
+ * Terminals for `running` kinds that are deliberately NOT `.started` kinds, and
+ * so get nothing from the suffix pairing above.
+ *
+ * `tool.approval.requested` (BST-1402) is the only one: the approval pause is
+ * not a lifecycle start (no tool ran — see the contract), yet it IS `running`,
+ * and a `running` row with no terminal spins for the whole thread. It closes out
+ * on the same `toolCallId`'s next OUTCOME — approve => the resumed stream runs
+ * the tool and emits `tool.completed`, decline => `tool.failed` ("Tool call
+ * declined"), no registered resume UI => `tool.resume.unsupported`.
+ *
+ * `tool.started` is deliberately absent: it carries status `running`, so the
+ * nearest-terminal-wins lookup would "resolve" the pause to the status it
+ * already had AND would report a still-executing tool as an answered pause.
+ * The `tool.completed`/`tool.failed` that follow it are the real answers.
+ */
+const EXPLICIT_TERMINAL_KINDS: Partial<
+  Record<AssistantRunEventKind, readonly AssistantRunEventKind[]>
+> = {
+  'tool.approval.requested': ['tool.completed', 'tool.failed', 'tool.resume.unsupported'],
+};
+
+/**
+ * Every terminal kind that can close a `running` row: the explicit list when the
+ * kind declares one, otherwise its suffix-derived completed/failed pair. Empty
+ * means the row has no terminal of its own and only the generic end-of-run
+ * fallbacks apply.
+ */
+function getTerminalKinds(kind: AssistantRunEventKind): readonly AssistantRunEventKind[] {
+  const explicit = EXPLICIT_TERMINAL_KINDS[kind];
+  if (explicit) {
+    return explicit;
+  }
+  const completed = getMatchingCompletedKind(kind);
+  const failed = getMatchingFailedKind(kind);
+  return [completed, failed].filter((terminal): terminal is AssistantRunEventKind =>
+    Boolean(terminal)
+  );
+}
+
 function hasSameScope(event: AssistantRunEvent, candidate: AssistantRunEvent): boolean {
   const metadataKey = scopeMetadataKey(event.kind);
   if (metadataKey === null) {
@@ -440,8 +487,7 @@ function hasSameScope(event: AssistantRunEvent, candidate: AssistantRunEvent): b
 function resolveFromLaterRunEvent(
   event: AssistantRunEvent,
   candidate: AssistantRunEvent,
-  matchingCompletedKind: AssistantRunEventKind | null,
-  matchingFailedKind: AssistantRunEventKind | null
+  terminalKinds: readonly AssistantRunEventKind[]
 ): AssistantRunEventStatus | null {
   if (!hasSameRunScope(event, candidate)) {
     return null;
@@ -449,11 +495,7 @@ function resolveFromLaterRunEvent(
   // Mirrors the indexed path: the matched TERMINAL's own status, never a status
   // derived from its kind (an aborted or declined delegation's `subagent.failed`
   // carries 'cancelled'), and scoped so a terminal only closes its own row.
-  if (
-    (candidate.kind === matchingCompletedKind ||
-      (matchingFailedKind !== null && candidate.kind === matchingFailedKind)) &&
-    hasSameScope(event, candidate)
-  ) {
+  if (terminalKinds.includes(candidate.kind) && hasSameScope(event, candidate)) {
     return candidate.status;
   }
   if (candidate.kind === 'run.failed' || candidate.kind === 'run.cancelled') {
@@ -592,9 +634,8 @@ export function resolveAssistantRunEventStatus(
     return event?.status ?? 'info';
   }
 
-  const matchingCompletedKind = getMatchingCompletedKind(event.kind);
-  const matchingFailedKind = getMatchingFailedKind(event.kind);
-  if (!(matchingCompletedKind || matchingFailedKind)) {
+  const terminalKinds = getTerminalKinds(event.kind);
+  if (terminalKinds.length === 0) {
     return event.status;
   }
 
@@ -603,12 +644,7 @@ export function resolveAssistantRunEventStatus(
   const laterEvents = eventIndex >= 0 ? runEvents.slice(eventIndex + 1) : runEvents;
 
   for (const candidate of laterEvents) {
-    const resolvedStatus = resolveFromLaterRunEvent(
-      event,
-      candidate,
-      matchingCompletedKind,
-      matchingFailedKind
-    );
+    const resolvedStatus = resolveFromLaterRunEvent(event, candidate, terminalKinds);
     if (resolvedStatus) {
       return resolvedStatus;
     }

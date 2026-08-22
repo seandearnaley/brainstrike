@@ -269,6 +269,25 @@ export function makeApprovalRequiredChunks(
   });
 
   return [
+    // BST-1402: the DURABLE record of the pause, emitted BEFORE the transient
+    // `tool-approval-required` chunk so a consumer that tears the stream down
+    // the instant it sees the pause still persisted the fact that this run is
+    // parked on the user. `tool-approval-required` is `aui-data` — the notice
+    // it drives dies on reload — so this run event is the only surviving
+    // evidence, and it is what the Threads panel's "needs you" projection
+    // reads. Deliberately NOT a `tool.started`: no tool ran (see the kind's
+    // contract note). Resolution is derived from the next event for this same
+    // `toolCallId` (approve => `tool.completed`, decline => `tool.failed`,
+    // unanswerable => `tool.resume.unsupported`) or the run leaving 'running',
+    // so there is no resolution event to emit here.
+    makeRunEventChunk('tool.approval.requested', 'running', 'Awaiting your approval', {
+      toolCallId,
+      toolName,
+      // Same honesty rule as the chunk below: a riskCategory is carried only
+      // when the pause really was policy-driven and attributable — never
+      // fabricated (the LOUD error above already reports an unresolved one).
+      ...(askMetadata ? { riskCategory: askMetadata.riskCategory } : {}),
+    }),
     {
       runId,
       toolCallId,

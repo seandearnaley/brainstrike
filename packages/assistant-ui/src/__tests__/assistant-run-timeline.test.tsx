@@ -306,6 +306,15 @@ describe('isAlwaysVisibleRunEvent', () => {
     expect(isAlwaysVisibleRunEvent(event('tool.resume.unsupported', 'failed'))).toBe(true);
   });
 
+  it('forces the approval pause to stay visible (BST-1402)', () => {
+    // The `brainstrike.tool-approval` notice that prompts the user is `aui-data`
+    // — gone after a reload — so this row is the only surviving record that the
+    // run stopped and asked. It is a `tool.*` kind carrying the paused call's
+    // `toolCallId`, so without the exemption the mapper's `tool-call` part would
+    // suppress it as "already carded".
+    expect(isAlwaysVisibleRunEvent(event('tool.approval.requested', 'running'))).toBe(true);
+  });
+
   it('does not force background bookkeeping or already-carded tool failures', () => {
     // tool.failed already surfaces on its ToolFallback card — never double-report.
     expect(isAlwaysVisibleRunEvent(event('tool.failed', 'failed'))).toBe(false);
@@ -750,5 +759,97 @@ describe('AssistantRunTimeline render', () => {
     expect(screen.getByTestId('assistant-thinking-indicator')).toHaveTextContent('Thinking');
     expect(screen.getByTestId('assistant-thinking-mark')).toHaveAttribute('data-tone', 'greyscale');
     expect(screen.getAllByTestId('assistant-thinking-mark')).toHaveLength(1);
+  });
+});
+
+describe('tool.approval.requested resolution (BST-1402)', () => {
+  const approval = (toolCallId: string, timestamp: string) => ({
+    id: `approval-${toolCallId}`,
+    kind: 'tool.approval.requested',
+    label: 'Awaiting your approval',
+    metadata: { toolCallId, toolName: 'brainstrike.executeCommand' },
+    runId: 'run-1',
+    status: 'running',
+    timestamp,
+  });
+  const toolEvent = (kind: string, toolCallId: string, status: string, timestamp: string) => ({
+    id: `${kind}-${toolCallId}`,
+    kind,
+    label: kind,
+    metadata: { toolCallId, toolName: 'brainstrike.executeCommand' },
+    runId: 'run-1',
+    status,
+    timestamp,
+  });
+
+  // The pause has no suffix-derived terminal on purpose (it is not a `.started`
+  // kind), so without an explicit pairing its `running` row would spin forever —
+  // the exact hazard `run-event terminal pairing contract` guards for `.started`
+  // kinds. These pin the explicit pairing instead.
+  it.each([
+    ['tool.completed', 'completed', 'approve => the resumed stream runs the tool'],
+    ['tool.failed', 'failed', 'decline => "Tool call declined"'],
+    ['tool.resume.unsupported', 'failed', 'no resume UI in this build'],
+  ])('closes the pause out on %s (%s)', (terminalKind, expected) => {
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z');
+    const terminal = toolEvent(terminalKind, 'call-1', expected, '2026-06-20T00:00:05.000Z');
+    const messages = [{ parts: [runEventPart(pause), runEventPart(terminal)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, pause as never)).toBe(expected);
+    expect(deriveAssistantRunEventRows(messages).statuses[pause.id]).toBe(expected);
+  });
+
+  it('is NOT closed out by the tool.started the approval merely unblocks', () => {
+    // `tool.started` carries status 'running', so pairing against it would
+    // "resolve" the row to the status it already had — and would report a
+    // still-executing tool as an answered pause.
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z');
+    const started = toolEvent('tool.started', 'call-1', 'running', '2026-06-20T00:00:05.000Z');
+    const messages = [{ parts: [runEventPart(pause), runEventPart(started)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, pause as never)).toBe('running');
+    expect(deriveAssistantRunEventRows(messages).statuses[pause.id]).toBe('running');
+  });
+
+  it("never lets ANOTHER call's terminal answer this pause", () => {
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z');
+    const other = toolEvent('tool.completed', 'call-2', 'completed', '2026-06-20T00:00:05.000Z');
+    const messages = [{ parts: [runEventPart(pause), runEventPart(other)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, pause as never)).toBe('running');
+    expect(deriveAssistantRunEventRows(messages).statuses[pause.id]).toBe('running');
+  });
+
+  it('falls back to the run leaving running when the call never reports', () => {
+    // Cancelling mid-pause produces no `tool.*` terminal at all.
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z');
+    const cancelled = {
+      id: 'run-cancelled-1',
+      kind: 'run.cancelled',
+      label: 'Assistant run cancelled',
+      runId: 'run-1',
+      status: 'cancelled',
+      timestamp: '2026-06-20T00:00:09.000Z',
+    };
+    const messages = [{ parts: [runEventPart(pause), runEventPart(cancelled)], role: 'assistant' }];
+    expect(resolveAssistantRunEventStatus(messages, pause as never)).toBe('cancelled');
+    expect(deriveAssistantRunEventRows(messages).statuses[pause.id]).toBe('cancelled');
+  });
+
+  it("stays visible on BOTH render-plan paths despite the paused call's card", () => {
+    const pause = approval('call-1', '2026-06-20T00:00:00.000Z');
+    const messages = [
+      {
+        parts: [
+          runEventPart(pause),
+          { toolCallId: 'call-1', toolName: 'brainstrike.executeCommand', type: 'tool-call' },
+        ],
+        role: 'assistant',
+      },
+    ];
+    expect(resolveAssistantRunEventRenderPlan(messages, pause).hidden).toBe(false);
+    expect(deriveAssistantRunEventRows(messages).renderPlanKeys[pause.id]).toBe('visible:1');
+  });
+
+  it('renders the pause label', () => {
+    renderTimeline(approval('call-1', '2026-06-20T00:00:00.000Z'));
+    expect(screen.getByText('Awaiting your approval')).toBeTruthy();
   });
 });

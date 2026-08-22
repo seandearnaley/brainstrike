@@ -105,7 +105,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       requireToolApproval?: boolean;
     };
     expect(streamOptions.requireToolApproval).toBe(true);
-    expect(expectLeadingContextBreakdown(chunks)).toEqual([
+    // The durable run event leads the pause (see the dedicated ordering test
+    // below); the transient chunks it precedes are pinned EXACTLY here.
+    const [durableRunEvent, ...transientChunks] = expectLeadingContextBreakdown(chunks);
+    expect(durableRunEvent).toMatchObject({
+      event: { kind: 'tool.approval.requested' },
+      type: 'run-event',
+    });
+    expect(transientChunks).toEqual([
       {
         args: { mode: 'replace', paths: ['src/index.ts'] },
         resumeSchema: '{}',
@@ -121,6 +128,61 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         usage: { completionTokens: 0, promptTokens: 0 },
       },
     ]);
+  });
+
+  it('emits a durable tool.approval.requested run event BEFORE the approval-required chunk', async () => {
+    // BST-1402: the approval PAUSE is durable. `tool-approval-required` is an
+    // `aui-data` transient the visible thread's notice renders and a reload
+    // erases, so before this event nothing recorded that a run is parked on the
+    // user. The run event is persisted by `observeDesktopAssistantRunEvents`
+    // and is what the Threads panel's "needs you" projection reads.
+    setMockStreamParts([
+      {
+        payload: {
+          args: { mode: 'replace', paths: ['src/index.ts'] },
+          resumeSchema: '{}',
+          toolCallId: 'approval-durable-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+        },
+        runId: 'run-approval-durable-1',
+        type: 'tool-call-approval',
+      },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'update selected context', type: 'text' }], role: 'user' }],
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const [first, second] = expectLeadingContextBreakdown(chunks);
+    // ORDER is the contract: the durable row must exist even if the consumer
+    // tears the stream down the instant it sees the pause chunk.
+    expect(first).toMatchObject({
+      event: {
+        kind: 'tool.approval.requested',
+        label: 'Awaiting your approval',
+        metadata: {
+          toolCallId: 'approval-durable-1',
+          toolName: 'brainstrike.updateWorkspaceContextSelection',
+        },
+        status: 'running',
+      },
+      type: 'run-event',
+    });
+    // No `riskCategory` is invented when the pause was not policy-driven.
+    expect(
+      (first as { event: { metadata: Record<string, unknown> } }).event.metadata
+    ).not.toHaveProperty('riskCategory');
+    expect(second).toMatchObject({ type: 'tool-approval-required' });
+    expect(chunks.at(-1)).toMatchObject({ finishReason: 'tool-calls', type: 'message-finish' });
   });
 
   it('denormalizes a native approval tool name when no sanitized name map entry exists', async () => {
@@ -156,6 +218,17 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     }
 
     expect(expectLeadingContextBreakdown(chunks)).toEqual([
+      expect.objectContaining({
+        // The durable row carries the SAME denormalized name the notice shows.
+        event: expect.objectContaining({
+          kind: 'tool.approval.requested',
+          metadata: expect.objectContaining({
+            toolCallId: 'approval-denormalize-1',
+            toolName: 'brainstrike.executeCommand',
+          }),
+        }),
+        type: 'run-event',
+      }),
       {
         args: { command: 'echo hi' },
         runId: 'run-approval-denormalize-1',
@@ -362,6 +435,21 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         type: 'tool-approval-required',
       })
     );
+    // BST-1402: the durable row carries the resolved risk too, so a reloaded
+    // thread can still say WHY the run stopped and asked.
+    expect(findRunEventChunks(chunks, 'tool.approval.requested')).toEqual([
+      expect.objectContaining({
+        event: expect.objectContaining({
+          label: 'Awaiting your approval',
+          metadata: {
+            riskCategory: 'execute',
+            toolCallId: 'approval-dotted-1',
+            toolName: 'brainstrike.runShell',
+          },
+          status: 'running',
+        }),
+      }),
+    ]);
   });
 
   it('logs a LOUD error and omits risk metadata when a policy-driven pause cannot be resolved (never fabricates)', async () => {
@@ -537,6 +625,14 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
             toolName: 'background.lookup',
           }),
           status: 'completed',
+        }),
+        type: 'run-event',
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          kind: 'tool.approval.requested',
+          metadata: expect.objectContaining({ toolCallId: 'approval-1' }),
+          status: 'running',
         }),
         type: 'run-event',
       }),

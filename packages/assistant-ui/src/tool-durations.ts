@@ -32,6 +32,12 @@ export function collectToolDurations(parts: readonly unknown[]): Record<string, 
       continue;
     }
     const kind = data.kind;
+    // Allowlist, not a denylist — every other `tool.*` kind is ignored on
+    // purpose. `tool.approval.requested` (BST-1402) carries the paused call's
+    // `toolCallId` but is NOT a lifecycle start: opening a window on it would
+    // clock the USER's deliberation as tool execution, and closing one on it
+    // would time a call that never ran. `tool.resume.unsupported` (BST-558) is
+    // excluded for the mirror-image reason (the tool is still suspended).
     if (kind !== 'tool.started' && kind !== 'tool.completed' && kind !== 'tool.failed') {
       continue;
     }

@@ -32,6 +32,25 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'subagent.tool.completed',
   'subagent.tool.failed',
   'subagent.tool.started',
+  // The approval PAUSE itself, as a durable event (BST-1402). Until now the
+  // pause existed ONLY as the transient `tool-approval-required` stream chunk:
+  // the visible thread's notice renders it, a reload erases it, and nothing
+  // recorded that a run had stopped and asked. The Threads panel's "needs you"
+  // projection reads THIS row.
+  //
+  // Deliberately NOT spelled `.started`, and deliberately WITHOUT a resolution
+  // counterpart. No tool ran: a `.started` spelling would make
+  // `collectToolDurations` clock the USER's deliberation as tool execution and
+  // would pair the pause against `tool.completed` as if a call had run, while
+  // `RUN_LEDGER_AGGREGATION_SQL` counts only `tool.completed`/`tool.failed`, so
+  // this is never a tool call in the Task Ledger either. Resolution is DERIVED
+  // from events that already exist — the next event for the SAME
+  // `metadata.toolCallId` (approve => the resumed stream re-yields the tool
+  // start and eventually `tool.completed`; decline => `tool.failed`, "Tool call
+  // declined"; unanswerable => `tool.resume.unsupported`), or the run leaving
+  // `status = 'running'`. A `tool.approval.resolved` kind would be a second
+  // source of truth for a fact those terminals already carry.
+  'tool.approval.requested',
   'tool.completed',
   'tool.failed',
   // A suspending tool paused a run this build has no registered resume UI for

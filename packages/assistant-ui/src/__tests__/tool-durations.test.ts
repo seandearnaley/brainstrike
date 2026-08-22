@@ -49,6 +49,21 @@ describe('collectToolDurations', () => {
     expect(collectToolDurations([{ toolCallId: 'x', type: 'tool-call' }])).toEqual({});
   });
 
+  it("never times the USER's deliberation on an approval pause (BST-1402)", () => {
+    // `tool.approval.requested` shares the paused call's `toolCallId` but is NOT
+    // a lifecycle start: no tool ran. It must neither open a duration window
+    // (which would clock the user's thinking as tool execution once the resumed
+    // call completes) nor close one. Only `tool.started` opens; only
+    // `tool.completed`/`tool.failed` close.
+    expect(
+      collectToolDurations([
+        toolEvent('tool.approval.requested', 'gated', '2026-06-16T10:00:00.000Z'),
+        toolEvent('tool.started', 'gated', '2026-06-16T10:00:30.000Z'),
+        toolEvent('tool.completed', 'gated', '2026-06-16T10:00:30.400Z'),
+      ])
+    ).toEqual({ gated: 400 });
+  });
+
   it('does NOT close out a tool that is still suspended server-side (BST-558)', () => {
     // The unanswerable-pause rejection must not be mistaken for a terminal tool
     // event: the tool is still suspended (`runStillSuspended: true`), and a
