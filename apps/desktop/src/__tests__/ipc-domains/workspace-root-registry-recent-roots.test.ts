@@ -9,6 +9,26 @@ import {
   WorkspaceRootRegistry,
 } from '../../ipc-domains/workspace-root-registry';
 
+// Quarantine and write-failure paths log deliberately. Capturing the logger
+// keeps the suite's output pristine AND makes "it was reported" an assertion
+// rather than something a reader has to spot in the scrollback.
+const { loggerMock } = vi.hoisted(() => ({
+  loggerMock: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  },
+}));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => loggerMock,
+}));
+
+const QUARANTINE_MESSAGE = 'Quarantined a corrupt recently-granted workspace folder ledger';
+
 function createStorage(): ElectronStorageAdapter {
   const values = new Map<string, string>();
   return {
@@ -60,6 +80,8 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
 
   beforeEach(() => {
     storage = createStorage();
+    loggerMock.error.mockClear();
+    loggerMock.warn.mockClear();
   });
 
   it('records every successful addRoot in recentRootsList, newest first, deduped', async () => {
@@ -190,6 +212,10 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     expect(await registry.listRecentRoots()).toEqual([]);
     expect(await storage.getItem('recentRootsList.corrupt')).toBe(corruptRaw);
     expect(await storage.getItem('recentRootsList')).toBeNull();
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      QUARANTINE_MESSAGE,
+      expect.objectContaining({ quarantineKey: 'recentRootsList.corrupt' })
+    );
   });
 
   it('quarantines a malformed ledger on the record path and self-heals from the next grant', async () => {
@@ -202,6 +228,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     expect(descriptor.permissionState).toBe('granted');
     expect(await storage.getItem('recentRootsList.corrupt')).toBe(corruptRaw);
     expect((await registry.listRecentRoots()).map((entry) => entry.path)).toEqual(['/ws/beta']);
+    expect(loggerMock.error).toHaveBeenCalledWith(QUARANTINE_MESSAGE, expect.anything());
   });
 
   it('quarantines a malformed ledger on addRootByPath and rejects with the never-granted remedy', async () => {
@@ -214,6 +241,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     );
     expect(await storage.getItem('recentRootsList.corrupt')).toBe(corruptRaw);
     expect(await storage.getItem('recentRootsList')).toBeNull();
+    expect(loggerMock.error).toHaveBeenCalledWith(QUARANTINE_MESSAGE, expect.anything());
   });
 
   it('propagates a ledger read I/O failure rather than mistaking it for corruption', async () => {
@@ -227,6 +255,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
 
     await expect(registry.listRecentRoots()).rejects.toThrow('storage offline');
     expect(storage.setItem).not.toHaveBeenCalledWith('recentRootsList.corrupt', expect.anything());
+    expect(loggerMock.error).not.toHaveBeenCalledWith(QUARANTINE_MESSAGE, expect.anything());
   });
 
   it('tolerates a recentRootsList write failure without failing addRoot (accepted deviation)', async () => {
@@ -244,5 +273,11 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
 
     expect(descriptor.permissionState).toBe('granted');
     expect(await registry.listRecentRoots()).toEqual([]);
+    // The deviation is ACCEPTED, not silent: the dropped ledger write is
+    // reported so a user who loses Recents has something to point at.
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'Failed to record a recently granted workspace folder',
+      expect.anything()
+    );
   });
 });
