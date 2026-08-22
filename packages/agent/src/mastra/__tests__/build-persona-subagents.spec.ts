@@ -126,6 +126,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -155,6 +156,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAskSnapshot,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -180,6 +182,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: undefined,
         personas: [hostilePersona],
+        provider: 'openai',
         resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
         toolNameMap,
       })
@@ -194,6 +197,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: undefined,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -217,6 +221,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -242,6 +247,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: (persona) => {
         resolvedPins.push(persona.model);
@@ -265,6 +271,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: () => {
         resolverCalls += 1;
@@ -300,6 +307,7 @@ describe('buildPersonaSubAgents', () => {
       logger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned, explorePersona],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: () => {
         throw new Error('missing_api_key');
@@ -333,6 +341,7 @@ describe('buildPersonaSubAgents', () => {
       logger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned],
+      provider: 'openai',
       resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
@@ -426,6 +435,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: readAllowSnapshot,
         personas: [makeDomainPersona({ modelId: GEMMA4_E2B_MODEL_ID, provider: 'local' })],
+        provider: 'openai',
         resolvedToolResultBudget: largeParentBudget,
         resolvePinnedModel: () => fakeModel,
         toolNameMap,
@@ -449,6 +459,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: readAllowSnapshot,
         personas: [makeDomainPersona({ modelId: 'gpt-5.6-sol', provider: 'openai' })],
+        provider: 'openai',
         resolvedToolResultBudget: smallParentBudget,
         resolvePinnedModel: () => pinnedLargeModel,
         toolNameMap,
@@ -471,6 +482,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: readAllowSnapshot,
         personas: [makeDomainPersona()],
+        provider: 'openai',
         resolvedToolResultBudget: parentBudget,
         toolNameMap,
       });

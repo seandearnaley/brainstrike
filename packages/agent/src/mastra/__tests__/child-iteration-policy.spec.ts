@@ -47,14 +47,28 @@ describe('buildChildIterationPolicy', () => {
     }
   });
 
-  it('does not interrupt a child that is already answering', () => {
-    // Core only injects feedback when the model intended to continue, but a
-    // child that produced text on its reserved step is mid-answer — forcing a
-    // wrap-up on top of that would replace its own words with ours.
+  it('fires even when the tool-calling step carried a narration preamble', () => {
+    // Review of #2596. Claude and GPT routinely emit a sentence alongside a tool
+    // call ("Let me check the packages directory..."), so `text` is non-empty on
+    // an ordinary tool-looping step. Treating that as "already answering" would
+    // suppress the reserve, let the child spend its last step on another tool,
+    // and then hand the parent the PREAMBLE as the analysis — non-empty, so the
+    // no-answer path never fires either. That is BST-1410 again, wearing a
+    // plausible disguise, on exactly the models this feature targets.
+    //
+    // Core already gates injection on `stepResult.isContinued`, so a child that
+    // genuinely finished is never reached here. Text is not a completion signal.
     const policy = buildChildIterationPolicy();
     expect(
-      policy(iteration({ iteration: 7, maxIterations: 8, text: 'Found it in src/main.ts.' }))
-    ).toBeUndefined();
+      policy(
+        iteration({
+          iteration: 7,
+          maxIterations: 8,
+          text: 'Let me check the packages directory.',
+          toolCalls: [{ args: {}, id: 'c1', name: 'brainstrike_grepSearch' }],
+        })
+      )
+    ).toEqual({ continue: false, feedback: CHILD_WRAP_UP_FEEDBACK });
   });
 
   it('never fires when there is no earlier step to spend on tools', () => {

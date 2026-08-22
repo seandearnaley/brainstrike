@@ -91,28 +91,6 @@ const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '__generated__',
 ]);
 
-/**
- * Exported so the preset-coherence test can assert the invariant structurally:
- * balanced must never traverse what full-root excludes for SAFETY. Full-root is
- * the more permissive preset, so a leak in that direction is always a bug.
- */
-export const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES: readonly string[] = Object.freeze([
-  '.git',
-  '.turbo',
-  '.cache',
-  '.nyc_output',
-  '.next',
-  '.nuxt',
-  '.svelte-kit',
-  '.vercel',
-  '.parcel-cache',
-  '.vite',
-  '.pnpm-store',
-  'node_modules',
-  'coverage',
-  'dist',
-]);
-
 const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   '.git',
   '.turbo',
@@ -135,6 +113,17 @@ const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
   'temp',
   'out',
   'target',
+]);
+
+/**
+ * DERIVED from the set above, never hand-copied (review of #2596). The
+ * preset-coherence test iterates this, so a second literal would guard only the
+ * names someone remembered to paste into it — which is precisely the omission
+ * that let `.pnpm-store` through in the first place. Deriving makes the two
+ * incapable of drifting apart.
+ */
+export const FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES: readonly string[] = Object.freeze([
+  ...FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENTS,
 ]);
 
 /**

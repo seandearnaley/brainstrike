@@ -25,6 +25,7 @@ import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
+import { ASSISTANT_MAX_PROCESSOR_RETRIES, buildAssistantErrorProcessors } from './error-processors';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionToolGateLogger,
@@ -54,6 +55,11 @@ export interface BuildPersonaSubAgentsParams {
   readonly logger: PermissionToolGateLogger;
   readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
   readonly personas: readonly AssistantPersonaDefinition[];
+  /**
+   * The PARENT run's normalized provider, used to build the child's error
+   * processors. A pinned persona overrides it with its own provider.
+   */
+  readonly provider: string;
   /**
    * The PARENT run's resolved tool-result budget (BST-1206). Un-pinned
    * personas project their tools against this. A pinned persona instead
@@ -113,12 +119,21 @@ export const CHILD_WRAP_UP_FEEDBACK =
  *
  * Core only injects the feedback when the model intended to continue (it checks
  * `stepResult.isContinued`), so a child that already answered is never
- * interrupted, and a child that stopped on its own is left alone.
+ * interrupted and a child that stopped on its own is left alone. That gate is
+ * the ONLY completion signal this policy relies on.
+ *
+ * It deliberately does NOT look at the step's `text` (review of #2596). Claude
+ * and GPT routinely narrate alongside a tool call ("Let me check the packages
+ * directory..."), so text is non-empty on an ordinary tool-looping step.
+ * Treating that as "already answering" suppressed the reserve, let the child
+ * spend its last step on another tool, and then handed the parent the PREAMBLE
+ * as the analysis — non-empty, so the no-answer path never fired either. That is
+ * BST-1410 again in a plausible disguise, on exactly the models this targets.
  */
 export function buildChildIterationPolicy(): NonNullable<
   AgentExecutionOptions['onIterationComplete']
 > {
-  return ({ iteration, maxIterations, text }) => {
+  return ({ iteration, maxIterations }) => {
     if (typeof maxIterations !== 'number' || maxIterations < 2) {
       // Nothing to reserve: a one-step child has no earlier step to spend on
       // tools, so forcing a wrap-up would consume its only turn.
@@ -126,10 +141,6 @@ export function buildChildIterationPolicy(): NonNullable<
     }
     // Fire on the step BEFORE the cap so the reserved turn still fits inside it.
     if (iteration < maxIterations - 1) {
-      return;
-    }
-    if (text.trim() !== '') {
-      // Already answering — do not interrupt a child that is mid-summary.
       return;
     }
     return { continue: false, feedback: CHILD_WRAP_UP_FEEDBACK };
@@ -345,6 +356,17 @@ export function buildPersonaSubAgents(
     // The child agent id MUST equal the persona id: Mastra sets
     // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps
     // (subagent-delegation.ts) resolve the persona by that id.
+    // Children get the SAME error-processor layer as the parent (review of
+    // #2596). Without it a child has no `PrefillErrorHandler`, and the wrap-up
+    // turn is exactly when it would be needed: Mastra appends the feedback as an
+    // ASSISTANT message, so the child's next request ends on an assistant turn —
+    // the assistant-prefill shape that processor exists to recover from. A child
+    // that fails precisely when its summary is due would reintroduce BST-1410
+    // through the mechanism meant to fix it. Resolved against the child's OWN
+    // provider so a pinned persona is handled on its own terms.
+    const childErrorProcessors = buildAssistantErrorProcessors(
+      persona.model?.provider ?? params.provider
+    );
     subAgents[persona.id] = new Agent({
       // Carried on the CHILD so it applies when Mastra invokes the delegation
       // internally: `Agent.stream()` deep-merges `defaultOptions` with the
@@ -354,6 +376,14 @@ export function buildPersonaSubAgents(
       description: persona.description,
       id: persona.id,
       instructions: buildChildInstructions(persona, keptOriginalNames),
+      // Any `errorProcessors` flips Mastra's processor-retry default, so the
+      // pinned budget travels with them exactly as it does on the parent.
+      ...(childErrorProcessors
+        ? {
+            errorProcessors: childErrorProcessors,
+            maxProcessorRetries: ASSISTANT_MAX_PROCESSOR_RETRIES,
+          }
+        : {}),
       model: childModel,
       name: persona.label,
       tools: projectedChildTools,

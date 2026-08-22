@@ -68,6 +68,7 @@ export function resolvePersonaRuntimeParts(params: {
     logger,
     permissionSnapshot: params.permissionSnapshot,
     personas: params.personas ?? [],
+    provider: params.provider,
     resolvedToolResultBudget: params.resolvedToolResultBudget,
     resolvePinnedModel: params.resolvePinnedModel,
     toolNameMap: params.toolNameMap,
