@@ -101,7 +101,10 @@ describe('useThreadBranchByRootPath', () => {
 
     renderHook(() => useThreadBranchByRootPath({ enabled: false }));
 
-    expect(useGitInventoryMock.mock.calls[0]?.[0]).toEqual({ deferInitialLoad: true });
+    expect(useGitInventoryMock.mock.calls[0]?.[0]).toEqual({
+      active: false,
+      deferInitialLoad: true,
+    });
   });
 
   it('requests the scan once enabled', () => {
@@ -109,7 +112,10 @@ describe('useThreadBranchByRootPath', () => {
 
     renderHook(() => useThreadBranchByRootPath({ enabled: true }));
 
-    expect(useGitInventoryMock.mock.calls[0]?.[0]).toEqual({ deferInitialLoad: false });
+    expect(useGitInventoryMock.mock.calls[0]?.[0]).toEqual({
+      active: true,
+      deferInitialLoad: false,
+    });
   });
 
   it('reports unavailable with an empty map on web, where there is no bridge', () => {
