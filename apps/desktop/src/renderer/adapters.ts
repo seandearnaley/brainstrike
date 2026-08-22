@@ -14,6 +14,7 @@ import type {
   FileSystemWatchEvent,
   FileSystemWatchSignal,
   IFileNode,
+  RecentRootEntry,
   RootDescriptor,
   WatcherHealthEvent,
   WatcherRetryOutcome,
@@ -199,6 +200,19 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
 
   async addRoot(): Promise<RootDescriptor> {
     return requireElectronAPI().fileSystem.addRoot();
+  }
+
+  /**
+   * Desktop-only capability (web omits it rather than stubbing): re-mount a
+   * folder main's recent-roots ledger already records as granted. Main rejects
+   * anything else — this is not a general open-any-path door.
+   */
+  async addRootByPath(rootPath: string): Promise<RootDescriptor> {
+    return requireElectronAPI().fileSystem.addRootByPath(rootPath);
+  }
+
+  async listRecentRoots(): Promise<readonly RecentRootEntry[]> {
+    return requireElectronAPI().fileSystem.listRecentRoots();
   }
 
   async restoreRoots(): Promise<RootDescriptor[]> {

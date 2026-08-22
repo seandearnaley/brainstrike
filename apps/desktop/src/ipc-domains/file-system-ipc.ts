@@ -591,6 +591,24 @@ export function registerFileSystemIpcHandlers({
     addSelectedRoot()
   );
 
+  // Picker-less: main's recent-roots ledger is the only authorization, so an
+  // unrecorded path is rejected there rather than granted from a renderer
+  // string. The shape check stays here so a malformed payload never reaches it.
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.addRootByPath,
+    async (_event, requestedPath: unknown) => {
+      if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
+        throw new Error('fs:addRootByPath requires a non-empty path.');
+      }
+      return roots.addRootByPath(requestedPath);
+    }
+  );
+
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.listRecentRoots, async () =>
+    roots.listRecentRoots()
+  );
+
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.removeRoot,

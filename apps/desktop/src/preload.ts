@@ -34,8 +34,10 @@ const DB_QUERY_CHANNEL = 'db:query' as const;
 const DB_RESET_LOCAL_CHANNEL = 'db:resetLocal' as const;
 const DB_TEST_CHANNEL = 'db:test' as const;
 const DB_TRANSACTION_CHANNEL = 'db:transaction' as const;
+const FILE_SYSTEM_ADD_ROOT_BY_PATH_CHANNEL = 'fs:addRootByPath' as const;
 const FILE_SYSTEM_ADD_ROOT_CHANNEL = 'fs:addRoot' as const;
 const FILE_SYSTEM_EXISTS_CHANNEL = 'fs:exists' as const;
+const FILE_SYSTEM_LIST_RECENT_ROOTS_CHANNEL = 'fs:listRecentRoots' as const;
 const FILE_SYSTEM_READ_DIRECTORY_CHANNEL = 'fs:readDirectory' as const;
 const FILE_SYSTEM_READ_FILE_BY_ABSOLUTE_PATH_CHANNEL = 'fs:readFileByAbsolutePath' as const;
 const FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL = 'fs:readFileByPath' as const;
@@ -650,8 +652,11 @@ if (shouldExposeBridge('electronAPI')) {
     },
     fileSystem: {
       addRoot: () => ipcRenderer.invoke(FILE_SYSTEM_ADD_ROOT_CHANNEL),
+      addRootByPath: (path: string) =>
+        ipcRenderer.invoke(FILE_SYSTEM_ADD_ROOT_BY_PATH_CHANNEL, path),
       exists: (path: string) => ipcRenderer.invoke(FILE_SYSTEM_EXISTS_CHANNEL, path),
       getWatcherTelemetry: () => ipcRenderer.invoke(FILE_SYSTEM_WATCH_TELEMETRY_CHANNEL),
+      listRecentRoots: () => ipcRenderer.invoke(FILE_SYSTEM_LIST_RECENT_ROOTS_CHANNEL),
       // One-way main→renderer watch pushes (fs:watch-event). Mirrors the other
       // subscribe-returns-unsubscribe bridges (e.g. power.onPowerState).
       onWatchEvent: (
