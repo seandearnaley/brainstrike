@@ -96,6 +96,12 @@ export interface AssistantThreadMetadata {
   readonly operatingRootPath?: string;
   readonly provider?: string;
   readonly providerOptions?: Record<string, unknown>;
+  /**
+   * Durable DB `roots.id` values of the thread's SECONDARY folders (the
+   * primary is `operatingRootId`). Display + per-thread folder set only:
+   * tool scope still follows the server's workspace-root inventory.
+   */
+  readonly secondaryRootIds?: readonly string[];
   readonly source?: string;
 }
 
@@ -1283,6 +1289,7 @@ const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
   'operatingRootPath',
   'provider',
   'providerOptions',
+  'secondaryRootIds',
   'source',
 ]);
 
@@ -1479,6 +1486,25 @@ function optionalOperatingRootMetadataString(
   return value;
 }
 
+function optionalSecondaryRootIds(value: unknown): readonly string[] | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid assistant thread metadata secondary root ids.');
+  }
+  const ids: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string' || entry.length === 0) {
+      throw new Error('Invalid assistant thread metadata secondary root ids.');
+    }
+    if (!ids.includes(entry)) {
+      ids.push(entry);
+    }
+  }
+  return ids;
+}
+
 function assertOptionalThreadMetadataString(value: string | undefined, label: string): void {
   if (value !== undefined && !optionalString(value)) {
     throw new Error(`Invalid assistant thread metadata ${label}.`);
@@ -1528,6 +1554,7 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   );
   const providerOptions = optionalRecord(value['providerOptions']);
   const source = optionalString(value['source']);
+  const secondaryRootIds = optionalSecondaryRootIds(value['secondaryRootIds']);
   assertCompleteOperatingRootMetadata({
     ...(operatingRootDisplayName ? { operatingRootDisplayName } : {}),
     ...(operatingRootId ? { operatingRootId } : {}),
@@ -1557,6 +1584,9 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   }
   if (operatingRootPath) {
     metadata.operatingRootPath = operatingRootPath;
+  }
+  if (secondaryRootIds) {
+    metadata.secondaryRootIds = secondaryRootIds;
   }
   if (providerOptions) {
     metadata.providerOptions = providerOptions;
@@ -1593,6 +1623,9 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   assertOptionalThreadMetadataString(metadata.operatingRootId, 'operating root id');
   assertOptionalThreadMetadataString(metadata.operatingRootPath, 'operating root path');
   assertOptionalThreadMetadataString(metadata.source, 'source');
+  if (metadata.secondaryRootIds !== undefined) {
+    optionalSecondaryRootIds(metadata.secondaryRootIds);
+  }
   if (metadata.modelSettings !== undefined && !optionalRecord(metadata.modelSettings)) {
     throw new Error('Invalid assistant thread metadata model settings.');
   }
@@ -3659,12 +3692,19 @@ export function createPgliteAssistantThreadRepository(
     },
     async updateThreadMetadata(threadId: string, metadata: AssistantThreadMetadata): Promise<void> {
       assertPersistableThreadMetadata(metadata);
+      const dedupedSecondaryRootIds = metadata.secondaryRootIds
+        ? optionalSecondaryRootIds(metadata.secondaryRootIds)
+        : undefined;
+      const normalized: AssistantThreadMetadata = {
+        ...metadata,
+        ...(dedupedSecondaryRootIds ? { secondaryRootIds: dedupedSecondaryRootIds } : {}),
+      };
       await initialize();
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
          SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
          WHERE id = $1`,
-        [threadId, JSON.stringify(metadata)]
+        [threadId, JSON.stringify(normalized)]
       );
     },
     async updateThreadsMetadata(
