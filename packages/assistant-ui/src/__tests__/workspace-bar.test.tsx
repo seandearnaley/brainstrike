@@ -57,6 +57,8 @@ describe('WorkspaceBar', () => {
       />
     );
 
+    expect(screen.getByTestId('workspace-bar')).toBeInTheDocument();
+
     const chip = screen.getByTestId('workspace-bar-folder-chip');
     expect(chip).toHaveTextContent('brainstrike');
     expect(chip).toHaveTextContent('+2');
@@ -77,6 +79,31 @@ describe('WorkspaceBar', () => {
     await user.click(await screen.findByTestId('workspace-bar-add-folder'));
 
     expect(onAddFolder).toHaveBeenCalledTimes(1);
+  });
+
+  it('still shows mounted secondaries when there is no primary root', async () => {
+    const user = setup();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          primaryRoot: undefined,
+          secondaryRoots: [{ displayName: 'docs', rootId: 'r-docs' }],
+        })}
+      />
+    );
+
+    // Callers must not pass secondaryRoots without primaryRoot (see the
+    // primaryRoot doc in workspace-bar.tsx), but if that invariant is
+    // violated the bar must not silently hide already-mounted state: the CTA
+    // stays in its no-primary form (no "+1" badge)...
+    const chip = screen.getByTestId('workspace-bar-folder-chip');
+    expect(chip).toHaveTextContent('Choose a folder');
+    expect(chip).not.toHaveTextContent('+1');
+
+    // ...but the secondary itself still appears in the open menu.
+    await openFolderMenu(user);
+    expect(screen.getByTestId('workspace-bar-root-r-docs')).toBeInTheDocument();
+    expect(screen.getByText('docs')).toBeInTheDocument();
   });
 
   it('lists recents only when onAddRecent is provided and calls it with the path', async () => {
@@ -170,6 +197,13 @@ describe('WorkspaceBar', () => {
     await openFolderMenu(user);
     await openRootSubmenu(user, 'r-main');
 
+    // The primary's submenu offers Reveal/Copy but never the secondary-only
+    // actions — the "never Remove for the primary" invariant, asserted here
+    // where the primary submenu is actually open (not just absent from a
+    // closed menu).
+    expect(screen.queryByTestId('workspace-bar-remove-secondary-r-main')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-bar-make-primary-r-main')).not.toBeInTheDocument();
+
     await user.click(await screen.findByTestId('workspace-bar-reveal-r-main'));
     expect(onRevealRoot).toHaveBeenCalledWith('/ws/brainstrike');
 
@@ -193,6 +227,11 @@ describe('WorkspaceBar', () => {
     expect(chip).toHaveTextContent('↑2');
     expect(chip).not.toHaveTextContent('↓');
     expect(chip).toHaveAttribute('data-dirty', 'false');
+    // The glyph cluster is compact by design; the spelled-out summary is what
+    // assistive tech actually gets (role="img" + aria-label built in
+    // branch-chip.tsx), so pin it directly rather than re-deriving it from
+    // the glyphs above.
+    expect(chip).toHaveAccessibleName('On branch main · 2 ahead · clean');
 
     rerender(
       <WorkspaceBar

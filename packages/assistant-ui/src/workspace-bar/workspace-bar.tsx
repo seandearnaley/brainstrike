@@ -35,7 +35,13 @@ export interface WorkspaceBarProps {
   readonly onMakePrimary: (rootId: string) => void;
   readonly onRemoveSecondary: (rootId: string) => void;
   readonly onRevealRoot?: ((path: string) => void) | undefined;
-  /** undefined = no folder connected → the chip renders the "Choose a folder" CTA. */
+  /**
+   * undefined = no folder connected → the chip renders the "Choose a folder"
+   * CTA. Secondaries are only meaningful alongside a primary — callers must
+   * not pass `secondaryRoots` without also passing `primaryRoot`. The bar
+   * still renders any mounted secondaries in that case (never hides mounted
+   * state), but the CTA and "+N" badge stay in their no-primary form.
+   */
   readonly primaryRoot?: WorkspaceBarRoot | undefined;
   readonly recentRoots: readonly WorkspaceBarRecentRoot[];
   readonly secondaryRoots: readonly WorkspaceBarRoot[];

@@ -198,12 +198,12 @@ export const FolderChip = ({
         <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
-        {primaryRoot ? (
+        {primaryRoot || secondaryRoots.length > 0 ? (
           <>
             <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
               This thread
             </DropdownMenuLabel>
-            <RootRow isPrimary root={primaryRoot} {...rootHandlers} />
+            {primaryRoot ? <RootRow isPrimary root={primaryRoot} {...rootHandlers} /> : null}
             {secondaryRoots.map((root) => (
               <RootRow isPrimary={false} key={root.rootId} root={root} {...rootHandlers} />
             ))}
