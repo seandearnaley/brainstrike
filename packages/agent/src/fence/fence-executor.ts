@@ -277,6 +277,48 @@ function processGroupState(pid: number): ProcessGroupState {
   return signalTree(pid, 0);
 }
 
+/**
+ * Does the group LEADER itself still exist?
+ *
+ * Used to disambiguate an EPERM from the group probe. `kill(-pgid, 0)` is
+ * documented to fail with ESRCH when no process matches, but macOS returns
+ * EPERM for a DEFUNCT group id whose members have all gone — observed
+ * deterministically under the sandbox fence, with the leader already reaped and
+ * `ps` showing zero processes carrying that pgid.
+ *
+ * A positive-pid probe has no such ambiguity: it names one process.
+ */
+function processLeaderState(pid: number): ProcessGroupState {
+  try {
+    process.kill(pid, 0);
+    return 'alive';
+  } catch (error) {
+    if (hasErrorCode(error, 'ESRCH')) {
+      return 'gone';
+    }
+    if (hasErrorCode(error, 'EPERM')) {
+      return 'unsignalable';
+    }
+    throw error;
+  }
+}
+
+/**
+ * Is an EPERM from the group probe actually "teardown complete"?
+ *
+ * ONLY when the leader is gone as well. Then there is no process left in that
+ * group we could have created and could still signal, so the confirmation this
+ * loop exists to make has been made — by a different route.
+ *
+ * A leader that is still alive keeps EPERM fatal: that is the genuine
+ * "the group exists and is not ours to kill" case, and silently passing it
+ * would reopen the escape this confirmation closed (a descendant outliving its
+ * run and inheriting the next run's policy).
+ */
+function isDefunctGroupEperm(pid: number): boolean {
+  return processLeaderState(pid) === 'gone';
+}
+
 export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals): Promise<void> {
   let state: ProcessGroupState;
   try {
@@ -312,6 +354,9 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
       return;
     }
     if (state === 'unsignalable') {
+      if (isDefunctGroupEperm(pid)) {
+        return;
+      }
       throw new FenceProcessGroupTeardownError(
         pid,
         new Error(`Process group ${pid} still exists but cannot be probed by this process.`)

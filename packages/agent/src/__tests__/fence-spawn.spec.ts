@@ -195,6 +195,55 @@ describe('spawnFenced teardown', () => {
     }
   );
 
+  it('accepts a DEFUNCT-group EPERM when the leader is gone too', async () => {
+    // macOS returns EPERM (not the documented ESRCH) from `kill(-pgid, 0)` for
+    // a group id whose members have all gone. Observed deterministically under
+    // the sandbox fence with the leader already reaped and `ps` showing zero
+    // processes carrying that pgid — which made #2613's confirmation loop
+    // reject every normal teardown on this host.
+    //
+    // The leader probe disambiguates: nothing is left that we could signal, so
+    // the confirmation has been made by another route.
+    const kill = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target === -55 && signal === 'SIGKILL') {
+        return true;
+      }
+      if (target === -55) {
+        throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+      }
+      throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
+    });
+    try {
+      await expect(terminateProcessGroup(55, 'SIGKILL')).resolves.toBeUndefined();
+      expect(kill).toHaveBeenCalledWith(55, 0);
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
+  it('keeps EPERM FATAL while the leader is still alive', async () => {
+    // The genuine "the group exists and is not ours to kill" case. Passing it
+    // would reopen exactly the escape the confirmation closed: a descendant
+    // outliving its run and inheriting the next run's policy.
+    const kill = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target === -55 && signal === 'SIGKILL') {
+        return true;
+      }
+      if (target === -55) {
+        throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+      }
+      return true;
+    });
+    try {
+      await expect(terminateProcessGroup(55, 'SIGKILL')).rejects.toMatchObject({
+        code: 'fence_process_group_teardown_failed',
+        pid: 55,
+      });
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
   it('bounds SIGKILL confirmation when a process group never disappears', async () => {
     vi.useFakeTimers();
     const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
