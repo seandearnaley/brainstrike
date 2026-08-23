@@ -109,7 +109,13 @@ describe('empty model response recovery', () => {
     const stalled = findRunEventChunks(chunks, 'run.stalled');
     expect(stalled).toHaveLength(1);
     expect(stalled[0]?.event.metadata).toMatchObject({ code: 'empty_model_response' });
-    expect(findRunEventChunks(chunks, 'run.resumed')).toHaveLength(1);
+    const resumed = findRunEventChunks(chunks, 'run.resumed');
+    expect(resumed).toHaveLength(1);
+    // `run.stalled`/`run.resumed` are the ONLY durable record of a recovered
+    // attempt, so the pair must name the fault that actually happened —
+    // "Continuing after a stall" here would describe a stall that never
+    // occurred, in the exact text a debug bundle shows.
+    expect(resumed[0]?.event.label).toBe('Continuing after an empty response');
 
     // The turn ends as a SUCCESS with the recovered text.
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'recovered answer' });
@@ -154,6 +160,66 @@ describe('empty model response recovery', () => {
     setMockStreamParts([
       { delta: 'thinking it through', type: 'reasoning-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 7 } },
+    ]);
+
+    const chunks = await collectChunks();
+
+    expect(findRunEventChunks(chunks, 'run.stalled')).toHaveLength(0);
+    expect(findRunEventChunks(chunks, 'run.finished')).toHaveLength(1);
+    expect(agentInstances[0]?.streamCalls).toHaveLength(1);
+  });
+
+  it("carries the empty attempt's spend into the recovered turn's ledger", async () => {
+    resetMastraStreamHarness();
+    emptyMessageList();
+    // BILLING IS PER TURN: a recovered turn really did spend the empty
+    // attempt's tokens. An empty attempt reports its usage on the TERMINAL
+    // finish (there is no step-finish to carry it), so absorbing that usage
+    // before throwing is the only way the ledger stays honest — otherwise the
+    // user is billed for a prompt the run ledger never records.
+    setMockStreamPartsForCall(1, [
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: 0.002 } } },
+        type: 'finish',
+        usage: { completionTokens: 0, promptTokens: 12_000 },
+      },
+    ]);
+    setMockStreamPartsForCall(2, [
+      { textDelta: 'recovered', type: 'text-delta' },
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: 0.001 } } },
+        type: 'finish',
+        usage: { completionTokens: 5, promptTokens: 7 },
+      },
+    ]);
+
+    const chunks = await collectChunks();
+
+    const finish = finishChunks(chunks).at(-1) as
+      | { billedCostUsd?: number; usage?: { completionTokens: number; promptTokens: number } }
+      | undefined;
+    expect(finish?.usage?.promptTokens).toBe(12_007);
+    expect(finish?.usage?.completionTokens).toBe(5);
+  });
+
+  it('does not treat a TOOL-ONLY turn as an empty response', async () => {
+    resetMastraStreamHarness();
+    emptyMessageList();
+    // A turn whose model output was a tool call carries no text or reasoning
+    // delta at all. Tool parts are model contribution; re-streaming such a
+    // turn would re-execute its tools and then fail a real answer as "empty".
+    setMockStreamParts([
+      {
+        payload: { args: {}, toolCallId: 'call-1', toolName: 'read_file' },
+        type: 'tool-call',
+      },
+      {
+        payload: { result: { text: 'ok' }, toolCallId: 'call-1', toolName: 'read_file' },
+        type: 'tool-result',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 4, promptTokens: 9 } },
     ]);
 
     const chunks = await collectChunks();
