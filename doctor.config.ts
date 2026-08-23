@@ -29,7 +29,7 @@
  * while we burn it down in stacked PRs.
  */
 export default {
-  // Local default; CI overrides scope/blocking via the Action inputs.
+  // Shared default; the root script and CI Action set scope, and CI also sets blocking.
   blocking: 'error' as const,
 
   categories: {
