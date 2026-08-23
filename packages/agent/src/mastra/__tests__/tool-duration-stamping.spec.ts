@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { createToolExecutionDurations } from '../../tools/tool-execution-durations';
 import { createDelegationLifecycleTracker } from '../subagent-delegation';
 import type { ToolLifecycleState } from '../tool-lifecycle-processors';
-import { mapToolLifecyclePart } from '../tool-lifecycle-processors';
+import {
+  makePendingToolOutputRunEventChunks,
+  mapToolLifecyclePart,
+} from '../tool-lifecycle-processors';
 
 /**
  * The WIRING between the guard's measurement and the terminal run event.
@@ -82,5 +85,42 @@ describe('terminal tool run events carry the measured duration', () => {
     ) as { event: { durationMs?: number } } | undefined;
 
     expect(event?.event.durationMs).toBeUndefined();
+  });
+
+  it('stamps the buffered output-only completion too', () => {
+    // Mastra can terminate a successful call with `tool-output` and no later
+    // `tool-result`. That completion is BUFFERED and flushed by
+    // makePendingToolOutputRunEventChunks, which builds its own event — so a
+    // stamp applied only on the tool-result path leaves this supported stream
+    // shape falling back to the start-to-terminal gap, approval wait included.
+    const durations = createToolExecutionDurations();
+    durations.record('call-1', 2000);
+    const state = lifecycleState(durations);
+
+    // A `tool-output` success with no following `tool-result` buffers instead
+    // of emitting.
+    const buffered = mapToolLifecyclePart(
+      {
+        payload: { output: { ok: true }, toolCallId: 'call-1', toolName: 'executeCommand' },
+        type: 'tool-output',
+      },
+      new Map([['executeCommand', 'brainstrike.executeCommand']]),
+      state,
+      'tool-output',
+      undefined,
+      new Map()
+    ).chunks;
+    expect(
+      buffered.some(
+        (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'tool.completed'
+      )
+    ).toBe(false);
+
+    const flushed = makePendingToolOutputRunEventChunks(state);
+    const event = flushed.find(
+      (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'tool.completed'
+    ) as { event: { durationMs?: number } } | undefined;
+
+    expect(event?.event.durationMs).toBe(2000);
   });
 });

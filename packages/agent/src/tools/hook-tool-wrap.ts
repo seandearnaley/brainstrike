@@ -27,6 +27,7 @@ import {
   type HookBlockedToolError,
   readHookResultEnvelope,
 } from './hook-runner';
+import type { ToolExecutionDurations } from './tool-execution-durations';
 import type { ToolLogger } from './types';
 
 interface ExecutableLike {
@@ -130,10 +131,35 @@ function createHookPayloadTransform(
 }
 
 export interface ApplyToolHooksOptions {
+  /**
+   * Records execution time for calls that never reach the guard.
+   *
+   * This wrapper composes OUTSIDE `guardToolExecution`, so a PreToolUse BLOCK
+   * returns without invoking the guarded `execute` — and the guard is where the
+   * measurement normally happens. Without an entry here the consumer falls back
+   * to the `tool.started` → terminal timestamp gap, which for an approval-gated
+   * call reports the whole human approval wait as execution time.
+   *
+   * Only the SHORT-CIRCUIT is recorded. An allowed call passes through to the
+   * guard, whose measurement of the real work must not be overwritten by this
+   * wrapper's overhead.
+   */
+  readonly durations?: ToolExecutionDurations;
   readonly hookRunner: AgentHookRunner;
   readonly logger?: ToolLogger;
   /** Maps the Mastra-sanitized tool id → the user-facing name matchers use. */
   readonly toolNameMap: ReadonlyMap<string, string>;
+}
+
+/** Mirrors `readToolCallId` in `./guard-tool-execution.ts`. */
+function readHookToolCallId(args: readonly unknown[]): string | undefined {
+  const context = args[1];
+  if (!(context && typeof context === 'object')) {
+    return;
+  }
+  const record = context as { agent?: { toolCallId?: unknown }; toolCallId?: unknown };
+  const candidate = record.agent?.toolCallId ?? record.toolCallId;
+  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
 }
 
 function extractToolInput(args: readonly unknown[]): unknown {
@@ -207,7 +233,7 @@ export function applyToolHooks<TMap extends Record<string, unknown>>(
   tools: TMap,
   opts: ApplyToolHooksOptions
 ): TMap {
-  const { hookRunner, toolNameMap, logger } = opts;
+  const { hookRunner, toolNameMap, logger, durations } = opts;
   const hooked: Record<string, unknown> = {};
 
   for (const [toolId, tool] of Object.entries(tools)) {
@@ -229,9 +255,17 @@ export function applyToolHooks<TMap extends Record<string, unknown>>(
 
     cloned.execute = async (...args: unknown[]): Promise<unknown> => {
       const toolInput = extractToolInput(args);
+      const startedAtMs = Date.now();
 
       const blocked = await runPreHook(hookRunner, originalName, toolInput, logger);
       if (blocked) {
+        // The tool never ran, so this is the hook's own elapsed time — small by
+        // construction, and honest. The alternative is no entry at all, which
+        // makes the consumer fall back to a gap spanning the approval wait.
+        const toolCallId = readHookToolCallId(args);
+        if (durations && toolCallId) {
+          durations.record(toolCallId, Date.now() - startedAtMs);
+        }
         return blocked;
       }
 

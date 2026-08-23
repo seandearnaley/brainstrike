@@ -203,6 +203,7 @@ function mergeSkillToolsIntoLocalTools(
 }
 
 function applyRuntimeToolHooks(params: {
+  durations: ToolExecutionDurations;
   guardedTools: ToolsInput;
   hookRunner: AgentHookRunner | undefined;
   toolNameMap: ReadonlyMap<string, string>;
@@ -211,6 +212,10 @@ function applyRuntimeToolHooks(params: {
     return params.guardedTools;
   }
   return applyToolHooks(params.guardedTools, {
+    // A PreToolUse BLOCK returns without reaching the guard, so the hook layer
+    // records that short-circuit itself — otherwise the consumer falls back to
+    // a timestamp gap that includes the approval wait.
+    durations: params.durations,
     hookRunner: params.hookRunner,
     logger,
     toolNameMap: params.toolNameMap,
@@ -478,6 +483,7 @@ export async function composeRuntimeToolMap(
   // can never widen access — permission runs downstream of `execute`, so a hook
   // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
   const hookedTools = applyRuntimeToolHooks({
+    durations: toolExecutionDurations,
     guardedTools,
     hookRunner: params.hookRunner,
     toolNameMap,

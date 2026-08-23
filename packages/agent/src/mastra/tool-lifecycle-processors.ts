@@ -366,12 +366,20 @@ export function makePendingToolOutputRunEventChunks(
     // Sequence remains the ordering source of truth; this timestamp preserves
     // when the output-only terminal observation happened for duration metrics.
     chunks.push(
-      makeRunEventChunk(
-        'tool.completed',
-        'completed',
-        'Tool completed',
-        makeToolEventMetadata(outputOnlyToolEvent.toolEvent),
-        outputOnlyToolEvent.timestamp
+      // Stamped here too: this is a SUPPORTED terminal shape (a `tool-output`
+      // success with no following `tool-result`), and a stamp applied only on
+      // the tool-result path would leave it falling back to the
+      // start-to-terminal gap — approval wait included.
+      withToolExecutionDuration(
+        makeRunEventChunk(
+          'tool.completed',
+          'completed',
+          'Tool completed',
+          makeToolEventMetadata(outputOnlyToolEvent.toolEvent),
+          outputOnlyToolEvent.timestamp
+        ),
+        lifecycleState,
+        toolCallId
       )
     );
   }
