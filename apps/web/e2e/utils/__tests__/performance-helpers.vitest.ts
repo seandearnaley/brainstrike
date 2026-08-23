@@ -182,6 +182,29 @@ describe('performance helpers (unit)', () => {
     });
   });
 
+  it('rejects a named checkbox whose checked state never changes (silent no-op)', async () => {
+    // A click that leaves the observable checked state identical means the
+    // interaction did not complete — the boundary must refuse to time it
+    // rather than report a plausible-looking frame sample.
+    const checkbox = createCheckbox(false, 'Select folder');
+    checkbox.click = vi.fn(() => {
+      // Deliberately does NOT toggle checked state.
+    });
+    const container = {
+      querySelectorAll: () => [checkbox],
+    };
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+
+    await expect(
+      measureNamedCheckboxInteractionFrame(createLocator([container]), {
+        name: 'Select folder',
+      })
+    ).rejects.toThrow('did not change checked state');
+  });
+
   it('fails visibly when a click does not change checked state', async () => {
     const checkbox = createCheckbox();
     checkbox.click = vi.fn();
