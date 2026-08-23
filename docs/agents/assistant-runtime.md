@@ -59,6 +59,22 @@ below are LIVE.
    Only an unrecoverable stall emits a visible assistant message, a terminal
    `run.failed` event, and an error finish so the renderer does not remain
    in-flight forever.
+   An EMPTY MODEL RESPONSE rides the same attempt rails: a terminal `finish`
+   whose reason would complete the run, on a turn the model contributed
+   NOTHING to (no text/reasoning delta carrying a non-whitespace character —
+   whitespace-only output renders an equally empty bubble — and no
+   tool-lifecycle part, across every attempt; the deltas themselves still
+   stream, since formatting whitespace between real tokens is meaningful —
+   `ToolLifecycleState.sawModelContribution`, carried
+   like the billing flags; resume legs initialize it true because the resumed
+   tool call is model output), throws `EmptyModelResponseError` from the
+   mapper's `finish` case instead of completing. Field case 2026-08-23:
+   OpenRouter's `stealth/ox-alpha` route degraded into HTTP 200 streams with
+   one instant zero-usage step and a clean `stop` finish; mapping that to
+   `run.finished` painted an empty assistant bubble marked "success". An
+   ABNORMAL finish reason is deliberately NOT re-classified — it already fails
+   the run with its own truth (gate: `COMPLETED_FINISH_REASONS`, shared with
+   `makeTerminalRunEvent` so the two cannot drift).
    The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
    `BRAINSTRIKE_TOOL_CALL_INPUT_MS` window as an absolute deadline from the
    first streamed tool-input marker to its matching input end/complete call.
@@ -230,8 +246,9 @@ currently exposes no explicit client reasoning-effort path.
 
 **EVERY error finish is a failed durable outcome, not just `length`.** All three
 parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
-by `makeProviderErrorTermination`, `makeStreamStalledTermination`, and
-`makeToolCallInputTimeoutTermination` (all four abnormal-ending policies live in
+by `makeProviderErrorTermination`, `makeStreamStalledTermination`,
+`makeToolCallInputTimeoutTermination`, and the empty-model-response termination
+(all five abnormal-ending policies live in
 `packages/agent/src/mastra/stream-termination.ts` since BST-986; the watchdog
 MECHANISM stays in `../stream/with-*-timeout.ts`). This was NOT true until 2026-07-25:
 `getAbnormalFinishMessage` returns `undefined` for `'error'` (deliberately — the

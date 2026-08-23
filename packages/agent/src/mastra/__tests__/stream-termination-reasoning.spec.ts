@@ -22,6 +22,7 @@ describe('makeStreamWatchdogTermination — reasoning stall', () => {
       includeCacheTokenClasses: false,
       outputOnlyToolEvents: new Map(),
       requiresBilledCost: false,
+      sawModelContribution: true,
       sawStepBilledCost: false,
       sawStepWithoutBilledCost: false,
       stepBilledCostUsd: 0,

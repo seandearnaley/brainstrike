@@ -643,6 +643,10 @@ describe('agent-runtime edge cases', () => {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({ textDelta: '', type: 'text-delta' });
+            // A non-empty delta keeps the turn from being (correctly)
+            // re-classified as an empty model response; the subject here is
+            // that the EMPTY delta is filtered.
+            controller.enqueue({ textDelta: 'kept', type: 'text-delta' });
             controller.enqueue({ type: 'finish', usage: {} });
             controller.close();
           },
@@ -660,9 +664,9 @@ describe('agent-runtime edge cases', () => {
         chunks.push(chunk);
       }
 
-      // Empty delta should be filtered out
+      // Empty delta should be filtered out; only the non-empty one survives.
       const textDeltas = chunks.filter((c) => (c as { type: string }).type === 'text-delta');
-      expect(textDeltas).toHaveLength(0);
+      expect(textDeltas).toEqual([{ type: 'text-delta', value: 'kept' }]);
 
       Agent.prototype.stream = originalStream;
     });
@@ -676,6 +680,10 @@ describe('agent-runtime edge cases', () => {
       Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
+            // Content ahead of the finish keeps the turn from being
+            // (correctly) re-classified as an empty model response; the
+            // subject here is the usage-format mapping on the finish.
+            controller.enqueue({ textDelta: 'usage-format answer', type: 'text-delta' });
             controller.enqueue({
               payload: {
                 output: {

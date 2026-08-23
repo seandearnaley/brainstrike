@@ -94,6 +94,18 @@ export interface ToolLifecycleState {
   /** Actual provider/Mastra prompt usage, absent when the stream never reported it. */
   providerReportedPromptTokens?: number;
   requiresBilledCost: boolean;
+  /**
+   * Whether the model contributed ANYTHING to the turn — a text or reasoning
+   * delta containing at least one non-whitespace character, or any
+   * tool-lifecycle part — across every attempt. Whitespace-only output is not
+   * contribution: that bubble is visually empty too.
+   * Carried like the billing flags: a continuation of a turn that already
+   * produced output must not re-classify that turn as empty. Read at the
+   * terminal `finish`: a turn-level-empty finish is an attempt fault
+   * (`EmptyModelResponseError`, retried on the BST-1409 rails), never a
+   * silently completed empty bubble.
+   */
+  sawModelContribution: boolean;
   sawStepBilledCost: boolean;
   sawStepWithoutBilledCost: boolean;
   /**
@@ -268,6 +280,20 @@ export function recordFirstTextLatency(delta: string, lifecycleState: ToolLifecy
   lifecycleState.firstTextLatencyMs = Math.max(0, Date.now() - lifecycleState.streamStartedAtMs);
 }
 
+/**
+ * Finish reasons {@link makeTerminalRunEvent} maps to a COMPLETED run. Also the
+ * gate for the empty-model-response guard: only a finish that would otherwise
+ * complete is re-classified as an attempt fault when the model contributed
+ * nothing — an abnormal reason (`length`, a provider failure sentinel) already
+ * fails the run with its own, more precise truth.
+ */
+export const COMPLETED_FINISH_REASONS: ReadonlySet<string> = new Set([
+  'absent',
+  'stop',
+  'tool-calls',
+  'unknown',
+]);
+
 export function makeTerminalRunEvent(
   part: unknown,
   lifecycleState: ToolLifecycleState
@@ -277,12 +303,7 @@ export function makeTerminalRunEvent(
     ...(makeLifecycleStepMetadata(part, lifecycleState) ?? {}),
     finishReason,
   };
-  if (
-    finishReason === 'absent' ||
-    finishReason === 'stop' ||
-    finishReason === 'tool-calls' ||
-    finishReason === 'unknown'
-  ) {
+  if (COMPLETED_FINISH_REASONS.has(finishReason)) {
     return makeRunEventChunk(
       'run.finished',
       'completed',
