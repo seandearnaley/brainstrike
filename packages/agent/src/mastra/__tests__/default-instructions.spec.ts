@@ -411,6 +411,25 @@ describe('parallel tool-call guidance', () => {
     );
 
     expect(instructions).toContain('Batch independent reads, searches, or commands into one turn.');
+    // No discovery installed for this run, so the exemption must NOT appear:
+    // naming search_tools here would advertise a tool the run does not have.
+    expect(instructions).not.toContain('search_tools');
+  });
+
+  it('exempts search_tools from batching ONLY when discovery is installed', () => {
+    // "Batch independent reads, searches, or commands into one turn" is a
+    // plausible proximate cause of the observed waste — a model scanning for
+    // permission to batch reads "searches" as covering search_tools. The
+    // exemption rides THIS line rather than only the discovery line ~15
+    // instructions away, because a caveat the model has to go looking for is
+    // one it will not apply.
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile']]),
+      { toolDiscoveryEnabled: true }
+    );
+    const batchLine =
+      instructions.split('\n').find((line) => line.startsWith('Batch independent')) ?? '';
+    expect(batchLine).toContain('never search_tools');
   });
 
   it('omits next-step parallelism when no read, search, or command tool is registered', () => {
@@ -620,5 +639,52 @@ describe('buildCurrentDateNote', () => {
     // its own guess: an earlier run wrote a fabricated date into DURABLE
     // memory, three days off, having reasoned "today's date is unknown".
     expect(buildCurrentDateNote(new Date(2026, 7, 23, 12)).toLowerCase()).toContain('training');
+  });
+});
+
+describe('tool-discovery guidance', () => {
+  const toolNameMap = new Map([
+    ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
+    ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
+  ]);
+
+  it('states when a discovered match becomes callable', () => {
+    // Observed waste: the model batched search_tools with two delegations that
+    // ran ~15 minutes each. The search itself resolved in 753ms, but its result
+    // is not callable until the NEXT turn, so the tool it found sat unusable
+    // for the whole delegation and the model searched again afterwards — three
+    // search_tools calls to locate one tool the user had named explicitly.
+    //
+    // The actionable half of that fix rides the BATCHING line (see the parallel
+    // tool-call suite); stating it twice would just spend prompt budget saying
+    // the same thing.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    expect(line).toContain('next turn');
+  });
+});
+
+describe('tool-discovery guidance', () => {
+  const toolNameMap = new Map([
+    ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
+    ['brainstrike_grepSearch', 'brainstrike.grepSearch'],
+  ]);
+
+  it('warns that a search batched with slow work wastes the discovery', () => {
+    // Observed waste: the model batched search_tools with two delegations that
+    // ran ~15 minutes each. The search itself resolved in 753ms, but its result
+    // is not callable until the NEXT turn, so the tool it found sat unusable
+    // for the whole delegation and the model searched again afterwards — three
+    // search_tools calls to locate one tool the user had named explicitly.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    // Asserts the two facts the model has to act on, not one phrasing of them:
+    // WHEN a match becomes callable, and what that rules out.
+    expect(text).toMatch(/NEXT turn/);
+    expect(text).toMatch(/long-running/);
+  });
+
+  it('says nothing about discovery when the catalog is not installed', () => {
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: false });
+    expect(text).not.toContain('search_tools');
   });
 });

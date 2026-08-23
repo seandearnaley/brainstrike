@@ -388,7 +388,21 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
  * a valid tool map that only registers, say, webSearch or lspInspect still
  * gets the instruction.
  */
-function buildParallelCallInstruction(names: ModelFacingToolNames): string {
+/**
+ * Batching guidance.
+ *
+ * Carries the `search_tools` exemption, deliberately placed HERE rather than
+ * only on the discovery line ~15 instructions away. "Batch independent reads,
+ * searches, or commands into one turn" is a plausible proximate cause of the
+ * observed waste: a model scanning for permission to batch reads "searches" as
+ * covering `search_tools`, and a caveat it has to go looking for is one it will
+ * not apply. Conditional on discovery being installed, so a run without it is
+ * never told about a tool it does not have.
+ */
+function buildParallelCallInstruction(
+  names: ModelFacingToolNames,
+  toolDiscoveryEnabled: boolean | undefined
+): string {
   const hasRelevantTool = [
     names.browserGetPageText,
     names.browserReadPage,
@@ -412,7 +426,13 @@ function buildParallelCallInstruction(names: ModelFacingToolNames): string {
   if (!hasRelevantTool) {
     return '';
   }
-  return 'Batch independent reads, searches, or commands into one turn.';
+  const base = 'Batch independent reads, searches, or commands into one turn';
+  // The exemption is CONDITIONAL on discovery actually being installed: naming
+  // a tool the run does not register would advertise a capability that is not
+  // there, which is the confusion this whole line exists to prevent.
+  return toolDiscoveryEnabled
+    ? `${base} — never search_tools, whose matches load only NEXT turn, so search before long-running work.`
+    : `${base}.`;
 }
 
 /**
@@ -533,6 +553,18 @@ function buildAskUserInstruction(names: ModelFacingToolNames): string {
   return `When you need a decision or information only the user has (an ambiguous request, a choice between approaches), ask with ${names.askUser} instead of guessing — the run pauses for their answer.`;
 }
 
+/**
+ * Deferred-capability guidance — emitted only when a catalog search is
+ * installed for the run.
+ *
+ * The next-turn clause is not a detail. A loaded match is unusable until the
+ * following turn, so batching `search_tools` with slow calls strands the
+ * discovery for the whole duration: an observed run issued it alongside two
+ * delegations that took ~15 minutes each, and spent three `search_tools` calls
+ * locating one tool the user had named explicitly. The ordering advice is the
+ * cheap half of that fix — the expensive half would be making a match callable
+ * in the turn that found it, which is Mastra's tool-search contract, not ours.
+ */
 function buildToolDiscoveryInstruction(
   names: ModelFacingToolNames,
   enabled: boolean | undefined
@@ -620,7 +652,7 @@ export function buildDefaultInstructions(
     : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
-  const parallelCallInstruction = buildParallelCallInstruction(names);
+  const parallelCallInstruction = buildParallelCallInstruction(names, options.toolDiscoveryEnabled);
   const hybridSearchClause = names.hybridSearch
     ? `Use ${names.hybridSearch} when a lookup mixes conceptual intent with distinctive exact terms.`
     : '';
