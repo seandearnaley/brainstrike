@@ -11,6 +11,11 @@ import {
   type WorkspaceIgnoreMatcher,
   type WorkspaceIgnoreSources,
 } from '@brainstrike/utils';
+import {
+  ancestorDirectoriesBetween,
+  findRepositoryRoot,
+  relativePosixPrefix,
+} from './repository-root';
 import { isWithinRoot } from './workspace-path';
 
 const logger = createLogger('AssistantWorkspaceFileWalk');
@@ -159,27 +164,6 @@ function expandHome(target: string): string {
 }
 
 /**
- * Locate the enclosing repository root by walking up for a `.git` entry (a
- * directory for a normal clone, a file for a worktree/submodule). Undefined
- * when the root is not inside a repo at all.
- */
-async function findRepositoryRoot(startAbsolutePath: string): Promise<string | undefined> {
-  let current = startAbsolutePath;
-  for (;;) {
-    try {
-      await fsPromises.stat(path.join(current, '.git'));
-      return current;
-    } catch {
-      const parent = path.dirname(current);
-      if (parent === current) {
-        return;
-      }
-      current = parent;
-    }
-  }
-}
-
-/**
  * One ignore scope that lives at or ABOVE the walk root.
  *
  * `pathPrefix` is empty when the file's directory IS the walk root, and
@@ -218,13 +202,21 @@ interface RootIgnoreChain {
  * form. Same-base layers avoid this by compiling into one matcher; parents
  * cannot, since their patterns are anchored elsewhere. Tracked as BST-1434.
  */
-async function readRootIgnoreChain(canonicalRootPath: string): Promise<RootIgnoreChain> {
-  const [globalExcludes, repositoryRoot] = await Promise.all([
-    readGlobalExcludes(canonicalRootPath),
-    findRepositoryRoot(canonicalRootPath),
-  ]);
+async function readRootIgnoreChain(
+  canonicalRootPath: string,
+  respectGitignore: boolean
+): Promise<RootIgnoreChain> {
   const merged: WorkspaceIgnoreSources = {};
   const prefixed: RootChainScope[] = [];
+
+  // Repo-root discovery is a stat walk and always runs, because the AGENT
+  // layers inherit from parents unconditionally. The git-config lookups below
+  // spawn subprocesses and stay gated: live grep walks without
+  // `respectGitignore` on every query, and must not pay for them.
+  const [globalExcludes, repositoryRoot] = await Promise.all([
+    respectGitignore ? readGlobalExcludes(canonicalRootPath) : undefined,
+    findRepositoryRoot(canonicalRootPath),
+  ]);
   if (repositoryRoot === undefined) {
     if (globalExcludes !== undefined) {
       merged.globalExcludes = globalExcludes;
@@ -232,7 +224,9 @@ async function readRootIgnoreChain(canonicalRootPath: string): Promise<RootIgnor
     return { merged, prefixed };
   }
 
-  const infoExclude = await readRepositoryInfoExclude(repositoryRoot);
+  const infoExclude = respectGitignore
+    ? await readRepositoryInfoExclude(repositoryRoot)
+    : undefined;
   const repoPrefix = relativePosixPrefix(repositoryRoot, canonicalRootPath);
   // Global excludes and `info/exclude` are anchored at the repository, so they
   // join the root scope only when the two coincide.
@@ -249,7 +243,11 @@ async function readRootIgnoreChain(canonicalRootPath: string): Promise<RootIgnor
     prefixed.push({ pathPrefix: repoPrefix, sources: repoScoped });
   }
 
-  for (const parent of await readParentGitignoreScopes(repositoryRoot, canonicalRootPath)) {
+  for (const parent of await readParentGitignoreScopes(
+    repositoryRoot,
+    canonicalRootPath,
+    respectGitignore
+  )) {
     prefixed.push(parent);
   }
   return { merged, prefixed };
@@ -261,7 +259,6 @@ async function readRootIgnoreChain(canonicalRootPath: string): Promise<RootIgnor
  * In a linked worktree or a submodule `.git` is a FILE pointing at the real
  * gitdir, so `<repo>/.git/info/exclude` does not exist and the advertised layer
  * silently vanishes — on a repo like this one, where worktrees are routine.
- * `git rev-parse --git-path` answers correctly in every layout.
  */
 async function readRepositoryInfoExclude(repositoryRoot: string): Promise<string | undefined> {
   const gitPath = await readGitConfigValue(['rev-parse', '--git-path', 'info/exclude'], {
@@ -274,47 +271,59 @@ async function readRepositoryInfoExclude(repositoryRoot: string): Promise<string
   return await readIgnoreFile(resolved);
 }
 
-/** POSIX path of `target` relative to `base`, or '' when they are the same. */
-function relativePosixPrefix(base: string, target: string): string {
-  const relative = path.relative(base, target);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return '';
-  }
-  return relative.split(path.sep).join('/');
-}
-
-/** One scope per `.gitignore` from the repo root down to (not including) the walk root. */
+/** One scope per parent directory, from the repo root down to (not including) the walk root. */
 async function readParentGitignoreScopes(
   repositoryRoot: string,
-  canonicalRootPath: string
+  canonicalRootPath: string,
+  respectGitignore: boolean
 ): Promise<RootChainScope[]> {
-  if (repositoryRoot === canonicalRootPath) {
-    return [];
-  }
-  const relative = path.relative(repositoryRoot, canonicalRootPath);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    return [];
-  }
-  const directories: string[] = [repositoryRoot];
-  let current = repositoryRoot;
-  for (const segment of relative.split(path.sep)) {
-    current = path.join(current, segment);
-    if (current !== canonicalRootPath) {
-      directories.push(current);
-    }
-  }
+  const directories = ancestorDirectoriesBetween(repositoryRoot, canonicalRootPath);
   const scopes = await Promise.all(
     directories.map(async (directory): Promise<RootChainScope | undefined> => {
-      const contents = await readIgnoreFile(path.join(directory, '.gitignore'));
-      return contents === undefined
+      const sources = await readParentIgnoreSources(directory, respectGitignore);
+      return sources === undefined
         ? undefined
-        : {
-            pathPrefix: relativePosixPrefix(directory, canonicalRootPath),
-            sources: { gitignore: contents },
-          };
+        : { pathPrefix: relativePosixPrefix(directory, canonicalRootPath), sources };
     })
   );
   return scopes.filter((scope): scope is RootChainScope => scope !== undefined);
+}
+
+/**
+ * The ignore files ONE parent directory contributes.
+ *
+ * Reads the AGENT files as well as `.gitignore`, which the first version did
+ * not — so a repo-root `.llmignore` protecting `packages/web/secrets/` did
+ * nothing at all once `packages/web` was opened as a workspace root, with no
+ * way for the user to see that (BST-1435). Inherited protection is the normal
+ * way a team ships one: at the repo root, covering everything beneath it.
+ *
+ * The agent files bind regardless of `respectGitignore`, exactly as they do
+ * per-directory inside the root.
+ */
+async function readParentIgnoreSources(
+  directory: string,
+  respectGitignore: boolean
+): Promise<WorkspaceIgnoreSources | undefined> {
+  const [gitignore, llmignore, brainstrikeignore] = await Promise.all([
+    respectGitignore ? readIgnoreFile(path.join(directory, '.gitignore')) : undefined,
+    readAgentIgnoreFile(path.join(directory, '.llmignore'), 'a parent directory (.llmignore)'),
+    readAgentIgnoreFile(
+      path.join(directory, '.brainstrikeignore'),
+      'a parent directory (.brainstrikeignore)'
+    ),
+  ]);
+  const sources: WorkspaceIgnoreSources = {};
+  if (gitignore !== undefined) {
+    sources.gitignore = gitignore;
+  }
+  if (llmignore !== undefined) {
+    sources.llmignore = llmignore;
+  }
+  if (brainstrikeignore !== undefined) {
+    sources.brainstrikeignore = brainstrikeignore;
+  }
+  return Object.keys(sources).length > 0 ? sources : undefined;
 }
 
 /**
@@ -337,9 +346,12 @@ const PER_DIRECTORY_IGNORE_FILES = [
 ] as const satisfies readonly (readonly [string, keyof WorkspaceIgnoreSources])[];
 
 /**
- * Read a text file, returning undefined when absent or unreadable. An
- * unreadable ignore file must never fail the walk: the static policy floor
- * still applies, so the worst case is a WIDER walk, not a broken one.
+ * Read a BYPASSABLE ignore file, returning undefined when absent or unreadable.
+ * An unreadable one must never fail the walk: the static policy floor still
+ * applies, so the worst case is a WIDER walk, not a broken one.
+ *
+ * NOT for the agent layers — see {@link readAgentIgnoreFile}, where a wider
+ * walk is precisely the harm.
  *
  * It must not be SILENT either. A real failure (permissions, a transient FS
  * error, a file deleted between listing and read) disables that scope's rules
@@ -364,23 +376,105 @@ async function readIgnoreFile(absolutePath: string): Promise<string | undefined>
 }
 
 /**
+ * Read an AGENT ignore file. Absent — or not a REGULAR FILE — returns
+ * undefined; any other failure THROWS and aborts the operation.
+ *
+ * The opposite of {@link readIgnoreFile}, and the asymmetry is the point.
+ * Failing open on `.gitignore` costs a wider walk. Failing open on `.llmignore`
+ * means the file the user marked "never read" is listed, indexed, and sent.
+ *
+ * THE `lstat` IS LOAD-BEARING, not defensive. Without it, fail-closed turns
+ * harmless on-disk states into a workspace that cannot be used at all and
+ * cannot be repaired from inside the app:
+ *   - a DIRECTORY named `.llmignore` -> `readFile` gives EISDIR -> every glob,
+ *     grep and guarded read in that workspace fails, permanently;
+ *   - a FIFO named `.llmignore` -> `readFile` blocks until a writer appears,
+ *     hanging the tool call with no timeout on this path.
+ * Neither can carry rules, so both are ABSENT rather than unreadable. This is
+ * the same discipline `readDirectoryIgnoreSources` applies inside the root via
+ * `dirent.isFile()`; the parent chain has no dirent, so it lstats instead.
+ */
+async function readAgentIgnoreFile(
+  absolutePath: string,
+  displayName: string
+): Promise<string | undefined> {
+  try {
+    // `stat`, NOT `lstat`: a SYMLINKED agent ignore file must be honoured. Users
+    // manage dotfiles by symlinking them to a shared config, and skipping those
+    // silently means the file they wrote to protect secrets protects nothing —
+    // the same class of failure this whole ticket is about. Following the link
+    // still rejects a directory or FIFO (and a symlink to one), so the brick
+    // and the hang stay closed.
+    const stat = await fsPromises.stat(absolutePath);
+    if (!stat.isFile()) {
+      return;
+    }
+  } catch (error) {
+    if (isAbsentErrorCode(error)) {
+      return;
+    }
+    throw agentIgnoreUnreadable(displayName, error);
+  }
+  try {
+    return await fsPromises.readFile(absolutePath, 'utf8');
+  } catch (error) {
+    if (isAbsentErrorCode(error)) {
+      return;
+    }
+    throw agentIgnoreUnreadable(displayName, error);
+  }
+}
+
+/** Errors that mean "there is no ignore file here", as opposed to "I could not read it". */
+function isAbsentErrorCode(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR';
+}
+
+/**
+ * The refusal for an unreadable agent ignore file.
+ *
+ * `displayName` is NEVER an absolute path. This message is returned to the
+ * model and therefore reaches the provider, and a parent-chain file can sit
+ * entirely outside the workspace (`/Users/alice/private-work/.llmignore`).
+ * Callers pass a workspace-relative path, or a bare description for parents.
+ */
+function agentIgnoreUnreadable(displayName: string, cause: unknown): Error {
+  return new Error(
+    `Cannot read the agent ignore file at ${displayName} (${(cause as NodeJS.ErrnoException).code ?? 'unknown error'}). Refusing to continue, because proceeding would surface files it exists to exclude.`,
+    { cause }
+  );
+}
+
+/**
  * Collect the ignore files this directory declares. Only names actually present
  * in the listing are read.
  */
 async function readDirectoryIgnoreSources(
   directoryAbsolutePath: string,
   dirEntries: readonly import('node:fs').Dirent[],
-  respectGitignore: boolean
+  respectGitignore: boolean,
+  relativePosix: string
 ): Promise<WorkspaceIgnoreSources | undefined> {
   const candidates = respectGitignore
     ? PER_DIRECTORY_IGNORE_FILES
     : PER_DIRECTORY_IGNORE_FILES.filter(([, layer]) => AGENT_IGNORE_LAYERS.has(layer));
-  const present = candidates.filter(([fileName]) =>
-    // isFile(), NOT !isDirectory(): a FIFO with one of these names would block
-    // the read until a writer appeared (hanging the whole glob), and a symlink
-    // would let ignore rules be sourced from outside the canonical root — the
-    // containment discipline every other read in this walk observes.
-    dirEntries.some((dirent) => dirent.name === fileName && dirent.isFile())
+  const present = candidates.filter(([fileName, layer]) =>
+    dirEntries.some((dirent) => {
+      if (dirent.name !== fileName) {
+        return false;
+      }
+      // For the BYPASSABLE layers: isFile(), NOT !isDirectory(). A FIFO with
+      // one of these names would block the read until a writer appeared, and a
+      // symlink would source rules from outside the canonical root.
+      //
+      // For the AGENT layers the dirent gate is deliberately skipped: it is
+      // lstat-based, so it drops a SYMLINKED `.llmignore` before the reader
+      // ever sees it, and a symlinked dotfile is how people share one.
+      // `readAgentIgnoreFile` stats through the link and still rejects a
+      // directory or FIFO, so nothing is loosened.
+      return AGENT_IGNORE_LAYERS.has(layer) || dirent.isFile();
+    })
   );
   if (present.length === 0) {
     return;
@@ -388,7 +482,13 @@ async function readDirectoryIgnoreSources(
   const sources: WorkspaceIgnoreSources = {};
   await Promise.all(
     present.map(async ([fileName, key]) => {
-      const contents = await readIgnoreFile(path.join(directoryAbsolutePath, fileName));
+      const absolute = path.join(directoryAbsolutePath, fileName);
+      const contents = AGENT_IGNORE_LAYERS.has(key)
+        ? await readAgentIgnoreFile(
+            absolute,
+            `${relativePosix === '' ? '' : `${relativePosix}/`}${fileName}`
+          )
+        : await readIgnoreFile(absolute);
       if (contents !== undefined) {
         sources[key] = contents;
       }
@@ -530,7 +630,8 @@ async function visitDirectory(
   const ownIgnoreSources = await readDirectoryIgnoreSources(
     currentAbsolutePath,
     dirEntries,
-    ctx.respectGitignore
+    ctx.respectGitignore,
+    relativePosix
   );
   const ignoreSources =
     relativePosix === '' && ctx.rootChain !== undefined
@@ -725,16 +826,18 @@ export async function walkWorkspaceRoot(options: WalkRootOptions): Promise<WalkR
     rootChain: undefined,
     scanLimited: false,
   };
-  if (options.respectGitignore === true) {
-    const chain = await readRootIgnoreChain(canonicalRootPath);
-    // Outermost first, so a deeper parent overrides a shallower one.
-    for (const scope of chain.prefixed) {
-      ctx.ignores?.push('', scope.sources, { pathPrefix: scope.pathPrefix });
-    }
-    // Same-base sources wait for the root directory's own scope so the two
-    // compile into ONE matcher instead of being folded by hand.
-    ctx.rootChain = chain.merged;
+  // ALWAYS read, whatever `respectGitignore` says: the agent layers inherit
+  // from parent directories, and a repo-root `.llmignore` is the normal way a
+  // team ships one. `readRootIgnoreChain` itself gates the git-config
+  // subprocesses, so a walk that opted out still pays only stats (BST-1435).
+  const chain = await readRootIgnoreChain(canonicalRootPath, options.respectGitignore === true);
+  // Outermost first, so a deeper parent overrides a shallower one.
+  for (const scope of chain.prefixed) {
+    ctx.ignores?.push('', scope.sources, { pathPrefix: scope.pathPrefix });
   }
+  // Same-base sources wait for the root directory's own scope so the two
+  // compile into ONE matcher instead of being folded by hand.
+  ctx.rootChain = chain.merged;
   await visitDirectory(ctx, canonicalRootPath, '');
   return { filesScanned: ctx.filesScanned, scanLimited: ctx.scanLimited };
 }

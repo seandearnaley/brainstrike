@@ -1,6 +1,11 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createWorkspaceIgnoreMatcher, type WorkspaceIgnoreSources } from '@brainstrike/utils';
+import {
+  ancestorDirectoriesBetween,
+  findRepositoryRoot,
+  relativePosixPrefix,
+} from './repository-root';
 
 /**
  * The HARD agent-ignore layers, queryable by arbitrary path (BST-1432).
@@ -49,18 +54,50 @@ const AGENT_IGNORE_FILES = [
  * boundary exists to prevent, arriving through the door marked robustness.
  * EACCES/EIO on a file the user put there to hide secrets must stop the read.
  */
-async function readIgnoreFile(absolutePath: string): Promise<string | undefined> {
+async function readIgnoreFile(
+  absolutePath: string,
+  displayName: string
+): Promise<string | undefined> {
+  try {
+    // `stat`, NOT `lstat`: a symlinked `.llmignore` (dotfile managers do this)
+    // must be honoured, or the file the user wrote to protect secrets protects
+    // nothing. Following the link still rejects a directory or FIFO, so the
+    // EISDIR brick and the FIFO hang stay closed. Mirrors the walk.
+    const stat = await fsPromises.stat(absolutePath);
+    if (!stat.isFile()) {
+      return;
+    }
+  } catch (error) {
+    if (isAbsent(error)) {
+      return;
+    }
+    throw unreadable(displayName, error);
+  }
   try {
     return await fsPromises.readFile(absolutePath, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isAbsent(error)) {
       return;
     }
-    throw new Error(
-      `Cannot read agent ignore file "${absolutePath}": ${(error as Error).message}. Refusing to proceed, because treating it as absent would grant access it exists to deny.`,
-      { cause: error }
-    );
+    throw unreadable(displayName, error);
   }
+}
+
+function isAbsent(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR';
+}
+
+/**
+ * `displayName` is never an absolute path: this message reaches the model and
+ * therefore the provider, and a parent-chain file can sit entirely outside the
+ * workspace.
+ */
+function unreadable(displayName: string, cause: unknown): Error {
+  return new Error(
+    `Cannot read the agent ignore file at ${displayName} (${(cause as NodeJS.ErrnoException).code ?? 'unknown error'}). Refusing to proceed, because treating it as absent would grant access it exists to deny.`,
+    { cause }
+  );
 }
 
 /**
@@ -91,6 +128,23 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
     Promise<ReturnType<typeof createWorkspaceIgnoreMatcher>>
   >();
 
+  /** Agent ignore files in one ABSOLUTE directory (used for parents). */
+  const readSourcesAt = async (absolute: string): Promise<WorkspaceIgnoreSources> => {
+    const sources: WorkspaceIgnoreSources = {};
+    await Promise.all(
+      AGENT_IGNORE_FILES.map(async ([fileName, layer]) => {
+        const contents = await readIgnoreFile(
+          path.join(absolute, fileName),
+          `a parent directory (${fileName})`
+        );
+        if (contents !== undefined) {
+          sources[layer] = contents;
+        }
+      })
+    );
+    return sources;
+  };
+
   const readSources = (relativeDirectory: string): Promise<WorkspaceIgnoreSources> => {
     const cached = sourcesByDirectory.get(relativeDirectory);
     if (cached) {
@@ -104,7 +158,10 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
       const sources: WorkspaceIgnoreSources = {};
       await Promise.all(
         AGENT_IGNORE_FILES.map(async ([fileName, layer]) => {
-          const contents = await readIgnoreFile(path.join(absolute, fileName));
+          const contents = await readIgnoreFile(
+            path.join(absolute, fileName),
+            relativeDirectory === '' ? fileName : `${relativeDirectory}/${fileName}`
+          );
           if (contents !== undefined) {
             sources[layer] = contents;
           }
@@ -114,6 +171,51 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
     })();
     sourcesByDirectory.set(relativeDirectory, pending);
     return pending;
+  };
+
+  /**
+   * Agent ignore files in the directories ABOVE the workspace root, from the
+   * enclosing repository root down. Resolved once per guard.
+   *
+   * Without this the boundary stopped at whatever folder the user happened to
+   * open: a repo-root `.llmignore` protecting `packages/web/secrets/` did
+   * nothing once `packages/web` was the root (BST-1435). The walk reads the
+   * same chain, so the two agree — otherwise protection would depend on which
+   * tool the model reached for.
+   */
+  // Resolved once per guard: every in-root read below is relative to it, and
+  // repository discovery must start from it rather than the presentation path.
+  let canonicalRootPromise: Promise<string> | undefined;
+  const canonicalRootPathOnce = (): Promise<string> => {
+    canonicalRootPromise ??= fsPromises.realpath(canonicalRootPath).catch(() => canonicalRootPath);
+    return canonicalRootPromise;
+  };
+
+  let parentScopesPromise: Promise<{ pathPrefix: string; sources: WorkspaceIgnoreSources }[]>;
+  const parentScopes = () => {
+    parentScopesPromise ??= (async () => {
+      // CANONICALIZE FIRST. Direct-read callers pass the root's stored
+      // presentation path, which the root registry deliberately keeps
+      // un-resolved; the walk canonicalizes before doing any of this. When the
+      // opened folder is reached through a symlink, discovering the repository
+      // from the lexical path walks the wrong ancestors and misses the real
+      // parent `.llmignore` — so `readWorkspaceFile` would serve a file glob
+      // correctly excludes. The two paths must agree (BST-1436 review).
+      const canonicalRoot = await canonicalRootPathOnce();
+      const repositoryRoot = await findRepositoryRoot(canonicalRoot);
+      if (repositoryRoot === undefined) {
+        return [];
+      }
+      const directories = ancestorDirectoriesBetween(repositoryRoot, canonicalRoot);
+      const scopes = await Promise.all(
+        directories.map(async (directory) => ({
+          pathPrefix: relativePosixPrefix(directory, canonicalRoot),
+          sources: await readSourcesAt(directory),
+        }))
+      );
+      return scopes.filter((scope) => Object.keys(scope.sources).length > 0);
+    })();
+    return parentScopesPromise;
   };
 
   // A file's verdict depends only on its PARENT directory's scope chain, so the
@@ -127,8 +229,15 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
     }
     const pending = (async () => {
       const chain = ancestorDirectories(relativeDirectory);
-      const sources = await Promise.all(chain.map((directory) => readSources(directory)));
+      const [parents, sources] = await Promise.all([
+        parentScopes(),
+        Promise.all(chain.map((directory) => readSources(directory))),
+      ]);
       const matcher = createWorkspaceIgnoreMatcher();
+      // Outermost first: repo-root parents, then the opened root downward.
+      for (const scope of parents) {
+        matcher.push('', scope.sources, { pathPrefix: scope.pathPrefix });
+      }
       chain.forEach((directory, index) => {
         matcher.push(directory, sources[index] ?? {});
       });
@@ -157,6 +266,25 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
   };
 }
 
+/*
+ * NO PROCESS-WIDE GUARD CACHE. It was here for one release and is deliberately
+ * gone (BST-1435).
+ *
+ * Caching guards by root saved `2 x (depth + 1)` mostly-ENOENT opens per read,
+ * and cost the only thing that matters: a `.llmignore` written AFTER the first
+ * query was never seen until restart. That is not an edge case, it is the
+ * primary user story — notice the agent read something, add it to
+ * `.llmignore`, ask again. The justification at the time ("it cannot loosen on
+ * its own") named the wrong safety property: tightening is what the user is
+ * doing, and tightening is exactly what the cache dropped.
+ *
+ * Batch callers still share ONE guard for the duration of a single operation —
+ * `dropAgentIgnored` and the excluded-path probe both construct one and query
+ * it many times. That keeps the per-directory cache paying off where the reads
+ * actually cluster, and bounds staleness to a single tool call rather than to
+ * the lifetime of the process.
+ */
+
 /**
  * The single refusal for a direct read of an agent-ignored file.
  *
@@ -166,39 +294,6 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
  * whole value is that the user can predict what the agent saw. The refusal
  * names the file that caused it so the user can find and edit the rule.
  */
-/**
- * Guards reused across calls, keyed by root.
- *
- * `assertNotAgentIgnored` is the SINGLE-path entry point — the shared reader
- * calls it once per file, and `reindex-side-effects`, workspace-context and the
- * LSP tools call that in loops. Building a fresh guard each time discarded the
- * per-directory cache before it paid off: `2 x (depth + 1)` `readFile` attempts
- * per read, nearly all ENOENT, before the file itself is opened.
- *
- * Cached for the PROCESS, which trades a window of staleness for that. The
- * trade is only acceptable in one direction, and it happens to be the safe one:
- * a rule ADDED after first use is missed until restart, but a rule already in
- * force is never forgotten, so the boundary cannot loosen on its own. Callers
- * that must observe an edit immediately (a settings action, factory reset)
- * should call {@link resetAgentIgnoreGuardCache}.
- */
-const guardsByRoot = new Map<string, AgentIgnoreGuard>();
-
-function guardFor(canonicalRootPath: string): AgentIgnoreGuard {
-  const cached = guardsByRoot.get(canonicalRootPath);
-  if (cached) {
-    return cached;
-  }
-  const guard = createAgentIgnoreGuard(canonicalRootPath);
-  guardsByRoot.set(canonicalRootPath, guard);
-  return guard;
-}
-
-/** Drop every cached guard, so the next query re-reads the ignore files. */
-export function resetAgentIgnoreGuardCache(): void {
-  guardsByRoot.clear();
-}
-
 export async function assertNotAgentIgnored(args: {
   canonicalRootPath: string;
   /** The path as REQUESTED (workspace-relative; a leading slash is fine). */
@@ -214,7 +309,7 @@ export async function assertNotAgentIgnored(args: {
    */
   canonicalAbsolutePath?: string | undefined;
 }): Promise<void> {
-  const guard = guardFor(args.canonicalRootPath);
+  const guard = createAgentIgnoreGuard(args.canonicalRootPath);
   const candidates = await agentIgnoreCandidatePaths(args);
   // Resolved together: the request and the canonical target are independent
   // queries, and either one being excluded blocks the read, so there is nothing

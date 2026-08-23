@@ -655,7 +655,21 @@ must be preserved:
   Aliasing, not retargeting — the stable-path lock does not help. Every read
   path checks both, and the walk checks a symlink's canonical target before
   recording it.
-- **An unreadable agent ignore file FAILS CLOSED.** This inverts the rule for
+- **The agent layers are INHERITED from parent directories**, up to the
+  enclosing repository root, in the walk AND in `createAgentIgnoreGuard` — via
+  the shared `repository-root.ts` so the two cannot drift. A repo-root
+  `.llmignore` is the normal way a team ships one; reading only `.gitignore`
+  from parents meant it did nothing once a subdirectory was opened as a root
+  (BST-1436). Repo-root discovery is unconditional (a stat walk); the
+  `git config` subprocesses stay gated on `respectGitignore`.
+- **NO PROCESS-WIDE GUARD CACHE.** One existed for a release and is deliberately
+  gone. It saved mostly-ENOENT opens and cost the primary user story: a rule
+  written AFTER the first query was invisible until restart. "It cannot loosen
+  on its own" is the wrong safety property — TIGHTENING is what the user is
+  doing. Batch callers share one guard per operation, which bounds staleness to
+  a single tool call.
+- **An unreadable agent ignore file FAILS CLOSED — in the WALK as well as the
+  guard.** This inverts the rule for
   every other layer, where failing open costs only a wider walk. Here, "I could
   not read the rules" resolving to "there are no rules" serves the protected
   file — the exact outcome the boundary exists to prevent, arriving through the
