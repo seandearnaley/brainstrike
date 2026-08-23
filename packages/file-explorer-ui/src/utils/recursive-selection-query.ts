@@ -44,6 +44,11 @@ export interface RecursiveSelectionQueryMetrics extends RecursiveSelectionQueryP
   mode: 'early-stop' | 'throughput';
 }
 
+export interface RecursiveSelectionBufferProfile {
+  /** Directory entries retained across traversal-owned frontier arrays. */
+  bufferedDirectoryEntries: number;
+}
+
 export interface RecursiveSelectionQueryOptions {
   abortSignal?: AbortSignal;
   /**
@@ -60,10 +65,34 @@ export interface RecursiveSelectionQueryOptions {
   includeFilters: string[];
   maxDirectories?: number;
   maxResults?: number;
+  /**
+   * Opt-in deterministic frontier profiling. Counts traversal-owned array
+   * entries, not adapter-owned listings or heap bytes.
+   */
+  onBufferProfile?: (profile: RecursiveSelectionBufferProfile) => void;
   onProgress?: (progress: RecursiveSelectionQueryProgress) => void;
   parentRootId?: DirectoryHandle['rootId'];
   roots: IFileNode[];
   useRegex: boolean;
+}
+
+function reportBufferProfile(
+  onBufferProfile: ((profile: RecursiveSelectionBufferProfile) => void) | undefined,
+  buffers: readonly (readonly (IFileNode | undefined)[])[]
+): void {
+  if (!onBufferProfile) {
+    return;
+  }
+
+  let bufferedDirectoryEntries = 0;
+  for (const buffer of buffers) {
+    for (const node of buffer) {
+      if (node?.type === 'directory') {
+        bufferedDirectoryEntries++;
+      }
+    }
+  }
+  onBufferProfile({ bufferedDirectoryEntries });
 }
 
 /**
@@ -356,8 +385,7 @@ function processFrontierNode(args: {
   nextFrontier: IFileNode[];
   node: IFileNode;
   state: MutableQueryState;
-  unloadedDirectories: IFileNode[];
-}): void {
+}): boolean {
   const {
     abortSignal,
     directoryTraversalState,
@@ -368,34 +396,30 @@ function processFrontierNode(args: {
     nextFrontier,
     node,
     state,
-    unloadedDirectories,
   } = args;
 
   throwIfAborted(abortSignal);
   if (node.isVisible === false) {
-    return;
+    return false;
   }
 
   state.currentPath = node.path;
 
   if (node.type === 'file') {
     state.filesVisited++;
-    if (
-      matcher.shouldIncludeFile(node.path) &&
+    if (matcher.shouldIncludeFile(node.path)) {
       recordMatchedFile({
         hasKnownRemainingWork,
         maxResults: limit,
         node,
         state,
-      })
-    ) {
-      return;
+      });
     }
-    return;
+    return false;
   }
 
   if (!matcher.shouldTraverseDirectory(node.path)) {
-    return;
+    return false;
   }
 
   if (isDirectoryLoaded(node)) {
@@ -408,10 +432,10 @@ function processFrontierNode(args: {
       nodes: applyOptionalFilter(node.children, filterTreeFn),
       state,
     });
-    return;
+    return false;
   }
 
-  unloadedDirectories.push(node);
+  return true;
 }
 
 async function scanUnloadedDirectories(args: {
@@ -862,6 +886,7 @@ export async function querySelectableFiles(
     includeFilters,
     maxDirectories = MAX_DIRECTORY_TRAVERSAL_COUNT,
     maxResults,
+    onBufferProfile,
     onProgress,
     parentRootId,
     roots,
@@ -902,16 +927,18 @@ export async function querySelectableFiles(
   }
   const progressReporter = createProgressReporter(onProgress, state);
 
-  let frontier = initialRoots;
+  let frontier = [...initialRoots];
 
   while (frontier.length > 0) {
     throwIfAborted(abortSignal);
 
     const nextFrontier: IFileNode[] = [];
-    const unloadedDirectories: IFileNode[] = [];
+    let unloadedDirectoryCount = 0;
 
+    // Compact unloaded directories in the traversal-owned frontier. Building
+    // a second list here retained every directory twice across wide levels.
     for (const [index, node] of frontier.entries()) {
-      processFrontierNode({
+      const shouldScan = processFrontierNode({
         abortSignal,
         directoryTraversalState,
         filterTreeFn,
@@ -925,13 +952,19 @@ export async function querySelectableFiles(
         nextFrontier,
         node,
         state,
-        unloadedDirectories,
       });
+      if (shouldScan) {
+        frontier[unloadedDirectoryCount] = node;
+        unloadedDirectoryCount++;
+      }
       progressReporter.emit();
       if (state.limitReached) {
         break;
       }
     }
+    frontier.length = unloadedDirectoryCount;
+
+    reportBufferProfile(onBufferProfile, [frontier, nextFrontier]);
 
     if (state.limitReached) {
       break;
@@ -950,7 +983,7 @@ export async function querySelectableFiles(
       onProgress,
       parentRootId,
       state,
-      unloadedDirectories,
+      unloadedDirectories: frontier,
     });
 
     if (state.limitReached) {

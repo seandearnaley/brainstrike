@@ -579,6 +579,38 @@ describe('recursive-selection-query', () => {
     expect(maxActiveReads).toBeLessThanOrEqual(12);
   });
 
+  it('retains one frontier entry per unloaded directory in a wide tree', async () => {
+    const directoryCount = 4096;
+    const childDirectories = Array.from({ length: directoryCount }, (_, index) =>
+      createDirectoryNode({
+        depth: 1,
+        loadState: 'unloaded',
+        name: `dir-${index}`,
+        path: `/root/dir-${index}`,
+      })
+    );
+    const adapter = createMockAdapter({ '/root': childDirectories });
+    let peakBufferedDirectoryEntries = 0;
+
+    const result = await querySelectableFiles({
+      concurrency: 12,
+      excludeFilters: [],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      onBufferProfile: (profile) => {
+        peakBufferedDirectoryEntries = Math.max(
+          peakBufferedDirectoryEntries,
+          profile.bufferedDirectoryEntries
+        );
+      },
+      roots: [createDirectoryNode({ loadState: 'unloaded', name: 'root', path: '/root' })],
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual([]);
+    expect(peakBufferedDirectoryEntries).toBe(directoryCount);
+  });
+
   it('does not prematurely close a throughput batch when synchronous directory reads settle immediately', async () => {
     const adapter = createMockAdapter({
       '/root': [
