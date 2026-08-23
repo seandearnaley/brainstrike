@@ -23,6 +23,7 @@ import {
 } from './anthropic-instruction-cache';
 import {
   buildContextBudgetNote,
+  buildCurrentDateNote,
   buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
@@ -257,6 +258,12 @@ export function convertMessagesToMastra(
 function composeRuntimeInstructions(params: {
   budgetNote: string | null;
   instructionsOverride: string | undefined;
+  /**
+   * Prompt-assembly clock. Injected rather than read inside the builder so the
+   * composed instructions stay a pure function of their inputs and the date
+   * line is assertable without freezing global time.
+   */
+  now: Date;
   personaSummaries: DelegationPersonaSummary[] | undefined;
   planModeActive: boolean;
   provider: string;
@@ -273,7 +280,17 @@ function composeRuntimeInstructions(params: {
           toolDiscoveryEnabled: params.toolDiscoveryEnabled,
           ...(params.personaSummaries ? { personas: params.personaSummaries } : {}),
         }));
-  const stableText = [resolvedInstructions, params.budgetNote]
+  // Composed OUTSIDE the branch, deliberately. Threading the clock into
+  // `buildDefaultInstructions` left the two other supported paths — the
+  // built-in local model and a caller-supplied `instructionsOverride` —
+  // shipping dateless prompts, which is the exact behaviour this prevents. The
+  // local path arguably needs it most: a small local model is the least able to
+  // recover from not knowing the date.
+  //
+  // Lands in `stableText` (the CACHED half) beside the budget note: a date
+  // moves at most once a day, so it cannot churn the cached prefix the way a
+  // timestamp would.
+  const stableText = [resolvedInstructions, buildCurrentDateNote(params.now), params.budgetNote]
     .filter((part): part is string => Boolean(part))
     .join('\n');
   const combinedText = [stableText, params.taskListNote]
@@ -547,6 +564,7 @@ export async function createMastraAgentRuntime(
   const composedInstructions = composeRuntimeInstructions({
     budgetNote,
     instructionsOverride: instructions,
+    now: new Date(),
     personaSummaries: instructionPersonaSummaries,
     planModeActive,
     provider: normalizedProvider,

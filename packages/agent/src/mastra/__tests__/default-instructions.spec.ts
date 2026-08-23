@@ -2,6 +2,7 @@ import type { AssistantTaskItem } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 import {
   buildContextBudgetNote,
+  buildCurrentDateNote,
   buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
@@ -589,5 +590,35 @@ describe('buildContextBudgetNote', () => {
 
   it('returns null without a budget', () => {
     expect(buildContextBudgetNote(undefined)).toBeNull();
+  });
+});
+
+describe('buildCurrentDateNote', () => {
+  it('states the LOCAL calendar day, not UTC', () => {
+    // Brainstrike is local-first: the process clock IS the user's clock. Using
+    // toISOString() would state tomorrow's date to anyone east of UTC in their
+    // early morning and yesterday's to anyone west of it in their evening —
+    // wrong for a meaningful slice of every day, and wrong in the direction
+    // that makes "is this document stale?" unanswerable.
+    const now = new Date(2026, 7, 23, 23, 30);
+    expect(buildCurrentDateNote(now)).toContain('2026-08-23');
+    expect(buildCurrentDateNote(now)).toContain('Sunday');
+  });
+
+  it('carries no clock time, so it stays stable across a session', () => {
+    // The note sits in the CACHED half of the instructions
+    // (composeCacheAwareInstructions' stableText). A timestamp would invalidate
+    // the cached prefix on every single turn; a date changes at most once a day.
+    const morning = buildCurrentDateNote(new Date(2026, 7, 23, 0, 1));
+    const evening = buildCurrentDateNote(new Date(2026, 7, 23, 23, 59));
+    expect(morning).toBe(evening);
+    expect(morning).not.toMatch(/\d{2}:\d{2}/);
+  });
+
+  it('tells the model its training cutoff is not today', () => {
+    // The point is not the string. Without it the model silently substitutes
+    // its own guess: an earlier run wrote a fabricated date into DURABLE
+    // memory, three days off, having reasoned "today's date is unknown".
+    expect(buildCurrentDateNote(new Date(2026, 7, 23, 12)).toLowerCase()).toContain('training');
   });
 });
