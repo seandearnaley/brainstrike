@@ -376,7 +376,7 @@ describe('AssistantMemorySettingsSection', () => {
 
       const note = screen.getByTestId('assistant-memory-manual-observer-note');
       expect(note).toHaveTextContent(/not tied to your chat provider/i);
-      expect(note).toHaveTextContent(/sent to the observer's provider/i);
+      expect(note).toHaveTextContent(/reaches the observer's provider/i);
     });
 
     it('does NOT claim it on Auto, which cannot cross by construction', () => {
@@ -402,6 +402,21 @@ describe('AssistantMemorySettingsSection', () => {
       expect(screen.getByTestId('assistant-memory-manual-observer-note')).toHaveTextContent(
         /not tied to your chat provider/i
       );
+    });
+
+    it('exempts an on-device observer instead of pushing the user off it', () => {
+      // `local` is a first-class manual target (OBSERVATIONAL_MEMORY_PROVIDER_IDS)
+      // that runs in the hidden host with no API key and no egress. Copy that
+      // lumped it in with hosted providers would describe a local observer as
+      // sending the conversation somewhere, and nudge a privacy-conscious user
+      // OFF the on-device option onto a hosted one — recommending more egress
+      // in the name of less.
+      chooseObserver('local/onnx-community/gemma-4');
+      renderMemorySettings();
+
+      const note = screen.getByTestId('assistant-memory-manual-observer-note');
+      expect(note).toHaveTextContent(/local/i);
+      expect(note).toHaveTextContent(/runs on this device and sends nothing/i);
     });
   });
 });
