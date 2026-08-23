@@ -83,6 +83,17 @@ const SNAPSHOT_B: WorkspaceSnapshotV1 = {
   fileTabs: { activeTabId: 'kb', tabs: [{ compositeKey: 'kb', path: 'b.ts' }] },
 };
 
+const OPEN_PANE_SNAPSHOT: WorkspaceSnapshotV1 = {
+  ...EMPTY_WORKSPACE_SNAPSHOT,
+  editors: { kb: { pane: { open: true } } },
+  fileTabs: { activeTabId: 'kb', tabs: [{ compositeKey: 'kb', path: 'b.ts' }] },
+};
+
+const CLOSED_PANE_SNAPSHOT: WorkspaceSnapshotV1 = {
+  ...OPEN_PANE_SNAPSHOT,
+  editors: { kb: { pane: { open: false } } },
+};
+
 describe('useThreadWorkspaceCoordinator', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -260,6 +271,127 @@ describe('useThreadWorkspaceCoordinator', () => {
     // The deferred pass must NOT flush the boot state as "outgoing" — that
     // would overwrite the saved row and hydrate the empty flush back.
     expect(harness.rows.get('thread-a')).toBe(SNAPSHOT_B);
+  });
+
+  it('does not persist live boot state before initial hydration resolves', async () => {
+    const harness = createHarness();
+    let resolveHydration: ((snapshot: WorkspaceSnapshotV1 | null) => void) | undefined;
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHydration = resolve;
+        })
+    );
+
+    render(harness, 'thread-a');
+    act(() => {
+      harness.notify();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(80);
+    });
+
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveHydration?.(CLOSED_PANE_SNAPSHOT);
+      await Promise.resolve();
+    });
+    expect(harness.facade.applyPanes).toHaveBeenCalledWith({ kb: { open: false } });
+  });
+
+  it('preserves an explicit live pane edit made during initial hydration', async () => {
+    const harness = createHarness();
+    harness.state.activeTabId = 'kb';
+    harness.state.tabs = [{ compositeKey: 'kb', path: 'b.ts' }];
+    vi.mocked(harness.facade.getEditorState).mockReturnValue({ pane: { open: true } });
+    let resolveHydration: ((snapshot: WorkspaceSnapshotV1 | null) => void) | undefined;
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHydration = resolve;
+        })
+    );
+
+    render(harness, 'thread-a');
+    act(() => {
+      vi.mocked(harness.facade.getEditorState).mockReturnValue({ pane: { open: false } });
+      harness.notify();
+    });
+    await act(async () => {
+      resolveHydration?.(OPEN_PANE_SNAPSHOT);
+      await Promise.resolve();
+    });
+
+    expect(harness.facade.applyPanes).toHaveBeenCalledWith({ kb: { open: false } });
+    expect(harness.rows.get('thread-a')?.editors).toEqual({ kb: { pane: { open: false } } });
+  });
+
+  it('does not merge a boot pane edit for a tab absent from the loaded snapshot', async () => {
+    const harness = createHarness();
+    harness.state.activeTabId = 'ka';
+    harness.state.tabs = [{ compositeKey: 'ka', path: 'a.ts' }];
+    vi.mocked(harness.facade.getEditorState).mockReturnValue({ pane: { open: true } });
+    let resolveHydration: ((snapshot: WorkspaceSnapshotV1 | null) => void) | undefined;
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHydration = resolve;
+        })
+    );
+
+    render(harness, 'thread-a');
+    act(() => {
+      vi.mocked(harness.facade.getEditorState).mockReturnValue({ pane: { open: false } });
+      harness.notify();
+    });
+    await act(async () => {
+      resolveHydration?.(OPEN_PANE_SNAPSHOT);
+      await Promise.resolve();
+    });
+
+    expect(harness.facade.applyPanes).toHaveBeenCalledWith({ kb: { open: true } });
+    expect(harness.rows.get('thread-a')).toBeUndefined();
+    expect(
+      vi
+        .mocked(harness.repository.setThreadWorkspace)
+        .mock.calls.filter(([threadId]) => threadId === 'thread-a')
+    ).toHaveLength(0);
+  });
+
+  it('does not leak a prior thread pane through a null transition', async () => {
+    const harness = createHarness();
+    const { rerender } = render(harness, 'thread-a');
+
+    await waitFor(() => {
+      expect(harness.rows.has('thread-a')).toBe(true);
+    });
+    harness.state.activeTabId = 'ka';
+    harness.state.tabs = [{ compositeKey: 'ka', path: 'a.ts' }];
+    vi.mocked(harness.facade.getEditorState).mockReturnValue({ pane: { open: true } });
+
+    rerender({ activeThreadId: null, openThreadIds: [] });
+    let resolveHydration: ((snapshot: WorkspaceSnapshotV1 | null) => void) | undefined;
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHydration = resolve;
+        })
+    );
+    vi.mocked(harness.facade.applyPanes).mockClear();
+    rerender({ activeThreadId: 'thread-b', openThreadIds: ['thread-b'] });
+
+    act(() => {
+      vi.mocked(harness.facade.getEditorState).mockReturnValue({ pane: { open: false } });
+      harness.notify();
+    });
+    await act(async () => {
+      resolveHydration?.(OPEN_PANE_SNAPSHOT);
+      await Promise.resolve();
+    });
+
+    expect(harness.facade.applyPanes).toHaveBeenCalledWith({ kb: { open: true } });
+    expect(harness.rows.get('thread-b')).toBeUndefined();
   });
 
   it('a superseding switch discards the stale fetch result', async () => {
