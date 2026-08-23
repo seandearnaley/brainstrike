@@ -1649,6 +1649,63 @@ describe('mastra streaming integration', () => {
     expect(mcpInstances).toEqual([expect.objectContaining({ closeCalls: 1 })]);
   });
 
+  it('always states the current date in the real assembled instructions', async () => {
+    // The guard for the runtime supplying its own clock. Asserting
+    // buildCurrentDateNote directly would prove only that it renders a date it
+    // was handed; the regression to prevent is a runtime that stops handing it
+    // one and silently ships dateless prompts again — the exact behaviour that
+    // had a model reason "Today's date is unknown but likely later" and then
+    // write a fabricated date into durable memory.
+    //
+    // Time is FROZEN rather than sampled twice: computing the expected date
+    // after createMastraAgentRuntime captured its own `new Date()` would fail
+    // with a baffling diff whenever the two straddled midnight.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 23, 12));
+    try {
+      await createMastraAgentRuntime({
+        runtime: { apiKey: 'key', provider: 'openai' },
+        tools: {
+          'brainstrike.readWorkspaceFile': {
+            description: 'Read workspace file',
+            id: 'brainstrike.readWorkspaceFile',
+          },
+        },
+      });
+      expect(agentInstances[0]?.config.instructions ?? '').toContain('2026-08-23');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('states the date even when a caller supplies its own instructions', async () => {
+    // The structural property, asserted where it is testable. Threading the
+    // clock through buildDefaultInstructions left BOTH other supported paths —
+    // an instructionsOverride caller and the built-in local model — shipping
+    // dateless prompts. Composing the note outside that branch covers all
+    // three; an override is the one this harness can construct, and it proves
+    // the note is not inside the hosted-default branch.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 23, 12));
+    try {
+      await createMastraAgentRuntime({
+        instructions: 'Bespoke caller instructions with no date of their own.',
+        runtime: { apiKey: 'key', provider: 'openai' },
+        tools: {
+          'brainstrike.readWorkspaceFile': {
+            description: 'Read workspace file',
+            id: 'brainstrike.readWorkspaceFile',
+          },
+        },
+      });
+      const instructions = agentInstances[0]?.config.instructions ?? '';
+      expect(instructions).toContain('Bespoke caller instructions');
+      expect(instructions).toContain('2026-08-23');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('constructs hosted agents from critical plus custom tools and defers known noncritical tools', async () => {
     const runtime = await createMastraAgentRuntime({
       runtime: { apiKey: 'key', provider: 'openai' },

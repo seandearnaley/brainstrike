@@ -113,8 +113,25 @@ vi.mock('../../db-main', () => ({
 // never serialized to the model (only the [ref=eN] handles inside the tree
 // text). Ceiling keeps ~150 headroom above the measurement; the floor moves
 // with it so a silent drop still fails.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9810;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9510;
+// CURRENT-DATE RAISE (+40/+40, band width 300 preserved). The composed
+// instructions now state today's date on EVERY provider path. Not bloat:
+// nothing in the prompt said what day it was, so the model substituted its own
+// guess — an observed run reasoned "Today's date is unknown but likely later"
+// and wrote a fabricated date into DURABLE working memory. It is also
+// load-bearing for an instruction AGENTS.md already gives (treat dated docs
+// under docs/superpowers/ and docs/archive/ as historical), unfollowable
+// without a date to compare against. Measured full surface 9807 -> 9841.
+// Trim-first was applied: the first wording ran 49 tokens and was cut to 34.
+//
+// RAISED BY THE COST OF THIS CHANGE ONLY, deliberately (review of #2610). The
+// previous ceiling of 9810 sat 3 tokens above a 9807 measurement, so ~145
+// tokens had accumulated since the BST-1176 raise (9662, ~148 headroom) with no
+// recorded trade. Absorbing that drift into this entry would launder it into
+// the date's ledger and hide it for good. The tight headroom that remains is
+// the honest signal: the next change here should account for the drift rather
+// than paper over it again.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9850;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9550;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -566,7 +583,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 9,130-9,430 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 9,550-9,850 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

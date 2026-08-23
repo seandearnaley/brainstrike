@@ -13,6 +13,44 @@ export function buildContextBudgetNote(budgetTokens: number | undefined): string
   return `Context budget: about ${formatTokenCount(budgetTokens)} of input context are available this run. Suggest starting a new thread if context runs low.`;
 }
 
+/**
+ * State today's date for the model.
+ *
+ * Nothing in the composed instructions used to say what day it was, and a model
+ * with no date does not abstain — it substitutes its training cutoff or a
+ * guess. An observed run reasoned "Today's date is unknown but likely later"
+ * and then wrote a fabricated date, three days off, into DURABLE working
+ * memory.
+ *
+ * It also has a second job. AGENTS.md instructs the agent to treat dated
+ * material under `docs/superpowers/` and `docs/archive/` as historical evidence
+ * rather than current behaviour — an instruction it cannot follow without
+ * knowing the date to compare against.
+ *
+ * DATE ONLY, never a timestamp. This note lands in the CACHED half of the
+ * instructions (`composeCacheAwareInstructions`' `stableText`), so a clock time
+ * would invalidate the cached prefix on every turn; a date moves at most once a
+ * day. The format is ISO plus the weekday name, deliberately locale-independent
+ * — `03/04/2026` denotes two different days depending on the reader, and the
+ * model has no way to know which convention produced it.
+ *
+ * Deliberately terse: this sits in the native-tool prompt budget, so it states
+ * the date, the weekday, that the cutoff is earlier, and how to read dated
+ * workspace docs — and nothing else. See the trim-first rule in
+ * `native-tool-prompt-budget.test.ts` before expanding it.
+ */
+export function buildCurrentDateNote(now: Date): string {
+  // LOCAL calendar day, never UTC. Brainstrike is local-first: the process
+  // clock IS the user's clock, so `toISOString()` would state tomorrow's date
+  // to anyone east of UTC in their early morning and yesterday's to anyone west
+  // of it in their evening — wrong for a meaningful slice of every day, and
+  // wrong in the direction that makes "is this doc stale?" unanswerable.
+  // `en-CA` is the locale whose short date format IS ISO 8601.
+  const iso = now.toLocaleDateString('en-CA');
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+  return `Today is ${iso} (${weekday}); your training cutoff is earlier. Treat dated workspace documents as evidence of what was true then, not now.`;
+}
+
 const TASK_STATUS_GLYPHS: Record<AssistantTaskStatus, string> = {
   completed: '✓',
   // biome-ignore lint/style/useNamingConvention: AssistantTaskStatus value (Mastra convention)
