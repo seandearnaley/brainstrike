@@ -6,6 +6,12 @@ import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createPathFilterMatcher } from '@brainstrike/utils/filter-utils';
 
 import { loadDirectoryChildren } from './lazy-tree-loader';
+import {
+  compactDirectoryIntoFrontier,
+  type RecursiveSelectionBufferProfile,
+} from './recursive-selection-buffer-profile';
+
+export type { RecursiveSelectionBufferProfile } from './recursive-selection-buffer-profile';
 
 const logger = createLogger('RecursiveSelectionQuery');
 
@@ -60,6 +66,11 @@ export interface RecursiveSelectionQueryOptions {
   includeFilters: string[];
   maxDirectories?: number;
   maxResults?: number;
+  /**
+   * Opt-in deterministic frontier profiling. Counts traversal-owned array
+   * entries, not adapter-owned listings or heap bytes.
+   */
+  onBufferProfile?: (profile: RecursiveSelectionBufferProfile) => void;
   onProgress?: (progress: RecursiveSelectionQueryProgress) => void;
   parentRootId?: DirectoryHandle['rootId'];
   roots: IFileNode[];
@@ -356,8 +367,7 @@ function processFrontierNode(args: {
   nextFrontier: IFileNode[];
   node: IFileNode;
   state: MutableQueryState;
-  unloadedDirectories: IFileNode[];
-}): void {
+}): boolean {
   const {
     abortSignal,
     directoryTraversalState,
@@ -368,34 +378,30 @@ function processFrontierNode(args: {
     nextFrontier,
     node,
     state,
-    unloadedDirectories,
   } = args;
 
   throwIfAborted(abortSignal);
   if (node.isVisible === false) {
-    return;
+    return false;
   }
 
   state.currentPath = node.path;
 
   if (node.type === 'file') {
     state.filesVisited++;
-    if (
-      matcher.shouldIncludeFile(node.path) &&
+    if (matcher.shouldIncludeFile(node.path)) {
       recordMatchedFile({
         hasKnownRemainingWork,
         maxResults: limit,
         node,
         state,
-      })
-    ) {
-      return;
+      });
     }
-    return;
+    return false;
   }
 
   if (!matcher.shouldTraverseDirectory(node.path)) {
-    return;
+    return false;
   }
 
   if (isDirectoryLoaded(node)) {
@@ -408,10 +414,10 @@ function processFrontierNode(args: {
       nodes: applyOptionalFilter(node.children, filterTreeFn),
       state,
     });
-    return;
+    return false;
   }
 
-  unloadedDirectories.push(node);
+  return true;
 }
 
 async function scanUnloadedDirectories(args: {
@@ -862,6 +868,7 @@ export async function querySelectableFiles(
     includeFilters,
     maxDirectories = MAX_DIRECTORY_TRAVERSAL_COUNT,
     maxResults,
+    onBufferProfile,
     onProgress,
     parentRootId,
     roots,
@@ -902,21 +909,29 @@ export async function querySelectableFiles(
   }
   const progressReporter = createProgressReporter(onProgress, state);
 
-  let frontier = initialRoots;
+  // `initialRoots` may alias the caller's live tree. The traversal compacts its
+  // frontier in place, so it must own this copy.
+  let frontier = [...initialRoots];
+  let frontierDirectoryEntries = frontier.filter((node) => node.type === 'directory').length;
 
   while (frontier.length > 0) {
     throwIfAborted(abortSignal);
 
     const nextFrontier: IFileNode[] = [];
-    const unloadedDirectories: IFileNode[] = [];
+    let unloadedDirectoryCount = 0;
+    const frontierLength = frontier.length;
 
+    // Compact unloaded directories in the traversal-owned frontier. Building
+    // a second list here retained every directory twice across wide levels.
+    // The write stays at or behind the iterator cursor because the compacted
+    // count can increase at most once per iteration.
     for (const [index, node] of frontier.entries()) {
-      processFrontierNode({
+      const shouldScan = processFrontierNode({
         abortSignal,
         directoryTraversalState,
         filterTreeFn,
         hasKnownRemainingWork:
-          index < frontier.length - 1 ||
+          index < frontierLength - 1 ||
           nextFrontier.length > 0 ||
           directoryTraversalState.queuedDirectoryPaths.size >
             directoryTraversalState.scannedDirectoryPaths.size,
@@ -925,39 +940,62 @@ export async function querySelectableFiles(
         nextFrontier,
         node,
         state,
-        unloadedDirectories,
+      });
+      if (shouldScan) {
+        frontierDirectoryEntries = compactDirectoryIntoFrontier({
+          directoryEntries: frontierDirectoryEntries,
+          frontier,
+          node,
+          targetIndex: unloadedDirectoryCount,
+        });
+        unloadedDirectoryCount++;
+      }
+      onBufferProfile?.({
+        bufferedDirectoryEntries: frontierDirectoryEntries + nextFrontier.length,
       });
       progressReporter.emit();
       if (state.limitReached) {
         break;
       }
     }
+    frontier.length = unloadedDirectoryCount;
+    frontierDirectoryEntries = unloadedDirectoryCount;
+    onBufferProfile?.({ bufferedDirectoryEntries: frontierDirectoryEntries + nextFrontier.length });
 
     if (state.limitReached) {
       break;
     }
 
-    await scanUnloadedDirectories({
-      abortSignal,
-      directoryTraversalState,
-      effectiveConcurrency,
-      fileSystemAdapter,
-      filterTreeFn,
-      limit,
-      matcher,
-      mode,
-      nextFrontier,
-      onProgress,
-      parentRootId,
-      state,
-      unloadedDirectories,
-    });
+    try {
+      await scanUnloadedDirectories({
+        abortSignal,
+        directoryTraversalState,
+        effectiveConcurrency,
+        fileSystemAdapter,
+        filterTreeFn,
+        limit,
+        matcher,
+        mode,
+        nextFrontier,
+        onProgress,
+        parentRootId,
+        state,
+        unloadedDirectories: frontier,
+      });
+    } finally {
+      // The next frontier grows monotonically during a scan. Sampling on every
+      // exit observes its high-water mark, including capped and aborted scans.
+      onBufferProfile?.({
+        bufferedDirectoryEntries: frontierDirectoryEntries + nextFrontier.length,
+      });
+    }
 
     if (state.limitReached) {
       break;
     }
 
     frontier = nextFrontier;
+    frontierDirectoryEntries = frontier.length;
   }
 
   const durationMs = timer.elapsed();
