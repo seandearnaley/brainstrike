@@ -3,7 +3,10 @@ import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
-import { measureLocatorInteractionFrames } from '../utils/performance-helpers';
+import {
+  measureLocatorInteractionFrames,
+  measureNamedCheckboxInteractionFrame,
+} from '../utils/performance-helpers';
 
 test.describe('Performance Validation - Simple Tests', () => {
   test('validate shallow comparison fix works', async ({ page }) => {
@@ -26,12 +29,10 @@ test.describe('Performance Validation - Simple Tests', () => {
     // Load the file tree
     await explorer.selectRoot();
 
-    // Measure at the browser interaction-to-paint boundary (BST-661/BST-959):
+    // Measure at the browser interaction-to-paint boundary (BST-661/BST-959/BST-1037):
     // Playwright's own click wall-clock includes driver transport and
     // actionability polling, which is CI-host noise, not renderer work.
-    // FILE checkboxes only, like the baseline benchmark: the folder checkbox
-    // re-renders the row on click and detaches its element, which the
-    // helper's detach guard rejects by design.
+    // File checkboxes retain their elements, so they use the strict helper.
     const fileCheckboxes = explorer.fileTree.getByRole('checkbox', {
       name: /^Select (test1\.js|test2\.js)$/,
     });
@@ -44,8 +45,25 @@ test.describe('Performance Validation - Simple Tests', () => {
       kind: 'click-each',
     });
 
+    // Recursive selection replaces the folder row. Re-resolve its checkbox by
+    // exact accessible name after paint instead of timing Playwright transport
+    // or weakening the retained-element helper's detach guard.
+    const folderCheckbox = explorer.fileTree.getByRole('checkbox', {
+      exact: true,
+      name: 'Select folder',
+    });
+    await expect(folderCheckbox).toHaveCount(1);
+    const recursiveSelectionMetrics = await measureNamedCheckboxInteractionFrame(
+      explorer.fileTree,
+      { name: 'Select folder' }
+    );
+    await expect(folderCheckbox).toBeChecked();
+
     console.log(
       `File selection interaction-to-paint total: ${selectionMetrics.totalDurationMs.toFixed(2)}ms`
+    );
+    console.log(
+      `Recursive folder selection interaction-to-paint: ${recursiveSelectionMetrics.maxDurationMs.toFixed(2)}ms`
     );
 
     // The shallow comparison fix should make this much faster
@@ -58,6 +76,11 @@ test.describe('Performance Validation - Simple Tests', () => {
     // are an order of magnitude faster than the shared runner).
     expect(selectionMetrics.totalDurationMs).toBeLessThan(
       PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS
+    );
+    // This is one browser-side checkbox interaction through presentation, the
+    // same quantity as the calibrated sibling max-frame metric.
+    expect(recursiveSelectionMetrics.maxDurationMs).toBeLessThan(
+      PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_MAX_MS
     );
 
     // Test memory usage doesn't grow excessively

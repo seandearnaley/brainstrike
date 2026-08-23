@@ -43,6 +43,10 @@ export interface ScrollFirstInteraction {
 
 export type LocatorFrameInteraction = ClickEachInteraction | ScrollFirstInteraction;
 
+export interface NamedCheckboxInteraction {
+  name: string;
+}
+
 /**
  * Measure application interaction work entirely inside the browser process.
  *
@@ -180,6 +184,104 @@ export const measureLocatorInteractionFrames = async (
       maxDurationMs: Math.max(...samplesMs),
       samplesMs,
       totalDurationMs,
+    };
+  }, interaction);
+};
+
+/**
+ * Measure a checkbox whose React row may be replaced by the click.
+ *
+ * The target is resolved by its exact aria-label before the interaction and
+ * again after paint. The timing and checked-state verification therefore stay
+ * entirely in the browser process without retaining a detached element.
+ */
+export const measureNamedCheckboxInteractionFrame = async (
+  container: Locator,
+  interaction: NamedCheckboxInteraction
+): Promise<InteractionFrameMetrics> => {
+  if (interaction.name.trim().length === 0) {
+    throw new Error('Named checkbox interaction requires a non-empty accessible name');
+  }
+
+  return await container.evaluateAll(async (elements, requestedInteraction) => {
+    const root = elements[0];
+    if (!root) {
+      throw new Error('Named checkbox benchmark container did not match an element');
+    }
+
+    const waitForPaint = async (): Promise<void> =>
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+    const findCheckbox = (): Element => {
+      const matches = [
+        ...root.querySelectorAll('[role="checkbox"], input[type="checkbox"]'),
+      ].filter((element) => element.getAttribute('aria-label') === requestedInteraction.name);
+      if (matches.length !== 1) {
+        throw new Error(
+          `Named checkbox benchmark expected exactly one checkbox named "${requestedInteraction.name}", but found ${matches.length}`
+        );
+      }
+
+      const checkbox = matches[0];
+      if (!checkbox?.isConnected) {
+        throw new Error(
+          `Named checkbox benchmark target "${requestedInteraction.name}" is detached`
+        );
+      }
+      return checkbox;
+    };
+    const readCheckedState = (element: Element): boolean | string => {
+      const ariaChecked = element.getAttribute('aria-checked');
+      if (ariaChecked !== null) {
+        return ariaChecked;
+      }
+
+      const checked = (element as { checked?: unknown }).checked;
+      if (typeof checked === 'boolean') {
+        return checked;
+      }
+
+      throw new Error(
+        `Named checkbox benchmark target "${requestedInteraction.name}" does not expose observable checked state`
+      );
+    };
+
+    const checkboxBefore = findCheckbox();
+    if (
+      (checkboxBefore as { disabled?: unknown }).disabled === true ||
+      checkboxBefore.getAttribute('aria-disabled') === 'true'
+    ) {
+      throw new Error(
+        `Named checkbox benchmark target "${requestedInteraction.name}" is disabled; the click would be a silent no-op`
+      );
+    }
+    const click = (checkboxBefore as { click?: unknown }).click;
+    if (typeof click !== 'function') {
+      throw new Error(
+        `Named checkbox benchmark target "${requestedInteraction.name}" is not clickable`
+      );
+    }
+
+    const checkedBefore = readCheckedState(checkboxBefore);
+    const startedAt = performance.now();
+    click.call(checkboxBefore);
+    await waitForPaint();
+    const checkedAfter = readCheckedState(findCheckbox());
+    if (checkedAfter === checkedBefore) {
+      throw new Error(
+        `Named checkbox benchmark target "${requestedInteraction.name}" did not change checked state after its click`
+      );
+    }
+
+    const durationMs = performance.now() - startedAt;
+    return {
+      averageDurationMs: durationMs,
+      maxDurationMs: durationMs,
+      samplesMs: [durationMs],
+      totalDurationMs: durationMs,
     };
   }, interaction);
 };
