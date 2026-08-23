@@ -310,6 +310,17 @@ async function makeRecoveredProviderErrorTermination(
  * Text/reasoning deltas are handled in their own cases instead — a
  * zero-length delta paints nothing and must not count.
  */
+/**
+ * Whether a delta contains anything a reader could actually SEE.
+ *
+ * Whitespace is not contribution: a bubble containing only spaces or newlines
+ * is visually empty, which is the exact outcome the empty-response guard
+ * exists to prevent (review of #2624). The delta is still STREAMED either way
+ * — formatting whitespace between real tokens is meaningful — only the
+ * contribution flag is withheld.
+ */
+const VISIBLE_CHARACTER_PATTERN = /\S/;
+
 const MODEL_CONTRIBUTION_PART_TYPES: ReadonlySet<string> = new Set([
   'tool-call',
   'tool-call-approval',
@@ -322,6 +333,32 @@ const MODEL_CONTRIBUTION_PART_TYPES: ReadonlySet<string> = new Set([
   'tool-output-denied',
   'tool-result',
 ]);
+
+/**
+ * Map a text or reasoning delta, recording whether the model has now
+ * contributed something a reader could SEE.
+ *
+ * The two kinds differ only in the chunk type they emit and in first-text
+ * latency being a text-only measurement, so they share this body rather than
+ * two near-identical switch arms whose whitespace rules could drift apart.
+ */
+function mapContentDelta(
+  part: unknown,
+  lifecycleState: ToolLifecycleState,
+  type: 'reasoning-delta' | 'text-delta'
+): ProcessStreamPartResult {
+  const delta = getDeltaText(part);
+  if (type === 'text-delta') {
+    recordFirstTextLatency(delta, lifecycleState);
+  }
+  if (delta.length === 0) {
+    return { chunks: [], finished: false };
+  }
+  if (VISIBLE_CHARACTER_PATTERN.test(delta)) {
+    lifecycleState.sawModelContribution = true;
+  }
+  return { chunks: [{ type, value: delta }], finished: false };
+}
 
 /**
  * A finish that would otherwise COMPLETE a turn the model contributed NOTHING
@@ -378,23 +415,10 @@ async function processMastraStreamPart(
         ],
         finished: false,
       };
-    case 'text-delta': {
-      const delta = getDeltaText(part);
-      recordFirstTextLatency(delta, lifecycleState);
-      if (delta.length === 0) {
-        return { chunks: [], finished: false };
-      }
-      lifecycleState.sawModelContribution = true;
-      return { chunks: [{ type: 'text-delta', value: delta }], finished: false };
-    }
-    case 'reasoning-delta': {
-      const delta = getDeltaText(part);
-      if (delta.length === 0) {
-        return { chunks: [], finished: false };
-      }
-      lifecycleState.sawModelContribution = true;
-      return { chunks: [{ type: 'reasoning-delta', value: delta }], finished: false };
-    }
+    case 'text-delta':
+      return mapContentDelta(part, lifecycleState, 'text-delta');
+    case 'reasoning-delta':
+      return mapContentDelta(part, lifecycleState, 'reasoning-delta');
     case 'step-start':
       return {
         chunks: [

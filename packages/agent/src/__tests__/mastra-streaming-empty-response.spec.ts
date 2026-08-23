@@ -163,6 +163,50 @@ describe('empty model response recovery', () => {
     expect(agentInstances[0]?.streamCalls).toHaveLength(1);
   });
 
+  it('treats a stream of only WHITESPACE text deltas as an empty response', async () => {
+    resetMastraStreamHarness();
+    emptyMessageList();
+    // A bubble containing only spaces/newlines is visually empty — the exact
+    // outcome this guard exists to prevent — so whitespace is not
+    // contribution. The deltas still STREAM (formatting whitespace between
+    // real tokens is meaningful); only the contribution flag is withheld.
+    setMockStreamPartsForCall(1, [
+      { textDelta: ' ', type: 'text-delta' },
+      { textDelta: '\n\n', type: 'text-delta' },
+      ...EMPTY_RESPONSE_PARTS,
+    ]);
+    setMockStreamPartsForCall(2, [
+      { textDelta: 'real answer', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 7 } },
+    ]);
+
+    const chunks = await collectChunks();
+
+    expect(findRunEventChunks(chunks, 'run.resumed')).toHaveLength(1);
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'real answer' });
+    expect(findRunEventChunks(chunks, 'run.finished')).toHaveLength(1);
+  });
+
+  it('counts whitespace-adjacent text as contribution once a real character arrives', async () => {
+    resetMastraStreamHarness();
+    emptyMessageList();
+    // Falsifies the whitespace rule in the other direction: a response that
+    // OPENS with whitespace is a normal answer, not an empty one, and the
+    // leading whitespace must still reach the renderer.
+    setMockStreamParts([
+      { textDelta: '\n', type: 'text-delta' },
+      { textDelta: 'answer after a leading newline', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 4, promptTokens: 7 } },
+    ]);
+
+    const chunks = await collectChunks();
+
+    expect(chunks).toContainEqual({ type: 'text-delta', value: '\n' });
+    expect(findRunEventChunks(chunks, 'run.stalled')).toHaveLength(0);
+    expect(findRunEventChunks(chunks, 'run.finished')).toHaveLength(1);
+    expect(agentInstances[0]?.streamCalls).toHaveLength(1);
+  });
+
   it('treats a stream of only EMPTY text deltas as an empty response', async () => {
     resetMastraStreamHarness();
     emptyMessageList();

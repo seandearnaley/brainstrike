@@ -95,8 +95,10 @@ export interface ToolLifecycleState {
   providerReportedPromptTokens?: number;
   requiresBilledCost: boolean;
   /**
-   * Whether the model contributed ANYTHING to the turn — a non-empty text or
-   * reasoning delta, or any tool-lifecycle part — across every attempt.
+   * Whether the model contributed ANYTHING to the turn — a text or reasoning
+   * delta containing at least one non-whitespace character, or any
+   * tool-lifecycle part — across every attempt. Whitespace-only output is not
+   * contribution: that bubble is visually empty too.
    * Carried like the billing flags: a continuation of a turn that already
    * produced output must not re-classify that turn as empty. Read at the
    * terminal `finish`: a turn-level-empty finish is an attempt fault

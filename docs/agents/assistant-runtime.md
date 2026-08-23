@@ -61,8 +61,11 @@ below are LIVE.
    in-flight forever.
    An EMPTY MODEL RESPONSE rides the same attempt rails: a terminal `finish`
    whose reason would complete the run, on a turn the model contributed
-   NOTHING to (no non-empty text/reasoning delta, no tool-lifecycle part,
-   across every attempt — `ToolLifecycleState.sawModelContribution`, carried
+   NOTHING to (no text/reasoning delta carrying a non-whitespace character —
+   whitespace-only output renders an equally empty bubble — and no
+   tool-lifecycle part, across every attempt; the deltas themselves still
+   stream, since formatting whitespace between real tokens is meaningful —
+   `ToolLifecycleState.sawModelContribution`, carried
    like the billing flags; resume legs initialize it true because the resumed
    tool call is model output), throws `EmptyModelResponseError` from the
    mapper's `finish` case instead of completing. Field case 2026-08-23:
