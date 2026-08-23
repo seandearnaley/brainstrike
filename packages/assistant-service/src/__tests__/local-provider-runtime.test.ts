@@ -1,4 +1,4 @@
-import type { RuntimeData } from '@brainstrike/agent';
+import { PROVIDER_DEFAULT_MODELS, type RuntimeData } from '@brainstrike/agent';
 import { describe, expect, it, vi } from 'vitest';
 import {
   collectLocalLlmWarmupModelIds,
@@ -134,16 +134,23 @@ describe('createMainLlmHostClient', () => {
     const manager = makeManager();
     const client = createMainLlmHostClient(manager);
 
-    void client.generate({ messages: [], modelId: 'gemma-local' }, {
-      signal: new AbortController().signal,
-    } as never);
+    const signal = new AbortController().signal;
+    void client.generate({ messages: [], modelId: 'gemma-local' }, { signal });
     expect(manager.generateForMain).toHaveBeenCalledTimes(1);
-    const [, callOptions] = manager.generateForMain.mock.calls[0]!;
-    expect(callOptions).toBeDefined();
+    const [firstRequest, callOptions] = manager.generateForMain.mock.calls[0]!;
+    expect(callOptions).toEqual({ signal });
+    expect(firstRequest).not.toHaveProperty('options');
 
-    void client.generate({ messages: [], modelId: 'gemma-local' });
-    const secondCall = manager.generateForMain.mock.calls[1];
-    expect(secondCall?.[0]).not.toHaveProperty('options');
+    const generationOptions = { maxNewTokens: 16 };
+    void client.generate({
+      messages: [],
+      modelId: 'gemma-local',
+      options: generationOptions,
+    });
+    expect(manager.generateForMain).toHaveBeenCalledTimes(2);
+    const [secondRequest, secondOptions] = manager.generateForMain.mock.calls[1]!;
+    expect(secondRequest).toMatchObject({ modelId: 'gemma-local', options: generationOptions });
+    expect(secondOptions).toEqual({});
   });
 
   it('delegates warmup to the manager with defaulted options', async () => {
@@ -167,8 +174,20 @@ describe('collectLocalLlmWarmupModelIds', () => {
     ).toEqual(['gemma-9b']);
     expect(
       collectLocalLlmWarmupModelIds(makeRuntimeData({ model: '  ', provider: 'local' }))
-    ).toHaveLength(1);
+    ).toEqual([PROVIDER_DEFAULT_MODELS['local']!]);
     expect(collectLocalLlmWarmupModelIds(makeRuntimeData({ model: 'gemma-9b' }))).toEqual([]);
+  });
+
+  it('skips warming an observational-memory target that names no local model', () => {
+    expect(
+      collectLocalLlmWarmupModelIds(
+        makeRuntimeData({
+          observationalMemoryEnabled: true,
+          observationalMemoryTarget: 'local/',
+          provider: 'openai',
+        })
+      )
+    ).toEqual([]);
   });
 
   it('dedupes identical chat and observational-memory targets into one warmup', () => {

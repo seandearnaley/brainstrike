@@ -33,7 +33,7 @@ describe('runConversationCompactionBeforeStream', () => {
         capabilities: {
           compaction: { createContextOverflowRecovery, runPreRequest },
         },
-        logger,
+        logger: logger.logger,
         memoryResult: { store: { id: 'store-1' } },
         messages: [] as AgentMessage[],
         runId: 'run-1',
@@ -75,7 +75,7 @@ describe('runConversationCompactionBeforeStream', () => {
       outputTokens: 5,
       source: 'compaction-summary' as const,
     };
-    const { input, runPreRequest } = makeInput();
+    const { input } = makeInput();
     (input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>).mockResolvedValue({
       kind: 'deterministic',
       usage,
@@ -85,11 +85,10 @@ describe('runConversationCompactionBeforeStream', () => {
       kind: 'deterministic',
       usage,
     });
-    void runPreRequest;
   });
   it('logs and continues the user turn when the pre-request pass fails', async () => {
     const failure = new Error('compactor exploded');
-    const { input, logger, runPreRequest } = makeInput();
+    const { input, logger } = makeInput();
     (input.capabilities.compaction.runPreRequest as ReturnType<typeof vi.fn>).mockRejectedValue(
       failure
     );
@@ -102,7 +101,6 @@ describe('runConversationCompactionBeforeStream', () => {
         error: failure,
       })
     );
-    void runPreRequest;
   });
 });
 
