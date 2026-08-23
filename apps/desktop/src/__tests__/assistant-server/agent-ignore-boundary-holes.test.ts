@@ -6,9 +6,12 @@
  * the happy path (a readable file, present at start, inside the opened root).
  * A boundary has to be tested by how it FAILS.
  */
+import { execFile } from 'node:child_process';
+import { constants as oConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { RuntimeData } from '@brainstrike/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAgentIgnoreGuard } from '../../assistant-server/agent-ignore-guard';
@@ -22,6 +25,8 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
   };
 });
+
+const execFileAsync = promisify(execFile);
 
 const createdRoots: string[] = [];
 
@@ -236,6 +241,142 @@ describe('REGRESSION GUARDS for the fail-closed reader (BST-1436 review)', () =>
         expect((error as Error).message).not.toContain(repo);
       } finally {
         await fsPromises.chmod(path.join(repo, '.llmignore'), 0o644);
+      }
+    }
+  );
+});
+
+const canMakeFifo = process.platform !== 'win32';
+
+describe('the FIFO hang — the case only the stat guard covers', () => {
+  it.skipIf(!canMakeFifo)(
+    'does not HANG when a FIFO is named .llmignore',
+    async () => {
+      // `readFile` on a FIFO blocks until a writer appears, and there is no
+      // timeout anywhere on this path — the tool call hangs forever, which is
+      // worse than an error because nothing surfaces at all. EISDIR handling
+      // does NOT cover this; only refusing to read a non-regular file does.
+      const root = await makeWorkspace({ 'docs/real.md': '' });
+      await execFileAsync('mkfifo', [path.join(root, '.llmignore')]);
+
+      // A regression here BLOCKS in the libuv threadpool and keeps the whole
+      // runner alive past the assertion — verified by removing the guard, which
+      // hung the run indefinitely rather than failing. The releases below open
+      // the FIFO write-side NON-BLOCKING: that wakes a blocked reader if the
+      // guard regressed, and returns ENXIO harmlessly when (correctly) nobody
+      // is reading. A plain `writeFile` cannot be used — opening a FIFO for
+      // write blocks until a reader arrives, so it hangs on the passing path.
+      const fifoPath = path.join(root, '.llmignore');
+      const release = async () => {
+        try {
+          const handle = await fsPromises.open(
+            fifoPath,
+            oConstants.O_WRONLY | oConstants.O_NONBLOCK
+          );
+          await handle.close();
+        } catch {
+          // ENXIO: nothing is blocked on the read side, which is the pass case.
+        }
+      };
+      // NO pre-emptive release: waking the reader before the race would let a
+      // regression finish successfully and the test would pass either way.
+      // (It did — caught by removing the guard and watching this go green.)
+      // The release runs only AFTER the verdict, purely so a blocked read
+      // cannot keep the runner alive once the test has already failed.
+      try {
+        const result = await Promise.race([
+          runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root)),
+          new Promise((_resolve, reject) =>
+            setTimeout(() => reject(new Error('HUNG on the FIFO')), 4000)
+          ),
+        ]);
+        expect(paths(result as { matches: { path: string }[] })).toEqual(['/docs/real.md']);
+      } finally {
+        await release();
+      }
+    },
+    10_000
+  );
+});
+
+describe('HOLE 4 — a SYMLINKED .llmignore must still protect', () => {
+  // Managing dotfiles by symlinking them to a shared config is routine. The
+  // `dirent.isFile()` / `lstat` checks are lstat-based, so they dropped a
+  // symlinked agent ignore file before it was ever read: the user writes a rule,
+  // sees no error, and is not protected. Same silent class as the other three.
+  const shared = 'secrets/\n';
+
+  it('honours a symlinked .llmignore in the walk', async () => {
+    const root = await makeWorkspace({
+      'config/llmignore-shared': shared,
+      'docs/real.md': '',
+      'secrets/key.md': '',
+    });
+    await fsPromises.symlink(
+      path.join(root, 'config', 'llmignore-shared'),
+      path.join(root, '.llmignore')
+    );
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/docs/real.md']);
+  });
+
+  it('honours a symlinked .llmignore in the direct-read guard', async () => {
+    const root = await makeWorkspace({ 'config/llmignore-shared': shared, 'secrets/key.md': '' });
+    await fsPromises.symlink(
+      path.join(root, 'config', 'llmignore-shared'),
+      path.join(root, '.llmignore')
+    );
+    const guard = createAgentIgnoreGuard(root);
+    expect(await guard.ignoresFile('secrets/key.md')).toBe(true);
+  });
+
+  it('still rejects a symlink that points at a DIRECTORY', async () => {
+    // Following the link must not reopen the EISDIR brick.
+    const root = await makeWorkspace({ 'docs/real.md': '' });
+    await fsPromises.mkdir(path.join(root, 'not-a-file'), { recursive: true });
+    await fsPromises.symlink(path.join(root, 'not-a-file'), path.join(root, '.llmignore'));
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/docs/real.md']);
+  });
+});
+
+describe('REGRESSION GUARDS for the review fixes themselves (BST-1436)', () => {
+  it('resolves the repository through a SYMLINKED workspace root', async () => {
+    // The guard was handed the registry's presentation path while the walk
+    // canonicalized first, so a root reached through a symlink discovered the
+    // wrong ancestors and missed the real parent `.llmignore`.
+    const repo = await makeWorkspace({
+      '.llmignore': 'workspace/secrets/\n',
+      'workspace/secrets/key.md': '',
+    });
+    await fsPromises.mkdir(path.join(repo, '.git'), { recursive: true });
+    const linkDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-link-'));
+    createdRoots.push(linkDir);
+    const linked = path.join(linkDir, 'via-link');
+    await fsPromises.symlink(path.join(repo, 'workspace'), linked);
+
+    const guard = createAgentIgnoreGuard(linked);
+    expect(await guard.ignoresFile('secrets/key.md')).toBe(true);
+  });
+
+  it.skipIf(!canDenyReads)(
+    'FAILS CLOSED when an ancestor cannot be probed for a repository',
+    async () => {
+      // EACCES walking up read as "no repository", silently dropping the whole
+      // inherited chain — the same fail-open, one level further back.
+      const outer = await makeWorkspace({});
+      const root = path.join(outer, 'locked', 'inner');
+      await fsPromises.mkdir(root, { recursive: true });
+      await fsPromises.chmod(path.join(outer, 'locked'), 0o000);
+      try {
+        const guard = createAgentIgnoreGuard(root);
+        // Either fail-closed path is correct here — repository discovery or
+        // the ignore reader can hit the EACCES first, and both must refuse
+        // rather than answer "not ignored". Asserting the specific message
+        // would pin an ordering neither side guarantees.
+        await expect(guard.ignoresFile('a.ts')).rejects.toThrow(/Refusing to (continue|proceed)/i);
+      } finally {
+        await fsPromises.chmod(path.join(outer, 'locked'), 0o755);
       }
     }
   );

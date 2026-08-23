@@ -59,11 +59,12 @@ async function readIgnoreFile(
   displayName: string
 ): Promise<string | undefined> {
   try {
-    const stat = await fsPromises.lstat(absolutePath);
+    // `stat`, NOT `lstat`: a symlinked `.llmignore` (dotfile managers do this)
+    // must be honoured, or the file the user wrote to protect secrets protects
+    // nothing. Following the link still rejects a directory or FIFO, so the
+    // EISDIR brick and the FIFO hang stay closed. Mirrors the walk.
+    const stat = await fsPromises.stat(absolutePath);
     if (!stat.isFile()) {
-      // A directory or FIFO with this name carries no rules, and reading it
-      // would throw EISDIR or block forever — bricking every guarded read in
-      // the workspace. Absent, not unreadable. Mirrors the walk.
       return;
     }
   } catch (error) {

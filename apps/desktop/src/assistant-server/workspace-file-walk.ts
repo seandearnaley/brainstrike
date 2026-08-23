@@ -399,7 +399,13 @@ async function readAgentIgnoreFile(
   displayName: string
 ): Promise<string | undefined> {
   try {
-    const stat = await fsPromises.lstat(absolutePath);
+    // `stat`, NOT `lstat`: a SYMLINKED agent ignore file must be honoured. Users
+    // manage dotfiles by symlinking them to a shared config, and skipping those
+    // silently means the file they wrote to protect secrets protects nothing —
+    // the same class of failure this whole ticket is about. Following the link
+    // still rejects a directory or FIFO (and a symlink to one), so the brick
+    // and the hang stay closed.
+    const stat = await fsPromises.stat(absolutePath);
     if (!stat.isFile()) {
       return;
     }
@@ -453,12 +459,22 @@ async function readDirectoryIgnoreSources(
   const candidates = respectGitignore
     ? PER_DIRECTORY_IGNORE_FILES
     : PER_DIRECTORY_IGNORE_FILES.filter(([, layer]) => AGENT_IGNORE_LAYERS.has(layer));
-  const present = candidates.filter(([fileName]) =>
-    // isFile(), NOT !isDirectory(): a FIFO with one of these names would block
-    // the read until a writer appeared (hanging the whole glob), and a symlink
-    // would let ignore rules be sourced from outside the canonical root — the
-    // containment discipline every other read in this walk observes.
-    dirEntries.some((dirent) => dirent.name === fileName && dirent.isFile())
+  const present = candidates.filter(([fileName, layer]) =>
+    dirEntries.some((dirent) => {
+      if (dirent.name !== fileName) {
+        return false;
+      }
+      // For the BYPASSABLE layers: isFile(), NOT !isDirectory(). A FIFO with
+      // one of these names would block the read until a writer appeared, and a
+      // symlink would source rules from outside the canonical root.
+      //
+      // For the AGENT layers the dirent gate is deliberately skipped: it is
+      // lstat-based, so it drops a SYMLINKED `.llmignore` before the reader
+      // ever sees it, and a symlinked dotfile is how people share one.
+      // `readAgentIgnoreFile` stats through the link and still rejects a
+      // directory or FIFO, so nothing is loosened.
+      return AGENT_IGNORE_LAYERS.has(layer) || dirent.isFile();
+    })
   );
   if (present.length === 0) {
     return;
