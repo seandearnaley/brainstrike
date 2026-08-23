@@ -69,7 +69,7 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByText(/Run the tests/)).toBeInTheDocument();
   });
 
-  it('renders the plan fallback instead of trusting a malformed display payload', () => {
+  it('surfaces a malformed plan payload and prevents blind resume', () => {
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -79,8 +79,23 @@ describe('AssistantToolSuspendNotice', () => {
       />
     );
 
+    expect(screen.getByTestId('assistant-submit-plan-payload-unreadable')).toHaveAttribute(
+      'role',
+      'alert'
+    );
+    expect(screen.getByText(/plan details could not be read/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /reject/i })).not.toBeInTheDocument();
+    expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the actionable legacy fallback when a plan payload is absent', () => {
+    render(<AssistantToolSuspendNotice data={{ ...planRequest, suspendPayload: undefined }} />);
+
     expect(screen.getByText('Plan for your approval')).toBeInTheDocument();
     expect(screen.getByText('A plan was submitted for your review.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
   });
 
   it('Approve appends a resume action { action: "approved" }', async () => {
@@ -144,7 +159,7 @@ describe('AssistantToolSuspendNotice', () => {
     expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'San Francisco' });
   });
 
-  it('renders the free-text fallback instead of trusting malformed askUser options', () => {
+  it('surfaces a malformed askUser payload and prevents answering an undisclosed question', () => {
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -154,8 +169,23 @@ describe('AssistantToolSuspendNotice', () => {
       />
     );
 
+    expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toHaveAttribute(
+      'role',
+      'alert'
+    );
+    expect(screen.getByText(/question details could not be read/i)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /your answer/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
+    expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the actionable legacy free-text fallback when an askUser payload is absent', () => {
+    render(
+      <AssistantToolSuspendNotice data={{ ...askFreeTextRequest, suspendPayload: undefined }} />
+    );
+
     expect(screen.getByText('The assistant has a question')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: /your answer/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /your answer/i })).toBeEnabled();
   });
 
   it('askUser single-select appends the chosen label', async () => {

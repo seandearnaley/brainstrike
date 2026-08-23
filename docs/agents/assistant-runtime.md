@@ -2627,6 +2627,12 @@ see the version ceiling in mastra-boundary.md).
   (AskUserAnswer) so runs suspended before the envelope migration stay
   resumable; multi-select joins with ", ".
 
+The renderer structurally narrows both tools' `suspendPayload` before displaying
+or resuming it. An absent payload retains the generic actionable fallback for
+legacy suspended runs. A present but malformed plan or question instead renders
+an explicit failed alert with no resume controls: the user must never approve a
+plan whose terms were hidden or answer a question the client could not read.
+
 **Transport table (parallel to approval):**
 
 | Layer | Approval | Suspend (this feature) |

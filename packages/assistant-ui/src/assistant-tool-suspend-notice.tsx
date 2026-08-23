@@ -59,7 +59,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null {
+function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null | undefined {
+  if (value === undefined) {
+    return;
+  }
   if (!isRecord(value)) {
     return null;
   }
@@ -98,7 +101,10 @@ function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null {
   };
 }
 
-function readAskUserPayload(value: unknown): AskUserPayload | null {
+function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
+  if (value === undefined) {
+    return;
+  }
   if (!isRecord(value)) {
     return null;
   }
@@ -351,6 +357,31 @@ function NoticeShell({
   );
 }
 
+function UnreadableSuspendPayloadNotice({
+  detail,
+  request,
+  testId,
+  title,
+}: {
+  detail: string;
+  request: AssistantToolSuspendRequest;
+  testId: string;
+  title: string;
+}) {
+  return (
+    <NoticeShell
+      icon={<TriangleAlert className="size-4" />}
+      role="alert"
+      testId={testId}
+      title={title}
+      tone="failed"
+    >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
+      <p className="mt-1 text-muted-foreground text-xs">{detail}</p>
+    </NoticeShell>
+  );
+}
+
 function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const { submit, locked } = useSuspendResume(request);
   const exitPlanMode = usePlanModeExit();
@@ -367,6 +398,17 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
       'Approved the plan.'
     );
   }, [exitPlanMode, feedback, submit]);
+
+  if (plan === null) {
+    return (
+      <UnreadableSuspendPayloadNotice
+        detail="The suspended request contains malformed plan details, so it cannot be approved or rejected here."
+        request={request}
+        testId="assistant-submit-plan-payload-unreadable"
+        title="Plan details could not be read"
+      />
+    );
+  }
 
   return (
     <NoticeShell
@@ -470,6 +512,17 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
       return next;
     });
   }, []);
+
+  if (payload === null) {
+    return (
+      <UnreadableSuspendPayloadNotice
+        detail="The suspended request contains malformed question details, so it cannot be answered here."
+        request={request}
+        testId="assistant-ask-user-payload-unreadable"
+        title="Question details could not be read"
+      />
+    );
+  }
 
   return (
     <NoticeShell
