@@ -277,48 +277,6 @@ function processGroupState(pid: number): ProcessGroupState {
   return signalTree(pid, 0);
 }
 
-/**
- * Does the group LEADER itself still exist?
- *
- * Used to disambiguate an EPERM from the group probe. `kill(-pgid, 0)` is
- * documented to fail with ESRCH when no process matches, but macOS returns
- * EPERM for a DEFUNCT group id whose members have all gone — observed
- * deterministically under the sandbox fence, with the leader already reaped and
- * `ps` showing zero processes carrying that pgid.
- *
- * A positive-pid probe has no such ambiguity: it names one process.
- */
-function processLeaderState(pid: number): ProcessGroupState {
-  try {
-    process.kill(pid, 0);
-    return 'alive';
-  } catch (error) {
-    if (hasErrorCode(error, 'ESRCH')) {
-      return 'gone';
-    }
-    if (hasErrorCode(error, 'EPERM')) {
-      return 'unsignalable';
-    }
-    throw error;
-  }
-}
-
-/**
- * Is an EPERM from the group probe actually "teardown complete"?
- *
- * ONLY when the leader is gone as well. Then there is no process left in that
- * group we could have created and could still signal, so the confirmation this
- * loop exists to make has been made — by a different route.
- *
- * A leader that is still alive keeps EPERM fatal: that is the genuine
- * "the group exists and is not ours to kill" case, and silently passing it
- * would reopen the escape this confirmation closed (a descendant outliving its
- * run and inheriting the next run's policy).
- */
-function isDefunctGroupEperm(pid: number): boolean {
-  return processLeaderState(pid) === 'gone';
-}
-
 export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals): Promise<void> {
   let state: ProcessGroupState;
   try {
@@ -329,12 +287,14 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
   if (state === 'gone') {
     return;
   }
-  if (state === 'unsignalable') {
-    throw new FenceProcessGroupTeardownError(
-      pid,
-      new Error(`Process group ${pid} exists but cannot receive ${signal}.`)
-    );
-  }
+  // NOTE: 'unsignalable' (EPERM) deliberately does NOT throw here. It is
+  // inconclusive, not a denial — every member of this group is our own
+  // descendant running as us, so a genuine permission failure is impossible
+  // (the same reasoning terminal-ipc-handlers.ts records for its own group
+  // kill). What it reports is the post-reap race: a just-SIGKILLed zombie
+  // leader the kernel will not route a group signal through. SIGKILL therefore
+  // falls through to the confirmation loop below, which resolves it; any other
+  // signal returns with the rest, since it has no confirmation step to reach.
   if (signal !== 'SIGKILL') {
     return;
   }
@@ -353,21 +313,23 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
     if (state === 'gone') {
       return;
     }
-    if (state === 'unsignalable') {
-      if (isDefunctGroupEperm(pid)) {
-        return;
-      }
-      throw new FenceProcessGroupTeardownError(
-        pid,
-        new Error(`Process group ${pid} still exists but cannot be probed by this process.`)
-      );
-    }
+    // 'unsignalable' (EPERM) is INCONCLUSIVE, so it polls on exactly like
+    // 'alive' rather than short-circuiting either way. Measured: the group
+    // reaches ESRCH ~7ms later, because EPERM here is the post-reap race — a
+    // just-SIGKILLed zombie leader the kernel will not route a group signal
+    // through — not a surviving group.
+    //
+    // Returning early on EPERM would be unsound in the other direction: a
+    // process group can outlive its leader, so "the leader is gone" does not
+    // prove the group is empty. Only ESRCH does, and only ESRCH returns.
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
       throw new FenceProcessGroupTeardownError(
         pid,
         new Error(
-          `Process group ${pid} still existed ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL.`
+          state === 'unsignalable'
+            ? `Process group ${pid} was still unsignalable ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL; teardown could not be confirmed.`
+            : `Process group ${pid} still existed ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL.`
         )
       );
     }
