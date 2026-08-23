@@ -5,7 +5,7 @@
  */
 
 import type { NativeToolId } from './native-tool-catalog.js';
-import type { ToolSchemaDisplay } from './tool-schemas-display.js';
+import type { ToolSchemaDisplay } from './tool-schemas-display-types.js';
 
 export const EXECUTION_TOOL_SCHEMAS = {
   'brainstrike.executeCommand': {
