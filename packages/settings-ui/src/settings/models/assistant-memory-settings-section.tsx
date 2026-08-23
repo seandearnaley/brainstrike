@@ -1,6 +1,5 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
-import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type {
@@ -47,42 +46,12 @@ function parseNumberInput(value: string): number {
   return Number(value);
 }
 
-/**
- * The providers a MANUAL observer target would straddle, or null when it would
- * not straddle any.
- *
- * Auto is excluded by construction: it only ever resolves an observer from the
- * selected chat provider — the party already receiving the conversation — and
- * the copy beside it says so. A manual target carries no such constraint, and
- * nothing previously told the user when it crossed.
- *
- * Null with no chat model selected: there is nothing to compare against, and a
- * warning on first run would be noise.
- */
-function resolveCrossProviderObserverEgress(input: {
-  chatModelKey: string | null;
-  isAutoObservationTarget: boolean;
-  observerTarget: string;
-}): { chatProvider: string; observerProvider: string } | null {
-  if (input.isAutoObservationTarget || !input.chatModelKey) {
-    return null;
-  }
-  const chatProvider = input.chatModelKey.split('::')[0];
-  const observerProvider = input.observerTarget.split('/')[0];
-  if (!(chatProvider && observerProvider) || chatProvider === observerProvider) {
-    return null;
-  }
-  return { chatProvider, observerProvider };
-}
-
 export interface AssistantMemorySettingsSectionProps {
   readonly assistantMemoryBackendAvailable: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
 }
 
 interface ObservationalMemoryModelFieldProps {
-  /** Chat provider the observer would cross, or null when it would not. */
-  readonly crossProviderEgress: { chatProvider: string; observerProvider: string } | null;
   readonly hasObservationModel: boolean;
   readonly hasUnavailableObservationModel: boolean;
   readonly isAutoObservationTarget: boolean;
@@ -93,7 +62,6 @@ interface ObservationalMemoryModelFieldProps {
 }
 
 function ObservationalMemoryModelField({
-  crossProviderEgress,
   hasObservationModel,
   hasUnavailableObservationModel,
   isAutoObservationTarget,
@@ -132,22 +100,15 @@ function ObservationalMemoryModelField({
           already receiving it. Local chats keep observations paused.
         </p>
       ) : (
-        <p className="text-muted-foreground text-xs">
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="assistant-memory-manual-observer-note"
+        >
           The target identifies a provider/model such as{' '}
           <span className="font-mono">openai/gpt-5.4-mini</span>; Desktop resolves its credential
-          before constructing the observer.
-        </p>
-      )}
-      {crossProviderEgress && (
-        <p
-          className="text-warning text-xs"
-          data-testid="assistant-memory-cross-provider-observer"
-          role="status"
-        >
-          This observer runs on {crossProviderEgress.observerProvider}, but you are chatting with{' '}
-          {crossProviderEgress.chatProvider}. Your conversation is sent to{' '}
-          {crossProviderEgress.observerProvider} as well, which Auto never does. Pick an Auto or{' '}
-          {crossProviderEgress.chatProvider} observer to keep it with one provider.
+          before constructing the observer. Unlike Auto, a manual target is NOT tied to your chat
+          provider: whenever observations run on a chat using a different provider, that
+          conversation is sent to the observer's provider as well.
         </p>
       )}
       {hasUnavailableObservationModel && (
@@ -176,7 +137,6 @@ export function AssistantMemorySettingsSection({
   useEnsureModelRegistry({ db });
 
   const { hasLoaded, models, providers } = useModelRegistryStore();
-  const selectedModel = useAssistantPreferencesStore((state) => state.selectedModel);
   const {
     observationalMemory,
     semanticRecall,
@@ -219,16 +179,6 @@ export function AssistantMemorySettingsSection({
     !hasEmbeddingModel;
   const hasUnavailableObservationModel =
     providerKeySources !== undefined && hasLoaded && !hasObservationModel;
-  // Auto resolves an observer from the chat provider ONLY, and says so. A manual
-  // target has no such constraint, so it can route the conversation to a second
-  // provider silently — observed live with an openrouter chat observed by
-  // openai/gpt-5.6-luna. Named explicitly rather than hinted, because the auto
-  // copy makes a guarantee a reader would otherwise assume still holds.
-  const crossProviderEgress = resolveCrossProviderObserverEgress({
-    chatModelKey: selectedModel,
-    isAutoObservationTarget,
-    observerTarget: observationalMemory.modelTarget,
-  });
   const canToggleObservations = hasObservationModel || observationalMemory.enabled;
   const canToggleSemanticRecall = hasEmbeddingModel || semanticRecall.enabled;
 
@@ -260,7 +210,6 @@ export function AssistantMemorySettingsSection({
 
       <div className="grid gap-4 md:grid-cols-2">
         <ObservationalMemoryModelField
-          crossProviderEgress={crossProviderEgress}
           hasObservationModel={hasObservationModel}
           hasUnavailableObservationModel={hasUnavailableObservationModel}
           isAutoObservationTarget={isAutoObservationTarget}

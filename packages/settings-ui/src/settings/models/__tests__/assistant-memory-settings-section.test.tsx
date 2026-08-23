@@ -3,7 +3,6 @@ import {
   __resetAssistantMemoryPreferencesStoreForTests,
   useAssistantMemoryPreferencesStore,
 } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
-import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
@@ -358,54 +357,51 @@ describe('AssistantMemorySettingsSection', () => {
     expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.enabled).toBe(false);
   });
 
-  describe('cross-provider observer egress', () => {
-    const selectChatModel = (compositeKey: string) => {
-      useAssistantPreferencesStore.setState({ selectedModel: compositeKey });
-    };
+  describe('manual observer egress disclosure', () => {
     const chooseObserver = (target: string) => {
       useAssistantMemoryPreferencesStore.setState((state) => ({
         observationalMemory: { ...state.observationalMemory, modelTarget: target },
       }));
     };
 
-    it('warns when a MANUAL observer names a provider the chat does not use', () => {
-      // Auto carries an explicit guarantee — "the conversation never reaches a
-      // provider that is not already receiving it". A manual target silently
-      // drops it, so a user who read the auto copy would reasonably assume it
-      // still holds. Observed live: chat on openrouter, observer on
-      // openai/gpt-5.6-luna, across two debug bundles.
-      selectChatModel('openrouter::stealth/ox-alpha');
+    it('states that a MANUAL target is not tied to the chat provider', () => {
+      // Auto carries an enforced guarantee in its own copy — "the conversation
+      // never reaches a provider that is not already receiving it" (BST-940).
+      // A manual target has no such constraint and said nothing about egress,
+      // so a reader of the auto note would assume it still held. Observed live
+      // across two debug bundles: chat on openrouter, observer on
+      // openai/gpt-5.6-luna.
       chooseObserver('openai/gpt-5.4-mini');
       renderMemorySettings();
 
-      const warning = screen.getByTestId('assistant-memory-cross-provider-observer');
-      expect(warning).toHaveTextContent(/openai/i);
-      expect(warning).toHaveTextContent(/openrouter/i);
+      const note = screen.getByTestId('assistant-memory-manual-observer-note');
+      expect(note).toHaveTextContent(/not tied to your chat provider/i);
+      expect(note).toHaveTextContent(/sent to the observer's provider/i);
     });
 
-    it('stays silent when the observer shares the chat provider', () => {
-      selectChatModel('openai::gpt-5.4');
-      chooseObserver('openai/gpt-5.4-mini');
-      renderMemorySettings();
-
-      expect(screen.queryByTestId('assistant-memory-cross-provider-observer')).toBeNull();
-    });
-
-    it('stays silent on AUTO, which cannot cross providers by construction', () => {
-      selectChatModel('openrouter::stealth/ox-alpha');
+    it('does NOT claim it on Auto, which cannot cross by construction', () => {
       chooseObserver('auto');
       renderMemorySettings();
 
-      expect(screen.queryByTestId('assistant-memory-cross-provider-observer')).toBeNull();
+      expect(screen.queryByTestId('assistant-memory-manual-observer-note')).toBeNull();
+      expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
+        /never reaches a provider that is not already receiving it/i
+      );
     });
 
-    it('stays silent when no chat model is selected yet', () => {
-      // Nothing to compare against; a warning here would be noise on first run.
-      useAssistantPreferencesStore.setState({ selectedModel: null });
-      chooseObserver('openai/gpt-5.4-mini');
+    it('states it unconditionally, not per active thread', () => {
+      // The observer target is GLOBAL; the chat provider is per-thread
+      // (`draftRuntimeByThreadId` wins over the global `selectedModel` in
+      // assistant-ui-panel-wrapper). A disclosure keyed to whichever thread
+      // happened to be active would go silent for every OTHER thread — wrong
+      // in the direction that matters, since the setting governs all of them.
+      // So it describes the setting, and does not read any provider at all.
+      chooseObserver('anthropic/claude-haiku-4-5');
       renderMemorySettings();
 
-      expect(screen.queryByTestId('assistant-memory-cross-provider-observer')).toBeNull();
+      expect(screen.getByTestId('assistant-memory-manual-observer-note')).toHaveTextContent(
+        /not tied to your chat provider/i
+      );
     });
   });
 });
