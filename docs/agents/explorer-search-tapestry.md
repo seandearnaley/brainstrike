@@ -657,8 +657,13 @@ must be preserved:
   honouring it on both would require rg's Rust implementation and the `ignore`
   package to agree on every edge case. Making grep gitignore-aware is its own
   change: BST-1429. THE AGENT LAYERS ARE THE EXCEPTION — see below.
-- Measured on this repo: walk `scanned` 6,735 → 5,558 and `kept` 5,144 → 4,997,
-  at 88ms → ~111ms. The cost is per-path matching, not the `.gitignore` reads.
+- Measured on this repo, walking with the FULL chain: `scanned` 6,739 → 5,560
+  and `kept` 5,147 → 4,998, at 92ms → 151ms. (BST-1427 measured 88ms → 111ms
+  with `.gitignore` alone.) The extra ~40ms is dominated by the one-time
+  `git config --get core.excludesFile` subprocess at root-chain assembly, not by
+  per-directory reads — `readDirectoryIgnoreSources` only opens names actually
+  present in the listing the walk already has, so a directory declaring no
+  ignore files costs a few Set lookups.
 
 ### THE HARD BOUNDARY BINDS ON EVERY READ PATH (BST-1432)
 
