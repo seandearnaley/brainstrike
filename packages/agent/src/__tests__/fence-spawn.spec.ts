@@ -195,6 +195,71 @@ describe('spawnFenced teardown', () => {
     }
   );
 
+  it('polls THROUGH a transient EPERM and settles on ESRCH', async () => {
+    // EPERM from the group probe is the post-reap race, not a denial: the
+    // leader is a just-SIGKILLed zombie the kernel will not route a group
+    // signal through. terminal-ipc-handlers.ts records the same reasoning for
+    // its own group kill — every member is our own descendant running as us,
+    // so a genuine permission failure is impossible.
+    //
+    // Measured against the real sandbox fence: the group reaches ESRCH ~7ms
+    // after the EPERM. Treating that first EPERM as fatal rejected every normal
+    // teardown on macOS.
+    vi.useFakeTimers();
+    let probes = 0;
+    const kill = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target === -55 && signal === 'SIGKILL') {
+        return true;
+      }
+      probes += 1;
+      throw Object.assign(new Error(probes < 3 ? 'EPERM' : 'ESRCH'), {
+        code: probes < 3 ? 'EPERM' : 'ESRCH',
+      });
+    });
+    try {
+      const pending = terminateProcessGroup(55, 'SIGKILL');
+      const settled = expect(pending).resolves.toBeUndefined();
+      // Advanced one POLL at a time. A single 500ms jump lands the clock past
+      // the deadline before the loop's continuations observe it, so the
+      // deadline would win over the ESRCH the mock is about to return — an
+      // artefact of fake timers, not of the code under test.
+      for (let tick = 0; tick < 5; tick++) {
+        await vi.advanceTimersByTimeAsync(10);
+      }
+      await settled;
+      expect(probes).toBeGreaterThanOrEqual(3);
+    } finally {
+      kill.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('still FAILS CLOSED when EPERM never resolves', async () => {
+    // Only ESRCH returns. A group that stays unsignalable for the whole window
+    // is exactly the state #2613 refuses to settle on, and returning early
+    // would be unsound anyway: a process group can outlive its leader, so
+    // "the leader is gone" never proves the group is empty.
+    vi.useFakeTimers();
+    const kill = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target === -55 && signal === 'SIGKILL') {
+        return true;
+      }
+      throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+    });
+    try {
+      const pending = terminateProcessGroup(55, 'SIGKILL');
+      const rejection = expect(pending).rejects.toMatchObject({
+        code: 'fence_process_group_teardown_failed',
+        pid: 55,
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      await rejection;
+    } finally {
+      kill.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('bounds SIGKILL confirmation when a process group never disappears', async () => {
     vi.useFakeTimers();
     const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
