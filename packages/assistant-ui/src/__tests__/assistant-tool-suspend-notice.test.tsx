@@ -69,6 +69,20 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByText(/Run the tests/)).toBeInTheDocument();
   });
 
+  it('renders the plan fallback instead of trusting a malformed display payload', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...planRequest,
+          suspendPayload: { overview: 42, steps: 'not-an-array', title: { nested: true } },
+        }}
+      />
+    );
+
+    expect(screen.getByText('Plan for your approval')).toBeInTheDocument();
+    expect(screen.getByText('A plan was submitted for your review.')).toBeInTheDocument();
+  });
+
   it('Approve appends a resume action { action: "approved" }', async () => {
     const user = userEvent.setup();
     render(<AssistantToolSuspendNotice data={planRequest} />);
@@ -128,6 +142,20 @@ describe('AssistantToolSuspendNotice', () => {
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
     expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'San Francisco' });
+  });
+
+  it('renders the free-text fallback instead of trusting malformed askUser options', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: { options: 'not-an-array', question: { nested: true } },
+        }}
+      />
+    );
+
+    expect(screen.getByText('The assistant has a question')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /your answer/i })).toBeInTheDocument();
   });
 
   it('askUser single-select appends the chosen label', async () => {

@@ -59,6 +59,82 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { overview, risks, steps, title, verification } = value;
+  if (
+    typeof overview !== 'string' ||
+    typeof title !== 'string' ||
+    !Array.isArray(steps) ||
+    (risks !== undefined && typeof risks !== 'string') ||
+    (verification !== undefined && typeof verification !== 'string')
+  ) {
+    return null;
+  }
+
+  const parsedSteps: SubmitPlanPayload['steps'] = [];
+  for (const step of steps) {
+    if (
+      !isRecord(step) ||
+      typeof step['title'] !== 'string' ||
+      (step['detail'] !== undefined && typeof step['detail'] !== 'string')
+    ) {
+      return null;
+    }
+    parsedSteps.push({
+      ...(typeof step['detail'] === 'string' ? { detail: step['detail'] } : {}),
+      title: step['title'],
+    });
+  }
+
+  return {
+    overview,
+    ...(typeof risks === 'string' ? { risks } : {}),
+    steps: parsedSteps,
+    title,
+    ...(typeof verification === 'string' ? { verification } : {}),
+  };
+}
+
+function readAskUserPayload(value: unknown): AskUserPayload | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { options, question, selectionMode } = value;
+  if (
+    typeof question !== 'string' ||
+    (selectionMode !== undefined &&
+      selectionMode !== 'single_select' &&
+      selectionMode !== 'multi_select') ||
+    (options !== undefined && !Array.isArray(options))
+  ) {
+    return null;
+  }
+
+  const parsedOptions: AskUserOption[] = [];
+  for (const option of options ?? []) {
+    if (
+      !isRecord(option) ||
+      typeof option['label'] !== 'string' ||
+      (option['description'] !== undefined && typeof option['description'] !== 'string')
+    ) {
+      return null;
+    }
+    parsedOptions.push({
+      ...(typeof option['description'] === 'string' ? { description: option['description'] } : {}),
+      label: option['label'],
+    });
+  }
+
+  return {
+    ...(options === undefined ? {} : { options: parsedOptions }),
+    question,
+    ...(selectionMode === undefined ? {} : { selectionMode }),
+  };
+}
+
 function isAssistantToolSuspendRequest(value: unknown): value is AssistantToolSuspendRequest {
   return (
     isRecord(value) &&
@@ -279,9 +355,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
   const { submit, locked } = useSuspendResume(request);
   const exitPlanMode = usePlanModeExit();
   const [feedback, setFeedback] = useState('');
-  const plan = isRecord(request.suspendPayload)
-    ? (request.suspendPayload as unknown as SubmitPlanPayload)
-    : null;
+  const plan = readSubmitPlanPayload(request.suspendPayload);
 
   const approve = useCallback(() => {
     // Exit plan mode BEFORE composing the resume request so the rebuilt server
@@ -381,9 +455,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   );
   const [freeText, setFreeText] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const payload = isRecord(request.suspendPayload)
-    ? (request.suspendPayload as unknown as AskUserPayload)
-    : null;
+  const payload = readAskUserPayload(request.suspendPayload);
   const options: AskUserOption[] = payload?.options ?? [];
   const isMultiSelect = payload?.selectionMode === 'multi_select';
 

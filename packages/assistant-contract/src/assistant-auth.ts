@@ -27,3 +27,25 @@ export type AssistantServerAuthResult =
   | AssistantServerAuthInfo
   | AssistantServerStartupFailure
   | null;
+
+/** Desktop preload capability for the embedded assistant server. Absent on web. */
+export interface AssistantBridge {
+  getAuth?: () => Promise<AssistantServerAuthResult>;
+  getUrl?: () => Promise<string>;
+  url?: string;
+}
+
+declare global {
+  interface Window {
+    assistant?: AssistantBridge;
+  }
+}
+
+/**
+ * Read the optional desktop assistant capability without making consumers
+ * repeat unverified casts. The bridge remains capability-gated: web and SSR
+ * return undefined rather than receiving a stub.
+ */
+export function getAssistantBridge(): AssistantBridge | undefined {
+  return typeof window === 'undefined' ? undefined : window.assistant;
+}

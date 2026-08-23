@@ -32,6 +32,11 @@ below are LIVE.
    visible. Auth headers, request persistence, and request-body construction
    still share the bounded watchdog for every provider, including local.
 
+   Renderer consumers read the optional desktop assistant transport through
+   `getAssistantBridge()` from `@brainstrike/assistant-contract`. That contract
+   owns the `window.assistant` shape and returns no capability on web/SSR; do not
+   recreate local bridge interfaces, unchecked double casts, or web stubs.
+
 2. **Per-tool guard (LIVE)** —
    `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
    the combined Mastra tool map in `createMastraAgentRuntime`'s tool pipeline

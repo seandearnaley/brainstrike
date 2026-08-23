@@ -2,6 +2,7 @@ import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
   assertNoUnknownKeys,
   type DeprecatedEnvVarReport,
+  getAssistantBridge,
   isAllowedProviderKeySourceEnvVar,
   isSecretReadErrorCode,
   type ProviderKeySource,
@@ -230,12 +231,7 @@ export async function resolveAssistantBaseUrl(): Promise<string> {
     return '/api';
   }
 
-  interface AssistantBridge {
-    getUrl?: () => Promise<string>;
-    url?: string;
-  }
-
-  const assistantBridge = (window as unknown as { assistant?: AssistantBridge }).assistant;
+  const assistantBridge = getAssistantBridge();
 
   if (assistantBridge) {
     if (typeof assistantBridge.getUrl === 'function') {
@@ -265,7 +261,7 @@ export async function readAssistantStartupFailure(): Promise<string | undefined>
   if (typeof window === 'undefined') {
     return;
   }
-  const bridge = (window as unknown as { assistant?: AssistantAuthBridge }).assistant;
+  const bridge: AssistantAuthBridge | undefined = getAssistantBridge();
   if (bridge && typeof bridge.getAuth === 'function') {
     try {
       const auth = await bridge.getAuth();

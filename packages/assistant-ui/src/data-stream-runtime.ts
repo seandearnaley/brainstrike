@@ -1000,7 +1000,7 @@ function readFinishUsage(chunk: AssistantStreamChunk): AssistantUsage | undefine
   if (chunk.type !== 'message-finish') {
     return;
   }
-  const billedCostUsd = (chunk as unknown as Record<string, unknown>)['billedCostUsd'];
+  const billedCostUsd = 'billedCostUsd' in chunk ? chunk.billedCostUsd : undefined;
   if (
     billedCostUsd !== undefined &&
     (typeof billedCostUsd !== 'number' || !Number.isFinite(billedCostUsd) || billedCostUsd < 0)
