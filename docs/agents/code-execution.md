@@ -594,13 +594,21 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   a queue from a hung fence. If the whole budget elapses while queued, nothing
   is spawned and `FenceQueueTimeoutError` is thrown — never a fabricated
   `ExecResult` for code that did not run.
-- **Timeout kills the whole process TREE, and no path settles before the group
-  is down.** Children are spawned `detached: true` (so the child is a
+- **Timeout kills the whole process TREE, and no successful path settles before
+  the group is down.** Children are spawned `detached: true` (so the child is a
   process-group leader) and the timeout signals the negative pid: SIGTERM,
   then SIGKILL after 500 ms. Sending SIGKILL is not itself proof of teardown:
-  settlement waits until a signal-0 probe reports `ESRCH` for the process group,
-  so a descendant cannot land one final side effect after the promise settles.
-  `timedOut` is set; the exit code is
+  settlement waits up to 500 ms for a signal-0 probe to report `ESRCH` for the
+  process group, so a runnable descendant cannot land one final side effect
+  after a successful result. That confirmation is bounded because a zombie,
+  uninterruptible process, or `EPERM` probe must not deadlock the process-global
+  execution queue. Failure rejects with `FenceProcessGroupTeardownError`; a
+  completed `ExecResult` is attached as `outcome`, while cancellation remains
+  an `ExecAbortedError` with the teardown error as its `cause` and partial output
+  intact. The failed group remains tracked, and later executions fail closed
+  before installing another process-global policy until `ESRCH` proves it gone.
+  The timeout path shares one memoized SIGKILL confirmation rather than starting
+  a second poll from its hard backstop. `timedOut` is set; the exit code is
   `128 + signum` when no code is available. Settling on `'close'` alone would
   be a bug: a descendant that detaches its stdio closes our pipes while still
   running, so an early settle would clear the pending SIGKILL and return with

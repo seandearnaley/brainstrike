@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import { platform } from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
+import { createLogger } from '@brainstrike/logging';
 
 import {
   assertExecRequestSatisfiable,
@@ -48,6 +49,11 @@ const KILL_GRACE_MS = 500;
 
 /** Poll interval while confirming that a SIGKILLed process group is gone. */
 const PROCESS_GROUP_EXIT_POLL_MS = 10;
+
+/** Maximum confirmation window after SIGKILL before the fence fails closed. */
+const PROCESS_GROUP_EXIT_CONFIRMATION_MS = 500;
+
+const logger = createLogger('FenceExecutor');
 
 /**
  * The ONLY host environment variables a sandboxed process inherits.
@@ -161,6 +167,29 @@ export class FenceQueueTimeoutError extends Error {
 }
 
 /**
+ * The fence could not confirm that a process group is gone. The executor
+ * rejects rather than reporting a successful run, and the tracked group blocks
+ * later policy installation until a probe confirms that it has disappeared.
+ */
+export class FenceProcessGroupTeardownError extends Error {
+  readonly code = 'fence_process_group_teardown_failed' as const;
+  override readonly cause: unknown;
+  readonly outcome: ExecResult | undefined;
+  readonly pid: number;
+
+  constructor(pid: number, cause: unknown, outcome?: ExecResult) {
+    super(
+      `Process-group teardown for pid ${pid} could not be confirmed; later fenced executions are blocked until the group disappears.`,
+      { cause }
+    );
+    this.name = 'FenceProcessGroupTeardownError';
+    this.cause = cause;
+    this.outcome = outcome;
+    this.pid = pid;
+  }
+}
+
+/**
  * The explicit `darwin`/`linux` list is LOAD-BEARING and must not be
  * "simplified" to `SandboxManager.isSupportedPlatform()` alone (BST-1068).
  *
@@ -225,40 +254,46 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }
 
-function signalTree(pid: number, signal: NodeJS.Signals | 0): boolean {
+type ProcessGroupState = 'alive' | 'gone' | 'unsignalable';
+
+function signalTree(pid: number, signal: NodeJS.Signals | 0): ProcessGroupState {
   try {
     // Negative pid = the whole process group. `detached: true` made the child
     // the group leader, so every descendant it spawned is in this group.
     process.kill(-pid, signal);
-    return true;
+    return 'alive';
   } catch (error) {
     if (hasErrorCode(error, 'ESRCH')) {
-      return false;
-    }
-    throw error;
-  }
-}
-
-function processGroupExists(pid: number): boolean {
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (error) {
-    if (hasErrorCode(error, 'ESRCH')) {
-      return false;
+      return 'gone';
     }
     if (hasErrorCode(error, 'EPERM')) {
-      // POSIX defines EPERM for signal 0 as proof that at least one process in
-      // the group still exists but is not currently signalable by this caller.
-      return true;
+      return 'unsignalable';
     }
     throw error;
   }
 }
 
-async function killTree(pid: number, signal: NodeJS.Signals): Promise<void> {
-  const groupExisted = signalTree(pid, signal);
-  if (!groupExisted || signal !== 'SIGKILL') {
+function processGroupState(pid: number): ProcessGroupState {
+  return signalTree(pid, 0);
+}
+
+export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals): Promise<void> {
+  let state: ProcessGroupState;
+  try {
+    state = signalTree(pid, signal);
+  } catch (error) {
+    throw new FenceProcessGroupTeardownError(pid, error);
+  }
+  if (state === 'gone') {
+    return;
+  }
+  if (state === 'unsignalable') {
+    throw new FenceProcessGroupTeardownError(
+      pid,
+      new Error(`Process group ${pid} exists but cannot receive ${signal}.`)
+    );
+  }
+  if (signal !== 'SIGKILL') {
     return;
   }
 
@@ -266,8 +301,32 @@ async function killTree(pid: number, signal: NodeJS.Signals): Promise<void> {
   // before the kernel delivers SIGKILL, so settling at that point can expose a
   // later run's policy to a descendant that has not exited yet. Signal 0 is the
   // POSIX existence probe; ESRCH is the confirmation that the group is gone.
-  while (processGroupExists(pid)) {
-    await delay(PROCESS_GROUP_EXIT_POLL_MS);
+  const deadline = Date.now() + PROCESS_GROUP_EXIT_CONFIRMATION_MS;
+  while (true) {
+    try {
+      state = processGroupState(pid);
+    } catch (error) {
+      throw new FenceProcessGroupTeardownError(pid, error);
+    }
+    if (state === 'gone') {
+      return;
+    }
+    if (state === 'unsignalable') {
+      throw new FenceProcessGroupTeardownError(
+        pid,
+        new Error(`Process group ${pid} still exists but cannot be probed by this process.`)
+      );
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new FenceProcessGroupTeardownError(
+        pid,
+        new Error(
+          `Process group ${pid} still existed ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL.`
+        )
+      );
+    }
+    await delay(Math.min(PROCESS_GROUP_EXIT_POLL_MS, remainingMs), undefined, { ref: false });
   }
 }
 
@@ -284,24 +343,53 @@ async function killTree(pid: number, signal: NodeJS.Signals): Promise<void> {
 const liveProcessGroups = new Set<number>();
 let exitReaperRegistered = false;
 
+function assertNoSurvivingProcessGroups(): void {
+  for (const pid of liveProcessGroups) {
+    let state: ProcessGroupState;
+    try {
+      state = processGroupState(pid);
+    } catch (error) {
+      throw new FenceProcessGroupTeardownError(pid, error);
+    }
+    if (state === 'gone') {
+      liveProcessGroups.delete(pid);
+      continue;
+    }
+    throw new FenceProcessGroupTeardownError(
+      pid,
+      new Error(
+        state === 'unsignalable'
+          ? `Tracked process group ${pid} still exists but cannot be probed by this process.`
+          : `Tracked process group ${pid} still exists.`
+      )
+    );
+  }
+}
+
 function registerExitReaper(): void {
   if (exitReaperRegistered) {
     return;
   }
   exitReaperRegistered = true;
   process.once('exit', () => {
-    const errors: unknown[] = [];
     for (const pid of liveProcessGroups) {
       try {
-        signalTree(pid, 'SIGKILL');
+        const state = signalTree(pid, 'SIGKILL');
+        if (state === 'unsignalable') {
+          logger.error('Fenced process group could not be reaped during host exit', {
+            code: 'fence_exit_reap_unsignalable',
+            pid,
+          });
+        }
       } catch (error) {
-        errors.push(error);
+        logger.error('Fenced process-group reaper failed during host exit', {
+          code: 'fence_exit_reap_failed',
+          error,
+          pid,
+        });
       }
     }
     liveProcessGroups.clear();
-    if (errors.length > 0) {
-      throw new AggregateError(errors, 'Failed to terminate one or more fenced process groups');
-    }
   });
 }
 
@@ -405,7 +493,7 @@ export interface ChildProcessLike {
 }
 
 const realSpawnDeps: FenceSpawnDeps = {
-  killGroup: killTree,
+  killGroup: terminateProcessGroup,
   spawnProcess: (command, args, { cwd, env }) =>
     spawn(command, [...args], {
       cwd,
@@ -428,6 +516,7 @@ export interface SpawnFencedOptions {
 
 export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> {
   const { argv, cwd, deps = realSpawnDeps, env, maxOutputBytes, signal, timeoutMs } = options;
+  const tracksLiveProcessGroup = deps === realSpawnDeps;
   return new Promise<SpawnOutcome>((resolvePromise, rejectPromise) => {
     const [command, ...args] = argv;
     if (!command) {
@@ -443,6 +532,7 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
     let settled = false;
     let exitCode: number | null = null;
     let exitSignal: NodeJS.Signals | null = null;
+    let teardownPromise: Promise<void> | undefined;
 
     const timers = new Set<NodeJS.Timeout>();
     const later = (ms: number, fn: () => void): void => {
@@ -459,8 +549,21 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
       timers.clear();
     };
 
-    /** Runs on every settle path: tear the group down, stop tracking it. */
-    const teardown = async (): Promise<void> => {
+    /** Starts the one process-group teardown shared by every settlement path. */
+    const startGroupTeardown = (): Promise<void> => {
+      teardownPromise ??= (async () => {
+        if (child.pid !== undefined) {
+          await deps.killGroup(child.pid, 'SIGKILL');
+          if (tracksLiveProcessGroup) {
+            liveProcessGroups.delete(child.pid);
+          }
+        }
+      })();
+      return teardownPromise;
+    };
+
+    /** Runs on every settle path: stop timers and await the shared teardown. */
+    const teardown = (): Promise<void> => {
       clearTimers();
       abortSubscription?.();
       // Tear the group down BEFORE settling, on every path. A descendant that
@@ -468,10 +571,26 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
       // 'close' early — settling there would clear the pending SIGKILL and
       // return with the descendant alive, free to outlive the policy this run
       // was granted. Killing here means no exit path can leak the group.
-      if (child.pid !== undefined) {
-        await deps.killGroup(child.pid, 'SIGKILL');
-        liveProcessGroups.delete(child.pid);
+      return startGroupTeardown();
+    };
+
+    const outcome = (): ExecResult => ({
+      // The seam pins this: exitCode is null exactly when a signal killed the
+      // process, and `signal` names it — no per-backend 124/-1 convention.
+      exitCode,
+      signal: exitSignal,
+      stderr: stderr.text(),
+      stderrOmittedBytes: stderr.omittedBytes,
+      stdout: stdout.text(),
+      stdoutOmittedBytes: stdout.omittedBytes,
+      timedOut,
+    });
+
+    const teardownError = (error: unknown, completed?: ExecResult): Error => {
+      if (error instanceof FenceProcessGroupTeardownError && completed === undefined) {
+        return error;
       }
+      return new FenceProcessGroupTeardownError(child.pid ?? -1, error, completed);
     };
 
     const fail = (error: unknown): void => {
@@ -479,7 +598,15 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
         return;
       }
       settled = true;
-      void teardown().then(() => rejectPromise(error), rejectPromise);
+      void teardown().then(
+        () => rejectPromise(teardownError(error)),
+        (cleanupError: unknown) =>
+          rejectPromise(
+            teardownError(
+              new AggregateError([error, cleanupError], 'Process-group signaling failed')
+            )
+          )
+      );
     };
 
     const finish = (): void => {
@@ -487,19 +614,11 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
         return;
       }
       settled = true;
-      void teardown().then(() => {
-        resolvePromise({
-          // The seam pins this: exitCode is null exactly when a signal killed
-          // the process, and `signal` names it — no per-backend 124/-1 convention.
-          exitCode,
-          signal: exitSignal,
-          stderr: stderr.text(),
-          stderrOmittedBytes: stderr.omittedBytes,
-          stdout: stdout.text(),
-          stdoutOmittedBytes: stdout.omittedBytes,
-          timedOut,
-        });
-      }, rejectPromise);
+      const completed = outcome();
+      void teardown().then(
+        () => resolvePromise(completed),
+        (error: unknown) => rejectPromise(teardownError(error, completed))
+      );
     };
 
     /**
@@ -514,17 +633,31 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
         return;
       }
       settled = true;
-      void teardown().then(() => {
-        rejectPromise(
-          new ExecAbortedError({
-            partialStderr: stderr.text(),
-            partialStdout: stdout.text(),
-            processStarted: true,
-            stderrOmittedBytes: stderr.omittedBytes,
-            stdoutOmittedBytes: stdout.omittedBytes,
-          })
-        );
-      }, rejectPromise);
+      void teardown().then(
+        () => {
+          rejectPromise(
+            new ExecAbortedError({
+              partialStderr: stderr.text(),
+              partialStdout: stdout.text(),
+              processStarted: true,
+              stderrOmittedBytes: stderr.omittedBytes,
+              stdoutOmittedBytes: stdout.omittedBytes,
+            })
+          );
+        },
+        (error: unknown) => {
+          rejectPromise(
+            new ExecAbortedError({
+              cause: teardownError(error),
+              partialStderr: stderr.text(),
+              partialStdout: stdout.text(),
+              processStarted: true,
+              stderrOmittedBytes: stderr.omittedBytes,
+              stdoutOmittedBytes: stdout.omittedBytes,
+            })
+          );
+        }
+      );
     };
 
     let abortSubscription: (() => void) | undefined;
@@ -545,7 +678,7 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
       settled = true;
       clearTimers();
       abortSubscription?.();
-      if (child.pid !== undefined) {
+      if (tracksLiveProcessGroup && child.pid !== undefined) {
         liveProcessGroups.delete(child.pid);
       }
       rejectPromise(error);
@@ -573,16 +706,18 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
       // spawn() failed to produce a pid; the 'error' handler settles this.
       return;
     }
-    registerExitReaper();
-    liveProcessGroups.add(pid);
+    if (tracksLiveProcessGroup) {
+      registerExitReaper();
+      liveProcessGroups.add(pid);
+    }
 
     later(timeoutMs, () => {
       timedOut = true;
       void deps.killGroup(pid, 'SIGTERM').catch(fail);
       later(KILL_GRACE_MS, () => {
-        void deps.killGroup(pid, 'SIGKILL').catch(fail);
-        // Hard backstop: if even SIGKILL leaves a pipe holder we cannot see,
-        // report the timeout rather than hang the tool call forever.
+        // Start the one memoized SIGKILL confirmation, then retain the existing
+        // drain window so an observed exit signal wins over the hard backstop.
+        void startGroupTeardown().catch(fail);
         later(KILL_GRACE_MS, finish);
       });
     });
@@ -682,6 +817,10 @@ export function createFenceExecutor(options: FenceExecutorOptions): CodeExecutor
         // forbids fabricating one for code that never executed.
         throw new FenceQueueTimeoutError(input.timeoutMs);
       }
+      // A prior teardown that exceeded its confirmation window stays tracked.
+      // Do not install another run's process-global policy while that group may
+      // still be alive; a later call may proceed once ESRCH proves it is gone.
+      assertNoSurvivingProcessGroups();
       // 0o600: this module does not own scratchDir, and a shared or
       // group-writable one would otherwise leave a window where another local
       // user can read or replace the script that is about to run.
