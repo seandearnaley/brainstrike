@@ -254,6 +254,58 @@ describe('runGlobWorkspace — ignore handling', () => {
     );
     expect(result.count).toBe(0);
     expect(result.hint ?? '').not.toMatch(/includeIgnored/);
+
+  it('honours .ignore — hide from search, keep in git (BST-1431)', async () => {
+    const root = await makeWorkspace(['.ignore', 'fixtures/big.md', 'docs/real.md']);
+    await fsPromises.writeFile(path.join(root, '.ignore'), 'fixtures/\n', 'utf8');
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/docs/real.md']);
+  });
+
+  it('lets .ignore re-include what .gitignore excluded (BST-1431)', async () => {
+    // Precedence, not just presence: `.ignore` sits ABOVE `.gitignore`.
+    const root = await makeWorkspace(['.gitignore', '.ignore', 'cache/one.md']);
+    await fsPromises.writeFile(path.join(root, '.gitignore'), 'cache/\n', 'utf8');
+    await fsPromises.writeFile(path.join(root, '.ignore'), '!cache/\n', 'utf8');
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/cache/one.md']);
+  });
+
+  it('honours .git/info/exclude for repo-local, uncommitted rules (BST-1431)', async () => {
+    const root = await makeWorkspace(['scratch/notes.md', 'docs/real.md']);
+    await fsPromises.mkdir(path.join(root, '.git', 'info'), { recursive: true });
+    await fsPromises.writeFile(path.join(root, '.git', 'info', 'exclude'), 'scratch/\n', 'utf8');
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/docs/real.md']);
+  });
+
+  it('honours .llmignore and .brainstrikeignore (BST-1432)', async () => {
+    const root = await makeWorkspace([
+      '.llmignore',
+      '.brainstrikeignore',
+      'secrets/key.md',
+      'private/x.md',
+      'docs/real.md',
+    ]);
+    await fsPromises.writeFile(path.join(root, '.llmignore'), 'secrets/\n', 'utf8');
+    await fsPromises.writeFile(path.join(root, '.brainstrikeignore'), 'private/\n', 'utf8');
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/docs/real.md']);
+  });
+
+  it('does NOT let includeIgnored bypass the agent ignore file (BST-1432)', async () => {
+    // The decision that makes this a security control rather than a preference.
+    // Every other exclusion is bypassable here; this one is not, because users
+    // put credentials behind it and a single flag must not defeat that.
+    const root = await makeWorkspace(['.gitignore', '.llmignore', 'build/x.md', 'secrets/key.md']);
+    await fsPromises.writeFile(path.join(root, '.gitignore'), 'build/\n', 'utf8');
+    await fsPromises.writeFile(path.join(root, '.llmignore'), 'secrets/\n', 'utf8');
+    const result = await runGlobWorkspace(
+      { includeIgnored: true, pattern: '**/*.md' },
+      singleRoot(root)
+    );
+    expect(paths(result)).toContain('/build/x.md');
+    expect(paths(result)).not.toContain('/secrets/key.md');
   });
 
   it('excludes lockfiles and minified/map artifacts by default', async () => {

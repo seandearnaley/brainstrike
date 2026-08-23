@@ -15,7 +15,6 @@ export * from './file-content.js';
 export * from './file-system.js';
 export * from './file-utils.js';
 export * from './filter-utils.js';
-export * from './gitignore-matcher.js';
 export * from './hash-utils.js';
 export * from './hmr-utils.js';
 export * from './path-ancestors.js';
@@ -30,5 +29,6 @@ export * from './relative-path.js';
 export * from './string-utils.js';
 export * from './throttled-state.js';
 export * from './url-utils.js';
+export * from './workspace-ignore-matcher.js';
 
 export type { ColorScheme, FolderColors };
