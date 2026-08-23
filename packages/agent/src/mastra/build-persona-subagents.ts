@@ -17,6 +17,7 @@
 import {
   type AssistantPersonaDefinition,
   assertReadOnlyPersona,
+  delegationDescriptionForPersona,
 } from '@brainstrike/assistant-contract/personas';
 import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import { Agent, type AgentExecutionOptions, type ToolsInput } from '@mastra/core/agent';
@@ -373,7 +374,10 @@ export function buildPersonaSubAgents(
       // per-call options the delegation tool passes, and that call sets
       // `maxSteps` but never `onIterationComplete`.
       defaultOptions: { onIterationComplete: buildChildIterationPolicy() },
-      description: persona.description,
+      // Mastra turns this into the `agent-<id>` tool description, the only
+      // thing the supervisor reads when sizing a delegation — so it carries the
+      // DERIVED step budget rather than the persona's bare prose.
+      description: delegationDescriptionForPersona(persona),
       id: persona.id,
       instructions: buildChildInstructions(persona, keptOriginalNames),
       // Any `errorProcessors` flips Mastra's processor-retry default, so the
