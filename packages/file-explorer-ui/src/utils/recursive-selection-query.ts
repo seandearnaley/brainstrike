@@ -356,6 +356,19 @@ function initializeQueryState(
   };
 }
 
+function createDirectoryUpdateRecorder(
+  state: MutableQueryState
+): (update: RecursiveSelectionDirectoryUpdate) => void {
+  // Single owner of the collectDirectoryUpdates gate: every scan mode records
+  // through THIS closure, so retention semantics cannot diverge between modes
+  // again (that asymmetry was BST-478's original early-stop defect).
+  return (update) => {
+    if (state.collectDirectoryUpdates) {
+      state.directoryUpdates.push(update);
+    }
+  };
+}
+
 function processFrontierNode(args: {
   abortSignal: AbortSignal | undefined;
   directoryTraversalState: DirectoryTraversalState;
@@ -456,6 +469,7 @@ async function scanUnloadedDirectories(args: {
   } = args;
 
   const progressReporter = createProgressReporter(onProgress, state);
+  const recordDirectoryUpdate = createDirectoryUpdateRecorder(state);
 
   if (unloadedDirectories.length === 0) {
     return;
@@ -475,13 +489,8 @@ async function scanUnloadedDirectories(args: {
         filterTreeFn,
         node,
         parentRootId,
-        // Same opt-in contract as throughput mode: raw listings are retained
-        // ONLY when the caller explicitly opts in (select-all memory guard).
-        recordDirectoryUpdate: (update) => {
-          if (state.collectDirectoryUpdates) {
-            state.directoryUpdates.push(update);
-          }
-        },
+        // Shared recorder: same opt-in contract as throughput mode.
+        recordDirectoryUpdate,
       });
       state.directoriesReadFromAdapter++;
       state.directoriesCompleted++;
@@ -608,6 +617,9 @@ async function drainThroughputScanQueue(args: {
     unloadedDirectories,
   } = args;
 
+  // Same shared factory as every other mode — retention cannot diverge.
+  const recordDirectoryUpdate = createDirectoryUpdateRecorder(state);
+
   let nextDirectoryIndex = 0;
   while (
     !(state.limitReached || scanAbortController.signal.aborted) &&
@@ -619,11 +631,7 @@ async function drainThroughputScanQueue(args: {
       filterTreeFn,
       nextDirectoryIndex,
       parentRootId,
-      recordDirectoryUpdate: (update) => {
-        if (state.collectDirectoryUpdates) {
-          state.directoryUpdates.push(update);
-        }
-      },
+      recordDirectoryUpdate,
       scanAbortController,
       unloadedDirectories,
     });
@@ -908,11 +916,16 @@ function buildQueryResult(args: {
  * Cancellation is a completion OUTCOME in both modes, never a silent no-op:
  * an adapter read that observes the abort signal rejects the query with its
  * AbortError, and a read that ignores the signal but settles afterwards still
- * surfaces its AbortError through the throughput drain. Resolving instead
- * would let callers commit a partial selection as success. There is NO
- * liveness timeout: an adapter read that neither resolves nor rejects keeps
- * the query pending indefinitely (the concurrency bound is not a watchdog);
- * bounding that requires an explicit cancellation owner and adapter contract.
+ * surfaces its AbortError through the throughput drain — plus a terminal
+ * caller-signal check before the result is built, so the guarantee does not
+ * depend on any read rechecking after it settles. Resolving instead would let
+ * callers commit a partial selection as success. There is NO liveness
+ * timeout: an adapter read that neither resolves nor rejects keeps the query
+ * pending indefinitely (the concurrency bound is not a watchdog); bounding
+ * that requires an explicit cancellation owner and adapter contract. Note the
+ * flip side: cancelling does not force a pending adapter promise to settle,
+ * so callers that reset their UI eagerly can briefly outlive a leaked
+ * in-flight read — the scan owns no handle to cancel it with.
  */
 export async function querySelectableFiles(
   options: RecursiveSelectionQueryOptions
@@ -1024,6 +1037,17 @@ export async function querySelectableFiles(
 
     frontier = nextFrontier;
   }
+
+  // Terminal cancellation guard: the drain loop can exit silently through its
+  // scanAbortController.signal.aborted check when a late read settles
+  // successfully past cancellation and discovers no further frontier work.
+  // Checking the CALLER's signal here (not the internal controller) makes
+  // "cancellation is a completion outcome" independent of whether every
+  // adapter read honors the signal or rechecks after settling — while leaving
+  // natural completions and cap-stopped scans untouched (the internal
+  // controller also aborts on state.limitReached, which must stay a result,
+  // never an AbortError).
+  abortSignal?.throwIfAborted();
 
   const durationMs = timer.elapsed();
   const exceededBudget = checkBudget('recursive-selection-query', durationMs, 'treeSnapshot');
