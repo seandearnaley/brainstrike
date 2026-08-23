@@ -137,11 +137,18 @@ describe('readOpenRouterDiagnostics', () => {
     ).toBeUndefined();
   });
 
-  it('throws when present OpenRouter diagnostics are malformed', () => {
-    expect(() =>
+  it('DROPS malformed diagnostics instead of failing the turn', () => {
+    // These feed run-event DISPLAY metadata — a provider label and a
+    // reasoning-token count on the timeline — from inside the streaming path.
+    // Throwing let a provider abort a completed turn over decoration: the same
+    // bad trade that made `stealth/ox-alpha` fail instantly on a missing billed
+    // cost, and worse, because that one at least guarded accounting.
+    //
+    // Dropped, never coerced. The timeline omits a label it cannot trust.
+    expect(
       readOpenRouterDiagnostics({ providerMetadata: { openrouter: { provider: 7 } } })
-    ).toThrow('OpenRouter selected provider must be a non-empty string.');
-    expect(() =>
+    ).toBeUndefined();
+    expect(
       readOpenRouterDiagnostics({
         providerMetadata: {
           openrouter: {
@@ -149,7 +156,15 @@ describe('readOpenRouterDiagnostics', () => {
           },
         },
       })
-    ).toThrow('OpenRouter reasoning tokens must be a finite, non-negative number.');
+    ).toBeUndefined();
+  });
+
+  it('keeps the strict contract where it guards ACCOUNTING, not decoration', () => {
+    // readOpenRouterBilledCost still throws on a malformed cost: absent is a
+    // fact about the route, malformed is a broken accounting contract.
+    expect(() =>
+      readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: { cost: -1 } } } })
+    ).toThrow(/finite, non-negative/i);
   });
 });
 

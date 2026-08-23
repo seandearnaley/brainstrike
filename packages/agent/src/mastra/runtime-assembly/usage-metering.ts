@@ -130,46 +130,44 @@ export interface OpenRouterDiagnostics {
  * Extract safe, bounded OpenRouter routing diagnostics for run-event metadata.
  * Reasoning content is deliberately excluded; only provider identity and token
  * counts are observable.
+ *
+ * NEVER THROWS — do not relitigate. This runs inside the streaming path and
+ * feeds DISPLAY metadata: a provider label and a reasoning-token count on the
+ * timeline. Throwing on a malformed field let a provider abort a completed turn
+ * over decoration, which is the same bad trade that made `stealth/ox-alpha`
+ * fail instantly on a missing billed cost — worse here, because that one at
+ * least guarded accounting.
+ *
+ * A malformed field is DROPPED, not coerced, and dropping one does not discard
+ * its well-formed siblings. Absent metadata is indistinguishable from dropped
+ * metadata by design: the timeline simply omits a label it could not trust.
+ *
+ * The strictness that remains is in {@link readOpenRouterBilledCost}, where a
+ * malformed value is a broken accounting contract rather than a cosmetic one.
  */
 export function readOpenRouterDiagnostics(
   part: ProviderMetadataStreamPart
 ): OpenRouterDiagnostics | undefined {
-  const openrouter = readOpenRouterMetadata(part);
+  const openrouter = readOpenRouterMetadataSafely(part);
   if (!openrouter) {
     return;
   }
   const providerValue = openrouter['provider'];
-  if (
-    providerValue !== undefined &&
-    (typeof providerValue !== 'string' || providerValue.trim().length === 0)
-  ) {
-    throw new Error('OpenRouter selected provider must be a non-empty string.');
-  }
+  const provider =
+    typeof providerValue === 'string' && providerValue.trim().length > 0
+      ? providerValue.trim()
+      : undefined;
+
   const usageValue = openrouter['usage'];
-  if (usageValue !== undefined && (!usageValue || typeof usageValue !== 'object')) {
-    throw new Error('OpenRouter usage metadata must be an object.');
-  }
-  const completionDetails = (usageValue as Record<string, unknown> | undefined)?.[
-    'completionTokensDetails'
-  ];
-  if (
-    completionDetails !== undefined &&
-    (!completionDetails || typeof completionDetails !== 'object')
-  ) {
-    throw new Error('OpenRouter completion token details must be an object.');
-  }
-  const reasoningTokens = (completionDetails as Record<string, unknown> | undefined)?.[
-    'reasoningTokens'
-  ];
-  if (
-    reasoningTokens !== undefined &&
-    (typeof reasoningTokens !== 'number' ||
-      !Number.isFinite(reasoningTokens) ||
-      reasoningTokens < 0)
-  ) {
-    throw new Error('OpenRouter reasoning tokens must be a finite, non-negative number.');
-  }
-  const provider = typeof providerValue === 'string' ? providerValue.trim() : undefined;
+  const usage = usageValue && typeof usageValue === 'object' ? usageValue : undefined;
+  const detailsValue = (usage as Record<string, unknown> | undefined)?.['completionTokensDetails'];
+  const details = detailsValue && typeof detailsValue === 'object' ? detailsValue : undefined;
+  const reasoningValue = (details as Record<string, unknown> | undefined)?.['reasoningTokens'];
+  const reasoningTokens =
+    typeof reasoningValue === 'number' && Number.isFinite(reasoningValue) && reasoningValue >= 0
+      ? reasoningValue
+      : undefined;
+
   if (provider === undefined && reasoningTokens === undefined) {
     return;
   }
@@ -177,6 +175,21 @@ export function readOpenRouterDiagnostics(
     ...(provider === undefined ? {} : { provider }),
     ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
   };
+}
+
+/**
+ * `readOpenRouterMetadata` for the diagnostics path, which must not throw.
+ * Malformed provider metadata yields no diagnostics rather than aborting the
+ * turn; the accounting path keeps the throwing reader.
+ */
+function readOpenRouterMetadataSafely(
+  part: ProviderMetadataStreamPart
+): Record<string, unknown> | undefined {
+  try {
+    return readOpenRouterMetadata(part);
+  } catch {
+    return;
+  }
 }
 
 /**
