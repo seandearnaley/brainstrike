@@ -8,19 +8,58 @@ function runEventTimestamp(data: AssistantRunEvent): number | undefined {
   return Number.isNaN(timestamp) ? undefined : timestamp;
 }
 
+/**
+ * The producer's measured execution time, when it stamped one.
+ *
+ * The `typeof`/finite checks are TYPE NARROWING, not validation: a non-numeric
+ * or non-finite `durationMs` never reaches here, because it is not valid JSON
+ * and `readAssistantRunEventDataPart` drops the whole event first (verified —
+ * a string and a NaN both make the event vanish, not the field). Only the
+ * NEGATIVE case is reachable — from an OLD persisted event, since the producer
+ * now measures with a monotonic clock (`performance.now()`) and can no longer
+ * emit one — and it falls back to the timestamp delta rather than rendering a
+ * negative duration.
+ *
+ * ZERO is a real value, not an absence: a DECLINED approval-gated call is
+ * stamped 0 because the tool is known not to have run. Treating it as falsy
+ * would fall back to the gap, i.e. the human's deliberation time.
+ */
+function runEventDurationMs(data: AssistantRunEvent): number | undefined {
+  const durationMs = data.durationMs;
+  return typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0
+    ? durationMs
+    : undefined;
+}
+
 function runEventToolCallId(data: AssistantRunEvent): string | undefined {
   const toolCallId = data.metadata?.['toolCallId'];
   return typeof toolCallId === 'string' ? toolCallId : undefined;
 }
 
 /**
- * Map each tool call's id to its execution time (ms), computed from the gap
- * between its `tool.started` and `tool.completed`/`tool.failed` run-event
- * TIMESTAMPS (matched by `metadata.toolCallId`). The producer
- * (`makeRunEventChunk` in the agent runtime) stamps every event but does NOT
- * attach a `durationMs` field, so the timestamp delta is the real source — not
- * a `durationMs` that never exists in production. Pure + unit-tested against
- * realistic event shapes.
+ * Map each tool call's id to its execution time (ms).
+ *
+ * PREFERS the producer's own `durationMs` on the terminal event. The agent's
+ * guard wrapper measures around the real `execute` and stamps it (see
+ * `tool-execution-durations.ts` in @brainstrike/agent), which is the only
+ * honest number for an APPROVAL-GATED call: `tool.started` comes from Mastra's
+ * `tool-call` part — when the MODEL emits the call — and the gate then suspends
+ * the run before `execute` is ever invoked. The terminal event arrives on the
+ * resume leg, so the timestamp gap spans however long a human took to click
+ * Approve; a two-second script behind a five-minute approval read as five
+ * minutes.
+ *
+ * Nothing downstream can repair that. Measured against the real approval path,
+ * the resume leg emits `tool.completed` FIRST, with no second `tool.started`,
+ * no `run.resumed` (both approval paths run `maxAttempts: 1`, so the stall loop
+ * never reaches the attempt that emits it) and no `run.started` (Mastra's
+ * `resumeStream` emits no `start` part). The information only exists at the
+ * producer, which is why it now travels on the event.
+ *
+ * FALLS BACK to the `tool.started` → terminal timestamp delta when there is no
+ * `durationMs` — an older persisted thread, or a runtime that did not record.
+ * That is the pre-existing behaviour, never a fabricated value.
+ * Pure + unit-tested against realistic event shapes.
  */
 export function collectToolDurations(parts: readonly unknown[]): Record<string, number> {
   const startedAt = new Map<string, number>();
@@ -42,6 +81,13 @@ export function collectToolDurations(parts: readonly unknown[]): Record<string, 
     }
     if (kind === 'tool.started') {
       startedAt.set(toolCallId, timestamp);
+      continue;
+    }
+    // The producer's measurement wins outright: it is the real execution
+    // window, and it does not need a start event to have survived.
+    const measured = runEventDurationMs(data);
+    if (measured !== undefined) {
+      durations[toolCallId] = measured;
       continue;
     }
     const start = startedAt.get(toolCallId);

@@ -18,6 +18,7 @@ import {
   SUBAGENT_NO_ANSWER_OUTCOME,
 } from '@brainstrike/assistant-contract/personas';
 import type { AssistantRunEventMetadata } from '../run-events';
+import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 import type { RuntimeData, StreamChunk, StreamChunkTool } from '../types';
 import {
   asMastraStreamPart,
@@ -113,6 +114,14 @@ export interface ToolLifecycleState {
   steppedPromptTokens: number;
   streamStartedAtMs: number;
   terminalToolCallStates: Map<string, TerminalToolCallState>;
+  /**
+   * Real per-call execution time from the guard wrapper, stamped onto terminal
+   * tool run events. Absent on a runtime that did not record (tests, older
+   * callers) — then the event carries no `durationMs` and consumers fall back
+   * to the timestamp delta, which is the pre-existing behaviour rather than a
+   * fabricated number.
+   */
+  toolExecutionDurations?: ToolExecutionDurations;
   warnedUnknownChunkTypes: Set<string>;
 }
 
@@ -240,6 +249,44 @@ export function makeCancelledDelegationRunEventChunks(
     );
 }
 
+/**
+ * Stamp the terminal tool run event with the time `execute` actually ran.
+ *
+ * `AssistantRunEvent.durationMs` already exists in the contract; tool events
+ * simply never populated it, leaving consumers to subtract `tool.started`'s
+ * timestamp. That subtraction is wrong for an approval-gated call: the gate
+ * suspends BEFORE `execute` is invoked, so the gap spans the human approval
+ * wait — a two-second script behind a five-minute approval read as five
+ * minutes. Only the guard wrapper sees the real window.
+ *
+ * No recorded duration leaves the event unchanged rather than inventing one.
+ */
+function withToolExecutionDuration(
+  chunk: StreamChunk,
+  lifecycleState: ToolLifecycleState,
+  toolCallId: string
+): StreamChunk {
+  const durationMs = lifecycleState.toolExecutionDurations?.read(toolCallId);
+  if (durationMs === undefined) {
+    return chunk;
+  }
+  return withRunEventDuration(chunk, durationMs);
+}
+
+/**
+ * Attach a duration to a run-event chunk.
+ *
+ * NARROWS rather than asserting: an unchecked cast would silently corrupt any
+ * non-run-event chunk a future caller passed through, and the value is only
+ * known to be a run event by construction at today's call sites.
+ */
+function withRunEventDuration(chunk: StreamChunk, durationMs: number): StreamChunk {
+  if (chunk.type !== 'run-event') {
+    return chunk;
+  }
+  return { ...chunk, event: { ...chunk.event, durationMs } };
+}
+
 function makeToolLifecycleRunEventChunk(
   toolEvent: StreamChunkTool,
   mastraPartType: string | undefined,
@@ -275,7 +322,11 @@ function makeToolLifecycleRunEventChunk(
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'completed');
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
-      return makeRunEventChunk('tool.completed', 'completed', 'Tool completed', metadata);
+      return withToolExecutionDuration(
+        makeRunEventChunk('tool.completed', 'completed', 'Tool completed', metadata),
+        lifecycleState,
+        toolCallId
+      );
     }
     case 'error': {
       if (!toolCallId) {
@@ -286,7 +337,11 @@ function makeToolLifecycleRunEventChunk(
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
-      return makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata);
+      return withToolExecutionDuration(
+        makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata),
+        lifecycleState,
+        toolCallId
+      );
     }
     case 'declined': {
       if (!toolCallId) {
@@ -305,7 +360,15 @@ function makeToolLifecycleRunEventChunk(
       // decline, the tool never runs, and no later terminal part carries this id.
       // That is the opposite of `tool.resume.unsupported` (BST-558), whose run
       // stays suspended and can still emit the real terminal later.
-      return makeRunEventChunk('tool.failed', 'failed', 'Tool call declined', metadata);
+      // ZERO, explicitly — not via the recorder. The recorder means "measured";
+      // this means "known not to have run". Without it the consumer falls back
+      // to the tool.started → terminal gap, which for a decline is the human's
+      // deliberation time: deny after five minutes and the card claims the tool
+      // ran for five minutes.
+      return withRunEventDuration(
+        makeRunEventChunk('tool.failed', 'failed', 'Tool call declined', metadata),
+        0
+      );
     }
     case 'progress':
       return;
@@ -324,12 +387,20 @@ export function makePendingToolOutputRunEventChunks(
     // Sequence remains the ordering source of truth; this timestamp preserves
     // when the output-only terminal observation happened for duration metrics.
     chunks.push(
-      makeRunEventChunk(
-        'tool.completed',
-        'completed',
-        'Tool completed',
-        makeToolEventMetadata(outputOnlyToolEvent.toolEvent),
-        outputOnlyToolEvent.timestamp
+      // Stamped here too: this is a SUPPORTED terminal shape (a `tool-output`
+      // success with no following `tool-result`), and a stamp applied only on
+      // the tool-result path would leave it falling back to the
+      // start-to-terminal gap — approval wait included.
+      withToolExecutionDuration(
+        makeRunEventChunk(
+          'tool.completed',
+          'completed',
+          'Tool completed',
+          makeToolEventMetadata(outputOnlyToolEvent.toolEvent),
+          outputOnlyToolEvent.timestamp
+        ),
+        lifecycleState,
+        toolCallId
       )
     );
   }

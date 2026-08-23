@@ -62,3 +62,85 @@ describe('collectToolDurations', () => {
     ).toEqual({});
   });
 });
+
+describe('collectToolDurations — producer-measured durations', () => {
+  const measuredEvent = (
+    kind: string,
+    toolCallId: string,
+    timestamp: string,
+    durationMs: number
+  ) => ({
+    data: {
+      durationMs,
+      id: `${kind}-${toolCallId}`,
+      kind,
+      label: 'Tool',
+      metadata: { toolCallId, toolName: 'brainstrike.executeCommand' },
+      status: kind === 'tool.failed' ? 'failed' : 'completed',
+      timestamp,
+    },
+    name: ASSISTANT_RUN_EVENT_DATA_NAME,
+  });
+
+  it('reports execution time, not the human approval wait', () => {
+    // THE BUG. `tool.started` is emitted when the MODEL emits the call; the
+    // approval gate then suspends the run before `execute` is invoked, and the
+    // terminal event lands on the resume leg. The timestamp gap here is five
+    // minutes; the script ran for two seconds.
+    const result = collectToolDurations([
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      measuredEvent('tool.completed', 'a', '2026-06-16T10:05:02.000Z', 2000),
+    ]);
+    expect(result).toEqual({ a: 2000 });
+  });
+
+  it('does not need the start event to have survived', () => {
+    // The resume leg emits `tool.completed` FIRST and no second `tool.started`.
+    // On a reloaded thread the start event may also be outside the window.
+    const result = collectToolDurations([
+      measuredEvent('tool.completed', 'a', '2026-06-16T10:05:02.000Z', 2000),
+    ]);
+    expect(result).toEqual({ a: 2000 });
+  });
+
+  it('uses the measurement on a FAILED call too', () => {
+    const result = collectToolDurations([
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      measuredEvent('tool.failed', 'a', '2026-06-16T10:00:30.000Z', 1500),
+    ]);
+    expect(result).toEqual({ a: 1500 });
+  });
+
+  it('falls back to the timestamp delta when no duration was stamped', () => {
+    // Older persisted threads, and any runtime that did not record. The
+    // pre-existing behaviour, never a fabricated value.
+    const result = collectToolDurations([
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      toolEvent('tool.completed', 'a', '2026-06-16T10:00:01.200Z'),
+    ]);
+    expect(result).toEqual({ a: 1200 });
+  });
+
+  it('ignores a NEGATIVE duration rather than trusting it', () => {
+    // A clock adjustment mid-execution is the realistic source. NaN/Infinity
+    // cannot reach here — they are not valid JSON, so the contract reader drops
+    // the whole event before this code sees it.
+    const result = collectToolDurations([
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      measuredEvent('tool.completed', 'a', '2026-06-16T10:00:01.200Z', -5),
+    ]);
+    expect(result).toEqual({ a: 1200 });
+  });
+
+  it('keeps a ZERO duration instead of treating it as absent', () => {
+    // A DECLINED approval-gated call is stamped 0 by the producer: the tool is
+    // known not to have run. Falsy-zero would drop it and fall back to the
+    // start-to-terminal gap — which for a decline is the human's deliberation
+    // time, so the card would claim a never-executed tool ran for five minutes.
+    const result = collectToolDurations([
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      measuredEvent('tool.failed', 'a', '2026-06-16T10:05:00.000Z', 0),
+    ]);
+    expect(result).toEqual({ a: 0 });
+  });
+});

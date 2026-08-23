@@ -15,6 +15,7 @@ import {
   type ScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 import type { AgentHookRunner } from '../tools/hook-runner';
+import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData } from '../types';
 import {
@@ -162,6 +163,15 @@ export interface MastraAgentRuntime {
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
   toolDiscovery?: ToolDiscoveryMetadata;
+  /**
+   * How long each tool's `execute` ACTUALLY ran, keyed by tool-call id.
+   *
+   * The stream mapper stamps it onto the terminal tool run event, because
+   * wall-clock between `tool.started` and that event is not execution time for
+   * an approval-gated call — the gate suspends before `execute` is invoked, so
+   * the gap spans the human approval wait. See tool-execution-durations.ts.
+   */
+  toolExecutionDurations: ToolExecutionDurations;
   /** Hosted-only transient filter for safely projected stale tool history. */
   toolHistoryFilter: ProjectionSafeToolCallFilter | undefined;
   toolNameMap: Map<string, string>;
@@ -446,6 +456,7 @@ export async function createMastraAgentRuntime(
     mcpClient,
     resilienceConfig,
     sanitizedLocalToolIds,
+    toolExecutionDurations,
     toolNameMap,
   } = await composeRuntimeToolMap({
     auth: runtimeResolution.authInput,
@@ -628,6 +639,7 @@ export async function createMastraAgentRuntime(
     resolvedToolResultBudget,
     tokenDiagnostics,
     ...(discoverySurface ? { toolDiscovery: discoverySurface.metadata } : {}),
+    toolExecutionDurations,
     toolHistoryFilter,
     ...(toolSearchProcessor ? { toolSearchProcessor } : {}),
     toolNameMap,
