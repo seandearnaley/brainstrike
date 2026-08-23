@@ -608,7 +608,40 @@ describe('recursive-selection-query', () => {
     });
 
     expect(result.filePaths).toEqual([]);
+    // The root remains retained while its adapter listing fills the next frontier.
+    expect(peakBufferedDirectoryEntries).toBe(directoryCount + 1);
+  });
+
+  it('profiles loaded frontier entries without mutating the caller roots', async () => {
+    const directoryCount = 64;
+    const roots = Array.from({ length: directoryCount }, (_, index) =>
+      createDirectoryNode({
+        children: [],
+        loadState: 'loaded',
+        name: `dir-${index}`,
+        path: `/dir-${index}`,
+      })
+    );
+    const originalRoots = [...roots];
+    let peakBufferedDirectoryEntries = 0;
+
+    const result = await querySelectableFiles({
+      excludeFilters: [],
+      fileSystemAdapter: createMockAdapter({}),
+      includeFilters: [],
+      onBufferProfile: (profile) => {
+        peakBufferedDirectoryEntries = Math.max(
+          peakBufferedDirectoryEntries,
+          profile.bufferedDirectoryEntries
+        );
+      },
+      roots,
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual([]);
     expect(peakBufferedDirectoryEntries).toBe(directoryCount);
+    expect(roots).toStrictEqual(originalRoots);
   });
 
   it('does not prematurely close a throughput batch when synchronous directory reads settle immediately', async () => {

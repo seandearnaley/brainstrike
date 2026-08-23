@@ -6,6 +6,12 @@ import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createPathFilterMatcher } from '@brainstrike/utils/filter-utils';
 
 import { loadDirectoryChildren } from './lazy-tree-loader';
+import {
+  compactDirectoryIntoFrontier,
+  type RecursiveSelectionBufferProfile,
+} from './recursive-selection-buffer-profile';
+
+export type { RecursiveSelectionBufferProfile } from './recursive-selection-buffer-profile';
 
 const logger = createLogger('RecursiveSelectionQuery');
 
@@ -44,11 +50,6 @@ export interface RecursiveSelectionQueryMetrics extends RecursiveSelectionQueryP
   mode: 'early-stop' | 'throughput';
 }
 
-export interface RecursiveSelectionBufferProfile {
-  /** Directory entries retained across traversal-owned frontier arrays. */
-  bufferedDirectoryEntries: number;
-}
-
 export interface RecursiveSelectionQueryOptions {
   abortSignal?: AbortSignal;
   /**
@@ -74,25 +75,6 @@ export interface RecursiveSelectionQueryOptions {
   parentRootId?: DirectoryHandle['rootId'];
   roots: IFileNode[];
   useRegex: boolean;
-}
-
-function reportBufferProfile(
-  onBufferProfile: ((profile: RecursiveSelectionBufferProfile) => void) | undefined,
-  buffers: readonly (readonly (IFileNode | undefined)[])[]
-): void {
-  if (!onBufferProfile) {
-    return;
-  }
-
-  let bufferedDirectoryEntries = 0;
-  for (const buffer of buffers) {
-    for (const node of buffer) {
-      if (node?.type === 'directory') {
-        bufferedDirectoryEntries++;
-      }
-    }
-  }
-  onBufferProfile({ bufferedDirectoryEntries });
 }
 
 /**
@@ -927,23 +909,29 @@ export async function querySelectableFiles(
   }
   const progressReporter = createProgressReporter(onProgress, state);
 
+  // `initialRoots` may alias the caller's live tree. The traversal compacts its
+  // frontier in place, so it must own this copy.
   let frontier = [...initialRoots];
+  let frontierDirectoryEntries = frontier.filter((node) => node.type === 'directory').length;
 
   while (frontier.length > 0) {
     throwIfAborted(abortSignal);
 
     const nextFrontier: IFileNode[] = [];
     let unloadedDirectoryCount = 0;
+    const frontierLength = frontier.length;
 
     // Compact unloaded directories in the traversal-owned frontier. Building
     // a second list here retained every directory twice across wide levels.
+    // The write stays at or behind the iterator cursor because the compacted
+    // count can increase at most once per iteration.
     for (const [index, node] of frontier.entries()) {
       const shouldScan = processFrontierNode({
         abortSignal,
         directoryTraversalState,
         filterTreeFn,
         hasKnownRemainingWork:
-          index < frontier.length - 1 ||
+          index < frontierLength - 1 ||
           nextFrontier.length > 0 ||
           directoryTraversalState.queuedDirectoryPaths.size >
             directoryTraversalState.scannedDirectoryPaths.size,
@@ -954,43 +942,60 @@ export async function querySelectableFiles(
         state,
       });
       if (shouldScan) {
-        frontier[unloadedDirectoryCount] = node;
+        frontierDirectoryEntries = compactDirectoryIntoFrontier({
+          directoryEntries: frontierDirectoryEntries,
+          frontier,
+          node,
+          targetIndex: unloadedDirectoryCount,
+        });
         unloadedDirectoryCount++;
       }
+      onBufferProfile?.({
+        bufferedDirectoryEntries: frontierDirectoryEntries + nextFrontier.length,
+      });
       progressReporter.emit();
       if (state.limitReached) {
         break;
       }
     }
     frontier.length = unloadedDirectoryCount;
-
-    reportBufferProfile(onBufferProfile, [frontier, nextFrontier]);
+    frontierDirectoryEntries = unloadedDirectoryCount;
+    onBufferProfile?.({ bufferedDirectoryEntries: frontierDirectoryEntries + nextFrontier.length });
 
     if (state.limitReached) {
       break;
     }
 
-    await scanUnloadedDirectories({
-      abortSignal,
-      directoryTraversalState,
-      effectiveConcurrency,
-      fileSystemAdapter,
-      filterTreeFn,
-      limit,
-      matcher,
-      mode,
-      nextFrontier,
-      onProgress,
-      parentRootId,
-      state,
-      unloadedDirectories: frontier,
-    });
+    try {
+      await scanUnloadedDirectories({
+        abortSignal,
+        directoryTraversalState,
+        effectiveConcurrency,
+        fileSystemAdapter,
+        filterTreeFn,
+        limit,
+        matcher,
+        mode,
+        nextFrontier,
+        onProgress,
+        parentRootId,
+        state,
+        unloadedDirectories: frontier,
+      });
+    } finally {
+      // The next frontier grows monotonically during a scan. Sampling on every
+      // exit observes its high-water mark, including capped and aborted scans.
+      onBufferProfile?.({
+        bufferedDirectoryEntries: frontierDirectoryEntries + nextFrontier.length,
+      });
+    }
 
     if (state.limitReached) {
       break;
     }
 
     frontier = nextFrontier;
+    frontierDirectoryEntries = frontier.length;
   }
 
   const durationMs = timer.elapsed();
