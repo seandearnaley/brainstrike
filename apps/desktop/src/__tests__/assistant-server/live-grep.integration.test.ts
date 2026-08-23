@@ -228,6 +228,63 @@ describe('runLiveGrep — failure-path log redaction (regression for PR #1337 ga
   });
 });
 
+describe('runLiveGrep — agent ignore files (BST-1432)', () => {
+  /**
+   * The hard boundary has to hold on EVERY read path, not just glob. A
+   * `.llmignore` that hides a credentials file from the file lister while grep
+   * happily returns its contents is not a boundary — it is a UI convenience
+   * that reads as a security control, which is the worse of the two failures.
+   *
+   * Asserted against BOTH engines because live grep has two independent
+   * candidate collectors (ripgrep and the JS walk fallback), and an exclusion
+   * enforced in only one of them holds or fails depending on whether `rg`
+   * happens to be installed on the machine.
+   *
+   * Note the asymmetry with `.gitignore` (BST-1429): rg implements gitignore
+   * natively, so pushing that layer down to rg risks the two engines
+   * disagreeing on edge cases. `.llmignore` is not an rg ignore file at all, so
+   * JS-side enforcement on both collectors is the ONLY implementation — there
+   * is no second implementation to diverge from.
+   */
+  const workspace = {
+    '.llmignore': 'secrets/\n',
+    'secrets/creds.ts': 'const key = "LLMIGNORE_MARKER";\n',
+    'src/ok.ts': 'const note = "LLMIGNORE_MARKER";\n',
+  };
+
+  it('excludes .llmignore paths on the ripgrep engine', async () => {
+    const dir = await makeWorkspace(workspace);
+    const result = await runLiveGrep(
+      {
+        caseSensitive: false,
+        contextLines: 0,
+        isRegex: false,
+        pattern: 'LLMIGNORE_MARKER',
+        roots: [root(dir)],
+      },
+      literalMatcher('LLMIGNORE_MARKER')
+    );
+    expect(result.matches.map((match) => match.path)).toEqual(['src/ok.ts']);
+  });
+
+  it('excludes .llmignore paths on the JS-walk engine', async () => {
+    const dir = await makeWorkspace(workspace);
+    const result = await withRipgrepHidden(() =>
+      runLiveGrep(
+        {
+          caseSensitive: false,
+          contextLines: 0,
+          isRegex: false,
+          pattern: 'LLMIGNORE_MARKER',
+          roots: [root(dir)],
+        },
+        literalMatcher('LLMIGNORE_MARKER')
+      )
+    );
+    expect(result.matches.map((match) => match.path)).toEqual(['src/ok.ts']);
+  });
+});
+
 describe('runLiveGrep — basics', () => {
   it('skips (engine: skipped) when no roots are supplied', async () => {
     const result = await runLiveGrep(

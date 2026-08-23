@@ -585,11 +585,45 @@ polling. Paired tests:
 
 ---
 
-## WORKSPACE WALK: GITIGNORE IS THE PRIMARY SIGNAL, THE POLICY IS THE FLOOR
+## WORKSPACE WALK: IGNORE FILES ARE THE PRIMARY SIGNAL, THE POLICY IS THE FLOOR
 
 `walkWorkspaceRoot` (`apps/desktop/src/assistant-server/workspace-file-walk.ts`)
-honours `.gitignore` when the caller passes `respectGitignore` (BST-1427), with
+honours the ignore-file chain when the caller passes `respectGitignore`
+(BST-1427, extended by BST-1431/BST-1432), with
 `createBackgroundIndexingEntryPolicy('balanced')` beneath it as a floor.
+
+**ONE precedence order, lowest first — do not add a source without placing it
+here.** Implemented by `createWorkspaceIgnoreMatcher`
+(`packages/utils/src/workspace-ignore-matcher.ts`):
+
+| # | Source | Bypassed by `includeIgnored`? |
+| --- | --- | --- |
+| 1 | global excludes (`core.excludesFile`) | yes |
+| 2 | `.git/info/exclude` | yes |
+| 3 | parent `.gitignore` chain (root inside a larger repo) | yes |
+| 4 | `.gitignore` (root, then nested — deeper wins) | yes |
+| 5 | `.ignore` ("hide from search, keep in git") | yes |
+| 6 | `.rgignore` | yes |
+| 7 | `.llmignore` (portable agent ignore file) | **NO — HARD** |
+| 8 | `.brainstrikeignore` (ours; wins over the portable one) | **NO — HARD** |
+
+**THE AGENT LAYERS ARE A HARD BOUNDARY (7-8) — do not relitigate.**
+`includeIgnored` bypasses every other layer, because tools legitimately search
+excluded trees. It does not bypass these. They are the only exclusion a user may
+reasonably treat as a security control (credentials, customer data, a private
+corpus), and a promise of "never read, index, or send" that one flag defeats is
+worse than no promise, because people rely on it. Consequences that follow and
+must be preserved:
+
+- The walk asks the matcher FIRST and ALWAYS; `includeIgnored` short-circuits
+  only the static policy floor beneath it.
+- **Never fold verdicts across layers by hand.** Layers are concatenated in
+  precedence order into ONE `ignore` instance per group. A separate instance per
+  layer forces the caller to combine verdicts, and that combination is wrong
+  wherever a directory-only pattern meets its negation: for `cache/one.md` under
+  `.gitignore: cache/` plus `.ignore: !cache/`, the layers report
+  `{ignored:true}` and `{}`, so any fold keeps the file excluded — while
+  `git check-ignore` does not. Hand the ordered patterns to the parser.
 
 - **Why gitignore leads.** A hand-maintained denylist of directory names cannot
   keep up with machine-local caches, and when it falls behind the failure is
@@ -613,8 +647,8 @@ honours `.gitignore` when the caller passes `respectGitignore` (BST-1427), with
   directory listing the walk already has, so directories without one cost
   nothing.
 - **Implementation is the `ignore` package**, chosen deliberately and pinned by
-  `gitignore-matcher.test.ts`: gitignore reimplementations disagree on edge
-  cases, so the behaviour depended on is asserted rather than assumed.
+  `workspace-ignore-matcher.test.ts`: gitignore reimplementations disagree on
+  edge cases, so the behaviour depended on is asserted rather than assumed.
 - **LIVE GREP DELIBERATELY DOES NOT OPT IN.** Its ripgrep pass runs
   `--no-ignore --hidden` so rg is a true SUPERSET and `policy.shouldIncludeFile`
   stays the SINGLE authority trimming both engines identically — otherwise
@@ -622,9 +656,43 @@ honours `.gitignore` when the caller passes `respectGitignore` (BST-1427), with
   side alone breaks that parity (the `rg-vs-walk parity` case catches it);
   honouring it on both would require rg's Rust implementation and the `ignore`
   package to agree on every edge case. Making grep gitignore-aware is its own
-  change: BST-1429.
+  change: BST-1429. THE AGENT LAYERS ARE THE EXCEPTION — see below.
 - Measured on this repo: walk `scanned` 6,735 → 5,558 and `kept` 5,144 → 4,997,
   at 88ms → ~111ms. The cost is per-path matching, not the `.gitignore` reads.
+
+### THE HARD BOUNDARY BINDS ON EVERY READ PATH (BST-1432)
+
+A `.llmignore` honoured by the file lister but not by grep is not a boundary —
+it is a UI convenience that reads as a security control, which is the worse of
+the two failures. `createAgentIgnoreGuard`
+(`apps/desktop/src/assistant-server/agent-ignore-guard.ts`) is the hard layers
+made queryable by arbitrary path, because ripgrep returns a flat path list with
+no directory context and cannot use the walk's push/pop matcher.
+
+| Read path | Enforced at |
+| --- | --- |
+| `globWorkspace` / walk | `walkWorkspaceRoot` matcher (layers 1-8) |
+| live grep — ripgrep engine | `dropAgentIgnored`, where both engines converge |
+| live grep — JS-walk engine | same call site, so parity cannot drift |
+| excluded-path steering probe | its bounded eligible slice, before any read |
+| `readWorkspaceFile` (paged) | inside the stable-path lock |
+| `readWorkspaceTextFile` (LSP inspect, rename reindex, workspace-context, `@file`) | the shared reader, so consumers inherit it |
+
+- **Why JS-side for both grep engines**, when `.gitignore` deliberately is not:
+  rg implements gitignore natively, so delegating that layer risks two
+  implementations disagreeing. `.llmignore` is not an rg ignore file at all, so
+  there is no second implementation to diverge from.
+- **Both grep engines are filtered at ONE call site.** Enforcing inside each
+  collector would make the boundary's strength depend on whether `rg` is
+  installed on the machine.
+- **A refused read THROWS; it never returns empty content.** Empty content
+  teaches the model the file is empty and it will report that as fact — a
+  fabricated claim about the user's code. The message names the ignore files so
+  the user can find the rule.
+- **The guard is hard-layers-only.** Applying layers 1-6 there too would
+  silently make `includeIgnored` useless on every path that consults it.
+- Still uncovered, deliberately and tracked: file MUTATION tools do not consult
+  the guard, so an agent can still write to an agent-ignored path (BST-1433).
 
 ## EXPLORER TREE LIVE REFRESH
 
