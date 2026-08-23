@@ -730,9 +730,13 @@ Runtime invariants:
   or zero-cost run, which is what the previous fail-visibly rule protected, and
   it no longer destroys the completed turn: OpenRouter reports no cost at all
   for anonymous/stealth routes (`stealth/ox-alpha`, migration 107), so the old
-  rule failed every one of those turns at the finish. MALFORMED metadata still
-  fails visibly — absent is a fact about the route, malformed is a broken
-  contract.
+  rule failed every one of those turns at the finish. MALFORMED metadata is
+  loud but equally non-fatal: it records unknown too, with
+  `provider_billed_cost_malformed` logged at ERROR rather than a throw, because
+  binning a finished answer over a telemetry field is the same bad trade
+  whatever the shape of the bad value. Absent is a fact about the route;
+  malformed is a broken contract someone should fix. Neither is ever recorded
+  as zero.
 - Thread-total headline + run-kind attribution (BST-953): every
   `brainstrike_assistant_run_usage` row carries `run_kind`
   (`'chat' | 'subagent' | 'compaction-summary' | 'om-observation' |
