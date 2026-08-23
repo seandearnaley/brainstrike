@@ -927,6 +927,63 @@ describe('embedding worker runtime', () => {
     return registeredHandlers.runEmbedding;
   }
 
+  it('stops between batches on request abort and reuses the warmed worker pipeline', async () => {
+    let controlChannel: { onmessage: ((event: MessageEvent<unknown>) => void) | null } | undefined;
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}graceful-abort-worker`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=graceful-abort-channel`,
+    });
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+        readonly postMessage = vi.fn();
+
+        constructor() {
+          controlChannel = this;
+        }
+      } as unknown as typeof BroadcastChannel
+    );
+
+    const extractor = vi.fn(async () => {
+      if (extractor.mock.calls.length === 1) {
+        controlChannel?.onmessage?.({
+          data: { id: 'graceful-abort', type: 'cancel-request' },
+        } as MessageEvent<unknown>);
+      }
+      return new Float32Array([1, 0]);
+    });
+    pipelineMock.mockResolvedValue(extractor);
+    const runEmbedding = await loadWorker();
+
+    await expect(
+      runEmbedding({
+        deviceHint: 'wasm',
+        id: 'graceful-abort',
+        maxBatchSize: 1,
+        model: 'bge-m3',
+        texts: ['one', 'two', 'three'],
+        truncateDim: 2,
+        type: 'embed',
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(extractor).toHaveBeenCalledTimes(1);
+
+    await expect(
+      runEmbedding({
+        deviceHint: 'wasm',
+        id: 'after-graceful-abort',
+        maxBatchSize: 1,
+        model: 'bge-m3',
+        texts: ['still warm'],
+        truncateDim: 2,
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ id: 'after-graceful-abort', type: 'result' });
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
+    expect(extractor).toHaveBeenCalledTimes(2);
+  });
+
   it('retries worker bootstrap after a transformers import failure', async () => {
     const runEmbedding = await loadWorker();
 

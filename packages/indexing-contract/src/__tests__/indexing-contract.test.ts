@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertEmbedWorkerLifetimeError,
+  assertEmbedWorkerRequestControl,
   buildEmbeddingJobInputHashes,
   canonicalizeEmbeddingProviderModelKey,
   formatEmbeddingProviderModelKey,
@@ -18,6 +19,18 @@ import {
 } from '../index';
 
 describe('@brainstrike/indexing-contract', () => {
+  it('validates graceful workerpool request-control messages', () => {
+    expect(() =>
+      assertEmbedWorkerRequestControl({ id: 'task-1', type: 'cancel-request' })
+    ).not.toThrow();
+    expect(() =>
+      assertEmbedWorkerRequestControl({ id: 'task-1', type: 'clear-request-control' })
+    ).not.toThrow();
+    expect(() => assertEmbedWorkerRequestControl({ id: '', type: 'cancel-request' })).toThrow(
+      'Embedding worker request-control event requires a request id.'
+    );
+  });
+
   it('hashes job inputs against the worker-resolved hosted model key', async () => {
     await expect(
       buildEmbeddingJobInputHashes(['hash-1'], 'text-embedding-3-small', 'openai')

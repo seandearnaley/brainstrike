@@ -904,52 +904,49 @@ describe('createWorkerpoolAdapter', () => {
     expect(poolTerminateMock).not.toHaveBeenCalled();
   });
 
-  it('cancels pre-aborted tasks immediately', async () => {
-    const controller = new AbortController();
-    controller.abort();
-    const { promise } = createCancelablePromise<QueueResult>();
-    poolExecMock.mockReturnValue(promise);
-
+  it('gracefully aborts queued and running tasks without terminating their worker', async () => {
+    const preAborted = createCancelablePromise<QueueResult>();
+    const running = createCancelablePromise<QueueResult>();
+    poolExecMock.mockReturnValueOnce(preAborted.promise).mockReturnValueOnce(running.promise);
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
-    await expect(adapter.add(createTask('task-2'), { signal: controller.signal })).rejects.toThrow(
-      'canceled'
-    );
-    expect(promise.cancel).toHaveBeenCalledTimes(1);
-    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ errorMessage: 'canceled', event: 'error', taskId: 'task-2' })
-    );
-  });
-
-  it('removes the abort listener after an in-flight abort', async () => {
-    const abortListenerRef: { current: ((event: Event) => void) | null } = { current: null };
-    const removeEventListenerSpy = vi.fn();
-    const signal = {
-      aborted: false,
-      addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
-        if (type === 'abort' && typeof listener === 'function') {
-          abortListenerRef.current = listener as (event: Event) => void;
-        }
-      }),
-      removeEventListener: removeEventListenerSpy,
-    } as unknown as AbortSignal;
-    const { promise } = createCancelablePromise<QueueResult>();
-    poolExecMock.mockReturnValue(promise);
-
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
-    const adapter = createWorkerpoolAdapter(createWorkerOptions());
-
-    const addPromise = adapter.add(createTask('task-3'), { signal });
+    const preAbortedController = new AbortController();
+    preAbortedController.abort();
+    const preAbortedAdd = adapter.add(createTask('task-2'), {
+      signal: preAbortedController.signal,
+    });
     await Promise.resolve();
-    if (abortListenerRef.current) {
-      abortListenerRef.current(new Event('abort'));
+    preAborted.reject(new DOMException('Embedding task was aborted.', 'AbortError'));
+    await expect(preAbortedAdd).rejects.toThrow('Embedding task was aborted.');
+
+    const runningController = new AbortController();
+    const removeListener = vi.spyOn(runningController.signal, 'removeEventListener');
+    const runningAdd = adapter.add(createTask('task-3'), { signal: runningController.signal });
+    await Promise.resolve();
+    runningController.abort();
+    running.resolve(createResult('task-3'));
+    await expect(runningAdd).rejects.toThrow('Embedding task was aborted.');
+
+    const telemetryChannel = broadcastChannelInstances[0];
+    for (const id of ['task-2', 'task-3']) {
+      expect(telemetryChannel?.postMessage).toHaveBeenCalledWith({ id, type: 'cancel-request' });
+      expect(telemetryChannel?.postMessage).toHaveBeenCalledWith({
+        id,
+        type: 'clear-request-control',
+      });
     }
-
-    await expect(addPromise).rejects.toThrow('canceled');
-    expect(promise.cancel).toHaveBeenCalledTimes(1);
-    await Promise.resolve();
-    expect(removeEventListenerSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(preAborted.promise.cancel).not.toHaveBeenCalled();
+    expect(running.promise.cancel).not.toHaveBeenCalled();
+    expect(poolTerminateMock).not.toHaveBeenCalled();
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorMessage: 'Embedding task was aborted.',
+        event: 'error',
+        taskId: 'task-2',
+      })
+    );
   });
 
   it('normalizes object-style worker errors into telemetry and logs', async () => {

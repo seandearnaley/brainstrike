@@ -6,6 +6,7 @@ import {
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerLifetimeError,
   type EmbedWorkerPipelineCacheDiagnostic,
+  type EmbedWorkerRequestControl,
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
@@ -203,29 +204,29 @@ function deviceAwareDefaultMaxWorkers(
 
 function attachAbort(
   signal: AbortSignal | undefined,
-  promise: WorkerPoolPromise<QueueResult>,
+  onAbort: () => void,
   description: string
-): void {
+): () => void {
   if (signal === undefined) {
-    return;
+    return () => {};
   }
   if (signal.aborted) {
-    logger.debug('Cancelling worker task (%s) due to pre-aborted signal', description);
-    promise.cancel();
-    return;
+    logger.debug('Gracefully aborting worker task (%s) due to pre-aborted signal', description);
+    onAbort();
+    return () => {};
   }
   const abortListener = () => {
-    logger.debug('Cancelling worker task (%s) due to abort signal', description);
-    promise.cancel();
+    logger.debug('Gracefully aborting worker task (%s) due to abort signal', description);
+    onAbort();
   };
   signal.addEventListener('abort', abortListener, { once: true });
-  promise
-    .finally(() => {
-      signal.removeEventListener('abort', abortListener);
-    })
-    .catch(() => {
-      signal.removeEventListener('abort', abortListener);
-    });
+  return () => signal.removeEventListener('abort', abortListener);
+}
+
+function createAbortError(): Error {
+  const error = new Error('Embedding task was aborted.');
+  error.name = 'AbortError';
+  return error;
 }
 
 function now(): number {
@@ -513,11 +514,27 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       await recovery;
       assertAcceptingWork();
     }
-    const { promise, cancelable, startedAt, telemetrySource } = createExecutionPromise(task);
-    attachAbort((opts as QueueAddOptions | undefined)?.signal, cancelable, task.id);
+    const signal = (opts as QueueAddOptions | undefined)?.signal;
+    let abortRequested = signal?.aborted ?? false;
+    const postRequestControl = (type: EmbedWorkerRequestControl['type']): void => {
+      telemetryChannel.postMessage({ id: task.id, type } satisfies EmbedWorkerRequestControl);
+    };
+    const requestAbort = (): void => {
+      abortRequested = true;
+      postRequestControl('cancel-request');
+    };
+    const { promise, startedAt, telemetrySource } = createExecutionPromise(task, () => {
+      if (abortRequested) {
+        postRequestControl('cancel-request');
+      }
+    });
+    const detachAbort = attachAbort(signal, requestAbort, task.id);
     activeTasks += 1;
     try {
       const result = await promise;
+      if (abortRequested) {
+        throw createAbortError();
+      }
       if (result.vectors.length > 0) {
         if (telemetrySource.current === null) {
           embeddingTelemetry.recordFailure(MISSING_PIPELINE_CACHE_DIAGNOSTIC_REASON);
@@ -542,13 +559,17 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       onTaskError(task, startedAt, error);
       throw error;
     } finally {
+      detachAbort();
+      if (abortRequested) {
+        postRequestControl('clear-request-control');
+      }
       activeTasks = Math.max(activeTasks - 1, 0);
       notifyDrain();
       notifyCancel();
     }
   };
 
-  const createExecutionPromise = (task: TaskPayload) => {
+  const createExecutionPromise = (task: TaskPayload, onWorkerEvent: () => void) => {
     const startedAt = now();
     const request = toWorkerRequest(task);
     const telemetrySource: { current: string | null } = { current: null };
@@ -561,6 +582,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     cancelable = pool.exec('runEmbedding', [request], {
       on: (event: unknown) => {
         try {
+          onWorkerEvent();
           const diagnostic = readPipelineCacheDiagnostic(event);
           if (diagnostic) {
             if (diagnostic.id !== task.id) {
