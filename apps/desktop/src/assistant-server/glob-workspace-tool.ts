@@ -92,6 +92,8 @@ function compilePatternMatcher(pattern: string): Minimatch {
 }
 
 interface RootWalkState {
+  /** An EXCLUDED path could satisfy the pattern — see `walkRoot`. */
+  excludedCouldMatch: boolean;
   matches: GlobWorkspaceMatch[];
   scanLimited: boolean;
 }
@@ -107,8 +109,20 @@ async function walkRoot(args: {
   includeIgnored: boolean;
 }): Promise<RootWalkState> {
   const matches: GlobWorkspaceMatch[] = [];
+  // Whether anything the walk EXCLUDED could have satisfied the pattern. Tested
+  // with minimatch's PARTIAL mode because an excluded directory is reported
+  // instead of its contents: `coverage` partial-matches `coverage/**`, which is
+  // the signal that `0 matches` means "excluded", not "absent". Precision
+  // matters more than coverage here — a steer that fires on every empty result
+  // is noise the model learns to skip, costing us the one case that needed it.
+  let excludedCouldMatch = false;
   const { scanLimited } = await walkWorkspaceRoot({
     includeIgnored: args.includeIgnored,
+    onExcluded: (relativePath) => {
+      if (!excludedCouldMatch && args.matcher.match(relativePath, true)) {
+        excludedCouldMatch = true;
+      }
+    },
     onFile: ({ relativePath }) => {
       if (args.matcher.match(relativePath)) {
         matches.push({
@@ -125,7 +139,36 @@ async function walkRoot(args: {
     respectGitignore: true,
     root: args.root,
   });
-  return { matches, scanLimited };
+  return { excludedCouldMatch, matches, scanLimited };
+}
+
+/**
+ * The "you asked for something excluded" steer, or '' when it does not apply.
+ *
+ * A bare `{count: 0}` is indistinguishable from "those files do not exist", and
+ * the default exclusion set is now "whatever the repo gitignores" — coverage/,
+ * .env*, generated clients. Without this, the widened exclusions ship a NEW
+ * instance of the silent `0 matches` failure this walk change exists to remove.
+ *
+ * Every condition is load-bearing. `excludedCouldMatch` keeps it precise: a
+ * steer on every empty result is noise the model learns to skip, which costs us
+ * the one case that needed it. `includeIgnored` means the caller already asked.
+ * `scanLimited` means the honest answer is "the walk did not finish", which its
+ * own note already says.
+ */
+function buildExcludedSteer(args: {
+  excludedCouldMatch: boolean;
+  includeIgnored: boolean;
+  scanLimited: boolean;
+  totalMatches: number;
+}): string {
+  if (args.totalMatches > 0 || !args.excludedCouldMatch) {
+    return '';
+  }
+  if (args.includeIgnored || args.scanLimited) {
+    return '';
+  }
+  return 'No matches, but excluded paths (build output or gitignored files) match this pattern. Retry with includeIgnored: true to see them.';
 }
 
 function buildResult(args: {
@@ -142,8 +185,20 @@ function buildResult(args: {
   /** Open-root topology (count + globally ambiguous names) when >1 root. */
   topology: OpenRootTopology;
   scanLimited: boolean;
+  /** Whether the caller already asked for excluded paths (gates the steer). */
+  includeIgnored: boolean;
+  /** Whether an EXCLUDED path could have satisfied the pattern. */
+  excludedCouldMatch: boolean;
 }): GlobWorkspaceToolResult {
-  const { windowMatches, totalMatches, offset, topology, scanLimited } = args;
+  const {
+    windowMatches,
+    totalMatches,
+    offset,
+    topology,
+    scanLimited,
+    includeIgnored,
+    excludedCouldMatch,
+  } = args;
   const pagedMatches = windowMatches.slice(offset);
   // The hint is built INSIDE the fitted candidate so it can never push the
   // serialized result back over the budget.
@@ -164,12 +219,18 @@ function buildResult(args: {
     const scanNote = scanLimited
       ? ' The walk hit its file-visit cap, so more matches may exist; narrow the pattern (e.g. a specific subdirectory) to reach them.'
       : '';
+    const excludedSteer = buildExcludedSteer({
+      excludedCouldMatch,
+      includeIgnored,
+      scanLimited,
+      totalMatches,
+    });
     const hint =
       moreThanPaged || scanLimited
         ? `Showing matches ${offset + 1}-${offset + matches.length} of ${totalMatches}${scanLimited ? '+' : ''}.` +
           `${scanNote}` +
           (moreThanPaged ? ` Continue with offset: ${nextOffset}, or narrow the pattern.` : '')
-        : undefined;
+        : excludedSteer.trim() || undefined;
     return {
       count: matches.length,
       matches,
@@ -207,10 +268,12 @@ export async function runGlobWorkspace(
 
   const allMatches: GlobWorkspaceMatch[] = [];
   let scanLimited = false;
+  let excludedCouldMatch = false;
   for (const root of roots) {
     const state = await walkRoot({ includeIgnored, matcher, root });
     allMatches.push(...state.matches);
     scanLimited = scanLimited || state.scanLimited;
+    excludedCouldMatch = excludedCouldMatch || state.excludedCouldMatch;
   }
 
   // Stable ordering across roots: by root name, then by path.
@@ -223,6 +286,8 @@ export async function runGlobWorkspace(
   // not the capped window size.
   const limited = allMatches.slice(0, offset + limit);
   return buildResult({
+    excludedCouldMatch,
+    includeIgnored,
     offset,
     scanLimited,
     topology: describeOpenRootTopology(runtimeData),

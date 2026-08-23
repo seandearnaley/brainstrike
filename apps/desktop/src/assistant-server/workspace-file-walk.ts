@@ -35,6 +35,18 @@ export interface WalkRootOptions {
    * the workspace indexer applies. `.git` is never descended into regardless.
    */
   includeIgnored?: boolean;
+  /**
+   * Invoked for each path the walk EXCLUDED — a pruned directory or a dropped
+   * file — with its workspace-relative POSIX path.
+   *
+   * Exists so a caller can tell "nothing matched because nothing is there" from
+   * "nothing matched because what you asked for is excluded". Without it a glob
+   * for an excluded path returns a bare `0 matches`, which is the silent
+   * failure this walk change exists to remove, not a new place to reintroduce
+   * it. Pruned directories are reported INSTEAD of their contents (the walk
+   * never descends), so callers should treat a directory as a prefix.
+   */
+  onExcluded?: (relativePath: string) => void;
   /** Invoked once per kept regular file. */
   onFile: (file: WalkedFile) => void;
   /**
@@ -69,15 +81,26 @@ export interface WalkRootResult {
 type IndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 
 /**
- * Read a directory's `.gitignore`, returning its contents or undefined when the
- * file is absent/unreadable. An unreadable ignore file must not fail the walk:
- * the static policy floor still applies, so the worst case is a wider walk, not
- * a broken one.
+ * Read a directory's `.gitignore`, returning its contents or undefined when it
+ * cannot be read. An unreadable ignore file must not fail the walk — the static
+ * policy floor still applies, so the worst case is a wider walk, not a broken
+ * one — but it must not be SILENT either.
+ *
+ * The caller only reaches here when the directory listing already showed a
+ * regular `.gitignore`, so any failure is a real one (permissions, a transient
+ * FS error, a file deleted between listing and read) rather than the ordinary
+ * absent-file case. Swallowing it would disable that directory's rules and
+ * broaden the walk, which can reintroduce the scan-cap starvation this exists
+ * to prevent while returning ordinary-looking `0 matches` results.
  */
 async function readGitignore(directoryAbsolutePath: string): Promise<string | undefined> {
   try {
     return await fsPromises.readFile(path.join(directoryAbsolutePath, '.gitignore'), 'utf8');
-  } catch {
+  } catch (error) {
+    logger.warn('workspace walk: .gitignore present but unreadable; its rules are NOT applied', {
+      directory: directoryAbsolutePath,
+      error,
+    });
     return;
   }
 }
@@ -88,6 +111,7 @@ interface WalkContext {
   /** Nested `.gitignore` scopes, present only when the caller opted in. */
   gitignore?: GitignoreMatcher;
   includeIgnored: boolean;
+  onExcluded: ((relativePath: string) => void) | undefined;
   onFile: (file: WalkedFile) => void;
   policy: IndexingEntryPolicy;
   scanLimited: boolean;
@@ -123,6 +147,7 @@ function recordFile(
         }))
     )
   ) {
+    ctx.onExcluded?.(childRelative);
     return;
   }
   ctx.onFile({ absolutePath: childAbsolute, relativePath: childRelative });
@@ -181,7 +206,11 @@ async function visitDirectory(
   // removes almost all of it.
   const hasGitignore =
     ctx.gitignore !== undefined &&
-    dirEntries.some((dirent) => dirent.name === '.gitignore' && !dirent.isDirectory());
+    // isFile(), NOT !isDirectory(): a FIFO named `.gitignore` would block the
+    // read until a writer appeared (hanging the whole glob), and a symlink
+    // would let ignore rules be sourced from outside the canonical root —
+    // the containment discipline every other read in this walk observes.
+    dirEntries.some((dirent) => dirent.name === '.gitignore' && dirent.isFile());
   const gitignoreContents =
     ctx.includeIgnored || !hasGitignore ? undefined : await readGitignore(currentAbsolutePath);
   if (gitignoreContents !== undefined) {
@@ -230,6 +259,9 @@ async function visitDirectoryEntries(
             }))
         )
       ) {
+        // Reported INSTEAD of its contents: the walk stops here by design, so
+        // this path is the only evidence a caller gets that the subtree exists.
+        ctx.onExcluded?.(childRelative);
         continue;
       }
       await visitDirectory(ctx, childAbsolute, childRelative);
@@ -285,6 +317,7 @@ export async function walkWorkspaceRoot(options: WalkRootOptions): Promise<WalkR
     // case the floor carries the walk alone.
     ...(options.respectGitignore === true ? { gitignore: createGitignoreMatcher() } : {}),
     includeIgnored: options.includeIgnored === true,
+    onExcluded: options.onExcluded,
     onFile: options.onFile,
     policy: createBackgroundIndexingEntryPolicy({ preset: 'balanced' }),
     scanLimited: false,

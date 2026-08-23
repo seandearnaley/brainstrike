@@ -92,4 +92,23 @@ describe('createGitignoreMatcher', () => {
     expect(matcher.ignoresFile('packages/web/keep.generated.ts')).toBe(false);
     expect(matcher.ignoresFile('packages/web/other.generated.ts')).toBe(true);
   });
+
+  it('returns a verdict for a directory literally named "..." rather than throwing', () => {
+    // Review of #2598 raised this as an unhandled-throw risk, on the theory that
+    // `ignore`'s non-relative-path guard would fire for `...`. Probed against the
+    // pinned version: it does not — `...`, `.../` and `.../child` all return
+    // ordinary verdicts. What DOES throw is a path starting `./`, `../` or `/`,
+    // and `readdir` cannot produce any of those, so the walk never reaches it.
+    //
+    // Deliberately NOT "fixed" with `allowRelativePaths: true`. That flag makes a
+    // genuinely malformed path return "not ignored" instead of erroring, turning
+    // a loud bug into a silent one: a caller passing an absolute path would
+    // quietly get every exclusion skipped. The right fix is normalising at the
+    // boundary that produces the path. Pinned here because `ignore` edge-case
+    // behaviour is what this spec exists to assert rather than assume.
+    const matcher = createGitignoreMatcher();
+    matcher.push('', 'dist/\n');
+    expect(matcher.ignoresDirectory('...')).toBe(false);
+    expect(matcher.ignoresFile('.../child.ts')).toBe(false);
+  });
 });

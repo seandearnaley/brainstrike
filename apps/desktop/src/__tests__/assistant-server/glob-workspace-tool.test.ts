@@ -209,6 +209,53 @@ describe('runGlobWorkspace — ignore handling', () => {
     expect(paths(result)).toEqual(['/src/main.ts']);
   });
 
+  it('drops a gitignored FILE inside a KEPT directory (BST-1427)', async () => {
+    // The directory gate and the file gate are separate branches. Every other
+    // case here exercises directory patterns, so the file gate in `recordFile`
+    // could be deleted with the suite still green — verified by deleting it.
+    // It carries the common real case: a generated file or a `.env.local`
+    // sitting beside sources in a directory the walk rightly keeps.
+    const root = await makeWorkspace(['.gitignore', 'src/main.ts', 'src/api-client.generated.ts']);
+    await fsPromises.writeFile(path.join(root, '.gitignore'), '*.generated.ts\n', 'utf8');
+    const result = await runGlobWorkspace({ pattern: '**/*.ts' }, singleRoot(root));
+    expect(paths(result)).toEqual(['/src/main.ts']);
+  });
+
+  it('steers the model to includeIgnored when a glob matches ONLY excluded files', async () => {
+    // The failure this whole PR argues against, in its newest form. Widening the
+    // exclusion set from a fixed denylist to "whatever the repo gitignores"
+    // means `coverage/**` now returns a bare `{count: 0}` that is
+    // indistinguishable from "those files do not exist". A zero with no signal
+    // is the silent failure; the hint is what makes it honest.
+    const root = await makeWorkspace(['.gitignore', 'coverage/report.html', 'src/main.ts']);
+    await fsPromises.writeFile(path.join(root, '.gitignore'), 'coverage/\n', 'utf8');
+
+    const result = await runGlobWorkspace({ pattern: 'coverage/**' }, singleRoot(root));
+
+    expect(result.count).toBe(0);
+    expect(result.hint).toMatch(/includeIgnored/);
+  });
+
+  it('does NOT steer to includeIgnored when the glob genuinely matched', async () => {
+    // A hint on every successful call is noise the model learns to ignore,
+    // which costs us the one case that needed it.
+    const root = await makeWorkspace(['src/main.ts']);
+    const result = await runGlobWorkspace({ pattern: '**/*.ts' }, singleRoot(root));
+    expect(result.count).toBe(1);
+    expect(result.hint ?? '').not.toMatch(/includeIgnored/);
+  });
+
+  it('does NOT steer to includeIgnored when it is ALREADY set', async () => {
+    const root = await makeWorkspace(['.gitignore', 'src/main.ts']);
+    await fsPromises.writeFile(path.join(root, '.gitignore'), 'coverage/\n', 'utf8');
+    const result = await runGlobWorkspace(
+      { includeIgnored: true, pattern: 'nothing-matches-this/**' },
+      singleRoot(root)
+    );
+    expect(result.count).toBe(0);
+    expect(result.hint ?? '').not.toMatch(/includeIgnored/);
+  });
+
   it('excludes lockfiles and minified/map artifacts by default', async () => {
     const root = await makeWorkspace([
       'src/app.ts',
