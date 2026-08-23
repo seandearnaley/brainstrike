@@ -2767,6 +2767,23 @@ actually installs `BrainstrikeToolSearchProcessor`. They tell the model to call
 `search_tools` for deferred capability families before substituting eager glob
 or shell tools.
 
+**THE DISCOVERY LINE MUST NAME EVERY DEFERRED CAPABILITY FAMILY.** A deferred
+capability the prompt never names is a tool the model declares nonexistent
+instead of searching for: the 2026-08-23 field failure dismissed both "the
+canvas tool" (`manageCanvas`) and a skill activation's named
+`runSkillScript` as missing, and worked around the latter via
+`executeCommand` — bypassing the typed skill-script policy layer. The
+`tool-discovery capability coverage` spec in `default-instructions.spec.ts`
+pins every runtime-deferred native tool (`loadingTier !== 'critical'`, skill
+ids force-cored) to a keyword on the line; adding a deferred tool without
+extending the line fails there. The line also states that a tool NAMED by the
+instructions or a skill activation but not loaded is reachable via
+`search_tools` — the prompt names tools by exact id (`toolNameMap` spans both
+surfaces) that are not in the model's callable list until discovered, and
+without that sentence the model resolves the contradiction the wrong way.
+`BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE` (appended to every skill activation
+result) carries the same recovery clause for `runSkillScript`.
+
 **THE BATCHING EXEMPTION LIVES ON THE BATCHING LINE — do not relitigate.** A
 loaded match is callable only on the FOLLOWING turn, so batching `search_tools`
 with slow calls strands the discovery for their whole duration: an observed run

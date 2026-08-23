@@ -577,7 +577,16 @@ function buildToolDiscoveryInstruction(
   );
   const alternativesClause =
     eagerAlternatives.length > 0 ? ` before ${eagerAlternatives.join(' / ')}` : '';
-  return `Some capabilities are deferred behind search_tools. For detailed or refreshed workspace context, persistent sessions, semantic or LSP inspection, web, or embeddings, call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
+  // The family list is COVERAGE, not color: a deferred capability the prompt
+  // never names is one the model declares nonexistent instead of searching for
+  // (field failure 2026-08-23 — "the canvas tool" and a skill's named
+  // run_skill_script were both dismissed as missing). The
+  // 'tool-discovery capability coverage' spec pins every deferred native tool
+  // to a keyword on this line; extend BOTH together. The "named but not
+  // loaded" sentence resolves the prompt-vs-surface contradiction: these
+  // instructions (and skill activations) name tools by exact id that are not
+  // in the model's callable list until discovered.
+  return `Some capabilities are deferred behind search_tools: canvas documents, task lists, skill scripts, Python, browser pages, web search/extract, command sessions, file delete/rename, directory listings, workspace context and tapestry, symbol and LSP inspection, embedding search, diagnostics, DB self-query, and tool-output artifacts. When a tool you need is not loaded — including one these instructions or a skill activation names — call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
 }
 
 /**

@@ -139,8 +139,17 @@ vi.mock('../../db-main', () => ({
 // Trim-first was applied: the clause was stated on BOTH the discovery line and
 // the batching line, and the discovery line was reverted to its original
 // wording — one statement, on the line that causes the misread.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9870;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9570;
+// DEFERRED-CAPABILITY COVERAGE RAISE (+60/+60, band width 300 preserved). The
+// discovery line now names EVERY deferred capability family, pinned by the
+// 'tool-discovery capability coverage' spec. Not bloat: a family the prompt
+// never names is a tool the model declares nonexistent instead of searching
+// for — the 2026-08-23 field failure dismissed both "the canvas tool" and a
+// skill's named run_skill_script as missing. The skill guidance also gained
+// its search_tools recovery clause (tool OUTPUT, not counted here). Measured
+// full surface 9859 -> 9912. Trim-first was applied: the line names families,
+// not the 26 tool ids, and the "named but not loaded" sentence is stated once.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9930;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9630;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails

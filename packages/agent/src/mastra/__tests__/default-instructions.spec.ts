@@ -151,7 +151,7 @@ describe('default assistant instructions', () => {
       toolDiscoveryEnabled: true,
     });
     expect(withDiscovery).toContain('search_tools');
-    expect(withDiscovery).toContain('detailed or refreshed workspace context');
+    expect(withDiscovery).toContain('workspace context and tapestry');
     expect(withDiscovery).not.toContain('open workspace roots and focused context');
     expect(withDiscovery).not.toContain('web, skills, or embeddings');
     expect(withDiscovery).toContain(
@@ -686,5 +686,92 @@ describe('tool-discovery guidance', () => {
   it('says nothing about discovery when the catalog is not installed', () => {
     const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: false });
     expect(text).not.toContain('search_tools');
+  });
+});
+
+describe('tool-discovery capability coverage', () => {
+  const toolNameMap = new Map([
+    ['brainstrike_executeCommand', 'brainstrike.executeCommand'],
+    ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
+  ]);
+
+  // Field failure (2026-08-23): the user asked for "the canvas tool"; the run
+  // deferred brainstrike.manageCanvas behind search_tools, but the discovery
+  // line's hand-written family list never mentioned canvas — so the model
+  // declared the tool nonexistent and never searched. Same run: a skill's
+  // activation named brainstrike.runSkillScript (also deferred), the model
+  // checked its visible tools, and worked around via executeCommand.
+  //
+  // This test is the drift detector: every native tool the runtime would DEFER
+  // (loadingTier !== 'critical', skill ids force-cored — the exact rule in
+  // resolveToolDiscoverySurface) must have its capability named on the
+  // discovery line. Adding a deferred tool without teaching the prompt about
+  // its family fails HERE, where the reviewer of that change will trip over
+  // it, instead of in the field as a "tool does not exist" hallucination.
+  it('names every deferred native capability family on the discovery line', async () => {
+    const { isSkillNativeToolId, NATIVE_TOOL_DEFAULTS } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    // Capability keyword per deferred tool id (matched case-insensitively).
+    // An id missing from this map fails the test with a message telling the
+    // author to map it AND cover it on the discovery line.
+    const CAPABILITY_KEYWORDS: Record<string, string> = {
+      'brainstrike.browserGetPageText': 'browser',
+      'brainstrike.browserNavigate': 'browser',
+      'brainstrike.browserReadPage': 'browser',
+      'brainstrike.deleteWorkspaceFile': 'delete/rename',
+      'brainstrike.findWorkspaceSymbol': 'symbol',
+      'brainstrike.hybridSearch': 'embedding',
+      'brainstrike.inspectCommandSessions': 'command sessions',
+      'brainstrike.listEmbeddingSpaces': 'embedding',
+      'brainstrike.listWorkspaceContext': 'workspace context',
+      'brainstrike.lspInspect': 'lsp',
+      'brainstrike.manageCanvas': 'canvas',
+      'brainstrike.manageCommandSession': 'command sessions',
+      'brainstrike.manageTaskList': 'task list',
+      'brainstrike.queryDiagnostics': 'diagnostics',
+      'brainstrike.queryEmbeddingSpace': 'embedding',
+      'brainstrike.querySelf': 'self-query',
+      'brainstrike.readToolOutputArtifact': 'tool-output artifact',
+      'brainstrike.readWorkspaceContext': 'workspace context',
+      'brainstrike.readWorkspaceDirectory': 'director',
+      'brainstrike.renameWorkspaceFile': 'delete/rename',
+      'brainstrike.runPython': 'python',
+      'brainstrike.runSkillScript': 'skill script',
+      'brainstrike.updateWorkspaceContextSelection': 'workspace context',
+      'brainstrike.updateWorkspaceTapestrySelections': 'workspace context',
+      'brainstrike.webExtract': 'web',
+      'brainstrike.webSearch': 'web',
+    };
+    const deferredIds = Object.entries(NATIVE_TOOL_DEFAULTS)
+      .filter(([id, defaults]) => defaults.loadingTier !== 'critical' && !isSkillNativeToolId(id))
+      .map(([id]) => id);
+    expect(deferredIds.length).toBeGreaterThan(0);
+
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    const discoveryLine = (
+      text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? ''
+    ).toLowerCase();
+    for (const id of deferredIds) {
+      const keyword = CAPABILITY_KEYWORDS[id];
+      expect(
+        keyword,
+        `unmapped deferred tool ${id}: add it to CAPABILITY_KEYWORDS and name its capability on the discovery line`
+      ).toBeDefined();
+      expect(
+        discoveryLine,
+        `discovery line does not name the capability of deferred tool ${id}`
+      ).toContain((keyword as string).toLowerCase());
+    }
+  });
+
+  it('tells the model that a tool NAMED but not loaded is reachable via search_tools', () => {
+    // The prompt-vs-surface contradiction: toolNameMap covers ALL eligible
+    // tools, so the instructions can name a tool (e.g. run_skill_script) that
+    // is not in the model's callable list. Without this sentence the model
+    // resolves the contradiction by declaring the tool nonexistent.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    expect(line.toLowerCase()).toContain('not loaded');
   });
 });

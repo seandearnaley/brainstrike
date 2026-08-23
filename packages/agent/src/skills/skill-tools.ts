@@ -25,8 +25,17 @@ export { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET };
 /** The canonical Mastra skill tool ids (never renamed/namespaced). */
 export const SKILL_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
 
+/**
+ * Appended to every skill activation result. Names `brainstrike.runSkillScript`
+ * by exact id — which is a DEFERRED tool on hosted discovery runs — so it must
+ * carry its own recovery path: without the search_tools clause, a model that
+ * checks its visible tools concludes the tool does not exist and works around
+ * via executeCommand, bypassing the typed skill-script policy layer (field
+ * failure 2026-08-23). On non-discovery runs the tool is eager and the clause
+ * is inert.
+ */
 export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE =
-  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd. Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If declined, continue with native workspace tools and do not retry.';
+  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd — if that tool is not currently loaded, load it with search_tools first (matches become callable next turn). Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If declined, continue with native workspace tools and do not retry.';
 
 /** Mirrors countTokensHeuristic (4 chars/token) — same unit as the guard. */
 const APPROX_CHARS_PER_TOKEN = 4;

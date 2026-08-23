@@ -441,7 +441,13 @@ exports and (b) unbounded plain-fs readers. **Desktop-only by construction**
   tree lifecycle, and the normal `execute:ask` approval gate. Activation
   guidance sends project mutation through native workspace tools and forbids
   shell heredocs; declining an optional script continues through those native
-  tools rather than retrying the approval.
+  tools rather than retrying the approval. Because `runSkillScript` is
+  DEFERRED on hosted discovery runs, the activation guidance also carries its
+  own recovery path — load it with `search_tools` first, callable next turn —
+  otherwise a model that checks its visible tools concludes the named tool
+  does not exist and works around via `executeCommand`, bypassing this whole
+  policy layer (2026-08-23 field failure; see the discovery-coverage rule in
+  `docs/agents/assistant-providers.md`).
   Live-loop proof: packages/agent/src/__tests__/mastra-skills.integration.spec.ts
   (real Agent: metadata injection, activation, gate-free read execution while
   an ask tool is present, plan-mode availability, no-skills no-advertisement).

@@ -139,3 +139,19 @@ describe('transport guard override for skill activations', () => {
     });
   });
 });
+
+describe('activation execution guidance', () => {
+  // Field failure (2026-08-23): a skill activation told the model to "run
+  // listed skill scripts with brainstrike.runSkillScript", but that tool is
+  // DEFERRED behind search_tools on hosted discovery runs. The model checked
+  // its visible tools, concluded the tool did not exist, and worked around via
+  // executeCommand — bypassing the typed skill-script policy layer. The
+  // guidance must carry its own recovery path: load the tool via search_tools
+  // first, callable next turn. (On non-discovery runs the tool is eager and
+  // the clause is inert.)
+  it('tells the model how to LOAD runSkillScript when it is deferred', async () => {
+    const { BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE } = await import('../skills/skill-tools');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('search_tools');
+    expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('next turn');
+  });
+});
