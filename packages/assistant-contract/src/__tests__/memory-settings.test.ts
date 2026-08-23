@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
   listAutoObservationalMemoryCandidates,
   OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
   resolveAutoObservationalMemoryModelTarget,
@@ -88,5 +89,58 @@ describe('resolveAutoObservationalMemoryModelTarget (privacy: chat provider only
       'openrouter/google/gemini-3.5-flash-lite',
       'openrouter/deepseek/deepseek-v4-flash',
     ]);
+  });
+});
+
+describe('working-memory template (must never fall back to Mastra stock)', () => {
+  it('names the sections a coding scratchpad needs', () => {
+    // NOT a typeof/non-empty check: `as const` makes `template` a string
+    // LITERAL type, so deleting the field is a compile error and no runtime
+    // value can reach here that is empty or a non-string — such a test cannot
+    // fail. The regression worth guarding is the template being GUTTED or
+    // quietly re-shaped into something that no longer serves an IDE, which the
+    // section names catch.
+    //
+    // (Absent means "somebody else's template", never "no template":
+    // `@mastra/memory` substitutes its own personal-assistant profile.)
+    const { template } = DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY;
+    expect(template).toContain('# Session');
+    expect(template).toContain('# Decisions');
+    expect(template).toContain('# Open questions');
+    expect(template).toContain('# Key paths');
+  });
+
+  it('carries no personal-profile fields', () => {
+    // Verbatim field names from @mastra/memory's defaultWorkingMemoryTemplate.
+    // A regression that drops our template would reintroduce every one of
+    // these into the system prompt of every turn.
+    const stockFields = [
+      'First Name',
+      'Last Name',
+      'Location',
+      'Occupation',
+      'Interests',
+      'Goals',
+      'Events',
+    ];
+    const template = DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.template;
+    for (const field of stockFields) {
+      expect(template).not.toContain(field);
+    }
+  });
+
+  it('has no open-ended bucket for the model to fill with a transcript', () => {
+    // A "Facts"/"Notes" section is unbounded by construction: Mastra's own tool
+    // instruction says "If you're unsure whether to store something, store it".
+    // Every section here names something small, current, and losable.
+    const template = DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.template;
+    expect(template).not.toMatch(/^#+\s*(Facts|Notes|Misc|Other)\b/im);
+  });
+
+  it('is thread-scoped, so one thread cannot bill every other thread forever', () => {
+    // 'resource' prepends this scratchpad to EVERY thread for the user, and
+    // working memory has no decay — cross-thread continuity belongs to
+    // observational memory and semantic recall, which retrieve on relevance.
+    expect(DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.scope).toBe('thread');
   });
 });
