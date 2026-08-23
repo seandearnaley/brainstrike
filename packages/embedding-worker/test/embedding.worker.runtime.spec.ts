@@ -1,5 +1,6 @@
 import {
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
 } from '@brainstrike/indexing-contract';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -926,6 +927,115 @@ describe('embedding worker runtime', () => {
     }
     return registeredHandlers.runEmbedding;
   }
+
+  it('isolates request control from sibling worker telemetry', async () => {
+    const channels = new Map<string, Set<PeerBroadcastChannel>>();
+    class PeerBroadcastChannel {
+      readonly name: string;
+      onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+
+      constructor(name: string) {
+        this.name = name;
+        const peers = channels.get(name) ?? new Set<PeerBroadcastChannel>();
+        peers.add(this);
+        channels.set(name, peers);
+      }
+
+      close(): void {
+        channels.get(this.name)?.delete(this);
+      }
+
+      postMessage(data: unknown): void {
+        for (const peer of channels.get(this.name) ?? []) {
+          if (peer !== this) {
+            peer.onmessage?.({ data } as MessageEvent<unknown>);
+          }
+        }
+      }
+    }
+    vi.stubGlobal('BroadcastChannel', PeerBroadcastChannel as unknown as typeof BroadcastChannel);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=peer-telemetry`,
+    });
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}peer-worker-a`);
+    await import('../src/embedding.worker');
+    expect(registeredHandlers.runEmbedding).toBeTypeOf('function');
+
+    vi.resetModules();
+    Reflect.deleteProperty(globalThis, EMBEDDING_WORKER_TEST_RUNTIME_PHASE_KEY);
+    registeredHandlers.runEmbedding = undefined;
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}peer-worker-b`);
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0]));
+    const runPeerEmbedding = await loadWorker();
+    const telemetryPeers = [...(channels.get('peer-telemetry') ?? [])];
+    expect(telemetryPeers).toHaveLength(2);
+
+    telemetryPeers[0]?.postMessage({
+      message: 'peer worker lifetime failure',
+      type: 'worker-lifetime-error',
+      workerInstanceId: 'peer-worker-a',
+    });
+
+    await expect(
+      runPeerEmbedding({
+        deviceHint: 'wasm',
+        id: 'peer-worker-b-task',
+        model: 'bge-m3',
+        texts: ['healthy peer'],
+        truncateDim: 2,
+        type: 'embed',
+      })
+    ).resolves.toMatchObject({ id: 'peer-worker-b-task', type: 'result' });
+    expect(
+      channels.get(`peer-telemetry${EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX}`)
+    ).toHaveLength(2);
+  });
+
+  it('clears a fast-path cancellation before a request id is reused', async () => {
+    const channels = new Map<
+      string,
+      { onmessage: ((event: MessageEvent<unknown>) => void) | null }
+    >();
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}fast-abort-worker`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=fast-abort-channel`,
+    });
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+        readonly postMessage = vi.fn();
+
+        constructor(name: string) {
+          channels.set(name, this);
+        }
+
+        readonly close = vi.fn();
+      } as unknown as typeof BroadcastChannel
+    );
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0]));
+    const runEmbedding = await loadWorker();
+    const controlChannel = channels.get(
+      `fast-abort-channel${EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX}`
+    );
+    controlChannel?.onmessage?.({
+      data: { id: 'reused-request-id', type: 'cancel-request' },
+    } as MessageEvent<unknown>);
+    const request = {
+      deviceHint: 'wasm' as const,
+      id: 'reused-request-id',
+      model: 'bge-m3',
+      texts: ['request'],
+      truncateDim: 2,
+      type: 'embed' as const,
+    };
+
+    await expect(runEmbedding(request)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(runEmbedding(request)).resolves.toMatchObject({
+      id: 'reused-request-id',
+      type: 'result',
+    });
+  });
 
   it('stops between batches on request abort and reuses the warmed worker pipeline', async () => {
     let controlChannel: { onmessage: ((event: MessageEvent<unknown>) => void) | null } | undefined;

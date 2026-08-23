@@ -3,6 +3,7 @@
 import {
   assertEmbedWorkerRequestControl,
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerRequestControl,
 } from '@brainstrike/indexing-contract';
@@ -84,18 +85,34 @@ function resolveWorkerpoolTelemetryChannelName(): string | null {
   return channelName;
 }
 
-function createWorkerpoolTelemetryChannel(): BroadcastChannel | null {
+function createWorkerpoolChannels(): {
+  readonly requestControl: BroadcastChannel | null;
+  readonly telemetry: BroadcastChannel | null;
+} {
   const channelName = resolveWorkerpoolTelemetryChannelName();
   if (channelName === null) {
-    return null;
+    return { requestControl: null, telemetry: null };
   }
   if (typeof BroadcastChannel === 'undefined') {
     throw new Error('Embedding workerpool telemetry requires BroadcastChannel support.');
   }
-  return new BroadcastChannel(channelName);
+  const telemetry = new BroadcastChannel(channelName);
+  try {
+    return {
+      requestControl: new BroadcastChannel(
+        `${channelName}${EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX}`
+      ),
+      telemetry,
+    };
+  } catch (error) {
+    telemetry.close();
+    throw error;
+  }
 }
 
-const workerpoolTelemetryChannel = createWorkerpoolTelemetryChannel();
+const workerpoolChannels = createWorkerpoolChannels();
+const workerpoolRequestControlChannel = workerpoolChannels.requestControl;
+const workerpoolTelemetryChannel = workerpoolChannels.telemetry;
 const canceledWorkerpoolRequestIds = new Set<string>();
 
 function debugLog(message: string, data?: Record<string, unknown>): void {
@@ -120,8 +137,8 @@ const activeStreamRequestIds = new Set<string>();
 /** Idle workerpool failures quarantine this runtime synchronously until its owner replaces it. */
 let workerLifetimeFailure: Error | null = null;
 
-if (workerpoolTelemetryChannel) {
-  workerpoolTelemetryChannel.onmessage = (event: MessageEvent<unknown>): void => {
+if (workerpoolRequestControlChannel && workerpoolTelemetryChannel) {
+  workerpoolRequestControlChannel.onmessage = (event: MessageEvent<unknown>): void => {
     try {
       assertEmbedWorkerRequestControl(event.data);
       const control: EmbedWorkerRequestControl = event.data;
@@ -146,11 +163,12 @@ if (workerpoolTelemetryChannel) {
 }
 
 function throwIfWorkerpoolRequestCanceled(id: string): void {
-  if (canceledWorkerpoolRequestIds.has(id)) {
-    const error = new Error('Embedding task was aborted.');
-    error.name = 'AbortError';
-    throw error;
+  if (!canceledWorkerpoolRequestIds.delete(id)) {
+    return;
   }
+  const error = new Error('Embedding task was aborted.');
+  error.name = 'AbortError';
+  throw error;
 }
 
 function isAbortError(error: unknown): error is Error {

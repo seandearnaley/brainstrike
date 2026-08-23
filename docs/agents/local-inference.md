@@ -323,8 +323,9 @@ Embedding runtime telemetry (BST-402):
   unique buffers transferred with each completed result and forwards pipeline-cache
   diagnostics emitted during `runEmbedding`. Worker-global diagnostics that occur after
   an RPC settles (notably the five-minute idle-cache eviction) travel over a pool-unique
-  `BroadcastChannel`; its name is carried in the managed worker script fragment. The same
-  channel carries request-scoped cancellation in the opposite direction. Abort signals stop
+  `BroadcastChannel`; its name is carried in the managed worker script fragment. Request-scoped
+  cancellation travels over a separate adapter-to-worker channel derived from that identity,
+  so sibling workers never consume one another's telemetry as control traffic. Abort signals stop
   `runEmbedding` between inference batches and reject with `AbortError` without calling
   workerpool's destructive `Promise.cancel()`, so the loaded pipeline remains reusable. The
   adapter clears request-control state on settlement and removes every signal listener during

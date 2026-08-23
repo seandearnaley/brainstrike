@@ -904,39 +904,44 @@ describe('createWorkerpoolAdapter', () => {
     expect(poolTerminateMock).not.toHaveBeenCalled();
   });
 
-  it('gracefully aborts queued and running tasks without terminating their worker', async () => {
-    const preAborted = createCancelablePromise<QueueResult>();
+  it('short-circuits pre-aborted tasks and gracefully aborts running work', async () => {
     const running = createCancelablePromise<QueueResult>();
-    poolExecMock.mockReturnValueOnce(preAborted.promise).mockReturnValueOnce(running.promise);
+    let emitWorkerEvent: ((event: unknown) => void) | undefined;
+    poolExecMock.mockImplementation((_method, _args, options?: { on?: typeof emitWorkerEvent }) => {
+      emitWorkerEvent = options?.on;
+      return running.promise;
+    });
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
     const adapter = createWorkerpoolAdapter(createWorkerOptions());
 
     const preAbortedController = new AbortController();
     preAbortedController.abort();
-    const preAbortedAdd = adapter.add(createTask('task-2'), {
-      signal: preAbortedController.signal,
-    });
-    await Promise.resolve();
-    preAborted.reject(new DOMException('Embedding task was aborted.', 'AbortError'));
-    await expect(preAbortedAdd).rejects.toThrow('Embedding task was aborted.');
+    await expect(
+      adapter.add(createTask('task-2'), { signal: preAbortedController.signal })
+    ).rejects.toThrow('Embedding task was aborted.');
+    expect(poolExecMock).not.toHaveBeenCalled();
 
     const runningController = new AbortController();
     const removeListener = vi.spyOn(runningController.signal, 'removeEventListener');
     const runningAdd = adapter.add(createTask('task-3'), { signal: runningController.signal });
     await Promise.resolve();
     runningController.abort();
+    emitWorkerEvent?.({ id: 'task-3', phase: 'embedding', progress: 0.5, type: 'progress' });
+    emitWorkerEvent?.({ id: 'task-3', phase: 'embedding', progress: 0.75, type: 'progress' });
     running.resolve(createResult('task-3'));
     await expect(runningAdd).rejects.toThrow('Embedding task was aborted.');
-
-    const telemetryChannel = broadcastChannelInstances[0];
-    for (const id of ['task-2', 'task-3']) {
-      expect(telemetryChannel?.postMessage).toHaveBeenCalledWith({ id, type: 'cancel-request' });
-      expect(telemetryChannel?.postMessage).toHaveBeenCalledWith({
-        id,
-        type: 'clear-request-control',
-      });
-    }
-    expect(preAborted.promise.cancel).not.toHaveBeenCalled();
+    const requestControlChannel = broadcastChannelInstances[1];
+    expect(requestControlChannel?.postMessage).toHaveBeenCalledWith({
+      id: 'task-3',
+      type: 'clear-request-control',
+    });
+    expect(
+      requestControlChannel?.postMessage.mock.calls.filter(
+        ([event]) =>
+          (event as { readonly id?: unknown; readonly type?: unknown }).id === 'task-3' &&
+          (event as { readonly type?: unknown }).type === 'cancel-request'
+      )
+    ).toHaveLength(2);
     expect(running.promise.cancel).not.toHaveBeenCalled();
     expect(poolTerminateMock).not.toHaveBeenCalled();
     expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));

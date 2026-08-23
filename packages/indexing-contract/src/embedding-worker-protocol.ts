@@ -59,6 +59,9 @@ export const EMBED_WORKER_INSTANCE_NAME_PREFIX = 'brainstrike-embedding-worker:'
 export const EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY =
   'brainstrike-embedding-worker-telemetry-channel';
 
+/** Suffix deriving the adapter-to-worker request-control channel from telemetry identity. */
+export const EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX = ':request-control';
+
 /** Pool-wide request control used to abort work without terminating a warmed worker. */
 export interface EmbedWorkerRequestControl {
   readonly id: string;

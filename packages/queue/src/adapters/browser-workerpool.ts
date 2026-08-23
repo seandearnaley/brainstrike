@@ -3,6 +3,7 @@ import {
   assertEmbedWorkerPipelineCacheDiagnostic,
   assertEmbedWorkerTelemetrySourceClosed,
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerLifetimeError,
   type EmbedWorkerPipelineCacheDiagnostic,
@@ -271,12 +272,22 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const activeWorkerInstanceIds = new Set<string>();
   const telemetryChannelName = `${WORKER_LIFETIME_TELEMETRY_CHANNEL_PREFIX}${globalThis.crypto.randomUUID()}`;
   const telemetryChannel = new BroadcastChannel(telemetryChannelName);
-  let telemetryChannelClosed = false;
-  const closeTelemetryChannel = (): void => {
-    if (telemetryChannelClosed) {
+  let requestControlChannel: BroadcastChannel;
+  try {
+    requestControlChannel = new BroadcastChannel(
+      `${telemetryChannelName}${EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX}`
+    );
+  } catch (error) {
+    telemetryChannel.close();
+    throw error;
+  }
+  let managedChannelsClosed = false;
+  const closeManagedChannels = (): void => {
+    if (managedChannelsClosed) {
       return;
     }
-    telemetryChannelClosed = true;
+    managedChannelsClosed = true;
+    requestControlChannel.close();
     telemetryChannel.close();
   };
   const clearEmbeddingTelemetrySources = (): void => {
@@ -359,7 +370,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   try {
     pool = createPool();
   } catch (error) {
-    closeTelemetryChannel();
+    closeManagedChannels();
     throw error;
   }
   let workerLifetimeTelemetryFailure: Error | null = null;
@@ -394,7 +405,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         logger.error('Embedding workerpool recovery after a lifetime failure failed.', {
           reason: error instanceof Error ? error.message : 'Unknown workerpool recovery error.',
         });
-        closeTelemetryChannel();
+        closeManagedChannels();
         clearEmbeddingTelemetrySources();
         forgetManagedWorkerIdentities();
       } finally {
@@ -414,7 +425,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     logger.error('Embedding worker-lifetime telemetry failed.', {
       reason: workerLifetimeTelemetryFailure.message,
     });
-    closeTelemetryChannel();
+    closeManagedChannels();
     void (async (): Promise<void> => {
       try {
         await pool.terminate(true);
@@ -515,16 +526,28 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       assertAcceptingWork();
     }
     const signal = (opts as QueueAddOptions | undefined)?.signal;
-    let abortRequested = signal?.aborted ?? false;
+    if (signal?.aborted) {
+      const error = createAbortError();
+      onTaskError(task, now(), error);
+      throw error;
+    }
+    let abortRequested = false;
     const postRequestControl = (type: EmbedWorkerRequestControl['type']): void => {
-      telemetryChannel.postMessage({ id: task.id, type } satisfies EmbedWorkerRequestControl);
+      if (managedChannelsClosed) {
+        return;
+      }
+      requestControlChannel.postMessage({ id: task.id, type } satisfies EmbedWorkerRequestControl);
     };
     const requestAbort = (): void => {
       abortRequested = true;
       postRequestControl('cancel-request');
     };
+    let cancelRebroadcastedAfterWorkerEvent = false;
     const { promise, startedAt, telemetrySource } = createExecutionPromise(task, () => {
-      if (abortRequested) {
+      // BroadcastChannel does not retain messages posted before a newly spawned worker
+      // subscribes. Re-send once after its first event proves the channel is ready.
+      if (abortRequested && !cancelRebroadcastedAfterWorkerEvent) {
+        cancelRebroadcastedAfterWorkerEvent = true;
         postRequestControl('cancel-request');
       }
     });
@@ -762,7 +785,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         });
       }
     } finally {
-      closeTelemetryChannel();
+      closeManagedChannels();
       clearEmbeddingTelemetrySources();
       forgetManagedWorkerIdentities();
     }
