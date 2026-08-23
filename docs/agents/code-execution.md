@@ -597,7 +597,10 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
 - **Timeout kills the whole process TREE, and no path settles before the group
   is down.** Children are spawned `detached: true` (so the child is a
   process-group leader) and the timeout signals the negative pid: SIGTERM,
-  then SIGKILL after 500 ms. `timedOut` is set; the exit code is
+  then SIGKILL after 500 ms. Sending SIGKILL is not itself proof of teardown:
+  settlement waits until a signal-0 probe reports `ESRCH` for the process group,
+  so a descendant cannot land one final side effect after the promise settles.
+  `timedOut` is set; the exit code is
   `128 + signum` when no code is available. Settling on `'close'` alone would
   be a bug: a descendant that detaches its stdio closes our pipes while still
   running, so an early settle would clear the pending SIGKILL and return with

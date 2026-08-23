@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { platform } from 'node:process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
 import {
@@ -44,6 +45,9 @@ import { buildSandboxRuntimeConfig } from './fence-policy';
 
 /** Grace period between the SIGTERM and the SIGKILL sent to the process tree. */
 const KILL_GRACE_MS = 500;
+
+/** Poll interval while confirming that a SIGKILLed process group is gone. */
+const PROCESS_GROUP_EXIT_POLL_MS = 10;
 
 /**
  * The ONLY host environment variables a sandboxed process inherits.
@@ -217,13 +221,53 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function killTree(pid: number, signal: NodeJS.Signals): void {
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
+
+function signalTree(pid: number, signal: NodeJS.Signals | 0): boolean {
   try {
     // Negative pid = the whole process group. `detached: true` made the child
     // the group leader, so every descendant it spawned is in this group.
     process.kill(-pid, signal);
-  } catch {
-    // ESRCH: the group is already gone. Nothing to kill.
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, 'ESRCH')) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function processGroupExists(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if (hasErrorCode(error, 'ESRCH')) {
+      return false;
+    }
+    if (hasErrorCode(error, 'EPERM')) {
+      // POSIX defines EPERM for signal 0 as proof that at least one process in
+      // the group still exists but is not currently signalable by this caller.
+      return true;
+    }
+    throw error;
+  }
+}
+
+async function killTree(pid: number, signal: NodeJS.Signals): Promise<void> {
+  const groupExisted = signalTree(pid, signal);
+  if (!groupExisted || signal !== 'SIGKILL') {
+    return;
+  }
+
+  // kill(2) returning only means the signal was sent. The target can still run
+  // before the kernel delivers SIGKILL, so settling at that point can expose a
+  // later run's policy to a descendant that has not exited yet. Signal 0 is the
+  // POSIX existence probe; ESRCH is the confirmation that the group is gone.
+  while (processGroupExists(pid)) {
+    await delay(PROCESS_GROUP_EXIT_POLL_MS);
   }
 }
 
@@ -246,10 +290,18 @@ function registerExitReaper(): void {
   }
   exitReaperRegistered = true;
   process.once('exit', () => {
+    const errors: unknown[] = [];
     for (const pid of liveProcessGroups) {
-      killTree(pid, 'SIGKILL');
+      try {
+        signalTree(pid, 'SIGKILL');
+      } catch (error) {
+        errors.push(error);
+      }
     }
     liveProcessGroups.clear();
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'Failed to terminate one or more fenced process groups');
+    }
   });
 }
 
@@ -332,7 +384,7 @@ type SpawnOutcome = ExecResult;
  * later" on demand — so they are injectable and driven by a fake child.
  */
 export interface FenceSpawnDeps {
-  readonly killGroup: (pid: number, signal: NodeJS.Signals) => void;
+  readonly killGroup: (pid: number, signal: NodeJS.Signals) => Promise<void>;
   readonly spawnProcess: (
     command: string,
     args: readonly string[],
@@ -408,7 +460,7 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
     };
 
     /** Runs on every settle path: tear the group down, stop tracking it. */
-    const teardown = (): void => {
+    const teardown = async (): Promise<void> => {
       clearTimers();
       abortSubscription?.();
       // Tear the group down BEFORE settling, on every path. A descendant that
@@ -417,9 +469,17 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
       // return with the descendant alive, free to outlive the policy this run
       // was granted. Killing here means no exit path can leak the group.
       if (child.pid !== undefined) {
-        deps.killGroup(child.pid, 'SIGKILL');
+        await deps.killGroup(child.pid, 'SIGKILL');
         liveProcessGroups.delete(child.pid);
       }
+    };
+
+    const fail = (error: unknown): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      void teardown().then(() => rejectPromise(error), rejectPromise);
     };
 
     const finish = (): void => {
@@ -427,18 +487,19 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
         return;
       }
       settled = true;
-      teardown();
-      resolvePromise({
-        // The seam pins this: exitCode is null exactly when a signal killed
-        // the process, and `signal` names it — no per-backend 124/-1 convention.
-        exitCode,
-        signal: exitSignal,
-        stderr: stderr.text(),
-        stderrOmittedBytes: stderr.omittedBytes,
-        stdout: stdout.text(),
-        stdoutOmittedBytes: stdout.omittedBytes,
-        timedOut,
-      });
+      void teardown().then(() => {
+        resolvePromise({
+          // The seam pins this: exitCode is null exactly when a signal killed
+          // the process, and `signal` names it — no per-backend 124/-1 convention.
+          exitCode,
+          signal: exitSignal,
+          stderr: stderr.text(),
+          stderrOmittedBytes: stderr.omittedBytes,
+          stdout: stdout.text(),
+          stdoutOmittedBytes: stdout.omittedBytes,
+          timedOut,
+        });
+      }, rejectPromise);
     };
 
     /**
@@ -453,16 +514,17 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
         return;
       }
       settled = true;
-      teardown();
-      rejectPromise(
-        new ExecAbortedError({
-          partialStderr: stderr.text(),
-          partialStdout: stdout.text(),
-          processStarted: true,
-          stderrOmittedBytes: stderr.omittedBytes,
-          stdoutOmittedBytes: stdout.omittedBytes,
-        })
-      );
+      void teardown().then(() => {
+        rejectPromise(
+          new ExecAbortedError({
+            partialStderr: stderr.text(),
+            partialStdout: stdout.text(),
+            processStarted: true,
+            stderrOmittedBytes: stderr.omittedBytes,
+            stdoutOmittedBytes: stdout.omittedBytes,
+          })
+        );
+      }, rejectPromise);
     };
 
     let abortSubscription: (() => void) | undefined;
@@ -516,9 +578,9 @@ export function spawnFenced(options: SpawnFencedOptions): Promise<SpawnOutcome> 
 
     later(timeoutMs, () => {
       timedOut = true;
-      deps.killGroup(pid, 'SIGTERM');
+      void deps.killGroup(pid, 'SIGTERM').catch(fail);
       later(KILL_GRACE_MS, () => {
-        deps.killGroup(pid, 'SIGKILL');
+        void deps.killGroup(pid, 'SIGKILL').catch(fail);
         // Hard backstop: if even SIGKILL leaves a pipe holder we cannot see,
         // report the timeout rather than hang the tool call forever.
         later(KILL_GRACE_MS, finish);

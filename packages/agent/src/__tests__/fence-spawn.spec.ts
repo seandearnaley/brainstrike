@@ -56,7 +56,7 @@ function harness(pid?: number): {
   killGroup: ReturnType<typeof vi.fn>;
 } {
   const child = createFakeChild(pid);
-  const killGroup = vi.fn();
+  const killGroup = vi.fn(async () => {});
   return {
     child,
     deps: { killGroup, spawnProcess: () => child },
@@ -151,6 +151,41 @@ describe('spawnFenced teardown', () => {
       vi.useRealTimers();
     }
   });
+
+  it.each([
+    { advanceMs: 1000, failingSignal: 'SIGTERM' as const },
+    { advanceMs: 1500, failingSignal: 'SIGKILL' as const },
+  ])(
+    'surfaces a rejected $failingSignal without leaving timeout timers armed',
+    async ({ advanceMs, failingSignal }) => {
+      vi.useFakeTimers();
+      try {
+        const child = createFakeChild(55);
+        const signalingError = new Error(`${failingSignal} failed`);
+        let failed = false;
+        const killGroup = vi.fn((_pid: number, signal: NodeJS.Signals) => {
+          if (!failed && signal === failingSignal) {
+            failed = true;
+            return Promise.reject(signalingError);
+          }
+          return Promise.resolve();
+        });
+        const deps: FenceSpawnDeps = { killGroup, spawnProcess: () => child };
+        const settled = vi.fn();
+        void run(deps, 1000).catch(settled);
+
+        await vi.advanceTimersByTimeAsync(advanceMs);
+        expect(settled).toHaveBeenCalledWith(signalingError);
+        const callsAtSettlement = killGroup.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(killGroup).toHaveBeenCalledWith(55, 'SIGKILL');
+        expect(killGroup).toHaveBeenCalledTimes(callsAtSettlement);
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
 
   it('does not let a late close undo a timeout that already fired', async () => {
     vi.useFakeTimers();
@@ -272,6 +307,30 @@ describe('spawnFenced capture', () => {
 });
 
 describe('spawnFenced cancellation', () => {
+  it('does not settle an abort before process-group termination completes', async () => {
+    const controller = new AbortController();
+    const child = createFakeChild(31);
+    const groupTermination = Promise.withResolvers<void>();
+    const killGroup = vi.fn((_pid: number, signal: NodeJS.Signals) =>
+      signal === 'SIGKILL' ? groupTermination.promise : Promise.resolve()
+    );
+    const deps: FenceSpawnDeps = { killGroup, spawnProcess: () => child };
+    const settled = vi.fn();
+    const pending = run(deps, 10_000, controller.signal).catch(settled);
+
+    controller.abort();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(killGroup).toHaveBeenCalledWith(31, 'SIGKILL');
+    expect(settled).not.toHaveBeenCalled();
+
+    groupTermination.resolve();
+    await pending;
+    expect(settled).toHaveBeenCalledOnce();
+    expect(isExecAbortedError(settled.mock.calls[0]?.[0])).toBe(true);
+  });
+
   it('throws ExecAbortedError mid-run and kills the group, carrying partial output', async () => {
     const controller = new AbortController();
     const { child, deps, killGroup } = harness(31);
