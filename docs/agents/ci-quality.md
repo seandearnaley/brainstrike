@@ -2322,8 +2322,9 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   entry, each appear **0 times** across `node_modules/react-doctor/dist/`, while real ids
   appear literally (`only-export-components` 12, `react-compiler-no-manual-memoization`
   10). Those four counts are byte-identical on 0.9.3 and 0.9.11. Neither has been
-  *empirically* confirmed dead: BST-1142 established that the prior zero-analyzed result came
-  from running with `--no-lint`, which disables the JSON lint-coverage metric being read.
+  *empirically* confirmed dead: a local `npx react-doctor packages/db` emitted no findings
+  summary, while BST-1142's separate full-repository JSON reproduction ran with `--no-lint`
+  and therefore reported zero lint coverage. Neither observation proves rule liveness.
   **Nothing was changed on grep evidence alone** — the override stays until a separate
   lint-enabled planted-violation control proves whether the rule is live. Note the
   manual-memoization protection does
@@ -2381,5 +2382,3 @@ Two react-doctor CLI constraints worth knowing before you script around it:
   invocations — do not pass a changed-file list.
 
 ---
-
-— Forge · openai-codex/gpt-5.6-sol · thinking: high

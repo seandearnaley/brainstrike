@@ -7,7 +7,6 @@ import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const EXPECTED_REACT_DOCTOR_VERSION = '0.9.11';
-const EXPECTED_LOCAL_COMMAND = 'react-doctor . --scope full';
 const MINIMUM_RENAME_AWARE_VERSION = [0, 8, 2];
 
 function parseStableVersion(version) {
@@ -62,10 +61,11 @@ function collectViolations({ actionCount, actionVersion, dependencyVersion }) {
 
 function collectLocalCommandViolations(command) {
   const violations = [];
-  if (command !== EXPECTED_LOCAL_COMMAND) {
-    violations.push(
-      `root react-doctor script must be '${EXPECTED_LOCAL_COMMAND}', found '${command}'`
-    );
+  if (!/^react-doctor\s+\.(?:\s|$)/u.test(command)) {
+    violations.push(`root react-doctor script must scan '.', found '${command}'`);
+  }
+  if (!/(?:^|\s)--scope(?:=|\s+)full(?:\s|$)/u.test(command)) {
+    violations.push('root react-doctor script must pass --scope full');
   }
   if (/(?:^|\s)--no-lint(?:\s|$)/u.test(command)) {
     violations.push('root react-doctor script must keep lint enabled for complete JSON coverage');
@@ -97,9 +97,14 @@ test('React Doctor local command runs a lint-enabled full scan', () => {
   assert.deepEqual(collectLocalCommandViolations(loadActualState().localCommand), []);
 });
 
+test('money control: omitting full scope fails visibly', () => {
+  assert.deepEqual(collectLocalCommandViolations('react-doctor .'), [
+    'root react-doctor script must pass --scope full',
+  ]);
+});
+
 test('money control: disabling lint makes incomplete JSON coverage fail visibly', () => {
   assert.deepEqual(collectLocalCommandViolations('react-doctor . --scope full --no-lint'), [
-    "root react-doctor script must be 'react-doctor . --scope full', found 'react-doctor . --scope full --no-lint'",
     'root react-doctor script must keep lint enabled for complete JSON coverage',
   ]);
 });
