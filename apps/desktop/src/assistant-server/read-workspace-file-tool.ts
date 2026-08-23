@@ -20,6 +20,7 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
+import { assertNotAgentIgnored } from './agent-ignore-guard';
 import {
   READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH,
   type ReadWorkspaceFileCursorRegistry,
@@ -700,6 +701,14 @@ export async function runReadWorkspaceFile(
   // the same canonical file so containment and the staleness tracker share
   // one stable identity.
   return withStableWorkspaceFileLock(root.path, requestedPath, async (resolved) => {
+    // Inside the lock, against the SAME resolution the read will use, so a
+    // symlink retargeted mid-wait cannot land on an excluded file after the
+    // check passed (BST-1432).
+    await assertNotAgentIgnored({
+      canonicalAbsolutePath: resolved.absolutePath,
+      canonicalRootPath: root.path,
+      relativePath: resolved.workspacePath,
+    });
     const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
     const file = await readWorkspaceFilePageSource({
       absolutePath: resolved.absolutePath,

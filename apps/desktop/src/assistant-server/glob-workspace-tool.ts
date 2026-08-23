@@ -109,17 +109,20 @@ async function walkRoot(args: {
   includeIgnored: boolean;
 }): Promise<RootWalkState> {
   const matches: GlobWorkspaceMatch[] = [];
-  // Whether anything the walk EXCLUDED could have satisfied the pattern. Tested
-  // with minimatch's PARTIAL mode because an excluded directory is reported
-  // instead of its contents: `coverage` partial-matches `coverage/**`, which is
-  // the signal that `0 matches` means "excluded", not "absent". Precision
-  // matters more than coverage here — a steer that fires on every empty result
-  // is noise the model learns to skip, costing us the one case that needed it.
+  // Whether anything the walk EXCLUDED could have satisfied the pattern.
+  //
+  // PARTIAL matching is correct for a pruned DIRECTORY and wrong for a FILE. A
+  // pruned directory is reported instead of its contents, so `coverage` must
+  // partial-match `coverage/**` — that is the whole signal. A file is the whole
+  // path and must match in FULL, because bare patterns are made recursive
+  // (`secrets/**` becomes `**/secrets/**`) and under a leading `**` nearly any
+  // path partial-matches. Using partial for both made the steer fire whenever
+  // ANY file was excluded, which is the imprecision it exists to avoid.
   let excludedCouldMatch = false;
   const { scanLimited } = await walkWorkspaceRoot({
     includeIgnored: args.includeIgnored,
-    onExcluded: (relativePath) => {
-      if (!excludedCouldMatch && args.matcher.match(relativePath, true)) {
+    onExcluded: (relativePath, isDirectory) => {
+      if (!excludedCouldMatch && args.matcher.match(relativePath, isDirectory)) {
         excludedCouldMatch = true;
       }
     },
