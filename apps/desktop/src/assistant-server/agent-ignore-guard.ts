@@ -215,12 +215,15 @@ export async function assertNotAgentIgnored(args: {
   canonicalAbsolutePath?: string | undefined;
 }): Promise<void> {
   const guard = guardFor(args.canonicalRootPath);
-  for (const candidate of await agentIgnoreCandidatePaths(args)) {
-    if (await guard.ignoresFile(candidate)) {
-      throw new Error(
-        `Path "${args.relativePath}" is excluded by an agent ignore file (.llmignore/.brainstrikeignore) and cannot be read.`
-      );
-    }
+  const candidates = await agentIgnoreCandidatePaths(args);
+  // Resolved together: the request and the canonical target are independent
+  // queries, and either one being excluded blocks the read, so there is nothing
+  // to gain by short-circuiting on the first.
+  const verdicts = await Promise.all(candidates.map((candidate) => guard.ignoresFile(candidate)));
+  if (verdicts.some((ignored) => ignored)) {
+    throw new Error(
+      `Path "${args.relativePath}" is excluded by an agent ignore file (.llmignore/.brainstrikeignore) and cannot be read.`
+    );
   }
 }
 
