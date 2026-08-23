@@ -14,6 +14,7 @@ export {
   type FenceInterpreter,
   type FenceInterpreterMap,
   FenceInvalidRequestError,
+  FenceProcessGroupTeardownError,
   FenceQueueTimeoutError,
   FenceUnsupportedLanguageError,
   FenceUnsupportedPlatformError,

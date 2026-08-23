@@ -403,6 +403,7 @@ export function resolveCodeExecutor(
  */
 export class ExecAbortedError extends Error {
   readonly code = 'exec_aborted' as const;
+  override readonly cause: unknown;
   readonly partialStderr: string;
   readonly partialStdout: string;
   readonly processStarted: boolean;
@@ -410,18 +411,21 @@ export class ExecAbortedError extends Error {
   readonly stdoutOmittedBytes: number;
 
   constructor(options: {
+    readonly cause?: unknown;
     readonly partialStderr?: string;
     readonly partialStdout?: string;
     readonly processStarted: boolean;
     readonly stderrOmittedBytes?: number;
     readonly stdoutOmittedBytes?: number;
   }) {
-    super(
-      options.processStarted
+    const message = options.processStarted
+      ? options.cause === undefined
         ? 'The execution was aborted and its process tree was terminated; any output it had already produced is on this error.'
-        : 'The execution was aborted before any process started, so no code ran.'
-    );
+        : 'The execution was aborted, but process-tree termination could not be confirmed; any output it had already produced and the teardown failure are on this error.'
+      : 'The execution was aborted before any process started, so no code ran.';
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'ExecAbortedError';
+    this.cause = options.cause;
     this.partialStderr = options.partialStderr ?? '';
     this.partialStdout = options.partialStdout ?? '';
     this.processStarted = options.processStarted;
