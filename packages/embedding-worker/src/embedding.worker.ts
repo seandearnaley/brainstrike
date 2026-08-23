@@ -1,8 +1,11 @@
 /// <reference lib="webworker" />
 
 import {
+  assertEmbedWorkerRequestControl,
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+  type EmbedWorkerRequestControl,
 } from '@brainstrike/indexing-contract';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type {
@@ -82,18 +85,35 @@ function resolveWorkerpoolTelemetryChannelName(): string | null {
   return channelName;
 }
 
-function createWorkerpoolTelemetryChannel(): BroadcastChannel | null {
+function createWorkerpoolChannels(): {
+  readonly requestControl: BroadcastChannel | null;
+  readonly telemetry: BroadcastChannel | null;
+} {
   const channelName = resolveWorkerpoolTelemetryChannelName();
   if (channelName === null) {
-    return null;
+    return { requestControl: null, telemetry: null };
   }
   if (typeof BroadcastChannel === 'undefined') {
     throw new Error('Embedding workerpool telemetry requires BroadcastChannel support.');
   }
-  return new BroadcastChannel(channelName);
+  const telemetry = new BroadcastChannel(channelName);
+  try {
+    return {
+      requestControl: new BroadcastChannel(
+        `${channelName}${EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX}`
+      ),
+      telemetry,
+    };
+  } catch (error) {
+    telemetry.close();
+    throw error;
+  }
 }
 
-const workerpoolTelemetryChannel = createWorkerpoolTelemetryChannel();
+const workerpoolChannels = createWorkerpoolChannels();
+const workerpoolRequestControlChannel = workerpoolChannels.requestControl;
+const workerpoolTelemetryChannel = workerpoolChannels.telemetry;
+const canceledWorkerpoolRequestIds = new Set<string>();
 
 function debugLog(message: string, data?: Record<string, unknown>): void {
   void message;
@@ -116,6 +136,44 @@ let activeWorkerpoolRequestId: string | null = null;
 const activeStreamRequestIds = new Set<string>();
 /** Idle workerpool failures quarantine this runtime synchronously until its owner replaces it. */
 let workerLifetimeFailure: Error | null = null;
+
+if (workerpoolRequestControlChannel && workerpoolTelemetryChannel) {
+  workerpoolRequestControlChannel.onmessage = (event: MessageEvent<unknown>): void => {
+    try {
+      assertEmbedWorkerRequestControl(event.data);
+      const control: EmbedWorkerRequestControl = event.data;
+      if (control.type === 'cancel-request') {
+        canceledWorkerpoolRequestIds.add(control.id);
+      } else {
+        canceledWorkerpoolRequestIds.delete(control.id);
+      }
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      workerLifetimeFailure = new Error('Embedding worker request-control validation failed.', {
+        cause: error,
+      });
+      workerpoolTelemetryChannel.postMessage({
+        cause,
+        message: workerLifetimeFailure.message,
+        type: 'worker-lifetime-error',
+        workerInstanceId: embeddingWorkerInstanceId,
+      } satisfies EmbedWorkerLifetimeError);
+    }
+  };
+}
+
+function throwIfWorkerpoolRequestCanceled(id: string): void {
+  if (!canceledWorkerpoolRequestIds.delete(id)) {
+    return;
+  }
+  const error = new Error('Embedding task was aborted.');
+  error.name = 'AbortError';
+  throw error;
+}
+
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'AbortError';
+}
 
 // Global error handlers - only set up in actual worker environment.
 // This code only runs in browser Web Worker context where `self` exists.
@@ -887,6 +945,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
   }
   const context = createContext(payload);
   const { id, model, texts } = context;
+  throwIfWorkerpoolRequestCanceled(id);
   const deviceHint = payload.deviceHint;
   const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
   assertValidDimension(payload, requestedDimension);
@@ -922,10 +981,13 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
     const result = await processEmbeddings(context, state);
     return result;
   } catch (error) {
-    emitErrorEvent(context.id, error);
+    if (!isAbortError(error)) {
+      emitErrorEvent(context.id, error);
+    }
     // Always throw a proper Error object so workerpool can serialize it correctly
     throw normalizeError(error);
   } finally {
+    canceledWorkerpoolRequestIds.delete(id);
     activeWorkerpoolRequestId = null;
     isInferenceActive = false;
   }
@@ -942,7 +1004,9 @@ async function processEmbeddings(
     context.estimatedModelBytes,
     { id: context.id }
   );
+  throwIfWorkerpoolRequestCanceled(context.id);
   const vectors = await runBatches(context, state, extractor);
+  throwIfWorkerpoolRequestCanceled(context.id);
   if (vectors.length === 0) {
     return buildSuccessResult(context, state, vectors);
   }
@@ -1137,6 +1201,7 @@ async function runBatches(
   const runtime = await getTransformersRuntime();
 
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
+    throwIfWorkerpoolRequestCanceled(id);
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
     // Truncation is handled internally by FeatureExtractionPipeline - it passes
@@ -1153,6 +1218,7 @@ async function runBatches(
     if (isTransformersTensor(rawOutput, runtime) && typeof rawOutput.dispose === 'function') {
       rawOutput.dispose();
     }
+    throwIfWorkerpoolRequestCanceled(id);
     if (vectorsFromBatch.length === 0) {
       throw new Error('Embedding pipeline returned no tensors');
     }
