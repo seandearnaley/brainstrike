@@ -123,4 +123,34 @@ describe('terminal tool run events carry the measured duration', () => {
 
     expect(event?.event.durationMs).toBe(2000);
   });
+
+  it('reports a DECLINED call as zero, not the deliberation time', () => {
+    // The same bug in its worst form. A declined requireApproval call gets its
+    // `tool.started` when the model emits the tool-call part and its
+    // `tool.failed` only after the human clicks Deny — but `execute` never
+    // runs, so nothing is recorded and the consumer falls back to the gap.
+    // Deny after five minutes and the card reads 5m 0s for a tool that never
+    // ran at all. A decline is MORE likely to sit behind a long pause than an
+    // approval is.
+    //
+    // Zero is stamped as an explicit literal rather than through the recorder:
+    // the recorder means "measured", this means "known not to have run".
+    const chunks = mapToolLifecyclePart(
+      {
+        payload: { toolCallId: 'call-1', toolName: 'executeCommand' },
+        type: 'tool-output-denied',
+      },
+      new Map([['executeCommand', 'brainstrike.executeCommand']]),
+      lifecycleState(createToolExecutionDurations()),
+      'tool-output-denied',
+      undefined,
+      new Map()
+    ).chunks;
+
+    const event = chunks.find(
+      (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'tool.failed'
+    ) as { event: { durationMs?: number } } | undefined;
+
+    expect(event?.event.durationMs).toBe(0);
+  });
 });

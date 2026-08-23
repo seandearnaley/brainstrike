@@ -270,8 +270,21 @@ function withToolExecutionDuration(
   if (durationMs === undefined) {
     return chunk;
   }
-  const runEvent = chunk as Extract<StreamChunk, { type: 'run-event' }>;
-  return { ...runEvent, event: { ...runEvent.event, durationMs } };
+  return withRunEventDuration(chunk, durationMs);
+}
+
+/**
+ * Attach a duration to a run-event chunk.
+ *
+ * NARROWS rather than asserting: an unchecked cast would silently corrupt any
+ * non-run-event chunk a future caller passed through, and the value is only
+ * known to be a run event by construction at today's call sites.
+ */
+function withRunEventDuration(chunk: StreamChunk, durationMs: number): StreamChunk {
+  if (chunk.type !== 'run-event') {
+    return chunk;
+  }
+  return { ...chunk, event: { ...chunk.event, durationMs } };
 }
 
 function makeToolLifecycleRunEventChunk(
@@ -347,7 +360,15 @@ function makeToolLifecycleRunEventChunk(
       // decline, the tool never runs, and no later terminal part carries this id.
       // That is the opposite of `tool.resume.unsupported` (BST-558), whose run
       // stays suspended and can still emit the real terminal later.
-      return makeRunEventChunk('tool.failed', 'failed', 'Tool call declined', metadata);
+      // ZERO, explicitly — not via the recorder. The recorder means "measured";
+      // this means "known not to have run". Without it the consumer falls back
+      // to the tool.started → terminal gap, which for a decline is the human's
+      // deliberation time: deny after five minutes and the card claims the tool
+      // ran for five minutes.
+      return withRunEventDuration(
+        makeRunEventChunk('tool.failed', 'failed', 'Tool call declined', metadata),
+        0
+      );
     }
     case 'progress':
       return;

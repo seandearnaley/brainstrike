@@ -15,8 +15,14 @@ function runEventTimestamp(data: AssistantRunEvent): number | undefined {
  * or non-finite `durationMs` never reaches here, because it is not valid JSON
  * and `readAssistantRunEventDataPart` drops the whole event first (verified —
  * a string and a NaN both make the event vanish, not the field). Only the
- * NEGATIVE case is reachable, from a clock adjustment mid-execution, and it
- * falls back to the timestamp delta rather than rendering a negative duration.
+ * NEGATIVE case is reachable — from an OLD persisted event, since the producer
+ * now measures with a monotonic clock (`performance.now()`) and can no longer
+ * emit one — and it falls back to the timestamp delta rather than rendering a
+ * negative duration.
+ *
+ * ZERO is a real value, not an absence: a DECLINED approval-gated call is
+ * stamped 0 because the tool is known not to have run. Treating it as falsy
+ * would fall back to the gap, i.e. the human's deliberation time.
  */
 function runEventDurationMs(data: AssistantRunEvent): number | undefined {
   const durationMs = data.durationMs;

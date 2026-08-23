@@ -1,4 +1,5 @@
 import { type GuardedToolError, ToolInputError } from '@brainstrike/assistant-contract';
+import { readToolCallId } from './read-tool-call-id';
 import type { ToolExecutionDurations } from './tool-execution-durations';
 import type { ToolLogger } from './types';
 
@@ -48,22 +49,6 @@ export interface GuardOptions {
 }
 
 /**
- * The tool-call id Mastra passes alongside the tool input.
- *
- * Shape mirrors `readToolCallId` in `../mastra/tool-output-artifact-settlement.ts`,
- * which reads the same argument for the same reason.
- */
-function readToolCallId(args: readonly unknown[]): string | undefined {
-  const context = args[1];
-  if (!(context && typeof context === 'object')) {
-    return;
-  }
-  const record = context as { agent?: { toolCallId?: unknown }; toolCallId?: unknown };
-  const candidate = record.agent?.toolCallId ?? record.toolCallId;
-  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
-}
-
-/**
  * Wrap a Mastra-compatible tool so its `execute` can never freeze or crash the
  * run: on timeout or throw it resolves to a structured {@link GuardedToolError}.
  * Non-executable tools are returned unchanged.
@@ -98,7 +83,17 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     // Measured around the REAL execution, so a suspended-then-approved call is
     // billed for the work rather than the wait. Started here, after the timeout
     // timer is armed but before the call, so the two describe the same window.
-    const startedAtMs = Date.now();
+    //
+    // MONOTONIC, not wall-clock: a clock adjustment mid-execution would
+    // otherwise produce a negative duration, or — worse, because nothing
+    // downstream can detect it — a plausible inflated positive one.
+    //
+    // The window is the guard's, and the guard is the INNERMOST wrapper
+    // (combinedTools → guards → hooks → permission gate → settlement). So this
+    // excludes hook and settlement time, which is the intended definition of
+    // "how long did the tool run" but does mean it disagrees slightly with the
+    // tool.started → terminal delta even without an approval.
+    const startedAt = performance.now();
     const run = (async () => Reflect.apply(original, cloned, args))();
     // If the timeout already won the race, the original may still reject later.
     // Log it instead of letting it become an unhandled rejection (no silent swallow).
@@ -132,7 +127,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       // it run before failing" is exactly what a reader wants there.
       const toolCallId = readToolCallId(args);
       if (durations && toolCallId) {
-        durations.record(toolCallId, Date.now() - startedAtMs);
+        durations.record(toolCallId, performance.now() - startedAt);
       }
     }
   };

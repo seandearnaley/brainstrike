@@ -131,4 +131,16 @@ describe('collectToolDurations — producer-measured durations', () => {
     ]);
     expect(result).toEqual({ a: 1200 });
   });
+
+  it('keeps a ZERO duration instead of treating it as absent', () => {
+    // A DECLINED approval-gated call is stamped 0 by the producer: the tool is
+    // known not to have run. Falsy-zero would drop it and fall back to the
+    // start-to-terminal gap — which for a decline is the human's deliberation
+    // time, so the card would claim a never-executed tool ran for five minutes.
+    const result = collectToolDurations([
+      toolEvent('tool.started', 'a', '2026-06-16T10:00:00.000Z'),
+      measuredEvent('tool.failed', 'a', '2026-06-16T10:05:00.000Z', 0),
+    ]);
+    expect(result).toEqual({ a: 0 });
+  });
 });

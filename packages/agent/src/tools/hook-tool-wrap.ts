@@ -27,6 +27,7 @@ import {
   type HookBlockedToolError,
   readHookResultEnvelope,
 } from './hook-runner';
+import { readToolCallId } from './read-tool-call-id';
 import type { ToolExecutionDurations } from './tool-execution-durations';
 import type { ToolLogger } from './types';
 
@@ -151,17 +152,6 @@ export interface ApplyToolHooksOptions {
   readonly toolNameMap: ReadonlyMap<string, string>;
 }
 
-/** Mirrors `readToolCallId` in `./guard-tool-execution.ts`. */
-function readHookToolCallId(args: readonly unknown[]): string | undefined {
-  const context = args[1];
-  if (!(context && typeof context === 'object')) {
-    return;
-  }
-  const record = context as { agent?: { toolCallId?: unknown }; toolCallId?: unknown };
-  const candidate = record.agent?.toolCallId ?? record.toolCallId;
-  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
-}
-
 function extractToolInput(args: readonly unknown[]): unknown {
   const first = args[0] as { context?: unknown } | undefined;
   return first && typeof first === 'object' && 'context' in first ? first.context : first;
@@ -255,16 +245,16 @@ export function applyToolHooks<TMap extends Record<string, unknown>>(
 
     cloned.execute = async (...args: unknown[]): Promise<unknown> => {
       const toolInput = extractToolInput(args);
-      const startedAtMs = Date.now();
+      const startedAt = performance.now();
 
       const blocked = await runPreHook(hookRunner, originalName, toolInput, logger);
       if (blocked) {
         // The tool never ran, so this is the hook's own elapsed time — small by
         // construction, and honest. The alternative is no entry at all, which
         // makes the consumer fall back to a gap spanning the approval wait.
-        const toolCallId = readHookToolCallId(args);
+        const toolCallId = readToolCallId(args);
         if (durations && toolCallId) {
-          durations.record(toolCallId, Date.now() - startedAtMs);
+          durations.record(toolCallId, performance.now() - startedAt);
         }
         return blocked;
       }
