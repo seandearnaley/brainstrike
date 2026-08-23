@@ -130,8 +130,17 @@ vi.mock('../../db-main', () => ({
 // the date's ledger and hide it for good. The tight headroom that remains is
 // the honest signal: the next change here should account for the drift rather
 // than paper over it again.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9850;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9550;
+// SEARCH-TOOLS BATCHING EXEMPTION RAISE (+20/+20, band width 300 preserved).
+// The batching line now exempts `search_tools`, whose matches only load on the
+// NEXT turn. Not bloat: "Batch independent reads, searches, or commands into
+// one turn" is a plausible proximate cause of an observed 15-minute waste, in
+// which a model batched `search_tools` with two long delegations and stranded
+// the discovery for their whole duration. Measured full surface 9841 -> 9859.
+// Trim-first was applied: the clause was stated on BOTH the discovery line and
+// the batching line, and the discovery line was reverted to its original
+// wording — one statement, on the line that causes the misread.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9870;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9570;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -583,7 +592,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 9,550-9,850 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 9,570-9,870 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
