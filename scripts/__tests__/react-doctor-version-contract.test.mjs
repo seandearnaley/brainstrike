@@ -7,6 +7,7 @@ import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const EXPECTED_REACT_DOCTOR_VERSION = '0.9.11';
+const EXPECTED_LOCAL_COMMAND = 'react-doctor . --scope full';
 const MINIMUM_RENAME_AWARE_VERSION = [0, 8, 2];
 
 function parseStableVersion(version) {
@@ -59,6 +60,19 @@ function collectViolations({ actionCount, actionVersion, dependencyVersion }) {
   return violations;
 }
 
+function collectLocalCommandViolations(command) {
+  const violations = [];
+  if (command !== EXPECTED_LOCAL_COMMAND) {
+    violations.push(
+      `root react-doctor script must be '${EXPECTED_LOCAL_COMMAND}', found '${command}'`
+    );
+  }
+  if (/(?:^|\s)--no-lint(?:\s|$)/u.test(command)) {
+    violations.push('root react-doctor script must keep lint enabled for complete JSON coverage');
+  }
+  return violations;
+}
+
 function loadActualState() {
   const manifest = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   const workflow = parseYaml(
@@ -71,11 +85,23 @@ function loadActualState() {
     actionCount: actionSteps?.length ?? 0,
     actionVersion: String(actionSteps?.[0]?.with?.version ?? ''),
     dependencyVersion: String(manifest.devDependencies?.['react-doctor'] ?? ''),
+    localCommand: String(manifest.scripts?.['react-doctor'] ?? ''),
   };
 }
 
 test('React Doctor local and CI pins use the reviewed rename-aware release', () => {
   assert.deepEqual(collectViolations(loadActualState()), []);
+});
+
+test('React Doctor local command runs a lint-enabled full scan', () => {
+  assert.deepEqual(collectLocalCommandViolations(loadActualState().localCommand), []);
+});
+
+test('money control: disabling lint makes incomplete JSON coverage fail visibly', () => {
+  assert.deepEqual(collectLocalCommandViolations('react-doctor . --scope full --no-lint'), [
+    "root react-doctor script must be 'react-doctor . --scope full', found 'react-doctor . --scope full --no-lint'",
+    'root react-doctor script must keep lint enabled for complete JSON coverage',
+  ]);
 });
 
 test('money control: a downgrade to the rename-broken baseline implementation fails visibly', () => {

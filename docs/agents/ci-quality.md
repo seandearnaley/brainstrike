@@ -2251,6 +2251,14 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   and rejects downgrade below the 0.8.2 fix. It also pins the exact reviewed version in
   `EXPECTED_REACT_DOCTOR_VERSION`, so a bump is a three-file change: root `package.json`,
   `.github/workflows/react-doctor.yml`, and that constant.
+- **Keep lint enabled when reading JSON coverage.** React Doctor's `analyzedFiles`,
+  `analyzedFileCount`, and `complete` fields describe its lint pass, not dead-code enumeration.
+  Passing `--no-lint` therefore reports zero analyzed files and `complete:false` even when the
+  command scans every project for dead code; that output is expected, not a repository config or
+  environment failure (BST-1142, verified against 0.9.11 on 2026-08-23 and upstream's
+  [JSON report contract](https://github.com/millionco/react-doctor/blob/main/docs/json-report.md)).
+  The root `react-doctor` script pins `--scope full` and deliberately omits `--no-lint`;
+  `scripts/__tests__/react-doctor-version-contract.test.mjs` guards both properties.
 - **0.9.11 activates four error-severity rules that 0.9.3 did not** (2026-08-15, BST-1273).
   Measured on the same tree, same 3366 scanned files: full-scan errors go 85 → 95 while total
   issues go 641 → 594. The additions are `react-hooks-js/todo` (×4), `react-doctor/
@@ -2314,10 +2322,11 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   entry, each appear **0 times** across `node_modules/react-doctor/dist/`, while real ids
   appear literally (`only-export-components` 12, `react-compiler-no-manual-memoization`
   10). Those four counts are byte-identical on 0.9.3 and 0.9.11. Neither has been
-  *empirically* confirmed dead: a local `npx react-doctor packages/db`
-  emits no findings summary at all, which is BST-1142 (react-doctor local runs returning
-  zero analyzed files). **Nothing was changed on grep evidence alone** — the override stays
-  until BST-1142 unblocks a real before/after. Note the manual-memoization protection does
+  *empirically* confirmed dead: BST-1142 established that the prior zero-analyzed result came
+  from running with `--no-lint`, which disables the JSON lint-coverage metric being read.
+  **Nothing was changed on grep evidence alone** — the override stays until a separate
+  lint-enabled planted-violation control proves whether the rule is live. Note the
+  manual-memoization protection does
   still exist, just not via the engine the bullet above names: eslint-plugin-react-hooks'
   own `react-hooks/preserve-manual-memoization` is live, reporting 2 warnings, and is now
   tracked in `eslint-warning-baseline.json`.
@@ -2346,7 +2355,8 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
   without re-measuring both.
 
-Local: `pnpm run react-doctor` (full scan, telemetry off via config) ·
+Local: `pnpm run react-doctor` (lint-enabled full scan, telemetry off via config) ·
+`pnpm exec react-doctor . --no-supply-chain --scope full --json --no-cache` (fresh machine report) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·
 `npx react-doctor why <file>:<line>` (explain a rule).
 
@@ -2371,3 +2381,5 @@ Two react-doctor CLI constraints worth knowing before you script around it:
   invocations — do not pass a changed-file list.
 
 ---
+
+— Forge · openai-codex/gpt-5.6-sol · thinking: high
