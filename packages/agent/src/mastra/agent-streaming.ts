@@ -55,6 +55,7 @@ import {
   ToolCallInputStreamingTimeoutError,
   withToolCallInputTimeout,
 } from '../stream/with-tool-call-input-timeout';
+import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
 import {
@@ -1370,6 +1371,7 @@ async function* streamAttemptChunks({
 function createTurnAttemptLifecycleState(
   runtimeData: RuntimeData | undefined,
   delegationOutcomes: DelegationOutcomeCapture | undefined,
+  toolExecutionDurations: ToolExecutionDurations | undefined,
   carried?: ToolLifecycleState
 ): ToolLifecycleState {
   return {
@@ -1381,6 +1383,9 @@ function createTurnAttemptLifecycleState(
       (carried?.carriedCompletionTokens ?? 0) + (carried?.steppedCompletionTokens ?? 0),
     carriedPromptTokens: (carried?.carriedPromptTokens ?? 0) + (carried?.steppedPromptTokens ?? 0),
     delegationLifecycle: createDelegationLifecycleTracker(),
+    // Carried so the terminal tool run event can state the time `execute`
+    // actually ran — the only honest number for an approval-gated call.
+    ...(toolExecutionDurations ? { toolExecutionDurations } : {}),
     includeCacheTokenClasses: runtimeData?.provider === 'anthropic',
     outputOnlyToolEvents: new Map(),
     requiresBilledCost: runtimeData?.provider === 'openrouter',
@@ -1995,6 +2000,7 @@ async function createInitialTurnAttempt(
   const lifecycleState = createTurnAttemptLifecycleState(
     runtimeData,
     delegationOutcomes,
+    runtime.toolExecutionDurations,
     carriedLifecycleState
   );
 
@@ -2229,7 +2235,11 @@ async function createToolApprovalTurnAttempt({
   // Built BEFORE the lifecycle state because that state carries it.
   const delegationOutcomes =
     runtime.personasById.size > 0 ? createDelegationOutcomeCapture() : undefined;
-  const lifecycleState = createTurnAttemptLifecycleState(runtimeData, delegationOutcomes);
+  const lifecycleState = createTurnAttemptLifecycleState(
+    runtimeData,
+    delegationOutcomes,
+    runtime.toolExecutionDurations
+  );
   try {
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
@@ -2802,7 +2812,11 @@ async function createToolResumeTurnAttempt({
   // Built BEFORE the lifecycle state because that state carries it.
   const delegationOutcomes =
     runtime.personasById.size > 0 ? createDelegationOutcomeCapture() : undefined;
-  const lifecycleState = createTurnAttemptLifecycleState(runtimeData, delegationOutcomes);
+  const lifecycleState = createTurnAttemptLifecycleState(
+    runtimeData,
+    delegationOutcomes,
+    runtime.toolExecutionDurations
+  );
   try {
     validateToolResumeAction(action);
     const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);

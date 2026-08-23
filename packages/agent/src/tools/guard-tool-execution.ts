@@ -1,4 +1,5 @@
 import { type GuardedToolError, ToolInputError } from '@brainstrike/assistant-contract';
+import type { ToolExecutionDurations } from './tool-execution-durations';
 import type { ToolLogger } from './types';
 
 export type { GuardedToolError } from '@brainstrike/assistant-contract';
@@ -29,9 +30,37 @@ function hasExecute(tool: unknown): tool is ExecutableLike {
 }
 
 export interface GuardOptions {
+  /**
+   * Records how long `execute` actually ran, keyed by tool-call id.
+   *
+   * This wrapper is the ONLY place that observes real execution time. For an
+   * approval-gated call the wall-clock between the stream's `tool.started` and
+   * its terminal event spans the human approval wait, because the gate suspends
+   * BEFORE `execute` is invoked — see `tool-execution-durations.ts`.
+   *
+   * Absent means no recording, which restores the pre-existing behaviour rather
+   * than fabricating a duration.
+   */
+  durations?: ToolExecutionDurations;
   logger?: ToolLogger;
   timeoutMs: number;
   toolName: string;
+}
+
+/**
+ * The tool-call id Mastra passes alongside the tool input.
+ *
+ * Shape mirrors `readToolCallId` in `../mastra/tool-output-artifact-settlement.ts`,
+ * which reads the same argument for the same reason.
+ */
+function readToolCallId(args: readonly unknown[]): string | undefined {
+  const context = args[1];
+  if (!(context && typeof context === 'object')) {
+    return;
+  }
+  const record = context as { agent?: { toolCallId?: unknown }; toolCallId?: unknown };
+  const candidate = record.agent?.toolCallId ?? record.toolCallId;
+  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
 }
 
 /**
@@ -44,7 +73,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
     return tool;
   }
   const original = tool.execute;
-  const { toolName, timeoutMs, logger } = options;
+  const { toolName, timeoutMs, logger, durations } = options;
 
   const cloned = Object.create(Object.getPrototypeOf(tool)) as ExecutableLike;
   Object.defineProperties(cloned, Object.getOwnPropertyDescriptors(tool));
@@ -66,6 +95,10 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       (timer as { unref?: () => void }).unref?.();
     });
 
+    // Measured around the REAL execution, so a suspended-then-approved call is
+    // billed for the work rather than the wait. Started here, after the timeout
+    // timer is armed but before the call, so the two describe the same window.
+    const startedAtMs = Date.now();
     const run = (async () => Reflect.apply(original, cloned, args))();
     // If the timeout already won the race, the original may still reject later.
     // Log it instead of letting it become an unhandled rejection (no silent swallow).
@@ -94,6 +127,13 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
       if (timer) {
         clearTimeout(timer);
       }
+      // Recorded for a timeout and a throw as well as a success: the terminal
+      // run event those produce still needs an honest number, and "how long did
+      // it run before failing" is exactly what a reader wants there.
+      const toolCallId = readToolCallId(args);
+      if (durations && toolCallId) {
+        durations.record(toolCallId, Date.now() - startedAtMs);
+      }
     }
   };
 
@@ -101,6 +141,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
 }
 
 export interface ApplyToolGuardsOptions {
+  durations?: ToolExecutionDurations;
   logger?: ToolLogger;
   timeoutMs: number;
 }
@@ -115,6 +156,7 @@ export function applyToolGuards<TMap extends Record<string, unknown>>(
     guarded[toolId] = guardToolExecution(tool, {
       timeoutMs: options.timeoutMs,
       toolName: toolId,
+      ...(options.durations ? { durations: options.durations } : {}),
       ...(options.logger ? { logger: options.logger } : {}),
     });
   }
