@@ -36,6 +36,7 @@ import {
   setMockStreamParts,
   setStreamFailure,
   setStreamPartDelayMs,
+  setStreamPartFailure,
 } from './fixtures/mastra-stream-harness';
 
 vi.mock(
@@ -515,18 +516,15 @@ describe('mastra streaming integration', () => {
       modelVisibleProjectionCount: 1,
       toolDefinitionCount: 0,
     });
+    // A genuine escaping stream error, injected through the harness's own seam.
+    // This case previously borrowed the malformed-billed-cost THROW as its
+    // vehicle; that throw is gone (a broken telemetry field no longer destroys
+    // a completed turn), and borrowing an unrelated validation error made the
+    // test hostage to that decision anyway.
+    setStreamPartFailure(1, new Error('provider transport exploded'));
     setMockStreamParts([
-      {
-        payload: { metadata: { providerMetadata: { openrouter: { usage: { cost: 0.001 } } } } },
-        type: 'step-finish',
-        usage: { completionTokens: 1, promptTokens: 7 },
-      },
-      {
-        finishReason: 'stop',
-        providerMetadata: { openrouter: { usage: { cost: -1 } } },
-        type: 'finish',
-        usage: { completionTokens: 1, promptTokens: 7 },
-      },
+      { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
     ]);
     const chunks: unknown[] = [];
 
@@ -545,7 +543,7 @@ describe('mastra streaming integration', () => {
         for await (const chunk of iterator) {
           chunks.push(chunk);
         }
-      }).rejects.toThrow(/OpenRouter.*cost/i);
+      }).rejects.toThrow(/provider transport exploded/i);
       expect(chunks).not.toContainEqual(
         expect.objectContaining({ type: 'token-estimate-calibration' })
       );
@@ -982,7 +980,12 @@ describe('mastra streaming integration', () => {
     expect(finish?.billedCostUsd).toBeUndefined();
   });
 
-  it('rejects malformed provider-reported OpenRouter cost', async () => {
+  it('COMPLETES the turn on a malformed cost, recording it unknown', async () => {
+    // The last member of this bug class. A malformed cost is a broken provider
+    // contract someone should fix, and the callers log it at ERROR so it stays
+    // impossible to miss — but binning a finished answer over a telemetry field
+    // is the same trade that made a MISSING cost fatal for every anonymous
+    // OpenRouter route. Loud, never fatal.
     setMockStreamParts([
       {
         finishReason: 'stop',
@@ -997,12 +1000,17 @@ describe('mastra streaming integration', () => {
       { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
     );
 
-    const drain = async () => {
-      for await (const _chunk of iterator) {
-        // drain
-      }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter.*cost/i);
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+    const finish = chunks.find((chunk) => (chunk as { type?: string }).type === 'message-finish') as
+      | { billedCostUsd?: number; finishReason?: string }
+      | undefined;
+    expect(finish?.finishReason).toBe('stop');
+    // UNKNOWN, never zero — a fabricated zero is the undercount this path
+    // exists to avoid, and the one number a malformed value must not become.
+    expect(finish?.billedCostUsd).toBeUndefined();
   });
 
   it('COMPLETES an OpenRouter turn that never reported a cost at all', async () => {

@@ -62,6 +62,8 @@ let mcpToolsets: MockMcpToolsets = {};
 let mockMessageList: unknown;
 let streamFailure: { call: number; error: Error } | undefined;
 let streamPartDelayMs = 0;
+/** Error to surface AFTER N parts have streamed (mid-iteration, not at construction). */
+let streamPartFailure: { afterParts: number; error: Error } | undefined;
 let streamParts: unknown[] = [];
 let suspendedRuns: MockSuspendedRun[] = [];
 
@@ -79,6 +81,23 @@ export function setStreamFailure(call: number, error: Error): void {
 
 export function setStreamPartDelayMs(delayMs: number): void {
   streamPartDelayMs = delayMs;
+}
+
+/**
+ * Fail the stream MID-ITERATION, after `afterParts` parts have been delivered.
+ *
+ * Distinct from {@link setStreamFailure}, which rejects the `agent.stream()`
+ * call itself so no iterator is ever produced. Cases about an error escaping
+ * WHILE consuming a stream need this one: with the construction failure the
+ * consumer loop never runs, so any "and nothing downstream was emitted"
+ * assertion passes trivially.
+ *
+ * Added because a test wanted exactly this and, lacking a seam, borrowed an
+ * unrelated validation throw as its vehicle — which then broke when that
+ * validation stopped throwing.
+ */
+export function setStreamPartFailure(afterParts: number, error: Error): void {
+  streamPartFailure = { afterParts, error };
 }
 
 export function setMcpToolsets(toolsets: MockMcpToolsets): void {
@@ -151,6 +170,7 @@ export function resetMastraStreamHarness(): void {
   setMockMessageList(undefined);
   setMockStreamParts([]);
   streamFailure = undefined;
+  streamPartFailure = undefined;
   setStreamPartDelayMs(0);
   setSuspendedRuns(defaultSuspendedRuns());
 }
@@ -162,6 +182,7 @@ function createMockMastraOutput() {
       cancelled = true;
     },
     async start(controller) {
+      let delivered = 0;
       for (const part of streamParts) {
         if (streamPartDelayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, streamPartDelayMs));
@@ -169,7 +190,16 @@ function createMockMastraOutput() {
         if (cancelled) {
           return;
         }
+        if (streamPartFailure && delivered === streamPartFailure.afterParts) {
+          controller.error(streamPartFailure.error);
+          return;
+        }
         controller.enqueue(part);
+        delivered += 1;
+      }
+      if (streamPartFailure && delivered === streamPartFailure.afterParts) {
+        controller.error(streamPartFailure.error);
+        return;
       }
       if (!cancelled) {
         controller.close();

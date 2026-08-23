@@ -164,12 +164,21 @@ function resolveBilledCostUsd(
   part: ProviderMetadataStreamPart,
   lifecycleState: ToolLifecycleState
 ): number | undefined {
-  const finishCost = readOpenRouterBilledCost(part);
+  const finishReading = readOpenRouterBilledCost(part);
+  if (finishReading.kind === 'malformed') {
+    // Same trade as the step path: loud, but never fatal to a finished turn.
+    logger.error('Provider reported a malformed billed cost; recording the turn cost as unknown', {
+      code: 'provider_billed_cost_malformed',
+      reason: finishReading.reason,
+    });
+  }
+  const finishCost = finishReading.kind === 'reported' ? finishReading.usd : undefined;
   if (!lifecycleState.requiresBilledCost) {
     return lifecycleState.sawStepBilledCost ? lifecycleState.stepBilledCostUsd : finishCost;
   }
   const costIsUnknown =
     lifecycleState.sawStepWithoutBilledCost ||
+    finishReading.kind === 'malformed' ||
     (!lifecycleState.sawStepBilledCost && finishCost === undefined);
   if (costIsUnknown) {
     // The PARTIAL case is called out separately, and carries the amount being

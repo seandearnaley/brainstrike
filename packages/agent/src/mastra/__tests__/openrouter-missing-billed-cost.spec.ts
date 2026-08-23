@@ -140,4 +140,39 @@ describe('OpenRouter finish without a provider-reported cost', () => {
     expect(JSON.stringify(warning)).toContain('no billed cost');
     expect(JSON.stringify(warning)).not.toContain('discardedPartialCostUsd');
   });
+
+  it('completes the turn when the finish cost is MALFORMED, logging at error', () => {
+    // The last member of this bug class. A malformed cost is a broken provider
+    // contract someone should fix — but binning a finished answer over it is
+    // the same trade that made a missing cost fatal. Loud, never fatal.
+    const records: LogRecord[] = [];
+    const remove = addLogListener((record) => records.push(record));
+    let chunk: { billedCostUsd?: number; finishReason?: string };
+    try {
+      chunk = makeFinishChunk(
+        {
+          finishReason: 'stop',
+          providerMetadata: { openrouter: { usage: { cost: -1 } } },
+          type: 'finish',
+          usage: { completionTokens: 7, promptTokens: 11 },
+        },
+        lifecycleState()
+      ) as { billedCostUsd?: number; finishReason?: string };
+    } finally {
+      remove();
+    }
+
+    expect(chunk.finishReason).toBe('stop');
+    // UNKNOWN, never zero — a fabricated zero is the undercount this path
+    // exists to avoid, and it is the one number a malformed value must not
+    // become.
+    expect(chunk.billedCostUsd).toBeUndefined();
+    expect(
+      records.some(
+        (record) =>
+          record.level === LogLevel.ERROR &&
+          JSON.stringify(record).includes('provider_billed_cost_malformed')
+      )
+    ).toBe(true);
+  });
 });
