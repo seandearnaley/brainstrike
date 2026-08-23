@@ -84,7 +84,6 @@ export type {
   FileTreeDirectorySnapshot,
   FileTreeRefreshResult,
   LazyFileTreeState,
-  RootLoadOutcome,
 } from './use-lazy-file-tree-types';
 
 const logger = createLogger('LazyFileTree');

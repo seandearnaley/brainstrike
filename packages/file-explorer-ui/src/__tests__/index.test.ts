@@ -74,7 +74,7 @@ describe('file-explorer-ui index exports', () => {
     expect(treeFiles).toEqual(treeImplementationFiles);
   });
 
-  it('keeps lazy-tree root-load types out of the implementation cycle', () => {
+  it('keeps lazy-tree root-load types out of the implementation cycle and public barrel', () => {
     const treeRoot = path.resolve(process.cwd(), 'src', 'tree');
     const lazyTreeSource = readFileSync(path.join(treeRoot, 'use-lazy-file-tree.ts'), 'utf8');
     const rootLoadSource = readFileSync(
@@ -86,7 +86,9 @@ describe('file-explorer-ui index exports', () => {
     expect(lazyTreeSource).toContain("from './use-lazy-file-tree-types'");
     expect(rootLoadSource).toContain("from './use-lazy-file-tree-types'");
     expect(rootLoadSource).not.toContain("from './use-lazy-file-tree'");
-    expect(lazyTreeSource).toMatch(/export type \{[^}]*RootLoadOutcome[^}]*\}/s);
+    expect(lazyTreeSource).not.toMatch(
+      /export type (?:RootLoadOutcome\b|\{[^}]*RootLoadOutcome[^}]*\})/s
+    );
     expect(treeIndexSource).not.toContain('use-lazy-file-tree-types');
   });
 
