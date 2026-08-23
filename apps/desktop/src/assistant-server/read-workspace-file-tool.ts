@@ -705,6 +705,7 @@ export async function runReadWorkspaceFile(
     // symlink retargeted mid-wait cannot land on an excluded file after the
     // check passed (BST-1432).
     await assertNotAgentIgnored({
+      canonicalAbsolutePath: resolved.absolutePath,
       canonicalRootPath: root.path,
       relativePath: resolved.workspacePath,
     });

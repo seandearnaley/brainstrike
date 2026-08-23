@@ -57,8 +57,13 @@ export interface WalkRootOptions {
   /** Invoked once per kept regular file. */
   onFile: (file: WalkedFile) => void;
   /**
-   * Honour `.gitignore` in addition to the static policy (BST-1427). OPT-IN,
-   * and deliberately not the default.
+   * Honour the BYPASSABLE ignore layers (global excludes, `.git/info/exclude`,
+   * parent and nested `.gitignore`, `.ignore`, `.rgignore`) in addition to the
+   * static policy (BST-1427). OPT-IN, and deliberately not the default.
+   *
+   * It does NOT gate the agent layers. `.llmignore` and `.brainstrikeignore`
+   * bind on every walk regardless, because they are a security boundary and a
+   * caller that forgets a flag must not silently lose one (BST-1432).
    *
    * The glob tool sets it: a denylist of directory names cannot keep up with
    * the caches a real machine accumulates, and when it falls behind the failure
@@ -88,26 +93,60 @@ export interface WalkRootResult {
 type IndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 
 /**
- * Resolve the machine-wide git excludes file: `core.excludesFile` when set,
- * otherwise `$XDG_CONFIG_HOME/git/ignore` falling back to `~/.config/git/ignore`
- * — git's documented default.
+ * Resolve the excludes file `core.excludesFile` names, or git's documented
+ * default `$XDG_CONFIG_HOME/git/ignore` (falling back to `~/.config/git/ignore`).
+ *
+ * Resolved WITH `cwd` set to the workspace root, deliberately. `git config
+ * --get` merges system + global + LOCAL config for whatever directory it runs
+ * in, and Electron main's cwd is the launch directory — often `/` for a
+ * packaged app, the dev checkout otherwise. Without `cwd` this consulted a
+ * repo-local setting belonging to a directory unrelated to the walk while
+ * ignoring the workspace root's own. Running it at the root makes it the
+ * ripgrep-equivalent behaviour: whatever git would use FOR THIS TREE.
+ *
+ * MEMOISED per root, because it spawns a subprocess and is awaited before the
+ * walk starts — it accounted for most of the walk's measured regression, on a
+ * value that changes about as often as a dotfile is edited.
  */
-async function readGlobalExcludes(): Promise<string | undefined> {
-  const configured = await readGitConfigValue('core.excludesFile');
-  if (configured) {
-    return await readIgnoreFile(expandHome(configured));
+const globalExcludesByRoot = new Map<string, Promise<string | undefined>>();
+
+async function readGlobalExcludes(canonicalRootPath: string): Promise<string | undefined> {
+  const cached = globalExcludesByRoot.get(canonicalRootPath);
+  if (cached) {
+    return await cached;
   }
-  const base = process.env['XDG_CONFIG_HOME'] || path.join(os.homedir(), '.config');
-  return await readIgnoreFile(path.join(base, 'git', 'ignore'));
+  const pending = (async () => {
+    const configured = await readGitConfigValue(['config', '--get', 'core.excludesFile'], {
+      cwd: canonicalRootPath,
+    });
+    if (configured) {
+      return await readIgnoreFile(expandHome(configured));
+    }
+    const base = process.env['XDG_CONFIG_HOME'] || path.join(os.homedir(), '.config');
+    return await readIgnoreFile(path.join(base, 'git', 'ignore'));
+  })();
+  globalExcludesByRoot.set(canonicalRootPath, pending);
+  return await pending;
+}
+
+/** Drop the memoised excludes lookups (tests, and factory reset). */
+export function resetGlobalExcludesCacheForTests(): void {
+  globalExcludesByRoot.clear();
 }
 
 /**
- * Read one git config value, or undefined when git is unavailable/unset. Never
+ * Run one `git` query, or undefined when git is unavailable/errors. Never
  * throws: a missing git is a wider walk, not a failure.
  */
-async function readGitConfigValue(key: string): Promise<string | undefined> {
+async function readGitConfigValue(
+  args: readonly string[],
+  options: { cwd: string }
+): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync('git', ['config', '--get', key], { timeout: 2000 });
+    const { stdout } = await execFileAsync('git', [...args], {
+      cwd: options.cwd,
+      timeout: 2000,
+    });
     const value = stdout.trim();
     return value === '' ? undefined : value;
   } catch {
@@ -141,64 +180,141 @@ async function findRepositoryRoot(startAbsolutePath: string): Promise<string | u
 }
 
 /**
- * The root-scope ignore chain: global excludes, `.git/info/exclude`, and the
- * `.gitignore`s between the repository root and this workspace root.
+ * One ignore scope that lives at or ABOVE the walk root.
  *
- * The parent `.gitignore`s are concatenated into the single `gitignore` layer
- * outermost-first, which preserves their relative order. Their patterns are
- * evaluated against paths relative to THIS root, so a pattern anchored to the
- * repo root (`/build`) intentionally does not leak down — matching how a
- * subdirectory-scoped tool behaves.
+ * `pathPrefix` is empty when the file's directory IS the walk root, and
+ * otherwise the walk root's path relative to that directory — see
+ * `ScopePushOptions.pathPrefix` for why a prefix rather than rewritten patterns.
  */
-async function readRootIgnoreChain(canonicalRootPath: string): Promise<WorkspaceIgnoreSources> {
-  const [globalExcludes, repositoryRoot] = await Promise.all([
-    readGlobalExcludes(),
-    findRepositoryRoot(canonicalRootPath),
-  ]);
-  const sources: WorkspaceIgnoreSources = {};
-  if (globalExcludes !== undefined) {
-    sources.globalExcludes = globalExcludes;
-  }
-  if (repositoryRoot === undefined) {
-    return sources;
-  }
-  const infoExclude = await readIgnoreFile(path.join(repositoryRoot, '.git', 'info', 'exclude'));
-  if (infoExclude !== undefined) {
-    sources.infoExclude = infoExclude;
-  }
-  const parents = await readParentGitignores(repositoryRoot, canonicalRootPath);
-  if (parents !== undefined) {
-    sources.gitignore = parents;
-  }
-  return sources;
+interface RootChainScope {
+  readonly pathPrefix: string;
+  readonly sources: WorkspaceIgnoreSources;
 }
 
-/** `.gitignore` contents from the repo root down to (not including) the walk root. */
-async function readParentGitignores(
+interface RootIgnoreChain {
+  /**
+   * Sources whose base IS the walk root, to be merged into the root's own
+   * scope rather than pushed beside it (see {@link mergeIgnoreSources}).
+   */
+  readonly merged: WorkspaceIgnoreSources;
+  /** Scopes based ABOVE the walk root, outermost first. */
+  readonly prefixed: readonly RootChainScope[];
+}
+
+/**
+ * Git's own chain beneath whatever the opened tree declares: machine-wide
+ * excludes, repo-local `.git/info/exclude`, and the `.gitignore`s BETWEEN the
+ * repository root and this workspace root — which still apply when a folder is
+ * opened inside a larger repo, as ripgrep honours by default.
+ *
+ * Each parent file keeps its OWN base. Concatenating them into the root scope
+ * silently broke every slash-containing pattern: `workspace/vendor/` in
+ * `/repo/.gitignore` was tested against the `vendor/x.ts` the walk produces and
+ * matched nothing, so git ignored the file and we listed it.
+ *
+ * KNOWN LIMIT: a `!` re-include in a DEEPER file cannot overturn a
+ * directory-only pattern from a shallower one across this boundary, because the
+ * two are separate matchers and the negation yields no verdict for the file
+ * form. Same-base layers avoid this by compiling into one matcher; parents
+ * cannot, since their patterns are anchored elsewhere. Tracked as BST-1434.
+ */
+async function readRootIgnoreChain(canonicalRootPath: string): Promise<RootIgnoreChain> {
+  const [globalExcludes, repositoryRoot] = await Promise.all([
+    readGlobalExcludes(canonicalRootPath),
+    findRepositoryRoot(canonicalRootPath),
+  ]);
+  const merged: WorkspaceIgnoreSources = {};
+  const prefixed: RootChainScope[] = [];
+  if (repositoryRoot === undefined) {
+    if (globalExcludes !== undefined) {
+      merged.globalExcludes = globalExcludes;
+    }
+    return { merged, prefixed };
+  }
+
+  const infoExclude = await readRepositoryInfoExclude(repositoryRoot);
+  const repoPrefix = relativePosixPrefix(repositoryRoot, canonicalRootPath);
+  // Global excludes and `info/exclude` are anchored at the repository, so they
+  // join the root scope only when the two coincide.
+  const repoScoped: WorkspaceIgnoreSources = {};
+  if (globalExcludes !== undefined) {
+    repoScoped.globalExcludes = globalExcludes;
+  }
+  if (infoExclude !== undefined) {
+    repoScoped.infoExclude = infoExclude;
+  }
+  if (repoPrefix === '') {
+    Object.assign(merged, repoScoped);
+  } else if (Object.keys(repoScoped).length > 0) {
+    prefixed.push({ pathPrefix: repoPrefix, sources: repoScoped });
+  }
+
+  for (const parent of await readParentGitignoreScopes(repositoryRoot, canonicalRootPath)) {
+    prefixed.push(parent);
+  }
+  return { merged, prefixed };
+}
+
+/**
+ * `.git/info/exclude` via git's own gitdir resolution.
+ *
+ * In a linked worktree or a submodule `.git` is a FILE pointing at the real
+ * gitdir, so `<repo>/.git/info/exclude` does not exist and the advertised layer
+ * silently vanishes — on a repo like this one, where worktrees are routine.
+ * `git rev-parse --git-path` answers correctly in every layout.
+ */
+async function readRepositoryInfoExclude(repositoryRoot: string): Promise<string | undefined> {
+  const gitPath = await readGitConfigValue(['rev-parse', '--git-path', 'info/exclude'], {
+    cwd: repositoryRoot,
+  });
+  const resolved =
+    gitPath === undefined
+      ? path.join(repositoryRoot, '.git', 'info', 'exclude')
+      : path.resolve(repositoryRoot, gitPath);
+  return await readIgnoreFile(resolved);
+}
+
+/** POSIX path of `target` relative to `base`, or '' when they are the same. */
+function relativePosixPrefix(base: string, target: string): string {
+  const relative = path.relative(base, target);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return '';
+  }
+  return relative.split(path.sep).join('/');
+}
+
+/** One scope per `.gitignore` from the repo root down to (not including) the walk root. */
+async function readParentGitignoreScopes(
   repositoryRoot: string,
   canonicalRootPath: string
-): Promise<string | undefined> {
+): Promise<RootChainScope[]> {
   if (repositoryRoot === canonicalRootPath) {
-    return;
+    return [];
   }
   const relative = path.relative(repositoryRoot, canonicalRootPath);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    return;
+    return [];
   }
-  const directories: string[] = [];
+  const directories: string[] = [repositoryRoot];
   let current = repositoryRoot;
-  directories.push(current);
   for (const segment of relative.split(path.sep)) {
     current = path.join(current, segment);
     if (current !== canonicalRootPath) {
       directories.push(current);
     }
   }
-  const contents = await Promise.all(
-    directories.map((directory) => readIgnoreFile(path.join(directory, '.gitignore')))
+  const scopes = await Promise.all(
+    directories.map(async (directory): Promise<RootChainScope | undefined> => {
+      const contents = await readIgnoreFile(path.join(directory, '.gitignore'));
+      return contents === undefined
+        ? undefined
+        : {
+            pathPrefix: relativePosixPrefix(directory, canonicalRootPath),
+            sources: { gitignore: contents },
+          };
+    })
   );
-  const joined = contents.filter((value): value is string => value !== undefined).join('\n');
-  return joined === '' ? undefined : joined;
+  return scopes.filter((scope): scope is RootChainScope => scope !== undefined);
 }
 
 /**
@@ -206,6 +322,12 @@ async function readParentGitignores(
  * The walk already holds the directory listing, so detecting all of them costs
  * nothing beyond the reads for the ones that exist.
  */
+/** The layers that bind regardless of `respectGitignore`. */
+const AGENT_IGNORE_LAYERS: ReadonlySet<keyof WorkspaceIgnoreSources> = new Set([
+  'llmignore',
+  'brainstrikeignore',
+]);
+
 const PER_DIRECTORY_IGNORE_FILES = [
   ['.gitignore', 'gitignore'],
   ['.ignore', 'ignore'],
@@ -247,9 +369,13 @@ async function readIgnoreFile(absolutePath: string): Promise<string | undefined>
  */
 async function readDirectoryIgnoreSources(
   directoryAbsolutePath: string,
-  dirEntries: readonly import('node:fs').Dirent[]
+  dirEntries: readonly import('node:fs').Dirent[],
+  respectGitignore: boolean
 ): Promise<WorkspaceIgnoreSources | undefined> {
-  const present = PER_DIRECTORY_IGNORE_FILES.filter(([fileName]) =>
+  const candidates = respectGitignore
+    ? PER_DIRECTORY_IGNORE_FILES
+    : PER_DIRECTORY_IGNORE_FILES.filter(([, layer]) => AGENT_IGNORE_LAYERS.has(layer));
+  const present = candidates.filter(([fileName]) =>
     // isFile(), NOT !isDirectory(): a FIFO with one of these names would block
     // the read until a writer appeared (hanging the whole glob), and a symlink
     // would let ignore rules be sourced from outside the canonical root — the
@@ -280,6 +406,15 @@ interface WalkContext {
   onExcluded: ((relativePath: string, isDirectory: boolean) => void) | undefined;
   onFile: (file: WalkedFile) => void;
   policy: IndexingEntryPolicy;
+  /** Whether the BYPASSABLE layers are collected; the agent layers always are. */
+  respectGitignore: boolean;
+  /**
+   * Root-scope sources whose base IS the walk root, merged INTO the root
+   * directory's own scope rather than pushed as a second scope at ''. See
+   * {@link mergeIgnoreSources}. Scopes based ABOVE the root are pushed
+   * separately, before the walk starts.
+   */
+  rootChain: WorkspaceIgnoreSources | undefined;
   scanLimited: boolean;
 }
 
@@ -349,6 +484,17 @@ async function processSymlinkEntry(
   if (!(isWithinRoot(ctx.canonicalRootPath, canonicalTarget) && targetStat.isFile())) {
     return;
   }
+  // The ignore verdict must consider the file that will be READ, not just the
+  // name it is reached by. `recordFile` is handed the link's relative path with
+  // the TARGET's absolute path, so without this an alias launders an excluded
+  // file to every consumer downstream (glob lists it, grep reads it).
+  const targetRelative = path
+    .relative(ctx.canonicalRootPath, canonicalTarget)
+    .split(path.sep)
+    .join('/');
+  if (targetRelative !== childRelative && ctx.ignores?.ignoresFile(targetRelative) === true) {
+    return;
+  }
   recordFile(ctx, name, childRelative, canonicalTarget);
 }
 
@@ -381,9 +527,15 @@ async function visitDirectory(
   // popped on exit. The directory listing is already in hand, so directories
   // declaring none cost nothing. Read even under `includeIgnored`: the agent
   // layers are a HARD boundary that flag does not bypass.
-  const ignoreSources = ctx.ignores
-    ? await readDirectoryIgnoreSources(currentAbsolutePath, dirEntries)
-    : undefined;
+  const ownIgnoreSources = await readDirectoryIgnoreSources(
+    currentAbsolutePath,
+    dirEntries,
+    ctx.respectGitignore
+  );
+  const ignoreSources =
+    relativePosix === '' && ctx.rootChain !== undefined
+      ? mergeIgnoreSources(ctx.rootChain, ownIgnoreSources)
+      : ownIgnoreSources;
   if (ignoreSources !== undefined) {
     ctx.ignores?.push(relativePosix, ignoreSources);
   }
@@ -394,6 +546,40 @@ async function visitDirectory(
       ctx.ignores?.pop();
     }
   }
+}
+
+/**
+ * Merge the root chain UNDER a directory's own sources, per layer.
+ *
+ * They must land in ONE scope, not two at the same directory. Two `Ignore`
+ * instances at '' would be combined by the matcher's cross-scope fold, which is
+ * exactly the hand-rolled verdict-folding its module note forbids — and it
+ * breaks on the same shape: with `.git/info/exclude: cache/` and
+ * `.gitignore: !cache/`, the directory-only pattern matches `cache/one.md`
+ * flat, the negation yields no verdict for the file form, and the file is
+ * silently dropped. `git check-ignore` says otherwise, and layer 4 overrides
+ * layer 2 in our own table. Concatenated in one scope, the parser resolves it.
+ *
+ * The chain goes FIRST within each layer so the root's own file wins, which is
+ * the same shallow-to-deep ordering the parent chain already uses internally.
+ */
+function mergeIgnoreSources(
+  chain: WorkspaceIgnoreSources,
+  own: WorkspaceIgnoreSources | undefined
+): WorkspaceIgnoreSources {
+  if (own === undefined) {
+    return chain;
+  }
+  const merged: WorkspaceIgnoreSources = { ...chain };
+  for (const key of Object.keys(own) as (keyof WorkspaceIgnoreSources)[]) {
+    const ownValue = own[key];
+    if (ownValue === undefined) {
+      continue;
+    }
+    const chainValue = merged[key];
+    merged[key] = chainValue === undefined ? ownValue : `${chainValue}\n${ownValue}`;
+  }
+  return merged;
 }
 
 /**
@@ -522,25 +708,32 @@ export async function walkWorkspaceRoot(options: WalkRootOptions): Promise<WalkR
     // roots that are not git repos, and `.git` itself. Built per walk so
     // nothing leaks between roots; absent when the caller opted out, in which
     // case the floor carries the walk alone.
-    ...(options.respectGitignore === true
-      ? {
-          ignores: createWorkspaceIgnoreMatcher({
-            includeIgnored: options.includeIgnored === true,
-          }),
-        }
-      : {}),
+    // ALWAYS constructed. The agent layers are unconditional by design, so
+    // gating the matcher on `respectGitignore` — a flag named and documented
+    // entirely for `.gitignore` — was a master key over `.llmignore` one level
+    // up from the `includeIgnored` one `recordFile` refuses to hand out. What
+    // the flag controls is which BYPASSABLE layers get COLLECTED; see
+    // `readDirectoryIgnoreSources`.
+    ignores: createWorkspaceIgnoreMatcher({
+      includeIgnored: options.includeIgnored === true,
+    }),
     includeIgnored: options.includeIgnored === true,
     onExcluded: options.onExcluded,
     onFile: options.onFile,
     policy: createBackgroundIndexingEntryPolicy({ preset: 'balanced' }),
+    respectGitignore: options.respectGitignore === true,
+    rootChain: undefined,
     scanLimited: false,
   };
-  if (ctx.ignores) {
-    // Git's own chain, beneath anything the tree declares: machine-wide
-    // excludes, then repo-local `info/exclude`, then the `.gitignore`s BETWEEN
-    // the repo root and this workspace root (which still apply when a folder is
-    // opened inside a larger repo — ripgrep honours these by default).
-    ctx.ignores.push('', await readRootIgnoreChain(canonicalRootPath));
+  if (options.respectGitignore === true) {
+    const chain = await readRootIgnoreChain(canonicalRootPath);
+    // Outermost first, so a deeper parent overrides a shallower one.
+    for (const scope of chain.prefixed) {
+      ctx.ignores?.push('', scope.sources, { pathPrefix: scope.pathPrefix });
+    }
+    // Same-base sources wait for the root directory's own scope so the two
+    // compile into ONE matcher instead of being folded by hand.
+    ctx.rootChain = chain.merged;
   }
   await visitDirectory(ctx, canonicalRootPath, '');
   return { filesScanned: ctx.filesScanned, scanLimited: ctx.scanLimited };

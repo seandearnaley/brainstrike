@@ -38,11 +38,28 @@ const AGENT_IGNORE_FILES = [
   ['.brainstrikeignore', 'brainstrikeignore'],
 ] as const satisfies readonly (readonly [string, keyof WorkspaceIgnoreSources])[];
 
+/**
+ * Read one agent ignore file. Absent is normal and returns undefined; ANY other
+ * failure THROWS.
+ *
+ * This is the opposite of the walk's ignore reader, and deliberately so. There,
+ * an unreadable `.gitignore` costs a wider walk, so failing open is the smaller
+ * harm. Here, failing open means "I could not read the rules" resolves to
+ * "there are no rules" and the protected file is served — the exact outcome the
+ * boundary exists to prevent, arriving through the door marked robustness.
+ * EACCES/EIO on a file the user put there to hide secrets must stop the read.
+ */
 async function readIgnoreFile(absolutePath: string): Promise<string | undefined> {
   try {
     return await fsPromises.readFile(absolutePath, 'utf8');
-  } catch {
-    return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw new Error(
+      `Cannot read agent ignore file "${absolutePath}": ${(error as Error).message}. Refusing to proceed, because treating it as absent would grant access it exists to deny.`,
+      { cause: error }
+    );
   }
 }
 
@@ -149,14 +166,95 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
  * whole value is that the user can predict what the agent saw. The refusal
  * names the file that caused it so the user can find and edit the rule.
  */
+/**
+ * Guards reused across calls, keyed by root.
+ *
+ * `assertNotAgentIgnored` is the SINGLE-path entry point — the shared reader
+ * calls it once per file, and `reindex-side-effects`, workspace-context and the
+ * LSP tools call that in loops. Building a fresh guard each time discarded the
+ * per-directory cache before it paid off: `2 x (depth + 1)` `readFile` attempts
+ * per read, nearly all ENOENT, before the file itself is opened.
+ *
+ * Cached for the PROCESS, which trades a window of staleness for that. The
+ * trade is only acceptable in one direction, and it happens to be the safe one:
+ * a rule ADDED after first use is missed until restart, but a rule already in
+ * force is never forgotten, so the boundary cannot loosen on its own. Callers
+ * that must observe an edit immediately (a settings action, factory reset)
+ * should call {@link resetAgentIgnoreGuardCache}.
+ */
+const guardsByRoot = new Map<string, AgentIgnoreGuard>();
+
+function guardFor(canonicalRootPath: string): AgentIgnoreGuard {
+  const cached = guardsByRoot.get(canonicalRootPath);
+  if (cached) {
+    return cached;
+  }
+  const guard = createAgentIgnoreGuard(canonicalRootPath);
+  guardsByRoot.set(canonicalRootPath, guard);
+  return guard;
+}
+
+/** Drop every cached guard, so the next query re-reads the ignore files. */
+export function resetAgentIgnoreGuardCache(): void {
+  guardsByRoot.clear();
+}
+
 export async function assertNotAgentIgnored(args: {
   canonicalRootPath: string;
+  /** The path as REQUESTED (workspace-relative; a leading slash is fine). */
   relativePath: string;
+  /**
+   * The realpath'd file that will actually be read, when the caller has it.
+   *
+   * Checking only the requested path is a BYPASS, not an approximation. An
+   * ordinary in-root symlink (`notes/leak.md -> ../secrets/api-key.env`) passes
+   * containment, is asked about under its alias, and is then read from its
+   * target. Aliasing, not retargeting — a stable-path lock does not help,
+   * because the verdict is computed from a string the read never touches.
+   */
+  canonicalAbsolutePath?: string | undefined;
 }): Promise<void> {
-  const guard = createAgentIgnoreGuard(args.canonicalRootPath);
-  if (await guard.ignoresFile(args.relativePath)) {
-    throw new Error(
-      `Path "${args.relativePath}" is excluded by an agent ignore file (.llmignore/.brainstrikeignore) and cannot be read.`
-    );
+  const guard = guardFor(args.canonicalRootPath);
+  for (const candidate of await agentIgnoreCandidatePaths(args)) {
+    if (await guard.ignoresFile(candidate)) {
+      throw new Error(
+        `Path "${args.relativePath}" is excluded by an agent ignore file (.llmignore/.brainstrikeignore) and cannot be read.`
+      );
+    }
   }
+}
+
+/**
+ * Every workspace-relative path a read must clear: the request, plus the
+ * canonical target when it differs (a symlink). Either being excluded blocks
+ * the read — an alias must not launder an ignored file, and an ignored alias
+ * must not become readable by pointing somewhere innocuous.
+ */
+async function agentIgnoreCandidatePaths(args: {
+  canonicalRootPath: string;
+  relativePath: string;
+  canonicalAbsolutePath?: string | undefined;
+}): Promise<string[]> {
+  const candidates = [args.relativePath];
+  if (args.canonicalAbsolutePath === undefined) {
+    return candidates;
+  }
+  // The caller's root is not necessarily canonical, and comparing a canonical
+  // target against a non-canonical root yields a `../…` path that matches
+  // nothing — silently reopening the hole this closes.
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = await fsPromises.realpath(args.canonicalRootPath);
+  } catch {
+    canonicalRoot = args.canonicalRootPath;
+  }
+  const targetRelative = path.relative(canonicalRoot, args.canonicalAbsolutePath);
+  if (targetRelative === '' || targetRelative.startsWith('..') || path.isAbsolute(targetRelative)) {
+    return candidates;
+  }
+  const posixTarget = targetRelative.split(path.sep).join('/');
+  if (posixTarget !== args.relativePath.replace(/^\/+/, '')) {
+    candidates.push(posixTarget);
+  }
+  return candidates;
 }

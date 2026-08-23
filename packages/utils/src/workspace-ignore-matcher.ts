@@ -85,6 +85,8 @@ interface CompiledScope {
   readonly directory: string;
   /** Hard layers 7-8, likewise concatenated. */
   readonly hard: Ignore | undefined;
+  /** See {@link ScopePushOptions.pathPrefix}. */
+  readonly pathPrefix: string;
 }
 
 export interface WorkspaceIgnoreMatcher {
@@ -119,7 +121,23 @@ export interface WorkspaceIgnoreMatcher {
    * is the workspace-relative POSIX path of the directory itself ('' for the
    * root). Pushing an empty object is valid and contributes nothing.
    */
-  push(directory: string, sources: WorkspaceIgnoreSources): void;
+  push(directory: string, sources: WorkspaceIgnoreSources, options?: ScopePushOptions): void;
+}
+
+export interface ScopePushOptions {
+  /**
+   * Path prepended to every candidate before this scope tests it, for an ignore
+   * file that lives ABOVE the walk root — a repo-root `.gitignore` when the
+   * user opened `packages/web`.
+   *
+   * Its patterns are written relative to ITS directory, so
+   * `packages/web/vendor/` must be tested against `packages/web/vendor/x.ts`,
+   * not the `vendor/x.ts` the walk produces. Expressed as a prefix rather than
+   * by rewriting the patterns: rebasing gitignore text means reimplementing its
+   * syntax (anchors, `**`, globs in the prefix), which is the hand-rolling this
+   * module exists to avoid.
+   */
+  pathPrefix?: string;
 }
 
 export interface WorkspaceIgnoreMatcherOptions {
@@ -167,12 +185,14 @@ function compileGroup(
 function compileScope(
   directory: string,
   sources: WorkspaceIgnoreSources,
-  includeIgnored: boolean
+  includeIgnored: boolean,
+  pathPrefix: string
 ): CompiledScope {
   return {
     bypassable: includeIgnored ? undefined : compileGroup(sources, BYPASSABLE_LAYERS),
     directory,
     hard: compileGroup(sources, HARD_LAYERS),
+    pathPrefix,
   };
 }
 
@@ -201,20 +221,19 @@ function applyScope(
   if (scoped === undefined || scoped === '') {
     return ignoredSoFar;
   }
+  const prefixed = scope.pathPrefix === '' ? scoped : `${scope.pathPrefix}/${scoped}`;
   // `ignore` needs the trailing slash to apply directory-only patterns.
-  const candidate = asDirectory ? `${scoped}/` : scoped;
-  let ignored = ignoredSoFar;
-  // Bypassable before hard: the agent layers are the higher precedence, so a
-  // `!` re-include in `.llmignore` can still overturn a `.gitignore` rule.
-  for (const matcher of hardOnly ? [scope.hard] : [scope.bypassable, scope.hard]) {
-    const result = matcher?.test(candidate);
-    if (result?.ignored) {
-      ignored = true;
-    } else if (result?.unignored) {
-      ignored = false;
-    }
+  const candidate = asDirectory ? `${prefixed}/` : prefixed;
+  // Exactly ONE group per pass — see `isIgnored` for why the groups cannot be
+  // interleaved scope by scope.
+  const result = (hardOnly ? scope.hard : scope.bypassable)?.test(candidate);
+  if (result?.ignored) {
+    return true;
   }
-  return ignored;
+  if (result?.unignored) {
+    return false;
+  }
+  return ignoredSoFar;
 }
 
 export function createWorkspaceIgnoreMatcher(
@@ -225,11 +244,22 @@ export function createWorkspaceIgnoreMatcher(
 
   const isIgnored = (relativePath: string, asDirectory: boolean, hardOnly = false): boolean => {
     let ignored = false;
-    // Outermost scope first: a deeper `.gitignore` is more specific than its
-    // parent, so a deeper verdict must be able to overturn a shallower one
-    // (git resolves last-match-wins).
+    // TWO passes, not one interleaved walk, and the split is the whole point.
+    //
+    // Within a group, outermost scope first: a deeper file is more specific
+    // than its parent and must be able to overturn it (ripgrep's model, and
+    // git's last-match-wins). But the groups are resolved GLOBALLY — every
+    // bypassable scope, then every hard scope — because a scope-major fold
+    // quietly makes the agent layers bypassable: apply the root `.llmignore`,
+    // then a nested `.gitignore` carrying `!key.ts`, and the negation wins.
+    // Anyone who can add a nested gitignore could then defeat the boundary.
+    if (!hardOnly) {
+      for (const scope of scopes) {
+        ignored = applyScope(scope, relativePath, asDirectory, ignored, false);
+      }
+    }
     for (const scope of scopes) {
-      ignored = applyScope(scope, relativePath, asDirectory, ignored, hardOnly);
+      ignored = applyScope(scope, relativePath, asDirectory, ignored, true);
     }
     return ignored;
   };
@@ -241,8 +271,8 @@ export function createWorkspaceIgnoreMatcher(
     pop: () => {
       scopes.pop();
     },
-    push: (directory, sources) => {
-      scopes.push(compileScope(directory, sources, includeIgnored));
+    push: (directory, sources, pushOptions) => {
+      scopes.push(compileScope(directory, sources, includeIgnored, pushOptions?.pathPrefix ?? ''));
     },
   };
 }

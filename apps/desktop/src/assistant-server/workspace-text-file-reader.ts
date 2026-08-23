@@ -30,6 +30,7 @@ export async function readWorkspaceTextFile(args: {
   // inspection, rename reindex, workspace-context, and @file injection all read
   // through this one function (BST-1432).
   await assertNotAgentIgnored({
+    canonicalAbsolutePath: resolved.absolutePath,
     canonicalRootPath: args.rootPath,
     relativePath: resolved.workspacePath,
   });

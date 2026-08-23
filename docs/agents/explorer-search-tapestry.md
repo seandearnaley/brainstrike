@@ -607,6 +607,30 @@ here.** Implemented by `createWorkspaceIgnoreMatcher`
 | 7 | `.llmignore` (portable agent ignore file) | **NO — HARD** |
 | 8 | `.brainstrikeignore` (ours; wins over the portable one) | **NO — HARD** |
 
+**Layer groups resolve GLOBALLY; nesting resolves within a group.** Outermost
+scope first inside each group (deeper wins — ripgrep's model), but every
+bypassable scope is resolved before any hard one. A scope-major fold made the
+agent layers bypassable by anyone who could add a nested `.gitignore` carrying
+`!key.ts`, which is the opposite of what they are sold as.
+
+**Sources that share a base compile into ONE matcher; sources based elsewhere
+get their own scope with a `pathPrefix`.** Parent `.gitignore`s are anchored at
+their own directory, so `workspace/vendor/` must be tested against
+`workspace/vendor/x.ts`, not the `vendor/x.ts` the walk emits — concatenating
+them into the root scope silently broke every slash-containing parent pattern.
+Prefix rather than pattern-rewriting, because rebasing gitignore text means
+reimplementing its syntax. The residual limit (a deeper `!` cannot overturn a
+directory-only pattern ACROSS that boundary) is BST-1434.
+
+**`.git/info/exclude` is resolved through `git rev-parse --git-path`**, not
+`<repo>/.git/info/exclude`. In a linked worktree or submodule `.git` is a FILE,
+so the naive path does not exist and the layer silently vanishes — on a repo
+where worktrees are routine.
+
+**`core.excludesFile` is read with `cwd` at the workspace root**, and memoised
+per root. Without `cwd`, `git config --get` merges the LOCAL config of whatever
+directory Electron main was launched from.
+
 **THE AGENT LAYERS ARE A HARD BOUNDARY (7-8) — do not relitigate.**
 `includeIgnored` bypasses every other layer, because tools legitimately search
 excluded trees. It does not bypass these. They are the only exclusion a user may
@@ -617,6 +641,25 @@ must be preserved:
 
 - The walk asks the matcher FIRST and ALWAYS; `includeIgnored` short-circuits
   only the static policy floor beneath it.
+- **`respectGitignore` does not gate them either.** It controls which BYPASSABLE
+  layers are COLLECTED; the matcher is always constructed and the agent files
+  always read. Gating them on a flag named for `.gitignore` was the same master
+  key one level up, and `walkWorkspaceRoot` is exported — the next caller that
+  omits the flag would inherit a walk with no hard boundary and no signal it
+  lost one.
+- **The verdict is evaluated on the file that gets READ, not the path that was
+  requested.** `resolveWorkspaceAbsolutePath` returns the realpath'd target and
+  the normalized request as separate fields; checking the request let an
+  ordinary in-root symlink (`notes/leak.md -> ../secrets/api-key.env`) pass
+  containment, be asked about under its alias, and be read from its target.
+  Aliasing, not retargeting — the stable-path lock does not help. Every read
+  path checks both, and the walk checks a symlink's canonical target before
+  recording it.
+- **An unreadable agent ignore file FAILS CLOSED.** This inverts the rule for
+  every other layer, where failing open costs only a wider walk. Here, "I could
+  not read the rules" resolving to "there are no rules" serves the protected
+  file — the exact outcome the boundary exists to prevent, arriving through the
+  door marked robustness. ENOENT is the only quiet failure.
 - **Never fold verdicts across layers by hand.** Layers are concatenated in
   precedence order into ONE `ignore` instance per group. A separate instance per
   layer forces the caller to combine verdicts, and that combination is wrong

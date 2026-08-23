@@ -193,4 +193,28 @@ describe('createWorkspaceIgnoreMatcher — the agent ignore files are a HARD bou
     expect(matcher.ignoresDirectory('...')).toBe(false);
     expect(matcher.ignoresFile('.../child.ts')).toBe(false);
   });
+
+  it('does not let a NESTED bypassable layer overturn an outer HARD rule', () => {
+    // Review of #2599 (Codex P1). Within layers 1-6 a deeper file legitimately
+    // wins — that is ripgrep's model and it is preserved. But the agent layers
+    // are sold as unbypassable, and a scope-major fold quietly made them
+    // bypassable by anyone who could add a nested `.gitignore`: apply the outer
+    // HARD verdict, then the nested BYPASSABLE one, and the negation wins.
+    // Hard layers are therefore resolved across ALL scopes, after every
+    // bypassable one.
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push('', { llmignore: 'sub/key.ts\n' });
+    matcher.push('sub', { gitignore: '!key.ts\n' });
+    expect(matcher.ignoresFile('sub/key.ts')).toBe(true);
+  });
+
+  it('still lets a deeper HARD file re-include what a shallower HARD file excluded', () => {
+    // The nesting rule survives INSIDE the hard group; only the cross-group
+    // ordering changed. Otherwise a repo could never carve an exception out of
+    // an inherited agent rule.
+    const matcher = createWorkspaceIgnoreMatcher();
+    matcher.push('', { llmignore: 'sub/key.ts\n' });
+    matcher.push('sub', { brainstrikeignore: '!key.ts\n' });
+    expect(matcher.ignoresFile('sub/key.ts')).toBe(false);
+  });
 });

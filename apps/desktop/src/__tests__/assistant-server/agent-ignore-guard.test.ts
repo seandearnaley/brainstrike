@@ -106,6 +106,24 @@ describe('createAgentIgnoreGuard', () => {
   });
 });
 
+describe('createAgentIgnoreGuard — failure modes', () => {
+  it('FAILS CLOSED when an agent ignore file exists but cannot be read', async () => {
+    // Every other ignore layer may fail open: the worst case is a wider walk.
+    // These two are a security boundary, so "I could not read the rules" must
+    // never resolve to "there are no rules". An EACCES on `.llmignore` that
+    // silently permits the read is the failure mode the boundary exists to
+    // prevent, arriving through the door marked "robustness".
+    const root = await makeWorkspace({ '.llmignore': 'secrets/\n', 'secrets/a.ts': '' });
+    await fsPromises.chmod(path.join(root, '.llmignore'), 0o000);
+    try {
+      const guard = createAgentIgnoreGuard(root);
+      await expect(guard.ignoresFile('secrets/a.ts')).rejects.toThrow(/agent ignore file/i);
+    } finally {
+      await fsPromises.chmod(path.join(root, '.llmignore'), 0o644);
+    }
+  });
+});
+
 describe('assertNotAgentIgnored', () => {
   it('throws a message naming the ignore files, so the user can find the rule', async () => {
     const root = await makeWorkspace({ '.llmignore': 'secrets/\n', 'secrets/a.ts': '' });

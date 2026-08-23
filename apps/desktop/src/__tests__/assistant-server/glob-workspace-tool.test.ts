@@ -281,6 +281,64 @@ describe('runGlobWorkspace — ignore handling', () => {
     expect(result.hint ?? '').not.toMatch(/includeIgnored/);
   });
 
+  it('does not surface an in-root SYMLINK to an agent-ignored target (BST-1432)', async () => {
+    // Same aliasing hole as the read tools: the walk records the LINK's path
+    // while handing the reader the canonical TARGET, so a glob listing the
+    // alias makes the excluded file reachable by every consumer downstream.
+    const root = await makeWorkspace(['.llmignore', 'secrets/key.md', 'docs/real.md']);
+    await fsPromises.writeFile(path.join(root, '.llmignore'), 'secrets/\n', 'utf8');
+    await fsPromises.symlink(
+      path.join(root, 'secrets', 'key.md'),
+      path.join(root, 'docs', 'alias.md')
+    );
+
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+
+    expect(paths(result)).toEqual(['/docs/real.md']);
+  });
+
+  it('lets root .gitignore re-include what .git/info/exclude excluded (BST-1431)', async () => {
+    // Review of #2599. The root chain (global excludes, info/exclude, parent
+    // gitignores) was pushed as a SEPARATE scope at '', so it and the root's
+    // own files were two `Ignore` instances at the same directory — folded by
+    // hand, which is precisely the thing the matcher's module note forbids. Per
+    // the precedence table layer 4 overrides layer 2, and `git check-ignore`
+    // agrees; the fold silently dropped the file. Both now compile into ONE
+    // scope so the parser resolves them.
+    const root = await makeWorkspace(['.gitignore', 'cache/one.md']);
+    await fsPromises.mkdir(path.join(root, '.git', 'info'), { recursive: true });
+    await fsPromises.writeFile(path.join(root, '.git', 'info', 'exclude'), 'cache/\n', 'utf8');
+    await fsPromises.writeFile(path.join(root, '.gitignore'), '!cache/\n', 'utf8');
+
+    const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+
+    expect(paths(result)).toEqual(['/cache/one.md']);
+  });
+
+  it('applies a SLASH-CONTAINING parent .gitignore pattern (BST-1431)', async () => {
+    // Review of #2599 (Codex P2). Parent patterns were concatenated into the
+    // root scope and evaluated against paths relative to the OPENED root, so
+    // `workspace/vendor-blobs/` in `/repo/.gitignore` was tested against
+    // `vendor-blobs/x.md` and matched nothing. Git ignores that file; we listed
+    // it. Parent scopes now carry the opened root's repo-relative prefix.
+    // `vendor-blobs` deliberately is NOT a name the static floor knows, so the
+    // parent pattern is the only thing that can exclude it.
+    const repo = await makeWorkspace([
+      '.gitignore',
+      'workspace/vendor-blobs/x.md',
+      'workspace/src/real.md',
+    ]);
+    await fsPromises.mkdir(path.join(repo, '.git'), { recursive: true });
+    await fsPromises.writeFile(path.join(repo, '.gitignore'), 'workspace/vendor-blobs/\n', 'utf8');
+
+    const result = await runGlobWorkspace(
+      { pattern: '**/*.md' },
+      singleRoot(path.join(repo, 'workspace'))
+    );
+
+    expect(paths(result)).toEqual(['/src/real.md']);
+  });
+
   it('honours .ignore — hide from search, keep in git (BST-1431)', async () => {
     const root = await makeWorkspace(['.ignore', 'fixtures/big.md', 'docs/real.md']);
     await fsPromises.writeFile(path.join(root, '.ignore'), 'fixtures/\n', 'utf8');

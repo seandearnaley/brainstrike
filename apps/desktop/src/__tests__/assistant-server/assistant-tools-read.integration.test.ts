@@ -228,6 +228,39 @@ describe('assistant-tools read tools', () => {
     }
   });
 
+  it('REFUSES an in-root SYMLINK whose target is agent-ignored (BST-1432)', async () => {
+    // The boundary has to be evaluated on the file that gets READ, not on the
+    // string that was asked for. `resolveWorkspaceAbsolutePath` returns the
+    // realpath'd target as `absolutePath` and the normalized REQUEST as
+    // `workspacePath`; checking the latter means an ordinary in-root symlink
+    // walks straight through. Containment passes (the target is inside the
+    // root), the guard is asked about the alias, and the read returns the
+    // secret. Aliasing, not retargeting — the lock does not help.
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.mkdir(path.join(workspaceRootPath, 'secrets'), { recursive: true });
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'secrets', 'api-key.env'),
+      'SECRET=hunter2\n',
+      'utf8'
+    );
+    await fsPromises.writeFile(path.join(workspaceRootPath, '.llmignore'), 'secrets/\n', 'utf8');
+    await fsPromises.mkdir(path.join(workspaceRootPath, 'notes'), { recursive: true });
+    await fsPromises.symlink(
+      path.join(workspaceRootPath, 'secrets', 'api-key.env'),
+      path.join(workspaceRootPath, 'notes', 'leak.md')
+    );
+
+    const tools = buildDesktopAssistantTools({
+      ...singleRootRuntime(workspaceRootPath),
+      memory: { resourceId: 'workspace', threadId: 'thread-symlink' },
+    } as RuntimeData);
+    const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+
+    await expect(executeTool({ context: { path: '/notes/leak.md' } })).rejects.toThrow(
+      /excluded by an agent ignore file/i
+    );
+  });
+
   it('REFUSES a path excluded by .llmignore, and says why (BST-1432)', async () => {
     // Refusal, not empty content. A read that silently returns nothing teaches
     // the model the file is empty, and it will report that as fact — a
