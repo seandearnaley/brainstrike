@@ -314,6 +314,9 @@ describe('mastra streaming integration', () => {
       for await (const chunk of iterator) {
         chunks.push(chunk);
       }
+      // Non-vacuity: the consumer really did receive the pre-failure part, so
+      // this is a MID-STREAM escape and not a stream that never started.
+      expect(chunks.length).toBeGreaterThan(0);
       expect(chunks).not.toContainEqual(
         expect.objectContaining({ type: 'token-estimate-calibration' })
       );

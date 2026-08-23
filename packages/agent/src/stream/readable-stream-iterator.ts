@@ -39,15 +39,21 @@ export async function* readableStreamIterator<T>(
     if (signal && abortHandler) {
       signal.removeEventListener('abort', abortHandler);
     }
-    try {
-      reader.cancel();
-    } catch (cancelError) {
-      // Stream reader cancel errors during cleanup are non-critical
-      // but logged for debugging silent failures
+    // `cancel()` returns a PROMISE, and on an ERRORED stream it rejects with
+    // the stream's stored error. A try/catch only catches synchronous throws,
+    // so every errored stream — i.e. every provider transport failure — used to
+    // leave a dangling rejection behind, which is noise at best, fatal at worst
+    // depending on host config, and buries the real error either way.
+    //
+    // Deliberately NOT awaited: the consumer has already seen the outcome, and
+    // awaiting a cancel against a stalled source would hang the cleanup. Same
+    // reasoning as the un-awaited `iterator.return?.()` in
+    // with-inactivity-timeout.ts.
+    reader.cancel().catch((cancelError: unknown) => {
       if (cancelError instanceof Error) {
         logger.warn('Stream reader cancel failed', { error: cancelError.message });
       }
-    }
+    });
     reader.releaseLock();
   }
 }

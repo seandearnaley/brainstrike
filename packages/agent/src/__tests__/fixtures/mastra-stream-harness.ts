@@ -191,6 +191,11 @@ function createMockMastraOutput() {
           return;
         }
         if (streamPartFailure && delivered === streamPartFailure.afterParts) {
+          // Yield first: `controller.error()` DISCARDS whatever is still
+          // queued, so erroring in the same synchronous run as the enqueues
+          // would deliver NOTHING and quietly turn a mid-stream case into a
+          // failed-to-start one.
+          await new Promise((resolve) => setTimeout(resolve, 0));
           controller.error(streamPartFailure.error);
           return;
         }
@@ -198,6 +203,7 @@ function createMockMastraOutput() {
         delivered += 1;
       }
       if (streamPartFailure && delivered === streamPartFailure.afterParts) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
         controller.error(streamPartFailure.error);
         return;
       }
