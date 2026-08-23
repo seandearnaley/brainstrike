@@ -3,7 +3,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { checkBudget, createTimer } from '@brainstrike/utils';
 import { createPathFilterMatcher } from '@brainstrike/utils/filter-utils';
-
+import { createAsyncScanQueue, type ScanResult } from './async-scan-queue';
 import { loadDirectoryChildren } from './lazy-tree-loader';
 
 const logger = createLogger('RecursiveSelectionQuery');
@@ -118,18 +118,6 @@ interface DirectoryTraversalState {
   maxDirectories: number;
   queuedDirectoryPaths: Set<string>;
   scannedDirectoryPaths: Set<string>;
-}
-
-interface ScanResult {
-  children: IFileNode[];
-  error: unknown | null;
-  node: IFileNode;
-}
-
-interface AsyncScanQueue {
-  close: () => void;
-  push: (result: ScanResult) => void;
-  takeNext: () => Promise<ScanResult | undefined>;
 }
 
 function snapshotProgress(state: MutableQueryState): RecursiveSelectionQueryProgress {
@@ -797,46 +785,6 @@ function createScanBatch(args: {
   return {
     nextDirectoryIndex: currentIndex,
     takeNext: resultQueue.takeNext,
-  };
-}
-
-function createAsyncScanQueue(settledResults: ScanResult[]): AsyncScanQueue {
-  const waiters: Array<(result: ScanResult | undefined) => void> = [];
-  let closed = false;
-
-  const flushClosedWaiters = (): void => {
-    if (!(closed && waiters.length > 0)) {
-      return;
-    }
-    for (const waiter of waiters.splice(0)) {
-      waiter(undefined);
-    }
-  };
-
-  return {
-    close: () => {
-      closed = true;
-      flushClosedWaiters();
-    },
-    push: (result) => {
-      const waiter = waiters.shift();
-      if (waiter) {
-        waiter(result);
-        return;
-      }
-      settledResults.push(result);
-    },
-    takeNext: async (): Promise<ScanResult | undefined> => {
-      if (settledResults.length > 0) {
-        return settledResults.shift();
-      }
-      if (closed) {
-        return;
-      }
-      return new Promise<ScanResult | undefined>((resolve) => {
-        waiters.push(resolve);
-      });
-    },
   };
 }
 
