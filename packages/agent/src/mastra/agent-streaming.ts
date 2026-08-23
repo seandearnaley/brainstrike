@@ -58,6 +58,11 @@ import {
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
 import {
+  type AbortedTurnPersistence,
+  attachAbortedTurnMessageList,
+  createAbortedTurnPersistence,
+} from './aborted-turn-persistence';
+import {
   convertMessagesToMastra,
   createMastraAgentRuntime,
   type MastraAgentRuntime,
@@ -711,6 +716,7 @@ interface StreamIterationParams {
 }
 
 interface StreamGeneratorParams {
+  abortedTurnPersistence: AbortedTurnPersistence | undefined;
   /** Child-usage bridge for this leg's delegation config (personas enabled only). */
   delegationUsage?: DelegationUsageCapture;
   /**
@@ -768,6 +774,49 @@ function createStreamAbortContext(externalSignal: AbortSignal | undefined): Stre
 
 interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
+}
+
+function createRuntimeAbortedTurnPersistence({
+  memory,
+  memoryOption,
+  runtimeData,
+  streamAbortContext,
+}: {
+  memory: MastraMemory | undefined;
+  memoryOption: AgentMemoryOption | undefined;
+  runtimeData: RuntimeData | undefined;
+  streamAbortContext: StreamAbortContext;
+}): AbortedTurnPersistence | undefined {
+  if (!(memoryOption && memory && runtimeData)) {
+    return;
+  }
+  if (memory.getMergedThreadConfig(memoryOption.options).readOnly) {
+    return;
+  }
+  return createAbortedTurnPersistence({
+    assistantMessageId: runtimeData.assistantMessageId ?? generateUUID(),
+    memory,
+    runtimeData,
+    shouldPersist: () =>
+      Boolean(runtimeData.signal?.aborted) ||
+      isStreamWatchdogError(streamAbortContext.signal.reason),
+  });
+}
+
+async function finalizeAbortedTurn(
+  abortedTurnPersistence: AbortedTurnPersistence | undefined
+): Promise<void> {
+  try {
+    await abortedTurnPersistence?.finalize();
+  } catch (error) {
+    logger.error(
+      {
+        code: 'mastra_agent_aborted_turn_persist_failed',
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'failed to persist aborted Mastra turn'
+    );
+  }
 }
 
 // Derived from Agent.stream's 2-arg overload (introduced in @mastra/core 1.25 -- the
@@ -1119,6 +1168,7 @@ function resolveMemoryOption(
 }
 
 async function* streamAttemptChunks({
+  abortedTurnPersistence,
   delegationUsage,
   lifecycleState,
   promptBreakdown,
@@ -1215,6 +1265,7 @@ async function* streamAttemptChunks({
         yield chunk;
       }
       if (finished) {
+        abortedTurnPersistence?.markNormalFinish();
         runtime.assertAssistantMessageIdPersisted?.();
         return;
       }
@@ -1314,6 +1365,7 @@ function createTurnAttemptLifecycleState(
 
 /** One provider attempt within a turn, plus what a continuation would need. */
 interface TurnAttempt {
+  readonly abortedTurnPersistence: AbortedTurnPersistence | undefined;
   readonly chunks: AsyncIterableIterator<StreamChunk>;
   readonly lifecycleState: ToolLifecycleState;
   /**
@@ -1397,12 +1449,8 @@ async function* runTurnAttempts(params: {
   runtimeData: RuntimeData | undefined;
 }): AsyncIterableIterator<StreamChunk> {
   const { firstAttempt, makeContinuation, maxAttempts, runtime, runtimeData } = params;
-  // `handleStreamFailure` disposes the runtime before it rethrows, so a
-  // continuation that fails to construct must NOT be disposed again by the
-  // finally below: `dispose()` has no idempotency guard, and a throw from a
-  // second `mcpClient.disconnect()` would REPLACE the original error on its way
-  // to the consumer (review of #2590).
-  let runtimeDisposed = false;
+  let activeAttempt: TurnAttempt | undefined = firstAttempt;
+  let lastStalledAttempt: TurnAttempt | undefined;
   try {
     let continuationMessages: readonly MastraDBMessage[] | undefined;
     let carriedLifecycleState: ToolLifecycleState | undefined;
@@ -1425,11 +1473,12 @@ async function* runTurnAttempts(params: {
           // failure throwing mid-stream instead would end the turn with no
           // `run.failed` row and no `thread_runs.error` — the one ending whose
           // cause is invisible in the durable timeline.
-          runtimeDisposed = true;
+          await finalizeAbortedTurn(lastStalledAttempt?.abortedTurnPersistence);
           yield* makeContinuationFailureTermination(error, runtimeData);
           return;
         }
       }
+      activeAttempt = current;
       let stall: StreamStalledError | undefined;
       try {
         // A continuation is a fresh `agent.stream`, so Mastra emits its own
@@ -1446,11 +1495,13 @@ async function* runTurnAttempts(params: {
         }
         if (error instanceof ToolCallInputStreamingTimeoutError) {
           yield* makeStreamWatchdogTermination(error, current.lifecycleState, runtimeData);
+          await finalizeAbortedTurn(current.abortedTurnPersistence);
           return;
         }
         stall = error;
       }
       if (!stall) {
+        await finalizeAbortedTurn(current.abortedTurnPersistence);
         return;
       }
       const produced = current.readProducedMessages();
@@ -1464,6 +1515,7 @@ async function* runTurnAttempts(params: {
       yield makeStallRunEventChunk(stall, attempt, maxAttempts, reason);
       if (reason) {
         yield* makeStreamWatchdogTermination(stall, current.lifecycleState, runtimeData);
+        await finalizeAbortedTurn(current.abortedTurnPersistence);
         return;
       }
       // An attempt being replaced still has to SETTLE what it started, exactly
@@ -1478,10 +1530,15 @@ async function* runTurnAttempts(params: {
       yield* makePendingToolOutputRunEventChunks(current.lifecycleState);
       continuationMessages = produced;
       carriedLifecycleState = current.lifecycleState;
+      lastStalledAttempt = current;
       yield makeResumedRunEventChunk(attempt + 1, maxAttempts, produced?.length ?? 0);
     }
   } finally {
-    if (!runtimeDisposed) {
+    try {
+      if (runtimeData?.signal?.aborted) {
+        await finalizeAbortedTurn(activeAttempt?.abortedTurnPersistence);
+      }
+    } finally {
       await runtime.dispose();
     }
   }
@@ -1490,7 +1547,8 @@ async function* runTurnAttempts(params: {
 /**
  * Terminal chunks for a continuation that could not be constructed. Mirrors the
  * watchdog terminations' shape so every abnormal ending of a turn looks the same
- * downstream; the runtime is already disposed by `handleStreamFailure`.
+ * downstream; the shared turn owner disposes the runtime after abort
+ * persistence settles.
  */
 function* makeContinuationFailureTermination(
   error: unknown,
@@ -1861,7 +1919,12 @@ async function createStreamIteratorFromRuntime(
   return runTurnAttempts({
     firstAttempt: await createInitialTurnAttempt(params, undefined),
     makeContinuation: (input) =>
-      createInitialTurnAttempt(params, input.continuationMessages, input.carriedLifecycleState),
+      createInitialTurnAttempt(
+        params,
+        input.continuationMessages,
+        input.carriedLifecycleState,
+        false
+      ),
     maxAttempts: runtime.resilienceConfig.streamStallAttempts,
     runtime,
     runtimeData,
@@ -1878,7 +1941,8 @@ async function createInitialTurnAttempt(
     sanitizedNameMap,
   }: StreamIterationParams,
   continuationMessages: readonly MastraDBMessage[] | undefined,
-  carriedLifecycleState?: ToolLifecycleState
+  carriedLifecycleState?: ToolLifecycleState,
+  disposeRuntimeOnFailure = true
 ): Promise<TurnAttempt> {
   const mastraMessages = convertMessagesToMastra(messages);
   const streamAbortContext = createStreamAbortContext(runtimeData?.signal);
@@ -1908,6 +1972,12 @@ async function createInitialTurnAttempt(
       runtime.personasById.size > 0
         ? createDelegationUsageCapture(runtime.personasById, runtimeData)
         : undefined;
+    const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
+      memory,
+      memoryOption,
+      runtimeData,
+      streamAbortContext,
+    });
 
     const streamOptions: BrainstrikeAgentStreamOptions = {
       ...buildToolLoopOptions(runtimeData, runtime.toolSearchProcessor, runtime.toolHistoryFilter),
@@ -1937,6 +2007,7 @@ async function createInitialTurnAttempt(
     const streamResult = resolvedStreamOptions
       ? await runtime.agent.stream(streamInput, resolvedStreamOptions as AgentStreamOptions)
       : await runtime.agent.stream(streamInput);
+    await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
     logger.info(
       {
         code: 'mastra_agent_stream_started',
@@ -1966,7 +2037,9 @@ async function createInitialTurnAttempt(
     });
 
     return {
+      abortedTurnPersistence,
       chunks: streamAttemptChunks({
+        abortedTurnPersistence,
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         ...(memory ? { memory } : {}),
@@ -1984,6 +2057,9 @@ async function createInitialTurnAttempt(
   } catch (err) {
     streamAbortContext.abort(new Error('Mastra stream construction failed.'));
     streamAbortContext.dispose();
+    if (!disposeRuntimeOnFailure) {
+      throw err;
+    }
     return await handleStreamFailure(err, runtime);
   }
 }
@@ -2117,6 +2193,12 @@ async function createToolApprovalTurnAttempt({
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
     const resumedApprovalToolCall = await readResumedApprovalToolCall(runtime, runtimeData, action);
+    const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
+      memory,
+      memoryOption,
+      runtimeData,
+      streamAbortContext,
+    });
     const delegationUsage =
       runtime.personasById.size > 0
         ? createDelegationUsageCapture(runtime.personasById, runtimeData)
@@ -2162,6 +2244,7 @@ async function createToolApprovalTurnAttempt({
       action.action === 'approve'
         ? await runtime.agent.approveToolCall(approvalOptions as AgentToolApprovalOptions)
         : await runtime.agent.declineToolCall(approvalOptions as AgentToolApprovalOptions);
+    await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
 
     logger.info('mastra tool approval resume stream started', {
       action: action.action,
@@ -2192,7 +2275,9 @@ async function createToolApprovalTurnAttempt({
     });
 
     return {
+      abortedTurnPersistence,
       chunks: streamAttemptChunks({
+        abortedTurnPersistence,
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,
@@ -2681,6 +2766,12 @@ async function createToolResumeTurnAttempt({
     validateToolResumeAction(action);
     const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
+    const abortedTurnPersistence = createRuntimeAbortedTurnPersistence({
+      memory,
+      memoryOption,
+      runtimeData,
+      streamAbortContext,
+    });
     // 1.56+ RIDER: Mastra re-checks an approval-gated tool's `requireApproval`
     // on EVERY leg, including the resume of a plain (Gate B-style) suspension,
     // and converts a resume without `approved: true` into its generic denial
@@ -2759,6 +2850,7 @@ async function createToolResumeTurnAttempt({
       resumeData as Parameters<typeof runtime.agent.resumeStream>[0],
       resumeOptions as AgentResumeStreamOptions
     );
+    await attachAbortedTurnMessageList(abortedTurnPersistence, streamResult);
 
     logger.info('mastra tool resume stream started', {
       code: 'mastra_agent_tool_resume_started',
@@ -2786,7 +2878,9 @@ async function createToolResumeTurnAttempt({
     });
 
     return {
+      abortedTurnPersistence,
       chunks: streamAttemptChunks({
+        abortedTurnPersistence,
         ...(delegationUsage ? { delegationUsage } : {}),
         lifecycleState,
         promptBreakdown,

@@ -104,7 +104,10 @@ describe('mastra streaming: termination and finish-reason policy', () => {
       const iterator = await streamMastraAgent(
         [{ id: 'user-correlated-error', parts: [{ text: 'hi' }], role: 'user' }],
         {
-          memory: { id: 'memory-instance' } as never,
+          memory: {
+            getMergedThreadConfig: (config?: object) => config ?? {},
+            id: 'memory-instance',
+          } as never,
           runtime: {
             apiKey: 'test-key',
             boundWorkspaceRootId: 'root-a',
@@ -182,7 +185,10 @@ describe('mastra streaming: termination and finish-reason policy', () => {
       const iterator = await streamMastraAgent(
         [{ id: 'user-correlated-tripwire', parts: [{ text: 'hi' }], role: 'user' }],
         {
-          memory: { id: 'memory-instance' } as never,
+          memory: {
+            getMergedThreadConfig: (config?: object) => config ?? {},
+            id: 'memory-instance',
+          } as never,
           runtime: {
             apiKey: 'test-key',
             boundWorkspaceRootId: 'root-a',

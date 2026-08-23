@@ -79,6 +79,7 @@ function createTurnCountedToolCallModel(args: {
   toolCallId: string;
   input: string;
   finalText: string;
+  stallAfterToolResultText?: string;
   openRouterStepCosts?: readonly [number, number];
   onTurn?: (turn: number, options: LanguageModelV2CallOptions) => void;
 }): LanguageModelV2 {
@@ -121,6 +122,22 @@ function createTurnCountedToolCallModel(args: {
               usage: USAGE,
             },
           ]),
+        });
+      }
+      const stallAfterToolResultText = args.stallAfterToolResultText;
+      if (stallAfterToolResultText) {
+        return Promise.resolve({
+          stream: new ReadableStream<LanguageModelV2StreamPart>({
+            start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({ id: 'text-incomplete', type: 'text-start' });
+              controller.enqueue({
+                delta: stallAfterToolResultText,
+                id: 'text-incomplete',
+                type: 'text-delta',
+              });
+            },
+          }),
         });
       }
       const id = 'text-final';
@@ -343,10 +360,14 @@ function findApprovalChunk(chunks: StreamChunk[]) {
  * yields naturally over network I/O, so production never hits this. The
  * `setImmediate` yield mirrors that.
  */
-async function drainYielding(iterator: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+async function drainYielding(
+  iterator: AsyncIterable<StreamChunk>,
+  onChunk?: (chunk: StreamChunk) => void
+): Promise<StreamChunk[]> {
   const chunks: StreamChunk[] = [];
   for await (const chunk of iterator) {
     chunks.push(chunk);
+    onChunk?.(chunk);
     await new Promise((resolve) => {
       setImmediate(resolve);
     });
@@ -683,6 +704,94 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       .filter((args) => args !== undefined);
     expect(persistedArgs.length).toBeGreaterThan(0);
     expect(persistedArgs).toEqual(persistedArgs.map(() => ({ command: 'echo approved' })));
+
+    await database.close();
+  });
+
+  it('persists completed tool work when a user cancels an approval-resume stream', async () => {
+    const abortController = new AbortController();
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = {
+      resourceId: 'resource-approval-resume-cancel',
+      threadId: 'thread-approval-resume-cancel',
+    };
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'unused',
+      input: JSON.stringify({ command: 'echo approved then stopped' }),
+      stallAfterToolResultText: 'This incomplete resumed answer must not be remembered.',
+      toolCallId: 'call-approval-resume-cancel',
+      toolName: 'shell_tool',
+    });
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [
+          {
+            id: 'user-approval-resume-cancel',
+            parts: [{ text: 'run echo', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          memory,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: ASK_POLICY,
+            provider: 'openai',
+          },
+          storage,
+          tools: { shell_tool: askTool },
+        }
+      )
+    );
+    const approval = findApprovalChunk(suspendChunks);
+    expect(approval).toBeDefined();
+
+    await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        {
+          memory,
+          requireToolApproval: true,
+          runtime: {
+            apiKey: 'test-key',
+            memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+            permissionPolicy: ASK_POLICY,
+            provider: 'openai',
+            signal: abortController.signal,
+          },
+          storage,
+          tools: { shell_tool: askTool },
+        }
+      ),
+      (chunk) => {
+        if (chunk.type === 'tool-event' && chunk.status === 'success') {
+          abortController.abort(new Error('user stopped approval resume'));
+        }
+      }
+    );
+
+    const persisted = await database.query<{ content: unknown }>(
+      'SELECT content FROM mastra_messages WHERE thread_id = $1 ORDER BY "createdAt" ASC',
+      [thread.threadId]
+    );
+    const persistedRecord = JSON.stringify(persisted.rows);
+    expect(persistedRecord).toContain('echo approved then stopped');
+    expect(persistedRecord.toLowerCase()).toContain('aborted before completion');
+    expect(persistedRecord).not.toContain('This incomplete resumed answer must not be remembered.');
+    expect(askExecute).toHaveBeenCalledTimes(1);
 
     await database.close();
   });

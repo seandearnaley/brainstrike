@@ -13,8 +13,10 @@
  *
  * The fake Mastra stream lives in `./fixtures/mastra-stream-harness`.
  */
+
 import type { ReadableStream } from 'node:stream/web';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
+import type { MastraDBMessage } from '@mastra/core/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMastraAgentRuntime } from '../mastra/agent-runtime';
@@ -30,7 +32,10 @@ import {
   mcpInstances,
   resetMastraStreamHarness,
   setMcpToolsets,
+  setMockMessageList,
   setMockStreamParts,
+  setStreamFailure,
+  setStreamPartDelayMs,
 } from './fixtures/mastra-stream-harness';
 
 vi.mock(
@@ -109,6 +114,133 @@ describe('mastra streaming integration', () => {
       },
     ]);
   });
+
+  it('persists a stalled attempt before disposing after continuation construction fails', async () => {
+    const previousOpenAiKey = process.env['OPENAI_API_KEY'];
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
+    process.env['OPENAI_API_KEY'] = 'test-key';
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '20';
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '2';
+    setMockStreamParts([{ textDelta: 'late', type: 'text-delta' }]);
+    setStreamPartDelayMs(500);
+    setStreamFailure(2, new Error('continuation construction failed'));
+
+    const createdAt = new Date('2026-08-21T12:00:00.000Z');
+    const userMessage: MastraDBMessage = {
+      content: { format: 2, parts: [{ text: 'Use the completed tool.', type: 'text' }] },
+      createdAt,
+      id: 'user-continuation-failure',
+      resourceId: 'resource-continuation-failure',
+      role: 'user',
+      threadId: 'thread-continuation-failure',
+    };
+    const assistantMessage: MastraDBMessage = {
+      content: {
+        format: 2,
+        parts: [
+          {
+            toolInvocation: {
+              args: { path: 'completed.ts' },
+              result: { text: 'done' },
+              state: 'result',
+              toolCallId: 'call-continuation-failure',
+              toolName: 'read_file',
+            },
+            type: 'tool-invocation',
+          },
+        ],
+      },
+      createdAt,
+      id: 'assistant-continuation-failure',
+      resourceId: 'resource-continuation-failure',
+      role: 'assistant',
+      threadId: 'thread-continuation-failure',
+    };
+    setMockMessageList({
+      drainUnsavedMessages: () => [userMessage, assistantMessage],
+      get: { response: { db: () => [assistantMessage] } },
+    });
+
+    const shutdownCallsAtSave: number[] = [];
+    const memory = {
+      createThread: vi.fn(),
+      getMergedThreadConfig: vi.fn(() => ({ readOnly: false })),
+      getThreadById: vi.fn().mockResolvedValue({ id: 'thread-continuation-failure' }),
+      saveMessages: vi.fn(async ({ messages }: { messages: MastraDBMessage[] }) => {
+        shutdownCallsAtSave.push(mastraInstances[0]?.shutdownCalls ?? -1);
+        return { messages };
+      }),
+    };
+
+    try {
+      const iterator = await streamMastraAgent(
+        [
+          {
+            id: 'user-continuation-failure',
+            parts: [{ text: 'Use the completed tool.', type: 'text' }],
+            role: 'user',
+          },
+        ],
+        {
+          memory: memory as never,
+          runtime: {
+            assistantMessageId: 'assistant-continuation-failure',
+            memory: {
+              resourceId: 'resource-continuation-failure',
+              threadId: 'thread-continuation-failure',
+            },
+            provider: 'openai',
+          },
+          storage: { id: 'continuation-failure-storage' } as never,
+        }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toContainEqual(
+        expect.objectContaining({
+          event: expect.objectContaining({ kind: 'run.failed' }),
+          type: 'run-event',
+        })
+      );
+      expect(shutdownCallsAtSave).toEqual([0]);
+      expect(mastraInstances[0]?.shutdownCalls).toBe(1);
+    } finally {
+      if (previousOpenAiKey === undefined) {
+        Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
+      } else {
+        process.env['OPENAI_API_KEY'] = previousOpenAiKey;
+      }
+      if (previousToolTimeout === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = previousToolTimeout;
+      }
+      if (previousFirstOutput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
+      }
+      if (previousStreamInactivity === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousStallAttempts === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_STALL_ATTEMPTS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = previousStallAttempts;
+      }
+    }
+  }, 30_000);
 
   it('records one diagnostic per unknown dynamic type and continues streaming', async () => {
     setMockStreamParts([

@@ -59,12 +59,22 @@ export const mcpInstances: unknown[] = [];
 export const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
 
 let mcpToolsets: MockMcpToolsets = {};
+let mockMessageList: unknown;
+let streamFailure: { call: number; error: Error } | undefined;
 let streamPartDelayMs = 0;
 let streamParts: unknown[] = [];
 let suspendedRuns: MockSuspendedRun[] = [];
 
 export function setMockStreamParts(parts: unknown[]): void {
   streamParts = [...parts];
+}
+
+export function setMockMessageList(messageList: unknown): void {
+  mockMessageList = messageList;
+}
+
+export function setStreamFailure(call: number, error: Error): void {
+  streamFailure = { call, error };
 }
 
 export function setStreamPartDelayMs(delayMs: number): void {
@@ -138,7 +148,9 @@ export function resetMastraStreamHarness(): void {
       'remote tool': { description: 'remote', id: 'remote tool' },
     },
   });
+  setMockMessageList(undefined);
   setMockStreamParts([]);
+  streamFailure = undefined;
   setStreamPartDelayMs(0);
   setSuspendedRuns(defaultSuspendedRuns());
 }
@@ -166,6 +178,7 @@ function createMockMastraOutput() {
   });
   return {
     fullStream: stream,
+    ...(mockMessageList ? { messageList: mockMessageList } : {}),
   } as { fullStream: ReadableStream<unknown> };
 }
 
@@ -282,6 +295,9 @@ export const mastraAgentModuleMock = {
 
     async stream(input: unknown, options: unknown) {
       this.streamCalls.push({ input, options });
+      if (streamFailure?.call === this.streamCalls.length) {
+        throw streamFailure.error;
+      }
       return createMockMastraOutput();
     }
 

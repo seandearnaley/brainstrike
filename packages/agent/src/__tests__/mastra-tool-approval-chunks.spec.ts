@@ -558,7 +558,10 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
   });
 
   it('resumes an approved Mastra tool call through the official approval API', async () => {
-    const memory = { id: 'memory-instance' };
+    const memory = {
+      getMergedThreadConfig: (config?: object) => config ?? {},
+      id: 'memory-instance',
+    };
     const storage = { id: 'workflow-storage' };
     setMockStreamParts([
       { textDelta: 'Approved and continued.', type: 'text-delta' },
