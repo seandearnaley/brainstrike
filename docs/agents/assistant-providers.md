@@ -2745,7 +2745,24 @@ absent.
 Hosted default instructions add the discovery guidance only when the runtime
 actually installs `BrainstrikeToolSearchProcessor`. They tell the model to call
 `search_tools` for deferred capability families before substituting eager glob
-or shell tools. The live matrix passes that processor through Mastra
+or shell tools.
+
+**THE BATCHING EXEMPTION LIVES ON THE BATCHING LINE — do not relitigate.** A
+loaded match is callable only on the FOLLOWING turn, so batching `search_tools`
+with slow calls strands the discovery for their whole duration: an observed run
+issued it alongside two delegations that took ~15 minutes each, then spent three
+`search_tools` calls locating one tool the user had named explicitly. The
+exemption is therefore carried by `buildParallelCallInstruction`, NOT only by
+the discovery line ~15 instructions away — "Batch independent reads, searches,
+or commands into one turn" is the plausible proximate cause, since a model
+scanning for permission to batch reads "searches" as covering `search_tools`,
+and a caveat it has to go looking for is one it will not apply. It is
+CONDITIONAL on discovery being installed, so a run without it is never told
+about a tool it does not have. Stated once: repeating it on the discovery line
+spends prompt budget saying the same thing.
+
+Making a match callable in the turn that found it is Mastra's tool-search
+contract, not ours; the ordering advice is the half Brainstrike owns. The live matrix passes that processor through Mastra
 `runEvals.targetOptions`: Brainstrike owns input processors at the per-call
 stream seam, so targeting the bare Agent without those options is not a valid
 discovery evaluation.
