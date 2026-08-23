@@ -39,6 +39,26 @@ export const DEFAULT_STREAM_INACTIVITY_MS = 120_000;
  */
 export const DEFAULT_STREAM_FIRST_OUTPUT_MS = 600_000;
 /**
+ * Budget for a gap BETWEEN reasoning deltas — the model is thinking, not
+ * answering.
+ *
+ * Scaled to {@link DEFAULT_STREAM_FIRST_OUTPUT_MS} rather than to
+ * {@link DEFAULT_STREAM_INACTIVITY_MS} because it answers the same question
+ * that one does: has the provider begun ANSWERING yet? A reasoning delta is
+ * evidence of work, not of an answer, so the pauses around it belong to the
+ * wide budget.
+ *
+ * Measuring them against the tight window is what killed
+ * `google/gemini-3.7-flash` at `reasoning.effort: 'high'` — both attempts of
+ * one turn died on `lastPartType: 'reasoning-delta'` with the stream in
+ * `phase: 'streaming'`, because the first reasoning token had already been
+ * counted as "the provider started answering". It had not; it had started
+ * thinking, which is exactly the state the wide window exists for.
+ *
+ * Finite, so a provider that reasons forever still cannot hold a turn open.
+ */
+export const DEFAULT_STREAM_REASONING_GAP_MS = 600_000;
+/**
  * Absolute wall-clock budget for assembling ONE streamed tool-call input.
  *
  * DELIBERATELY decoupled from `DEFAULT_STREAM_INACTIVITY_MS` and much wider.
@@ -73,6 +93,8 @@ export const DEFAULT_APPROVAL_STALE_MS = 86_400_000;
 export interface AssistantResilienceConfig {
   streamFirstOutputMs: number;
   streamInactivityMs: number;
+  /** Budget for a gap between reasoning deltas (the model is thinking). */
+  streamReasoningGapMs: number;
   /** Provider attempts per turn; 1 means a stall is immediately terminal. */
   streamStallAttempts: number;
   toolCallInputMs: number;
@@ -144,6 +166,14 @@ export function resolveStreamFirstOutputMs(override?: number): number {
   );
 }
 
+export function resolveStreamReasoningGapMs(override?: number): number {
+  return resolvePositiveIntMs(
+    'BRAINSTRIKE_STREAM_REASONING_GAP_MS',
+    DEFAULT_STREAM_REASONING_GAP_MS,
+    override
+  );
+}
+
 export function resolveStreamStallAttempts(override?: number): number {
   return resolvePositiveInt(
     'BRAINSTRIKE_STREAM_STALL_ATTEMPTS',
@@ -177,6 +207,7 @@ export function resolveApprovalStaleMs(override?: number): number {
 export function resolveAssistantResilienceConfig(options?: {
   streamFirstOutputMs?: number;
   streamInactivityMs?: number;
+  streamReasoningGapMs?: number;
   streamStallAttempts?: number;
   toolCallInputMs?: number;
   toolTimeoutMs?: number;
@@ -192,6 +223,7 @@ export function resolveAssistantResilienceConfig(options?: {
     );
   }
   const streamFirstOutputMs = resolveStreamFirstOutputWindow(streamInactivityMs, options);
+  const streamReasoningGapMs = resolveStreamReasoningGapWindow(streamInactivityMs, options);
   const streamStallAttempts = resolveStreamStallAttempts(options?.streamStallAttempts);
   const resolvedToolCallInputMs = resolveToolCallInputMs(options?.toolCallInputMs);
   // A tighter input budget than the inactivity window would fire before the
@@ -213,6 +245,7 @@ export function resolveAssistantResilienceConfig(options?: {
     return {
       streamFirstOutputMs,
       streamInactivityMs,
+      streamReasoningGapMs,
       streamStallAttempts,
       toolCallInputMs: resolvedToolCallInputMs,
       toolTimeoutMs,
@@ -221,10 +254,39 @@ export function resolveAssistantResilienceConfig(options?: {
   return {
     streamFirstOutputMs,
     streamInactivityMs,
+    streamReasoningGapMs,
     streamStallAttempts,
     toolCallInputMs: Math.max(resolvedToolCallInputMs, streamInactivityMs),
     toolTimeoutMs,
   };
+}
+
+/**
+ * The reasoning-gap window can never be TIGHTER than the inter-output one, for
+ * the same reason the first-output window cannot: a pause while the model is
+ * thinking is strictly less suspicious than a pause while it is answering, so
+ * a narrower reasoning budget would fire on healthy thought and never let the
+ * inactivity watchdog observe a real mid-answer stall.
+ *
+ * Resolution mirrors `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` exactly: two EXPLICIT
+ * values in that shape are contradictory and throw, while an unset reasoning
+ * window simply widens to satisfy the invariant rather than failing on a
+ * variable the user never set.
+ */
+function resolveStreamReasoningGapWindow(
+  streamInactivityMs: number,
+  options?: { streamReasoningGapMs?: number }
+): number {
+  const resolved = resolveStreamReasoningGapMs(options?.streamReasoningGapMs);
+  if (hasExplicitValue('BRAINSTRIKE_STREAM_REASONING_GAP_MS', options?.streamReasoningGapMs)) {
+    if (resolved < streamInactivityMs) {
+      throw new Error(
+        `BRAINSTRIKE_STREAM_REASONING_GAP_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS; received ${resolved}ms and ${streamInactivityMs}ms.`
+      );
+    }
+    return resolved;
+  }
+  return Math.max(resolved, streamInactivityMs);
 }
 
 /**

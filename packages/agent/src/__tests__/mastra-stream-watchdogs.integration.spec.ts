@@ -46,6 +46,21 @@ vi.mock(
   async () => (await import('./fixtures/mastra-stream-harness')).explicitStdioMcpClientModuleMock
 );
 
+/**
+ * Restore one env var to its pre-test value, deleting it when it was unset.
+ *
+ * These cases drive the REAL resilience-config resolver, which reads
+ * `process.env` at stream start, so a leaked variable silently reconfigures
+ * every later case in the file.
+ */
+function restoreEnv(name: string, previous: string | undefined): void {
+  if (previous === undefined) {
+    Reflect.deleteProperty(process.env, name);
+    return;
+  }
+  process.env[name] = previous;
+}
+
 describe('mastra streaming: wall-clock watchdog termination', () => {
   beforeEach(() => {
     resetMastraStreamHarness();
@@ -206,10 +221,16 @@ describe('mastra streaming: wall-clock watchdog termination', () => {
     // window allows. Under the old single-window watchdog that alone killed the
     // turn; a reasoning request routinely spends minutes there.
     //
-    // NEGATIVE half: once output IS flowing, the tighter inter-output window
+    // NEGATIVE half: once the ANSWER is flowing, the tighter inter-output window
     // governs, and the resulting `run.failed` must name WHICH silence fired,
     // what the provider last sent, and how far the stream got. The 2026-08-22
     // incident had to be reconstructed by inference for want of exactly that.
+    //
+    // The answering part here is a `text-delta`, NOT a `reasoning-delta`. This
+    // case used to use the latter, which encoded the very bug that killed
+    // google/gemini-3.7-flash: a reasoning delta says the model is thinking,
+    // so it now opens the wide `reasoning` window instead of the tight one.
+    // The sibling case below covers that direction.
     //
     // NOTE: this harness feeds a hand-written part list with NO framework
     // prologue, so `step-start` here stands in for provider output. The
@@ -228,7 +249,7 @@ describe('mastra streaming: wall-clock watchdog termination', () => {
     setStreamPartDelayMs(60);
     setMockStreamParts([
       { type: 'step-start' },
-      { payload: { text: 'thinking' }, type: 'reasoning-delta' },
+      { payload: { text: 'answering' }, type: 'text-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
     ]);
 
@@ -249,10 +270,10 @@ describe('mastra streaming: wall-clock watchdog termination', () => {
           code: 'stream_inactivity_timeout',
           inactivityMs: 30,
           // `step-start` is scaffolding, so the wide window covered the gap
-          // after it and the stream reached the reasoning delta; the tight
-          // window then governed the NEXT gap. Two parts seen, and the
-          // breadcrumb names the last real provider output.
-          lastPartType: 'reasoning-delta',
+          // after it and the stream reached the text delta; the tight window
+          // then governed the NEXT gap. Two parts seen, and the breadcrumb
+          // names the last real provider output.
+          lastPartType: 'text-delta',
           partsSeen: 2,
           phase: 'streaming',
         })
@@ -277,6 +298,62 @@ describe('mastra streaming: wall-clock watchdog termination', () => {
       } else {
         process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
       }
+    }
+  });
+
+  it('lets a high-effort reasoning pause outlive the inter-output window', async () => {
+    // The google/gemini-3.7-flash failure, end to end through the real loop.
+    //
+    // That model at `reasoning.effort: 'high'` emits a burst of thought, pauses
+    // to think further, then continues. Both attempts of run-352bcf33 died in
+    // that pause with `lastPartType: 'reasoning-delta'` and `phase: 'streaming'`
+    // — the first delta had been counted as "the provider started answering",
+    // arming the tight window against the pauses reasoning is made of.
+    //
+    // Every gap here is 2x the inter-output window and well inside the reasoning
+    // one, so the ONLY way this run fails is a regression that reclassifies
+    // reasoning as an answer.
+    //
+    // The stream deliberately ends on reasoning rather than emitting a final
+    // text delta: once an answer starts, the tight window SHOULD govern again,
+    // and a trailing text part would stall on that correct behaviour instead of
+    // on the one under test. The reasoning to streaming transition has its own
+    // case in with-inactivity-timeout.spec.ts.
+    const previousToolTimeout = process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'];
+    const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
+    const previousReasoningGap = process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'];
+    process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '10';
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '30';
+    // ~33x headroom: this asserts a NEGATIVE (no stall), so only host slowness
+    // could break it, never host speed.
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '2000';
+    setStreamPartDelayMs(60);
+    setMockStreamParts([
+      { type: 'step-start' },
+      { payload: { text: 'let me think' }, type: 'reasoning-delta' },
+      { payload: { text: 'still thinking' }, type: 'reasoning-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'u-reasoning', parts: [{ text: 'think hard', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      const chunks = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(findRunEventChunks(chunks, 'run.failed')).toHaveLength(0);
+      expect(chunks).toContainEqual(
+        expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
+      );
+    } finally {
+      setStreamPartDelayMs(0);
+      restoreEnv('BRAINSTRIKE_TOOL_TIMEOUT_MS', previousToolTimeout);
+      restoreEnv('BRAINSTRIKE_STREAM_INACTIVITY_MS', previousStreamInactivity);
+      restoreEnv('BRAINSTRIKE_STREAM_REASONING_GAP_MS', previousReasoningGap);
     }
   });
 });

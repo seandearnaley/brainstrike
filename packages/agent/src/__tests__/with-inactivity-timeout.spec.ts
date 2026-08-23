@@ -54,7 +54,7 @@ async function* immediate(values: number[]): AsyncIterableIterator<number> {
   }
 }
 
-const WINDOWS = { firstOutputMs: 5000, interOutputMs: 1000 } as const;
+const WINDOWS = { firstOutputMs: 5000, interOutputMs: 1000, reasoningGapMs: 5000 } as const;
 
 describe('withInactivityTimeout', () => {
   beforeEach(() => {
@@ -83,6 +83,7 @@ describe('withInactivityTimeout', () => {
       for await (const part of withInactivityTimeout(source.iterate(), {
         firstOutputMs: 60_000,
         interOutputMs: 1000,
+        reasoningGapMs: 60_000,
       })) {
         seen.push(part);
       }
@@ -188,7 +189,7 @@ describe('withInactivityTimeout', () => {
     const drain = (async () => {
       for await (const part of withInactivityTimeout(
         source.iterate(),
-        { firstOutputMs: 10_000, interOutputMs: 500 },
+        { firstOutputMs: 10_000, interOutputMs: 500, reasoningGapMs: 10_000 },
         {
           countsAsProviderOutput: (part) => part.type !== 'start' && part.type !== 'step-start',
           describePart: (part) => part.type,
@@ -224,7 +225,7 @@ describe('withInactivityTimeout', () => {
     const drain = (async () => {
       for await (const _part of withInactivityTimeout(
         source.iterate(),
-        { firstOutputMs: 10_000, interOutputMs: 500 },
+        { firstOutputMs: 10_000, interOutputMs: 500, reasoningGapMs: 10_000 },
         { countsAsProviderOutput: (part) => part.type !== 'step-start' }
       )) {
         // Drain until the gap after real output.
@@ -295,5 +296,245 @@ describe('withInactivityTimeout', () => {
     expect(timeoutError).toBeInstanceOf(StreamStalledError);
     expect(timeoutError?.inactivityMs).toBe(WINDOWS.interOutputMs);
     expect(timeoutError?.phase).toBe('streaming');
+  });
+});
+
+describe('withInactivityTimeout — reasoning phase', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Mirrors the Mastra wiring: reasoning parts are output, but not an answer. */
+  const REASONING_OPTIONS = {
+    countsAsProviderOutput: (part: { type: string }) =>
+      part.type !== 'start' && part.type !== 'step-start',
+    describePart: (part: { type: string }) => part.type,
+    reasoningPartKind: (part: { type: string }) => {
+      if (part.type === 'reasoning-end' || part.type === 'reasoning-signature') {
+        return 'marker' as const;
+      }
+      return part.type.startsWith('reasoning') ? ('content' as const) : undefined;
+    },
+  };
+
+  const REASONING_WINDOWS = {
+    firstOutputMs: 10_000,
+    interOutputMs: 1000,
+    reasoningGapMs: 10_000,
+  } as const;
+
+  it('survives a think-pause longer than the inter-output window', async () => {
+    // THE BUG: google/gemini-3.7-flash at reasoning.effort 'high' emits a burst
+    // of thought, pauses to think further, then continues. The first delta had
+    // been counted as "the provider started answering", so that pause was
+    // measured against the tight window and killed both attempts of the turn.
+    const source = createControllableSource<{ type: string }>();
+    const seen: string[] = [];
+    const drain = (async () => {
+      for await (const part of withInactivityTimeout(
+        source.iterate(),
+        REASONING_WINDOWS,
+        REASONING_OPTIONS
+      )) {
+        seen.push(part.type);
+      }
+    })();
+
+    source.push({ type: 'reasoning-start' });
+    source.push({ type: 'reasoning-delta' });
+    await vi.advanceTimersByTimeAsync(0);
+    // Five times the inter-output window, well inside the reasoning window.
+    await vi.advanceTimersByTimeAsync(5000);
+    source.push({ type: 'reasoning-delta' });
+    await vi.advanceTimersByTimeAsync(0);
+    source.finish();
+    await drain;
+
+    expect(seen).toEqual(['reasoning-start', 'reasoning-delta', 'reasoning-delta']);
+  });
+
+  it('still bounds reasoning, and names the phase that fired', async () => {
+    // Wide is not unbounded: a provider that reasons forever must not hold the
+    // turn open, and the diagnostic must say which of the three silences fired.
+    const source = createControllableSource<{ type: string }>();
+    let captured: StreamStalledError | undefined;
+
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(
+        source.iterate(),
+        REASONING_WINDOWS,
+        REASONING_OPTIONS
+      )) {
+        // Drain until the model stops thinking out loud.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ type: 'reasoning-delta' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(REASONING_WINDOWS.reasoningGapMs);
+    await settled;
+
+    expect(captured?.phase).toBe('reasoning');
+    expect(captured?.inactivityMs).toBe(REASONING_WINDOWS.reasoningGapMs);
+    expect(captured?.lastPartType).toBe('reasoning-delta');
+  });
+
+  it('re-tightens once the answer starts', async () => {
+    // The widening must not leak: once a text delta proves the model IS
+    // answering, a two-minute gap is suspicious again. Without this the fix
+    // would trade one bug for a much worse one — a wedged provider mid-answer
+    // holding the turn for the full reasoning budget.
+    const source = createControllableSource<{ type: string }>();
+    let captured: StreamStalledError | undefined;
+
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(
+        source.iterate(),
+        REASONING_WINDOWS,
+        REASONING_OPTIONS
+      )) {
+        // Drain.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ type: 'reasoning-delta' });
+    source.push({ type: 'text-delta' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(REASONING_WINDOWS.interOutputMs);
+    await settled;
+
+    expect(captured?.phase).toBe('streaming');
+    expect(captured?.inactivityMs).toBe(REASONING_WINDOWS.interOutputMs);
+    expect(captured?.lastPartType).toBe('text-delta');
+  });
+
+  it('widens again when thinking resumes after text (interleaved reasoning)', async () => {
+    // Interleaved thinking is normal on these models, not a state error: the
+    // phase must be able to move back, or the first text delta would pin the
+    // rest of the step to the tight window and reintroduce the bug.
+    const source = createControllableSource<{ type: string }>();
+    const seen: string[] = [];
+    const drain = (async () => {
+      for await (const part of withInactivityTimeout(
+        source.iterate(),
+        REASONING_WINDOWS,
+        REASONING_OPTIONS
+      )) {
+        seen.push(part.type);
+      }
+    })();
+
+    source.push({ type: 'text-delta' });
+    source.push({ type: 'reasoning-delta' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5000);
+    source.push({ type: 'text-delta' });
+    await vi.advanceTimersByTimeAsync(0);
+    source.finish();
+    await drain;
+
+    expect(seen).toEqual(['text-delta', 'reasoning-delta', 'text-delta']);
+  });
+
+  it('treats reasoning-end as still-not-answering', async () => {
+    // reasoning-end marks the end of a thinking block, not the start of an
+    // answer. The gap between it and the first text delta is still
+    // "has the provider begun answering?" — the wide window's question.
+    const source = createControllableSource<{ type: string }>();
+    const seen: string[] = [];
+    const drain = (async () => {
+      for await (const part of withInactivityTimeout(
+        source.iterate(),
+        REASONING_WINDOWS,
+        REASONING_OPTIONS
+      )) {
+        seen.push(part.type);
+      }
+    })();
+
+    source.push({ type: 'reasoning-end' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5000);
+    source.push({ type: 'text-delta' });
+    await vi.advanceTimersByTimeAsync(0);
+    source.finish();
+    await drain;
+
+    expect(seen).toEqual(['reasoning-end', 'text-delta']);
+  });
+
+  it('lets scaffolding re-arm the first-output window even after reasoning', async () => {
+    // A new step must not inherit `reasoning` any more than it inherits
+    // `streaming`; each step gets its own time-to-first-output.
+    const source = createControllableSource<{ type: string }>();
+    let captured: StreamStalledError | undefined;
+
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(
+        source.iterate(),
+        REASONING_WINDOWS,
+        REASONING_OPTIONS
+      )) {
+        // Drain.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ type: 'reasoning-delta' });
+    source.push({ type: 'step-start' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(REASONING_WINDOWS.firstOutputMs);
+    await settled;
+
+    expect(captured?.phase).toBe('awaiting-output');
+    expect(captured?.inactivityMs).toBe(REASONING_WINDOWS.firstOutputMs);
+  });
+
+  it('does not re-widen when reasoning-end arrives AFTER the answer started', async () => {
+    // Some providers emit `text-start` before `reasoning-end`. Treating the end
+    // marker as content would flip an already-answering stream back to the wide
+    // window at exactly the wrong moment, so a marker preserves the phase
+    // instead of setting it.
+    const source = createControllableSource<{ type: string }>();
+    let captured: StreamStalledError | undefined;
+
+    const drain = (async () => {
+      for await (const _part of withInactivityTimeout(
+        source.iterate(),
+        REASONING_WINDOWS,
+        REASONING_OPTIONS
+      )) {
+        // Drain.
+      }
+    })();
+    const settled = expect(drain).rejects.toBeInstanceOf(StreamStalledError);
+    drain.catch((error: unknown) => {
+      captured = error as StreamStalledError;
+    });
+
+    source.push({ type: 'reasoning-delta' });
+    source.push({ type: 'text-delta' });
+    source.push({ type: 'reasoning-end' });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(REASONING_WINDOWS.interOutputMs);
+    await settled;
+
+    expect(captured?.phase).toBe('streaming');
+    expect(captured?.inactivityMs).toBe(REASONING_WINDOWS.interOutputMs);
   });
 });
