@@ -32,7 +32,7 @@ import {
   rehydrateTree,
   toWorkerFileNodes,
 } from '../utils/worker-node-conversion';
-import type { LazyFileTreeState, RootLoadOutcome } from './use-lazy-file-tree';
+import type { LazyFileTreeState, RootLoadOutcome } from './use-lazy-file-tree-types';
 
 const logger = createLogger('LazyFileTree');
 
