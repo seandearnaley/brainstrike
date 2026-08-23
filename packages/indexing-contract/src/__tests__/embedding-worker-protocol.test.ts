@@ -25,14 +25,7 @@ function makeMemory(
   };
 }
 
-function makeEntry(
-  overrides: Record<string, unknown> = {},
-  memoryOverrides: Partial<{
-    gpuBytes: number | null;
-    heapBytes: number | null;
-    reason: string;
-  }> = {}
-): Record<string, unknown> {
+function makeEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     cacheKey: 'entry-key',
     createdAt: 1,
@@ -43,28 +36,19 @@ function makeEntry(
     model: 'text-embedding-3-small',
     residencyMs: 3,
     ...overrides,
-    ...(Object.keys(memoryOverrides).length > 0 ? { memory: makeMemory(memoryOverrides) } : {}),
   };
 }
 
-function makeCacheDiagnostic(
-  overrides: Record<string, unknown>,
-  entryOverrides?: Record<string, unknown>
-): Record<string, unknown> {
+function makeCacheDiagnostic(overrides: Record<string, unknown>): Record<string, unknown> {
   const base: Record<string, unknown> = {
     cacheSize: 1,
     diagnostic: 'pipeline-cache',
     emittedAt: 10,
+    entry: makeEntry(),
     type: 'diagnostic',
     workerInstanceId: 'worker-1',
     ...overrides,
   };
-  if (!('entry' in base) || base['entry'] !== undefined || entryOverrides !== undefined) {
-    base['entry'] =
-      base['entry'] === undefined && entryOverrides !== undefined
-        ? entryOverrides
-        : (base['entry'] ?? makeEntry(entryOverrides ?? {}));
-  }
   return base;
 }
 
@@ -292,14 +276,15 @@ describe('assertEmbedWorkerBatch', () => {
 
   it('accepts a coherent batch whose transfer bytes match unique buffers', () => {
     const sharedBuffer = new Float32Array([7, 8, 9]).buffer;
-    const shared = new Float32Array(sharedBuffer, 0, 3);
-    // Two views over ONE buffer count once toward transferBytes.
+    const first = new Float32Array(sharedBuffer, 0, 3);
+    const second = new Float32Array(sharedBuffer, 0, 3);
+    // Two distinct views over ONE buffer count once toward transferBytes.
     expect(() =>
       assertEmbedWorkerBatch(
         makeBatch({
           peakVectorsInFlight: 4,
           transferBytes: sharedBuffer.byteLength,
-          vectors: [shared, shared],
+          vectors: [first, second],
         })
       )
     ).not.toThrow();
@@ -483,9 +468,9 @@ describe('assertEmbedWorkerPipelineCacheDiagnostic', () => {
     expect(() =>
       assertEmbedWorkerPipelineCacheDiagnostic(makeCacheDiagnostic({ workerInstanceId: '' }))
     ).toThrow('workerInstanceId');
-    expect(() => assertEmbedWorkerPipelineCacheDiagnostic(makeCacheDiagnostic({ id: '' }))).toThrow(
-      'id'
-    );
+    expect(() =>
+      assertEmbedWorkerPipelineCacheDiagnostic(makeCacheDiagnostic({ event: 'hit', id: '' }))
+    ).toThrow('diagnostic.id must be a non-empty string');
     expect(() =>
       assertEmbedWorkerPipelineCacheDiagnostic(makeCacheDiagnostic({ event: 'purged' }))
     ).toThrow('event is invalid');
