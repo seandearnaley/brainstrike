@@ -2,7 +2,6 @@ import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-syste
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { checkBudget, createTimer } from '@brainstrike/utils';
-import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createPathFilterMatcher } from '@brainstrike/utils/filter-utils';
 
 import { loadDirectoryChildren } from './lazy-tree-loader';
@@ -45,12 +44,23 @@ export interface RecursiveSelectionQueryMetrics extends RecursiveSelectionQueryP
 }
 
 export interface RecursiveSelectionQueryOptions {
+  /**
+   * Cooperative cancellation. Adapter reads are expected to reject with an
+   * AbortError when this signal fires; the scan treats that rejection as a
+   * completion outcome and rethrows it, in both scan modes. An adapter that
+   * ignores the signal but settles after cancellation still surfaces its
+   * AbortError through the throughput drain. There is no liveness timeout:
+   * a read that never settles keeps the query pending (see the module
+   * contract on `querySelectableFiles`).
+   */
   abortSignal?: AbortSignal;
   /**
    * Opt-in: retain the raw listing of every adapter-read directory in
    * `directoryUpdates` for tree hydration. OFF by default — select-all scans
    * never consume them, and retaining every listing on the largest scans is
-   * avoidable memory pressure.
+   * avoidable memory pressure. Enforced identically in early-stop and
+   * throughput mode: without the opt-in NO listing is retained, whatever the
+   * cap or scan mode.
    */
   collectDirectoryUpdates?: boolean;
   concurrency?: number;
@@ -465,7 +475,13 @@ async function scanUnloadedDirectories(args: {
         filterTreeFn,
         node,
         parentRootId,
-        recordDirectoryUpdate: (update) => state.directoryUpdates.push(update),
+        // Same opt-in contract as throughput mode: raw listings are retained
+        // ONLY when the caller explicitly opts in (select-all memory guard).
+        recordDirectoryUpdate: (update) => {
+          if (state.collectDirectoryUpdates) {
+            state.directoryUpdates.push(update);
+          }
+        },
       });
       state.directoriesReadFromAdapter++;
       state.directoriesCompleted++;
@@ -657,9 +673,10 @@ function processThroughputScanResult(args: {
   } = args;
 
   if (result.error) {
-    if (scanAbortController.signal.aborted && isAbortError(result.error)) {
-      return true;
-    }
+    // Cancellation is a completion OUTCOME, not a silent no-op: an adapter
+    // read that settles after the caller cancelled carries its AbortError
+    // here, and rejecting lets handleSelectionError report { cancelled }.
+    // Resolving instead would commit a partial selection as success.
     throw result.error;
   }
 
@@ -849,6 +866,54 @@ function buildQueryResult(args: {
   };
 }
 
+/**
+ * Scan a set of root nodes recursively and return every file matching the
+ * include/exclude filters, up to `maxResults`.
+ *
+ * ## Concurrency assumptions (single-threaded queue/frontier invariants)
+ *
+ * Everything below assumes the single JavaScript thread of a renderer or
+ * worker: there are no locks, because all shared state mutations happen
+ * synchronously between awaits. The scan is breadth-first by tree depth:
+ * each iteration processes the loaded portion of the current frontier
+ * synchronously, then scans that frontier's unloaded directories before
+ * descending into the next one.
+ *
+ * - Two scan modes, selected once from `maxResults`: **early-stop**
+ *   (`maxResults <= LOW_LIMIT_SCAN_THRESHOLD`) reads directories strictly
+ *   sequentially and stops at the first cap-filling match; **throughput**
+ *   reads concurrently, clamping caller `concurrency` into
+ *   `[1, MAX_SCAN_CONCURRENCY]`.
+ * - Throughput scheduling drains one bounded batch at a time: up to
+ *   `effectiveConcurrency` adapter reads start together, results flow through
+ *   a FIFO async scan queue, and the batch closes exactly once when spawning
+ *   is finished AND every task has settled (a synchronous fallback close
+ *   covers tasks that drained before the spawn loop observed them). A batch
+ *   never mixes with the next frontier's reads.
+ * - Traversal deduplicates by directory path across frontiers
+ *   (`queuedDirectoryPaths` / `scannedDirectoryPaths`), so cycles and
+ *   multi-root aliasing cannot revisit a directory; discovering more than
+ *   `maxDirectories` unique paths throws.
+ *
+ * ## Completion outcomes
+ *
+ * The query settles exactly once, with ONE of:
+ *
+ * - a full result (frontier exhausted),
+ * - a capped result with `limitReached: true` (reported only while traversal
+ *   provably had more work), or
+ * - a thrown error: cancellation (below), the traversal-limit error above, or
+ *   the first adapter read failure.
+ *
+ * Cancellation is a completion OUTCOME in both modes, never a silent no-op:
+ * an adapter read that observes the abort signal rejects the query with its
+ * AbortError, and a read that ignores the signal but settles afterwards still
+ * surfaces its AbortError through the throughput drain. Resolving instead
+ * would let callers commit a partial selection as success. There is NO
+ * liveness timeout: an adapter read that neither resolves nor rejects keeps
+ * the query pending indefinitely (the concurrency bound is not a watchdog);
+ * bounding that requires an explicit cancellation owner and adapter contract.
+ */
 export async function querySelectableFiles(
   options: RecursiveSelectionQueryOptions
 ): Promise<RecursiveSelectionQueryResult> {
