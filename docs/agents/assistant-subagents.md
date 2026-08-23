@@ -18,6 +18,42 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   non-`read` risk (unknown id ≠ read — no silent fallback). `id` is `string`
   (`AssistantBuiltInPersonaId` narrows the built-ins); optional `source:
   'built-in' | 'user'` (absent = built-in).
+
+  **THE STEP CAP IS DERIVED INTO THE DESCRIPTION, NOT WRITTEN INTO PROSE — do
+  not relitigate.** `delegationDescriptionForPersona` (personas.ts) appends
+  "Runs at most N steps…" from `persona.maxSteps`. Both places a description
+  reaches a model call it: the child `Agent` config in
+  `build-persona-subagents.ts` (which Mastra turns into the `agent-<id>` tool)
+  and the supervisor's own instructions via `persona-assembly.ts`. That
+  description is the only thing the supervisor reads when sizing a delegation;
+  it used to say just "use when a question needs surveying many files", with
+  the cap revealed only AFTER a failed delegation (the no-answer message) — the
+  supervisor was invited to over-scope and then told off for it.
+
+  Deriving beats restating for two reasons. There is no second copy to drift,
+  and a substring test guarding one would be leaky by construction ("16"
+  contains "1" and "6"). And USER-defined personas are covered for free: their
+  description comes from markdown frontmatter, which can never mention a cap,
+  so hardcoding the sentence in the built-ins would have left every user
+  persona with the original bug.
+
+  Built-ins declare `MAX_USER_PERSONA_MAX_STEPS` (16) rather than a private
+  larger number: a budget users cannot themselves declare would make the
+  shipped Explorer unreplicable by a user persona and would leave that constant
+  describing a limit the app ignores. The previous value of 8 left seven usable
+  tool steps once the reserved wrap-up step is subtracted.
+
+  **Personas report PROVENANCE, and never author the deliverable.** Child
+  instructions require `path:line` for anything read in code and an explicit
+  marker when a fact came from documentation or a comment instead — the two go
+  out of sync, and the caller cannot tell them apart afterwards. An `explore`
+  child reported `FOREGROUND_GATE_REOPEN_MS=250` as a code constant when it
+  exists only in `docs/agents/local-inference.md`, and the supervisor wrote it
+  into durable working memory under the heading "Verified architecture survey".
+  EVERY built-in is told not to produce the caller's final deliverable: one
+  asked to survey the repo "for a developer-onboarding document" spent its
+  budget returning a complete HTML page that the supervisor discarded, and the
+  Analyst takes the same delegations.
 - **User-defined personas (v2):** markdown files with frontmatter
   (`description` required; optional `name`, `tools`, `model:
   provider::modelId`, `maxSteps` ≤ 16; body = child instructions), scanned
@@ -156,7 +192,8 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `onDelegationComplete` still reports `success: true` — which reaches the
   supervisor as a successful-but-empty delegation. Observed in production
   (run-7eb0e370, 2026-08-22): both delegations used exactly 8 step clusters
-  (the `explore` cap), made 34 and 30 child tool calls over ~8 minutes, returned
+  (the `explore` cap AT THE TIME; now 16), made 34 and 30 child tool calls over
+  ~8 minutes, returned
   empty text, and the supervisor correctly judged them useless and abandoned
   delegation for the rest of an 18-minute turn.
   - `createDelegationConfig` now replaces an empty/whitespace `result.text` with

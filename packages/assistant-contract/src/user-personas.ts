@@ -31,7 +31,13 @@ export const MAX_USER_PERSONA_FILE_CHARS = 64 * 1024;
 /** Total persona count cap per scan; the rest are ignored with a visible warn. */
 export const MAX_USER_PERSONAS = 50;
 
-/** Hard ceiling a user persona's maxSteps may declare (built-ins use 8). */
+/**
+ * Hard ceiling a user persona's maxSteps may declare.
+ *
+ * The built-ins sit AT this ceiling rather than below it, deliberately: a user
+ * persona must be able to replicate what the shipped Explorer does, and a
+ * built-in budget above the user ceiling would make that impossible.
+ */
 export const MAX_USER_PERSONA_MAX_STEPS = 16;
 
 /** maxSteps applied when the frontmatter omits it. */
