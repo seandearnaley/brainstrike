@@ -4,6 +4,27 @@
 
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
 
+Per-thread workspace snapshots (`brainstrike_assistant_thread_workspaces`) are
+loaded into renderer-owned live stores by
+`useThreadWorkspaceCoordinator`; those stores remain the working authority.
+Initial boot is an ordering boundary because the active thread can restore
+before PGlite is ready. While that first snapshot read is pending, store
+notifications must not persist the unhydrated singleton state over the saved
+row. The coordinator captures a boot baseline instead, then merges only fields
+that changed in the live stores after that baseline into the loaded snapshot
+before applying and immediately persisting it. This delta covers apps and
+selection, file tabs, editor mode/scroll/pane state, Explorer expansion/scroll,
+and root views. If the initial read rejects after a live edit, the coordinator
+persists the current live snapshot immediately instead of waiting for another
+notification. Editor deltas are admitted only for tabs in the loaded snapshot;
+a changed tab set is preserved atomically with its live editor map. That key
+filter is required so stale pane/editor state from another thread cannot leak
+through a boot or `A -> null -> B` transition. Ordinary thread switches never
+reuse this boot merge: they synchronously flush the outgoing live snapshot,
+then hydrate the incoming snapshot under an intent guard. The deterministic
+ordering regressions live in
+`packages/app-shell/src/thread-workspace/__tests__/use-thread-workspace-coordinator.test.tsx`.
+
 Desktop assistant threads also persist their operating-root capability in the
 existing `mastra_threads.metadata` JSON (no schema migration):
 `operatingRootId` is the durable DB `roots.id`; `operatingRootDisplayName` and
