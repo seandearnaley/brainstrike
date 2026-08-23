@@ -47,11 +47,14 @@ below are LIVE.
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
    `StreamStalledError`). `streamAttemptChunks` wraps the raw Mastra iterator.
-   The window is PHASE-AWARE (BST-1408): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS`
-   governs the wait for the provider to produce its first OUTPUT **in each
-   step**, `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is producing —
-   see the config list below for why they must not be re-merged, and why the
-   phase boundary is provider output rather than "the first part". Since
+   The window is PHASE-AWARE across THREE phases (BST-1408, extended for
+   reasoning): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` governs the wait for the
+   provider to produce its first OUTPUT **in each step**,
+   `BRAINSTRIKE_STREAM_REASONING_GAP_MS` every gap while it is emitting
+   REASONING, and `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is
+   demonstrably ANSWERING — see the config list below for why they must not be
+   re-merged, why the phase boundary is provider output rather than "the first
+   part", and why a reasoning delta is not an answer. Since
    BST-1409 a stall ends the ATTEMPT, not the turn; see ATTEMPTS VS TURNS below.
    Only an unrecoverable stall emits a visible assistant message, a terminal
    `run.failed` event, and an error finish so the renderer does not remain
@@ -748,8 +751,9 @@ Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rul
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
 - `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
-  between parts, once the provider is demonstrably producing OUTPUT. Scoped to
-  that phase only since BST-1408.
+  between parts, once the provider is demonstrably ANSWERING. Scoped to that
+  phase only since BST-1408, and narrowed again to exclude reasoning (see the
+  reasoning-gap entry below).
 - `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` (default 600000) — the budget for the
   provider to produce its first output, **per step, not per stream**.
   DELIBERATELY decoupled from the inactivity window and never tighter than it,
@@ -761,6 +765,50 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   from a wedged transport at the stream-part layer. Same explicit-vs-default
   resolution as the input budget: two EXPLICIT values in a contradictory shape
   throw; an unset first-output window widens to the inactivity window.
+
+- `BRAINSTRIKE_STREAM_REASONING_GAP_MS` (default 600000) — the tolerated gap
+  between REASONING parts. Same explicit-vs-default resolution and same
+  never-tighter-than-inactivity invariant as the first-output window.
+
+  **A REASONING DELTA IS NOT AN ANSWER — do not relitigate.** BST-1408 split
+  "has it started?" from "is it still delivering?" but left reasoning on the
+  wrong side of that line: any non-scaffolding part flipped the stream to
+  `streaming`, so the FIRST reasoning token armed the 120s window for the rest
+  of the step. Interleaved-thinking models emit a burst of thought, pause to
+  think further, then continue — so that window was armed against precisely the
+  pauses high reasoning effort is made of. `google/gemini-3.7-flash` at
+  `reasoning.effort: 'high'` died on both attempts of one turn (run-352bcf33),
+  each time with `phase: 'streaming'` and `lastPartType: 'reasoning-delta'`.
+
+  Reasoning shares the first-output BUDGET because it asks the first-output
+  QUESTION: the model is working and has not begun its answer. It is a separate
+  phase rather than an addition to the scaffolding set, because a reasoning part
+  IS provider output — folding it into scaffolding would let it re-arm the
+  first-output window on every delta and would erode the closed-list rule that
+  makes unknown new part types default to "this is output".
+
+  The phase moves BOTH ways: the next answer part returns the stream to
+  `streaming`, so a wedged provider mid-answer is still caught by the tight
+  window, and reasoning resuming after text widens it again.
+
+  Owned by `MASTRA_REASONING_PART_KINDS` in `agent-streaming.ts`, typed
+  `Partial<Record<StaticMastraChunkType, …>>` — the SAME union derived from
+  Mastra's own `ChunkType['type']` that `MASTRA_STATIC_CHUNK_DISPOSITIONS` is
+  checked against — so a Mastra rename fails to COMPILE here rather than
+  silently dropping a type back into the tight window.
+
+  CONTENT vs MARKER inside that record is load-bearing. A thinking delta ENTERS
+  the reasoning phase; block bookkeeping (`reasoning-end`,
+  `reasoning-signature`) only PRESERVES the phase already in effect. Providers
+  exist that emit `text-start` BEFORE `reasoning-end`, so a marker that set the
+  phase would widen the window back out exactly as the answer began. Preserving
+  keeps a not-yet-answering stream wide — the gap between `reasoning-end` and
+  the first `text-delta` is still "has it begun answering?" — and an
+  already-answering stream tight.
+
+  `resolveStalledVisibleMessage` (stream-termination.ts) has its own branch for
+  this phase: "stalled without output" would be actively wrong when the model
+  was producing reasoning and stopped mid-thought.
 
   **THE PHASE BOUNDARY IS PROVIDER OUTPUT, NOT "THE FIRST PART" — do not
   relitigate.** Measured through the real Mastra loop, a turn's raw parts are:
@@ -810,12 +858,13 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
 - Invariant: tool timeout < stream inactivity <= tool-call input budget, and
-  stream inactivity <= stream first-output window (both `<=` comparisons are
-  enforced only against an explicitly configured value; see above). The
+  stream inactivity <= stream first-output window, and stream inactivity <=
+  stream reasoning-gap window (all `<=` comparisons are enforced only against an
+  explicitly configured value; see above). The
   FOUNDATIONAL tool-timeout ordering is checked before any derived window, so a
   config breaking several invariants names the first thing to fix.
 - The stall diagnostic and the durable `run.failed` metadata carry `phase`
-  (`awaiting-output` | `streaming`), `partsSeen` (scaffolding included — it is
+  (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
   transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
   the "prologue arrived, provider never did" story), and `lastPartType`
   (BST-1408). `lastPartType` is the last part the caller could NAME: an

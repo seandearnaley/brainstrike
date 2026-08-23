@@ -2,7 +2,8 @@
  * Which silence killed the stream.
  *
  * `awaiting-output` — the provider has not produced anything yet FOR THE
- * CURRENT STEP. `streaming` — it started and then went quiet.
+ * CURRENT STEP. `reasoning` — it is emitting thought, not yet an answer.
+ * `streaming` — it is delivering the answer and then went quiet.
  *
  * Not once per stream: time-to-first-output recurs at every step, because the
  * framework opens each one before the provider answers (see
@@ -10,19 +11,35 @@
  * silences killed a healthy 18-minute turn (BST-1408), and recording which one
  * fired is what makes the failure class provable from a debug bundle instead of
  * reconstructible by inference.
+ *
+ * `reasoning` is the third silence, and it exists because the two-way split was
+ * still one distinction short. A reasoning delta says the model is THINKING,
+ * not that it has begun answering — so treating it as ordinary output armed the
+ * tight inter-output window against exactly the pauses high reasoning effort is
+ * made of. That killed `google/gemini-3.7-flash` at `effort: 'high'` on both
+ * attempts of a turn, each time with `lastPartType: 'reasoning-delta'`.
  */
-export type StreamStallPhase = 'awaiting-output' | 'streaming';
+export type StreamStallPhase = 'awaiting-output' | 'reasoning' | 'streaming';
 
 /**
- * The two DELIBERATELY decoupled silence budgets. Resolved together (and
+ * The three DELIBERATELY decoupled silence budgets. Resolved together (and
  * order-checked) by `resolveAssistantResilienceConfig`; see
  * `../config/resilience-config.ts` for why they must not be re-merged.
  */
 export interface StreamInactivityWindows {
   /** Budget for the provider to produce its first output in each step. */
   readonly firstOutputMs: number;
-  /** Budget for every gap once the provider is demonstrably producing output. */
+  /** Budget for every gap once the provider is demonstrably ANSWERING. */
   readonly interOutputMs: number;
+  /**
+   * Budget for a gap while the provider is demonstrably THINKING.
+   *
+   * Governed separately from {@link interOutputMs} because a pause between
+   * reasoning deltas is the same event as a pause before the first one — the
+   * model is working and has not started its answer — and {@link firstOutputMs}
+   * already exists to cover precisely that.
+   */
+  readonly reasoningGapMs: number;
 }
 
 export interface StreamInactivityOptions<T> {
@@ -55,6 +72,26 @@ export interface StreamInactivityOptions<T> {
    */
   readonly describePart?: (part: T) => string | undefined;
   readonly onTimeout?: (error: StreamStalledError) => void;
+  /**
+   * Classify a REASONING part, or `undefined` for anything that is not one.
+   *
+   * Reasoning is provider output — it must never re-arm the first-output
+   * window — but it is not an answer, so the gaps around it are the model
+   * working, not a wedged transport.
+   *
+   * `'content'` (a thinking delta) ENTERS the reasoning phase. `'marker'`
+   * (block bookkeeping such as `reasoning-end`) PRESERVES whatever phase is
+   * already in effect, and that distinction is load-bearing: providers exist
+   * that emit `text-start` BEFORE `reasoning-end`, so a marker that set the
+   * phase would widen the window back out just as the answer began. Preserving
+   * instead keeps a no-answer-yet stream wide and an already-answering stream
+   * tight, which is what each case actually needs.
+   *
+   * Absent means no part is reasoning — the honest default for a caller that
+   * cannot tell, which reproduces the pre-existing two-phase behaviour rather
+   * than silently widening any window.
+   */
+  readonly reasoningPartKind?: (part: T) => 'content' | 'marker' | undefined;
 }
 
 export interface StreamStalledErrorContext {
@@ -92,18 +129,65 @@ export class StreamStalledError extends Error {
   }
 }
 
+function resolveWindowMs(phase: StreamStallPhase, windows: StreamInactivityWindows): number {
+  if (phase === 'awaiting-output') {
+    return windows.firstOutputMs;
+  }
+  if (phase === 'reasoning') {
+    return windows.reasoningGapMs;
+  }
+  return windows.interOutputMs;
+}
+
+/**
+ * Classify the part just delivered into the phase the NEXT silence is measured
+ * against.
+ *
+ * Order matters: reasoning is checked before the generic output test, because
+ * a reasoning part satisfies both (it IS provider output) and the narrower
+ * answer is the correct one.
+ */
+function resolveNextPhase<T>(
+  part: T,
+  currentPhase: StreamStallPhase,
+  options: StreamInactivityOptions<T> | undefined
+): StreamStallPhase {
+  const isOutput = options?.countsAsProviderOutput?.(part) ?? true;
+  if (!isOutput) {
+    return 'awaiting-output';
+  }
+  const reasoningKind = options?.reasoningPartKind?.(part);
+  if (reasoningKind === 'content') {
+    return 'reasoning';
+  }
+  if (reasoningKind === 'marker') {
+    return currentPhase;
+  }
+  return 'streaming';
+}
+
 /**
  * Wrap an async iterable so that silence longer than the applicable window
  * throws {@link StreamStalledError}. The timer resets on every delivered item.
  * Used around the raw Mastra stream so a wedged provider/tool can never freeze
  * the data-stream session forever.
  *
- * The window is PHASE-AWARE: `firstOutputMs` governs the wait for the provider
- * to say anything in the current step, `interOutputMs` every gap once it has.
- * The two answer different questions — "has the provider started answering?"
- * versus "is it still delivering?" — and a request with a large prompt at high
- * reasoning effort routinely spends minutes on the former, in EVERY step, while
- * a gap that long mid-output is genuinely suspicious.
+ * The window is PHASE-AWARE across THREE states, because "the provider is
+ * quiet" is three different events:
+ *
+ * - `awaiting-output` → `firstOutputMs`. Has it started at all this step?
+ * - `reasoning` → `reasoningGapMs`. It is thinking; has it stopped thinking?
+ * - `streaming` → `interOutputMs`. It is answering; is it still delivering?
+ *
+ * The first two are the same question wearing different hats — the model is
+ * working and has not begun its answer — which is why they share a budget
+ * scale. Only the third asks whether a demonstrably-answering provider went
+ * silent, and only there is a two-minute gap genuinely suspicious.
+ *
+ * Collapsing the first two into the third killed a healthy 18-minute turn
+ * (BST-1408). Collapsing `reasoning` into `streaming` then killed
+ * `google/gemini-3.7-flash` at `effort: 'high'`, twice in one turn, both times
+ * on `lastPartType: 'reasoning-delta'`.
  */
 export async function* withInactivityTimeout<T>(
   source: AsyncIterable<T>,
@@ -116,7 +200,7 @@ export async function* withInactivityTimeout<T>(
   let phase: StreamStallPhase = 'awaiting-output';
   try {
     while (true) {
-      const windowMs = phase === 'awaiting-output' ? windows.firstOutputMs : windows.interOutputMs;
+      const windowMs = resolveWindowMs(phase, windows);
       let timer: ReturnType<typeof setTimeout> | undefined;
       const watchdog = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
@@ -138,8 +222,7 @@ export async function* withInactivityTimeout<T>(
         // Scaffolding both KEEPS and RE-ARMS the wide window: a fresh step has
         // its own time-to-first-output, so a step opened after a tool result
         // must not inherit the previous step's `streaming` phase.
-        const isOutput = options?.countsAsProviderOutput?.(result.value) ?? true;
-        phase = isOutput ? 'streaming' : 'awaiting-output';
+        phase = resolveNextPhase(result.value, phase, options);
         yield result.value;
       } finally {
         if (timer) {

@@ -1128,6 +1128,45 @@ function isMastraProviderOutputPart(part: unknown): boolean {
   return type === undefined || !MASTRA_SCAFFOLDING_PART_TYPES.has(type);
 }
 
+/**
+ * Mastra part types that carry REASONING rather than an answer.
+ *
+ * These are unambiguously provider output — they must never be mistaken for
+ * framework scaffolding — but they are the model THINKING, so the silence
+ * around them is measured against the wide reasoning window instead of the
+ * tight inter-output one (see `StreamStallPhase` in
+ * ../stream/with-inactivity-timeout.ts).
+ *
+ * CONTENT vs MARKER is load-bearing. A thinking delta ENTERS the reasoning
+ * phase; block bookkeeping only PRESERVES the phase already in effect.
+ * Providers exist that emit `text-start` BEFORE `reasoning-end`, so treating
+ * the end marker as content would widen the window back out exactly as the
+ * answer began. Preserving keeps a not-yet-answering stream wide (the gap
+ * between `reasoning-end` and the first `text-delta` is still "has it begun
+ * answering?") and an already-answering stream tight.
+ *
+ * Typed as `StaticMastraChunkType`, the union DERIVED FROM MASTRA'S OWN
+ * `ChunkType['type']` that `MASTRA_STATIC_CHUNK_DISPOSITIONS` is checked
+ * against. A Mastra release that renames one of these fails to compile here
+ * rather than silently dropping a type out of the set and re-arming the tight
+ * window against high-effort reasoning — the exact regression this prevents.
+ */
+const MASTRA_REASONING_PART_KINDS = {
+  'reasoning-delta': 'content',
+  'reasoning-end': 'marker',
+  'reasoning-signature': 'marker',
+  'reasoning-start': 'content',
+  'redacted-reasoning': 'content',
+} as const satisfies Partial<Record<StaticMastraChunkType, 'content' | 'marker'>>;
+
+function readMastraReasoningPartKind(part: unknown): 'content' | 'marker' | undefined {
+  const type = describeMastraStreamPartType(part);
+  if (type === undefined || !Object.hasOwn(MASTRA_REASONING_PART_KINDS, type)) {
+    return;
+  }
+  return MASTRA_REASONING_PART_KINDS[type as keyof typeof MASTRA_REASONING_PART_KINDS];
+}
+
 const resolveFullStream = (
   result: unknown
 ): NodeReadableStream<unknown> | ReadableStream<unknown> | undefined => {
@@ -1218,11 +1257,13 @@ async function* streamAttemptChunks({
       {
         firstOutputMs: runtime.resilienceConfig.streamFirstOutputMs,
         interOutputMs: runtime.resilienceConfig.streamInactivityMs,
+        reasoningGapMs: runtime.resilienceConfig.streamReasoningGapMs,
       },
       {
         countsAsProviderOutput: isMastraProviderOutputPart,
         describePart: describeMastraStreamPartType,
         onTimeout: (error) => streamAbortContext.abort(error),
+        reasoningPartKind: readMastraReasoningPartKind,
       }
     );
     for await (const part of source) {

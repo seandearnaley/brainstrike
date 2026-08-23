@@ -207,6 +207,12 @@ function resolveStalledVisibleMessage(
   if (error.phase === 'awaiting-output') {
     return `The model produced no output within ${error.inactivityMs}ms of the request starting.`;
   }
+  if (error.phase === 'reasoning') {
+    // "stalled without output" would be actively wrong here: the model WAS
+    // producing output — reasoning — and then stopped mid-thought. Naming the
+    // phase also points at the one setting that changes this outcome.
+    return `The model stopped mid-reasoning, producing nothing further for ${error.inactivityMs}ms. Retry, or lower the reasoning effort if it recurs.`;
+  }
   return `The model stream stalled after ${error.inactivityMs}ms without output.`;
 }
 

@@ -4,6 +4,7 @@ import {
   DEFAULT_APPROVAL_STALE_MS,
   DEFAULT_STREAM_FIRST_OUTPUT_MS,
   DEFAULT_STREAM_INACTIVITY_MS,
+  DEFAULT_STREAM_REASONING_GAP_MS,
   DEFAULT_STREAM_STALL_ATTEMPTS,
   DEFAULT_TOOL_CALL_INPUT_MS,
   DEFAULT_TOOL_TIMEOUT_MS,
@@ -11,6 +12,7 @@ import {
   resolveAssistantResilienceConfig,
   resolveStreamFirstOutputMs,
   resolveStreamInactivityMs,
+  resolveStreamReasoningGapMs,
   resolveStreamStallAttempts,
   resolveToolCallInputMs,
   resolveToolTimeoutMs,
@@ -21,6 +23,7 @@ describe('resilience-config', () => {
     'BRAINSTRIKE_TOOL_TIMEOUT_MS',
     'BRAINSTRIKE_STREAM_INACTIVITY_MS',
     'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS',
+    'BRAINSTRIKE_STREAM_REASONING_GAP_MS',
     'BRAINSTRIKE_STREAM_STALL_ATTEMPTS',
     'BRAINSTRIKE_TOOL_CALL_INPUT_MS',
     'BRAINSTRIKE_APPROVAL_STALE_MS',
@@ -60,6 +63,7 @@ describe('resilience-config', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamFirstOutputMs: DEFAULT_STREAM_FIRST_OUTPUT_MS,
       streamInactivityMs: DEFAULT_STREAM_INACTIVITY_MS,
+      streamReasoningGapMs: DEFAULT_STREAM_REASONING_GAP_MS,
       streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: DEFAULT_TOOL_CALL_INPUT_MS,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
@@ -73,6 +77,7 @@ describe('resilience-config', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamFirstOutputMs: DEFAULT_STREAM_FIRST_OUTPUT_MS,
       streamInactivityMs: 50,
+      streamReasoningGapMs: DEFAULT_STREAM_REASONING_GAP_MS,
       streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 75,
       toolTimeoutMs: 25,
@@ -113,6 +118,7 @@ describe('resilience-config', () => {
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamFirstOutputMs: 900_000,
       streamInactivityMs: 900_000,
+      streamReasoningGapMs: 900_000,
       streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 900_000,
       toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
@@ -153,6 +159,48 @@ describe('resilience-config', () => {
     expect(DEFAULT_STREAM_FIRST_OUTPUT_MS).toBeGreaterThan(DEFAULT_STREAM_INACTIVITY_MS);
   });
 
+  it('gives a reasoning gap a window far wider than an inter-output gap', () => {
+    // A reasoning delta means the model is THINKING, not answering. The pause
+    // between two of them is the same event as the pause before the first one,
+    // so it belongs to the wide budget — measuring it against the tight one
+    // killed google/gemini-3.7-flash at reasoning.effort 'high'.
+    expect(resolveStreamReasoningGapMs()).toBe(DEFAULT_STREAM_REASONING_GAP_MS);
+    expect(DEFAULT_STREAM_REASONING_GAP_MS).toBeGreaterThan(DEFAULT_STREAM_INACTIVITY_MS);
+  });
+
+  it('uses a valid reasoning-gap env override', () => {
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '450000';
+    expect(resolveStreamReasoningGapMs()).toBe(450_000);
+  });
+
+  it('throws on a malformed reasoning-gap env value (no silent coercion)', () => {
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = 'a while';
+    expect(() => resolveStreamReasoningGapMs()).toThrow(/BRAINSTRIKE_STREAM_REASONING_GAP_MS/);
+  });
+
+  it('throws on a non-positive reasoning-gap env value', () => {
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '0';
+    expect(() => resolveStreamReasoningGapMs()).toThrow(/BRAINSTRIKE_STREAM_REASONING_GAP_MS/);
+  });
+
+  it('throws when an EXPLICIT reasoning gap is tighter than inactivity', () => {
+    // Contradictory in the same shape as the first-output rule: a reasoning
+    // pause is strictly less suspicious than an answering pause, so a narrower
+    // reasoning budget would fire on healthy thought.
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '120000';
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '119999';
+    expect(() => resolveAssistantResilienceConfig()).toThrow(
+      /BRAINSTRIKE_STREAM_REASONING_GAP_MS must be at least BRAINSTRIKE_STREAM_INACTIVITY_MS/
+    );
+  });
+
+  it('widens the DEFAULT reasoning gap to a longer configured inactivity window', () => {
+    // Unset must never fail on a variable the user never set — it resolves wide
+    // enough to satisfy the invariant instead.
+    process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '900000';
+    expect(resolveAssistantResilienceConfig().streamReasoningGapMs).toBe(900_000);
+  });
+
   it('uses a valid first-output env override', () => {
     process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '450000';
     expect(resolveStreamFirstOutputMs()).toBe(450_000);
@@ -188,14 +236,16 @@ describe('resilience-config', () => {
     );
   });
 
-  it('resolves every window together when all four are set explicitly', () => {
+  it('resolves every window together when all five are set explicitly', () => {
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '25';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '50';
     process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '90';
+    process.env['BRAINSTRIKE_STREAM_REASONING_GAP_MS'] = '95';
     process.env['BRAINSTRIKE_TOOL_CALL_INPUT_MS'] = '75';
     expect(resolveAssistantResilienceConfig()).toEqual({
       streamFirstOutputMs: 90,
       streamInactivityMs: 50,
+      streamReasoningGapMs: 95,
       streamStallAttempts: DEFAULT_STREAM_STALL_ATTEMPTS,
       toolCallInputMs: 75,
       toolTimeoutMs: 25,
