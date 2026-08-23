@@ -602,7 +602,24 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   process group, so a runnable descendant cannot land one final side effect
   after a successful result. That confirmation is bounded because a zombie,
   uninterruptible process, or `EPERM` probe must not deadlock the process-global
-  execution queue. Failure rejects with `FenceProcessGroupTeardownError`; a
+  execution queue.
+
+  **`EPERM` FROM THE PROBE IS INCONCLUSIVE, NOT A DENIAL — do not relitigate.**
+  Every member of the group is our own descendant running as us, so a genuine
+  permission failure is impossible; the same reasoning is recorded at
+  `apps/desktop/src/terminal-ipc-handlers.ts` for its own group kill. What
+  `EPERM` reports is the post-reap race — the leader is a just-SIGKILLed zombie
+  and the kernel refuses to route a group signal through it. Measured against
+  the real sandbox fence on macOS, the group reaches `ESRCH` about 7 ms later.
+  Treating that first `EPERM` as fatal rejected EVERY normal teardown on that
+  host (the BST-1437 follow-up).
+
+  So `EPERM` polls on exactly like `alive`, and ONLY `ESRCH` returns. Returning
+  early on `EPERM` would be unsound in the other direction, however it is
+  corroborated: a process group can outlive its leader, so "the leader is gone"
+  never proves the group is empty. An `EPERM` that survives the whole window is
+  still a teardown failure, so the fail-closed guarantee is unchanged — a
+  tracked group is released only by `ESRCH`. Failure rejects with `FenceProcessGroupTeardownError`; a
   completed `ExecResult` is attached as `outcome`, while cancellation remains
   an `ExecAbortedError` with the teardown error as its `cause` and partial output
   intact. The failed group remains tracked, and later executions fail closed

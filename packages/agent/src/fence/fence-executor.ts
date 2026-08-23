@@ -287,12 +287,14 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
   if (state === 'gone') {
     return;
   }
-  if (state === 'unsignalable') {
-    throw new FenceProcessGroupTeardownError(
-      pid,
-      new Error(`Process group ${pid} exists but cannot receive ${signal}.`)
-    );
-  }
+  // NOTE: 'unsignalable' (EPERM) deliberately does NOT throw here. It is
+  // inconclusive, not a denial — every member of this group is our own
+  // descendant running as us, so a genuine permission failure is impossible
+  // (the same reasoning terminal-ipc-handlers.ts records for its own group
+  // kill). What it reports is the post-reap race: a just-SIGKILLed zombie
+  // leader the kernel will not route a group signal through. SIGKILL therefore
+  // falls through to the confirmation loop below, which resolves it; any other
+  // signal returns with the rest, since it has no confirmation step to reach.
   if (signal !== 'SIGKILL') {
     return;
   }
@@ -311,18 +313,23 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
     if (state === 'gone') {
       return;
     }
-    if (state === 'unsignalable') {
-      throw new FenceProcessGroupTeardownError(
-        pid,
-        new Error(`Process group ${pid} still exists but cannot be probed by this process.`)
-      );
-    }
+    // 'unsignalable' (EPERM) is INCONCLUSIVE, so it polls on exactly like
+    // 'alive' rather than short-circuiting either way. Measured: the group
+    // reaches ESRCH ~7ms later, because EPERM here is the post-reap race — a
+    // just-SIGKILLed zombie leader the kernel will not route a group signal
+    // through — not a surviving group.
+    //
+    // Returning early on EPERM would be unsound in the other direction: a
+    // process group can outlive its leader, so "the leader is gone" does not
+    // prove the group is empty. Only ESRCH does, and only ESRCH returns.
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
       throw new FenceProcessGroupTeardownError(
         pid,
         new Error(
-          `Process group ${pid} still existed ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL.`
+          state === 'unsignalable'
+            ? `Process group ${pid} was still unsignalable ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL; teardown could not be confirmed.`
+            : `Process group ${pid} still existed ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL.`
         )
       );
     }
