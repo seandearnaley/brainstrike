@@ -17,6 +17,7 @@ import {
   type AssistantPersonaDefinition,
   SUBAGENT_NO_ANSWER_OUTCOME,
 } from '@brainstrike/assistant-contract/personas';
+import { createLogger } from '@brainstrike/logging';
 import type { AssistantRunEventMetadata } from '../run-events';
 import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 import type { RuntimeData, StreamChunk, StreamChunkTool } from '../types';
@@ -28,6 +29,7 @@ import {
   readFinishReason,
 } from './mastra-chunk-decoding';
 import {
+  type ProviderMetadataStreamPart,
   readCacheTokenCount,
   readOpenRouterBilledCost,
   readStreamPartUsage,
@@ -130,6 +132,57 @@ export interface ProcessStreamPartResult {
   finished: boolean;
 }
 
+const logger = createLogger('MastraToolLifecycle');
+
+/**
+ * The turn's provider-reported cost, or `undefined` when it is UNKNOWN.
+ *
+ * A MISSING COST NEVER FAILS THE TURN — do not relitigate.
+ *
+ * `requiresBilledCost` is set for every OpenRouter model, but OpenRouter does
+ * not report `usage.cost` for anonymous/stealth routes. `stealth/ox-alpha` is
+ * one (migration 107, "the anonymous Ox Alpha route"), so EVERY such turn that
+ * reached the finish used to throw — discarding a completed assistant answer
+ * over a billing-telemetry gap. Cost accounting is observability, and
+ * observability must not destroy the product it observes.
+ *
+ * It stayed hidden because long OpenRouter turns died on the stream inactivity
+ * watchdog before ever reaching the finish; fixing that watchdog (#2607) turned
+ * the latent bug into an instant failure.
+ *
+ * The accounting stays honest, which is what the throw was really protecting.
+ * Mastra copies providerMetadata from the FINAL model step only, so a terminal
+ * cost cannot repair a missing earlier one, and a partial sum presented as the
+ * total is exactly the undercount to avoid. An incomplete picture therefore
+ * reports UNKNOWN (the ledger stores that as null) — never zero, never a
+ * partial. A genuine `cost: 0` is a MEASURED zero and passes through.
+ *
+ * Malformed metadata still throws inside `readOpenRouterBilledCost`: absent is
+ * a fact about the route, malformed is a broken contract.
+ */
+function resolveBilledCostUsd(
+  part: ProviderMetadataStreamPart,
+  lifecycleState: ToolLifecycleState
+): number | undefined {
+  const finishCost = readOpenRouterBilledCost(part);
+  if (!lifecycleState.requiresBilledCost) {
+    return lifecycleState.sawStepBilledCost ? lifecycleState.stepBilledCostUsd : finishCost;
+  }
+  const costIsUnknown =
+    lifecycleState.sawStepWithoutBilledCost ||
+    (!lifecycleState.sawStepBilledCost && finishCost === undefined);
+  if (costIsUnknown) {
+    logger.warn('Provider reported no billed cost; recording the turn cost as unknown', {
+      code: 'provider_billed_cost_unreported',
+      sawStepBilledCost: lifecycleState.sawStepBilledCost,
+      sawStepWithoutBilledCost: lifecycleState.sawStepWithoutBilledCost,
+      stepCount: lifecycleState.stepCount,
+    });
+    return;
+  }
+  return lifecycleState.sawStepBilledCost ? lifecycleState.stepBilledCostUsd : finishCost;
+}
+
 export function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleState): StreamChunk {
   const p = asMastraStreamPart(part);
   const usage = readStreamPartUsage(p) ?? {};
@@ -146,23 +199,7 @@ export function makeFinishChunk(part: unknown, lifecycleState: ToolLifecycleStat
   // context window that never existed.
   const contextInputTokens = lifecycleState.latestStepPromptTokens ?? attemptPromptTokens;
   const contextOutputTokens = lifecycleState.latestStepCompletionTokens ?? attemptCompletionTokens;
-  const finishCost = readOpenRouterBilledCost(p);
-  if (lifecycleState.requiresBilledCost && lifecycleState.sawStepWithoutBilledCost) {
-    // Mastra makes terminal token usage cumulative, but copies providerMetadata
-    // from only the final model step. A terminal cost therefore cannot repair a
-    // missing earlier step without silently undercounting the provider bill.
-    throw new Error('OpenRouter model step omitted required provider-reported billed cost.');
-  }
-  if (
-    lifecycleState.requiresBilledCost &&
-    !lifecycleState.sawStepBilledCost &&
-    finishCost === undefined
-  ) {
-    throw new Error('OpenRouter completion omitted required provider-reported billed cost.');
-  }
-  const billedCostUsd = lifecycleState.sawStepBilledCost
-    ? lifecycleState.stepBilledCostUsd
-    : finishCost;
+  const billedCostUsd = resolveBilledCostUsd(p, lifecycleState);
   const cacheReadInputTokens = lifecycleState.includeCacheTokenClasses
     ? readCacheTokenCount(usage.cachedInputTokens)
     : undefined;

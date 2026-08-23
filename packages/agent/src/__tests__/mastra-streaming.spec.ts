@@ -927,7 +927,7 @@ describe('mastra streaming integration', () => {
     );
   });
 
-  it('rejects a cost-less OpenRouter step when finish repeats only the final step cost', async () => {
+  it('COMPLETES a turn whose earlier step reported no cost, recording it unknown', async () => {
     setMockStreamParts([
       {
         payload: { metadata: {} },
@@ -966,12 +966,20 @@ describe('mastra streaming integration', () => {
       { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
     );
 
-    const drain = async () => {
-      for await (const _chunk of iterator) {
-        // drain
-      }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter model step omitted.*billed cost/i);
+    // Mastra copies providerMetadata from the FINAL model step only, so the
+    // terminal cost cannot repair the earlier step's missing one. The honest
+    // result is UNKNOWN — never the partial sum presented as a total — but the
+    // assistant's completed answer survives. Throwing here discarded a finished
+    // turn over a billing-telemetry gap.
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+    const finish = chunks.find((chunk) => (chunk as { type?: string }).type === 'message-finish') as
+      | { billedCostUsd?: number; finishReason?: string }
+      | undefined;
+    expect(finish?.finishReason).toBe('stop');
+    expect(finish?.billedCostUsd).toBeUndefined();
   });
 
   it('rejects malformed provider-reported OpenRouter cost', async () => {
@@ -997,7 +1005,7 @@ describe('mastra streaming integration', () => {
     await expect(drain()).rejects.toThrow(/OpenRouter.*cost/i);
   });
 
-  it('rejects an OpenRouter completion that omits billed cost', async () => {
+  it('COMPLETES an OpenRouter turn that never reported a cost at all', async () => {
     setMockStreamParts([
       {
         finishReason: 'stop',
@@ -1011,12 +1019,18 @@ describe('mastra streaming integration', () => {
       { runtime: { apiKey: 'test-key', provider: 'openrouter' } }
     );
 
-    const drain = async () => {
-      for await (const _chunk of iterator) {
-        // drain
-      }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
+    // The stealth/anonymous-route shape: OpenRouter reports no usage.cost at
+    // all (migration 107's "anonymous Ox Alpha route"). Every such turn used to
+    // throw here, so the model's completed answer was thrown away.
+    const chunks = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+    const finish = chunks.find((chunk) => (chunk as { type?: string }).type === 'message-finish') as
+      | { billedCostUsd?: number; finishReason?: string }
+      | undefined;
+    expect(finish?.finishReason).toBe('stop');
+    expect(finish?.billedCostUsd).toBeUndefined();
   });
 
   it('normalizes OpenRouter provider state before applying stream safeguards', async () => {
@@ -1037,12 +1051,27 @@ describe('mastra streaming integration', () => {
       modelSettings: { maxOutputTokens: 32_000 },
     });
 
-    const drain = async () => {
+    // Normalization is proven by an observable only a NORMALIZED provider can
+    // produce: `requiresBilledCost` is set from the normalized provider name,
+    // and this finish reports no cost, so the unreported-cost warning fires.
+    // (It previously proved the same thing with the throw that used to live
+    // there — the subject of this test is the normalization, not the throw.)
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
       for await (const _chunk of iterator) {
         // drain
       }
-    };
-    await expect(drain()).rejects.toThrow(/OpenRouter.*billed cost/i);
+    } finally {
+      removeLogListener();
+    }
+    expect(
+      logRecords.some(
+        (record) =>
+          record.level === LogLevel.WARN &&
+          JSON.stringify(record).includes('provider_billed_cost_unreported')
+      )
+    ).toBe(true);
   });
 
   it('surfaces observational-memory FAILURE data chunks as visible run events (BST-940 field failure)', async () => {
