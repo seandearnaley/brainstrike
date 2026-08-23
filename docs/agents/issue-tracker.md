@@ -6,12 +6,18 @@
 
 Human- and agent-authored product work, engineering tickets, and specs live in
 the **Brainstrike** team in Linear and use the `BST-###` identifier space.
-GitHub Issues are not a work tracker or request surface for this repository.
+GitHub Issues are not the authoritative work tracker for this repository.
 
-Existing CI-owned GitHub Issue notifiers are the sole exception. Their narrow,
-automated lifecycle is governed by the relevant workflows and
-`docs/agents/ci-quality.md`; it does not authorize human or agent GitHub Issue
-writes.
+## GitHub Issue exceptions
+
+- Existing CI-owned GitHub Issue notifiers have a narrow, automated lifecycle
+  governed by the relevant workflows and `docs/agents/ci-quality.md`.
+- `.github/workflows/claude.yml` accepts issues and issue comments containing
+  `@claude` as a legacy request-ingress surface. Capture any resulting product
+  or engineering work in Linear before implementation or PR handoff.
+
+These exceptions do not authorize external engineering skills to create or use
+GitHub Issues as tracker records.
 
 ## Authority and access
 

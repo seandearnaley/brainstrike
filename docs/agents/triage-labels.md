@@ -30,3 +30,5 @@ Each triaged issue carries exactly one category representation and one state
 representation. Remove the prior state label when moving between label-backed
 states. Moving to `wontfix` removes any state-role label and transitions the
 issue to `Canceled` with the triage comment required by the external skill.
+When leaving `wontfix` for any label-backed role, first transition the issue
+from `Canceled` to `Backlog`, then apply the new state-role label.
