@@ -359,12 +359,23 @@ async function processMastraStreamPart(
         finished: false,
       };
     case 'step-finish': {
-      const billedCostUsd = readOpenRouterBilledCost(p);
-      if (billedCostUsd === undefined) {
-        lifecycleState.sawStepWithoutBilledCost = true;
-      } else {
+      const stepCost = readOpenRouterBilledCost(p);
+      if (stepCost.kind === 'malformed') {
+        // ERROR, not a throw. A broken provider contract must stay impossible
+        // to miss, but it is still telemetry: failing here destroyed the
+        // completed turn, which is the trade this path no longer makes. The
+        // step counts as cost-less, so the turn total resolves to UNKNOWN
+        // rather than silently omitting this step's spend from a sum.
+        logger.error('Provider reported a malformed billed cost; treating the step as unpriced', {
+          code: 'provider_billed_cost_malformed',
+          reason: stepCost.reason,
+        });
+      }
+      if (stepCost.kind === 'reported') {
         lifecycleState.sawStepBilledCost = true;
-        lifecycleState.stepBilledCostUsd += billedCostUsd;
+        lifecycleState.stepBilledCostUsd += stepCost.usd;
+      } else {
+        lifecycleState.sawStepWithoutBilledCost = true;
       }
       // Same usage-candidate order as makeFinishChunk (top-level, then payload).
       accumulateSteppedUsage(lifecycleState, readStreamPartUsage(p));

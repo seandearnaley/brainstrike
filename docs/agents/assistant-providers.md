@@ -533,8 +533,28 @@
   message without double-counting. An abandoned pause therefore has no billed
   cost available through the observer stream. Mastra's terminal token usage is
   cumulative, but its terminal provider metadata repeats only the final step, so
-  every observed step must report cost; a missing or malformed reported cost
-  fails visibly rather than silently undercounting.
+  a missing cost cannot be repaired from the terminal metadata.
+
+  **A MISSING COST RECORDS UNKNOWN; ONLY A MALFORMED ONE FAILS — do not
+  relitigate.** OpenRouter reports no `usage.cost` for anonymous/stealth routes
+  (`stealth/ox-alpha`, migration 107), so requiring one from every step failed
+  EVERY such turn at the finish, discarding a completed answer over billing
+  telemetry. Cost accounting is observability, and observability must not
+  destroy the product it observes. An incomplete picture — no step reported, or
+  only some did — therefore records the turn cost as UNKNOWN (omitted, stored
+  null) with a visible `provider_billed_cost_unreported` warning that names the
+  partial case and the amount it is discarding. Never zero, and never a partial
+  sum presented as the total, which is the undercount the old rule was really
+  guarding. A genuine `cost: 0` remains a MEASURED zero.
+
+  MALFORMED metadata is loud but equally non-fatal. `readOpenRouterBilledCost`
+  returns a three-way reading — `absent` | `malformed` | `reported` — rather
+  than a number-or-throw, so the callers must handle the broken-contract case
+  explicitly (nothing is coerced, and it cannot be swallowed the way a
+  `try`/`catch` would). They log `provider_billed_cost_malformed` at ERROR and
+  treat the step as unpriced, which resolves the turn to unknown. Absent is a
+  fact about the route; malformed is a broken contract someone should fix.
+  Neither destroys a completed turn, and neither becomes zero.
 - Reasoning has two INDEPENDENT dimensions, and they must not be re-conflated
   (BST-840). DEPTH is a budget concern (`reasoningEffort`, `anthropicEffort`,
   `googleThinkingLevel`, the OpenRouter auto profile). VISIBILITY is a UX
