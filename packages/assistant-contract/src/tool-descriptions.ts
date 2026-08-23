@@ -31,7 +31,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.findWorkspaceSymbol]:
     "Locate a symbol's best-effort enclosing line range in a workspace file without returning whole-file content",
   [NATIVE_TOOL_ID.globWorkspace]:
-    'Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). One path per result line, prefixed with its root name when several folders are open. Excludes .git/node_modules/build output by default; read-only',
+    'Enumerate workspace files whose path matches a glob (e.g. **/*.test.ts, src/**/*.tsx). One path per result line, prefixed with its root name when several folders are open. Excludes .git, build output, and gitignored paths by default; pass includeIgnored to see them; read-only',
   [NATIVE_TOOL_ID.grepSearch]:
     "Grep indexed and live on-disk file content for an exact string or regex. Default 'files' mode surveys matching paths cheaply; 'content' mode (scoped with filePaths) returns matches grouped under one file header per file — 'root:path' when several folders are open — with 'line: text' rows ('-' marks opt-in context rows). Reuse that root and path (and the row's line number as startLine) in readWorkspaceFile calls",
   [NATIVE_TOOL_ID.hybridSearch]:
