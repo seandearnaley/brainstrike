@@ -252,10 +252,80 @@ function makeToolCallInputTimeoutTermination(
   ];
 }
 
-type StreamWatchdogError = StreamStalledError | ToolCallInputStreamingTimeoutError;
+/**
+ * A terminal `finish` arrived on a turn whose model contributed NOTHING — no
+ * non-empty text delta, no reasoning delta, no tool-lifecycle part, across
+ * every attempt of the turn.
+ *
+ * Field case (2026-08-23, `stealth/ox-alpha`): OpenRouter's anonymous route
+ * degraded into returning HTTP 200 streams containing one instant model step
+ * with zero usage and a clean `finish`. Mapping that to `run.finished /
+ * completed` painted an empty assistant bubble marked "success" — a silent
+ * fallback. The same OpenRouter key and prompts were getting real responses
+ * from other models minutes earlier, so this is an attempt-level provider
+ * fault, and it rides the BST-1409 attempt-recovery rails exactly like a
+ * stall: thrown by the mapper's `finish` case, caught by the turn runner,
+ * retried up to the stall attempt budget, then terminated visibly.
+ */
+export class EmptyModelResponseError extends Error {
+  readonly code = 'empty_model_response';
+  /** The finish reason the empty stream claimed — `stop` in the field case. */
+  readonly finishReason: string;
+  /** Completed provider steps observed — 1 in the field case, all instant. */
+  readonly stepCount: number;
+
+  constructor(finishReason: string, stepCount: number) {
+    super(`The model returned an empty response (finish reason "${finishReason}").`);
+    this.name = 'EmptyModelResponseError';
+    this.finishReason = finishReason;
+    this.stepCount = stepCount;
+  }
+}
+
+function makeEmptyModelResponseTermination(
+  error: EmptyModelResponseError,
+  lifecycleState: ToolLifecycleState,
+  runtimeData: RuntimeData | undefined
+): StreamChunk[] {
+  const provider = runtimeData?.provider?.trim().toLowerCase();
+  const model = runtimeData?.model?.trim();
+  const diagnosticContext = {
+    finishReason: error.finishReason,
+    stepCount: error.stepCount,
+    ...(model ? { model } : {}),
+    ...(provider ? { provider } : {}),
+  };
+  logger.error(
+    { code: 'mastra_agent_empty_model_response', ...diagnosticContext },
+    'mastra stream finished without any model output'
+  );
+  const visibleMessage =
+    `The model${model ? ` "${model}"` : ''} returned an empty response — no text, reasoning, ` +
+    `or tool calls (finish reason "${error.finishReason}"). The provider route may be ` +
+    'degraded; retry, or switch models.';
+  return [
+    ...makeCancelledDelegationRunEventChunks(lifecycleState),
+    ...makePendingToolOutputRunEventChunks(lifecycleState),
+    { type: 'text-delta', value: visibleMessage },
+    makeRunFailedChunk('Assistant run failed', visibleMessage, {
+      code: error.code,
+      ...diagnosticContext,
+    }),
+    makeErrorFinishChunk(),
+  ];
+}
+
+type StreamWatchdogError =
+  | EmptyModelResponseError
+  | StreamStalledError
+  | ToolCallInputStreamingTimeoutError;
 
 export function isStreamWatchdogError(error: unknown): error is StreamWatchdogError {
-  return error instanceof StreamStalledError || error instanceof ToolCallInputStreamingTimeoutError;
+  return (
+    error instanceof StreamStalledError ||
+    error instanceof ToolCallInputStreamingTimeoutError ||
+    error instanceof EmptyModelResponseError
+  );
 }
 
 export function makeStreamWatchdogTermination(
@@ -265,6 +335,9 @@ export function makeStreamWatchdogTermination(
 ): StreamChunk[] {
   if (error instanceof ToolCallInputStreamingTimeoutError) {
     return makeToolCallInputTimeoutTermination(error, lifecycleState, runtimeData);
+  }
+  if (error instanceof EmptyModelResponseError) {
+    return makeEmptyModelResponseTermination(error, lifecycleState, runtimeData);
   }
   return makeStreamStalledTermination(error, lifecycleState, runtimeData);
 }

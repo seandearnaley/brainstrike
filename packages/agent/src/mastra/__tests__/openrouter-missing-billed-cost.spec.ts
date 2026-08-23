@@ -25,6 +25,7 @@ describe('OpenRouter finish without a provider-reported cost', () => {
       includeCacheTokenClasses: false,
       outputOnlyToolEvents: new Map(),
       requiresBilledCost: true,
+      sawModelContribution: true,
       sawStepBilledCost: false,
       sawStepWithoutBilledCost: false,
       stepBilledCostUsd: 0,
@@ -64,6 +65,7 @@ describe('OpenRouter finish without a provider-reported cost', () => {
     const chunk = makeFinishChunk(
       finishPart,
       lifecycleState({
+        sawModelContribution: true,
         sawStepBilledCost: true,
         sawStepWithoutBilledCost: true,
         stepBilledCostUsd: 0.004,
@@ -105,6 +107,7 @@ describe('OpenRouter finish without a provider-reported cost', () => {
       makeFinishChunk(
         finishPart,
         lifecycleState({
+          sawModelContribution: true,
           sawStepBilledCost: true,
           sawStepWithoutBilledCost: true,
           stepBilledCostUsd: 0.004,

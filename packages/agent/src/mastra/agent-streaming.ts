@@ -81,6 +81,7 @@ import {
   type MastraStreamPart,
   makeStepMetadata,
   OM_FAILURE_DETAIL_MAX_CHARS,
+  readFinishReason,
   readOmTokenCount,
   resolveProviderError,
   resolveTripwire,
@@ -112,6 +113,7 @@ import {
   makeSyntheticFinishChunk,
 } from './stream-run-event-chunks';
 import {
+  EmptyModelResponseError,
   isStreamWatchdogError,
   makeProviderErrorTermination,
   makeStreamWatchdogTermination,
@@ -125,6 +127,7 @@ import {
 } from './subagent-delegation';
 import { makeApprovalRequiredChunks, makeToolSuspendRequiredChunks } from './tool-approval-chunks';
 import {
+  COMPLETED_FINISH_REASONS,
   createDelegationUsageCapture,
   type DelegationUsageCapture,
   makeCancelledDelegationRunEventChunks,
@@ -302,6 +305,44 @@ async function makeRecoveredProviderErrorTermination(
   );
 }
 
+/**
+ * Part types whose mere ARRIVAL proves the model contributed to the turn.
+ * Text/reasoning deltas are handled in their own cases instead — a
+ * zero-length delta paints nothing and must not count.
+ */
+const MODEL_CONTRIBUTION_PART_TYPES: ReadonlySet<string> = new Set([
+  'tool-call',
+  'tool-call-approval',
+  'tool-call-delta',
+  'tool-call-input-streaming-end',
+  'tool-call-input-streaming-start',
+  'tool-call-suspended',
+  'tool-error',
+  'tool-output',
+  'tool-output-denied',
+  'tool-result',
+]);
+
+/**
+ * A finish that would otherwise COMPLETE a turn the model contributed NOTHING
+ * to (the 2026-08-23 stealth/ox-alpha field case: HTTP 200, one instant step,
+ * zero usage) is an attempt fault, not a success — thrown so it rides the
+ * BST-1409 attempt-recovery rails exactly like a stall: retried, then
+ * terminated visibly. Mapping it to `run.finished` painted an empty assistant
+ * bubble marked "success", which is a silent fallback. An ABNORMAL finish
+ * reason is deliberately NOT re-classified: the terminal-event mapping already
+ * fails the run with its own, more precise truth (e.g. `length`).
+ */
+function throwIfEmptyModelResponse(part: unknown, lifecycleState: ToolLifecycleState): void {
+  if (lifecycleState.sawModelContribution) {
+    return;
+  }
+  const finishReason = readFinishReason(part);
+  if (COMPLETED_FINISH_REASONS.has(finishReason)) {
+    throw new EmptyModelResponseError(finishReason, lifecycleState.stepCount);
+  }
+}
+
 async function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
@@ -320,6 +361,10 @@ async function processMastraStreamPart(
     return mapObservationalMemoryDataPart(p);
   }
 
+  if (MODEL_CONTRIBUTION_PART_TYPES.has(p.type)) {
+    lifecycleState.sawModelContribution = true;
+  }
+
   switch (p.type) {
     case 'start':
       return {
@@ -336,15 +381,19 @@ async function processMastraStreamPart(
     case 'text-delta': {
       const delta = getDeltaText(part);
       recordFirstTextLatency(delta, lifecycleState);
-      return delta.length > 0
-        ? { chunks: [{ type: 'text-delta', value: delta }], finished: false }
-        : { chunks: [], finished: false };
+      if (delta.length === 0) {
+        return { chunks: [], finished: false };
+      }
+      lifecycleState.sawModelContribution = true;
+      return { chunks: [{ type: 'text-delta', value: delta }], finished: false };
     }
     case 'reasoning-delta': {
       const delta = getDeltaText(part);
-      return delta.length > 0
-        ? { chunks: [{ type: 'reasoning-delta', value: delta }], finished: false }
-        : { chunks: [], finished: false };
+      if (delta.length === 0) {
+        return { chunks: [], finished: false };
+      }
+      lifecycleState.sawModelContribution = true;
+      return { chunks: [{ type: 'reasoning-delta', value: delta }], finished: false };
     }
     case 'step-start':
       return {
@@ -446,6 +495,7 @@ async function processMastraStreamPart(
       };
     }
     case 'finish': {
+      throwIfEmptyModelResponse(part, lifecycleState);
       const terminalUsage = readStreamPartUsage(p);
       const terminalPromptTokens = terminalUsage?.promptTokens ?? terminalUsage?.inputTokens;
       if (typeof terminalPromptTokens === 'number' && Number.isFinite(terminalPromptTokens)) {
@@ -1401,6 +1451,10 @@ function createTurnAttemptLifecycleState(
     outputOnlyToolEvents: new Map(),
     requiresBilledCost: runtimeData?.provider === 'openrouter',
     ...(runtimeData?.steering ? { steering: runtimeData.steering } : {}),
+    // Carried like the billing flags below: a continuation of a turn that
+    // already produced output must not re-classify that turn as empty at its
+    // own finish.
+    sawModelContribution: carried?.sawModelContribution ?? false,
     // Billing observations carry: `sawStepBilledCost` in particular gates the
     // OpenRouter "a step omitted its billed cost" throw, and a continuation
     // that forgot the earlier attempt's billed steps would resolve the turn's
@@ -1536,7 +1590,7 @@ async function* runTurnAttempts(params: {
         }
       }
       activeAttempt = current;
-      let stall: StreamStalledError | undefined;
+      let stall: EmptyModelResponseError | StreamStalledError | undefined;
       try {
         // A continuation is a fresh `agent.stream`, so Mastra emits its own
         // `start` part and the mapper turns it into a SECOND `run.started`.
@@ -1679,11 +1733,37 @@ function resolveStallRecoveryRefusal(input: {
 }
 
 function makeStallRunEventChunk(
-  error: StreamStalledError,
+  error: EmptyModelResponseError | StreamStalledError,
   attempt: number,
   maxAttempts: number,
   refusal: string | undefined
 ): StreamChunk {
+  if (error instanceof EmptyModelResponseError) {
+    // Same recoverable-attempt-fault shape as a stall (`run.stalled` is the
+    // durable "this attempt died, the turn may yet recover" row), but the
+    // detail and code say WHICH fault: the provider answered instantly with
+    // nothing, rather than going quiet.
+    const emptyDetail = `Model returned an empty response (finish reason "${error.finishReason}") on attempt ${attempt} of ${maxAttempts}.`;
+    const emptyDiagnostic = {
+      attempt,
+      code: error.code,
+      finishReason: error.finishReason,
+      maxAttempts,
+      stepCount: error.stepCount,
+      ...(refusal ? { refusal } : {}),
+    };
+    logger.warn(
+      { ...emptyDiagnostic, code: 'mastra_agent_stream_attempt_empty' },
+      'mastra stream attempt returned an empty response'
+    );
+    return makeRunDetailEventChunk(
+      'run.stalled',
+      'info',
+      'Model returned an empty response',
+      emptyDetail,
+      emptyDiagnostic
+    );
+  }
   const detail = `No stream output for ${error.inactivityMs}ms (${error.phase}) on attempt ${attempt} of ${maxAttempts}.`;
   // A RECOVERED stall is followed by no `run.failed`, so this event is the only
   // durable record of it — it must therefore carry the full BST-1408 breadcrumb,
@@ -2251,6 +2331,11 @@ async function createToolApprovalTurnAttempt({
     delegationOutcomes,
     runtime.toolExecutionDurations
   );
+  // A resume continues a turn whose model already contributed — the tool call
+  // being approved/resumed IS model output — so its finish must never be
+  // re-classified as an empty response, even when the resume stream itself
+  // carries no further content parts.
+  lifecycleState.sawModelContribution = true;
   try {
     validateToolApprovalAction(action);
     const memoryOption = resolveMemoryOption(runtimeData, memory);
@@ -2828,6 +2913,11 @@ async function createToolResumeTurnAttempt({
     delegationOutcomes,
     runtime.toolExecutionDurations
   );
+  // A resume continues a turn whose model already contributed — the tool call
+  // being approved/resumed IS model output — so its finish must never be
+  // re-classified as an empty response, even when the resume stream itself
+  // carries no further content parts.
+  lifecycleState.sawModelContribution = true;
   try {
     validateToolResumeAction(action);
     const suspendedCall = await assertResumedCallIsSuspendPause(runtime, runtimeData, action);

@@ -1,0 +1,183 @@
+/**
+ * An EMPTY model response must never complete a turn silently.
+ *
+ * Field case (2026-08-23, stealth/ox-alpha): OpenRouter's anonymous route
+ * started returning HTTP 200 streams containing ONE instant model step with
+ * zero usage, no text, no reasoning, no tool calls, and a clean `finish` —
+ * five consecutive runs. The mapper translated that to `run.finished /
+ * completed` plus an empty assistant bubble, which is a silent fallback:
+ * the user sees "success" and nothing else.
+ *
+ * The contract under test: a terminal `finish` on a turn whose model
+ * contributed NOTHING (no non-empty text delta, no reasoning delta, no tool
+ * lifecycle part, across every attempt of the turn) ends the ATTEMPT, not the
+ * turn — it rides the BST-1409 stall-recovery rails (retry up to the stall
+ * attempt budget, then the honest visible-failure triple). A transient
+ * provider hiccup self-heals into a real answer; a dead route surfaces as a
+ * `run.failed` naming the real cause instead of an empty bubble.
+ */
+
+import { describe, expect, it, vi } from 'vitest';
+
+import { streamMastraAgent } from '../mastra/agent-streaming';
+import {
+  agentInstances,
+  expectLeadingContextBreakdown,
+  findRunEventChunks,
+  resetMastraStreamHarness,
+  setMockMessageList,
+  setMockStreamParts,
+  setMockStreamPartsForCall,
+} from './fixtures/mastra-stream-harness';
+
+vi.mock(
+  '@ai-sdk/openai',
+  async () => (await import('./fixtures/mastra-stream-harness')).openAiSdkMock
+);
+
+vi.mock(
+  '@ai-sdk/anthropic',
+  async () => (await import('./fixtures/mastra-stream-harness')).anthropicSdkMock
+);
+
+vi.mock(
+  '@ai-sdk/google',
+  async () => (await import('./fixtures/mastra-stream-harness')).googleSdkMock
+);
+
+vi.mock(
+  '@mastra/core/agent',
+  async () => (await import('./fixtures/mastra-stream-harness')).mastraAgentModuleMock
+);
+
+vi.mock(
+  '@mastra/core/mastra',
+  async () => (await import('./fixtures/mastra-stream-harness')).mastraCoreModuleMock
+);
+
+vi.mock(
+  '../mcp/explicit-stdio-client',
+  async () => (await import('./fixtures/mastra-stream-harness')).explicitStdioMcpClientModuleMock
+);
+
+/** The ox-alpha shape: a clean finish with nothing before it and no usage. */
+const EMPTY_RESPONSE_PARTS = [
+  { finishReason: 'stop', type: 'finish', usage: { completionTokens: 0, promptTokens: 0 } },
+];
+
+async function collectChunks(): Promise<unknown[]> {
+  const iterator = await streamMastraAgent(
+    [{ id: 'user-1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+    { runtime: { apiKey: 'test-key', provider: 'openai' } }
+  );
+  const chunks: unknown[] = [];
+  for await (const chunk of iterator) {
+    chunks.push(chunk);
+  }
+  return expectLeadingContextBreakdown(chunks);
+}
+
+function finishChunks(chunks: unknown[]): Array<{ finishReason?: string }> {
+  return chunks.filter(
+    (chunk): chunk is { finishReason?: string } =>
+      typeof chunk === 'object' &&
+      chunk !== null &&
+      (chunk as { type?: string }).type === 'message-finish'
+  );
+}
+
+describe('empty model response recovery', () => {
+  /** Recovery corroboration reads the attempt's produced messages; give the
+   * mock stream a readable, EMPTY message list (real Mastra always attaches
+   * one) so an empty attempt is retryable rather than refused as unreadable. */
+  const emptyMessageList = () =>
+    setMockMessageList({ drainUnsavedMessages: () => [], get: { response: { db: () => [] } } });
+
+  it('retries an empty first response and completes with the second attempt', async () => {
+    resetMastraStreamHarness();
+    emptyMessageList();
+    setMockStreamPartsForCall(1, EMPTY_RESPONSE_PARTS);
+    setMockStreamPartsForCall(2, [
+      { textDelta: 'recovered answer', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 3, promptTokens: 7 } },
+    ]);
+
+    const chunks = await collectChunks();
+
+    // The attempt fault is durable and named: the run.stalled row carries the
+    // empty-response code, and run.resumed records the recovery.
+    const stalled = findRunEventChunks(chunks, 'run.stalled');
+    expect(stalled).toHaveLength(1);
+    expect(stalled[0]?.event.metadata).toMatchObject({ code: 'empty_model_response' });
+    expect(findRunEventChunks(chunks, 'run.resumed')).toHaveLength(1);
+
+    // The turn ends as a SUCCESS with the recovered text.
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'recovered answer' });
+    expect(findRunEventChunks(chunks, 'run.finished')).toHaveLength(1);
+    expect(findRunEventChunks(chunks, 'run.failed')).toHaveLength(0);
+    expect(finishChunks(chunks).at(-1)?.finishReason).toBe('stop');
+
+    expect(agentInstances[0]?.streamCalls).toHaveLength(2);
+  });
+
+  it('fails visibly — never an empty completed bubble — when every attempt is empty', async () => {
+    resetMastraStreamHarness();
+    emptyMessageList();
+    // Global parts: EVERY attempt replays the empty response.
+    setMockStreamParts(EMPTY_RESPONSE_PARTS);
+
+    const chunks = await collectChunks();
+
+    // Attempt budget spent: attempt 1 recoverable, attempt 2 refused.
+    const stalled = findRunEventChunks(chunks, 'run.stalled');
+    expect(stalled).toHaveLength(2);
+    expect(stalled[1]?.event.metadata).toMatchObject({ refusal: 'budget-exhausted' });
+
+    // The honest terminal triple: visible text naming the fault, run.failed,
+    // error finish. No run.finished, no silent empty success.
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: 'text-delta',
+        value: expect.stringMatching(/empty response/i),
+      })
+    );
+    expect(findRunEventChunks(chunks, 'run.failed')).toHaveLength(1);
+    expect(findRunEventChunks(chunks, 'run.finished')).toHaveLength(0);
+    expect(finishChunks(chunks).at(-1)?.finishReason).toBe('error');
+  });
+
+  it('does not treat a reasoning-only response as empty', async () => {
+    resetMastraStreamHarness();
+    emptyMessageList();
+    // Reasoning is model output the user can see; a turn of pure thinking may
+    // be odd, but it is not an EMPTY stream and must not be retried as one.
+    setMockStreamParts([
+      { delta: 'thinking it through', type: 'reasoning-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 7 } },
+    ]);
+
+    const chunks = await collectChunks();
+
+    expect(findRunEventChunks(chunks, 'run.stalled')).toHaveLength(0);
+    expect(findRunEventChunks(chunks, 'run.finished')).toHaveLength(1);
+    expect(agentInstances[0]?.streamCalls).toHaveLength(1);
+  });
+
+  it('treats a stream of only EMPTY text deltas as an empty response', async () => {
+    resetMastraStreamHarness();
+    emptyMessageList();
+    // Zero-length deltas are dropped by the mapper and paint nothing; they must
+    // not count as model contribution.
+    setMockStreamPartsForCall(1, [{ textDelta: '', type: 'text-delta' }, ...EMPTY_RESPONSE_PARTS]);
+    setMockStreamPartsForCall(2, [
+      { textDelta: 'second try', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 7 } },
+    ]);
+
+    const chunks = await collectChunks();
+
+    expect(findRunEventChunks(chunks, 'run.resumed')).toHaveLength(1);
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'second try' });
+    expect(findRunEventChunks(chunks, 'run.finished')).toHaveLength(1);
+  });
+});

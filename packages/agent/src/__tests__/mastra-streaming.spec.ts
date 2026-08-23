@@ -363,6 +363,7 @@ describe('mastra streaming integration', () => {
       toolDefinitionCount: 0,
     });
     setMockStreamParts([
+      { textDelta: 'multi-step answer', type: 'text-delta' },
       { type: 'step-finish', usage: { completionTokens: 2, promptTokens: 10 } },
       { type: 'step-finish', usage: { completionTokens: 3, promptTokens: 40 } },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 50 } },
@@ -439,6 +440,7 @@ describe('mastra streaming integration', () => {
   // run-start `promptBreakdown` exists to source a baseline from.
   it('still persists a baseline-carrying calibration row when a completed run has no tool outputs', async () => {
     setMockStreamParts([
+      { textDelta: 'tool-free answer', type: 'text-delta' },
       { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
     ]);
@@ -930,6 +932,7 @@ describe('mastra streaming integration', () => {
 
   it('COMPLETES a turn whose earlier step reported no cost, recording it unknown', async () => {
     setMockStreamParts([
+      { textDelta: 'costed answer', type: 'text-delta' },
       {
         payload: { metadata: {} },
         type: 'step-finish',
@@ -990,6 +993,7 @@ describe('mastra streaming integration', () => {
     // is the same trade that made a MISSING cost fatal for every anonymous
     // OpenRouter route. Loud, never fatal.
     setMockStreamParts([
+      { textDelta: 'answer with a malformed cost', type: 'text-delta' },
       {
         finishReason: 'stop',
         providerMetadata: { openrouter: { usage: { cost: -1 } } },
@@ -1018,6 +1022,7 @@ describe('mastra streaming integration', () => {
 
   it('COMPLETES an OpenRouter turn that never reported a cost at all', async () => {
     setMockStreamParts([
+      { textDelta: 'answer with no reported cost', type: 'text-delta' },
       {
         finishReason: 'stop',
         type: 'finish',
@@ -1046,6 +1051,7 @@ describe('mastra streaming integration', () => {
 
   it('normalizes OpenRouter provider state before applying stream safeguards', async () => {
     setMockStreamParts([
+      { textDelta: 'normalized-provider answer', type: 'text-delta' },
       {
         finishReason: 'stop',
         type: 'finish',
@@ -1102,6 +1108,7 @@ describe('mastra streaming integration', () => {
         },
         type: 'data-om-buffering-failed',
       },
+      { textDelta: 'observed answer', type: 'text-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
     ]);
 
@@ -1134,6 +1141,7 @@ describe('mastra streaming integration', () => {
     expect(chunks.map((chunk) => (chunk as { type: string }).type)).toEqual([
       'context-breakdown',
       'run-event',
+      'text-delta',
       'run-event',
       'message-finish',
     ]);

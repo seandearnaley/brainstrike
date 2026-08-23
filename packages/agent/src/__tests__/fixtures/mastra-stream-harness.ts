@@ -65,10 +65,22 @@ let streamPartDelayMs = 0;
 /** Error to surface AFTER N parts have streamed (mid-iteration, not at construction). */
 let streamPartFailure: { afterParts: number; error: Error } | undefined;
 let streamParts: unknown[] = [];
+/**
+ * Per-`stream()`-call part overrides, keyed by 1-based call number on the
+ * agent instance (same numbering as `setStreamFailure`). Lets a multi-attempt
+ * test give attempt 1 and attempt 2 DIFFERENT streams — e.g. an empty first
+ * response recovered by a real second one — where the global `streamParts`
+ * would replay the same parts on every attempt.
+ */
+const streamPartsForCall = new Map<number, unknown[]>();
 let suspendedRuns: MockSuspendedRun[] = [];
 
 export function setMockStreamParts(parts: unknown[]): void {
   streamParts = [...parts];
+}
+
+export function setMockStreamPartsForCall(call: number, parts: unknown[]): void {
+  streamPartsForCall.set(call, [...parts]);
 }
 
 export function setMockMessageList(messageList: unknown): void {
@@ -169,13 +181,14 @@ export function resetMastraStreamHarness(): void {
   });
   setMockMessageList(undefined);
   setMockStreamParts([]);
+  streamPartsForCall.clear();
   streamFailure = undefined;
   streamPartFailure = undefined;
   setStreamPartDelayMs(0);
   setSuspendedRuns(defaultSuspendedRuns());
 }
 
-function createMockMastraOutput() {
+function createMockMastraOutput(parts: readonly unknown[] = streamParts) {
   let cancelled = false;
   const stream = new ReadableStream({
     cancel() {
@@ -183,7 +196,7 @@ function createMockMastraOutput() {
     },
     async start(controller) {
       let delivered = 0;
-      for (const part of streamParts) {
+      for (const part of parts) {
         if (streamPartDelayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, streamPartDelayMs));
         }
@@ -334,7 +347,7 @@ export const mastraAgentModuleMock = {
       if (streamFailure?.call === this.streamCalls.length) {
         throw streamFailure.error;
       }
-      return createMockMastraOutput();
+      return createMockMastraOutput(streamPartsForCall.get(this.streamCalls.length) ?? streamParts);
     }
 
     async approveToolCall(options: unknown) {

@@ -24,6 +24,7 @@ describe('terminal tool run events carry the measured duration', () => {
       includeCacheTokenClasses: false,
       outputOnlyToolEvents: new Map(),
       requiresBilledCost: false,
+      sawModelContribution: true,
       sawStepBilledCost: false,
       sawStepWithoutBilledCost: false,
       stepBilledCostUsd: 0,
