@@ -14,12 +14,17 @@ function createHarness() {
   const listeners = new Set<() => void>();
   const state = {
     activeTabId: null as string | null,
+    editorState: {} as WorkspaceSnapshotV1['editors'][string],
+    expandedPaths: new Set<string>(),
+    explorerScrollTop: undefined as number | undefined,
+    focusedRootId: null as string | null,
     openAppIds: ['context-explorer'] as readonly string[],
     selection: { appId: 'context-explorer', kind: 'app' } as const as
       | { kind: 'app'; appId: string }
       | { kind: 'file'; tabId: string }
       | { kind: 'empty' },
     tabs: [] as Array<{ compositeKey: string; path: string }>,
+    visibleRootIds: null as readonly string[] | null,
   };
   const applied: string[] = [];
   const facade: WorkspaceStateFacade = {
@@ -28,25 +33,34 @@ function createHarness() {
       state.selection = selection;
       applied.push('apps');
     }),
-    applyEditorState: vi.fn(),
-    applyExpandedPaths: vi.fn(),
-    applyExplorerScrollTop: vi.fn(),
+    applyEditorState: vi.fn((_compositeKey, editor) => {
+      state.editorState = editor;
+    }),
+    applyExpandedPaths: vi.fn((paths) => {
+      state.expandedPaths = paths;
+    }),
+    applyExplorerScrollTop: vi.fn((scrollTop) => {
+      state.explorerScrollTop = scrollTop;
+    }),
     applyFileTabs: vi.fn((tabs, activeTabId) => {
       state.tabs = [...tabs];
       state.activeTabId = activeTabId;
       applied.push('fileTabs');
     }),
     applyPanes: vi.fn(),
-    applyRootViews: vi.fn(),
-    getEditorState: vi.fn(() => ({})),
-    getExpandedDirectoryPaths: vi.fn(() => new Set<string>()),
-    getExplorerScrollTop: vi.fn(() => undefined),
+    applyRootViews: vi.fn((focusedRootId, visibleRootIds) => {
+      state.focusedRootId = focusedRootId;
+      state.visibleRootIds = visibleRootIds;
+    }),
+    getEditorState: vi.fn(() => state.editorState),
+    getExpandedDirectoryPaths: vi.fn(() => state.expandedPaths),
+    getExplorerScrollTop: vi.fn(() => state.explorerScrollTop),
     getFileTabs: vi.fn(() => ({ activeTabId: state.activeTabId, tabs: state.tabs })),
-    getFocusedRootId: vi.fn(() => null),
+    getFocusedRootId: vi.fn(() => state.focusedRootId),
     getOpenAppIds: vi.fn(() => state.openAppIds),
     getRootDescriptors: vi.fn(() => ({})),
     getSelection: vi.fn(() => state.selection),
-    getVisibleRootIds: vi.fn(() => null),
+    getVisibleRootIds: vi.fn(() => state.visibleRootIds),
   };
   const rows = new Map<string, WorkspaceSnapshotV1>();
   const repository: ThreadWorkspaceRepository = {
@@ -325,6 +339,89 @@ describe('useThreadWorkspaceCoordinator', () => {
 
     expect(harness.facade.applyPanes).toHaveBeenCalledWith({ kb: { open: false } });
     expect(harness.rows.get('thread-a')?.editors).toEqual({ kb: { pane: { open: false } } });
+  });
+
+  it('preserves non-pane live edits made during initial hydration', async () => {
+    const harness = createHarness();
+    harness.state.activeTabId = 'kb';
+    harness.state.editorState = { mode: 'preview', pane: { open: true }, scrollTop: 1 };
+    harness.state.expandedPaths = new Set(['/root/old']);
+    harness.state.explorerScrollTop = 2;
+    harness.state.focusedRootId = 'root-old';
+    harness.state.tabs = [{ compositeKey: 'kb', path: 'b.ts' }];
+    harness.state.visibleRootIds = ['root-old'];
+    const loaded: WorkspaceSnapshotV1 = {
+      ...OPEN_PANE_SNAPSHOT,
+      apps: { openAppIds: ['changes'], selection: { appId: 'changes', kind: 'app' } },
+      editors: { kb: { mode: 'preview', pane: { open: true }, scrollTop: 20 } },
+      explorer: { byRoot: { 'root-loaded': { expandedPaths: ['/root/loaded'] } }, scrollTop: 30 },
+      roots: { focusedRootId: 'root-loaded', visibleRootIds: ['root-loaded'] },
+    };
+    let resolveHydration: ((snapshot: WorkspaceSnapshotV1 | null) => void) | undefined;
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHydration = resolve;
+        })
+    );
+
+    render(harness, 'thread-a');
+    act(() => {
+      harness.state.editorState = { mode: 'source', pane: { open: true }, scrollTop: 9 };
+      harness.state.expandedPaths = new Set(['/root/user']);
+      harness.state.explorerScrollTop = 8;
+      harness.state.focusedRootId = 'root-user';
+      harness.state.openAppIds = ['database'];
+      harness.state.selection = { appId: 'database', kind: 'app' };
+      harness.state.visibleRootIds = ['root-user'];
+      harness.notify();
+    });
+    await act(async () => {
+      resolveHydration?.(loaded);
+      await Promise.resolve();
+    });
+
+    expect(harness.rows.get('thread-a')).toEqual({
+      ...loaded,
+      apps: { openAppIds: ['database'], selection: { appId: 'database', kind: 'app' } },
+      editors: { kb: { mode: 'source', pane: { open: true }, scrollTop: 9 } },
+      explorer: { byRoot: { '': { expandedPaths: ['/root/user'] } }, scrollTop: 8 },
+      roots: { focusedRootId: 'root-user', visibleRootIds: ['root-user'] },
+    });
+  });
+
+  it('preserves a live file-tab change atomically with its editor state', async () => {
+    const harness = createHarness();
+    harness.state.activeTabId = 'ka';
+    harness.state.editorState = { mode: 'preview', scrollTop: 1 };
+    harness.state.tabs = [{ compositeKey: 'ka', path: 'a.ts' }];
+    let resolveHydration: ((snapshot: WorkspaceSnapshotV1 | null) => void) | undefined;
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHydration = resolve;
+        })
+    );
+
+    render(harness, 'thread-a');
+    act(() => {
+      harness.state.activeTabId = 'kc';
+      harness.state.editorState = { mode: 'source', pane: { open: false }, scrollTop: 7 };
+      harness.state.tabs = [{ compositeKey: 'kc', path: 'c.ts' }];
+      harness.notify();
+    });
+    await act(async () => {
+      resolveHydration?.(OPEN_PANE_SNAPSHOT);
+      await Promise.resolve();
+    });
+
+    expect(harness.rows.get('thread-a')?.fileTabs).toEqual({
+      activeTabId: 'kc',
+      tabs: [{ compositeKey: 'kc', path: 'c.ts' }],
+    });
+    expect(harness.rows.get('thread-a')?.editors).toEqual({
+      kc: { mode: 'source', pane: { open: false }, scrollTop: 7 },
+    });
   });
 
   it('does not merge a boot pane edit for a tab absent from the loaded snapshot', async () => {

@@ -28,19 +28,70 @@ export interface ThreadWorkspaceCoordinatorOptions {
 
 type SnapshotEditors = Readonly<Record<string, WorkspaceSnapshotEditor>>;
 type MutableSnapshotEditors = Record<string, WorkspaceSnapshotEditor>;
-interface PaneHydrationRecord {
-  readonly editors: SnapshotEditors;
+interface BootHydrationRecord {
+  readonly snapshot: WorkspaceSnapshotV1;
   readonly threadId: string;
 }
 
-function capturePaneEditors(facade: WorkspaceStateFacade): MutableSnapshotEditors {
-  const editors: MutableSnapshotEditors = {};
-  for (const [compositeKey, editor] of Object.entries(captureWorkspaceSnapshot(facade).editors)) {
-    if (editor.pane) {
-      editors[compositeKey] = { pane: editor.pane };
+function stringListsMatch(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function nullableStringListsMatch(
+  left: readonly string[] | null,
+  right: readonly string[] | null
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+  return stringListsMatch(left, right);
+}
+
+function selectionsMatch(
+  left: WorkspaceSnapshotV1['apps']['selection'],
+  right: WorkspaceSnapshotV1['apps']['selection']
+): boolean {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  if (left.kind === 'app' && right.kind === 'app') {
+    return left.appId === right.appId;
+  }
+  if (left.kind === 'file' && right.kind === 'file') {
+    return left.tabId === right.tabId;
+  }
+  return true;
+}
+
+function fileTabsMatch(
+  left: WorkspaceSnapshotV1['fileTabs']['tabs'],
+  right: WorkspaceSnapshotV1['fileTabs']['tabs']
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (tab, index) =>
+        tab.compositeKey === right[index]?.compositeKey && tab.path === right[index]?.path
+    )
+  );
+}
+
+function expansionsMatch(
+  left: WorkspaceSnapshotV1['explorer']['byRoot'],
+  right: WorkspaceSnapshotV1['explorer']['byRoot']
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightKeys = Object.keys(right);
+  if (leftEntries.length !== rightKeys.length) {
+    return false;
+  }
+  for (const [rootId, entry] of leftEntries) {
+    const rightEntry = right[rootId];
+    if (!(rightEntry && stringListsMatch(entry.expandedPaths, rightEntry.expandedPaths))) {
+      return false;
     }
   }
-  return editors;
+  return true;
 }
 
 function panesMatch(
@@ -54,64 +105,144 @@ function panesMatch(
   );
 }
 
-function capturePaneEdits(
-  baseline: SnapshotEditors,
-  facade: WorkspaceStateFacade
-): MutableSnapshotEditors | null {
-  const live = capturePaneEditors(facade);
-  const edits: MutableSnapshotEditors = {};
-  for (const [compositeKey, editor] of Object.entries(live)) {
-    if (!panesMatch(baseline[compositeKey]?.pane, editor.pane)) {
-      edits[compositeKey] = editor;
-    }
-  }
-  return Object.keys(edits).length > 0 ? edits : null;
-}
-
-function mergePaneEditsIntoSnapshot(
+function mergeEditorEdits(
   snapshot: WorkspaceSnapshotV1,
-  paneEdits: SnapshotEditors
-): WorkspaceSnapshotV1 | null {
-  const openTabKeys = new Set(snapshot.fileTabs.tabs.map((tab) => tab.compositeKey));
+  baseline: WorkspaceSnapshotV1,
+  live: WorkspaceSnapshotV1
+): { readonly changed: boolean; readonly editors: SnapshotEditors } {
+  const loadedTabKeys = new Set(snapshot.fileTabs.tabs.map((tab) => tab.compositeKey));
   const editors: MutableSnapshotEditors = { ...snapshot.editors };
   let changed = false;
-  for (const [compositeKey, editor] of Object.entries(paneEdits)) {
-    if (!(editor.pane && openTabKeys.has(compositeKey))) {
+  for (const compositeKey of loadedTabKeys) {
+    const baselineEditor = baseline.editors[compositeKey];
+    const liveEditor = live.editors[compositeKey];
+    if (!(baselineEditor && liveEditor)) {
       continue;
     }
-    editors[compositeKey] = {
-      ...editors[compositeKey],
-      pane: editor.pane,
-    };
-    changed = true;
+    let editor: WorkspaceSnapshotEditor = { ...editors[compositeKey] };
+    if (baselineEditor.mode !== liveEditor.mode) {
+      const { mode: _mode, ...withoutMode } = editor;
+      editor =
+        liveEditor.mode === undefined ? withoutMode : { ...withoutMode, mode: liveEditor.mode };
+      changed = true;
+    }
+    if (!panesMatch(baselineEditor.pane, liveEditor.pane)) {
+      const { pane: _pane, ...withoutPane } = editor;
+      editor =
+        liveEditor.pane === undefined ? withoutPane : { ...withoutPane, pane: liveEditor.pane };
+      changed = true;
+    }
+    if (baselineEditor.scrollTop !== liveEditor.scrollTop) {
+      const { scrollTop: _scrollTop, ...withoutScrollTop } = editor;
+      editor =
+        liveEditor.scrollTop === undefined
+          ? withoutScrollTop
+          : { ...withoutScrollTop, scrollTop: liveEditor.scrollTop };
+      changed = true;
+    }
+    editors[compositeKey] = editor;
   }
-  return changed ? { ...snapshot, editors } : null;
+  return { changed, editors };
 }
 
-function preparePaneHydrationBaseline(
+function mergeExplorerEdits(
+  snapshot: WorkspaceSnapshotV1,
+  baseline: WorkspaceSnapshotV1,
+  live: WorkspaceSnapshotV1
+): { readonly changed: boolean; readonly explorer: WorkspaceSnapshotV1['explorer'] } {
+  const expansionsChanged = !expansionsMatch(baseline.explorer.byRoot, live.explorer.byRoot);
+  const scrollChanged = baseline.explorer.scrollTop !== live.explorer.scrollTop;
+  const byRoot = expansionsChanged ? live.explorer.byRoot : snapshot.explorer.byRoot;
+  const scrollTop = scrollChanged ? live.explorer.scrollTop : snapshot.explorer.scrollTop;
+  return {
+    changed: expansionsChanged || scrollChanged,
+    explorer: scrollTop === undefined ? { byRoot } : { byRoot, scrollTop },
+  };
+}
+
+function mergeBootEditsIntoSnapshot(
+  snapshot: WorkspaceSnapshotV1,
+  baseline: WorkspaceSnapshotV1,
+  live: WorkspaceSnapshotV1
+): WorkspaceSnapshotV1 | null {
+  let changed = false;
+
+  const openAppIdsChanged = !stringListsMatch(baseline.apps.openAppIds, live.apps.openAppIds);
+  const selectionChanged = !selectionsMatch(baseline.apps.selection, live.apps.selection);
+  const apps = {
+    openAppIds: openAppIdsChanged ? live.apps.openAppIds : snapshot.apps.openAppIds,
+    selection: selectionChanged ? live.apps.selection : snapshot.apps.selection,
+  };
+  changed ||= openAppIdsChanged || selectionChanged;
+
+  const tabSetChanged = !fileTabsMatch(baseline.fileTabs.tabs, live.fileTabs.tabs);
+  const loadedTabKeys = new Set(snapshot.fileTabs.tabs.map((tab) => tab.compositeKey));
+  const activeTabChanged =
+    baseline.fileTabs.activeTabId !== live.fileTabs.activeTabId &&
+    (live.fileTabs.activeTabId === null || loadedTabKeys.has(live.fileTabs.activeTabId));
+  const fileTabs = tabSetChanged
+    ? live.fileTabs
+    : {
+        activeTabId: activeTabChanged ? live.fileTabs.activeTabId : snapshot.fileTabs.activeTabId,
+        tabs: snapshot.fileTabs.tabs,
+      };
+  changed ||= tabSetChanged || activeTabChanged;
+
+  const editorMerge = tabSetChanged
+    ? { changed: true, editors: live.editors }
+    : mergeEditorEdits(snapshot, baseline, live);
+  changed ||= editorMerge.changed;
+
+  const explorerMerge = mergeExplorerEdits(snapshot, baseline, live);
+  changed ||= explorerMerge.changed;
+
+  const focusedRootChanged = baseline.roots.focusedRootId !== live.roots.focusedRootId;
+  const visibleRootsChanged = !nullableStringListsMatch(
+    baseline.roots.visibleRootIds,
+    live.roots.visibleRootIds
+  );
+  const roots = {
+    focusedRootId: focusedRootChanged ? live.roots.focusedRootId : snapshot.roots.focusedRootId,
+    visibleRootIds: visibleRootsChanged ? live.roots.visibleRootIds : snapshot.roots.visibleRootIds,
+  };
+  changed ||= focusedRootChanged || visibleRootsChanged;
+
+  return changed
+    ? {
+        ...snapshot,
+        apps,
+        editors: editorMerge.editors,
+        explorer: explorerMerge.explorer,
+        fileTabs,
+        roots,
+      }
+    : null;
+}
+
+function prepareBootHydrationBaseline(
   activeThreadId: string | null,
-  preserveLiveBootPanes: boolean,
-  baseline: PaneHydrationRecord | null,
+  preserveLiveBootEdits: boolean,
+  baseline: BootHydrationRecord | null,
   facade: WorkspaceStateFacade
-): PaneHydrationRecord | null {
-  if (activeThreadId === null || !preserveLiveBootPanes) {
+): BootHydrationRecord | null {
+  if (activeThreadId === null || !preserveLiveBootEdits) {
     return null;
   }
   if (baseline?.threadId === activeThreadId) {
     return baseline;
   }
-  return { editors: capturePaneEditors(facade), threadId: activeThreadId };
+  return { snapshot: captureWorkspaceSnapshot(facade), threadId: activeThreadId };
 }
 
-function shouldPreserveLiveBootPanes(
+function shouldPreserveLiveBootEdits(
   activeThreadId: string | null,
   hasActivatedThread: boolean,
   isDeferredBootHydration: boolean,
-  pendingBootPreservePanes: boolean
+  pendingBootPreserveEdits: boolean
 ): boolean {
   return (
     (activeThreadId !== null && !hasActivatedThread) ||
-    (isDeferredBootHydration && pendingBootPreservePanes)
+    (isDeferredBootHydration && pendingBootPreserveEdits)
   );
 }
 
@@ -149,10 +280,10 @@ export function useThreadWorkspaceCoordinator({
   const hydrationThreadRef = useRef<string | null>(null);
   /** Thread whose boot hydration was deferred because the DB was not ready. */
   const pendingBootHydrateRef = useRef<string | null>(null);
-  /** Whether deferred boot hydration may preserve pane edits made while waiting for the DB. */
-  const pendingBootPreservePanesRef = useRef(false);
-  /** Pane state at the start of boot hydration, used to identify later user edits. */
-  const hydrationPaneBaselineRef = useRef<PaneHydrationRecord | null>(null);
+  /** Whether deferred boot hydration may preserve live edits made while waiting for the DB. */
+  const pendingBootPreserveEditsRef = useRef(false);
+  /** Workspace state at boot-hydration start, used to identify later user edits. */
+  const bootHydrationBaselineRef = useRef<BootHydrationRecord | null>(null);
   const hasActivatedThreadRef = useRef(false);
   const previousThreadIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -263,25 +394,25 @@ export function useThreadWorkspaceCoordinator({
       return;
     }
 
-    const preserveLiveBootPanes = shouldPreserveLiveBootPanes(
+    const preserveLiveBootEdits = shouldPreserveLiveBootEdits(
       activeThreadId,
       hasActivatedThreadRef.current,
       isDeferredBootHydration,
-      pendingBootPreservePanesRef.current
+      pendingBootPreserveEditsRef.current
     );
     if (activeThreadId !== null) {
       hasActivatedThreadRef.current = true;
     }
     pendingBootHydrateRef.current = null;
-    pendingBootPreservePanesRef.current = false;
+    pendingBootPreserveEditsRef.current = false;
     previousThreadIdRef.current = activeThreadId;
     switchIntentRef.current += 1;
     const intent = switchIntentRef.current;
 
-    hydrationPaneBaselineRef.current = preparePaneHydrationBaseline(
+    bootHydrationBaselineRef.current = prepareBootHydrationBaseline(
       activeThreadId,
-      preserveLiveBootPanes,
-      hydrationPaneBaselineRef.current,
+      preserveLiveBootEdits,
+      bootHydrationBaselineRef.current,
       facadeRef.current
     );
 
@@ -314,8 +445,8 @@ export function useThreadWorkspaceCoordinator({
       if (hydrationThreadRef.current === activeThreadId) {
         hydrationThreadRef.current = null;
       }
-      if (hydrationPaneBaselineRef.current?.threadId === activeThreadId) {
-        hydrationPaneBaselineRef.current = null;
+      if (bootHydrationBaselineRef.current?.threadId === activeThreadId) {
+        bootHydrationBaselineRef.current = null;
       }
     };
     const hydrate = (snapshot: WorkspaceSnapshotV1) => {
@@ -328,15 +459,15 @@ export function useThreadWorkspaceCoordinator({
       }
     };
     const hydrateLoadedSnapshot = (snapshot: WorkspaceSnapshotV1) => {
-      const baseline = hydrationPaneBaselineRef.current;
-      if (preserveLiveBootPanes && baseline?.threadId === activeThreadId) {
-        const paneEdits = capturePaneEdits(baseline.editors, facadeRef.current);
-        const merged = paneEdits ? mergePaneEditsIntoSnapshot(snapshot, paneEdits) : null;
+      const baseline = bootHydrationBaselineRef.current;
+      if (preserveLiveBootEdits && baseline?.threadId === activeThreadId) {
+        const live = captureWorkspaceSnapshot(facadeRef.current);
+        const merged = mergeBootEditsIntoSnapshot(snapshot, baseline.snapshot, live);
         if (merged) {
           cacheRef.current.set(activeThreadId, merged);
           hydrate(merged);
           repository?.setThreadWorkspace(activeThreadId, resourceId, merged).catch((error) => {
-            logger.error('Failed to persist live pane state after workspace hydration', {
+            logger.error('Failed to persist live edits after workspace hydration', {
               error: error instanceof Error ? error.message : String(error),
               threadId: activeThreadId,
             });
@@ -360,7 +491,7 @@ export function useThreadWorkspaceCoordinator({
       // thread so hydration runs when the repository arrives — session-only
       // state (per-tab panes) has no other restore path.
       pendingBootHydrateRef.current = activeThreadId;
-      pendingBootPreservePanesRef.current = preserveLiveBootPanes;
+      pendingBootPreserveEditsRef.current = preserveLiveBootEdits;
       return;
     }
     hydrationThreadRef.current = activeThreadId;
