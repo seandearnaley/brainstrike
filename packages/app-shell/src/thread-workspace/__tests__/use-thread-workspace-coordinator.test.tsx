@@ -424,6 +424,37 @@ describe('useThreadWorkspaceCoordinator', () => {
     });
   });
 
+  it('persists pending live edits when initial hydration rejects', async () => {
+    const harness = createHarness();
+    let rejectHydration: ((error: Error) => void) | undefined;
+    vi.mocked(harness.repository.getThreadWorkspace).mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectHydration = reject;
+        })
+    );
+
+    render(harness, 'thread-a');
+    act(() => {
+      harness.state.activeTabId = 'ka';
+      harness.state.editorState = { mode: 'source', scrollTop: 12 };
+      harness.state.tabs = [{ compositeKey: 'ka', path: 'a.ts' }];
+      harness.notify();
+    });
+    await act(async () => {
+      rejectHydration?.(new Error('database read failed'));
+      await Promise.resolve();
+    });
+
+    expect(harness.rows.get('thread-a')?.fileTabs).toEqual({
+      activeTabId: 'ka',
+      tabs: [{ compositeKey: 'ka', path: 'a.ts' }],
+    });
+    expect(harness.rows.get('thread-a')?.editors).toEqual({
+      ka: { mode: 'source', scrollTop: 12 },
+    });
+  });
+
   it('does not merge a boot pane edit for a tab absent from the loaded snapshot', async () => {
     const harness = createHarness();
     harness.state.activeTabId = 'ka';

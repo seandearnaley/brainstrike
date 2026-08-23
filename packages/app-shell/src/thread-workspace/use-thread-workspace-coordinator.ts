@@ -32,6 +32,10 @@ interface BootHydrationRecord {
   readonly snapshot: WorkspaceSnapshotV1;
   readonly threadId: string;
 }
+interface PendingHydrationSave {
+  readonly intent: number;
+  readonly threadId: string;
+}
 
 function stringListsMatch(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -262,8 +266,9 @@ function shouldPreserveLiveBootEdits(
  * - preloads snapshots for all OPEN thread tabs so switching is instant;
  * - prunes cache entries for threads that are no longer open (delete/close).
  *
- * Repository failures log + toast upstream and never wedge switching: the
- * live stores remain correct and the row heals on the next debounce.
+ * Repository failures log + toast upstream and never wedge switching: pending
+ * live edits persist immediately on a failed initial read, while the stores
+ * remain the working authority.
  */
 export function useThreadWorkspaceCoordinator({
   activeThreadId,
@@ -284,6 +289,8 @@ export function useThreadWorkspaceCoordinator({
   const pendingBootPreserveEditsRef = useRef(false);
   /** Workspace state at boot-hydration start, used to identify later user edits. */
   const bootHydrationBaselineRef = useRef<BootHydrationRecord | null>(null);
+  /** A live edit suppressed behind the current initial snapshot read. */
+  const pendingHydrationSaveRef = useRef<PendingHydrationSave | null>(null);
   const hasActivatedThreadRef = useRef(false);
   const previousThreadIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -315,10 +322,11 @@ export function useThreadWorkspaceCoordinator({
       if (hydratingRef.current) {
         return;
       }
-      if (
-        hydrationThreadRef.current === activeThreadId ||
-        pendingBootHydrateRef.current === activeThreadId
-      ) {
+      if (hydrationThreadRef.current === activeThreadId) {
+        pendingHydrationSaveRef.current = {
+          intent: switchIntentRef.current,
+          threadId: activeThreadId,
+        };
         return;
       }
       if (saveTimerRef.current !== null) {
@@ -408,6 +416,10 @@ export function useThreadWorkspaceCoordinator({
     previousThreadIdRef.current = activeThreadId;
     switchIntentRef.current += 1;
     const intent = switchIntentRef.current;
+    if (!isDeferredBootHydration) {
+      hydrationThreadRef.current = null;
+      pendingHydrationSaveRef.current = null;
+    }
 
     bootHydrationBaselineRef.current = prepareBootHydrationBaseline(
       activeThreadId,
@@ -442,12 +454,12 @@ export function useThreadWorkspaceCoordinator({
     }
 
     const clearHydrationTracking = () => {
-      if (hydrationThreadRef.current === activeThreadId) {
-        hydrationThreadRef.current = null;
+      if (switchIntentRef.current !== intent) {
+        return;
       }
-      if (bootHydrationBaselineRef.current?.threadId === activeThreadId) {
-        bootHydrationBaselineRef.current = null;
-      }
+      hydrationThreadRef.current = null;
+      bootHydrationBaselineRef.current = null;
+      pendingHydrationSaveRef.current = null;
     };
     const hydrate = (snapshot: WorkspaceSnapshotV1) => {
       hydratingRef.current = true;
@@ -518,8 +530,23 @@ export function useThreadWorkspaceCoordinator({
         });
       })
       .catch((error) => {
+        const hasPendingSave =
+          pendingHydrationSaveRef.current?.intent === intent &&
+          pendingHydrationSaveRef.current.threadId === activeThreadId;
         if (switchIntentRef.current === intent) {
           clearHydrationTracking();
+          if (hasPendingSave) {
+            const pending = captureWorkspaceSnapshot(facadeRef.current);
+            cacheRef.current.set(activeThreadId, pending);
+            repository
+              .setThreadWorkspace(activeThreadId, resourceId, pending)
+              .catch((saveError) => {
+                logger.error('Failed to persist live edits after workspace hydration failure', {
+                  error: saveError instanceof Error ? saveError.message : String(saveError),
+                  threadId: activeThreadId,
+                });
+              });
+          }
         }
         logger.error('Failed to load thread workspace snapshot', {
           error: error instanceof Error ? error.message : String(error),
