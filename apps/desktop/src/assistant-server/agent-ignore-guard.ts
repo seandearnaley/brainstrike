@@ -1,6 +1,11 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createWorkspaceIgnoreMatcher, type WorkspaceIgnoreSources } from '@brainstrike/utils';
+import {
+  ancestorDirectoriesBetween,
+  findRepositoryRoot,
+  relativePosixPrefix,
+} from './repository-root';
 
 /**
  * The HARD agent-ignore layers, queryable by arbitrary path (BST-1432).
@@ -91,6 +96,20 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
     Promise<ReturnType<typeof createWorkspaceIgnoreMatcher>>
   >();
 
+  /** Agent ignore files in one ABSOLUTE directory (used for parents). */
+  const readSourcesAt = async (absolute: string): Promise<WorkspaceIgnoreSources> => {
+    const sources: WorkspaceIgnoreSources = {};
+    await Promise.all(
+      AGENT_IGNORE_FILES.map(async ([fileName, layer]) => {
+        const contents = await readIgnoreFile(path.join(absolute, fileName));
+        if (contents !== undefined) {
+          sources[layer] = contents;
+        }
+      })
+    );
+    return sources;
+  };
+
   const readSources = (relativeDirectory: string): Promise<WorkspaceIgnoreSources> => {
     const cached = sourcesByDirectory.get(relativeDirectory);
     if (cached) {
@@ -116,6 +135,35 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
     return pending;
   };
 
+  /**
+   * Agent ignore files in the directories ABOVE the workspace root, from the
+   * enclosing repository root down. Resolved once per guard.
+   *
+   * Without this the boundary stopped at whatever folder the user happened to
+   * open: a repo-root `.llmignore` protecting `packages/web/secrets/` did
+   * nothing once `packages/web` was the root (BST-1435). The walk reads the
+   * same chain, so the two agree — otherwise protection would depend on which
+   * tool the model reached for.
+   */
+  let parentScopesPromise: Promise<{ pathPrefix: string; sources: WorkspaceIgnoreSources }[]>;
+  const parentScopes = () => {
+    parentScopesPromise ??= (async () => {
+      const repositoryRoot = await findRepositoryRoot(canonicalRootPath);
+      if (repositoryRoot === undefined) {
+        return [];
+      }
+      const directories = ancestorDirectoriesBetween(repositoryRoot, canonicalRootPath);
+      const scopes = await Promise.all(
+        directories.map(async (directory) => ({
+          pathPrefix: relativePosixPrefix(directory, canonicalRootPath),
+          sources: await readSourcesAt(directory),
+        }))
+      );
+      return scopes.filter((scope) => Object.keys(scope.sources).length > 0);
+    })();
+    return parentScopesPromise;
+  };
+
   // A file's verdict depends only on its PARENT directory's scope chain, so the
   // assembled matcher is cached per directory rather than rebuilt per candidate.
   const matcherFor = (
@@ -127,8 +175,15 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
     }
     const pending = (async () => {
       const chain = ancestorDirectories(relativeDirectory);
-      const sources = await Promise.all(chain.map((directory) => readSources(directory)));
+      const [parents, sources] = await Promise.all([
+        parentScopes(),
+        Promise.all(chain.map((directory) => readSources(directory))),
+      ]);
       const matcher = createWorkspaceIgnoreMatcher();
+      // Outermost first: repo-root parents, then the opened root downward.
+      for (const scope of parents) {
+        matcher.push('', scope.sources, { pathPrefix: scope.pathPrefix });
+      }
       chain.forEach((directory, index) => {
         matcher.push(directory, sources[index] ?? {});
       });
@@ -166,38 +221,24 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
  * whole value is that the user can predict what the agent saw. The refusal
  * names the file that caused it so the user can find and edit the rule.
  */
-/**
- * Guards reused across calls, keyed by root.
+/*
+ * NO PROCESS-WIDE GUARD CACHE. It was here for one release and is deliberately
+ * gone (BST-1435).
  *
- * `assertNotAgentIgnored` is the SINGLE-path entry point — the shared reader
- * calls it once per file, and `reindex-side-effects`, workspace-context and the
- * LSP tools call that in loops. Building a fresh guard each time discarded the
- * per-directory cache before it paid off: `2 x (depth + 1)` `readFile` attempts
- * per read, nearly all ENOENT, before the file itself is opened.
+ * Caching guards by root saved `2 x (depth + 1)` mostly-ENOENT opens per read,
+ * and cost the only thing that matters: a `.llmignore` written AFTER the first
+ * query was never seen until restart. That is not an edge case, it is the
+ * primary user story — notice the agent read something, add it to
+ * `.llmignore`, ask again. The justification at the time ("it cannot loosen on
+ * its own") named the wrong safety property: tightening is what the user is
+ * doing, and tightening is exactly what the cache dropped.
  *
- * Cached for the PROCESS, which trades a window of staleness for that. The
- * trade is only acceptable in one direction, and it happens to be the safe one:
- * a rule ADDED after first use is missed until restart, but a rule already in
- * force is never forgotten, so the boundary cannot loosen on its own. Callers
- * that must observe an edit immediately (a settings action, factory reset)
- * should call {@link resetAgentIgnoreGuardCache}.
+ * Batch callers still share ONE guard for the duration of a single operation —
+ * `dropAgentIgnored` and the excluded-path probe both construct one and query
+ * it many times. That keeps the per-directory cache paying off where the reads
+ * actually cluster, and bounds staleness to a single tool call rather than to
+ * the lifetime of the process.
  */
-const guardsByRoot = new Map<string, AgentIgnoreGuard>();
-
-function guardFor(canonicalRootPath: string): AgentIgnoreGuard {
-  const cached = guardsByRoot.get(canonicalRootPath);
-  if (cached) {
-    return cached;
-  }
-  const guard = createAgentIgnoreGuard(canonicalRootPath);
-  guardsByRoot.set(canonicalRootPath, guard);
-  return guard;
-}
-
-/** Drop every cached guard, so the next query re-reads the ignore files. */
-export function resetAgentIgnoreGuardCache(): void {
-  guardsByRoot.clear();
-}
 
 export async function assertNotAgentIgnored(args: {
   canonicalRootPath: string;
@@ -214,7 +255,7 @@ export async function assertNotAgentIgnored(args: {
    */
   canonicalAbsolutePath?: string | undefined;
 }): Promise<void> {
-  const guard = guardFor(args.canonicalRootPath);
+  const guard = createAgentIgnoreGuard(args.canonicalRootPath);
   const candidates = await agentIgnoreCandidatePaths(args);
   // Resolved together: the request and the canonical target are independent
   // queries, and either one being excluded blocks the read, so there is nothing
