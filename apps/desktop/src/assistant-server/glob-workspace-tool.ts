@@ -174,6 +174,24 @@ function buildExcludedSteer(args: {
   return 'No matches, but excluded paths (build output or gitignored files) match this pattern. Retry with includeIgnored: true to see them.';
 }
 
+/**
+ * Prefix a root-failure note onto the hint.
+ *
+ * Reported ALWAYS and ahead of everything else: "no matches" and "one root
+ * could not be searched" are different answers, and conflating them tells the
+ * model files do not exist when the truth is that nobody looked.
+ */
+function withRootFailureNote(
+  hint: string | undefined,
+  failedRoots: readonly string[]
+): string | undefined {
+  if (failedRoots.length === 0) {
+    return hint;
+  }
+  const note = `Some roots could not be searched and are NOT represented in these results: ${failedRoots.join('; ')}.`;
+  return hint ? `${note} ${hint}` : note;
+}
+
 function buildResult(args: {
   /** The match window to page over (already capped to `offset + limit`). */
   windowMatches: readonly GlobWorkspaceMatch[];
@@ -192,6 +210,8 @@ function buildResult(args: {
   includeIgnored: boolean;
   /** Whether an EXCLUDED path could have satisfied the pattern. */
   excludedCouldMatch: boolean;
+  /** Roots that could not be searched at all, described for the model. */
+  failedRoots: readonly string[];
 }): GlobWorkspaceToolResult {
   const {
     windowMatches,
@@ -201,6 +221,7 @@ function buildResult(args: {
     scanLimited,
     includeIgnored,
     excludedCouldMatch,
+    failedRoots,
   } = args;
   const pagedMatches = windowMatches.slice(offset);
   // The hint is built INSIDE the fitted candidate so it can never push the
@@ -234,6 +255,7 @@ function buildResult(args: {
           `${scanNote}` +
           (moreThanPaged ? ` Continue with offset: ${nextOffset}, or narrow the pattern.` : '')
         : excludedSteer.trim() || undefined;
+    const finalHint = withRootFailureNote(hint, failedRoots);
     return {
       count: matches.length,
       matches,
@@ -242,7 +264,7 @@ function buildResult(args: {
       totalMatches,
       truncated,
       ...topology,
-      ...(hint ? { hint } : {}),
+      ...(finalHint ? { hint: finalHint } : {}),
     };
   });
   return result;
@@ -272,11 +294,27 @@ export async function runGlobWorkspace(
   const allMatches: GlobWorkspaceMatch[] = [];
   let scanLimited = false;
   let excludedCouldMatch = false;
+  // Per-root isolation. A root whose agent ignore rules cannot be read must
+  // fail CLOSED — but only for itself. Root A's `.llmignore` says nothing about
+  // root B's files, so aborting the whole call discards B's already-computed
+  // matches and buys no safety. The failure is NAMED in the result rather than
+  // swallowed, so the model is never told "no matches" when the truth is
+  // "one root could not be searched" (BST-1436 review).
+  const failedRoots: string[] = [];
   for (const root of roots) {
-    const state = await walkRoot({ includeIgnored, matcher, root });
-    allMatches.push(...state.matches);
-    scanLimited = scanLimited || state.scanLimited;
-    excludedCouldMatch = excludedCouldMatch || state.excludedCouldMatch;
+    try {
+      const state = await walkRoot({ includeIgnored, matcher, root });
+      allMatches.push(...state.matches);
+      scanLimited = scanLimited || state.scanLimited;
+      excludedCouldMatch = excludedCouldMatch || state.excludedCouldMatch;
+    } catch (error) {
+      failedRoots.push(`${root.displayName}: ${(error as Error).message}`);
+    }
+  }
+  if (failedRoots.length === roots.length) {
+    // Nothing was searched at all; a bare empty result would read as "these
+    // files do not exist".
+    throw new Error(failedRoots.join(' | '));
   }
 
   // Stable ordering across roots: by root name, then by path.
@@ -290,6 +328,7 @@ export async function runGlobWorkspace(
   const limited = allMatches.slice(0, offset + limit);
   return buildResult({
     excludedCouldMatch,
+    failedRoots,
     includeIgnored,
     offset,
     scanLimited,

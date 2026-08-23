@@ -54,18 +54,49 @@ const AGENT_IGNORE_FILES = [
  * boundary exists to prevent, arriving through the door marked robustness.
  * EACCES/EIO on a file the user put there to hide secrets must stop the read.
  */
-async function readIgnoreFile(absolutePath: string): Promise<string | undefined> {
+async function readIgnoreFile(
+  absolutePath: string,
+  displayName: string
+): Promise<string | undefined> {
+  try {
+    const stat = await fsPromises.lstat(absolutePath);
+    if (!stat.isFile()) {
+      // A directory or FIFO with this name carries no rules, and reading it
+      // would throw EISDIR or block forever — bricking every guarded read in
+      // the workspace. Absent, not unreadable. Mirrors the walk.
+      return;
+    }
+  } catch (error) {
+    if (isAbsent(error)) {
+      return;
+    }
+    throw unreadable(displayName, error);
+  }
   try {
     return await fsPromises.readFile(absolutePath, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isAbsent(error)) {
       return;
     }
-    throw new Error(
-      `Cannot read agent ignore file "${absolutePath}": ${(error as Error).message}. Refusing to proceed, because treating it as absent would grant access it exists to deny.`,
-      { cause: error }
-    );
+    throw unreadable(displayName, error);
   }
+}
+
+function isAbsent(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR';
+}
+
+/**
+ * `displayName` is never an absolute path: this message reaches the model and
+ * therefore the provider, and a parent-chain file can sit entirely outside the
+ * workspace.
+ */
+function unreadable(displayName: string, cause: unknown): Error {
+  return new Error(
+    `Cannot read the agent ignore file at ${displayName} (${(cause as NodeJS.ErrnoException).code ?? 'unknown error'}). Refusing to proceed, because treating it as absent would grant access it exists to deny.`,
+    { cause }
+  );
 }
 
 /**
@@ -101,7 +132,10 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
     const sources: WorkspaceIgnoreSources = {};
     await Promise.all(
       AGENT_IGNORE_FILES.map(async ([fileName, layer]) => {
-        const contents = await readIgnoreFile(path.join(absolute, fileName));
+        const contents = await readIgnoreFile(
+          path.join(absolute, fileName),
+          `a parent directory (${fileName})`
+        );
         if (contents !== undefined) {
           sources[layer] = contents;
         }
@@ -123,7 +157,10 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
       const sources: WorkspaceIgnoreSources = {};
       await Promise.all(
         AGENT_IGNORE_FILES.map(async ([fileName, layer]) => {
-          const contents = await readIgnoreFile(path.join(absolute, fileName));
+          const contents = await readIgnoreFile(
+            path.join(absolute, fileName),
+            relativeDirectory === '' ? fileName : `${relativeDirectory}/${fileName}`
+          );
           if (contents !== undefined) {
             sources[layer] = contents;
           }
@@ -145,17 +182,33 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
    * same chain, so the two agree — otherwise protection would depend on which
    * tool the model reached for.
    */
+  // Resolved once per guard: every in-root read below is relative to it, and
+  // repository discovery must start from it rather than the presentation path.
+  let canonicalRootPromise: Promise<string> | undefined;
+  const canonicalRootPathOnce = (): Promise<string> => {
+    canonicalRootPromise ??= fsPromises.realpath(canonicalRootPath).catch(() => canonicalRootPath);
+    return canonicalRootPromise;
+  };
+
   let parentScopesPromise: Promise<{ pathPrefix: string; sources: WorkspaceIgnoreSources }[]>;
   const parentScopes = () => {
     parentScopesPromise ??= (async () => {
-      const repositoryRoot = await findRepositoryRoot(canonicalRootPath);
+      // CANONICALIZE FIRST. Direct-read callers pass the root's stored
+      // presentation path, which the root registry deliberately keeps
+      // un-resolved; the walk canonicalizes before doing any of this. When the
+      // opened folder is reached through a symlink, discovering the repository
+      // from the lexical path walks the wrong ancestors and misses the real
+      // parent `.llmignore` — so `readWorkspaceFile` would serve a file glob
+      // correctly excludes. The two paths must agree (BST-1436 review).
+      const canonicalRoot = await canonicalRootPathOnce();
+      const repositoryRoot = await findRepositoryRoot(canonicalRoot);
       if (repositoryRoot === undefined) {
         return [];
       }
-      const directories = ancestorDirectoriesBetween(repositoryRoot, canonicalRootPath);
+      const directories = ancestorDirectoriesBetween(repositoryRoot, canonicalRoot);
       const scopes = await Promise.all(
         directories.map(async (directory) => ({
-          pathPrefix: relativePosixPrefix(directory, canonicalRootPath),
+          pathPrefix: relativePosixPrefix(directory, canonicalRoot),
           sources: await readSourcesAt(directory),
         }))
       );
@@ -212,15 +265,6 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
   };
 }
 
-/**
- * The single refusal for a direct read of an agent-ignored file.
- *
- * THROWS rather than returning empty content. A read that silently yields
- * nothing teaches the model the file is empty, and it will confidently report
- * that — a fabricated fact, and the worst possible outcome for a boundary whose
- * whole value is that the user can predict what the agent saw. The refusal
- * names the file that caused it so the user can find and edit the rule.
- */
 /*
  * NO PROCESS-WIDE GUARD CACHE. It was here for one release and is deliberately
  * gone (BST-1435).
@@ -240,6 +284,15 @@ export function createAgentIgnoreGuard(canonicalRootPath: string): AgentIgnoreGu
  * the lifetime of the process.
  */
 
+/**
+ * The single refusal for a direct read of an agent-ignored file.
+ *
+ * THROWS rather than returning empty content. A read that silently yields
+ * nothing teaches the model the file is empty, and it will confidently report
+ * that — a fabricated fact, and the worst possible outcome for a boundary whose
+ * whole value is that the user can predict what the agent saw. The refusal
+ * names the file that caused it so the user can find and edit the rule.
+ */
 export async function assertNotAgentIgnored(args: {
   canonicalRootPath: string;
   /** The path as REQUESTED (workspace-relative; a leading slash is fine). */

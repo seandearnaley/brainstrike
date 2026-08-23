@@ -16,7 +16,19 @@ export async function findRepositoryRoot(startAbsolutePath: string): Promise<str
     try {
       await fsPromises.stat(path.join(current, '.git'));
       return current;
-    } catch {
+    } catch (error) {
+      // ONLY absence continues the search. EACCES/EIO here means we cannot tell
+      // whether a repository — and therefore an inherited `.llmignore` — sits
+      // above this point, and answering "no repository" would silently drop the
+      // whole parent chain. That is the same fail-open the agent layers exist to
+      // rule out, one level further back (BST-1436 review).
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        throw new Error(
+          `Cannot determine the repository root while resolving inherited ignore rules (${code ?? 'unknown error'}). Refusing to continue, because a parent .llmignore may apply.`,
+          { cause: error }
+        );
+      }
       const parent = path.dirname(current);
       if (parent === current) {
         return;

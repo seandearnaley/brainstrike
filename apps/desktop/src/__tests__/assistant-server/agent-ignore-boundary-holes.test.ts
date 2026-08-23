@@ -13,7 +13,7 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAgentIgnoreGuard } from '../../assistant-server/agent-ignore-guard';
 import { runGlobWorkspace } from '../../assistant-server/glob-workspace-tool';
-import { singleRootRuntime } from './_tool-test-helpers';
+import { singleRootRuntime as singleRoot } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
@@ -25,6 +25,13 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 
 const createdRoots: string[] = [];
 
+/**
+ * `chmod 0o000` cannot express "unreadable" on Windows (it only toggles the
+ * read-only bit) or as root (mode bits are bypassed). Those environments must
+ * report SKIPPED rather than failing and reading as "the fix is broken".
+ */
+const canDenyReads = process.platform !== 'win32' && process.getuid?.() !== 0;
+
 async function makeWorkspace(files: Record<string, string>, prefix = 'bs-holes-'): Promise<string> {
   const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), prefix));
   createdRoots.push(root);
@@ -34,10 +41,6 @@ async function makeWorkspace(files: Record<string, string>, prefix = 'bs-holes-'
     await fsPromises.writeFile(absolute, contents, 'utf8');
   }
   return root;
-}
-
-function singleRoot(rootPath: string): RuntimeData {
-  return singleRootRuntime(rootPath);
 }
 
 function paths(result: { matches: ReadonlyArray<{ path: string }> }): string[] {
@@ -55,37 +58,43 @@ afterEach(async () => {
 });
 
 describe('HOLE 1 — an unreadable .llmignore must STOP the walk, not widen it', () => {
-  it('refuses the glob rather than listing files the unreadable rules covered', async () => {
-    // The walk's reader warned and carried on. For the BYPASSABLE layers that
-    // is right: the cost is a wider walk. For the agent layers the cost is the
-    // protected file being listed, indexed, and sent — the whole failure the
-    // file exists to prevent, reached by a permissions error.
-    const root = await makeWorkspace({
-      '.llmignore': 'secrets/\n',
-      'docs/real.md': '',
-      'secrets/key.md': '',
-    });
-    await fsPromises.chmod(path.join(root, '.llmignore'), 0o000);
-    try {
-      await expect(runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root))).rejects.toThrow(
-        /agent ignore file/i
-      );
-    } finally {
-      await fsPromises.chmod(path.join(root, '.llmignore'), 0o644);
+  it.skipIf(!canDenyReads)(
+    'refuses the glob rather than listing files the unreadable rules covered',
+    async () => {
+      // The walk's reader warned and carried on. For the BYPASSABLE layers that
+      // is right: the cost is a wider walk. For the agent layers the cost is the
+      // protected file being listed, indexed, and sent — the whole failure the
+      // file exists to prevent, reached by a permissions error.
+      const root = await makeWorkspace({
+        '.llmignore': 'secrets/\n',
+        'docs/real.md': '',
+        'secrets/key.md': '',
+      });
+      await fsPromises.chmod(path.join(root, '.llmignore'), 0o000);
+      try {
+        await expect(runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root))).rejects.toThrow(
+          /agent ignore file/i
+        );
+      } finally {
+        await fsPromises.chmod(path.join(root, '.llmignore'), 0o644);
+      }
     }
-  });
+  );
 
-  it('still tolerates an unreadable .gitignore, which only costs a wider walk', async () => {
-    // The asymmetry is the point, so it is pinned rather than left implied.
-    const root = await makeWorkspace({ '.gitignore': 'vendor-cache/\n', 'docs/real.md': '' });
-    await fsPromises.chmod(path.join(root, '.gitignore'), 0o000);
-    try {
-      const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
-      expect(paths(result)).toEqual(['/docs/real.md']);
-    } finally {
-      await fsPromises.chmod(path.join(root, '.gitignore'), 0o644);
+  it.skipIf(!canDenyReads)(
+    'still tolerates an unreadable .gitignore, which only costs a wider walk',
+    async () => {
+      // The asymmetry is the point, so it is pinned rather than left implied.
+      const root = await makeWorkspace({ '.gitignore': 'vendor-cache/\n', 'docs/real.md': '' });
+      await fsPromises.chmod(path.join(root, '.gitignore'), 0o000);
+      try {
+        const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+        expect(paths(result)).toEqual(['/docs/real.md']);
+      } finally {
+        await fsPromises.chmod(path.join(root, '.gitignore'), 0o644);
+      }
     }
-  });
+  );
 });
 
 describe('HOLE 2 — a .llmignore added AFTER the first query must take effect', () => {
@@ -153,4 +162,81 @@ describe('HOLE 3 — a .llmignore ABOVE the opened root must still bind', () => 
     const guard = createAgentIgnoreGuard(path.join(repo, 'workspace'));
     expect(await guard.ignoresFile('secrets/key.md')).toBe(true);
   });
+});
+
+describe('REGRESSION GUARDS for the fail-closed reader (BST-1436 review)', () => {
+  it('does not BRICK the workspace when a DIRECTORY is named .llmignore', async () => {
+    // Fail-closed turned a harmless on-disk state into a permanent, in-app
+    // unrecoverable failure: `readFile` on a directory gives EISDIR, which the
+    // agent reader threw on, so every glob, grep and guarded read in the
+    // workspace failed forever. A non-regular file carries no rules; it is
+    // ABSENT, not unreadable. This mirrors the `isFile()` discipline
+    // `readDirectoryIgnoreSources` already applies inside the root.
+    const repo = await makeWorkspace({ 'workspace/src/real.md': '' });
+    await fsPromises.mkdir(path.join(repo, '.git'), { recursive: true });
+    await fsPromises.mkdir(path.join(repo, '.llmignore'), { recursive: true });
+
+    const result = await runGlobWorkspace(
+      { pattern: '**/*.md' },
+      singleRoot(path.join(repo, 'workspace'))
+    );
+    expect(paths(result)).toEqual(['/src/real.md']);
+  });
+
+  it('does not brick the direct-read guard either', async () => {
+    const repo = await makeWorkspace({ 'workspace/src/real.md': '' });
+    await fsPromises.mkdir(path.join(repo, '.git'), { recursive: true });
+    await fsPromises.mkdir(path.join(repo, '.llmignore'), { recursive: true });
+
+    const guard = createAgentIgnoreGuard(path.join(repo, 'workspace'));
+    expect(await guard.ignoresFile('src/real.md')).toBe(false);
+  });
+
+  it.skipIf(!canDenyReads)(
+    'does not fail OTHER roots because one root has an unreadable .llmignore',
+    async () => {
+      // Root A's ignore file says nothing about root B's files, so failing B
+      // closed buys no safety — it just discards B's already-computed matches
+      // and fails the whole tool call.
+      const bad = await makeWorkspace({ '.llmignore': 'x/\n', 'a.md': '' });
+      const good = await makeWorkspace({ 'b.md': '' });
+      await fsPromises.chmod(path.join(bad, '.llmignore'), 0o000);
+      try {
+        const runtime = {
+          workspaceRoots: [
+            { displayName: 'bad', path: bad, rootId: 'r-bad' },
+            { displayName: 'good', path: good, rootId: 'r-good' },
+          ],
+        } as unknown as RuntimeData;
+        const result = await runGlobWorkspace({ pattern: '**/*.md' }, runtime);
+        // The healthy root still answers...
+        expect(result.matches.map((m) => m.path).join(',')).toContain('b.md');
+        // ...and the failure is NAMED, never silently dropped.
+        expect(JSON.stringify(result)).toMatch(/bad/);
+      } finally {
+        await fsPromises.chmod(path.join(bad, '.llmignore'), 0o644);
+      }
+    }
+  );
+
+  it.skipIf(!canDenyReads)(
+    'does not put an absolute path from ABOVE the workspace root in the error',
+    async () => {
+      // The message goes back to the model, i.e. to the provider. A parent-chain
+      // path can name directories outside the workspace entirely
+      // (`/Users/alice/private-work/.llmignore`).
+      const repo = await makeWorkspace({ 'workspace/a.md': '' });
+      await fsPromises.mkdir(path.join(repo, '.git'), { recursive: true });
+      await fsPromises.writeFile(path.join(repo, '.llmignore'), 'x/\n', 'utf8');
+      await fsPromises.chmod(path.join(repo, '.llmignore'), 0o000);
+      try {
+        await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(path.join(repo, 'workspace')));
+        throw new Error('expected the glob to refuse');
+      } catch (error) {
+        expect((error as Error).message).not.toContain(repo);
+      } finally {
+        await fsPromises.chmod(path.join(repo, '.llmignore'), 0o644);
+      }
+    }
+  );
 });
