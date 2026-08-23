@@ -3,6 +3,7 @@ import {
   __resetAssistantMemoryPreferencesStoreForTests,
   useAssistantMemoryPreferencesStore,
 } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
@@ -355,5 +356,56 @@ describe('AssistantMemorySettingsSection', () => {
     await user.click(screen.getByRole('switch', { name: /enable semantic recall/i }));
 
     expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.enabled).toBe(false);
+  });
+
+  describe('cross-provider observer egress', () => {
+    const selectChatModel = (compositeKey: string) => {
+      useAssistantPreferencesStore.setState({ selectedModel: compositeKey });
+    };
+    const chooseObserver = (target: string) => {
+      useAssistantMemoryPreferencesStore.setState((state) => ({
+        observationalMemory: { ...state.observationalMemory, modelTarget: target },
+      }));
+    };
+
+    it('warns when a MANUAL observer names a provider the chat does not use', () => {
+      // Auto carries an explicit guarantee — "the conversation never reaches a
+      // provider that is not already receiving it". A manual target silently
+      // drops it, so a user who read the auto copy would reasonably assume it
+      // still holds. Observed live: chat on openrouter, observer on
+      // openai/gpt-5.6-luna, across two debug bundles.
+      selectChatModel('openrouter::stealth/ox-alpha');
+      chooseObserver('openai/gpt-5.4-mini');
+      renderMemorySettings();
+
+      const warning = screen.getByTestId('assistant-memory-cross-provider-observer');
+      expect(warning).toHaveTextContent(/openai/i);
+      expect(warning).toHaveTextContent(/openrouter/i);
+    });
+
+    it('stays silent when the observer shares the chat provider', () => {
+      selectChatModel('openai::gpt-5.4');
+      chooseObserver('openai/gpt-5.4-mini');
+      renderMemorySettings();
+
+      expect(screen.queryByTestId('assistant-memory-cross-provider-observer')).toBeNull();
+    });
+
+    it('stays silent on AUTO, which cannot cross providers by construction', () => {
+      selectChatModel('openrouter::stealth/ox-alpha');
+      chooseObserver('auto');
+      renderMemorySettings();
+
+      expect(screen.queryByTestId('assistant-memory-cross-provider-observer')).toBeNull();
+    });
+
+    it('stays silent when no chat model is selected yet', () => {
+      // Nothing to compare against; a warning here would be noise on first run.
+      useAssistantPreferencesStore.setState({ selectedModel: null });
+      chooseObserver('openai/gpt-5.4-mini');
+      renderMemorySettings();
+
+      expect(screen.queryByTestId('assistant-memory-cross-provider-observer')).toBeNull();
+    });
   });
 });
