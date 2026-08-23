@@ -598,6 +598,17 @@ were local-dev constants x a flat 2.0 multiplier with no CI-derived floors):
   surface, or its scope cannot be measured.
 - A calibrated-lane breach is a REAL signal: file it as a regression ticket
   with the measured values, do not bump the floor to silence it.
+- Browser interaction helpers keep their complete sample inside the page. The
+  default `measureLocatorInteractionFrames` contract retains each element and
+  fails if React detaches it. Recursive folder selection deliberately uses the
+  narrower `measureNamedCheckboxInteractionFrame` boundary: it resolves one
+  checkbox by exact `aria-label` before the click and again after two animation
+  frames, then verifies the replacement's checked state. This permits the
+  folder row's expected replacement without admitting Playwright transport
+  time or weakening detach detection for stable rows. Its single sample is the
+  same interaction-to-paint quantity as `CHECKBOX_FRAME_MAX_MS`; the paired
+  `performance-benchmark-contract.vitest.ts` test pins the named benchmark,
+  known fixture count, and calibrated sibling budget.
 
 BST-369 adds a worker-memory **structural bound**, not a locally invented CI
 latency floor. On runtime-calibration head `156c0b052`, this command ran three
