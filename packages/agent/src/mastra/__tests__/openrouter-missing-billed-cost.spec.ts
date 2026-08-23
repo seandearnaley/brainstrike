@@ -1,3 +1,4 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import { createDelegationLifecycleTracker } from '../subagent-delegation';
 import { makeFinishChunk, type ToolLifecycleState } from '../tool-lifecycle-processors';
@@ -90,5 +91,53 @@ describe('OpenRouter finish without a provider-reported cost', () => {
     ) as { billedCostUsd?: number };
 
     expect(chunk.billedCostUsd).toBe(0);
+  });
+
+  it('names the PARTIAL case and logs the amount it discards', () => {
+    // `stepBilledCostUsd` here is real provider-reported spend the turn total
+    // cannot honestly use. Dropping it silently defeats the point of the
+    // warning — and it is not a corner case: `sawStepWithoutBilledCost` is
+    // carried across retry attempts, so ONE cost-less step anywhere in a
+    // multi-attempt turn drops the whole turn's known spend.
+    const records: LogRecord[] = [];
+    const remove = addLogListener((record) => records.push(record));
+    try {
+      makeFinishChunk(
+        finishPart,
+        lifecycleState({
+          sawStepBilledCost: true,
+          sawStepWithoutBilledCost: true,
+          stepBilledCostUsd: 0.004,
+        })
+      );
+    } finally {
+      remove();
+    }
+
+    const warning = records.find(
+      (record) =>
+        record.level === LogLevel.WARN && JSON.stringify(record).includes('only some steps')
+    );
+    expect(warning).toBeDefined();
+    expect(JSON.stringify(warning)).toContain('discardedPartialCostUsd');
+    expect(JSON.stringify(warning)).toContain('0.004');
+  });
+
+  it('does NOT claim a partial when nothing was reported', () => {
+    const records: LogRecord[] = [];
+    const remove = addLogListener((record) => records.push(record));
+    try {
+      makeFinishChunk(finishPart, lifecycleState({ sawStepWithoutBilledCost: true }));
+    } finally {
+      remove();
+    }
+
+    const warning = records.find(
+      (record) =>
+        record.level === LogLevel.WARN &&
+        JSON.stringify(record).includes('provider_billed_cost_unreported')
+    );
+    expect(JSON.stringify(warning)).toContain('no billed cost');
+    expect(JSON.stringify(warning)).not.toContain('discardedPartialCostUsd');
   });
 });

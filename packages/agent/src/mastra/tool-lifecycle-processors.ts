@@ -172,12 +172,29 @@ function resolveBilledCostUsd(
     lifecycleState.sawStepWithoutBilledCost ||
     (!lifecycleState.sawStepBilledCost && finishCost === undefined);
   if (costIsUnknown) {
-    logger.warn('Provider reported no billed cost; recording the turn cost as unknown', {
-      code: 'provider_billed_cost_unreported',
-      sawStepBilledCost: lifecycleState.sawStepBilledCost,
-      sawStepWithoutBilledCost: lifecycleState.sawStepWithoutBilledCost,
-      stepCount: lifecycleState.stepCount,
-    });
+    // The PARTIAL case is called out separately, and carries the amount being
+    // dropped. `stepBilledCostUsd` there holds real provider-reported spend
+    // that the turn total cannot honestly use — but "we discarded $0.004 of
+    // known cost" is exactly the thing a field investigation needs to see, and
+    // a message saying "no billed cost" would be false on that branch.
+    //
+    // It matters more than it looks: `sawStepWithoutBilledCost` is carried
+    // across retry attempts, so ONE cost-less step anywhere in a multi-attempt
+    // turn drops the whole turn's known spend to unknown.
+    logger.warn(
+      lifecycleState.sawStepBilledCost
+        ? 'Provider reported a cost for only some steps; recording the turn cost as unknown'
+        : 'Provider reported no billed cost; recording the turn cost as unknown',
+      {
+        code: 'provider_billed_cost_unreported',
+        ...(lifecycleState.sawStepBilledCost
+          ? { discardedPartialCostUsd: lifecycleState.stepBilledCostUsd }
+          : {}),
+        sawStepBilledCost: lifecycleState.sawStepBilledCost,
+        sawStepWithoutBilledCost: lifecycleState.sawStepWithoutBilledCost,
+        stepCount: lifecycleState.stepCount,
+      }
+    );
     return;
   }
   return lifecycleState.sawStepBilledCost ? lifecycleState.stepBilledCostUsd : finishCost;
