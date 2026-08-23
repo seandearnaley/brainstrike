@@ -639,7 +639,7 @@ must be preserved:
   a bare path carries no directory signal. Asking the file form when deciding
   whether to descend returns false, the walk enters the tree, and it then
   rejects every file inside one at a time — which is the cap starvation this
-  exists to prevent. `GitignoreMatcher` therefore exposes `ignoresDirectory`
+  exists to prevent. `createWorkspaceIgnoreMatcher` therefore exposes `ignoresDirectory`
   and `ignoresFile` as separate methods rather than one convenience call.
 - **Nested `.gitignore` files scope to their own subtree**, pushed on entry and
   popped on exit, outermost-first so a deeper file can re-include what an outer
