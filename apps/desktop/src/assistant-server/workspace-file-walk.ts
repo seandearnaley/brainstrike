@@ -48,10 +48,12 @@ export interface WalkRootOptions {
    * "nothing matched because what you asked for is excluded". Without it a glob
    * for an excluded path returns a bare `0 matches`, which is the silent
    * failure this walk change exists to remove, not a new place to reintroduce
-   * it. Pruned directories are reported INSTEAD of their contents (the walk
-   * never descends), so callers should treat a directory as a prefix.
+   * it. `isDirectory` distinguishes the two cases a caller must treat
+   * differently: a pruned DIRECTORY is reported INSTEAD of its contents (the
+   * walk never descends), so it is only a PREFIX of whatever it holds, while an
+   * excluded FILE is the whole path.
    */
-  onExcluded?: (relativePath: string) => void;
+  onExcluded?: (relativePath: string, isDirectory: boolean) => void;
   /** Invoked once per kept regular file. */
   onFile: (file: WalkedFile) => void;
   /**
@@ -275,7 +277,7 @@ interface WalkContext {
   /** Layered ignore scopes, present only when the caller opted in. */
   ignores?: WorkspaceIgnoreMatcher;
   includeIgnored: boolean;
-  onExcluded: ((relativePath: string) => void) | undefined;
+  onExcluded: ((relativePath: string, isDirectory: boolean) => void) | undefined;
   onFile: (file: WalkedFile) => void;
   policy: IndexingEntryPolicy;
   scanLimited: boolean;
@@ -318,7 +320,7 @@ function recordFile(
       })
     )
   ) {
-    ctx.onExcluded?.(childRelative);
+    ctx.onExcluded?.(childRelative, false);
     return;
   }
   ctx.onFile({ absolutePath: childAbsolute, relativePath: childRelative });
@@ -420,6 +422,34 @@ function shouldTraverse(ctx: WalkContext, name: string, childRelative: string): 
   );
 }
 
+/**
+ * Whether an exclusion may be REPORTED to the caller via `onExcluded`.
+ *
+ * Only exclusions `includeIgnored` could actually lift qualify. The two that do
+ * not, and why silence is correct for each:
+ *
+ * - `.git` — never traversed regardless of the flag, so "retry with
+ *   includeIgnored" is advice that cannot work.
+ * - the HARD agent layers — same dead end, plus a disclosure: reporting the
+ *   path tells the caller SOMETHING exists where the user asked for nothing to
+ *   be visible, which is most of what `.llmignore` was bought for. A boundary
+ *   that hides contents while announcing their location is not one.
+ *
+ * The file gate is silent for the same reason — see `recordFile`, where a hard
+ * verdict returns before any report.
+ */
+function reportableExclusion(
+  ctx: WalkContext,
+  name: string,
+  childRelative: string,
+  asDirectory: boolean
+): boolean {
+  if (name === '.git') {
+    return false;
+  }
+  return ctx.ignores?.ignoresHard(childRelative, asDirectory) !== true;
+}
+
 async function visitDirectoryEntries(
   ctx: WalkContext,
   currentAbsolutePath: string,
@@ -437,12 +467,10 @@ async function visitDirectoryEntries(
     if (dirent.isDirectory()) {
       if (shouldTraverse(ctx, dirent.name, childRelative)) {
         await visitDirectory(ctx, childAbsolute, childRelative);
-      } else if (dirent.name !== '.git') {
+      } else if (reportableExclusion(ctx, dirent.name, childRelative, true)) {
         // Reported INSTEAD of its contents: the walk stops here by design, so
         // this path is the only evidence a caller gets that the subtree exists.
-        // `.git` is left out on purpose — `includeIgnored` cannot reach it
-        // either, so steering a caller toward that flag would be a dead end.
-        ctx.onExcluded?.(childRelative);
+        ctx.onExcluded?.(childRelative, true);
       }
       continue;
     }

@@ -263,6 +263,23 @@ describe('runGlobWorkspace — ignore handling', () => {
     );
     expect(result.count).toBe(0);
     expect(result.hint ?? '').not.toMatch(/includeIgnored/);
+  });
+
+  it('does NOT steer to includeIgnored for an agent-ignored path (BST-1432)', async () => {
+    // Two reasons, either sufficient. The advice would be a DEAD END — the hard
+    // layers are the one exclusion includeIgnored cannot bypass, so the retry
+    // returns nothing and burns a turn. And it would LEAK: telling the model
+    // "something excluded matches secrets/**" discloses that something exists
+    // at a path the user asked to be invisible, which is most of what they were
+    // buying. Contrast the .gitignore case above, where the steer is correct.
+    const root = await makeWorkspace(['.llmignore', 'secrets/creds.ts']);
+    await fsPromises.writeFile(path.join(root, '.llmignore'), 'secrets/\n', 'utf8');
+
+    const result = await runGlobWorkspace({ pattern: 'secrets/**' }, singleRoot(root));
+
+    expect(result.count).toBe(0);
+    expect(result.hint ?? '').not.toMatch(/includeIgnored/);
+  });
 
   it('honours .ignore — hide from search, keep in git (BST-1431)', async () => {
     const root = await makeWorkspace(['.ignore', 'fixtures/big.md', 'docs/real.md']);

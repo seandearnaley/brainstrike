@@ -101,6 +101,17 @@ export interface WorkspaceIgnoreMatcher {
   ignoresDirectory(relativePath: string): boolean;
   /** Whether a FILE is ignored, given its workspace-relative POSIX path. */
   ignoresFile(relativePath: string): boolean;
+  /**
+   * Whether the HARD agent layers alone exclude this path — i.e. whether
+   * `includeIgnored` could ever reveal it.
+   *
+   * Callers that tell a user "this was excluded, retry with includeIgnored"
+   * need this: for a hard exclusion that advice is a dead end, and worse, it
+   * discloses that SOMETHING exists at a path the user asked to be invisible.
+   * The distinction lives here because the matcher is the only thing that knows
+   * which layer decided.
+   */
+  ignoresHard(relativePath: string, asDirectory: boolean): boolean;
   /** Leave the most recently pushed scope (the walk is exiting that directory). */
   pop(): void;
   /**
@@ -183,7 +194,8 @@ function applyScope(
   scope: CompiledScope,
   relativePath: string,
   asDirectory: boolean,
-  ignoredSoFar: boolean
+  ignoredSoFar: boolean,
+  hardOnly: boolean
 ): boolean {
   const scoped = relativeToScope(scope.directory, relativePath);
   if (scoped === undefined || scoped === '') {
@@ -194,7 +206,7 @@ function applyScope(
   let ignored = ignoredSoFar;
   // Bypassable before hard: the agent layers are the higher precedence, so a
   // `!` re-include in `.llmignore` can still overturn a `.gitignore` rule.
-  for (const matcher of [scope.bypassable, scope.hard]) {
+  for (const matcher of hardOnly ? [scope.hard] : [scope.bypassable, scope.hard]) {
     const result = matcher?.test(candidate);
     if (result?.ignored) {
       ignored = true;
@@ -211,13 +223,13 @@ export function createWorkspaceIgnoreMatcher(
   const includeIgnored = options?.includeIgnored === true;
   const scopes: CompiledScope[] = [];
 
-  const isIgnored = (relativePath: string, asDirectory: boolean): boolean => {
+  const isIgnored = (relativePath: string, asDirectory: boolean, hardOnly = false): boolean => {
     let ignored = false;
     // Outermost scope first: a deeper `.gitignore` is more specific than its
     // parent, so a deeper verdict must be able to overturn a shallower one
     // (git resolves last-match-wins).
     for (const scope of scopes) {
-      ignored = applyScope(scope, relativePath, asDirectory, ignored);
+      ignored = applyScope(scope, relativePath, asDirectory, ignored, hardOnly);
     }
     return ignored;
   };
@@ -225,6 +237,7 @@ export function createWorkspaceIgnoreMatcher(
   return {
     ignoresDirectory: (relativePath) => isIgnored(relativePath, true),
     ignoresFile: (relativePath) => isIgnored(relativePath, false),
+    ignoresHard: (relativePath, asDirectory) => isIgnored(relativePath, asDirectory, true),
     pop: () => {
       scopes.pop();
     },
