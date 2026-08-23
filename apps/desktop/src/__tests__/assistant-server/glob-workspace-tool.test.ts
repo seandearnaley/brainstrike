@@ -26,6 +26,15 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 
 const createdRoots: string[] = [];
 
+/** Restore an env var to its prior value, deleting it when it was unset. */
+function restoreEnv(key: string, previous: string | undefined): void {
+  if (previous === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = previous;
+}
+
 async function makeWorkspace(
   files: readonly string[],
   prefix = 'brainstrike-glob-unit-'
@@ -277,6 +286,50 @@ describe('runGlobWorkspace — ignore handling', () => {
     await fsPromises.writeFile(path.join(root, '.git', 'info', 'exclude'), 'scratch/\n', 'utf8');
     const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
     expect(paths(result)).toEqual(['/docs/real.md']);
+  });
+
+  it('honours the machine-wide core.excludesFile (BST-1431)', async () => {
+    // Hermetic via git's OWN env seams: GIT_CONFIG_GLOBAL/SYSTEM point git at
+    // empty files so the developer's real global config cannot decide whether
+    // this test passes, and GIT_CONFIG_GLOBAL is then the file we control.
+    const root = await makeWorkspace(['notes.md', 'docs/real.md']);
+    const home = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-git-home-'));
+    createdRoots.push(home);
+    const excludesPath = path.join(home, 'my-excludes');
+    await fsPromises.writeFile(excludesPath, 'notes.md\n', 'utf8');
+    const configPath = path.join(home, 'gitconfig');
+    await fsPromises.writeFile(configPath, `[core]\n\texcludesFile = ${excludesPath}\n`, 'utf8');
+
+    const previousGlobal = process.env['GIT_CONFIG_GLOBAL'];
+    const previousSystem = process.env['GIT_CONFIG_SYSTEM'];
+    process.env['GIT_CONFIG_GLOBAL'] = configPath;
+    process.env['GIT_CONFIG_SYSTEM'] = '/dev/null';
+    try {
+      const result = await runGlobWorkspace({ pattern: '**/*.md' }, singleRoot(root));
+      expect(paths(result)).toEqual(['/docs/real.md']);
+    } finally {
+      restoreEnv('GIT_CONFIG_GLOBAL', previousGlobal);
+      restoreEnv('GIT_CONFIG_SYSTEM', previousSystem);
+    }
+  });
+
+  it('honours a PARENT .gitignore when the root is inside a larger repo (BST-1431)', async () => {
+    // ripgrep reads parent gitignores by default (--no-ignore-parent turns it
+    // off). Without this, opening `packages/api` as a root silently ignores the
+    // repo-root rules that every other tool in the tree obeys.
+    const repo = await makeWorkspace([
+      '.gitignore',
+      'packages/api/scratch/tmp.md',
+      'packages/api/src/real.md',
+    ]);
+    await fsPromises.mkdir(path.join(repo, '.git'), { recursive: true });
+    await fsPromises.writeFile(path.join(repo, '.gitignore'), 'scratch/\n', 'utf8');
+
+    const result = await runGlobWorkspace(
+      { pattern: '**/*.md' },
+      singleRoot(path.join(repo, 'packages', 'api'))
+    );
+    expect(paths(result)).toEqual(['/src/real.md']);
   });
 
   it('honours .llmignore and .brainstrikeignore (BST-1432)', async () => {
