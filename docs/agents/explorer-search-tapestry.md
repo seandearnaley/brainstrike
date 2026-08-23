@@ -219,10 +219,21 @@ via the workspace snapshot `editors[*].pane`).
 - **Reveal is one-shot LOCAL state**, never persisted: `(revealNonce,
   revealPath)` keyed per activation; the header toggle and breadcrumb folder
   clicks bump the nonce (re-clicking the same target re-reveals).
+- **Boot hydration preserves explicit live pane edits.** The active thread may
+  restore before its PGlite workspace snapshot is available. The renderer
+  coordinator suppresses saves during that initial read, diffs the complete
+  live workspace against its boot baseline, and merges pane fields only for
+  tabs admitted by the loaded snapshot (or preserves the live editor map
+  atomically when the user changed the tab set). It then applies panes through
+  the existing wholesale replacement boundary and persists the merged snapshot
+  immediately. This prevents a stale `open: true` row from undoing a manual
+  close without leaking a pane from another thread. The complete ordering and
+  rejection contract lives in `docs/agents/assistant-persistence.md`.
 
 Paired tests: `file-tab-pane-store.test.ts`,
-`file-tab-body-pane.test.tsx`, `apps/web/e2e/file-tab-pane.test.ts`. When
-changing pane semantics, update this section and those tests together.
+`file-tab-body-pane.test.tsx`, `apps/web/e2e/file-tab-pane.test.ts`, and
+`packages/app-shell/src/thread-workspace/__tests__/use-thread-workspace-coordinator.test.tsx`.
+When changing pane semantics, update this section and those tests together.
 
 ---
 
