@@ -109,7 +109,13 @@ function unavailable(failure: ForgeUnavailable): ForgePrStatus {
  * Which transitions this observation represents, given the previous one.
  * `opened` fires once per pull request (no previous observation, or a new
  * number); `merged` when the state becomes merged; `checks` when the rollup
- * moved to a settled verdict. An unchanged observation yields none.
+ * moved to a settled verdict, OR the head sha itself moved (a force-push or a
+ * new commit) — `ForgePrTransition` has no dedicated "new commits" variant,
+ * and the notification layer's `observationKey` already embeds `headSha`
+ * (`<repoCommonDir>\0<branch>\0<headSha>`), so reusing `checks` here still
+ * coalesces correctly: a repeat of the SAME head never re-notifies, while a
+ * new head — settled rollup or not — always produces a fresh coalescing key.
+ * An unchanged observation yields none.
  */
 function diffObservations(
   previous: Observation | undefined,
@@ -122,10 +128,10 @@ function diffObservations(
   if (next.state === 'merged' && previous.state !== 'merged') {
     return ['merged'];
   }
-  if (
+  const checksSettled =
     next.checksRollup !== previous.checksRollup &&
-    (next.checksRollup === 'failing' || next.checksRollup === 'passing')
-  ) {
+    (next.checksRollup === 'failing' || next.checksRollup === 'passing');
+  if (checksSettled || next.headSha !== previous.headSha) {
     return ['checks'];
   }
   return [];
@@ -143,6 +149,13 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
   const lastFailureByKey = new Map<string, ForgeUnavailable>();
   const lastObservationByKey = new Map<string, Observation>();
   const lastNumberByKey = new Map<string, number>();
+  /**
+   * Keys whose observation maps have already been checked against the
+   * durable cache row once this session — see `seedObservationFromCache`.
+   */
+  const seededObservationKeys = new Set<string>();
+  /** In-flight `performFetchAndStore` calls, keyed like `lastFetchAtByKey`. */
+  const inFlightFetchByKey = new Map<string, Promise<ForgePrStatus>>();
   /** repo common dir -> root ids the renderer has actually asked about. */
   const rootIdsByCommonDir = new Map<string, Set<string>>();
 
@@ -219,7 +232,28 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     };
   }
 
-  async function requireGh(target: ResolvedTarget): Promise<ForgeUnavailable | null> {
+  /**
+   * `ghDetection` genuinely is session-scoped for a SUCCESS ("gh either
+   * exists or it does not"), but auth is mutable runtime state the user is
+   * explicitly told to change (`gh auth login --hostname <host>`), and
+   * `probeGhAuth` performs a real network token-validation call — a single
+   * transient DNS/proxy/503 blip must not poison the session. So a FAILURE
+   * (of either check) is never left memoized: it is deleted from its map as
+   * soon as it resolves, and an explicit `user`-reason refresh (the one
+   * affordance offered for "I just fixed this") proactively clears any
+   * cached entry — success included — so it always re-probes rather than
+   * trusting a positive that may since have been revoked.
+   */
+  async function requireGh(
+    target: ResolvedTarget,
+    reason: ForgeRefreshReason | null
+  ): Promise<ForgeUnavailable | null> {
+    if (reason === 'user') {
+      ghAuthByHost.delete(target.host);
+      if (ghDetection && (await ghDetection)) {
+        ghDetection = undefined;
+      }
+    }
     ghDetection ??= detectGhCli(run, target.cwd);
     const detection = await ghDetection;
     if (detection) {
@@ -230,7 +264,11 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       auth = probeGhAuth(run, target.cwd, target.host);
       ghAuthByHost.set(target.host, auth);
     }
-    return await auth;
+    const failure = await auth;
+    if (failure) {
+      ghAuthByHost.delete(target.host);
+    }
+    return failure;
   }
 
   async function readCached(target: ResolvedTarget): Promise<ForgePrStatus> {
@@ -249,18 +287,70 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       return unavailable({ detail, reason: 'fetch-failed' });
     }
     if (!cached) {
-      return failure
-        ? unavailable(failure)
-        : { kind: 'none', observedAt: new Date(now()).toISOString() };
+      // No cached row AND no recorded failure means nothing has ever
+      // answered for this key — not an observed absence. Fabricating
+      // `{ kind: 'none', observedAt: now }` here would lie to any "Last
+      // checked …" affordance built on that timestamp.
+      return failure ? unavailable(failure) : { kind: 'unknown' };
     }
     return failure
       ? { failure, kind: 'stale', observedAt: cached.observedAt, pullRequest: cached.pullRequest }
       : { kind: 'pr', observedAt: cached.observedAt, pullRequest: cached.pullRequest };
   }
 
-  async function fetchAndStore(target: ResolvedTarget): Promise<ForgePrStatus> {
-    const key = cacheKey(target.repoCommonDir, target.branch);
+  /**
+   * Seed `lastObservationByKey`/`lastNumberByKey` from the durable cache row
+   * the FIRST time this process-local service touches a key. Without this, a
+   * fresh service instance (an app restart) diffs every first refresh
+   * against an empty map and reports `opened` for a pull request that was
+   * already known — `brainstrike_forge_prs` exists precisely so restarts
+   * don't lose this. Only ever narrows the map from "no idea" to "this is
+   * what we last stored"; it never overwrites an observation this session
+   * has already recorded from a live `gh` answer.
+   */
+  async function seedObservationFromCache(target: ResolvedTarget, key: string): Promise<void> {
+    if (seededObservationKeys.has(key)) {
+      return;
+    }
+    seededObservationKeys.add(key);
+    if (lastObservationByKey.has(key)) {
+      return;
+    }
+    let cached: Awaited<ReturnType<typeof readForgePrCacheEntry>>;
+    try {
+      cached = await readForgePrCacheEntry(
+        await getDatabase(),
+        target.repoCommonDir,
+        target.branch
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      logger.error('Forge PR cache seed read failed; diffing against no prior observation', {
+        detail,
+        key,
+      });
+      return;
+    }
+    if (!cached) {
+      return;
+    }
+    lastObservationByKey.set(key, {
+      checksRollup: cached.pullRequest.checksRollup,
+      headSha: cached.pullRequest.headSha,
+      state: cached.pullRequest.state,
+    });
+    lastNumberByKey.set(key, cached.pullRequest.number);
+  }
+
+  /** Fetch, diff, persist and push. Wrapped by `fetchAndStore` for in-flight dedup. */
+  async function performFetchAndStore(target: ResolvedTarget, key: string): Promise<ForgePrStatus> {
+    // Stamped unconditionally, before gh even runs: this is what throttles a
+    // `window` refresh, and it stays stamped even if the cache WRITE below
+    // fails — the PR was still successfully fetched and delivered, so a
+    // failed persist must not make a `window` refresh retry sooner than its
+    // floor allows. (`invalidation`/`user` have a 0 ms floor regardless.)
     lastFetchAtByKey.set(key, now());
+    await seedObservationFromCache(target, key);
     const fetched = await fetchForgePullRequest(run, {
       branch: target.branch,
       cwd: target.cwd,
@@ -273,9 +363,17 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     }
     lastFailureByKey.delete(key);
     const observedAt = new Date(now()).toISOString();
-    const database = await getDatabase();
     if (fetched.value === null) {
-      await deleteForgePrCacheEntry(database, target.repoCommonDir, target.branch);
+      try {
+        const database = await getDatabase();
+        await deleteForgePrCacheEntry(database, target.repoCommonDir, target.branch);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        logger.error('Forge PR cache delete failed; a stale cached row may remain', {
+          detail,
+          key,
+        });
+      }
       lastObservationByKey.delete(key);
       lastNumberByKey.delete(key);
       onPrUpdated({
@@ -292,12 +390,25 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       pullRequest,
       lastNumberByKey.get(key)
     );
-    await writeForgePrCacheEntry(database, {
-      branch: target.branch,
-      observedAt,
-      pullRequest,
-      repoCommonDir: target.repoCommonDir,
-    });
+    // The cache is an optimization over a successfully fetched PR: a write
+    // failure degrades to delivering it uncached rather than rejecting a
+    // call that gh already answered. Logged at error (not swallowed) so the
+    // failure is still visible.
+    try {
+      const database = await getDatabase();
+      await writeForgePrCacheEntry(database, {
+        branch: target.branch,
+        observedAt,
+        pullRequest,
+        repoCommonDir: target.repoCommonDir,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      logger.error('Forge PR cache write failed; delivering the fetched pull request uncached', {
+        detail,
+        key,
+      });
+    }
     lastObservationByKey.set(key, {
       checksRollup: pullRequest.checksRollup,
       headSha: pullRequest.headSha,
@@ -313,6 +424,28 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     return { kind: 'pr', observedAt, pullRequest };
   }
 
+  /**
+   * Dedup concurrent refreshes of the same `(repo, branch)` key into one
+   * `performFetchAndStore` call. `invalidation` has a deliberate 0 ms floor,
+   * so a burst of ref-move events (or the same repo tracked under two root
+   * ids) would otherwise spawn one 20 s-timeout `gh` call per event; this
+   * collapses them onto the single in-flight promise instead. The
+   * check-and-set below is synchronous — no `await` in between — so it
+   * cannot race with itself.
+   */
+  function fetchAndStore(target: ResolvedTarget): Promise<ForgePrStatus> {
+    const key = cacheKey(target.repoCommonDir, target.branch);
+    const existing = inFlightFetchByKey.get(key);
+    if (existing) {
+      return existing;
+    }
+    const promise = performFetchAndStore(target, key).finally(() => {
+      inFlightFetchByKey.delete(key);
+    });
+    inFlightFetchByKey.set(key, promise);
+    return promise;
+  }
+
   async function statusFor(
     rootId: string,
     reason: ForgeRefreshReason | null
@@ -325,7 +458,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       return { ok: true, value: unavailable(resolved.value.failure) };
     }
     const target = resolved.value;
-    const ghFailure = await requireGh(target);
+    const ghFailure = await requireGh(target, reason);
     if (ghFailure) {
       return { ok: true, value: unavailable(ghFailure) };
     }

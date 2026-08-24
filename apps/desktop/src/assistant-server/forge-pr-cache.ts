@@ -104,10 +104,16 @@ function readState(value: unknown): ForgePullRequest['state'] {
 }
 
 function readReviewDecision(value: unknown): ForgePullRequest['reviewDecision'] {
+  if (value === null) {
+    return null;
+  }
   if (value === 'APPROVED' || value === 'CHANGES_REQUESTED' || value === 'REVIEW_REQUIRED') {
     return value;
   }
-  return null;
+  // Like every other reader in this file: an unreadable column throws rather
+  // than silently coercing to null, which would render a genuine (if
+  // unrecognized) review decision as "no review yet".
+  throw new Error(`Cached forge PR has an unrecognized review decision "${String(value)}".`);
 }
 
 function readObservedAt(value: unknown): string {

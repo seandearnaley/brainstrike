@@ -86,6 +86,11 @@ export interface ForgeUnavailable {
  * - `none` — a successful observation that found no PR for this branch.
  * - `unavailable` — no observation is possible at all; no chip, reason shown
  *   in the BranchChip's forge diagnostic.
+ * - `unknown` — never observed: no `gh` call has answered for this key yet
+ *   (no cached row, no recorded failure). Distinct from `none` on purpose —
+ *   `none` is an OBSERVED absence with a real `observedAt`, and fabricating
+ *   one for "we simply haven't looked" would lie to a "Last checked …"
+ *   affordance built on that timestamp.
  */
 export type ForgePrStatus =
   | {
@@ -96,7 +101,8 @@ export type ForgePrStatus =
     }
   | { readonly failure: ForgeUnavailable; readonly kind: 'unavailable' }
   | { readonly kind: 'none'; readonly observedAt: string }
-  | { readonly kind: 'pr'; readonly observedAt: string; readonly pullRequest: ForgePullRequest };
+  | { readonly kind: 'pr'; readonly observedAt: string; readonly pullRequest: ForgePullRequest }
+  | { readonly kind: 'unknown' };
 
 export type ForgeResult<T> =
   | { readonly error: string; readonly ok: false }

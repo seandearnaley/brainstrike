@@ -29,7 +29,7 @@ describe('createPinnedGhEnvironment', () => {
     expect(env['PATH']).toBe('/usr/bin');
   });
 
-  it('drops inherited GH_* redirection but keeps the audited auth/config keys', () => {
+  it('drops inherited GH_* redirection but keeps GH_CONFIG_DIR and github.com tokens', () => {
     const env = createPinnedGhEnvironment(
       {
         GH_CONFIG_DIR: '/cfg',
@@ -37,14 +37,39 @@ describe('createPinnedGhEnvironment', () => {
         GH_HOST: 'evil.test',
         GH_REPO: 'evil/repo',
         GH_TOKEN: 'tok',
+        GITHUB_ENTERPRISE_TOKEN: 'gh-ent',
+        GITHUB_TOKEN: 'gh-tok',
       },
       'github.com'
     );
     expect(env['GH_HOST']).toBe('github.com');
     expect(env['GH_REPO']).toBeUndefined();
     expect(env['GH_TOKEN']).toBe('tok');
-    expect(env['GH_ENTERPRISE_TOKEN']).toBe('ent');
+    expect(env['GITHUB_TOKEN']).toBe('gh-tok');
     expect(env['GH_CONFIG_DIR']).toBe('/cfg');
+    // Never forwarded, on any host — see the dedicated enterprise-host test below.
+    expect(env['GH_ENTERPRISE_TOKEN']).toBeUndefined();
+    expect(env['GITHUB_ENTERPRISE_TOKEN']).toBeUndefined();
+  });
+
+  it('SECURITY: never forwards any of the four token vars to a non-github.com host, even when all are set', () => {
+    const env = createPinnedGhEnvironment(
+      {
+        GH_ENTERPRISE_TOKEN: 'ent',
+        GH_TOKEN: 'tok',
+        GITHUB_ENTERPRISE_TOKEN: 'gh-ent',
+        GITHUB_TOKEN: 'gh-tok',
+      },
+      'ghes.example.com'
+    );
+    // GH_HOST is derived from the opened repository's own remote, not user
+    // input — an attacker-controlled `origin` pointing at a GHES host must
+    // never be handed a token go-gh would resolve for github.com or for the
+    // user's real enterprise host.
+    expect(env['GH_TOKEN']).toBeUndefined();
+    expect(env['GITHUB_TOKEN']).toBeUndefined();
+    expect(env['GH_ENTERPRISE_TOKEN']).toBeUndefined();
+    expect(env['GITHUB_ENTERPRISE_TOKEN']).toBeUndefined();
   });
 });
 
