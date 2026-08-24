@@ -261,6 +261,105 @@ describe('useAssistantThreadStore tab sessions', () => {
     );
   });
 
+  it('applies an older successful refresh when a newer refresh returns no threads', async () => {
+    const defaultThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:00Z'),
+      title: 'New Thread',
+    };
+    const generatedThread = {
+      ...defaultThread,
+      title: 'Paris Weather Chat',
+      updatedAt: new Date('2026-04-22T10:00:02Z'),
+    };
+    const repository = createRepository([defaultThread]);
+    const olderRefreshResult = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    vi.mocked(repository.listThreads)
+      .mockReturnValueOnce(olderRefreshResult.promise)
+      .mockResolvedValueOnce([]);
+
+    const olderRefresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore.getState().refreshResourceThreads(repository, workspaceId);
+    olderRefreshResult.resolve([generatedThread]);
+    await olderRefresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris Weather Chat'
+    );
+  });
+
+  it('applies an older successful refresh when a newer refresh rejects', async () => {
+    const defaultThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:00Z'),
+      title: 'New Thread',
+    };
+    const generatedThread = {
+      ...defaultThread,
+      title: 'Paris Weather Chat',
+      updatedAt: new Date('2026-04-22T10:00:02Z'),
+    };
+    const repository = createRepository([defaultThread]);
+    const olderRefreshResult = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    vi.mocked(repository.listThreads)
+      .mockReturnValueOnce(olderRefreshResult.promise)
+      .mockRejectedValueOnce(new Error('list failed'));
+
+    const olderRefresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    await expect(
+      useAssistantThreadStore.getState().refreshResourceThreads(repository, workspaceId)
+    ).rejects.toThrow('list failed');
+    olderRefreshResult.resolve([generatedThread]);
+    await olderRefresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris Weather Chat'
+    );
+  });
+
+  it('does not apply a pre-reset refresh after a new refresh reuses its generation', async () => {
+    const beforeResetThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:00Z'),
+      title: 'Before reset',
+    };
+    const afterResetThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:01Z'),
+      title: 'After reset',
+    };
+    const staleRefreshResult = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+    const staleRepository = createRepository([beforeResetThread]);
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(staleRepository, workspaceId);
+    vi.mocked(staleRepository.listThreads).mockReturnValueOnce(staleRefreshResult.promise);
+    const staleRefresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(staleRepository, workspaceId);
+
+    resetAssistantThreadStore();
+    const currentRepository = createRepository([afterResetThread]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(currentRepository, workspaceId);
+    vi.mocked(currentRepository.listThreads).mockResolvedValueOnce([]);
+    await useAssistantThreadStore.getState().refreshResourceThreads(currentRepository, workspaceId);
+
+    staleRefreshResult.resolve([
+      {
+        ...beforeResetThread,
+        title: 'Stale pre-reset title',
+      },
+    ]);
+    await staleRefresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'After reset'
+    );
+  });
+
   it('preserves a metadata write that completes while an older title refresh is in flight', async () => {
     const repository = createRepository([makeCuratedThread()]);
     const staleRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();
