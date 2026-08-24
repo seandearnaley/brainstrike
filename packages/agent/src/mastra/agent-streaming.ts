@@ -42,6 +42,7 @@ import type {
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
+import { canOverwriteThreadTitle } from '../pglite-mastra-memory/thread-title-policy';
 import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
@@ -148,6 +149,10 @@ import { buildToolProjectionRewriteInputProcessor } from './tool-projection-rewr
 import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
+
+const THREAD_TITLE_GENERATION_TIMEOUT_MS = 30_000;
+const THREAD_TITLE_MAX_ATTEMPTS = 2;
+const THREAD_TITLE_TIMEOUT = Symbol('thread-title-timeout');
 
 type DynamicMastraChunkType =
   | `agent-execution-event-${string}`
@@ -1465,9 +1470,9 @@ async function* streamAttemptChunks({
         startMastraThreadTitleGeneration({
           memory,
           messages: titleMessages,
-          part,
           runtime,
           runtimeData,
+          terminalPart: part,
         });
       // Drain completed-delegation usage BEFORE the part's own chunks: the
       // completion callback fired before Mastra emitted this part, so the
@@ -1495,6 +1500,14 @@ async function* streamAttemptChunks({
     // Aborted mid-run: settle any orphaned delegations (a cancelled parent must
     // never leave a forever-"running" subagent.started). Otherwise finalize a
     // missing-finish stream with pending tool output + a synthetic finish.
+    titleGenerationTask =
+      titleGenerationTask ??
+      startMastraThreadTitleGenerationAfterMissingFinish({
+        memory,
+        messages: titleMessages,
+        runtime,
+        runtimeData,
+      });
     const endChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeMissingFinishStreamChunks(lifecycleState);
@@ -1931,20 +1944,280 @@ function makeResumedRunEventChunk(
 function startMastraThreadTitleGeneration({
   memory,
   messages,
-  part,
   runtime,
   runtimeData,
+  terminalPart,
 }: {
   memory: MastraMemory | undefined;
   messages: AgentMessage[] | undefined;
-  part: unknown;
   runtime: MastraAgentRuntime;
   runtimeData: RuntimeData | undefined;
+  terminalPart?: unknown;
 }): Promise<void> | undefined {
-  if (!(asMastraStreamPart(part).type === 'finish' && memory && messages?.length)) {
+  if (
+    !(memory && messages?.length) ||
+    (terminalPart !== undefined && asMastraStreamPart(terminalPart).type !== 'finish')
+  ) {
     return;
   }
   return generateMastraThreadTitle({ memory, messages, runtime, runtimeData });
+}
+
+function startMastraThreadTitleGenerationAfterMissingFinish(options: {
+  memory: MastraMemory | undefined;
+  messages: AgentMessage[] | undefined;
+  runtime: MastraAgentRuntime;
+  runtimeData: RuntimeData | undefined;
+}): Promise<void> | undefined {
+  if (options.runtimeData?.signal?.aborted) {
+    return;
+  }
+  return startMastraThreadTitleGeneration(options);
+}
+
+type ThreadTitleConfig = ReturnType<MastraMemory['getMergedThreadConfig']>['generateTitle'];
+type ThreadTitleRecord = NonNullable<Awaited<ReturnType<MastraMemory['getThreadById']>>>;
+type ThreadTitleRequest = Parameters<
+  MastraAgentRuntime['agent']['generateTitleFromUserMessage']
+>[0];
+
+interface ThreadTitlePreflight {
+  readonly memoryConfig: NonNullable<RuntimeData['memory']>['memoryOptions'];
+  readonly thread: ThreadTitleRecord;
+  readonly titleConfig: ThreadTitleConfig;
+}
+
+type ThreadTitleAttemptResult =
+  | { readonly status: 'empty' }
+  | { readonly errorName: string; readonly status: 'error' }
+  | { readonly status: 'timeout' }
+  | { readonly status: 'title'; readonly title: string };
+
+type ThreadTitlePhase = 'generation' | 'persistence' | 'preflight';
+
+async function awaitThreadTitleDeadline<T>(
+  operation: Promise<T>,
+  remainingMs: number
+): Promise<T | typeof THREAD_TITLE_TIMEOUT> {
+  if (remainingMs <= 0) {
+    return THREAD_TITLE_TIMEOUT;
+  }
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<typeof THREAD_TITLE_TIMEOUT>((resolve) => {
+        timeout = setTimeout(() => resolve(THREAD_TITLE_TIMEOUT), remainingMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function logThreadTitleTimeout(
+  phase: ThreadTitlePhase,
+  context: {
+    readonly attempt?: number;
+    readonly maxAttempts?: number;
+    readonly runtimeData: RuntimeData | undefined;
+    readonly threadId: string;
+  }
+): void {
+  logger.error(
+    {
+      ...(context.attempt === undefined ? {} : { attempt: context.attempt }),
+      code: 'mastra_thread_title_generation_timed_out',
+      ...(context.maxAttempts === undefined ? {} : { maxAttempts: context.maxAttempts }),
+      model: context.runtimeData?.model,
+      phase,
+      provider: context.runtimeData?.provider,
+      threadId: context.threadId,
+      timeoutMs: THREAD_TITLE_GENERATION_TIMEOUT_MS,
+    },
+    'Mastra thread title lifecycle timed out'
+  );
+}
+
+async function readThreadTitlePreflight(
+  memory: MastraMemory,
+  runtimeData: RuntimeData | undefined,
+  threadId: string,
+  deadline: number
+): Promise<ThreadTitlePreflight | undefined> {
+  const memoryConfig = runtimeData?.memory?.memoryOptions;
+  try {
+    const titleConfig = memory.getMergedThreadConfig(memoryConfig).generateTitle;
+    if (!titleConfig) {
+      return;
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      logThreadTitleTimeout('preflight', { runtimeData, threadId });
+      return;
+    }
+    const thread = await awaitThreadTitleDeadline(memory.getThreadById({ threadId }), remainingMs);
+    if (thread === THREAD_TITLE_TIMEOUT) {
+      logThreadTitleTimeout('preflight', { runtimeData, threadId });
+      return;
+    }
+    if (!(thread && canOverwriteThreadTitle(thread))) {
+      return;
+    }
+    return { memoryConfig, thread, titleConfig };
+  } catch (error) {
+    logger.error(
+      {
+        code: 'mastra_thread_title_preflight_failed',
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        threadId,
+      },
+      'Mastra thread title preflight failed'
+    );
+  }
+  return;
+}
+
+async function runThreadTitleAttempt(
+  runtime: MastraAgentRuntime,
+  request: ThreadTitleRequest,
+  remainingMs: number
+): Promise<ThreadTitleAttemptResult> {
+  try {
+    const title = await awaitThreadTitleDeadline(
+      runtime.agent.generateTitleFromUserMessage(request),
+      remainingMs
+    );
+    if (title === THREAD_TITLE_TIMEOUT) {
+      return { status: 'timeout' };
+    }
+    const normalizedTitle = title?.trim();
+    return normalizedTitle ? { status: 'title', title: normalizedTitle } : { status: 'empty' };
+  } catch (error) {
+    return {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+      status: 'error',
+    };
+  }
+}
+
+function logThreadTitleAttempt(
+  result: Exclude<ThreadTitleAttemptResult, { status: 'title' }>,
+  context: {
+    readonly attempt: number;
+    readonly maxAttempts: number;
+    readonly runtimeData: RuntimeData | undefined;
+    readonly threadId: string;
+  }
+): void {
+  const { attempt, maxAttempts, runtimeData, threadId } = context;
+  if (result.status === 'timeout') {
+    logThreadTitleTimeout('generation', { attempt, maxAttempts, runtimeData, threadId });
+    return;
+  }
+  const retrying = attempt < maxAttempts;
+  if (result.status === 'empty') {
+    logger.warn(
+      {
+        attempt,
+        code: 'mastra_thread_title_empty_output',
+        maxAttempts,
+        model: runtimeData?.model,
+        provider: runtimeData?.provider,
+        retrying,
+        threadId,
+      },
+      'Mastra thread title generation returned empty output'
+    );
+    return;
+  }
+  logger.error(
+    {
+      attempt,
+      code: 'mastra_thread_title_generation_failed',
+      errorName: result.errorName,
+      maxAttempts,
+      model: runtimeData?.model,
+      provider: runtimeData?.provider,
+      retrying,
+      threadId,
+    },
+    'Mastra thread title generation failed'
+  );
+}
+
+async function generateBoundedThreadTitle(
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined,
+  request: ThreadTitleRequest,
+  threadId: string,
+  deadline: number
+): Promise<string | undefined> {
+  const maxAttempts = runtimeData?.provider === 'openrouter' ? THREAD_TITLE_MAX_ATTEMPTS : 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const remainingMs = deadline - Date.now();
+    const result =
+      remainingMs > 0
+        ? await runThreadTitleAttempt(runtime, request, remainingMs)
+        : ({ status: 'timeout' } as const);
+    if (result.status === 'title') {
+      return result.title;
+    }
+    logThreadTitleAttempt(result, { attempt, maxAttempts, runtimeData, threadId });
+    if (result.status === 'timeout') {
+      return;
+    }
+  }
+  return;
+}
+
+async function persistGeneratedThreadTitle({
+  deadline,
+  memory,
+  preflight,
+  runtimeData,
+  threadId,
+  title,
+}: {
+  deadline: number;
+  memory: MastraMemory;
+  preflight: ThreadTitlePreflight;
+  runtimeData: RuntimeData | undefined;
+  threadId: string;
+  title: string;
+}): Promise<void> {
+  try {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      logThreadTitleTimeout('persistence', { runtimeData, threadId });
+      return;
+    }
+    const result = await awaitThreadTitleDeadline(
+      memory.saveThread({
+        ...(preflight.memoryConfig ? { memoryConfig: preflight.memoryConfig } : {}),
+        thread: {
+          ...preflight.thread,
+          title,
+          updatedAt: new Date(),
+        },
+      }),
+      remainingMs
+    );
+    if (result === THREAD_TITLE_TIMEOUT) {
+      logThreadTitleTimeout('persistence', { runtimeData, threadId });
+    }
+  } catch (error) {
+    logger.error(
+      {
+        code: 'mastra_thread_title_persistence_failed',
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        threadId,
+      },
+      'Mastra thread title persistence failed'
+    );
+  }
 }
 
 async function generateMastraThreadTitle({
@@ -1963,18 +2236,9 @@ async function generateMastraThreadTitle({
   if (!(threadId && resourceId)) {
     return;
   }
-  const memoryConfig = runtimeData?.memory?.memoryOptions;
-  const config = memory.getMergedThreadConfig(memoryConfig);
-  const titleConfig = config.generateTitle;
-  if (!titleConfig) {
-    return;
-  }
-  const thread = await memory.getThreadById({ threadId });
-  if (!thread) {
-    return;
-  }
-  const existingTitle = thread.title?.trim() ?? '';
-  if (existingTitle && existingTitle !== 'New Thread') {
+  const deadline = Date.now() + THREAD_TITLE_GENERATION_TIMEOUT_MS;
+  const preflight = await readThreadTitlePreflight(memory, runtimeData, threadId, deadline);
+  if (!preflight) {
     return;
   }
   const userMessages = messages
@@ -1989,32 +2253,33 @@ async function generateMastraThreadTitle({
   if (userMessages.length === 0) {
     return;
   }
-  try {
-    const title = await runtime.agent.generateTitleFromUserMessage({
-      messages: userMessages,
-      ...(typeof titleConfig === 'object' && titleConfig.instructions
-        ? { instructions: titleConfig.instructions }
-        : {}),
-      ...(typeof titleConfig === 'object' && titleConfig.model ? { model: titleConfig.model } : {}),
-    });
-    if (!title?.trim()) {
-      return;
-    }
-    await memory.saveThread({
-      ...(memoryConfig ? { memoryConfig } : {}),
-      thread: {
-        ...thread,
-        title: title.trim(),
-        updatedAt: new Date(),
-      },
-    });
-  } catch (error) {
-    logger.error('Mastra thread title generation failed', {
-      code: 'mastra_thread_title_generation_failed',
-      error,
-      threadId,
-    });
+  const titleRequest = {
+    messages: userMessages,
+    ...(typeof preflight.titleConfig === 'object' && preflight.titleConfig.instructions
+      ? { instructions: preflight.titleConfig.instructions }
+      : {}),
+    ...(typeof preflight.titleConfig === 'object' && preflight.titleConfig.model
+      ? { model: preflight.titleConfig.model }
+      : {}),
+  };
+  const generatedTitle = await generateBoundedThreadTitle(
+    runtime,
+    runtimeData,
+    titleRequest,
+    threadId,
+    deadline
+  );
+  if (!generatedTitle) {
+    return;
   }
+  await persistGeneratedThreadTitle({
+    deadline,
+    memory,
+    preflight,
+    runtimeData,
+    threadId,
+    title: generatedTitle,
+  });
 }
 
 /** Yield the queued child-usage chunks for this leg's delegation capture, if any. */

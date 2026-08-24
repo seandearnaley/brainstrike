@@ -1004,17 +1004,24 @@ renderer posts the validated run id to `POST /assistant/cancel`, which aborts
 the registered execution controller. Do not infer user intent from navigation,
 renderer reload, or a dropped socket.
 
-Mastra title generation has its own finish-boundary lifecycle. The PGlite
+Mastra title generation has its own terminal-boundary lifecycle. The PGlite
 memory factory opts into top-level `generateTitle`, while
 `streamAttemptChunks` starts the public
-`Agent.generateTitleFromUserMessage` request before yielding the terminal
-finish. The downstream data-stream consumer stops pulling immediately after
-that finish, so the generator's `finally` must await the already-started title
-task before aborting the internal stream controller or shutting down the
-per-run Mastra instance. This wait happens after the finish has reached the UI:
-it protects background persistence without adding title-model latency to the
-visible assistant response. Approval/suspend terminal parts and memory-free
-runs never start the task.
+`Agent.generateTitleFromUserMessage` request before yielding either Mastra's
+raw terminal finish or the adapter's finish-less synthetic terminal chunk. The
+downstream data-stream consumer stops pulling immediately after that finish, so
+the generator's `finally` awaits the already-started title task before aborting
+the internal stream controller or shutting down the per-run Mastra instance.
+The title task has one 30-second overall lifecycle budget, so a hung provider
+cannot retain that runtime indefinitely. An OpenRouter empty/reasoning-only
+result or generation failure receives at most one retry through the same agent
+and title request (therefore the same provider/model); a second failure remains
+observable and a later eligible user turn may retry durably. Preflight,
+generation, empty-output, timeout, and persistence failures use distinct
+content-free diagnostic codes. This bounded wait happens after the finish has
+reached the UI: it protects background persistence without adding title-model
+latency to the visible assistant response. Approval/suspend terminals,
+cancelled turns, and memory-free runs never start the task.
 
 Each desktop response exposes an opaque absolute replay cursor in
 `X-Brainstrike-Assistant-Event-Id` and the durable assistant message identity in

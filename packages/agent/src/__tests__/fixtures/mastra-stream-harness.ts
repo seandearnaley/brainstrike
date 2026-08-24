@@ -33,6 +33,7 @@ export interface MockMastraAgentInstance {
   approveToolCallCalls: unknown[];
   config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
   declineToolCallCalls: unknown[];
+  generateTitleCalls: unknown[];
   registeredMastra?: unknown;
   resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }>;
   streamCalls: Array<{ input: unknown; options: unknown }>;
@@ -54,6 +55,11 @@ export interface MockSuspendedRun {
 
 export type MockMcpToolsets = Record<string, Record<string, { description: string; id: string }>>;
 
+type MockTitleGenerationHandler = (
+  options: unknown,
+  call: number
+) => Promise<string | undefined> | string | undefined;
+
 export const agentInstances: MockMastraAgentInstance[] = [];
 export const mcpInstances: unknown[] = [];
 export const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
@@ -65,6 +71,7 @@ let streamPartDelayMs = 0;
 /** Error to surface AFTER N parts have streamed (mid-iteration, not at construction). */
 let streamPartFailure: { afterParts: number; error: Error } | undefined;
 let streamParts: unknown[] = [];
+let titleGenerationHandler: MockTitleGenerationHandler = () => undefined;
 /**
  * Per-`stream()`-call part overrides, keyed by 1-based call number on the
  * agent instance (same numbering as `setStreamFailure`). Lets a multi-attempt
@@ -85,6 +92,10 @@ export function setMockStreamPartsForCall(call: number, parts: unknown[]): void 
 
 export function setMockMessageList(messageList: unknown): void {
   mockMessageList = messageList;
+}
+
+export function setTitleGenerationHandler(handler: MockTitleGenerationHandler): void {
+  titleGenerationHandler = handler;
 }
 
 export function setStreamFailure(call: number, error: Error): void {
@@ -180,6 +191,7 @@ export function resetMastraStreamHarness(): void {
     },
   });
   setMockMessageList(undefined);
+  setTitleGenerationHandler(() => undefined);
   setMockStreamParts([]);
   streamPartsForCall.clear();
   streamFailure = undefined;
@@ -301,6 +313,7 @@ export const mastraAgentModuleMock = {
     config: { memory?: unknown; tools: Record<string, unknown> };
     approveToolCallCalls: unknown[] = [];
     declineToolCallCalls: unknown[] = [];
+    generateTitleCalls: unknown[] = [];
     registeredMastra?: unknown;
     resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }> = [];
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
@@ -358,6 +371,11 @@ export const mastraAgentModuleMock = {
     async declineToolCall(options: unknown) {
       this.declineToolCallCalls.push(options);
       return createMockMastraOutput();
+    }
+
+    async generateTitleFromUserMessage(options: unknown) {
+      this.generateTitleCalls.push(options);
+      return titleGenerationHandler(options, this.generateTitleCalls.length);
     }
 
     listSuspendedRuns() {

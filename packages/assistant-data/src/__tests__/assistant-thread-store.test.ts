@@ -655,6 +655,45 @@ describe('useAssistantThreadStore tab sessions', () => {
     );
   });
 
+  it('does not let an older refresh restore New Thread after a generated title refresh', async () => {
+    const defaultThread = {
+      ...makeThread('thread-title-race', '2026-04-22T11:00:00Z'),
+      title: 'New Thread',
+    };
+    const generatedThread = {
+      ...defaultThread,
+      title: 'Paris weather',
+      updatedAt: new Date('2026-04-22T11:00:01Z'),
+    };
+    const staleRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+    const currentRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+    const repository = createRepository([defaultThread]);
+    vi.mocked(repository.listThreads)
+      .mockResolvedValueOnce([defaultThread])
+      .mockReturnValueOnce(staleRefresh.promise)
+      .mockReturnValueOnce(currentRefresh.promise);
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+
+    const refreshA = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    const refreshB = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    currentRefresh.resolve([generatedThread]);
+    await refreshB;
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris weather'
+    );
+
+    staleRefresh.resolve([defaultThread]);
+    await refreshA;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris weather'
+    );
+  });
+
   it('keeps draft runtime config isolated per open thread', () => {
     const store = useAssistantThreadStore.getState();
 

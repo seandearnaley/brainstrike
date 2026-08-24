@@ -41,24 +41,37 @@ the thread. Server-side native tools validate only the id against the live root
 inventory; the stored path is never an authority or fallback.
 
 Automatic thread titles use Mastra Memory's top-level `generateTitle: true`
-option and `Agent.generateTitleFromUserMessage`. At the terminal Mastra finish,
-the stream adapter starts that canonical title request with the active agent
-model before yielding the UI finish, then keeps the per-run Mastra instance
-alive until the detached request settles. The main response therefore is not
-held up by title latency, and generation remains independent of Observational
-Memory, its token threshold, and whether OM is thread- or resource-scoped. The
-generated title is persisted through `PgliteMemoryStore.saveThread`; that
-transactional boundary may replace only an empty/default/system-owned title and stamps
+option and public `Agent.generateTitleFromUserMessage`. At either Mastra's raw
+terminal finish or the adapter's finish-less synthetic terminal, the stream
+adapter starts that canonical title request with the active agent model before
+yielding the UI finish. It then keeps the per-run Mastra instance alive only for
+one bounded 30-second lifecycle. OpenRouter empty/reasoning-only output or a
+generation failure gets at most one same-agent/request retry; no provider or
+model fallback is permitted. A still-empty or failed result is diagnosed and
+left eligible for a later user turn. Preflight/configuration, provider
+generation, empty output, timeout, and persistence failures have distinct
+structured diagnostics that exclude prompt text and credentials. The main
+response therefore is not held up by title latency, and generation remains
+independent of Observational Memory, its token threshold, and whether OM is
+thread- or resource-scoped. The generated title is persisted through public
+`Memory.saveThread`; `PgliteMemoryStore.saveThread` is the transactional
+boundary that may replace only an empty/default/system-owned title and stamps
 `titleSource: 'om'`, while the manual rename path clears the marker and always
-wins even if generation was already in flight. Title generation deliberately
-does not delay the main assistant response, so provider `message-finish` is not
-a reliable primary title-refresh signal. App-shell live-subscribes to the local
-`mastra_threads` id/title projection and re-lists the loaded resource only when
-that stable projection changes. This makes background titles visible in thread
-rows and tabs without a timer or an API round trip. The existing
-`message-finish` refresh remains intentionally separate: once per completed
-turn it updates thread recency, ordering, and latest-run details, and provides
-a best-effort recovery path if the live subscription has failed.
+wins even if generation was already in flight.
+
+Title generation deliberately does not delay the main assistant response, so
+provider `message-finish` is not a reliable primary title-refresh signal.
+App-shell live-subscribes to the local `mastra_threads` id/title projection and
+re-lists the loaded resource only when that stable projection changes. Thread
+store refreshes are latest-started-wins per resource, without timers; manual
+rename also invalidates any older in-flight refresh. This prevents a stale
+`New Thread` list result from replacing a generated or manually owned title.
+The local live query therefore makes background titles visible in thread rows
+and tabs without polling, a timer, an API round trip, or a delayed assistant
+response. The existing `message-finish` refresh remains intentionally separate:
+once per completed turn it updates thread recency, ordering, and latest-run
+details, and provides a best-effort recovery path if the live subscription has
+failed.
 
 Hosted-provider turns are persisted by Mastra (the durable writer) into
 `mastra_messages`; the client history adapter is read-through only. Two
