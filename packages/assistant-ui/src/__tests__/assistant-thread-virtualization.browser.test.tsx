@@ -35,6 +35,7 @@ import '../overrides.css';
 const MESSAGE_HEIGHT_PX = 90;
 const GROWN_MESSAGE_HEIGHT_PX = 640;
 const VIEWPORT_HEIGHT_PX = 320;
+const APPEND_TEST_INITIAL_MESSAGE_COUNT = 600;
 /** Marks a message whose stand-in renders tall — our stand-in for streaming growth. */
 const GROWN_PREFIX = 'grown:';
 
@@ -182,7 +183,6 @@ function MutableThreadHarness({ initialCount }: { initialCount: number }) {
       >
         grow
       </button>
-      <output data-testid="message-count">{messages.length}</output>
       <ThreadHarness messages={messages} />
     </>
   );
@@ -234,6 +234,24 @@ const scrollTo = async (viewport: HTMLElement, top: number): Promise<void> => {
   await waitFor(() => {
     expect(Math.abs(viewport.scrollTop - top)).toBeLessThanOrEqual(1);
   });
+};
+
+const expectScrollTopStableAcrossFrames = async (
+  viewport: HTMLElement,
+  expectedScrollTop: number
+): Promise<void> => {
+  // The first frame lets layout and ResizeObserver consume the appended count;
+  // the next two samples prove their deferred corrections preserve position.
+  const nextFrame = (): Promise<void> =>
+    new Promise((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+
+  await act(nextFrame);
+  for (let frame = 0; frame < 2; frame += 1) {
+    await act(nextFrame);
+    expect(Math.abs(viewport.scrollTop - expectedScrollTop)).toBeLessThanOrEqual(2);
+  }
 };
 
 afterEach(() => {
@@ -317,7 +335,7 @@ describe('virtualized tier (BST-897)', () => {
   });
 
   test('appending while scrolled up never steals the viewport, and the jump button returns to the end', async () => {
-    render(<MutableThreadHarness initialCount={600} />);
+    render(<MutableThreadHarness initialCount={APPEND_TEST_INITIAL_MESSAGE_COUNT} />);
     const viewport = await waitForOverflowingViewport();
     await waitForPinnedToEnd(viewport);
 
@@ -341,10 +359,15 @@ describe('virtualized tier (BST-897)', () => {
     }
     const viewportRect = viewport.getBoundingClientRect();
     const mountedStart =
-      viewport.scrollTop + firstMountedRow.getBoundingClientRect().top - viewportRect.top;
+      viewport.scrollTop +
+      firstMountedRow.getBoundingClientRect().top -
+      viewportRect.top -
+      viewport.clientTop;
     const scrollTopAtEnd = viewport.scrollTop;
     const target = Math.max(mountedStart, scrollTopAtEnd - viewport.clientHeight);
-    expect(scrollTopAtEnd - target).toBeGreaterThan(THREAD_END_THRESHOLD_PX);
+    if (scrollTopAtEnd - target <= THREAD_END_THRESHOLD_PX) {
+      throw new Error('Expected the mounted window to permit a scrolled-up reading position');
+    }
     await scrollTo(viewport, target);
     await waitFor(
       () => {
@@ -355,33 +378,39 @@ describe('virtualized tier (BST-897)', () => {
 
     const scrollTopBefore = viewport.scrollTop;
     // Flush the append independently of whether the new row lands inside the
-    // current overscan window. Its committed layout is observed by the read
-    // below; scrollHeight is deliberately not used because late measurements
-    // can shrink it in the same frame.
+    // current overscan window.
     await act(async () => {
       fireEvent.click(screen.getByTestId('append'));
     });
     await waitFor(
       () => {
-        expect(screen.getByTestId('message-count')).toHaveTextContent('601');
+        expect(viewport).toHaveAttribute(
+          'data-thread-message-count',
+          String(APPEND_TEST_INITIAL_MESSAGE_COUNT + 1)
+        );
       },
       { timeout: SETTLE_TIMEOUT_MS }
     );
-    // The reading position is untouched by the append …
-    await waitFor(() => {
-      expect(Math.abs(viewport.scrollTop - scrollTopBefore)).toBeLessThanOrEqual(2);
-    });
+    // The reading position remains untouched after the virtualizer consumes
+    // the appended count and its frame-boundary measurements settle …
+    await expectScrollTopStableAcrossFrames(viewport, scrollTopBefore);
     expect(button).toBeEnabled();
 
     // … and the jump button drives the virtualizer back to the true end.
     fireEvent.click(button);
     await waitForPinnedToEnd(viewport);
-    await waitFor(() => {
-      expect(document.querySelector('[data-message-text="appended"]')).not.toBeNull();
-    });
-    await waitFor(() => {
-      expect(button).toBeDisabled();
-    });
+    await waitFor(
+      () => {
+        expect(document.querySelector('[data-message-text="appended"]')).not.toBeNull();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
+    await waitFor(
+      () => {
+        expect(button).toBeDisabled();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
   });
 
   test('growth of the last message while pinned keeps the view at the true end', async () => {
