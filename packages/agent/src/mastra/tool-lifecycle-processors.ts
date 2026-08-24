@@ -364,8 +364,20 @@ function withToolExecutionDuration(
  * non-run-event chunk a future caller passed through, and the value is only
  * known to be a run event by construction at today's call sites.
  */
-function withRunEventDuration(chunk: StreamChunk, durationMs: number): StreamChunk {
-  if (chunk.type !== 'run-event') {
+function withRunEventDuration(chunk: StreamChunk, rawDurationMs: number): StreamChunk {
+  // INTEGER MILLISECONDS, enforced at the single seam where a duration enters
+  // a run event. The guard wrapper measures with `performance.now()`, whose
+  // deltas are fractional — and `brainstrike_assistant_run_events.duration_ms`
+  // is an INTEGER column, so forwarding the raw float made EVERY stamped
+  // terminal tool event fail to persist (field regression 2026-08-23, 22P02
+  // "invalid input syntax for type integer"), punching holes in the durable
+  // timeline the debug bundle reads. A non-finite value drops the field
+  // entirely rather than persisting garbage. Deliberately INTEGRALITY only:
+  // the column would also reject values past 2^31-1 (22003), but a single
+  // call measuring ~24.8 days is not a real input — a clamp here would be
+  // dead code wearing a safety label.
+  const durationMs = Math.round(rawDurationMs);
+  if (chunk.type !== 'run-event' || !Number.isFinite(durationMs)) {
     return chunk;
   }
   return { ...chunk, event: { ...chunk.event, durationMs } };

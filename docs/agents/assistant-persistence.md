@@ -833,6 +833,18 @@ handle (BST-972 A1/A2) — and all gated on `if (runId)`):
 | `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
 | `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | `to_regclass` probe → `runsTableMissing: true`, no-op |
 
+**`duration_ms` is an INTEGER column, and durations are rounded at the
+PRODUCER.** The guard wrapper measures tool execution with `performance.now()`,
+whose deltas are fractional; forwarding the raw float made every stamped
+terminal tool event fail to persist (field regression 2026-08-23, 22P02
+"invalid input syntax for type integer") — holes in the exact timeline the
+debug bundle reads. `withRunEventDuration`
+(`packages/agent/src/mastra/tool-lifecycle-processors.ts`) is the single seam
+where a duration enters a run event and rounds there (non-finite drops the
+field). The column contract is pinned by the real-PGlite pair in
+`run-event-schema-provenance.integration.test.ts` — integer persists,
+fractional rejected — so the rounding is provably load-bearing.
+
 That is safe, and the reason is **runId provenance — NOT startup ordering**:
 
 - `memory.runId` has exactly ONE producer: `createAssistantThreadRunPromise`

@@ -63,6 +63,40 @@ describe('terminal tool run events carry the measured duration', () => {
     expect(event?.event.durationMs).toBe(2000);
   });
 
+  it('rounds a fractional measured duration to integer milliseconds', () => {
+    // Field regression (2026-08-23, 22P02): the guard wrapper measures with
+    // performance.now(), whose deltas are FRACTIONAL — and the run-event
+    // table's duration_ms column is INTEGER. Every terminal tool event
+    // carrying a measured duration failed to persist ("invalid input syntax
+    // for type integer: \"15.73333299998194\""), punching holes in the
+    // durable timeline the debug bundle reads. The stamp must round, never
+    // forward the raw float.
+    const durations = createToolExecutionDurations();
+    durations.record('call-1', 15.733_332_999_981_94);
+
+    const chunks = terminalEvent(lifecycleState(durations), 'success');
+    const event = chunks.find(
+      (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'tool.completed'
+    ) as { event: { durationMs?: number } } | undefined;
+
+    expect(event?.event.durationMs).toBe(16);
+  });
+
+  it('drops a non-finite recorded duration instead of stamping garbage', () => {
+    // The other half of the integrality contract: NaN/Infinity round to
+    // NaN/Infinity, which the column rejects just the same — the field is
+    // omitted so the consumer falls back to the timestamp delta.
+    const durations = createToolExecutionDurations();
+    durations.record('call-1', Number.NaN);
+
+    const chunks = terminalEvent(lifecycleState(durations), 'success');
+    const event = chunks.find(
+      (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'tool.completed'
+    ) as { event: { durationMs?: number } } | undefined;
+
+    expect(event?.event.durationMs).toBeUndefined();
+  });
+
   it('stamps durationMs on tool.failed too', () => {
     // "How long did it run before failing" is exactly what a reader wants on a
     // failure, so the guard records for throws and timeouts as well.
