@@ -602,6 +602,8 @@ import { buildBranchSwitchModel } from './branch-switch-model';
 
 and replace the `repository.scope === 'workspace' ? … : repository.branches.map(…)` block inside the branch `DropdownMenuContent` with:
 
+> **⚠️ SUPERSEDED — DO NOT COPY.** The block immediately below (`dirty: !status.clean`, `title=`-only reasons) is the pre-review draft, kept here only as the "before" half of the diff the post-review update explains. It re-introduces both Major 1 (invisible reasons) and Major 2 (untracked-only counted as dirty) if pasted as-is. Use the "Post-review update" block further down instead — it is what actually shipped.
+
 ```tsx
           {(() => {
             const model = buildBranchSwitchModel({
@@ -638,7 +640,7 @@ and replace the `repository.scope === 'workspace' ? … : repository.branches.ma
           })()}
 ```
 
-**Post-review update (BST-1447, Major 1 + Major 2 ruling).** The review found two problems with the block above: (1) `dirty: !status.clean` counted untracked-only files as dirty, wrongly gating switching on files git doesn't track (the Major 2 ruling this task's Step 1/3 already fixed at the model layer); (2) a disabled row's reason was ONLY a `title=` tooltip on a Radix-disabled (`pointer-events-none`) item — invisible to anyone who can't hover, and to screen readers. The wiring now reads:
+**Post-review update (BST-1447, Major 1 + Major 2 ruling) — this is the block that shipped; the one above is superseded.** The review found two problems with the block above: (1) `dirty: !status.clean` counted untracked-only files as dirty, wrongly gating switching on files git doesn't track (the Major 2 ruling this task's Step 1/3 already fixed at the model layer); (2) a disabled row's reason was ONLY a `title=` tooltip on a Radix-disabled (`pointer-events-none`) item — invisible to anyone who can't hover, and to screen readers. The wiring now reads:
 
 ```ts
 import { DIRTY_REASON, buildBranchSwitchModel, deriveBranchSwitchDirty } from './branch-switch-model';
@@ -685,7 +687,7 @@ import { DIRTY_REASON, buildBranchSwitchModel, deriveBranchSwitchDirty } from '.
                       <span className="block truncate">{row.name}</span>
                       {row.worktreeName ? (
                         <span
-                          className="mt-0.5 block truncate text-[10px] text-muted-foreground"
+                          className="mt-0.5 block whitespace-normal text-[10px] text-muted-foreground"
                           data-testid="git-workbench-branch-disabled-reason"
                         >
                           {row.disabledReason}
@@ -699,7 +701,7 @@ import { DIRTY_REASON, buildBranchSwitchModel, deriveBranchSwitchDirty } from '.
           })()}
 ```
 
-The dirty banner is visible ABOVE the row list (not a per-row tooltip); an in-worktree row now shows its full `disabledReason` sentence as visible secondary text (`git-workbench-branch-disabled-reason`), matching the worktree dropdown's existing `git-workbench-worktree-disabled-reason` pattern earlier in this file — `title=` stays as a bonus, but nothing depends on it being read. `packages/app-shell/src/__tests__/git-workbench-header.test.tsx` gained two cases pinning this: a tracked change disables rows, shows the visible banner, and a click never calls `switchBranch`; an untracked-only tree does neither.
+The dirty banner is visible ABOVE the row list (not a per-row tooltip); an in-worktree row now shows its full `disabledReason` sentence as visible secondary text (`git-workbench-branch-disabled-reason`), matching the worktree dropdown's existing `git-workbench-worktree-disabled-reason` pattern earlier in this file — `title=` stays as a bonus, but nothing depends on it being read. `packages/app-shell/src/__tests__/git-workbench-header.test.tsx` gained two cases pinning this: a tracked change disables rows, shows the visible banner, and a click never calls `switchBranch`; an untracked-only tree does neither. (Fix-round-2 nit: the reason line uses `whitespace-normal`, not `truncate` — the `w-72` menu is narrow enough that a worktree name can make the sentence overflow, and truncating it would silently hide part of the very reason Major 1 exists to surface.)
 
 - [ ] **Step 12: Run the touched packages' suites**
 
@@ -1183,7 +1185,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Test: `packages/app-shell/src/__tests__/use-branch-switcher.test.ts` (create)
 
 **Interfaces:**
-- Consumes: `buildBranchSwitchModel` (Task 1), `resolveGitBridge()`, `WorkspaceBarBranchMenu` / `WorkspaceBarCheckout` (Task 2).
+- Consumes: `buildBranchSwitchModel` + `deriveBranchSwitchDirty` (Task 1), `resolveGitBridge()`, `WorkspaceBarBranchMenu` / `WorkspaceBarCheckout` (Task 2).
 - Produces: `useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBranchMenu | undefined` where
   ```ts
   export interface UseBranchSwitcherArgs {
@@ -1192,6 +1194,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
     readonly onSwitchInNewWorktree?: ((branch: string) => void) | undefined;
   }
   ```
+
+**Ruling (BST-1447 fix round 2 — the two dirtinesses stay SEPARATE).** An earlier draft of Step 3 fed `checkout.dirty` straight into `buildBranchSwitchModel`'s `dirty` argument — but `checkout.dirty` is `WorkspaceBarCheckout`'s dot semantic (`!status.clean` in `useThreadCheckoutStatus`, untracked-inclusive), the exact `!status.clean` bug Task 1's Major 2 ruling fixed at the header. Pasting it into the switch gate here would silently re-import that bug into the chip. The rule going forward: `checkout.dirty` keeps meaning "show the workspace-bar dot" and is never read for gating; the branch-switch gate computes its OWN tracked-only dirty flag via `deriveBranchSwitchDirty` over a `bridge.status(dbRootId)` read this hook performs itself (Step 3 below), the same as the header does over its already-fetched `status` prop.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1202,6 +1206,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const repositorySpy = vi.fn();
+const statusSpy = vi.fn();
 const switchBranchSpy = vi.fn();
 const createBranchSpy = vi.fn();
 const fetchSpy = vi.fn();
@@ -1213,6 +1218,7 @@ vi.mock('../git-panel/git-bridge', () => ({
     createBranch: createBranchSpy,
     fetch: fetchSpy,
     repository: repositorySpy,
+    status: statusSpy,
     switchBranch: switchBranchSpy,
   }),
 }));
@@ -1235,12 +1241,26 @@ const REPOSITORY = {
   defaultRemote: 'origin',
   scope: 'repository' as const,
 };
+// `checkout` still gates whether a menu exists at all (mirrors "no chip
+// rendered, no menu"), but its `dirty` is NEVER read for the switch gate —
+// see the ruling above the interfaces. `dirty: true` here is a canary: every
+// test below asserts against `statusSpy`'s `files`, not this flag, and one
+// test explicitly proves an untracked-inclusive `checkout.dirty` is ignored.
 const CLEAN = { ahead: null, behind: null, branch: 'main', dirty: false };
+const CLEAN_STATUS = { ahead: null, behind: null, branch: 'main', clean: true, files: [] };
+const TRACKED_STATUS = {
+  ahead: null,
+  behind: null,
+  branch: 'main',
+  clean: false,
+  files: [{ path: 'tracked.ts', staged: true, status: 'M', unstaged: false, untracked: false }],
+};
 
 describe('useBranchSwitcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     repositorySpy.mockResolvedValue({ ok: true, value: REPOSITORY });
+    statusSpy.mockResolvedValue({ ok: true, value: CLEAN_STATUS });
     switchBranchSpy.mockResolvedValue({ ok: true, value: { branch: 'feature/alpha' } });
     createBranchSpy.mockResolvedValue({ ok: true, value: { branch: 'bs/bright-fox' } });
     fetchSpy.mockResolvedValue({ ok: true, value: { output: '' } });
@@ -1255,6 +1275,7 @@ describe('useBranchSwitcher', () => {
     const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }));
     await waitFor(() => expect(result.current?.rows).toHaveLength(2));
     expect(repositorySpy).toHaveBeenCalledWith('r-1');
+    expect(statusSpy).toHaveBeenCalledWith('r-1');
     expect(result.current?.rows.map((row) => row.name)).toEqual(['main', 'feature/alpha']);
   });
 
@@ -1290,14 +1311,28 @@ describe('useBranchSwitcher', () => {
     expect(result.current?.onFetch).toBeUndefined();
   });
 
-  it('passes the dirty flag through so every row states it', async () => {
+  it('derives the switch gate from a TRACKED status file, never from checkout.dirty', async () => {
+    statusSpy.mockResolvedValue({ ok: true, value: TRACKED_STATUS });
+    // checkout.dirty is FALSE here on purpose — if the hook still read it,
+    // this row would wrongly stay switchable despite the tracked change.
+    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }));
+    await waitFor(() => expect(result.current?.rows).toHaveLength(2));
+    const alpha = result.current?.rows.find((row) => row.name === 'feature/alpha');
+    expect(alpha?.switchable).toBe(false);
+    expect(alpha?.disabledReason).toContain('uncommitted changes');
+  });
+
+  it('stays switchable when checkout.dirty is true but the status has no TRACKED files', async () => {
+    // The dot-vs-gate separation, the other direction: the workspace-bar dot
+    // can be lit (`checkout.dirty: true`, e.g. from an untracked file) while
+    // the switch gate — reading its own tracked-only status — stays open.
+    statusSpy.mockResolvedValue({ ok: true, value: CLEAN_STATUS });
     const { result } = renderHook(() =>
       useBranchSwitcher({ checkout: { ...CLEAN, dirty: true }, dbRootId: 'r-1' })
     );
     await waitFor(() => expect(result.current?.rows).toHaveLength(2));
     const alpha = result.current?.rows.find((row) => row.name === 'feature/alpha');
-    expect(alpha?.switchable).toBe(false);
-    expect(alpha?.disabledReason).toContain('uncommitted changes');
+    expect(alpha?.switchable).toBe(true);
   });
 });
 ```
@@ -1317,29 +1352,41 @@ Create `packages/app-shell/src/hooks/use-branch-switcher.ts`:
  *
  * Reads the SAME data path the git panel's workbench header uses —
  * `window.git.repository(rootId)` for the recency-sorted local branches
- * (`for-each-ref --sort=-committerdate`) plus the chip's already-live
- * `WorkspaceBarCheckout` for the dirty flag — and shapes it through the shared
- * `buildBranchSwitchModel`. No polling: the repository read is keyed on the
- * same live-refresh nonce `useThreadCheckoutStatus` uses, and every mutation
- * refreshes the inventory so the next open cannot describe pre-switch topology.
+ * (`for-each-ref --sort=-committerdate`), PLUS its own `window.git.status(rootId)`
+ * read (the header already had one as a prop; this hook has no equivalent
+ * parent, so it fetches its own) — and shapes both through the shared
+ * `buildBranchSwitchModel` / `deriveBranchSwitchDirty`. No polling: both reads
+ * are keyed on the same live-refresh nonce `useThreadCheckoutStatus` uses, and
+ * every mutation refreshes the inventory so the next open cannot describe
+ * pre-switch topology.
+ *
+ * BST-1447 fix round 2 — TWO SEPARATE DIRTINESSES, do not conflate them:
+ * `checkout.dirty` (`WorkspaceBarCheckout`, `!status.clean` in
+ * `useThreadCheckoutStatus`) is the workspace-bar DOT's own semantic and is
+ * read here ONLY to gate whether a menu exists at all — never to gate a row.
+ * The switch gate uses `deriveBranchSwitchDirty` over THIS hook's own status
+ * read, so an untracked-only tree lights the dot but never disables a row,
+ * matching Task 1's header fix exactly.
  *
  * `undefined` = no interactive menu (web, no git bridge, no primary root, or a
- * failed repository read). A failure is logged AND toasted — never rendered as
- * an empty branch list, which would read as "this repo has no branches".
+ * failed repository/status read). A failure is logged AND toasted — never
+ * rendered as an empty branch list, which would read as "this repo has no
+ * branches".
  */
 import type { WorkspaceBarBranchMenu, WorkspaceBarCheckout } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import type { GitRepository, GitResult } from '@brainstrike/types';
+import type { GitRepository, GitResult, GitStatusFile } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useGitInventory } from '../changes/use-git-inventory';
-import { buildBranchSwitchModel } from '../git-panel/branch-switch-model';
+import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../git-panel/branch-switch-model';
 import { resolveGitBridge } from '../git-panel/git-bridge';
 
 const logger = createLogger('BranchSwitcher');
 
 export interface UseBranchSwitcherArgs {
+  /** Gates whether a menu exists at all; its `dirty` field is NOT read for the switch gate (see the ruling above). */
   readonly checkout: WorkspaceBarCheckout | undefined;
   /** The durable `roots.id` — the only id `window.git` understands. */
   readonly dbRootId: string | null;
@@ -1363,9 +1410,11 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
   const [pending, setPending] = useState(false);
   // Root-tagged, like `useThreadCheckoutStatus`: a repository resolved for one
   // root is never rendered under another, and a bail-out needs no clearing
-  // setState (react-hooks/set-state-in-effect).
+  // setState (react-hooks/set-state-in-effect). `files` is the raw status
+  // list — `deriveBranchSwitchDirty` runs over it below, not over `.clean`.
   const [loaded, setLoaded] = useState<{
     readonly dbRootId: string;
+    readonly files: readonly GitStatusFile[];
     readonly repository: GitRepository;
   } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -1375,25 +1424,32 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
       return;
     }
     let cancelled = false;
-    bridge
-      .repository(dbRootId)
-      .then((result) => {
+    // Both reads race in parallel; either failing fails the whole load — a
+    // repository without its status (or vice versa) cannot build a correct
+    // model, so there is no useful partial state to render.
+    Promise.all([bridge.repository(dbRootId), bridge.status(dbRootId)])
+      .then(([repositoryResult, statusResult]) => {
         if (cancelled) {
           return;
         }
-        if (result.ok) {
-          setLoaded({ dbRootId, repository: result.value });
+        if (repositoryResult.ok && statusResult.ok) {
+          setLoaded({
+            dbRootId,
+            files: statusResult.value.files,
+            repository: repositoryResult.value,
+          });
           return;
         }
-        logger.warn('branch switcher could not read the repository', {
+        logger.warn('branch switcher could not read the repository or its status', {
           dbRootId,
-          error: result.error,
+          repositoryError: repositoryResult.ok ? null : repositoryResult.error,
+          statusError: statusResult.ok ? null : statusResult.error,
         });
         setLoaded(null);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          logger.warn('branch switcher repository read threw', { dbRootId, error });
+          logger.warn('branch switcher repository/status read threw', { dbRootId, error });
           setLoaded(null);
         }
       });
@@ -1425,6 +1481,7 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
   );
 
   const repository = loaded?.dbRootId === dbRootId ? loaded.repository : null;
+  const files = loaded?.dbRootId === dbRootId ? loaded.files : null;
   const defaultRemote = repository?.defaultRemote ?? null;
 
   const onSwitch = useCallback(
@@ -1452,12 +1509,14 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
   }, [bridge, dbRootId, defaultRemote, runMutation]);
 
   return useMemo(() => {
-    if (!(repository && checkout)) {
+    if (!(repository && files && checkout)) {
       return;
     }
     const model = buildBranchSwitchModel({
       branches: repository.branches,
-      dirty: checkout.dirty,
+      // Tracked-only, from THIS hook's own status read — never
+      // `checkout.dirty` (see the doc comment and the ruling above).
+      dirty: deriveBranchSwitchDirty({ files }),
       query,
       scope: repository.scope,
     });
@@ -1475,6 +1534,7 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
   }, [
     checkout,
     defaultRemote,
+    files,
     onCreateBranch,
     onFetch,
     onSwitch,
@@ -1489,7 +1549,7 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
 - [ ] **Step 4: Run it and confirm it passes**
 
 Run: `cd packages/app-shell && pnpm vitest run src/__tests__/use-branch-switcher.test.ts`
-Expected: PASS — `6 passed`.
+Expected: PASS — `7 passed` (6 original + the fix-round-2 "stays switchable when checkout.dirty is true but the status has no TRACKED files" case; the original "passes the dirty flag through" case was rewritten in place to drive the gate from `statusSpy`, not `checkout.dirty`, so the count is 6 + 1, not 6 + 2).
 
 - [ ] **Step 5: Compose it into the bar**
 

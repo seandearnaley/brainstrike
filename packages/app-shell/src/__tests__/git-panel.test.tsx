@@ -1105,7 +1105,9 @@ describe('GitPanel', () => {
           worktrees: [],
         })
       ),
-      status: vi.fn(async () => ok(makeStatus({ clean: true }))),
+      // `deriveBranchSwitchDirty` (branch-switch-model) reads `files`, not
+      // `clean` — an empty list is what actually makes every row switchable.
+      status: vi.fn(async () => ok(makeStatus({ clean: true, files: [] }))),
     });
     render(<GitPanel />);
 
@@ -1159,7 +1161,9 @@ describe('GitPanel', () => {
           })
         )
       ),
-      status: vi.fn(async () => ok(makeStatus({ branch, clean: true }))),
+      // Same fixture note as above: `files: []` is what makes the switch
+      // menu item enabled, not `clean: true` on its own.
+      status: vi.fn(async () => ok(makeStatus({ branch, clean: true, files: [] }))),
       switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) => {
         branch = params.branch;
         return ok({ branch });
@@ -1217,18 +1221,21 @@ describe('GitPanel', () => {
           makeStatus({
             branch,
             // Clean regardless of branch: this test exercises diff-clearing
-            // on switch, not the dirty gate — a dirty working tree would
-            // disable the switch menu item entirely (see branch-switch-model).
+            // on switch, not the dirty gate. A TRACKED change would disable
+            // the switch menu item entirely (see branch-switch-model /
+            // deriveBranchSwitchDirty), so the selected diff here is an
+            // UNTRACKED file — a real, reachable state: browsing an
+            // untracked file's diff never blocks switching branches.
             clean: true,
             files:
               branch === 'main'
                 ? [
                     {
-                      path: 'staged.ts',
-                      staged: true,
-                      status: 'M',
+                      path: 'untracked.ts',
+                      staged: false,
+                      status: '?',
                       unstaged: false,
-                      untracked: false,
+                      untracked: true,
                     },
                   ]
                 : [],
@@ -1242,7 +1249,7 @@ describe('GitPanel', () => {
     });
     render(<GitPanel />);
 
-    await user.click(await screen.findByRole('button', { name: 'staged.ts' }));
+    await user.click(await screen.findByRole('button', { name: 'untracked.ts' }));
     expect(await screen.findByTestId('diff-view-stub')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Current branch main' }));
