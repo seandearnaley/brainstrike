@@ -24,10 +24,12 @@
  * hostname.
  */
 import type {
+  ForgeIdentityState,
   ForgePrStatus,
   ForgePrTransition,
   ForgePrUpdatedEvent,
   ForgePullRequest,
+  ForgeRefreshReason,
   ForgeRemoteIdentity,
   ForgeResult,
   ForgeUnavailable,
@@ -47,7 +49,7 @@ import {
 } from './forge-pr-cache';
 import { desktopAssistantServerLogger as logger } from './logger';
 
-export type ForgeRefreshReason = 'invalidation' | 'user' | 'window';
+export type { ForgeIdentityState, ForgeRefreshReason } from '@brainstrike/types';
 
 /** Minimum time since the last gh fetch for a `(repo, branch)` key, per reason. */
 export const FORGE_REFRESH_MIN_INTERVAL_MS: Readonly<Record<ForgeRefreshReason, number>> = {
@@ -55,12 +57,6 @@ export const FORGE_REFRESH_MIN_INTERVAL_MS: Readonly<Record<ForgeRefreshReason, 
   user: 0,
   window: 60_000,
 };
-
-export interface ForgeIdentityState {
-  readonly failure: ForgeUnavailable | null;
-  readonly identity: ForgeRemoteIdentity | null;
-  readonly repoCommonDir: string;
-}
 
 export type ForgeRepositoryResolver = (
   rootId: string

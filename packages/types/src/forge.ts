@@ -23,6 +23,19 @@ export interface ForgeRemoteIdentity {
   readonly repo: string;
 }
 
+/** Which event asked for a refresh. Each carries its own minimum interval. */
+export type ForgeRefreshReason = 'invalidation' | 'user' | 'window';
+
+/**
+ * The forge identity of one repository, plus the reason there is none.
+ * `identity` and `failure` are mutually exclusive: exactly one is non-null.
+ */
+export interface ForgeIdentityState {
+  readonly failure: ForgeUnavailable | null;
+  readonly identity: ForgeRemoteIdentity | null;
+  readonly repoCommonDir: string;
+}
+
 export type ForgeRemoteParseResult =
   | { readonly ok: false; readonly reason: string }
   | { readonly ok: true; readonly value: ForgeRemoteIdentity };

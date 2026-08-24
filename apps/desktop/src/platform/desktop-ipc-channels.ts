@@ -107,6 +107,15 @@ export const DESKTOP_IPC_CHANNELS = {
     watchRetry: 'fs:watch-retry',
     watchTelemetry: 'fs:watch-telemetry',
   },
+  forge: {
+    identity: 'forge:identity',
+    prStatus: 'forge:prStatus',
+    // One-way main→renderer push (BST-1391): a forge observation changed for a
+    // (repository, branch). NOT an ipcMain.handle channel — never registered
+    // on the invoke registry, exactly like changes.invalidated.
+    prUpdated: 'forge:prUpdated',
+    refresh: 'forge:refresh',
+  },
   git: {
     aheadBehind: 'git:aheadBehind',
     commit: 'git:commit',

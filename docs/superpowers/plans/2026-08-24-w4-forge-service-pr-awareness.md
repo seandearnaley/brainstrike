@@ -3812,7 +3812,7 @@ import type {
   ForgeResult,
 } from '@brainstrike/types';
 
-const logger = createLogger('Forge');
+const logger = createLogger('ForgeBridge');
 
 export interface ForgeBridge {
   identity: (rootId: string) => Promise<ForgeResult<ForgeIdentityState>>;
