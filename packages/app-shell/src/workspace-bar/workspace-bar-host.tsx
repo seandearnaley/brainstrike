@@ -1,8 +1,6 @@
 import { WorkspaceBar } from '@brainstrike/assistant-ui';
-import { memo, type ReactElement, useMemo, useState } from 'react';
-import { resolveGitBridge } from '../git-panel/git-bridge';
+import { memo, type ReactElement } from 'react';
 import { type UseWorkspaceBarArgs, useWorkspaceBar } from '../hooks/use-workspace-bar';
-import { useWorkspaceBranchMenu } from './use-workspace-branch-menu';
 
 /**
  * The app-shell side of the composer workspace bar: it owns `useWorkspaceBar`
@@ -26,29 +24,5 @@ export const WorkspaceBarHost = memo(function WorkspaceBarHost(
   args: UseWorkspaceBarArgs
 ): ReactElement {
   const barProps = useWorkspaceBar(args);
-  const bridge = useMemo(() => resolveGitBridge(), []);
-  const root = barProps.primaryRoot?.path
-    ? { path: barProps.primaryRoot.path, rootId: barProps.primaryRoot.rootId }
-    : null;
-  const [branchOverride, setBranchOverride] = useState<{
-    readonly branch: string;
-    readonly rootId: string;
-  } | null>(null);
-  const branchMenu = useWorkspaceBranchMenu({
-    bridge,
-    checkout: barProps.checkout,
-    onBranchChanged: (branch) => {
-      if (root) {
-        setBranchOverride({ branch, rootId: root.rootId });
-      }
-    },
-    root,
-  });
-  const activeBranchOverride =
-    branchOverride && branchOverride.rootId === root?.rootId ? branchOverride.branch : null;
-  const checkout =
-    barProps.checkout && activeBranchOverride
-      ? { ...barProps.checkout, branch: activeBranchOverride }
-      : barProps.checkout;
-  return <WorkspaceBar {...barProps} branchMenu={branchMenu ?? undefined} checkout={checkout} />;
+  return <WorkspaceBar {...barProps} />;
 });

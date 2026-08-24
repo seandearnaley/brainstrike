@@ -1,18 +1,121 @@
-import { Button, Input, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
-import { Check, GitBranch, LoaderCircle } from 'lucide-react';
-import { type FormEvent, type ReactElement, useState } from 'react';
-import type { WorkspaceBarBranchMenu, WorkspaceBarCheckout } from './workspace-bar';
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Input,
+} from '@brainstrike/ui';
+import {
+  Check,
+  ChevronDown,
+  GitBranch,
+  GitBranchPlus,
+  RefreshCw,
+  SplitSquareHorizontal,
+} from 'lucide-react';
+import { type ReactElement, useState } from 'react';
+import type {
+  WorkspaceBarBranchMenu,
+  WorkspaceBarBranchRow,
+  WorkspaceBarCheckout,
+} from './workspace-bar';
 
 const countBadge = (count: number | null, glyph: string): string | null =>
   count !== null && count > 0 ? `${glyph}${count}` : null;
 
-export const BranchChip = ({
+const BranchGlyphs = ({
+  ahead,
+  behind,
   checkout,
-  menu,
+  label,
 }: {
+  readonly ahead: string | null;
+  readonly behind: string | null;
   readonly checkout: WorkspaceBarCheckout;
-  readonly menu?: WorkspaceBarBranchMenu | undefined;
+  readonly label: string;
+}): ReactElement => (
+  <>
+    <GitBranch aria-hidden="true" className="size-3 shrink-0" />
+    <span className="truncate">{label}</span>
+    {ahead ? <span className="shrink-0 tabular-nums">{ahead}</span> : null}
+    {behind ? <span className="shrink-0 tabular-nums">{behind}</span> : null}
+    {checkout.dirty ? <span className="shrink-0 text-amber-600 dark:text-amber-400">●</span> : null}
+  </>
+);
+
+const BranchMenuRow = ({
+  menu,
+  row,
+}: {
+  readonly menu: WorkspaceBarBranchMenu;
+  readonly row: WorkspaceBarBranchRow;
 }): ReactElement => {
+  const onSwitchInNewWorktree = menu.onSwitchInNewWorktree;
+  const showsWorktreeAction =
+    onSwitchInNewWorktree !== undefined &&
+    !row.switchable &&
+    !row.current &&
+    row.worktreeName === null;
+
+  return (
+    <>
+      <DropdownMenuItem
+        className="items-start font-mono text-[11px]"
+        data-testid={`workspace-bar-branch-row-${row.name}`}
+        disabled={!row.switchable || menu.pending}
+        onSelect={() => menu.onSwitch(row.name)}
+        title={row.disabledReason ?? undefined}
+      >
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          {row.current ? <Check aria-hidden="true" className="size-3.5" /> : null}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-foreground">{row.name}</span>
+          {row.disabledReason ? (
+            <span
+              className="block whitespace-normal text-[10px] text-muted-foreground"
+              data-testid={`workspace-bar-branch-reason-${row.name}`}
+            >
+              {row.disabledReason}
+            </span>
+          ) : null}
+          {row.worktreeName ? (
+            <span className="block truncate text-[10px] text-muted-foreground">
+              Worktree: {row.worktreeName}
+            </span>
+          ) : null}
+        </span>
+      </DropdownMenuItem>
+      {showsWorktreeAction ? (
+        <DropdownMenuItem
+          className="pl-8 text-[11px]"
+          data-testid={`workspace-bar-branch-worktree-${row.name}`}
+          disabled={menu.pending}
+          onSelect={() => onSwitchInNewWorktree(row.name)}
+        >
+          <SplitSquareHorizontal aria-hidden="true" className="size-3.5" />
+          Switch in a new worktree
+        </DropdownMenuItem>
+      ) : null}
+    </>
+  );
+};
+
+/**
+ * Git state for the primary root. Without an interactive menu this preserves
+ * W1's read-only labelled image; desktop callers can opt into the switcher by
+ * supplying an already-gated branch menu model.
+ */
+export const BranchChip = ({
+  branchMenu,
+  checkout,
+}: {
+  readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
+  readonly checkout: WorkspaceBarCheckout;
+}): ReactElement => {
+  const [newBranchName, setNewBranchName] = useState('');
   const label = checkout.branch ?? 'detached';
   const ahead = countBadge(checkout.ahead, '↑');
   const behind = countBadge(checkout.behind, '↓');
@@ -24,175 +127,111 @@ export const BranchChip = ({
   ]
     .filter((part) => part !== null)
     .join(' · ');
-  const [newBranchName, setNewBranchName] = useState('');
-  const [creating, setCreating] = useState(false);
 
-  const chip = (
-    <button
-      aria-label={menu ? `${summary}. Choose branch` : summary}
-      className="inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring enabled:hover:bg-muted enabled:hover:text-foreground"
-      data-dirty={checkout.dirty ? 'true' : 'false'}
-      data-testid="workspace-bar-branch-chip"
-      disabled={!menu}
-      title={summary}
-      type="button"
-    >
-      <GitBranch aria-hidden="true" className="size-3 shrink-0" />
-      <span className="truncate">{label}</span>
-      {ahead ? <span className="shrink-0 tabular-nums">{ahead}</span> : null}
-      {behind ? <span className="shrink-0 tabular-nums">{behind}</span> : null}
-      {checkout.dirty ? (
-        <span className="shrink-0 text-amber-600 dark:text-amber-400">●</span>
-      ) : null}
-    </button>
-  );
-
-  if (!menu) {
-    return chip;
+  if (!branchMenu) {
+    return (
+      <span
+        aria-label={summary}
+        className="inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground"
+        data-dirty={checkout.dirty ? 'true' : 'false'}
+        data-testid="workspace-bar-branch-chip"
+        role="img"
+        title={summary}
+      >
+        <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
+      </span>
+    );
   }
 
-  const createBranch = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    const branch = newBranchName.trim();
-    if (!branch) {
+  const trimmedNewBranchName = newBranchName.trim();
+  const createBranch = (): void => {
+    if (branchMenu.pending || trimmedNewBranchName.length === 0) {
       return;
     }
-    setCreating(true);
-    const created = await menu.onCreateBranch(branch);
-    setCreating(false);
-    if (created) {
-      setNewBranchName('');
-    }
+    branchMenu.onCreateBranch(trimmedNewBranchName);
+    setNewBranchName('');
   };
 
-  const fetchRemotes = menu.defaultRemote ? [menu.defaultRemote] : menu.remotes;
-
   return (
-    <Popover onOpenChange={menu.onOpenChange}>
-      <PopoverTrigger asChild>{chip}</PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-80 space-y-2 p-2"
-        data-testid="workspace-bar-branch-popover"
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Branch: ${summary}`}
+        className="inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground"
+        data-dirty={checkout.dirty ? 'true' : 'false'}
+        data-testid="workspace-bar-branch-chip"
+        title={summary}
       >
-        <Input
-          aria-label="Search local branches"
-          className="h-8 text-xs"
-          data-testid="workspace-bar-branch-search"
-          defaultValue={menu.query}
-          onChange={(event) => menu.onQueryChange(event.currentTarget.value)}
-          placeholder="Search local branches…"
-        />
-
-        {menu.dirtyReason ? (
-          <p
-            className="rounded-md bg-amber-500/10 px-2 py-1.5 text-amber-800 text-xs dark:text-amber-200"
-            data-testid="workspace-bar-dirty-switch-reason"
-          >
-            {menu.dirtyReason}
-          </p>
-        ) : null}
-
-        <div className="max-h-56 space-y-1 overflow-y-auto" role="listbox">
-          {menu.loading ? (
-            <div className="flex items-center gap-2 px-2 py-3 text-muted-foreground text-xs">
-              <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> Loading
-              branches…
-            </div>
-          ) : null}
-          {!menu.loading && menu.rows.length === 0 ? (
-            <div className="px-2 py-3 text-muted-foreground text-xs">
-              No matching local branches.
-            </div>
-          ) : null}
-          {menu.rows.map((row) => (
-            <div key={row.name}>
-              <Button
-                aria-selected={row.current}
-                className="h-auto w-full justify-start gap-2 px-2 py-1.5 text-left"
-                data-testid={`workspace-bar-branch-row-${row.name}`}
-                disabled={!row.switchable}
-                onClick={() => void menu.onSwitchBranch(row.name)}
-                role="option"
-                title={row.disabledReason ?? undefined}
-                type="button"
-                variant="ghost"
-              >
-                {row.current ? (
-                  <Check aria-hidden="true" className="size-3.5 shrink-0" />
-                ) : (
-                  <span aria-hidden="true" className="size-3.5 shrink-0" />
-                )}
-                <span className="min-w-0 flex-1 truncate">{row.name}</span>
-                {row.current ? <span className="text-[10px]">Current</span> : null}
-                {row.worktreeName ? (
-                  <span className="text-[10px]">in worktree: {row.worktreeName}</span>
-                ) : null}
-              </Button>
-              {row.disabledReason ? (
-                <p className="px-8 pb-1 text-[10px] text-muted-foreground">{row.disabledReason}</p>
-              ) : null}
-            </div>
-          ))}
+        <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
+        <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-80">
+        <div className="p-1">
+          <Input
+            aria-label="Filter branches"
+            className="h-8 font-mono text-xs"
+            data-testid="workspace-bar-branch-search"
+            disabled={branchMenu.pending}
+            onChange={(event) => branchMenu.onQueryChange(event.target.value)}
+            onKeyDown={(event) => event.stopPropagation()}
+            placeholder="Filter branches"
+            value={branchMenu.query}
+          />
         </div>
-
-        <form className="flex gap-1.5 border-border border-t pt-2" onSubmit={createBranch}>
+        {branchMenu.pending ? (
+          <span className="block px-3 py-1 text-[10px] text-muted-foreground">
+            Branch operation in progress.
+          </span>
+        ) : null}
+        {branchMenu.scopeReason ? (
+          <span
+            className="block px-3 py-2 text-muted-foreground text-xs"
+            data-testid="workspace-bar-branch-scope-reason"
+          >
+            {branchMenu.scopeReason}
+          </span>
+        ) : (
+          branchMenu.rows.map((row) => <BranchMenuRow key={row.name} menu={branchMenu} row={row} />)
+        )}
+        <DropdownMenuSeparator />
+        <div className="flex gap-1 p-1">
           <Input
             aria-label="New branch name"
-            className="h-8 min-w-0 text-xs"
+            className="h-8 font-mono text-xs"
             data-testid="workspace-bar-branch-new-name"
-            onChange={(event) => setNewBranchName(event.currentTarget.value)}
-            placeholder="New branch…"
+            disabled={branchMenu.pending}
+            onChange={(event) => setNewBranchName(event.target.value)}
+            onKeyDown={(event) => event.stopPropagation()}
+            placeholder="New branch name"
             value={newBranchName}
           />
           <Button
-            className="h-8"
-            data-testid="workspace-bar-create-branch"
-            disabled={creating || newBranchName.trim().length === 0}
-            size="sm"
-            type="submit"
-          >
-            Create
-          </Button>
-        </form>
-
-        <div className="flex flex-wrap gap-1.5 border-border border-t pt-2">
-          {fetchRemotes.map((remote) => (
-            <Button
-              data-testid={`workspace-bar-fetch-${remote}`}
-              key={remote}
-              onClick={() => void menu.onFetch(remote)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Fetch {remote}
-            </Button>
-          ))}
-          {fetchRemotes.length === 0 ? (
-            <Button
-              disabled
-              size="sm"
-              title="No Git remote is configured"
-              type="button"
-              variant="outline"
-            >
-              Fetch
-            </Button>
-          ) : null}
-          <Button
-            className="ml-auto"
-            data-testid="workspace-bar-open-changes"
-            onClick={menu.onOpenChanges}
-            size="sm"
+            data-testid="workspace-bar-branch-create"
+            disabled={branchMenu.pending || trimmedNewBranchName.length === 0}
+            onClick={createBranch}
+            size="icon-sm"
+            title="Create branch"
             type="button"
             variant="outline"
           >
-            Open in Changes
+            <GitBranchPlus aria-hidden="true" className="size-3.5" />
+            <span className="sr-only">Create branch</span>
           </Button>
         </div>
-      </PopoverContent>
-    </Popover>
+        {branchMenu.onFetch ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="workspace-bar-branch-fetch"
+              disabled={branchMenu.pending}
+              onSelect={branchMenu.onFetch}
+            >
+              <RefreshCw aria-hidden="true" className="size-3.5" />
+              Fetch
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };
 

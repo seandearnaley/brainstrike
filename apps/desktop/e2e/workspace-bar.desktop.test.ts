@@ -18,7 +18,6 @@
  * into `electronAPI.storage`, then reload — main restores the root and the
  * renderer reconciles the durable `roots` row the bar resolves against.
  */
-import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -27,7 +26,6 @@ import {
   freshNonGitDir as createFreshNonGitDir,
   freshRepo as createFreshRepo,
   createTempDirTracker,
-  git,
 } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { type SeedRootOptions, seedRoot as seedWorkspaceRoot } from './utils/seed-root';
@@ -120,51 +118,6 @@ test.describe('Workspace bar (desktop)', () => {
     await expect(branchChip).toBeVisible({ timeout: 30_000 });
     await expect(branchChip).toContainText('main');
     await expect(branchChip).toHaveAttribute('data-dirty', 'false');
-  });
-
-  test('switches a clean checkout, refreshes the chip, and disables a branch held by another worktree', async ({
-    window: page,
-  }) => {
-    test.setTimeout(120_000);
-    const repo = freshRepo('branch-switch');
-    git(repo, ['branch', 'recent']);
-    const heldPath = `${repo}-held`;
-    tempDirs.track(heldPath);
-    git(repo, ['worktree', 'add', '-b', 'held', heldPath]);
-    await seedRoot(page, repo);
-    await openComposer(page);
-
-    const chip = page.getByTestId('workspace-bar-branch-chip');
-    await chip.click();
-    const held = page.getByTestId('workspace-bar-branch-row-held');
-    await expect(held).toBeDisabled();
-    await expect(held).toContainText(`in worktree: ${path.basename(heldPath)}`);
-    await expect(page.getByText(/git allows one checkout per branch/u)).toBeVisible();
-
-    await page.getByTestId('workspace-bar-branch-search').fill('recent');
-    await page.getByTestId('workspace-bar-branch-row-recent').click();
-    await expect(chip).toContainText('recent', { timeout: 30_000 });
-    expect(git(repo, ['branch', '--show-current']).trim()).toBe('recent');
-  });
-
-  test('refuses direct switching from a dirty checkout with the W3-unavailable explanation', async ({
-    window: page,
-  }) => {
-    test.setTimeout(120_000);
-    const repo = freshRepo('dirty-switch');
-    git(repo, ['branch', 'recent']);
-    writeFileSync(path.join(repo, 'hello.ts'), 'export const value = 2;\n');
-    await seedRoot(page, repo);
-    await openComposer(page);
-
-    const chip = page.getByTestId('workspace-bar-branch-chip');
-    await expect(chip).toHaveAttribute('data-dirty', 'true', { timeout: 30_000 });
-    await chip.click();
-    await expect(page.getByTestId('workspace-bar-dirty-switch-reason')).toContainText(
-      'Switching in a new worktree is unavailable until Worktree support lands.'
-    );
-    await expect(page.getByTestId('workspace-bar-branch-row-recent')).toBeDisabled();
-    expect(git(repo, ['branch', '--show-current']).trim()).toBe('main');
   });
 
   test('hides the branch chip for a non-git folder', async ({ window: page }) => {

@@ -31,9 +31,8 @@ export interface BranchSwitchModel {
 
 const SUBFOLDER_SCOPE_REASON =
   'This folder is below the repository root — open the repository root to switch branches.';
-/** Exported so callers render the same visible dirty-state explanation. */
-export const DIRTY_REASON =
-  'Working tree has uncommitted changes. Switching in a new worktree is unavailable until Worktree support lands.';
+/** Exported so callers can render the SAME copy as a visible banner (Major 1) — never a paraphrase. */
+export const DIRTY_REASON = 'Working tree has uncommitted changes — commit or stash first.';
 const CURRENT_REASON = 'Already checked out here.';
 
 /**
@@ -83,23 +82,23 @@ export function buildBranchSwitchModel(input: {
 }): BranchSwitchModel {
   const scopeReason = input.scope === 'workspace' ? SUBFOLDER_SCOPE_REASON : null;
   const needle = input.query.trim().toLowerCase();
-  const rows: BranchSwitchRow[] = [];
-  for (const branch of input.branches) {
+  const rows = input.branches
     // The current branch always survives the filter: hiding "where you are"
     // makes the list read as if the checkout moved.
-    if (!(branch.current || needle === '' || branch.name.toLowerCase().includes(needle))) {
-      continue;
-    }
-    const worktreeName =
-      branch.worktreePath && !branch.current ? worktreeBasename(branch.worktreePath) : null;
-    const disabledReason = resolveDisabledReason(branch, worktreeName, input.dirty, scopeReason);
-    rows.push({
-      current: branch.current,
-      disabledReason,
-      name: branch.name,
-      switchable: disabledReason === null,
-      worktreeName,
+    .filter(
+      (branch) => branch.current || needle === '' || branch.name.toLowerCase().includes(needle)
+    )
+    .map((branch) => {
+      const worktreeName =
+        branch.worktreePath && !branch.current ? worktreeBasename(branch.worktreePath) : null;
+      const disabledReason = resolveDisabledReason(branch, worktreeName, input.dirty, scopeReason);
+      return {
+        current: branch.current,
+        disabledReason,
+        name: branch.name,
+        switchable: disabledReason === null,
+        worktreeName,
+      };
     });
-  }
   return { dirty: input.dirty, rows, scopeReason };
 }
