@@ -131,12 +131,26 @@ const SUPPORTED_PROTOCOLS = new Set(['git+ssh:', 'git:', 'http:', 'https:', 'ssh
 // non-backslash path start.
 const SCP_LIKE = /^(?:[^@/\\]+@)?(?<host>[^:/\\]{2,}):(?<path>[^\\].*)$/u;
 
+/**
+ * A host is only `github`/`gitlab` when it EQUALS the canonical domain or its
+ * FIRST label is the forge name (covering enterprise hosts like
+ * `github.acme.com`). A middle-label match (`foo.github.attacker.example`)
+ * or a substring match (`mygithub.com`) is deliberately `unknown` — matching
+ * on `.split('.').includes(...)` would let an attacker-controlled subdomain
+ * masquerade as GitHub.
+ */
 function classifyForgeHost(host: string): ForgeKind {
-  const labels = host.split('.');
-  if (labels.includes('github')) {
+  if (host === 'github.com') {
     return 'github';
   }
-  if (labels.includes('gitlab')) {
+  if (host === 'gitlab.com') {
+    return 'gitlab';
+  }
+  const firstLabel = host.split('.')[0];
+  if (firstLabel === 'github') {
+    return 'github';
+  }
+  if (firstLabel === 'gitlab') {
     return 'gitlab';
   }
   return 'unknown';
@@ -152,9 +166,21 @@ function splitOwnerRepo(rawPath: string, host: string): ForgeRemoteParseResult {
       reason: `The remote path "${rawPath}" is not an owner/repo path.`,
     };
   }
+  const forge = classifyForgeHost(host);
+  // GitHub owner/repo is always exactly two segments; a GitHub URL with more
+  // segments (e.g. ".../acme/widgets/tree/main") is a page URL, not a
+  // remote, and treating its trailing segments as part of the owner would
+  // fabricate a namespace that doesn't exist. GitLab keeps subgroup
+  // namespaces (more than two segments is legitimate there).
+  if (forge === 'github' && segments.length !== 2) {
+    return {
+      ok: false,
+      reason: `The remote "${host}/${withoutSuffix}" has ${segments.length} path segments; a GitHub remote must be exactly "owner/repo".`,
+    };
+  }
   const repo = segments.at(-1) as string;
   const owner = segments.slice(0, -1).join('/');
-  return { ok: true, value: { forge: classifyForgeHost(host), host, owner, repo } };
+  return { ok: true, value: { forge, host, owner, repo } };
 }
 
 /**
@@ -268,6 +294,96 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Prototype-safe lookup on a plain-object map: `map[key]` alone resolves
+ * inherited `Object.prototype` keys (`constructor`, `toString`, `__proto__`)
+ * to truthy junk that would slip past `if (!mapped)` and roll a check up as
+ * passing. `Object.hasOwn` closes that off.
+ */
+function lookupOwn<V>(map: Readonly<Record<string, V>>, key: string): V | undefined {
+  return Object.hasOwn(map, key) ? map[key] : undefined;
+}
+
+// GitHub's CheckStatusState GraphQL enum: the only non-COMPLETED values a
+// CheckRun can report. Anything else is a status this code doesn't
+// understand and must not silently fold into "pending".
+const IN_PROGRESS_CHECK_STATUSES: ReadonlySet<string> = new Set([
+  'IN_PROGRESS',
+  'PENDING',
+  'QUEUED',
+  'REQUESTED',
+  'WAITING',
+]);
+
+function readCheckRunNode(
+  rawName: string,
+  url: string | null,
+  node: Record<string, unknown>
+):
+  | { readonly ok: false; readonly reason: string }
+  | { readonly ok: true; readonly value: ForgeCheck } {
+  const status = node['status'];
+  if (typeof status !== 'string' || status.length === 0) {
+    return { ok: false, reason: `Check "${rawName}" has an empty or missing status.` };
+  }
+  if (status !== 'COMPLETED') {
+    if (!IN_PROGRESS_CHECK_STATUSES.has(status)) {
+      return { ok: false, reason: `Check "${rawName}" has unrecognized status "${status}".` };
+    }
+    return { ok: true, value: { conclusion: 'pending', name: rawName, url } };
+  }
+  const conclusion = typeof node['conclusion'] === 'string' ? node['conclusion'] : '';
+  const mapped = lookupOwn(CHECK_RUN_CONCLUSIONS, conclusion);
+  if (mapped === undefined) {
+    return {
+      ok: false,
+      reason: `Check "${rawName}" completed with unrecognized conclusion "${conclusion}".`,
+    };
+  }
+  return { ok: true, value: { conclusion: mapped, name: rawName, url } };
+}
+
+function readStatusContextNode(
+  rawName: string,
+  url: string | null,
+  node: Record<string, unknown>
+):
+  | { readonly ok: false; readonly reason: string }
+  | { readonly ok: true; readonly value: ForgeCheck } {
+  const state = node['state'];
+  if (typeof state !== 'string' || state.length === 0) {
+    return { ok: false, reason: `Status context "${rawName}" has an empty or missing state.` };
+  }
+  const mappedState = lookupOwn(STATUS_CONTEXT_STATES, state);
+  if (mappedState === undefined) {
+    return {
+      ok: false,
+      reason: `Status context "${rawName}" has unrecognized state "${state}".`,
+    };
+  }
+  return { ok: true, value: { conclusion: mappedState, name: rawName, url } };
+}
+
+/**
+ * `__typename` (present on every `gh --json` GraphQL node) decides CheckRun
+ * vs. StatusContext when it's there. The structural sniff (does a `status`
+ * key exist?) is only a fallback for callers that omit `__typename` — and an
+ * EMPTY `status` string never counts as "present": that was the "pending"
+ * lie an empty status used to tell (falling into the CheckRun branch,
+ * `status !== 'COMPLETED'` → pending) instead of the explicit failure the
+ * malformed node deserves.
+ */
+function isCheckRunNode(node: Record<string, unknown>): boolean {
+  const typename = node['__typename'];
+  if (typename === 'CheckRun') {
+    return true;
+  }
+  if (typename === 'StatusContext') {
+    return false;
+  }
+  return 'status' in node;
+}
+
 function readCheckNode(
   node: Record<string, unknown>,
   index: number
@@ -280,30 +396,9 @@ function readCheckNode(
   }
   const rawUrl = node['detailsUrl'] ?? node['targetUrl'];
   const url = typeof rawUrl === 'string' && rawUrl.length > 0 ? rawUrl : null;
-  const status = node['status'];
-  if (typeof status === 'string') {
-    if (status !== 'COMPLETED') {
-      return { ok: true, value: { conclusion: 'pending', name: rawName, url } };
-    }
-    const conclusion = typeof node['conclusion'] === 'string' ? node['conclusion'] : '';
-    const mapped = CHECK_RUN_CONCLUSIONS[conclusion];
-    if (!mapped) {
-      return {
-        ok: false,
-        reason: `Check "${rawName}" completed with unrecognized conclusion "${conclusion}".`,
-      };
-    }
-    return { ok: true, value: { conclusion: mapped, name: rawName, url } };
-  }
-  const state = typeof node['state'] === 'string' ? node['state'] : '';
-  const mappedState = STATUS_CONTEXT_STATES[state];
-  if (!mappedState) {
-    return {
-      ok: false,
-      reason: `Status context "${rawName}" has unrecognized state "${state}".`,
-    };
-  }
-  return { ok: true, value: { conclusion: mappedState, name: rawName, url } };
+  return isCheckRunNode(node)
+    ? readCheckRunNode(rawName, url, node)
+    : readStatusContextNode(rawName, url, node);
 }
 
 /**
@@ -313,17 +408,24 @@ function readCheckNode(
  * A node this cannot read fails the WHOLE parse. Dropping it would render a
  * partial checks list as a complete one — exactly the "12/12 green" lie the
  * chip must never tell.
+ *
+ * `null`/`undefined` is REJECTED, not treated as "no checks" — verified live
+ * 2026-08-24 that `gh pr view --json statusCheckRollup` always emits an
+ * array, empty included, and never `null`, so a missing/null value here
+ * indicates a malformed or truncated payload upstream, not an empty rollup.
+ * An actual empty rollup is expressed as `[]`, which still maps to `ok: true,
+ * value: []` (and rolls up to `none`).
  */
 export function readForgeChecks(
   value: unknown
 ):
   | { readonly ok: false; readonly reason: string }
   | { readonly ok: true; readonly value: readonly ForgeCheck[] } {
-  if (value === null || value === undefined) {
-    return { ok: true, value: [] };
-  }
   if (!Array.isArray(value)) {
-    return { ok: false, reason: 'The status check rollup is not an array.' };
+    return {
+      ok: false,
+      reason: 'The status check rollup is not an array; expected an array (use [] for no checks).',
+    };
   }
   const checks: ForgeCheck[] = [];
   for (const [index, node] of value.entries()) {
