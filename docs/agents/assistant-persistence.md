@@ -44,15 +44,21 @@ Automatic thread titles use Mastra Memory's top-level `generateTitle: true`
 option and `Agent.generateTitleFromUserMessage`. At the terminal Mastra finish,
 the stream adapter starts that canonical title request with the active agent
 model before yielding the UI finish, then keeps the per-run Mastra instance
-alive until the detached request settles. The main response therefore is not
-held up by title latency, and generation remains independent of Observational
-Memory, its token threshold, and whether OM is thread- or resource-scoped. The
-generated title is persisted through `PgliteMemoryStore.saveThread`; that
-transactional boundary may replace only an empty/default/system-owned title and stamps
-`titleSource: 'om'`, while the manual rename path clears the marker and always
-wins even if generation was already in flight. Title generation deliberately
-does not delay the main assistant response, so provider `message-finish` is not
-a reliable primary title-refresh signal. App-shell live-subscribes to the local
+alive for one bounded 30-second title lifecycle. The title model receives the
+active request's provider options and output-token cap; OpenRouter retries one
+text-empty result on that same model, never a fallback provider. Expiry aborts
+the underlying model call and marks the transactional PGlite save for rollback,
+rather than merely detaching either operation. Provider, invalid-output,
+configuration, persistence-read, and persistence-write failures are logged with
+stage-specific privacy-safe metadata while the successful main response remains
+intact. Generation remains independent of Observational Memory, its token
+threshold, and whether OM is thread- or resource-scoped. The generated title is
+persisted through `PgliteMemoryStore.saveThread`; that transactional boundary
+may replace only an empty/default/system-owned title and stamps `titleSource:
+'om'`, while the manual rename path clears the marker and always wins even if
+generation was already in flight. Title generation deliberately does not delay
+the main assistant response, so provider `message-finish` is not a reliable
+primary title-refresh signal. App-shell live-subscribes to the local
 `mastra_threads` id/title projection and re-lists the loaded resource only when
 that stable projection changes. This makes background titles visible in thread
 rows and tabs without a timer or an API round trip. The existing

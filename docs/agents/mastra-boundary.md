@@ -170,10 +170,18 @@ credentials, consent, and desktop/web parity.
 **Brainstrike `RuntimeData` is the authoritative request-scoped carrier.
 `RequestContext` is limited to Mastra-reserved keys.**
 
-Today exactly one product import exists —
-`packages/agent/src/mastra/tool-search-runtime.ts:11` (`MASTRA_THREAD_ID_KEY`).
+Today exactly two product imports exist:
+
+- `packages/agent/src/mastra/tool-search-runtime.ts` uses
+  `MASTRA_THREAD_ID_KEY` to expose Mastra's thread identifier to tool search.
+- `packages/agent/src/mastra/agent-streaming.ts` creates a fresh, empty
+  `RequestContext` for thread-title model resolution and generation. That
+  context remains Mastra-only: Brainstrike does not add product or
+  `RuntimeData` fields to it.
+
 Zero of `RuntimeData`'s 43 contract fields
-(`packages/assistant-contract/src/runtime-data.ts:216-342`) travel through it.
+(`packages/assistant-contract/src/runtime-data.ts:216-342`) travel through either
+context.
 
 Three field classes, and the third is the reason this ruling is narrow:
 

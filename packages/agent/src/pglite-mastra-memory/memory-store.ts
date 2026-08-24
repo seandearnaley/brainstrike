@@ -76,6 +76,7 @@ import {
   THREAD_TITLE_SOURCE_OM,
 } from './sql';
 import { canOverwriteThreadTitle, resolveThreadSave } from './thread-title-policy';
+import { throwIfThreadTitleSaveAborted } from './thread-title-save-cancellation';
 import { projectMessageContentForTranscript } from './transcript-projection';
 import type { PgliteDatabase, PgliteQueryValue } from './types';
 
@@ -193,6 +194,7 @@ export class PgliteMemoryStore extends MemoryStorage {
   }
 
   override async saveThread({ thread }: { thread: StorageThreadType }): Promise<StorageThreadType> {
+    throwIfThreadTitleSaveAborted(thread);
     return runTransaction(this.database, async (tx) => {
       const existingResult = await tx.query<ThreadRow>(
         `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
@@ -200,6 +202,7 @@ export class PgliteMemoryStore extends MemoryStorage {
          WHERE id = $1`,
         [thread.id]
       );
+      throwIfThreadTitleSaveAborted(thread);
       const existingRow = existingResult.rows[0];
       const existing = existingRow ? threadFromRow(existingRow) : null;
       // Mastra bootstraps a thread with an empty title, then its asynchronous
@@ -208,6 +211,7 @@ export class PgliteMemoryStore extends MemoryStorage {
       // only while that row is still system-owned. The transaction closes the
       // race where a manual rename lands while title generation is in flight.
       const resolved = resolveThreadSave(existing, thread);
+      throwIfThreadTitleSaveAborted(thread);
 
       if (resolved.preservedGeneratedTitle) {
         logger.debug('Preserving established thread title against generated title', {
@@ -235,12 +239,14 @@ export class PgliteMemoryStore extends MemoryStorage {
           resolved.effectiveUpdatedAt,
         ]
       );
+      throwIfThreadTitleSaveAborted(thread);
       const savedResult = await tx.query<ThreadRow>(
         `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
          FROM ${MASTRA_MEMORY_TABLES.threads}
          WHERE id = $1`,
         [thread.id]
       );
+      throwIfThreadTitleSaveAborted(thread);
       const savedRow = savedResult.rows[0];
       if (!savedRow) {
         throw new Error(`Failed to save Mastra thread: ${thread.id}`);
