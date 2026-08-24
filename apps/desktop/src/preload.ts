@@ -1280,7 +1280,7 @@ if (shouldExposeBridge('git')) {
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
     commitFiles: (rootId: string, params: { commit: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
-    createBranch: (rootId: string, params: { branch: string; startPoint?: string }) =>
+    createBranch: (rootId: string, params: { branch: string }) =>
       ipcRenderer.invoke(GIT_CREATE_BRANCH_CHANNEL, rootId, params),
     diff: (rootId: string, params: GitDiffParams) =>
       ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params),

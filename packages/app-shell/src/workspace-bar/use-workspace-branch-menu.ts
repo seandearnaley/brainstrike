@@ -95,11 +95,9 @@ export function useWorkspaceBranchMenu({
         return false;
       }
       const switchDirty = deriveBranchSwitchDirty(result.value);
-      if (repositoryState?.rootId === rootId) {
-        setRepositoryState((current) =>
-          current?.rootId === rootId ? { ...current, switchDirty } : current
-        );
-      }
+      setRepositoryState((current) =>
+        current?.rootId === rootId ? { ...current, switchDirty } : current
+      );
       if (switchDirty) {
         publishFailure('Branch switch unavailable', DIRTY_REASON);
         return false;
@@ -109,7 +107,7 @@ export function useWorkspaceBranchMenu({
       publishFailure('Git status failed', failureMessage(error));
       return false;
     }
-  }, [bridge, publishFailure, repositoryState?.rootId, rootId]);
+  }, [bridge, publishFailure, rootId]);
 
   const runMutation = useCallback(
     async <T>(

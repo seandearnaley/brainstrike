@@ -25,10 +25,10 @@ import { useWorkspaceBranchMenu } from './use-workspace-branch-menu';
 export const WorkspaceBarHost = memo(function WorkspaceBarHost(
   args: UseWorkspaceBarArgs
 ): ReactElement {
-  const barProps = useWorkspaceBar(args);
+  const baseBarProps = useWorkspaceBar(args);
   const bridge = useMemo(() => resolveGitBridge(), []);
-  const root = barProps.primaryRoot?.path
-    ? { path: barProps.primaryRoot.path, rootId: barProps.primaryRoot.rootId }
+  const root = baseBarProps.primaryRoot?.path
+    ? { path: baseBarProps.primaryRoot.path, rootId: baseBarProps.primaryRoot.rootId }
     : null;
   const [branchOverride, setBranchOverride] = useState<{
     readonly branch: string;
@@ -36,7 +36,7 @@ export const WorkspaceBarHost = memo(function WorkspaceBarHost(
   } | null>(null);
   const branchMenu = useWorkspaceBranchMenu({
     bridge,
-    checkout: barProps.checkout,
+    checkout: baseBarProps.checkout,
     onBranchChanged: (branch) => {
       if (root) {
         setBranchOverride({ branch, rootId: root.rootId });
@@ -47,8 +47,9 @@ export const WorkspaceBarHost = memo(function WorkspaceBarHost(
   const activeBranchOverride =
     branchOverride && branchOverride.rootId === root?.rootId ? branchOverride.branch : null;
   const checkout =
-    barProps.checkout && activeBranchOverride
-      ? { ...barProps.checkout, branch: activeBranchOverride }
-      : barProps.checkout;
-  return <WorkspaceBar {...barProps} branchMenu={branchMenu ?? undefined} checkout={checkout} />;
+    baseBarProps.checkout && activeBranchOverride
+      ? { ...baseBarProps.checkout, branch: activeBranchOverride }
+      : baseBarProps.checkout;
+  const barProps = { ...baseBarProps, branchMenu: branchMenu ?? undefined, checkout };
+  return <WorkspaceBar {...barProps} />;
 });

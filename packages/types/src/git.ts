@@ -118,7 +118,3 @@ export interface GitCommitFile {
 export interface GitSwitchBranchResult {
   readonly branch: string;
 }
-
-export interface GitCreateBranchResult {
-  readonly branch: string;
-}

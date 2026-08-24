@@ -264,16 +264,8 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
       ),
     commitFiles: (rootId: unknown, params: { commit: string }) =>
       withService(rootId, (service) => service.commitFiles({ commit: params?.commit })),
-    createBranch: (rootId: unknown, params: { branch: string; startPoint?: string }) =>
-      withService(rootId, (service) =>
-        service.createBranch({
-          branch: params?.branch,
-          // Forward on `!== undefined`, not truthiness: an explicit '' must
-          // reach the service and hit ITS stated refusal, not get silently
-          // dropped here and treated as "no start point supplied".
-          ...(params?.startPoint === undefined ? {} : { startPoint: params.startPoint }),
-        })
-      ),
+    createBranch: (rootId: unknown, params: { branch: string }) =>
+      withService(rootId, (service) => service.createBranch({ branch: params?.branch })),
     diff: (rootId: unknown, params: unknown) =>
       withService(rootId, (service) => service.diff(params as GitDiffParams)),
     fetch: (rootId: unknown, params: { remote: string }) =>

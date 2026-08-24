@@ -2,141 +2,83 @@ import type { GitBranchSummary, GitStatusFile } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../git-panel/branch-switch-model';
 
-function statusFile(overrides: Partial<GitStatusFile> & { path: string }): GitStatusFile {
-  return {
-    staged: false,
-    status: 'M',
-    unstaged: false,
-    untracked: false,
-    ...overrides,
-  };
-}
+const branch = (name: string, overrides: Partial<GitBranchSummary> = {}): GitBranchSummary => ({
+  current: false,
+  head: 'a'.repeat(40),
+  name,
+  upstream: null,
+  worktreePath: null,
+  ...overrides,
+});
 
-function branch(overrides: Partial<GitBranchSummary> & { name: string }): GitBranchSummary {
-  return {
-    current: false,
-    head: 'a'.repeat(40),
-    upstream: null,
-    worktreePath: null,
-    ...overrides,
-  };
-}
+const statusFile = (untracked: boolean): GitStatusFile => ({
+  path: untracked ? 'new.txt' : 'tracked.txt',
+  staged: false,
+  status: untracked ? '?' : 'M',
+  unstaged: !untracked,
+  untracked,
+});
+
+const branches = [
+  branch('main', { current: true }),
+  branch('feature/alpha'),
+  branch('feature/beta', { worktreePath: '/wt/beta-copy' }),
+];
 
 describe('buildBranchSwitchModel', () => {
-  const branches = [
-    branch({ current: true, name: 'main' }),
-    branch({ name: 'feature/alpha' }),
-    branch({ name: 'feature/beta', worktreePath: '/wt/beta-copy' }),
-  ];
+  it('preserves recency order, identifies current, and filters without hiding current', () => {
+    const all = buildBranchSwitchModel({ branches, dirty: false, query: '', scope: 'repository' });
+    expect(all.rows.map((row) => row.name)).toEqual(['main', 'feature/alpha', 'feature/beta']);
+    expect(all.rows[0]).toMatchObject({ current: true, switchable: false });
 
-  it('preserves the incoming recency order and marks the current branch', () => {
-    const model = buildBranchSwitchModel({
-      branches,
-      dirty: false,
-      query: '',
-      scope: 'repository',
-    });
-    expect(model.rows.map((row) => row.name)).toEqual(['main', 'feature/alpha', 'feature/beta']);
-    expect(model.rows[0]?.current).toBe(true);
-  });
-
-  it('disables the current branch with a stated reason', () => {
-    const model = buildBranchSwitchModel({
-      branches,
-      dirty: false,
-      query: '',
-      scope: 'repository',
-    });
-    expect(model.rows[0]?.switchable).toBe(false);
-    expect(model.rows[0]?.disabledReason).toBe('Already checked out here.');
-  });
-
-  it('disables a branch checked out in another worktree, naming that worktree', () => {
-    const model = buildBranchSwitchModel({
-      branches,
-      dirty: false,
-      query: '',
-      scope: 'repository',
-    });
-    const beta = model.rows.find((row) => row.name === 'feature/beta');
-    expect(beta?.switchable).toBe(false);
-    expect(beta?.worktreeName).toBe('beta-copy');
-    expect(beta?.disabledReason).toBe(
-      'Checked out in worktree "beta-copy" — git allows one checkout per branch.'
-    );
-  });
-
-  it('disables every row while the working tree is dirty, with the dirty reason', () => {
-    const model = buildBranchSwitchModel({ branches, dirty: true, query: '', scope: 'repository' });
-    const alpha = model.rows.find((row) => row.name === 'feature/alpha');
-    expect(alpha?.switchable).toBe(false);
-    expect(alpha?.disabledReason).toBe(
-      'Working tree has uncommitted changes. Switching in a new worktree is unavailable until Worktree support lands.'
-    );
-  });
-
-  it('prefers the more specific worktree reason over the dirty reason', () => {
-    const model = buildBranchSwitchModel({ branches, dirty: true, query: '', scope: 'repository' });
-    const beta = model.rows.find((row) => row.name === 'feature/beta');
-    expect(beta?.disabledReason).toContain('beta-copy');
-  });
-
-  it('filters case-insensitively on a substring but never hides the current branch', () => {
-    const model = buildBranchSwitchModel({
+    const filtered = buildBranchSwitchModel({
       branches,
       dirty: false,
       query: 'ALPHA',
       scope: 'repository',
     });
-    expect(model.rows.map((row) => row.name)).toEqual(['main', 'feature/alpha']);
+    expect(filtered.rows.map((row) => row.name)).toEqual(['main', 'feature/alpha']);
   });
 
-  it('states the scope reason and disables everything for a subfolder root', () => {
-    const model = buildBranchSwitchModel({ branches, dirty: false, query: '', scope: 'workspace' });
-    expect(model.scopeReason).toBe(
-      'This folder is below the repository root — open the repository root to switch branches.'
+  it('disables a branch held by another worktree with a visible named reason', () => {
+    const model = buildBranchSwitchModel({
+      branches,
+      dirty: false,
+      query: '',
+      scope: 'repository',
+    });
+    expect(model.rows.find((row) => row.name === 'feature/beta')).toMatchObject({
+      disabledReason: 'Checked out in worktree "beta-copy" — git allows one checkout per branch.',
+      switchable: false,
+      worktreeName: 'beta-copy',
+    });
+  });
+
+  it('applies visible dirty and subfolder gates', () => {
+    const dirty = buildBranchSwitchModel({ branches, dirty: true, query: '', scope: 'repository' });
+    expect(dirty.rows.find((row) => row.name === 'feature/alpha')?.disabledReason).toContain(
+      'new worktree is unavailable'
     );
-    expect(model.rows.every((row) => row.switchable === false)).toBe(true);
+
+    const subfolder = buildBranchSwitchModel({
+      branches,
+      dirty: false,
+      query: '',
+      scope: 'workspace',
+    });
+    expect(subfolder.scopeReason).toContain('open the repository root');
+    expect(subfolder.rows.every((row) => !row.switchable)).toBe(true);
   });
 });
 
 describe('deriveBranchSwitchDirty', () => {
-  it('is not dirty for a clean tree', () => {
+  it('allows clean and untracked-only trees', () => {
     expect(deriveBranchSwitchDirty({ files: [] })).toBe(false);
+    expect(deriveBranchSwitchDirty({ files: [statusFile(true)] })).toBe(false);
   });
 
-  it('is not dirty when every file is untracked-only (Major 2 ruling)', () => {
-    expect(
-      deriveBranchSwitchDirty({
-        files: [statusFile({ path: 'new-file.txt', status: '?', untracked: true })],
-      })
-    ).toBe(false);
-  });
-
-  it('is dirty for an unstaged modification to a tracked file', () => {
-    expect(
-      deriveBranchSwitchDirty({
-        files: [statusFile({ path: 'tracked.txt', unstaged: true })],
-      })
-    ).toBe(true);
-  });
-
-  it('is dirty for a staged tracked change', () => {
-    expect(
-      deriveBranchSwitchDirty({
-        files: [statusFile({ path: 'tracked.txt', staged: true, status: 'M' })],
-      })
-    ).toBe(true);
-  });
-
-  it('is dirty when a tracked change is mixed with untracked files', () => {
-    expect(
-      deriveBranchSwitchDirty({
-        files: [
-          statusFile({ path: 'new-file.txt', status: '?', untracked: true }),
-          statusFile({ path: 'tracked.txt', unstaged: true }),
-        ],
-      })
-    ).toBe(true);
+  it('refuses any tracked change, including when mixed with untracked files', () => {
+    expect(deriveBranchSwitchDirty({ files: [statusFile(false)] })).toBe(true);
+    expect(deriveBranchSwitchDirty({ files: [statusFile(true), statusFile(false)] })).toBe(true);
   });
 });

@@ -30,7 +30,6 @@ import type {
   GitAheadBehind,
   GitBranchSummary,
   GitCommitResult,
-  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitPushPullResult,
@@ -50,7 +49,6 @@ export type {
   GitBranchSummary,
   GitCommitFile,
   GitCommitResult,
-  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitHistoryCommit,
@@ -1048,24 +1046,14 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
      */
     commitFiles: historyOps.commitFiles,
 
-    /** Create a new local branch at `startPoint` and check it out in this worktree. */
-    createBranch: async (params: {
-      branch: string;
-      startPoint?: string;
-    }): Promise<GitResult<GitCreateBranchResult>> => {
+    /** Create a new local branch at HEAD and check it out in this worktree. */
+    createBranch: async (params: { branch: string }): Promise<GitResult<GitSwitchBranchResult>> => {
       try {
         if (typeof params.branch !== 'string' || params.branch.length === 0) {
           return { error: 'branch must be a non-empty string', ok: false };
         }
         if (params.branch === '-') {
           return { error: 'local branch "-" is not supported', ok: false };
-        }
-        const startPoint = params.startPoint;
-        if (
-          startPoint !== undefined &&
-          (typeof startPoint !== 'string' || startPoint.length === 0)
-        ) {
-          return { error: 'startPoint must be a non-empty string when supplied', ok: false };
         }
         const scope = await requireFullWorktreeRoot('Branch creation');
         if (!scope.ok) {
@@ -1078,13 +1066,7 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           // and quietly checking out an existing branch is a different action.
           return { error: `local branch "${branch}" already exists`, ok: false };
         }
-        const run_ = await invokeHookFree([
-          'switch',
-          '--no-guess',
-          '-c',
-          branch,
-          ...(startPoint ? ['--', startPoint] : []),
-        ]);
+        const run_ = await invokeHookFree(['switch', '--no-guess', '-c', branch]);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
