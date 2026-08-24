@@ -149,3 +149,81 @@ describe('main-process run-event schema provenance', () => {
     }
   });
 });
+
+describe('duration_ms column contract', () => {
+  // Field regression (2026-08-23, 22P02): tool events stamped with FRACTIONAL
+  // performance.now() durations failed every persist — "invalid input syntax
+  // for type integer: \"15.73333299998194\"" — punching holes in the durable
+  // timeline. The producer seam now rounds (withRunEventDuration); this pair
+  // pins BOTH halves against the real column: an integer duration persists,
+  // and the column genuinely rejects a fractional one — proving the
+  // producer-side rounding is load-bearing, not decorative.
+  it('persists an integer durationMs and the column rejects a fractional one', async () => {
+    const db = await wasmLoader.createPGlite(`memory://run-event-duration-${Date.now()}`);
+    try {
+      await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
+      await db.query(
+        `INSERT INTO ${MASTRA_MEMORY_TABLES.threads}
+          (id, "resourceId", title, metadata, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+        [
+          'thread-dur',
+          'workspace-a',
+          'Seeded thread',
+          JSON.stringify({ source: 'brainstrike' }),
+          new Date(),
+          new Date(),
+        ]
+      );
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      await repository.createThreadRun({
+        id: 'run-dur',
+        model: 'gpt-5.2',
+        provider: 'openai',
+        resourceId: 'workspace-a',
+        runtimeKind: 'hosted',
+        threadId: 'thread-dur',
+      });
+
+      async function* durationEventStream(): AsyncGenerator<StreamChunk> {
+        yield {
+          event: {
+            durationMs: 16,
+            id: 'event-dur-1',
+            kind: 'tool.completed',
+            label: 'Tool completed',
+            status: 'completed',
+            timestamp: '2026-08-23T10:00:00.000Z',
+          },
+          type: 'run-event',
+        };
+      }
+      for await (const _chunk of observeDesktopAssistantRunEvents(
+        durationEventStream(),
+        'run-dur',
+        [],
+        async () => db
+      )) {
+        // drain; persistence settles at flush
+      }
+      const persisted = await db.query(
+        'SELECT duration_ms FROM brainstrike_assistant_run_events WHERE id = $1',
+        ['event-dur-1']
+      );
+      expect((persisted.rows as readonly { duration_ms: number }[])[0]?.duration_ms).toBe(16);
+
+      // CONTROL: the column contract is INTEGER — a raw fractional value is
+      // rejected by PGlite itself, which is exactly the 22P02 the field saw.
+      await expect(
+        db.query(
+          `INSERT INTO brainstrike_assistant_run_events
+            (id, run_id, resource_id, thread_id, sequence, kind, status, label, duration_ms, occurred_at, created_at, updated_at)
+           VALUES ($1, 'run-dur', 'workspace-a', 'thread-dur', 999, 'tool.completed', 'completed', 'Tool completed', $2, NOW(), NOW(), NOW())`,
+          ['event-dur-frac', 15.733_332_999_981_94]
+        )
+      ).rejects.toThrow(/invalid input syntax for type integer/);
+    } finally {
+      await db.close();
+    }
+  });
+});

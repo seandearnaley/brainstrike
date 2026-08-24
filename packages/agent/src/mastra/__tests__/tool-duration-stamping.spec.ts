@@ -155,3 +155,61 @@ describe('terminal tool run events carry the measured duration', () => {
     expect(event?.event.durationMs).toBe(0);
   });
 });
+
+describe('stamped durations are integer milliseconds', () => {
+  // Field regression (2026-08-23, 22P02): the guard wrapper measures with
+  // performance.now(), whose deltas are FRACTIONAL — and the run-event table's
+  // duration_ms column is INTEGER. Every terminal tool event carrying a
+  // measured duration failed to persist ("invalid input syntax for type
+  // integer: \"15.73333299998194\""), punching holes in the durable timeline
+  // the debug bundle reads. The contract is integer milliseconds; the stamp
+  // must round, never forward the raw float.
+  it('rounds a fractional measured duration before stamping the event', () => {
+    const durations = createToolExecutionDurations();
+    durations.record('call-1', 15.733_332_999_981_94);
+
+    const chunks = terminalEventFor(lifecycleState(durations));
+    const event = chunks.find(
+      (chunk) => (chunk as { event?: { kind?: string } }).event?.kind === 'tool.completed'
+    ) as { event: { durationMs?: number } } | undefined;
+
+    expect(event?.event.durationMs).toBe(16);
+    expect(Number.isInteger(event?.event.durationMs)).toBe(true);
+  });
+
+  /** Same public entry the suite's other tests drive. */
+  function terminalEventFor(state: ToolLifecycleState) {
+    return mapToolLifecyclePart(
+      {
+        payload: { output: { ok: true }, toolCallId: 'call-1', toolName: 'executeCommand' },
+        type: 'tool-result',
+      },
+      new Map([['executeCommand', 'brainstrike.executeCommand']]),
+      state,
+      'tool-result',
+      undefined,
+      new Map()
+    ).chunks;
+  }
+
+  const lifecycleState = (durations: ReturnType<typeof createToolExecutionDurations>) =>
+    ({
+      carriedCompletionTokens: 0,
+      carriedPromptTokens: 0,
+      delegationLifecycle: createDelegationLifecycleTracker(),
+      includeCacheTokenClasses: false,
+      outputOnlyToolEvents: new Map(),
+      requiresBilledCost: false,
+      sawModelContribution: true,
+      sawStepBilledCost: false,
+      sawStepWithoutBilledCost: false,
+      stepBilledCostUsd: 0,
+      stepCount: 0,
+      steppedCompletionTokens: 0,
+      steppedPromptTokens: 0,
+      streamStartedAtMs: 0,
+      terminalToolCallStates: new Map(),
+      toolExecutionDurations: durations,
+      warnedUnknownChunkTypes: new Set(),
+    }) satisfies ToolLifecycleState;
+});
