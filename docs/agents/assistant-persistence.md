@@ -1669,11 +1669,14 @@ tool map, but via a distinct telemetry-only method,
 `recordSubagentToolOutput` (`token-measurement.ts`), NOT the primary map's
 `recordModelOutput`. The two intentionally diverge: `recordModelOutput` also
 feeds the run's `#projection` aggregate (`modelVisibleProjection*` in
-`toLogFields`), which reconciles against `providerReportedPromptTokens` — what
-the PARENT model actually saw in ITS prompt. A subagent tool output never
+`toLogFields`), which reconciles against `promptTokensSummedAcrossSteps`
+(logged name; the lifecycle field is `providerReportedPromptTokens`, the
+per-leg SUM across steps — spend, not a single request's context size, which
+is `latestStepPromptTokens`; the 2026-08-23 "context explosion" was this sum
+misread as one request). A subagent tool output never
 enters the parent's prompt (only the delegation's final result does), so
 routing it through `recordModelOutput` would inflate that aggregate for every
-delegating run without a matching change in `providerReportedPromptTokens`.
+delegating run without a matching change in the prompt sum.
 `recordSubagentToolOutput` pushes only the `ToolCallTelemetrySample`, leaving
 `#projection` untouched. Both methods feed the SAME `#toolCallTelemetry`
 array, so samples from either path ride the existing run-end
