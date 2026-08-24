@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe('resolveForgeBridge', () => {
-  const logger = createLogger('Forge');
+  const logger = createLogger('ForgeBridge');
 
   it('is null when the bridge is absent (web)', () => {
     expect(resolveForgeBridge()).toBeNull();
