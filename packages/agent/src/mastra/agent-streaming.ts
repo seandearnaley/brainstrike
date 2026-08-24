@@ -39,7 +39,7 @@ import type {
   DelegationConfig,
   MastraDBMessage,
 } from '@mastra/core/agent';
-import type { MastraMemory } from '@mastra/core/memory';
+import type { MastraMemory, MemoryConfigInternal } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
 import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
@@ -48,6 +48,7 @@ import {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from '../providers/native-web-search';
+import { wrapModelWithCallTransform } from '../providers/prompt-transform-proxy';
 import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
@@ -1947,6 +1948,68 @@ function startMastraThreadTitleGeneration({
   return generateMastraThreadTitle({ memory, messages, runtime, runtimeData });
 }
 
+function getThreadTitleUserMessages(messages: AgentMessage[]): AgentMessage[] {
+  return messages
+    .filter((message) => message.role === 'user')
+    .map((message) => ({
+      ...message,
+      // Mastra's title formatter accepts textual UI parts. File/tool parts are
+      // not title input and some versions attempt text-only operations on them.
+      parts: message.parts.filter((part) => part.type === 'text'),
+    }))
+    .filter((message) => message.parts.length > 0);
+}
+
+async function requestMastraThreadTitle({
+  runtime,
+  runtimeData,
+  titleConfig,
+  userMessages,
+}: {
+  runtime: MastraAgentRuntime;
+  runtimeData: RuntimeData | undefined;
+  titleConfig: NonNullable<MemoryConfigInternal['generateTitle']>;
+  userMessages: AgentMessage[];
+}): Promise<string | undefined> {
+  const configuredTitleModel =
+    typeof titleConfig === 'object' && titleConfig.model ? titleConfig.model : undefined;
+  const { providerOptions } = buildGenerationProviderOptionsOption(runtimeData);
+  const titleModel = providerOptions
+    ? wrapModelWithCallTransform(
+        await runtime.agent.getModel(
+          configuredTitleModel ? { modelConfig: configuredTitleModel } : undefined
+        ),
+        (params) => ({ ...params, providerOptions })
+      )
+    : configuredTitleModel;
+  return runtime.agent.generateTitleFromUserMessage({
+    messages: userMessages,
+    ...(typeof titleConfig === 'object' && titleConfig.instructions
+      ? { instructions: titleConfig.instructions }
+      : {}),
+    ...(titleModel ? { model: titleModel } : {}),
+  });
+}
+
+interface ThreadTitleDiagnosticContext {
+  model: RuntimeData['model'] | undefined;
+  provider: RuntimeData['provider'] | undefined;
+  resourceId: string;
+  threadId: string;
+}
+
+function logThreadTitlePersistenceFailure(
+  error: unknown,
+  diagnosticContext: ThreadTitleDiagnosticContext
+): void {
+  logger.error('Mastra thread title persistence failed', {
+    code: 'mastra_thread_title_persistence_failed',
+    ...diagnosticContext,
+    errorName: error instanceof Error ? error.name : typeof error,
+    stage: 'persistence',
+  });
+}
+
 async function generateMastraThreadTitle({
   memory,
   messages,
@@ -1963,13 +2026,31 @@ async function generateMastraThreadTitle({
   if (!(threadId && resourceId)) {
     return;
   }
+  const diagnosticContext: ThreadTitleDiagnosticContext = {
+    model: runtimeData?.model,
+    provider: runtimeData?.provider,
+    resourceId,
+    threadId,
+  };
   const memoryConfig = runtimeData?.memory?.memoryOptions;
-  const config = memory.getMergedThreadConfig(memoryConfig);
+  let config: MemoryConfigInternal;
+  try {
+    config = memory.getMergedThreadConfig(memoryConfig);
+  } catch (error) {
+    logThreadTitlePersistenceFailure(error, diagnosticContext);
+    return;
+  }
   const titleConfig = config.generateTitle;
   if (!titleConfig) {
     return;
   }
-  const thread = await memory.getThreadById({ threadId });
+  let thread: Awaited<ReturnType<MastraMemory['getThreadById']>>;
+  try {
+    thread = await memory.getThreadById({ threadId });
+  } catch (error) {
+    logThreadTitlePersistenceFailure(error, diagnosticContext);
+    return;
+  }
   if (!thread) {
     return;
   }
@@ -1977,43 +2058,42 @@ async function generateMastraThreadTitle({
   if (existingTitle && existingTitle !== 'New Thread') {
     return;
   }
-  const userMessages = messages
-    .filter((message) => message.role === 'user')
-    .map((message) => ({
-      ...message,
-      // Mastra's title formatter accepts textual UI parts. File/tool parts are
-      // not title input and some versions attempt text-only operations on them.
-      parts: message.parts.filter((part) => part.type === 'text'),
-    }))
-    .filter((message) => message.parts.length > 0);
+  const userMessages = getThreadTitleUserMessages(messages);
   if (userMessages.length === 0) {
     return;
   }
+  let title: string | undefined;
   try {
-    const title = await runtime.agent.generateTitleFromUserMessage({
-      messages: userMessages,
-      ...(typeof titleConfig === 'object' && titleConfig.instructions
-        ? { instructions: titleConfig.instructions }
-        : {}),
-      ...(typeof titleConfig === 'object' && titleConfig.model ? { model: titleConfig.model } : {}),
+    title = await requestMastraThreadTitle({ runtime, runtimeData, titleConfig, userMessages });
+  } catch (error) {
+    logger.error('Mastra thread title provider request failed', {
+      code: 'mastra_thread_title_provider_failed',
+      ...diagnosticContext,
+      errorName: error instanceof Error ? error.name : typeof error,
+      stage: 'provider',
     });
-    if (!title?.trim()) {
-      return;
-    }
+    return;
+  }
+  const normalizedTitle = title?.trim();
+  if (!normalizedTitle) {
+    logger.warn('Mastra thread title provider returned no usable text', {
+      code: 'mastra_thread_title_invalid_output',
+      ...diagnosticContext,
+      stage: 'invalid-output',
+    });
+    return;
+  }
+  try {
     await memory.saveThread({
       ...(memoryConfig ? { memoryConfig } : {}),
       thread: {
         ...thread,
-        title: title.trim(),
+        title: normalizedTitle,
         updatedAt: new Date(),
       },
     });
   } catch (error) {
-    logger.error('Mastra thread title generation failed', {
-      code: 'mastra_thread_title_generation_failed',
-      error,
-      threadId,
-    });
+    logThreadTitlePersistenceFailure(error, diagnosticContext);
   }
 }
 

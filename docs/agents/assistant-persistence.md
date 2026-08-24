@@ -43,8 +43,9 @@ inventory; the stored path is never an authority or fallback.
 Automatic thread titles use Mastra Memory's top-level `generateTitle: true`
 option and `Agent.generateTitleFromUserMessage`. At the terminal Mastra finish,
 the stream adapter starts that canonical title request with the active agent
-model before yielding the UI finish, then keeps the per-run Mastra instance
-alive until the detached request settles. The main response therefore is not
+model and active request-scoped provider routing options before yielding the UI
+finish, then keeps the per-run Mastra instance alive until the detached request
+settles. The main response therefore is not
 held up by title latency, and generation remains independent of Observational
 Memory, its token threshold, and whether OM is thread- or resource-scoped. The
 generated title is persisted through `PgliteMemoryStore.saveThread`; that
@@ -58,7 +59,10 @@ that stable projection changes. This makes background titles visible in thread
 rows and tabs without a timer or an API round trip. The existing
 `message-finish` refresh remains intentionally separate: once per completed
 turn it updates thread recency, ordering, and latest-run details, and provides
-a best-effort recovery path if the live subscription has failed.
+a best-effort recovery path if the live subscription has failed. Title provider,
+invalid-output, and PGlite persistence failures are logged as distinct stages
+without including prompt or generated-title content and never invalidate the
+successful main response.
 
 Hosted-provider turns are persisted by Mastra (the durable writer) into
 `mastra_messages`; the client history adapter is read-through only. Two

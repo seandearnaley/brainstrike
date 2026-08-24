@@ -28,21 +28,28 @@ export interface PromptParamsLike {
   prompt?: readonly PromptMessageLike[];
 }
 
+export interface ModelCallParamsLike extends PromptParamsLike {
+  providerOptions?: unknown;
+}
+
+/** Pure, non-mutating rewrite of one model request. */
+export type ModelCallTransform = (params: ModelCallParamsLike) => ModelCallParamsLike;
+
 /** Pure, non-mutating rewrite of one request's prompt. */
 export type PromptTransform = (params: PromptParamsLike) => PromptParamsLike;
 
-type ModelCallMethod = (params: PromptParamsLike) => unknown;
+type ModelCallMethod = (params: ModelCallParamsLike) => unknown;
 
 const WRAPPED_CALL_METHODS = new Set(['doGenerate', 'doStream']);
 
 /**
  * Wrap an AI SDK language model so every generation call goes out with
- * `transform` applied to its prompt. All other properties (spec version, ids,
- * capability probes) delegate to the wrapped model untouched.
+ * `transform` applied. All other properties (spec version, ids, capability
+ * probes) delegate to the wrapped model untouched.
  */
-export function wrapModelWithPromptTransform<M extends object>(
+export function wrapModelWithCallTransform<M extends object>(
   model: M,
-  transform: PromptTransform
+  transform: ModelCallTransform
 ): M {
   return new Proxy(model, {
     get(target, property, receiver) {
@@ -52,7 +59,7 @@ export function wrapModelWithPromptTransform<M extends object>(
           return value;
         }
         const method = value as ModelCallMethod;
-        return (params: PromptParamsLike) => method.call(target, transform(params));
+        return (params: ModelCallParamsLike) => method.call(target, transform(params));
       }
       if (typeof value === 'function') {
         return (value as (...args: unknown[]) => unknown).bind(target);
@@ -60,4 +67,12 @@ export function wrapModelWithPromptTransform<M extends object>(
       return value;
     },
   });
+}
+
+/** Wrap a model with the prompt-only transform used by prompt-caching dialects. */
+export function wrapModelWithPromptTransform<M extends object>(
+  model: M,
+  transform: PromptTransform
+): M {
+  return wrapModelWithCallTransform(model, (params) => transform(params));
 }

@@ -34,6 +34,8 @@ import {
   setMcpToolsets,
   setMockMessageList,
   setMockStreamParts,
+  setMockTitleGenerationResults,
+  setMockTitleModel,
   setStreamFailure,
   setStreamPartDelayMs,
   setStreamPartFailure,
@@ -68,6 +70,75 @@ vi.mock(
   '../mcp/explicit-stdio-client',
   async () => (await import('./fixtures/mastra-stream-harness')).explicitStdioMcpClientModuleMock
 );
+
+function createTitleMemory(
+  saveThread = vi.fn().mockResolvedValue(undefined),
+  generateTitle: unknown = true
+) {
+  const thread = {
+    createdAt: new Date('2026-08-24T12:00:00.000Z'),
+    id: 'thread-openrouter-title',
+    metadata: { titleSource: 'om' },
+    resourceId: 'resource-openrouter-title',
+    title: 'New Thread',
+    updatedAt: new Date('2026-08-24T12:00:00.000Z'),
+  };
+  return {
+    createThread: vi.fn(),
+    getMergedThreadConfig: vi.fn(() => ({ generateTitle })),
+    getThreadById: vi.fn().mockResolvedValue(thread),
+    id: 'title-memory',
+    saveThread,
+  };
+}
+
+async function runOpenRouterTitleTurn(memory: ReturnType<typeof createTitleMemory>) {
+  setMockStreamParts([
+    { textDelta: 'The main response succeeded.', type: 'text-delta' },
+    { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 3 } },
+  ]);
+  const iterator = await streamMastraAgent(
+    [
+      {
+        id: 'title-user',
+        parts: [{ text: 'Name this conversation.', type: 'text' }],
+        role: 'user',
+      },
+    ],
+    {
+      memory: memory as never,
+      runtime: {
+        apiKey: 'test-openrouter-key',
+        memory: {
+          resourceId: 'resource-openrouter-title',
+          threadId: 'thread-openrouter-title',
+        },
+        model: 'openai/gpt-oss-120b',
+        provider: 'openrouter',
+        providerOptions: {
+          openrouter: {
+            provider: { require_parameters: true },
+            reasoning: { effort: 'high' },
+          },
+        },
+      },
+    }
+  );
+  const chunks = [];
+  for await (const chunk of iterator) {
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function diagnosticFields(logRecords: readonly LogRecord[], code: string) {
+  return logRecords
+    .flatMap((record) => record.args)
+    .find(
+      (arg): arg is Record<string, unknown> =>
+        Boolean(arg && typeof arg === 'object') && (arg as { code?: unknown }).code === code
+    );
+}
 
 describe('mastra streaming integration', () => {
   beforeEach(() => {
@@ -1454,6 +1525,150 @@ describe('mastra streaming integration', () => {
         resource: 'workspace-a',
         thread: 'thread-1',
       },
+    });
+  });
+
+  it('propagates active OpenRouter provider options through the title model', async () => {
+    const forwardedCalls: unknown[] = [];
+    const titleModel = {
+      doGenerate: (options: unknown) => {
+        forwardedCalls.push(options);
+        return Promise.resolve({});
+      },
+      doStream: (options: unknown) => {
+        forwardedCalls.push(options);
+        return Promise.resolve({});
+      },
+      modelId: 'openai/gpt-oss-120b',
+      provider: 'openrouter',
+      specificationVersion: 'v2',
+    };
+    setMockTitleModel(titleModel);
+    setMockTitleGenerationResults(['OpenRouter Routing']);
+
+    await runOpenRouterTitleTurn(
+      createTitleMemory(undefined, {
+        instructions: 'Use a short title.',
+        model: titleModel,
+      })
+    );
+
+    expect(agentInstances.at(-1)?.getModelCalls).toEqual([{ modelConfig: titleModel }]);
+    const titleRequest = agentInstances.at(-1)?.generateTitleFromUserMessageCalls[0] as {
+      instructions?: string;
+      model?: { doStream?: (options: unknown) => unknown };
+    };
+    expect(titleRequest.instructions).toBe('Use a short title.');
+    expect(titleRequest.model?.doStream).toBeTypeOf('function');
+    await titleRequest.model?.doStream?.({ prompt: [] });
+    expect(forwardedCalls).toEqual([
+      {
+        prompt: [],
+        providerOptions: {
+          openrouter: {
+            provider: { require_parameters: true },
+            reasoning: { effort: 'high' },
+          },
+        },
+      },
+    ]);
+  });
+
+  it('logs invalid text-empty title output without invalidating the successful response', async () => {
+    setMockTitleGenerationResults(['   ']);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    let chunks: Awaited<ReturnType<typeof runOpenRouterTitleTurn>>;
+    try {
+      chunks = await runOpenRouterTitleTurn(createTitleMemory());
+    } finally {
+      removeLogListener();
+    }
+
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'The main response succeeded.' });
+    expect(chunks).toContainEqual(expect.objectContaining({ finishReason: 'stop' }));
+    expect(diagnosticFields(logRecords, 'mastra_thread_title_invalid_output')).toMatchObject({
+      code: 'mastra_thread_title_invalid_output',
+      model: 'openai/gpt-oss-120b',
+      provider: 'openrouter',
+      resourceId: 'resource-openrouter-title',
+      stage: 'invalid-output',
+      threadId: 'thread-openrouter-title',
+    });
+  });
+
+  it('logs a distinct title provider failure without invalidating the successful response', async () => {
+    setMockTitleGenerationResults([new Error('provider rejected the title request')]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    let chunks: Awaited<ReturnType<typeof runOpenRouterTitleTurn>>;
+    try {
+      chunks = await runOpenRouterTitleTurn(createTitleMemory());
+    } finally {
+      removeLogListener();
+    }
+
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'The main response succeeded.' });
+    expect(chunks).toContainEqual(expect.objectContaining({ finishReason: 'stop' }));
+    const fields = diagnosticFields(logRecords, 'mastra_thread_title_provider_failed');
+    expect(fields).toMatchObject({
+      code: 'mastra_thread_title_provider_failed',
+      errorName: 'Error',
+      model: 'openai/gpt-oss-120b',
+      provider: 'openrouter',
+      resourceId: 'resource-openrouter-title',
+      stage: 'provider',
+      threadId: 'thread-openrouter-title',
+    });
+    expect(fields).not.toHaveProperty('error');
+  });
+
+  it('logs a distinct title persistence failure without invalidating the successful response', async () => {
+    setMockTitleGenerationResults(['Persistence Failure']);
+    const saveThread = vi.fn().mockRejectedValue(new Error('PGlite unavailable'));
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    let chunks: Awaited<ReturnType<typeof runOpenRouterTitleTurn>>;
+    try {
+      chunks = await runOpenRouterTitleTurn(createTitleMemory(saveThread));
+    } finally {
+      removeLogListener();
+    }
+
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'The main response succeeded.' });
+    expect(chunks).toContainEqual(expect.objectContaining({ finishReason: 'stop' }));
+    const fields = diagnosticFields(logRecords, 'mastra_thread_title_persistence_failed');
+    expect(fields).toMatchObject({
+      code: 'mastra_thread_title_persistence_failed',
+      errorName: 'Error',
+      model: 'openai/gpt-oss-120b',
+      provider: 'openrouter',
+      resourceId: 'resource-openrouter-title',
+      stage: 'persistence',
+      threadId: 'thread-openrouter-title',
+    });
+    expect(fields).not.toHaveProperty('error');
+  });
+
+  it('contains a title persistence read failure after the successful response', async () => {
+    const memory = createTitleMemory();
+    memory.getThreadById.mockRejectedValue(new Error('PGlite read unavailable'));
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    let chunks: Awaited<ReturnType<typeof runOpenRouterTitleTurn>>;
+    try {
+      chunks = await runOpenRouterTitleTurn(memory);
+    } finally {
+      removeLogListener();
+    }
+
+    expect(chunks).toContainEqual({ type: 'text-delta', value: 'The main response succeeded.' });
+    expect(chunks).toContainEqual(expect.objectContaining({ finishReason: 'stop' }));
+    expect(diagnosticFields(logRecords, 'mastra_thread_title_persistence_failed')).toMatchObject({
+      errorName: 'Error',
+      resourceId: 'resource-openrouter-title',
+      stage: 'persistence',
+      threadId: 'thread-openrouter-title',
     });
   });
 

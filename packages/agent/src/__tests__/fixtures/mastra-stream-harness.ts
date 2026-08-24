@@ -33,6 +33,8 @@ export interface MockMastraAgentInstance {
   approveToolCallCalls: unknown[];
   config: { instructions?: string; memory?: unknown; tools: Record<string, unknown> };
   declineToolCallCalls: unknown[];
+  generateTitleFromUserMessageCalls: unknown[];
+  getModelCalls: unknown[];
   registeredMastra?: unknown;
   resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }>;
   streamCalls: Array<{ input: unknown; options: unknown }>;
@@ -65,6 +67,8 @@ let streamPartDelayMs = 0;
 /** Error to surface AFTER N parts have streamed (mid-iteration, not at construction). */
 let streamPartFailure: { afterParts: number; error: Error } | undefined;
 let streamParts: unknown[] = [];
+let titleGenerationResults: Array<Error | string | undefined> = [];
+let titleModel: object | undefined;
 /**
  * Per-`stream()`-call part overrides, keyed by 1-based call number on the
  * agent instance (same numbering as `setStreamFailure`). Lets a multi-attempt
@@ -77,6 +81,14 @@ let suspendedRuns: MockSuspendedRun[] = [];
 
 export function setMockStreamParts(parts: unknown[]): void {
   streamParts = [...parts];
+}
+
+export function setMockTitleGenerationResults(results: Array<Error | string | undefined>): void {
+  titleGenerationResults = [...results];
+}
+
+export function setMockTitleModel(model: object | undefined): void {
+  titleModel = model;
 }
 
 export function setMockStreamPartsForCall(call: number, parts: unknown[]): void {
@@ -181,6 +193,8 @@ export function resetMastraStreamHarness(): void {
   });
   setMockMessageList(undefined);
   setMockStreamParts([]);
+  setMockTitleGenerationResults([]);
+  setMockTitleModel(undefined);
   streamPartsForCall.clear();
   streamFailure = undefined;
   streamPartFailure = undefined;
@@ -301,6 +315,8 @@ export const mastraAgentModuleMock = {
     config: { memory?: unknown; tools: Record<string, unknown> };
     approveToolCallCalls: unknown[] = [];
     declineToolCallCalls: unknown[] = [];
+    generateTitleFromUserMessageCalls: unknown[] = [];
+    getModelCalls: unknown[] = [];
     registeredMastra?: unknown;
     resumeStreamCalls: Array<{ options: unknown; resumeData: unknown }> = [];
     streamCalls: Array<{ input: unknown; options: unknown }> = [];
@@ -358,6 +374,20 @@ export const mastraAgentModuleMock = {
     async declineToolCall(options: unknown) {
       this.declineToolCallCalls.push(options);
       return createMockMastraOutput();
+    }
+
+    async generateTitleFromUserMessage(options: unknown) {
+      this.generateTitleFromUserMessageCalls.push(options);
+      const result = titleGenerationResults.shift();
+      if (result instanceof Error) {
+        throw result;
+      }
+      return result;
+    }
+
+    getModel(options?: unknown) {
+      this.getModelCalls.push(options);
+      return titleModel ?? this.model;
     }
 
     listSuspendedRuns() {
