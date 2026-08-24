@@ -136,6 +136,33 @@ describe('createForgeService', () => {
     expect(database.rows.size).toBe(1);
   });
 
+  it('sources the `gh pr list --repo` pin from the resolved target.identity, not a hardcoded default', async () => {
+    // Distinct from forge-gh-client.test.ts's `--repo` assertion, which only
+    // proves fetchForgePullRequest FORMATS a given owner/repo/host into the
+    // arg correctly. This pins the SERVICE half of that contract: that
+    // `performFetchAndStore` actually threads `target.identity.owner`/`.repo`
+    // (resolved here from `resolver()`'s `git@github.com:acme/widgets.git`
+    // fixture) through to the runner, rather than the client's own default or
+    // some other value.
+    const run = ghRunner(HEALTHY_GH);
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    await service.refresh(ROOT_ID, 'user');
+    const prCall = (
+      run as unknown as { mock: { calls: readonly [{ args: readonly string[] }][] } }
+    ).mock.calls.find(([params]) => params.args[0] === 'pr');
+    expect(prCall).toBeDefined();
+    const args = prCall?.[0].args ?? [];
+    const repoFlagIndex = args.indexOf('--repo');
+    expect(repoFlagIndex).toBeGreaterThanOrEqual(0);
+    expect(args[repoFlagIndex + 1]).toBe('github.com/acme/widgets');
+  });
+
   it('reports the first observation as an "opened" transition', async () => {
     const onPrUpdated = vi.fn();
     const service = createForgeService({

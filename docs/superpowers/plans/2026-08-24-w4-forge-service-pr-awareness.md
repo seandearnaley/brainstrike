@@ -4109,6 +4109,7 @@ git commit -m "feat(desktop): window.forge exact-set bridge and forge IPC domain
 - **`kind: 'none'` renders no chip and no diagnostic.** "gh answered, this branch has no PR" is an ordinary state, not a degradation.
 - **`kind: 'unknown'` also renders no chip and no diagnostic**, same as `none` — but it is a DIFFERENT fact: no observation has happened yet (e.g. before the first fetch resolves), versus `none`'s "gh answered, there is no PR". Neither has a failure to report, so both stay silent; only `unavailable` has a reason to show.
 - **`kind: 'stale'` renders the chip with a stale glyph** (`◌`, `data-stale="true"`) and the failure text inside the popover — spec §13, verbatim.
+- **Mounting the chip MUST issue a live `refresh(rootId, { reason: 'window' })`, never a bare `prStatus` read.** This is not a style preference: `statusFor` skips `requireGh` entirely for the pure cache-read path (`reason === null`, R2a — see Task 2), so `prStatus` can NEVER surface a `gh-missing`/`gh-unauthenticated` diagnostic, no matter how long gh has been broken. A freshly mounted chip is the ONLY moment nothing has refreshed yet in this session, so if mount used `prStatus` instead of `refresh`, those two failure reasons would be unreachable in the UI until the user manually clicked Refresh — silently hiding a real, actionable failure. `use-thread-forge-pr.ts`'s Step 12 sample and its Step 10 test (`'refreshes with reason "window" on mount and exposes the status'`, asserting `bridge.refresh` — not `bridge.prStatus` — was called) are what pin this; do not "simplify" the mount effect to a cache read.
 
 - [ ] **Step 1: Write the failing PrChip test**
 
@@ -4399,11 +4400,20 @@ const REVIEW_LABEL: Readonly<Record<NonNullable<ForgePullRequest['reviewDecision
  *
  * A `stale` status renders the last-known PR with `data-stale="true"` and puts
  * the failure in the popover — never a fresh-looking chip over a failed
- * refresh (spec §13).
+ * refresh (spec §13). `stale.pullRequest` is `null` when the last known
+ * observation was ITSELF a `none` (gh had already reported no pull request
+ * before this refresh started failing): there is no PR to describe, so this
+ * renders the same nothing as `unavailable`/`none` rather than dereferencing a
+ * null `pullRequest` — an unavailable-flavored render, never a crash.
  */
 export const PrChip = ({ forge }: { readonly forge: WorkspaceBarForge }): ReactElement | null => {
   const { status } = forge;
-  if (status.kind === 'none' || status.kind === 'unavailable' || status.kind === 'unknown') {
+  if (
+    status.kind === 'none' ||
+    status.kind === 'unavailable' ||
+    status.kind === 'unknown' ||
+    status.pullRequest === null
+  ) {
     return null;
   }
   const { pullRequest } = status;
@@ -5041,6 +5051,13 @@ Immediately after the existing `const checkout = useThreadCheckoutStatus(…);` 
       return;
     }
     const { pullRequest } = status;
+    if (pullRequest === null) {
+      // `stale.pullRequest` is null when the last known observation was
+      // itself a `none` (gh had already reported no pull request before this
+      // refresh started failing) — there are no checks to point the agent
+      // at, so no handler rather than dereferencing null.
+      return;
+    }
     const failing = pullRequest.checks
       .filter(
         (check) =>
