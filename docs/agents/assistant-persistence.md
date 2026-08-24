@@ -60,6 +60,18 @@ rows and tabs without a timer or an API round trip. The existing
 turn it updates thread recency, ordering, and latest-run details, and provides
 a best-effort recovery path if the live subscription has failed.
 
+Loaded resource thread lists enforce latest-successful-start ordering per
+resource without timers. Every refresh receives a generation from that
+resource's map entry. A non-empty successful result applies unless a
+later-started successful result has already applied; a newer empty result or
+rejected read does not suppress an older successful result. Empty-result and
+stale-generation checks remain separate because they encode different
+contracts. `resetAssistantThreadStore` clears the generation map, and each
+in-flight refresh also retains its map-entry identity, so a result from before
+reset cannot publish into the reset store even if a new resource refresh later
+reuses the same numeric generation. The gated-promise regressions live in
+`packages/assistant-data/src/__tests__/assistant-thread-store.test.ts`.
+
 Hosted-provider turns are persisted by Mastra (the durable writer) into
 `mastra_messages`; the client history adapter is read-through only. Two
 contracts keep reloaded threads identical to live ones:
