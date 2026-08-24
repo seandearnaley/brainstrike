@@ -41,14 +41,23 @@ import type {
 } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
+import { RequestContext } from '@mastra/core/request-context';
 import type { ChunkType } from '@mastra/core/stream';
 import { canOverwriteThreadTitle } from '../pglite-mastra-memory/thread-title-policy';
-import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
+import { attachThreadTitleSaveAbortSignal } from '../pglite-mastra-memory/thread-title-save-cancellation';
+import {
+  extractProviderRunError,
+  isContextOverflowProviderErrorCode,
+} from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from '../providers/native-web-search';
+import {
+  type ModelProviderOptions,
+  wrapModelWithCallTransform,
+} from '../providers/prompt-transform-proxy';
 import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
@@ -1989,16 +1998,19 @@ async function runBoundedMastraThreadTitleGeneration(options: {
   runtime: MastraAgentRuntime;
   runtimeData: RuntimeData | undefined;
 }): Promise<void> {
-  const lifecycle = { active: true };
+  const controller = new AbortController();
+  const lifecycle = { signal: controller.signal };
+  const operation = generateMastraThreadTitle({ ...options, lifecycle });
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      generateMastraThreadTitle({ ...options, lifecycle }),
+      operation,
       new Promise<void>((_resolve, reject) => {
-        timeout = setTimeout(
-          () => reject(new MastraThreadTitleTimeoutError()),
-          MASTRA_THREAD_TITLE_LIFECYCLE_TIMEOUT_MS
-        );
+        timeout = setTimeout(() => {
+          const error = new MastraThreadTitleTimeoutError();
+          controller.abort(error);
+          reject(error);
+        }, MASTRA_THREAD_TITLE_LIFECYCLE_TIMEOUT_MS);
       }),
     ]);
   } catch (error) {
@@ -2013,12 +2025,22 @@ async function runBoundedMastraThreadTitleGeneration(options: {
       });
       return;
     }
-    throw error;
+    logger.error('Mastra thread title lifecycle failed', {
+      code: 'mastra_thread_title_lifecycle_failed',
+      errorName: readMastraThreadTitleErrorName(error),
+      resourceId: options.runtimeData?.memory?.resourceId,
+      stage: 'lifecycle',
+      threadId: options.runtimeData?.memory?.threadId,
+    });
   } finally {
-    lifecycle.active = false;
     if (timeout) {
       clearTimeout(timeout);
     }
+    if (!controller.signal.aborted) {
+      controller.abort(new Error('Mastra thread title lifecycle settled.'));
+    }
+    // Observe a late rejection if a non-compliant provider ignores AbortSignal.
+    void operation.catch(() => undefined);
   }
 }
 
@@ -2029,7 +2051,7 @@ async function generateMastraThreadTitle({
   runtime,
   runtimeData,
 }: {
-  lifecycle: { active: boolean };
+  lifecycle: { signal: AbortSignal };
   memory: MastraMemory;
   messages: AgentMessage[];
   runtime: MastraAgentRuntime;
@@ -2091,7 +2113,7 @@ async function readMastraThreadTitlePreflight({
   runtimeData,
   threadId,
 }: {
-  lifecycle: { active: boolean };
+  lifecycle: { signal: AbortSignal };
   memory: MastraMemory;
   resourceId: string;
   runtimeData: RuntimeData | undefined;
@@ -2105,26 +2127,36 @@ async function readMastraThreadTitlePreflight({
   | undefined
 > {
   const memoryConfig = runtimeData?.memory?.memoryOptions;
+  let titleConfig: ReturnType<MastraMemory['getMergedThreadConfig']>['generateTitle'];
   try {
-    const titleConfig = memory.getMergedThreadConfig(memoryConfig).generateTitle;
-    if (!titleConfig) {
-      return;
-    }
+    titleConfig = memory.getMergedThreadConfig(memoryConfig).generateTitle;
+  } catch (error) {
+    logMastraThreadTitleFailure(lifecycle.signal, 'Mastra thread title configuration is invalid', {
+      code: 'mastra_thread_title_config_invalid',
+      errorName: readMastraThreadTitleErrorName(error),
+      resourceId,
+      stage: 'config',
+      threadId,
+    });
+    return;
+  }
+  if (!titleConfig) {
+    return;
+  }
+  try {
     const thread = await memory.getThreadById({ threadId });
-    if (!(lifecycle.active && thread && canOverwriteThreadTitle(thread))) {
+    if (lifecycle.signal.aborted || !(thread && canOverwriteThreadTitle(thread))) {
       return;
     }
     return { memoryConfig, thread, titleConfig };
   } catch (error) {
-    if (lifecycle.active) {
-      logger.error('Mastra thread title preflight failed', {
-        code: 'mastra_thread_title_preflight_failed',
-        error,
-        resourceId,
-        stage: 'preflight',
-        threadId,
-      });
-    }
+    logMastraThreadTitlePersistenceFailure({
+      error,
+      resourceId,
+      signal: lifecycle.signal,
+      stage: 'persistence-read',
+      threadId,
+    });
     return;
   }
 }
@@ -2149,7 +2181,7 @@ async function requestMastraThreadTitle({
   threadId,
   titleRequest,
 }: {
-  lifecycle: { active: boolean };
+  lifecycle: { signal: AbortSignal };
   resourceId: string;
   runtime: MastraAgentRuntime;
   runtimeData: RuntimeData | undefined;
@@ -2157,11 +2189,48 @@ async function requestMastraThreadTitle({
   titleRequest: Parameters<MastraAgentRuntime['agent']['generateTitleFromUserMessage']>[0];
 }): Promise<string | undefined> {
   const maxAttempts = runtimeData?.provider === 'openrouter' ? 2 : 1;
+  const requestContext = new RequestContext();
+  let titleModel: Awaited<ReturnType<MastraAgentRuntime['agent']['getModel']>>;
+  try {
+    titleModel = await runtime.agent.getModel({
+      requestContext,
+      ...(titleRequest.model ? { modelConfig: titleRequest.model } : {}),
+    });
+  } catch (error) {
+    if (!lifecycle.signal.aborted) {
+      logMastraThreadTitleProviderFailure({
+        attempt: 1,
+        error,
+        lifecycle,
+        resourceId,
+        runtimeData,
+        threadId,
+      });
+    }
+    return;
+  }
+  const activeProviderOptions = buildGenerationProviderOptionsOption(runtimeData).providerOptions;
+  const maxOutputTokens = buildModelSettingsOption(runtimeData).modelSettings?.maxOutputTokens;
+  const cancellableModel = wrapModelWithCallTransform(titleModel, (params) => ({
+    ...params,
+    abortSignal: lifecycle.signal,
+    ...(params.maxOutputTokens === undefined && maxOutputTokens !== undefined
+      ? { maxOutputTokens }
+      : {}),
+    ...mergeMastraThreadTitleProviderOptions(params.providerOptions, activeProviderOptions),
+  }));
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     let title: string | undefined;
     try {
-      title = await runtime.agent.generateTitleFromUserMessage(titleRequest);
+      title = await runtime.agent.generateTitleFromUserMessage({
+        ...titleRequest,
+        model: cancellableModel,
+        requestContext,
+      });
     } catch (error) {
+      if (lifecycle.signal.aborted) {
+        return;
+      }
       logMastraThreadTitleProviderFailure({
         attempt,
         error,
@@ -2172,23 +2241,57 @@ async function requestMastraThreadTitle({
       });
       return;
     }
-    if (!lifecycle.active) {
+    if (lifecycle.signal.aborted) {
       return;
     }
     if (title?.trim()) {
       return title.trim();
     }
+    logger.warn('Mastra thread title generation returned no text', {
+      attempt,
+      code: 'mastra_thread_title_invalid_output',
+      maxAttempts,
+      ...(runtimeData?.model ? { model: runtimeData.model } : {}),
+      ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
+      resourceId,
+      retrying: attempt < maxAttempts,
+      stage: 'invalid-output',
+      threadId,
+    });
   }
-  logger.warn('Mastra thread title generation returned no text', {
-    attempts: maxAttempts,
-    code: 'mastra_thread_title_empty_output',
-    ...(runtimeData?.model ? { model: runtimeData.model } : {}),
-    ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
-    resourceId,
-    stage: 'empty-output',
-    threadId,
-  });
   return;
+}
+
+function mergeMastraThreadTitleProviderOptions(
+  current: ModelProviderOptions | undefined,
+  active: unknown
+): Pick<{ providerOptions?: ModelProviderOptions }, 'providerOptions'> {
+  const activeOptions = readMastraThreadTitleProviderOptions(active);
+  const namespaces = new Set([...Object.keys(current ?? {}), ...Object.keys(activeOptions)]);
+  if (namespaces.size === 0) {
+    return {};
+  }
+  const providerOptions: ModelProviderOptions = {};
+  for (const namespace of namespaces) {
+    providerOptions[namespace] = {
+      ...(current?.[namespace] ?? {}),
+      ...(activeOptions[namespace] ?? {}),
+    };
+  }
+  return { providerOptions };
+}
+
+function readMastraThreadTitleProviderOptions(value: unknown): ModelProviderOptions {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return {};
+  }
+  const providerOptions: ModelProviderOptions = {};
+  for (const [namespace, options] of Object.entries(value)) {
+    if (options && typeof options === 'object' && !Array.isArray(options)) {
+      providerOptions[namespace] = { ...(options as Record<string, unknown>) };
+    }
+  }
+  return providerOptions;
 }
 
 function logMastraThreadTitleProviderFailure({
@@ -2201,20 +2304,25 @@ function logMastraThreadTitleProviderFailure({
 }: {
   attempt: number;
   error: unknown;
-  lifecycle: { active: boolean };
+  lifecycle: { signal: AbortSignal };
   resourceId: string;
   runtimeData: RuntimeData | undefined;
   threadId: string;
 }): void {
-  if (!lifecycle.active) {
+  if (lifecycle.signal.aborted) {
     return;
   }
+  const providerError = extractProviderRunError(error);
   logger.error('Mastra thread title provider request failed', {
     attempt,
     code: 'mastra_thread_title_provider_failed',
-    error,
+    ...(providerError.httpStatus === undefined ? {} : { httpStatus: providerError.httpStatus }),
     ...(runtimeData?.model ? { model: runtimeData.model } : {}),
     ...(runtimeData?.provider ? { provider: runtimeData.provider } : {}),
+    providerErrorCode: providerError.code,
+    ...(providerError.providerRequestId
+      ? { providerRequestId: providerError.providerRequestId }
+      : {}),
     resourceId,
     stage: 'provider',
     threadId,
@@ -2229,7 +2337,7 @@ async function persistMastraThreadTitle({
   resourceId,
   threadId,
 }: {
-  lifecycle: { active: boolean };
+  lifecycle: { signal: AbortSignal };
   memory: MastraMemory;
   normalizedTitle: string;
   preflight: {
@@ -2242,23 +2350,69 @@ async function persistMastraThreadTitle({
   try {
     await memory.saveThread({
       ...(preflight.memoryConfig ? { memoryConfig: preflight.memoryConfig } : {}),
-      thread: {
-        ...preflight.thread,
-        title: normalizedTitle,
-        updatedAt: new Date(),
-      },
+      thread: attachThreadTitleSaveAbortSignal(
+        {
+          ...preflight.thread,
+          title: normalizedTitle,
+          updatedAt: new Date(),
+        },
+        lifecycle.signal
+      ),
     });
   } catch (error) {
-    if (lifecycle.active) {
-      logger.error('Mastra thread title persistence failed', {
-        code: 'mastra_thread_title_persistence_failed',
-        error,
-        resourceId,
-        stage: 'persistence',
-        threadId,
-      });
-    }
+    logMastraThreadTitlePersistenceFailure({
+      error,
+      resourceId,
+      signal: lifecycle.signal,
+      stage: 'persistence-write',
+      threadId,
+    });
   }
+}
+
+function logMastraThreadTitlePersistenceFailure({
+  error,
+  resourceId,
+  signal,
+  stage,
+  threadId,
+}: {
+  error: unknown;
+  resourceId: string;
+  signal: AbortSignal;
+  stage: 'persistence-read' | 'persistence-write';
+  threadId: string;
+}): void {
+  logMastraThreadTitleFailure(signal, 'Mastra thread title persistence failed', {
+    code: 'mastra_thread_title_persistence_failed',
+    ...readMastraThreadTitleDatabaseDiagnostic(error),
+    errorName: readMastraThreadTitleErrorName(error),
+    resourceId,
+    stage,
+    threadId,
+  });
+}
+
+function logMastraThreadTitleFailure(
+  signal: AbortSignal,
+  message: string,
+  diagnostic: Record<string, unknown>
+): void {
+  if (!signal.aborted) {
+    logger.error(message, diagnostic);
+  }
+}
+
+function readMastraThreadTitleErrorName(error: unknown): string {
+  return error instanceof Error ? error.name : 'UnknownError';
+}
+
+function readMastraThreadTitleDatabaseDiagnostic(error: unknown): { databaseCode?: string } {
+  if (!(error && typeof error === 'object')) {
+    return {};
+  }
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' && code.length <= 64 ? { databaseCode: code } : {};
 }
 
 /** Yield the queued child-usage chunks for this leg's delegation capture, if any. */

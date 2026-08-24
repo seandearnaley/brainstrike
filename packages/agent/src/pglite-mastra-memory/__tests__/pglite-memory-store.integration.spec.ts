@@ -4,6 +4,7 @@ import type { MastraDBMessage } from '@mastra/core/memory';
 import type { ObservationalMemoryRecord } from '@mastra/core/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PgliteMemoryStore } from '../memory-store';
+import { attachThreadTitleSaveAbortSignal } from '../thread-title-save-cancellation';
 import type { PgliteDatabase } from '../types';
 
 function createDeferred<T>(): {
@@ -239,6 +240,62 @@ describe('PgliteMemoryStore', () => {
     expect(lateGenerated.title).toBe('My Paris Trip');
     expect(lateGenerated.metadata).not.toHaveProperty('titleSource');
     expect(lateGenerated.updatedAt).toEqual(new Date('2026-04-22T10:00:02Z'));
+  });
+
+  it('rolls back a generated-title save aborted after its write starts', async () => {
+    const createdAt = new Date('2026-04-22T10:00:00Z');
+    await store.saveThread({
+      thread: {
+        createdAt,
+        id: 'thread-aborted-generated-title',
+        resourceId: 'workspace-a',
+        title: 'New Thread',
+        updatedAt: createdAt,
+      },
+    });
+    const insertCompleted = Promise.withResolvers<void>();
+    const releaseInsert = Promise.withResolvers<void>();
+    const gatedDatabase: PgliteDatabase = {
+      exec: db.exec.bind(db),
+      query: db.query.bind(db) as PgliteDatabase['query'],
+      transaction: (operation) =>
+        db.transaction((tx) =>
+          operation({
+            exec: tx.exec.bind(tx),
+            query: (async (sql: string, values?: readonly unknown[]) => {
+              const result = await tx.query(sql, values);
+              if (sql.includes('INSERT INTO mastra_threads')) {
+                insertCompleted.resolve();
+                await releaseInsert.promise;
+              }
+              return result;
+            }) as PgliteDatabase['query'],
+          })
+        ),
+    };
+    const gatedStore = new PgliteMemoryStore({ database: gatedDatabase });
+    const controller = new AbortController();
+    const save = gatedStore.saveThread({
+      thread: attachThreadTitleSaveAbortSignal(
+        {
+          createdAt,
+          id: 'thread-aborted-generated-title',
+          resourceId: 'workspace-a',
+          title: 'Too late',
+          updatedAt: new Date('2026-04-22T10:00:01Z'),
+        },
+        controller.signal
+      ),
+    });
+
+    await insertCompleted.promise;
+    controller.abort(new Error('title save deadline expired'));
+    releaseInsert.resolve();
+
+    await expect(save).rejects.toThrow('title save deadline expired');
+    await expect(
+      store.getThreadById({ threadId: 'thread-aborted-generated-title' })
+    ).resolves.toMatchObject({ title: 'New Thread' });
   });
 
   it('lets an automated title rename a thread whose title carries the OM marker', async () => {

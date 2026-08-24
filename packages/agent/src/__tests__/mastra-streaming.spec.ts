@@ -34,7 +34,9 @@ import {
   setMcpToolsets,
   setMockMessageList,
   setMockStreamParts,
+  setMockTitleGenerationHandler,
   setMockTitleGenerationResults,
+  setMockTitleModel,
   setStreamFailure,
   setStreamPartDelayMs,
   setStreamPartFailure,
@@ -69,6 +71,69 @@ vi.mock(
   '../mcp/explicit-stdio-client',
   async () => (await import('./fixtures/mastra-stream-harness')).explicitStdioMcpClientModuleMock
 );
+
+function makeTitleMemory(options?: {
+  generateTitle?: unknown;
+  getThreadById?: ReturnType<typeof vi.fn>;
+  saveThread?: ReturnType<typeof vi.fn>;
+}) {
+  const thread = {
+    createdAt: new Date('2026-08-24T12:00:00.000Z'),
+    id: 'thread-title-contract',
+    resourceId: 'resource-title-contract',
+    title: 'New Thread',
+    updatedAt: new Date('2026-08-24T12:00:00.000Z'),
+  };
+  return {
+    getMergedThreadConfig: vi.fn(() => ({ generateTitle: options?.generateTitle ?? true })),
+    getThreadById: options?.getThreadById ?? vi.fn().mockResolvedValue(thread),
+    id: 'memory-title-contract',
+    saveThread: options?.saveThread ?? vi.fn(),
+    thread,
+  };
+}
+
+async function startTitleContractTurn(memory: ReturnType<typeof makeTitleMemory>) {
+  setMockStreamParts([
+    { textDelta: 'The main response succeeded.', type: 'text-delta' },
+    { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 8 } },
+  ]);
+  return await streamMastraAgent(
+    [
+      {
+        id: 'user-title-contract',
+        parts: [{ text: 'Name this conversation.', type: 'text' }],
+        role: 'user',
+      },
+    ],
+    {
+      memory: memory as never,
+      runtime: {
+        apiKey: 'test-key',
+        memory: { resourceId: memory.thread.resourceId, threadId: memory.thread.id },
+        model: 'openai/gpt-oss-120b',
+        modelSettings: { maxOutputTokens: 321 },
+        provider: 'openrouter',
+        providerOptions: {
+          openrouter: {
+            provider: { require_parameters: true },
+            reasoning: { effort: 'high' },
+          },
+        },
+      },
+    }
+  );
+}
+
+function findTitleDiagnostic(logRecords: readonly LogRecord[], code: string) {
+  return logRecords
+    .flatMap((record) => record.args)
+    .find(
+      (argument): argument is Record<string, unknown> =>
+        Boolean(argument && typeof argument === 'object') &&
+        (argument as { code?: unknown }).code === code
+    );
+}
 
 describe('mastra streaming integration', () => {
   beforeEach(() => {
@@ -218,10 +283,184 @@ describe('mastra streaming integration', () => {
 
     const titleCalls = agentInstances[0]?.generateTitleFromUserMessageCalls ?? [];
     expect(titleCalls).toHaveLength(2);
+    expect(agentInstances[0]?.getModelCalls).toHaveLength(1);
     expect(titleCalls[1]).toEqual(titleCalls[0]);
     expect(memory.saveThread).toHaveBeenCalledWith({
       thread: expect.objectContaining({ id: thread.id, title: 'Reasoning Route Title' }),
     });
+  });
+
+  it('propagates and merges active OpenRouter title routing with its output bound', async () => {
+    const forwardedCalls: Record<string, unknown>[] = [];
+    const titleModel = {
+      doStream: vi.fn((options: Record<string, unknown>) => {
+        forwardedCalls.push(options);
+        return Promise.resolve({});
+      }),
+      modelId: 'openai/gpt-oss-120b',
+      provider: 'openrouter',
+      specificationVersion: 'v2',
+    };
+    setMockTitleModel(titleModel);
+    setMockTitleGenerationHandler(async (options) => {
+      const request = options as {
+        model?: { doStream?: (input: Record<string, unknown>) => Promise<unknown> };
+      };
+      await request.model?.doStream?.({
+        prompt: [],
+        providerOptions: {
+          openrouter: { existingTitleOption: true },
+          testProvider: { preserved: true },
+        },
+      });
+      return 'Provider-safe title';
+    });
+    const memory = makeTitleMemory({
+      generateTitle: { instructions: 'Use a short title.', model: titleModel },
+    });
+
+    const iterator = await startTitleContractTurn(memory);
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.getModelCalls).toEqual([
+      expect.objectContaining({ modelConfig: titleModel }),
+    ]);
+    expect(forwardedCalls).toEqual([
+      {
+        abortSignal: expect.any(AbortSignal),
+        maxOutputTokens: 321,
+        prompt: [],
+        providerOptions: {
+          openrouter: {
+            existingTitleOption: true,
+            provider: { require_parameters: true },
+            reasoning: { effort: 'high' },
+          },
+          testProvider: { preserved: true },
+        },
+      },
+    ]);
+  });
+
+  it('records actionable content-free title provider and invalid-output diagnostics', async () => {
+    const providerFailure = Object.assign(new Error('private provider response'), {
+      name: 'AI_APICallError',
+      statusCode: 429,
+    });
+    setMockTitleGenerationResults([providerFailure]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      const providerIterator = await startTitleContractTurn(makeTitleMemory());
+      for await (const _chunk of providerIterator) {
+        // drain
+      }
+      setMockTitleGenerationResults([' ', '']);
+      const emptyIterator = await startTitleContractTurn(makeTitleMemory());
+      for await (const _chunk of emptyIterator) {
+        // drain
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    const providerDiagnostic = findTitleDiagnostic(
+      logRecords,
+      'mastra_thread_title_provider_failed'
+    );
+    expect(providerDiagnostic).toMatchObject({
+      httpStatus: 429,
+      providerErrorCode: 'mastra_agent_stream_provider_error',
+      stage: 'provider',
+    });
+    expect(providerDiagnostic).not.toHaveProperty('error');
+    expect(
+      logRecords
+        .flatMap((record) => record.args)
+        .filter(
+          (argument) =>
+            Boolean(argument && typeof argument === 'object') &&
+            (argument as { code?: unknown }).code === 'mastra_thread_title_invalid_output'
+        )
+    ).toHaveLength(2);
+    expect(JSON.stringify(logRecords)).not.toContain('private provider response');
+  });
+
+  it('reports malformed title configuration separately from PGlite persistence', async () => {
+    const memory = makeTitleMemory();
+    memory.getMergedThreadConfig
+      .mockImplementationOnce(() => ({ generateTitle: true, readOnly: false }))
+      .mockImplementation(() => {
+        throw new TypeError('private config detail');
+      });
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      const iterator = await startTitleContractTurn(memory);
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    expect(findTitleDiagnostic(logRecords, 'mastra_thread_title_config_invalid')).toMatchObject({
+      errorName: 'TypeError',
+      stage: 'config',
+    });
+    expect(JSON.stringify(logRecords)).not.toContain('private config detail');
+  });
+
+  it('aborts the underlying title provider request when the lifecycle expires', async () => {
+    vi.useFakeTimers();
+    let titleSignal: AbortSignal | undefined;
+    const titleModel = {
+      doStream: vi.fn((options: { abortSignal?: AbortSignal }) => {
+        titleSignal = options.abortSignal;
+        return new Promise<never>((_resolve, reject) => {
+          options.abortSignal?.addEventListener(
+            'abort',
+            () => reject(options.abortSignal?.reason),
+            {
+              once: true,
+            }
+          );
+        });
+      }),
+      modelId: 'openai/gpt-oss-120b',
+      provider: 'openrouter',
+      specificationVersion: 'v2',
+    };
+    setMockTitleModel(titleModel);
+    setMockTitleGenerationHandler(async (options) => {
+      const request = options as {
+        model?: { doStream?: (input: Record<string, unknown>) => Promise<unknown> };
+      };
+      await request.model?.doStream?.({ prompt: [] });
+      return 'Unreachable title';
+    });
+
+    try {
+      const iterator = await startTitleContractTurn(
+        makeTitleMemory({ generateTitle: { model: titleModel } })
+      );
+      let sawFinish = false;
+      while (!sawFinish) {
+        const result = await iterator.next();
+        sawFinish =
+          Boolean(result.value && typeof result.value === 'object') &&
+          (result.value as { type?: unknown }).type === 'message-finish';
+      }
+      const completion = iterator.next();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(completion).resolves.toMatchObject({ done: true });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(titleSignal?.aborted).toBe(true);
   });
 
   it('persists a stalled attempt before disposing after continuation construction fails', async () => {
@@ -2279,7 +2518,6 @@ describe('mastra streaming integration', () => {
           provider: 'openrouter',
           providerOptions: {
             openrouter: {
-              // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
               provider: { require_parameters: true },
               reasoning: { effort: 'high' },
             },
@@ -2304,7 +2542,6 @@ describe('mastra streaming integration', () => {
           provider: 'openrouter',
           providerOptions: {
             openrouter: {
-              // biome-ignore lint/style/useNamingConvention: OpenRouter wire field.
               provider: { require_parameters: true },
               reasoning: { enabled: false },
             },
