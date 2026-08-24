@@ -30,6 +30,7 @@ import type {
   GitAheadBehind,
   GitBranchSummary,
   GitCommitResult,
+  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitPushPullResult,
@@ -49,6 +50,7 @@ export type {
   GitBranchSummary,
   GitCommitFile,
   GitCommitResult,
+  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitHistoryCommit,
@@ -1045,6 +1047,52 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
      * — implemented in `git-history.ts`; see `createHistoryOps`.
      */
     commitFiles: historyOps.commitFiles,
+
+    /** Create a new local branch at `startPoint` and check it out in this worktree. */
+    createBranch: async (params: {
+      branch: string;
+      startPoint?: string;
+    }): Promise<GitResult<GitCreateBranchResult>> => {
+      try {
+        if (typeof params.branch !== 'string' || params.branch.length === 0) {
+          return { error: 'branch must be a non-empty string', ok: false };
+        }
+        if (params.branch === '-') {
+          return { error: 'local branch "-" is not supported', ok: false };
+        }
+        const scope = await requireFullWorktreeRoot('Branch creation');
+        if (!scope.ok) {
+          return scope;
+        }
+        const branch = params.branch;
+        const exists = await invoke(['show-ref', '--verify', '--hash', `refs/heads/${branch}`]);
+        if (exists.exitCode === 0) {
+          // NEVER fall through to a plain switch: the caller asked to CREATE,
+          // and quietly checking out an existing branch is a different action.
+          return { error: `local branch "${branch}" already exists`, ok: false };
+        }
+        const startPoint = params.startPoint;
+        if (
+          startPoint !== undefined &&
+          (typeof startPoint !== 'string' || startPoint.length === 0)
+        ) {
+          return { error: 'startPoint must be a non-empty string when supplied', ok: false };
+        }
+        const run_ = await invokeHookFree([
+          'switch',
+          '--no-guess',
+          '-c',
+          branch,
+          ...(startPoint ? ['--', startPoint] : []),
+        ]);
+        if (run_.exitCode !== 0) {
+          return { error: describeFailure(run_), ok: false };
+        }
+        return { ok: true, value: { branch } };
+      } catch (error) {
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
 
     /**
      * Unified diff for a path (or the whole tree), optionally for the index.

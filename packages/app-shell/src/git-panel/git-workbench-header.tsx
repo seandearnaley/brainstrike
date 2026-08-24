@@ -13,6 +13,7 @@ import { Check, ChevronDown, FolderGit2, FolderTree, GitBranch, RefreshCw } from
 import type { ComponentPropsWithRef, ReactElement } from 'react';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import { useGitInventory } from '../changes/use-git-inventory';
+import { buildBranchSwitchModel } from './branch-switch-model';
 import type { GitRepository, GitStatus, GitWorktreeSummary } from './git-bridge';
 
 interface GitWorkbenchHeaderProps {
@@ -497,31 +498,39 @@ export function GitWorkbenchHeader({
         <DropdownMenuContent align="start" className="w-72">
           <DropdownMenuLabel>Local branches</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {repository.scope === 'workspace' ? (
-            <div className="px-2 py-2 text-muted-foreground text-xs">
-              Open the repository root to switch branches.
-            </div>
-          ) : (
-            repository.branches.map((branch) => (
+          {(() => {
+            const model = buildBranchSwitchModel({
+              branches: repository.branches,
+              dirty: !status.clean,
+              query: '',
+              scope: repository.scope,
+            });
+            if (model.scopeReason) {
+              return (
+                <div className="px-2 py-2 text-muted-foreground text-xs">{model.scopeReason}</div>
+              );
+            }
+            return model.rows.map((row) => (
               <DropdownMenuItem
-                disabled={branch.current || branch.worktreePath !== null}
-                key={branch.name}
+                disabled={!row.switchable}
+                key={row.name}
                 // Worktree-affecting mutation: switching a branch changes this
                 // worktree's `branch`/`head`, which the dropdown reads out of
                 // the inventory. Refresh it after the switch lands so the next
                 // open does not describe the pre-switch topology.
                 onSelect={() => {
-                  void switchBranch(branch.name).then(() => refreshInventory());
+                  void switchBranch(row.name).then(() => refreshInventory());
                 }}
+                title={row.disabledReason ?? undefined}
               >
-                {branch.current ? <Check aria-hidden="true" /> : <span className="size-4" />}
-                <span className="min-w-0 flex-1 truncate">{branch.name}</span>
-                {branch.worktreePath && !branch.current ? (
+                {row.current ? <Check aria-hidden="true" /> : <span className="size-4" />}
+                <span className="min-w-0 flex-1 truncate">{row.name}</span>
+                {row.worktreeName ? (
                   <span className="text-[10px] text-muted-foreground">in worktree</span>
                 ) : null}
               </DropdownMenuItem>
-            ))
-          )}
+            ));
+          })()}
         </DropdownMenuContent>
       </DropdownMenu>
 

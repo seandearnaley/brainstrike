@@ -111,6 +111,7 @@ export const DESKTOP_IPC_CHANNELS = {
     aheadBehind: 'git:aheadBehind',
     commit: 'git:commit',
     commitFiles: 'git:commitFiles',
+    createBranch: 'git:createBranch',
     diff: 'git:diff',
     fetch: 'git:fetch',
     history: 'git:history',

@@ -218,6 +218,9 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
     ),
     commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
     commitFiles: vi.fn(async () => ok([])),
+    createBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
+      ok({ branch: params.branch })
+    ),
     diff: vi.fn(async () =>
       ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: '' })
     ),
@@ -1102,6 +1105,7 @@ describe('GitPanel', () => {
           worktrees: [],
         })
       ),
+      status: vi.fn(async () => ok(makeStatus({ clean: true }))),
     });
     render(<GitPanel />);
 
@@ -1155,7 +1159,7 @@ describe('GitPanel', () => {
           })
         )
       ),
-      status: vi.fn(async () => ok(makeStatus({ branch }))),
+      status: vi.fn(async () => ok(makeStatus({ branch, clean: true }))),
       switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) => {
         branch = params.branch;
         return ok({ branch });
@@ -1212,7 +1216,10 @@ describe('GitPanel', () => {
         ok(
           makeStatus({
             branch,
-            clean: branch !== 'main',
+            // Clean regardless of branch: this test exercises diff-clearing
+            // on switch, not the dirty gate — a dirty working tree would
+            // disable the switch menu item entirely (see branch-switch-model).
+            clean: true,
             files:
               branch === 'main'
                 ? [
@@ -1649,7 +1656,11 @@ describe('GitPanel', () => {
     expect(screen.getByRole('button', { name: 'Pull from upstream' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Push to upstream' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Current branch main' }));
-    expect(screen.getByText('Open the repository root to switch branches.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This folder is below the repository root — open the repository root to switch branches.'
+      )
+    ).toBeInTheDocument();
   });
 
   it('renders the not-a-repository empty state', async () => {
