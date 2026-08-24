@@ -271,11 +271,10 @@ function readPullRequestRow(
       `gh returned unreadable checks for pull request #${number}: ${checks.reason}`
     );
   }
-  const rawReview = row['reviewDecision'];
-  const reviewDecision =
-    typeof rawReview === 'string' && REVIEW_DECISIONS.has(rawReview)
-      ? (rawReview as ForgePullRequest['reviewDecision'])
-      : null;
+  const reviewDecision = readReviewDecision(number, row['reviewDecision']);
+  if (!reviewDecision.ok) {
+    return reviewDecision;
+  }
   return {
     ok: true,
     value: {
@@ -284,7 +283,7 @@ function readPullRequestRow(
       headSha,
       isDraft: row['isDraft'] === true,
       number,
-      reviewDecision,
+      reviewDecision: reviewDecision.value,
       state,
       title,
       url,
@@ -293,7 +292,40 @@ function readPullRequestRow(
 }
 
 /**
+ * `null`/`undefined`/empty means "no review yet" — a legitimate, common gh
+ * answer. Anything else must be one of the three known decisions; an
+ * unrecognized non-empty value THROWS a structured failure rather than
+ * silently coercing to null (review comment 3847752923), which would render a
+ * genuine (if unrecognized) review decision as "no review yet" — the same
+ * discipline `forge-pr-cache.ts`'s `readReviewDecision` already applies to the
+ * cached copy of this same field.
+ */
+function readReviewDecision(
+  number: number,
+  rawReview: unknown
+):
+  | { readonly failure: ForgeUnavailable; readonly ok: false }
+  | { readonly ok: true; readonly value: ForgePullRequest['reviewDecision'] } {
+  if (rawReview === null || rawReview === undefined || rawReview === '') {
+    return { ok: true, value: null };
+  }
+  if (typeof rawReview === 'string' && REVIEW_DECISIONS.has(rawReview)) {
+    return { ok: true, value: rawReview as ForgePullRequest['reviewDecision'] };
+  }
+  return ghFetchFailure(
+    `gh returned pull request #${number} with an unrecognized review decision "${String(rawReview)}".`
+  );
+}
+
+/**
  * ONE `gh pr list` per refresh.
+ *
+ * `--repo <host>/<owner>/<repo>` PINS the lookup to the repository
+ * `parseForgeRemote` actually resolved from `.git/config`, instead of relying
+ * on gh's own cwd-based / `gh repo set-default` routing (review comment
+ * 3847752901): a branch tracking `upstream` while the local default points at
+ * a fork must fetch (or report absence for) the RESOLVED repository, never
+ * whatever gh would have guessed.
  *
  * `--state all` because a merged PR must still be observable (the `pr.merged`
  * timeline event and the fading badge depend on it); `--limit 1` because the
@@ -305,7 +337,13 @@ function readPullRequestRow(
  */
 export async function fetchForgePullRequest(
   run: ForgeCommandRunner,
-  params: { readonly branch: string; readonly cwd: string; readonly host: string }
+  params: {
+    readonly branch: string;
+    readonly cwd: string;
+    readonly host: string;
+    readonly owner: string;
+    readonly repo: string;
+  }
 ): Promise<
   | { readonly failure: ForgeUnavailable; readonly ok: false }
   | { readonly ok: true; readonly value: ForgePullRequest | null }
@@ -314,6 +352,8 @@ export async function fetchForgePullRequest(
     args: [
       'pr',
       'list',
+      '--repo',
+      `${params.host}/${params.owner}/${params.repo}`,
       '--head',
       params.branch,
       '--state',

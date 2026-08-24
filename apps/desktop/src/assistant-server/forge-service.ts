@@ -41,7 +41,6 @@ import {
   probeGhAuth,
 } from './forge-gh-client';
 import {
-  deleteForgePrCacheEntry,
   type ForgeCacheDatabase,
   readForgePrCacheEntry,
   writeForgePrCacheEntry,
@@ -137,6 +136,14 @@ function diffObservations(
   return [];
 }
 
+/** How long a FAILED auth probe is served from cache before re-probing (R2b). */
+export const FORGE_AUTH_FAILURE_TTL_MS = 30_000;
+
+interface AuthProbeState {
+  readonly failure: ForgeUnavailable | null;
+  readonly probedAt: number;
+}
+
 export function createForgeService(options: ForgeServiceOptions): ForgeService {
   const { getDatabase, onPrUpdated, resolveRepository, run } = options;
   const now = options.now ?? (() => Date.now());
@@ -144,7 +151,9 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
   let ghDetection: Promise<ForgeUnavailable | null> | undefined;
   // A bracketed IPv6 host is a safe key: Map compares exact strings, and
   // `parseForgeRemote` produces the same bracketed value for the same remote.
-  const ghAuthByHost = new Map<string, Promise<ForgeUnavailable | null>>();
+  const authStateByHost = new Map<string, AuthProbeState>();
+  /** In-flight `probeGhAuth` calls, keyed like `authStateByHost`. */
+  const inFlightAuthByHost = new Map<string, Promise<ForgeUnavailable | null>>();
   const lastFetchAtByKey = new Map<string, number>();
   const lastFailureByKey = new Map<string, ForgeUnavailable>();
   const lastObservationByKey = new Map<string, Observation>();
@@ -232,6 +241,33 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     };
   }
 
+  /** Turns a `run` rejection into a structured failure instead of a thrown error (R3). */
+  function settledFailure(error: unknown, context: string): ForgeUnavailable {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { detail: `${context}: ${detail}`, reason: 'fetch-failed' };
+  }
+
+  /**
+   * Wraps `detectGhCli` so the promise assigned to `ghDetection` can NEVER
+   * settle rejected (R3): if `run` itself throws/rejects, this clears
+   * `ghDetection` (so the NEXT call gets a fresh attempt instead of replaying
+   * the same rejection forever) and resolves to a structured failure instead.
+   */
+  function detectGhCliSettled(cwd: string): Promise<ForgeUnavailable | null> {
+    return detectGhCli(run, cwd).catch((error: unknown) => {
+      ghDetection = undefined;
+      return settledFailure(error, 'gh --version could not be run');
+    });
+  }
+
+  /** Same discipline as `detectGhCliSettled`, for the in-flight auth probe (R3). */
+  function probeGhAuthSettled(cwd: string, host: string): Promise<ForgeUnavailable | null> {
+    return probeGhAuth(run, cwd, host).catch((error: unknown) => {
+      inFlightAuthByHost.delete(host);
+      return settledFailure(error, 'gh auth status could not be run');
+    });
+  }
+
   /**
    * `ghDetection` is session-scoped for BOTH outcomes: "gh either exists or
    * it does not" is treated as stable for the life of the process, so a
@@ -239,47 +275,106 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
    * itself gets probed across the window-focus and invalidation refreshes
    * that call `requireGh` (pinned by the "probes only once" test). It is
    * cleared only by an explicit `user`-reason refresh (the affordance
-   * offered for "I just installed/fixed it").
+   * offered for "I just installed/fixed it") or by a settled rejection (R3,
+   * `detectGhCliSettled`).
    *
    * Auth is different: it is mutable runtime state the user is explicitly
    * told to change (`gh auth login --hostname <host>`), and `probeGhAuth`
    * performs a real network token-validation call — a single transient
-   * DNS/proxy/503 blip must not poison the session. So an auth FAILURE is
-   * never left memoized: it is deleted from `ghAuthByHost` as soon as it
-   * resolves, and an explicit `user`-reason refresh proactively clears any
-   * cached entry — success included — so it always re-probes rather than
-   * trusting a positive that may since have been revoked.
+   * DNS/proxy/503 blip must not poison the session forever. A SUCCESSFUL
+   * probe stays memoized indefinitely, exactly like `ghDetection`. A FAILED
+   * probe is served from `authStateByHost` for `FORGE_AUTH_FAILURE_TTL_MS`
+   * (30s) WITHOUT re-spawning `gh` (R2b) — this is what bounds the probe rate
+   * for a repository whose window/invalidation refreshes keep firing while
+   * the user is simply not logged in — and past that TTL the next refresh
+   * re-probes automatically. An explicit `user`-reason refresh always clears
+   * BOTH the cached state and any in-flight probe FIRST, before any `await`
+   * that could throw (R3), so "I just fixed it" always lands a fresh probe.
+   *
+   * Never called for the pure cache-read path (`reason === null`, R2a) — see
+   * `statusFor`.
    */
   async function requireGh(
     target: ResolvedTarget,
-    reason: ForgeRefreshReason | null
+    reason: ForgeRefreshReason
   ): Promise<ForgeUnavailable | null> {
     if (reason === 'user') {
-      ghAuthByHost.delete(target.host);
-      if (ghDetection && (await ghDetection)) {
-        ghDetection = undefined;
-      }
+      authStateByHost.delete(target.host);
+      inFlightAuthByHost.delete(target.host);
+      ghDetection = undefined;
     }
-    ghDetection ??= detectGhCli(run, target.cwd);
+    ghDetection ??= detectGhCliSettled(target.cwd);
     const detection = await ghDetection;
     if (detection) {
       return detection;
     }
-    let auth = ghAuthByHost.get(target.host);
-    if (!auth) {
-      auth = probeGhAuth(run, target.cwd, target.host);
-      ghAuthByHost.set(target.host, auth);
+    const cachedAuth = authStateByHost.get(target.host);
+    if (
+      cachedAuth &&
+      (cachedAuth.failure === null || now() - cachedAuth.probedAt < FORGE_AUTH_FAILURE_TTL_MS)
+    ) {
+      return cachedAuth.failure;
     }
-    const failure = await auth;
-    if (failure) {
-      ghAuthByHost.delete(target.host);
+    let inFlight = inFlightAuthByHost.get(target.host);
+    if (!inFlight) {
+      inFlight = probeGhAuthSettled(target.cwd, target.host);
+      inFlightAuthByHost.set(target.host, inFlight);
     }
+    const failure = await inFlight;
+    inFlightAuthByHost.delete(target.host);
+    authStateByHost.set(target.host, { failure, probedAt: now() });
     return failure;
   }
 
-  async function readCached(target: ResolvedTarget): Promise<ForgePrStatus> {
+  /**
+   * Folds a durable cache read (which may itself be an observed `none`, R1)
+   * together with a failure into the `ForgePrStatus` the caller sees.
+   */
+  function toStatus(
+    cached: Awaited<ReturnType<typeof readForgePrCacheEntry>>,
+    failure: ForgeUnavailable | null
+  ): ForgePrStatus {
+    if (!cached) {
+      // No cached row AND no recorded failure means nothing has ever
+      // answered for this key — not an observed absence. Fabricating
+      // `{ kind: 'none', observedAt: now }` here would lie to any "Last
+      // checked …" affordance built on that timestamp.
+      return failure ? unavailable(failure) : { kind: 'unknown' };
+    }
+    if (failure) {
+      // R6: a REFRESH whose gh-detection/auth preflight or fetch failed still
+      // has a durable observation to fall back on — never hide it behind a
+      // bare `unavailable`. `pullRequest` is `null` when the last observation
+      // was itself a `none` (R1) — still an honest "last known state, refresh
+      // currently failing".
+      return {
+        failure,
+        kind: 'stale',
+        observedAt: cached.observedAt,
+        pullRequest: cached.pullRequest,
+      };
+    }
+    return cached.pullRequest
+      ? { kind: 'pr', observedAt: cached.observedAt, pullRequest: cached.pullRequest }
+      : { kind: 'none', observedAt: cached.observedAt };
+  }
+
+  /**
+   * Reads the durable cache row (if any) and folds in a failure — by default
+   * `lastFailureByKey`'s last recorded FETCH failure, or an `overrideFailure`
+   * supplied by a caller whose gh-detection/auth PREFLIGHT failed before ever
+   * attempting a fetch (R6).
+   *
+   * NEVER invokes `requireGh` and NEVER spawns a `gh` subprocess (R2a) — this
+   * is the pure cache-read path `statusFor` uses for `reason === null`:
+   * rendering already-cached content must not probe gh's install/auth state.
+   */
+  async function readCached(
+    target: ResolvedTarget,
+    overrideFailure?: ForgeUnavailable
+  ): Promise<ForgePrStatus> {
     const key = cacheKey(target.repoCommonDir, target.branch);
-    const failure = lastFailureByKey.get(key);
+    const failure = overrideFailure ?? lastFailureByKey.get(key) ?? null;
     let cached: Awaited<ReturnType<typeof readForgePrCacheEntry>> = null;
     try {
       cached = await readForgePrCacheEntry(
@@ -292,16 +387,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       logger.error('Forge PR cache read failed', { detail, key });
       return unavailable({ detail, reason: 'fetch-failed' });
     }
-    if (!cached) {
-      // No cached row AND no recorded failure means nothing has ever
-      // answered for this key — not an observed absence. Fabricating
-      // `{ kind: 'none', observedAt: now }` here would lie to any "Last
-      // checked …" affordance built on that timestamp.
-      return failure ? unavailable(failure) : { kind: 'unknown' };
-    }
-    return failure
-      ? { failure, kind: 'stale', observedAt: cached.observedAt, pullRequest: cached.pullRequest }
-      : { kind: 'pr', observedAt: cached.observedAt, pullRequest: cached.pullRequest };
+    return toStatus(cached, failure);
   }
 
   /**
@@ -337,7 +423,10 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       });
       return;
     }
-    if (!cached) {
+    if (!cached || cached.pullRequest === null) {
+      // No row, or a durable `none` observation (R1): either way there is no
+      // prior PR to diff against, so leave the maps empty — a subsequently
+      // observed PR still correctly reports `opened`.
       return;
     }
     lastObservationByKey.set(key, {
@@ -357,11 +446,19 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     // floor allows. (`invalidation`/`user` have a 0 ms floor regardless.)
     lastFetchAtByKey.set(key, now());
     await seedObservationFromCache(target, key);
+    // R3: `fetchForgePullRequest` itself never rejects (every failure path is
+    // a resolved `{ ok: false }`), but the injected `run` it awaits internally
+    // could — this seam guarantees `statusFor`/`refresh` never reject either.
     const fetched = await fetchForgePullRequest(run, {
       branch: target.branch,
       cwd: target.cwd,
       host: target.host,
-    });
+      owner: target.identity.owner,
+      repo: target.identity.repo,
+    }).catch((error: unknown) => ({
+      failure: settledFailure(error, 'gh pr list could not be run'),
+      ok: false as const,
+    }));
     if (!fetched.ok) {
       lastFailureByKey.set(key, fetched.failure);
       logger.warn('Forge PR refresh failed', { detail: fetched.failure.detail, key });
@@ -370,15 +467,26 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     lastFailureByKey.delete(key);
     const observedAt = new Date(now()).toISOString();
     if (fetched.value === null) {
+      // R1/R7: an observed absence is a durable cache row, not a delete — the
+      // whole point of this table is instant boot rendering, and "gh answered
+      // no PR" deserves the same durability as "gh answered a PR". A write
+      // failure degrades to delivering the observed `none` to the caller
+      // (same discipline as the PR write below) rather than silently leaving
+      // a stale PR row the list-wide projection would still show.
       try {
         const database = await getDatabase();
-        await deleteForgePrCacheEntry(database, target.repoCommonDir, target.branch);
+        await writeForgePrCacheEntry(database, {
+          branch: target.branch,
+          observedAt,
+          pullRequest: null,
+          repoCommonDir: target.repoCommonDir,
+        });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        logger.error('Forge PR cache delete failed; a stale cached row may remain', {
-          detail,
-          key,
-        });
+        logger.error(
+          'Forge PR cache write failed (observed absence); a stale cached PR row may remain',
+          { detail, key }
+        );
       }
       lastObservationByKey.delete(key);
       lastNumberByKey.delete(key);
@@ -464,12 +572,19 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       return { ok: true, value: unavailable(resolved.value.failure) };
     }
     const target = resolved.value;
+    if (reason === null) {
+      // R2a: the pure cache-read path NEVER calls `requireGh` and NEVER
+      // spawns a `gh` subprocess — it serves the durable cache (or
+      // `unknown`). Only an explicit refresh reason probes gh's install/auth
+      // state.
+      return { ok: true, value: await readCached(target) };
+    }
     const ghFailure = await requireGh(target, reason);
     if (ghFailure) {
-      return { ok: true, value: unavailable(ghFailure) };
-    }
-    if (reason === null) {
-      return { ok: true, value: await readCached(target) };
+      // R6: fall back to the durable cache (as `stale`) instead of a bare
+      // `unavailable` that would hide a durable observation behind a
+      // transient probe failure.
+      return { ok: true, value: await readCached(target, ghFailure) };
     }
     const key = cacheKey(target.repoCommonDir, target.branch);
     const lastFetchAt = lastFetchAtByKey.get(key);

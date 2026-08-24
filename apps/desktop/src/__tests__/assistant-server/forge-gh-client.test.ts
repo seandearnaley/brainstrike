@@ -156,6 +156,8 @@ describe('fetchForgePullRequest', () => {
       branch: 'feature/bar',
       cwd: '/repo',
       host: 'github.com',
+      owner: 'acme',
+      repo: 'widgets',
     });
     expect(result).toEqual({
       ok: true,
@@ -175,12 +177,20 @@ describe('fetchForgePullRequest', () => {
 
   it('asks gh for every branch state so a merged PR is still observed', async () => {
     const run = runnerReturning(ok('[]'));
-    await fetchForgePullRequest(run, { branch: 'feature/bar', cwd: '/repo', host: 'github.com' });
+    await fetchForgePullRequest(run, {
+      branch: 'feature/bar',
+      cwd: '/repo',
+      host: 'github.com',
+      owner: 'acme',
+      repo: 'widgets',
+    });
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
         args: [
           'pr',
           'list',
+          '--repo',
+          'github.com/acme/widgets',
           '--head',
           'feature/bar',
           '--state',
@@ -194,12 +204,30 @@ describe('fetchForgePullRequest', () => {
     );
   });
 
+  it('pins the lookup to the RESOLVED repository, not gh cwd/default-repo routing (R5)', async () => {
+    const run = runnerReturning(ok('[]'));
+    await fetchForgePullRequest(run, {
+      branch: 'feature/bar',
+      cwd: '/repo',
+      host: 'github.acme.test',
+      owner: 'acme-corp',
+      repo: 'internal-tool',
+    });
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining(['--repo', 'github.acme.test/acme-corp/internal-tool']),
+      })
+    );
+  });
+
   it('returns a null pull request for an empty list — an observed absence', async () => {
     await expect(
       fetchForgePullRequest(runnerReturning(ok('[]')), {
         branch: 'feature/bar',
         cwd: '/repo',
         host: 'github.com',
+        owner: 'acme',
+        repo: 'widgets',
       })
     ).resolves.toEqual({ ok: true, value: null });
   });
@@ -211,6 +239,8 @@ describe('fetchForgePullRequest', () => {
         branch: 'feature/bar',
         cwd: '/repo',
         host: 'github.com',
+        owner: 'acme',
+        repo: 'widgets',
       }
     );
     expect(result.ok).toBe(false);
@@ -223,6 +253,8 @@ describe('fetchForgePullRequest', () => {
       branch: 'feature/bar',
       cwd: '/repo',
       host: 'github.com',
+      owner: 'acme',
+      repo: 'widgets',
     });
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.failure.detail).toContain('could not be parsed');
@@ -245,8 +277,59 @@ describe('fetchForgePullRequest', () => {
       branch: 'b',
       cwd: '/repo',
       host: 'github.com',
+      owner: 'acme',
+      repo: 'widgets',
     });
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.failure.detail).toContain('name');
+  });
+
+  it('surfaces an unrecognized non-empty review decision as fetch-failed naming the value, instead of silently coercing to null (R8)', async () => {
+    const broken = JSON.stringify([
+      {
+        headRefOid: 'abc',
+        isDraft: false,
+        number: 7,
+        reviewDecision: 'BOGUS_DECISION',
+        state: 'OPEN',
+        statusCheckRollup: [],
+        title: 't',
+        url: 'https://example.test/pull/7',
+      },
+    ]);
+    const result = await fetchForgePullRequest(runnerReturning(ok(broken)), {
+      branch: 'b',
+      cwd: '/repo',
+      host: 'github.com',
+      owner: 'acme',
+      repo: 'widgets',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.failure.reason).toBe('fetch-failed');
+    expect(result.ok === false && result.failure.detail).toContain('BOGUS_DECISION');
+  });
+
+  it('reads an empty-string review decision as null (no review yet), not a failure (R8)', async () => {
+    const withEmptyReview = JSON.stringify([
+      {
+        headRefOid: 'abc',
+        isDraft: false,
+        number: 8,
+        reviewDecision: '',
+        state: 'OPEN',
+        statusCheckRollup: [],
+        title: 't',
+        url: 'https://example.test/pull/8',
+      },
+    ]);
+    const result = await fetchForgePullRequest(runnerReturning(ok(withEmptyReview)), {
+      branch: 'b',
+      cwd: '/repo',
+      host: 'github.com',
+      owner: 'acme',
+      repo: 'widgets',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value?.reviewDecision).toBeNull();
   });
 });

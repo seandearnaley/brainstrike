@@ -81,8 +81,15 @@ export interface ForgeUnavailable {
  * What the composer chip renders.
  *
  * - `pr` — a fresh observation.
- * - `stale` — the last known PR PLUS the failure that stopped the refresh; the
- *   chip shows the PR with a stale glyph and the failure in its popover.
+ * - `stale` — the last known OBSERVATION plus the failure that stopped the
+ *   refresh; the chip shows it with a stale glyph and the failure in its
+ *   popover. `pullRequest` is `null` when the last known observation was
+ *   itself a `none` (gh had already reported no pull request the last time it
+ *   answered) — this is still an honest "last known state, refresh currently
+ *   failing", never a fabricated PR. A REFRESH whose gh-detection/auth
+ *   preflight failed reuses this shape too, whenever the cache holds a
+ *   durable observation — a bare `unavailable` would hide it behind a
+ *   transient probe failure.
  * - `none` — a successful observation that found no PR for this branch.
  * - `unavailable` — no observation is possible at all; no chip, reason shown
  *   in the BranchChip's forge diagnostic.
@@ -97,7 +104,7 @@ export type ForgePrStatus =
       readonly failure: ForgeUnavailable;
       readonly kind: 'stale';
       readonly observedAt: string;
-      readonly pullRequest: ForgePullRequest;
+      readonly pullRequest: ForgePullRequest | null;
     }
   | { readonly failure: ForgeUnavailable; readonly kind: 'unavailable' }
   | { readonly kind: 'none'; readonly observedAt: string }

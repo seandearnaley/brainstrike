@@ -1,5 +1,5 @@
 /**
- * The three statements against `brainstrike_forge_prs` (migration 110).
+ * The two statements against `brainstrike_forge_prs` (migration 110).
  *
  * The table is created by the numbered/Drizzle migration runners, NEVER here —
  * this module only reads and writes, exactly like `run-persistence.ts` against
@@ -11,6 +11,28 @@
  * encodings of the SAME value, so `readChecks` accepts either. An unreadable
  * payload THROWS — a cache row we cannot interpret must not be rendered as a
  * PR with no checks.
+ *
+ * ROW SHAPE (BST-1391 round 2, review comment 3847743481): a row is EITHER a
+ * PR observation (every PR-specific column populated) OR an observed-absence
+ * ("none") observation (every PR-specific column NULL) — `readForgePrCacheEntry`
+ * returns `{ observedAt, pullRequest: null }` for the latter, never `null`
+ * itself; `null` means the key has NEVER been observed (no row at all). The
+ * discriminant is `number`: the migration's CHECK constraint enforces the
+ * all-or-nothing invariant, so a null `number` is sufficient to identify a
+ * `none` row.
+ *
+ * `writeForgePrCacheEntry` accepts `pullRequest: null` for exactly this case
+ * and upserts the all-NULL row — there is no separate delete path (review
+ * comment 3847752917 folds the old "gh reports no PR ⇒ DELETE the row" path
+ * into this upsert; a durable `none` observation is the point).
+ *
+ * Every reader below THROWS on a value it cannot interpret rather than
+ * coercing (review comment 3847746120): a `null`/non-string `headSha`,
+ * `title`, or `url` on a row that claims to carry a PR (non-null `number`) is
+ * corruption, not a legitimate absence — `String(null)` silently becoming the
+ * literal text `"null"` would render a clickable link to nowhere and a fake-
+ * valid cache key. Nulls are ONLY legitimate on a `none` row, handled before
+ * any of these readers run.
  */
 import type { ForgeCheck, ForgeCheckConclusion, ForgePullRequest } from '@brainstrike/types';
 import { rollupForgeChecks } from '@brainstrike/types';
@@ -53,8 +75,6 @@ const UPSERT_SQL = `
     head_sha = EXCLUDED.head_sha,
     observed_at = EXCLUDED.observed_at
 `;
-
-const DELETE_SQL = `DELETE FROM ${FORGE_PR_CACHE_TABLE} WHERE repo_common_dir = $1 AND branch = $2`;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -126,15 +146,39 @@ function readObservedAt(value: unknown): string {
   throw new Error('Cached forge PR has no observation timestamp.');
 }
 
+/** Throws on anything but a non-empty string — never coerces `null`/`undefined` into text. */
+function readNonEmptyText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`Cached forge PR has an unreadable ${label}.`);
+  }
+  return value;
+}
+
+/** Same discipline as `readNonEmptyText`, but an empty string is a legitimate title. */
+function readText(value: unknown, label: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Cached forge PR has an unreadable ${label}.`);
+  }
+  return value;
+}
+
 export async function readForgePrCacheEntry(
   db: ForgeCacheDatabase,
   repoCommonDir: string,
   branch: string
-): Promise<{ readonly observedAt: string; readonly pullRequest: ForgePullRequest } | null> {
+): Promise<{ readonly observedAt: string; readonly pullRequest: ForgePullRequest | null } | null> {
   const result = await db.query(SELECT_SQL, [repoCommonDir, branch]);
   const row = result.rows[0];
   if (!isRecord(row)) {
+    // No row at all: this key has never been observed, PR or absence alike.
     return null;
+  }
+  const observedAt = readObservedAt(row['observedAt']);
+  if (row['number'] === null || row['number'] === undefined) {
+    // A durable observed absence (R1): gh answered "no pull request" for this
+    // branch. The migration's CHECK constraint guarantees every other
+    // PR-specific column is NULL too, so there is nothing else to read.
+    return { observedAt, pullRequest: null };
   }
   const checks = readChecks(row['checksJson']);
   const number = Number(row['number']);
@@ -142,27 +186,34 @@ export async function readForgePrCacheEntry(
     throw new Error('Cached forge PR has a non-integer number.');
   }
   return {
-    observedAt: readObservedAt(row['observedAt']),
+    observedAt,
     pullRequest: {
       checks,
       checksRollup: rollupForgeChecks(checks),
-      headSha: String(row['headSha']),
+      headSha: readNonEmptyText(row['headSha'], 'head SHA'),
       isDraft: row['isDraft'] === true,
       number,
       reviewDecision: readReviewDecision(row['reviewDecision']),
       state: readState(row['state']),
-      title: String(row['title']),
-      url: String(row['url']),
+      title: readText(row['title'], 'title'),
+      url: readNonEmptyText(row['url'], 'url'),
     },
   };
 }
 
+/**
+ * Upserts either a PR observation or a durable "none" observation
+ * (`pullRequest: null`) — there is no separate delete path. gh reporting NO
+ * pull request for a branch is itself a durable fact worth the same
+ * instant-boot rendering as a PR, so it gets the same row, with every
+ * PR-specific column NULL (enforced by the migration's CHECK constraint).
+ */
 export async function writeForgePrCacheEntry(
   db: ForgeCacheDatabase,
   input: {
     readonly branch: string;
     readonly observedAt: string;
-    readonly pullRequest: ForgePullRequest;
+    readonly pullRequest: ForgePullRequest | null;
     readonly repoCommonDir: string;
   }
 ): Promise<void> {
@@ -170,23 +221,14 @@ export async function writeForgePrCacheEntry(
   await db.query(UPSERT_SQL, [
     repoCommonDir,
     branch,
-    pullRequest.number,
-    pullRequest.url,
-    pullRequest.title,
-    pullRequest.state,
-    pullRequest.isDraft,
-    pullRequest.reviewDecision,
-    JSON.stringify(pullRequest.checks),
-    pullRequest.headSha,
+    pullRequest?.number ?? null,
+    pullRequest?.url ?? null,
+    pullRequest?.title ?? null,
+    pullRequest?.state ?? null,
+    pullRequest?.isDraft ?? null,
+    pullRequest?.reviewDecision ?? null,
+    pullRequest ? JSON.stringify(pullRequest.checks) : null,
+    pullRequest?.headSha ?? null,
     observedAt,
   ]);
-}
-
-/** Removes the row for a branch gh reports as having NO pull request. */
-export async function deleteForgePrCacheEntry(
-  db: ForgeCacheDatabase,
-  repoCommonDir: string,
-  branch: string
-): Promise<void> {
-  await db.query(DELETE_SQL, [repoCommonDir, branch]);
 }

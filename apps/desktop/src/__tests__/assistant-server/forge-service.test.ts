@@ -66,10 +66,6 @@ function fakeDatabase(): ForgeCacheDatabase & {
         const row = rows.get(key);
         return { rows: row ? [row] : [] };
       }
-      if (sql.trimStart().startsWith('DELETE')) {
-        rows.delete(key);
-        return { rows: [] };
-      }
       rows.set(key, {
         checksJson: params[8],
         headSha: params[9],
@@ -219,7 +215,7 @@ describe('createForgeService', () => {
     expect(database.rows.size).toBe(1);
   });
 
-  it('deletes the cached row when gh reports no pull request', async () => {
+  it('durably records an observed absence instead of deleting the row (R1/R7)', async () => {
     const database = fakeDatabase();
     const queue = [
       HEALTHY_GH['pr'] as ForgeCommandRun,
@@ -240,7 +236,64 @@ describe('createForgeService', () => {
     await service.refresh(ROOT_ID, 'user');
     const second = await service.refresh(ROOT_ID, 'user');
     expect(second.ok && second.value.kind).toBe('none');
-    expect(database.rows.size).toBe(0);
+    // The row survives — as a durable "none" observation, not a deletion.
+    expect(database.rows.size).toBe(1);
+    expect(database.rows.get(`${COMMON_DIR}\0feature/bar`)?.['number']).toBeNull();
+  });
+
+  it('reports the SAME durable "none" observedAt on an immediate prStatus read (R1)', async () => {
+    const database = fakeDatabase();
+    const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
+      args[0] === 'pr'
+        ? ({ exitCode: 0, stderr: '', stdout: '[]' } as ForgeCommandRun)
+        : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
+    );
+    const service = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    const refreshed = await service.refresh(ROOT_ID, 'user');
+    expect(refreshed.ok && refreshed.value.kind).toBe('none');
+    const observedAt =
+      refreshed.ok && refreshed.value.kind === 'none' ? refreshed.value.observedAt : null;
+    expect(observedAt).not.toBeNull();
+
+    const status = await service.prStatus(ROOT_ID);
+    expect(status.ok && status.value.kind).toBe('none');
+    expect(status.ok && status.value.kind === 'none' && status.value.observedAt).toBe(observedAt);
+  });
+
+  it('still reports "none" for a brand-new service reading the same durable row after a restart (R1)', async () => {
+    const database = fakeDatabase();
+    const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
+      args[0] === 'pr'
+        ? ({ exitCode: 0, stderr: '', stdout: '[]' } as ForgeCommandRun)
+        : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
+    );
+    const first = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    await first.refresh(ROOT_ID, 'user');
+
+    const restarted = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      // prStatus never spawns (R2a), so a runner that would fail every call
+      // is fine here — it proves the "none" comes from the durable row, not
+      // a fresh gh answer.
+      run: ghRunner({}),
+    });
+    const status = await restarted.prStatus(ROOT_ID);
+    expect(status.ok && status.value.kind).toBe('none');
   });
 
   it('returns the last-known PR as STALE with the failure when gh fails', async () => {
@@ -267,7 +320,40 @@ describe('createForgeService', () => {
     expect(stale.ok && stale.value.kind === 'stale' && stale.value.failure.detail).toContain(
       'HTTP 503'
     );
-    expect(stale.ok && stale.value.kind === 'stale' && stale.value.pullRequest.number).toBe(42);
+    expect(stale.ok && stale.value.kind === 'stale' && stale.value.pullRequest?.number).toBe(42);
+  });
+
+  it('returns the durable cache as STALE (not bare unavailable) when a REFRESH auth preflight fails (R6)', async () => {
+    const database = fakeDatabase();
+    database.rows.set(`${COMMON_DIR}\0feature/bar`, {
+      checksJson: '[{"conclusion":"success","name":"unit","url":null}]',
+      headSha: 'sha-1',
+      isDraft: false,
+      number: 42,
+      observedAt: new Date(now()).toISOString(),
+      reviewDecision: null,
+      state: 'open',
+      title: 'Widget it',
+      url: 'https://github.com/acme/widgets/pull/42',
+    });
+    const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
+      args[0] === 'auth'
+        ? { exitCode: 1, stderr: 'You are not logged into any GitHub hosts.', stdout: '' }
+        : (HEALTHY_GH['--version'] as ForgeCommandRun)
+    );
+    const service = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    const status = await service.refresh(ROOT_ID, 'window');
+    expect(status.ok && status.value.kind).toBe('stale');
+    expect(status.ok && status.value.kind === 'stale' && status.value.failure.reason).toBe(
+      'gh-unauthenticated'
+    );
+    expect(status.ok && status.value.kind === 'stale' && status.value.pullRequest?.number).toBe(42);
   });
 
   it('throttles a window refresh but never an invalidation or a user refresh', async () => {
@@ -361,44 +447,6 @@ describe('createForgeService', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it('promotes an unlabelled enterprise host once gh authenticates for it', async () => {
-    const run = ghRunner(HEALTHY_GH);
-    const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
-      now,
-      onPrUpdated: vi.fn(),
-      resolveRepository: resolver({ remoteUrl: 'git@git.acme.internal:acme/widgets.git' }),
-      run,
-    });
-    const status = await service.refresh(ROOT_ID, 'user');
-    expect(status.ok && status.value.kind).toBe('pr');
-    expect(run).toHaveBeenCalledWith(
-      expect.objectContaining({ args: ['auth', 'status', '--hostname', 'git.acme.internal'] })
-    );
-  });
-
-  it('is unavailable with an install hint when gh is missing, and probes only once', async () => {
-    const run: ForgeCommandRunner = vi.fn(async () => ({
-      exitCode: null,
-      failureReason: 'notFound' as const,
-      stderr: '',
-      stdout: '',
-    }));
-    const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
-      now,
-      onPrUpdated: vi.fn(),
-      resolveRepository: resolver(),
-      run,
-    });
-    const first = await service.prStatus(ROOT_ID);
-    await service.prStatus(ROOT_ID);
-    expect(first.ok && first.value.kind === 'unavailable' && first.value.failure.reason).toBe(
-      'gh-missing'
-    );
-    expect(run).toHaveBeenCalledTimes(1);
-  });
-
   it('refreshes only the repositories it has already resolved when a repo is invalidated', async () => {
     const run = ghRunner(HEALTHY_GH);
     const service = createForgeService({
@@ -488,52 +536,6 @@ describe('createForgeService', () => {
     });
     await restarted.refresh(ROOT_ID, 'user');
     expect(onPrUpdated).toHaveBeenCalledWith(expect.objectContaining({ transitions: [] }));
-  });
-
-  it('recovers from a cached gh-unauthenticated failure on an explicit user refresh', async () => {
-    const authQueue: ForgeCommandRun[] = [
-      { exitCode: 1, stderr: 'You are not logged into any GitHub hosts.', stdout: '' },
-      { exitCode: 0, stderr: '', stdout: '' },
-    ];
-    const run: ForgeCommandRunner = vi.fn(async ({ args }) => {
-      if (args[0] === 'auth') {
-        return authQueue.shift() as ForgeCommandRun;
-      }
-      if (args[0] === 'pr') {
-        return HEALTHY_GH['pr'] as ForgeCommandRun;
-      }
-      return HEALTHY_GH['--version'] as ForgeCommandRun;
-    });
-    const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
-      now,
-      onPrUpdated: vi.fn(),
-      resolveRepository: resolver(),
-      run,
-    });
-    const first = await service.refresh(ROOT_ID, 'user');
-    expect(first.ok && first.value.kind === 'unavailable' && first.value.failure.reason).toBe(
-      'gh-unauthenticated'
-    );
-    const second = await service.refresh(ROOT_ID, 'user');
-    expect(second.ok && second.value.kind).toBe('pr');
-  });
-
-  it('does not re-probe a cached successful auth on window/invalidation refreshes', async () => {
-    const run = ghRunner(HEALTHY_GH);
-    const service = createForgeService({
-      getDatabase: async () => fakeDatabase(),
-      now,
-      onPrUpdated: vi.fn(),
-      resolveRepository: resolver(),
-      run,
-    });
-    await service.refresh(ROOT_ID, 'user');
-    expect(countArgCalls(run, 'auth')).toBe(1);
-    await service.refresh(ROOT_ID, 'invalidation');
-    clock += FORGE_REFRESH_MIN_INTERVAL_MS.window + 1;
-    await service.refresh(ROOT_ID, 'window');
-    expect(countArgCalls(run, 'auth')).toBe(1);
   });
 
   it('degrades to delivering the fetched PR uncached when the cache write throws', async () => {
