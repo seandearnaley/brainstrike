@@ -84,6 +84,12 @@ describe('parseForgeRemote', () => {
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.reason).toContain('ftp:');
   });
+
+  it('fails with a reason instead of throwing on a malformed percent-escape', () => {
+    const result = parseForgeRemote('https://github.com/acme/100%-coverage.git');
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reason.length > 0).toBe(true);
+  });
 });
 
 describe('resolveForgeRemoteName', () => {

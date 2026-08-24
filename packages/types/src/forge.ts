@@ -185,7 +185,16 @@ export function parseForgeRemote(remoteUrl: string): ForgeRemoteParseResult {
     if (url.hostname.length === 0) {
       return { ok: false, reason: `The remote URL "${trimmed}" has no host.` };
     }
-    return splitOwnerRepo(decodeURIComponent(url.pathname), url.hostname.toLowerCase());
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(url.pathname);
+    } catch {
+      return {
+        ok: false,
+        reason: `The remote URL "${trimmed}" has a malformed percent-escape in its path.`,
+      };
+    }
+    return splitOwnerRepo(decodedPath, url.hostname.toLowerCase());
   }
   const scp = SCP_LIKE.exec(trimmed);
   const host = scp?.groups?.['host'];

@@ -242,6 +242,12 @@ describe('parseForgeRemote', () => {
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.reason).toContain('ftp:');
   });
+
+  it('fails with a reason instead of throwing on a malformed percent-escape', () => {
+    const result = parseForgeRemote('https://github.com/acme/100%-coverage.git');
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reason.length > 0).toBe(true);
+  });
 });
 
 describe('resolveForgeRemoteName', () => {
@@ -571,7 +577,16 @@ export function parseForgeRemote(remoteUrl: string): ForgeRemoteParseResult {
     if (url.hostname.length === 0) {
       return { ok: false, reason: `The remote URL "${trimmed}" has no host.` };
     }
-    return splitOwnerRepo(decodeURIComponent(url.pathname), url.hostname.toLowerCase());
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(url.pathname);
+    } catch {
+      return {
+        ok: false,
+        reason: `The remote URL "${trimmed}" has a malformed percent-escape in its path.`,
+      };
+    }
+    return splitOwnerRepo(decodedPath, url.hostname.toLowerCase());
   }
   const scp = SCP_LIKE.exec(trimmed);
   const host = scp?.groups?.['host'];
