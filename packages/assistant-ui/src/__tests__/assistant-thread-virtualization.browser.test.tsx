@@ -11,6 +11,7 @@ import { act, fireEvent, getConfig, render, screen, waitFor } from '@testing-lib
 import { useState } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
+  THREAD_END_THRESHOLD_PX,
   THREAD_VIRTUALIZATION_THRESHOLD,
   ThreadMessagesRegion,
 } from '../assistant-thread-messages';
@@ -181,6 +182,7 @@ function MutableThreadHarness({ initialCount }: { initialCount: number }) {
       >
         grow
       </button>
+      <output data-testid="message-count">{messages.length}</output>
       <ThreadHarness messages={messages} />
     </>
   );
@@ -342,7 +344,7 @@ describe('virtualized tier (BST-897)', () => {
       viewport.scrollTop + firstMountedRow.getBoundingClientRect().top - viewportRect.top;
     const scrollTopAtEnd = viewport.scrollTop;
     const target = Math.max(mountedStart, scrollTopAtEnd - viewport.clientHeight);
-    expect(scrollTopAtEnd - target).toBeGreaterThan(24);
+    expect(scrollTopAtEnd - target).toBeGreaterThan(THREAD_END_THRESHOLD_PX);
     await scrollTo(viewport, target);
     await waitFor(
       () => {
@@ -359,6 +361,12 @@ describe('virtualized tier (BST-897)', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId('append'));
     });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('message-count')).toHaveTextContent('601');
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
     // The reading position is untouched by the append …
     await waitFor(() => {
       expect(Math.abs(viewport.scrollTop - scrollTopBefore)).toBeLessThanOrEqual(2);
@@ -368,6 +376,9 @@ describe('virtualized tier (BST-897)', () => {
     // … and the jump button drives the virtualizer back to the true end.
     fireEvent.click(button);
     await waitForPinnedToEnd(viewport);
+    await waitFor(() => {
+      expect(document.querySelector('[data-message-text="appended"]')).not.toBeNull();
+    });
     await waitFor(() => {
       expect(button).toBeDisabled();
     });

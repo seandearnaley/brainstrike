@@ -75,7 +75,7 @@ export const THREAD_MESSAGE_ESTIMATED_HEIGHT_PX = 120;
  * How close to the end still counts as "pinned". Wider than the library's
  * 1px default so sub-pixel layout does not silently disengage auto-follow.
  */
-const THREAD_END_THRESHOLD_PX = 24;
+export const THREAD_END_THRESHOLD_PX = 24;
 
 /** Rows kept mounted beyond the visible range on each side. */
 const THREAD_VIRTUAL_OVERSCAN = 6;
