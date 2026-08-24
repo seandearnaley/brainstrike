@@ -6,7 +6,7 @@
 
 import { NATIVE_TOOL_ID, type NativeToolId } from './native-tool-catalog.js';
 import { WEB_EXTRACT_TOOL_ID, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
-import type { ToolSchemaDisplay } from './tool-schemas-display.js';
+import type { ToolSchemaDisplay } from './tool-schemas-display-types.js';
 
 export const SEARCH_TOOL_SCHEMAS = {
   'brainstrike.browserGetPageText': {

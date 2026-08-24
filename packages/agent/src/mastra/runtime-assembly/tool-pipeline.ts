@@ -34,6 +34,10 @@ import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../../tools/hook-runner';
 import { applyToolHooks } from '../../tools/hook-tool-wrap';
+import {
+  createToolExecutionDurations,
+  type ToolExecutionDurations,
+} from '../../tools/tool-execution-durations';
 import { createMastraAgentError } from '../mastra-agent-error';
 import { createMcpRuntimeClient, type McpRuntimeClient } from '../mcp-runtime-client';
 import { collectCombinedTools } from '../mcp-tool-loader';
@@ -199,6 +203,7 @@ function mergeSkillToolsIntoLocalTools(
 }
 
 function applyRuntimeToolHooks(params: {
+  durations: ToolExecutionDurations;
   guardedTools: ToolsInput;
   hookRunner: AgentHookRunner | undefined;
   toolNameMap: ReadonlyMap<string, string>;
@@ -207,6 +212,10 @@ function applyRuntimeToolHooks(params: {
     return params.guardedTools;
   }
   return applyToolHooks(params.guardedTools, {
+    // A PreToolUse BLOCK returns without reaching the guard, so the hook layer
+    // records that short-circuit itself — otherwise the consumer falls back to
+    // a timestamp gap that includes the approval wait.
+    durations: params.durations,
     hookRunner: params.hookRunner,
     logger,
     toolNameMap: params.toolNameMap,
@@ -413,6 +422,8 @@ export interface RuntimeToolMapResult {
   mcpClient: McpRuntimeClient | undefined;
   resilienceConfig: AssistantResilienceConfig;
   sanitizedLocalToolIds: ReadonlySet<string>;
+  /** Real per-call execution time, written by the guard wrapper. */
+  toolExecutionDurations: ToolExecutionDurations;
   toolNameMap: Map<string, string>;
 }
 
@@ -457,7 +468,12 @@ export async function composeRuntimeToolMap(
   const resilienceConfig = resolveAssistantResilienceConfig();
   // Intentional global guard: every native and MCP tool execution shares this
   // ceiling so a single slow tool cannot freeze the assistant stream.
+  // Per-runtime, which is per request. The guard is the only layer that sees
+  // real execution time; an approval-gated call's stream timestamps span the
+  // human wait instead (see tool-execution-durations.ts).
+  const toolExecutionDurations = createToolExecutionDurations();
   const guardedTools = applyToolGuards(combinedTools, {
+    durations: toolExecutionDurations,
     logger,
     timeoutMs: resilienceConfig.toolTimeoutMs,
   });
@@ -467,6 +483,7 @@ export async function composeRuntimeToolMap(
   // can never widen access — permission runs downstream of `execute`, so a hook
   // only ever sees a tool the policy already allowed (hooks REFINE, never widen).
   const hookedTools = applyRuntimeToolHooks({
+    durations: toolExecutionDurations,
     guardedTools,
     hookRunner: params.hookRunner,
     toolNameMap,
@@ -525,6 +542,7 @@ export async function composeRuntimeToolMap(
     mcpClient,
     resilienceConfig,
     sanitizedLocalToolIds,
+    toolExecutionDurations,
     toolNameMap,
   };
 }

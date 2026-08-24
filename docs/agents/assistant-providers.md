@@ -533,8 +533,28 @@
   message without double-counting. An abandoned pause therefore has no billed
   cost available through the observer stream. Mastra's terminal token usage is
   cumulative, but its terminal provider metadata repeats only the final step, so
-  every observed step must report cost; a missing or malformed reported cost
-  fails visibly rather than silently undercounting.
+  a missing cost cannot be repaired from the terminal metadata.
+
+  **A MISSING COST RECORDS UNKNOWN; ONLY A MALFORMED ONE FAILS — do not
+  relitigate.** OpenRouter reports no `usage.cost` for anonymous/stealth routes
+  (`stealth/ox-alpha`, migration 107), so requiring one from every step failed
+  EVERY such turn at the finish, discarding a completed answer over billing
+  telemetry. Cost accounting is observability, and observability must not
+  destroy the product it observes. An incomplete picture — no step reported, or
+  only some did — therefore records the turn cost as UNKNOWN (omitted, stored
+  null) with a visible `provider_billed_cost_unreported` warning that names the
+  partial case and the amount it is discarding. Never zero, and never a partial
+  sum presented as the total, which is the undercount the old rule was really
+  guarding. A genuine `cost: 0` remains a MEASURED zero.
+
+  MALFORMED metadata is loud but equally non-fatal. `readOpenRouterBilledCost`
+  returns a three-way reading — `absent` | `malformed` | `reported` — rather
+  than a number-or-throw, so the callers must handle the broken-contract case
+  explicitly (nothing is coerced, and it cannot be swallowed the way a
+  `try`/`catch` would). They log `provider_billed_cost_malformed` at ERROR and
+  treat the step as unpriced, which resolves the turn to unknown. Absent is a
+  fact about the route; malformed is a broken contract someone should fix.
+  Neither destroys a completed turn, and neither becomes zero.
 - Reasoning has two INDEPENDENT dimensions, and they must not be re-conflated
   (BST-840). DEPTH is a budget concern (`reasoningEffort`, `anthropicEffort`,
   `googleThinkingLevel`, the OpenRouter auto profile). VISIBILITY is a UX
@@ -2745,7 +2765,48 @@ absent.
 Hosted default instructions add the discovery guidance only when the runtime
 actually installs `BrainstrikeToolSearchProcessor`. They tell the model to call
 `search_tools` for deferred capability families before substituting eager glob
-or shell tools. The live matrix passes that processor through Mastra
+or shell tools.
+
+**THE DISCOVERY SURFACES NAME EVERY ELIGIBLE DEFERRED FAMILY — AND ONLY
+ELIGIBLE ONES.** A deferred capability the prompt never names is a tool the
+model declares nonexistent instead of searching for: the 2026-08-23 field
+failure dismissed both "the canvas tool" (`manageCanvas`) and a skill
+activation's named `runSkillScript` as missing, and worked around the latter
+via `executeCommand` — bypassing the typed skill-script policy layer. The
+opposite failure is advertising a family the run cannot load (a WEB run's
+eligible set excludes canvas/Python/browsers/command sessions/diagnostics/
+self-query/skill scripts). Both surfaces — the instructions' discovery line
+AND `search_tools`' own tool description — therefore DERIVE their family list
+per run from `deferred-capability-families.ts`, the single source; the
+`tool-discovery capability coverage` spec pins that every runtime-deferred
+native tool (`loadingTier !== 'critical'`, skill ids force-cored) belongs to
+a family, that eligible families are named, and that ineligible ones are not.
+The line also states that a tool NAMED by the instructions or a skill
+activation but not loaded is reachable via `search_tools` — the prompt names
+tools by exact id (`toolNameMap` spans both surfaces) that are not in the
+model's callable list until discovered, and without that sentence the model
+resolves the contradiction the wrong way.
+`BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE` (appended to every skill activation
+result, with its space RESERVED inside the activation budget so truncation
+can never slice it off) carries the same recovery clause for
+`runSkillScript`, self-gated on `search_tools` being available.
+
+**THE BATCHING EXEMPTION LIVES ON THE BATCHING LINE — do not relitigate.** A
+loaded match is callable only on the FOLLOWING turn, so batching `search_tools`
+with slow calls strands the discovery for their whole duration: an observed run
+issued it alongside two delegations that took ~15 minutes each, then spent three
+`search_tools` calls locating one tool the user had named explicitly. The
+exemption is therefore carried by `buildParallelCallInstruction`, NOT only by
+the discovery line ~15 instructions away — "Batch independent reads, searches,
+or commands into one turn" is the plausible proximate cause, since a model
+scanning for permission to batch reads "searches" as covering `search_tools`,
+and a caveat it has to go looking for is one it will not apply. It is
+CONDITIONAL on discovery being installed, so a run without it is never told
+about a tool it does not have. Stated once: repeating it on the discovery line
+spends prompt budget saying the same thing.
+
+Making a match callable in the turn that found it is Mastra's tool-search
+contract, not ours; the ordering advice is the half Brainstrike owns. The live matrix passes that processor through Mastra
 `runEvals.targetOptions`: Brainstrike owns input processors at the per-call
 stream seam, so targeting the bare Agent without those options is not a valid
 discovery evaluation.

@@ -59,16 +59,57 @@ export const mcpInstances: unknown[] = [];
 export const mastraInstances: Array<{ config: unknown; shutdownCalls: number }> = [];
 
 let mcpToolsets: MockMcpToolsets = {};
+let mockMessageList: unknown;
+let streamFailure: { call: number; error: Error } | undefined;
 let streamPartDelayMs = 0;
+/** Error to surface AFTER N parts have streamed (mid-iteration, not at construction). */
+let streamPartFailure: { afterParts: number; error: Error } | undefined;
 let streamParts: unknown[] = [];
+/**
+ * Per-`stream()`-call part overrides, keyed by 1-based call number on the
+ * agent instance (same numbering as `setStreamFailure`). Lets a multi-attempt
+ * test give attempt 1 and attempt 2 DIFFERENT streams — e.g. an empty first
+ * response recovered by a real second one — where the global `streamParts`
+ * would replay the same parts on every attempt.
+ */
+const streamPartsForCall = new Map<number, unknown[]>();
 let suspendedRuns: MockSuspendedRun[] = [];
 
 export function setMockStreamParts(parts: unknown[]): void {
   streamParts = [...parts];
 }
 
+export function setMockStreamPartsForCall(call: number, parts: unknown[]): void {
+  streamPartsForCall.set(call, [...parts]);
+}
+
+export function setMockMessageList(messageList: unknown): void {
+  mockMessageList = messageList;
+}
+
+export function setStreamFailure(call: number, error: Error): void {
+  streamFailure = { call, error };
+}
+
 export function setStreamPartDelayMs(delayMs: number): void {
   streamPartDelayMs = delayMs;
+}
+
+/**
+ * Fail the stream MID-ITERATION, after `afterParts` parts have been delivered.
+ *
+ * Distinct from {@link setStreamFailure}, which rejects the `agent.stream()`
+ * call itself so no iterator is ever produced. Cases about an error escaping
+ * WHILE consuming a stream need this one: with the construction failure the
+ * consumer loop never runs, so any "and nothing downstream was emitted"
+ * assertion passes trivially.
+ *
+ * Added because a test wanted exactly this and, lacking a seam, borrowed an
+ * unrelated validation throw as its vehicle — which then broke when that
+ * validation stopped throwing.
+ */
+export function setStreamPartFailure(afterParts: number, error: Error): void {
+  streamPartFailure = { afterParts, error };
 }
 
 export function setMcpToolsets(toolsets: MockMcpToolsets): void {
@@ -138,26 +179,46 @@ export function resetMastraStreamHarness(): void {
       'remote tool': { description: 'remote', id: 'remote tool' },
     },
   });
+  setMockMessageList(undefined);
   setMockStreamParts([]);
+  streamPartsForCall.clear();
+  streamFailure = undefined;
+  streamPartFailure = undefined;
   setStreamPartDelayMs(0);
   setSuspendedRuns(defaultSuspendedRuns());
 }
 
-function createMockMastraOutput() {
+function createMockMastraOutput(parts: readonly unknown[] = streamParts) {
   let cancelled = false;
   const stream = new ReadableStream({
     cancel() {
       cancelled = true;
     },
     async start(controller) {
-      for (const part of streamParts) {
+      let delivered = 0;
+      for (const part of parts) {
         if (streamPartDelayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, streamPartDelayMs));
         }
         if (cancelled) {
           return;
         }
+        if (streamPartFailure && delivered === streamPartFailure.afterParts) {
+          // Yield first: `controller.error()` DISCARDS whatever is still
+          // queued, so erroring in the same synchronous run as the enqueues
+          // would deliver NOTHING and quietly turn a mid-stream case into a
+          // failed-to-start one.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          controller.error(streamPartFailure.error);
+          return;
+        }
         controller.enqueue(part);
+        delivered += 1;
+      }
+      if (streamPartFailure && delivered === streamPartFailure.afterParts) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        controller.error(streamPartFailure.error);
+        return;
       }
       if (!cancelled) {
         controller.close();
@@ -166,6 +227,7 @@ function createMockMastraOutput() {
   });
   return {
     fullStream: stream,
+    ...(mockMessageList ? { messageList: mockMessageList } : {}),
   } as { fullStream: ReadableStream<unknown> };
 }
 
@@ -282,7 +344,10 @@ export const mastraAgentModuleMock = {
 
     async stream(input: unknown, options: unknown) {
       this.streamCalls.push({ input, options });
-      return createMockMastraOutput();
+      if (streamFailure?.call === this.streamCalls.length) {
+        throw streamFailure.error;
+      }
+      return createMockMastraOutput(streamPartsForCall.get(this.streamCalls.length) ?? streamParts);
     }
 
     async approveToolCall(options: unknown) {

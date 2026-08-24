@@ -51,6 +51,7 @@ describe('frontier models migrations', () => {
       'gemini-2.5-pro',
       'gemini-2.5-flash',
       'gemini-embedding-2',
+      'stealth/ox-alpha',
       'openai/gpt-5.6-sol',
       'openai/gpt-5.6-terra',
       'openai/gpt-5.6-luna',

@@ -1,7 +1,14 @@
 import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
-
 import { querySelectableFiles } from '../recursive-selection-query';
+// Shared test doubles: the factories live in one place so the suites cannot
+// drift (BST-478 review thread — the helper was added without migrating this
+// suite's byte-identical local copies).
+import {
+  createDirectoryNode,
+  createFileNode,
+  createMockAdapter,
+} from './helpers/recursive-selection-test-kit';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
@@ -15,45 +22,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     }),
   };
 });
-
-function createFileNode(overrides: Partial<IFileNode> & { name: string; path: string }): IFileNode {
-  return {
-    depth: 0,
-    handle: {} as FileSystemFileHandle,
-    isVisible: true,
-    rootFolderId: '/root',
-    selectionState: 'unchecked',
-    type: 'file',
-    ...overrides,
-  };
-}
-
-function createDirectoryNode(
-  overrides: Partial<IFileNode> & { name: string; path: string }
-): IFileNode {
-  return {
-    children: [],
-    depth: 0,
-    handle: {} as FileSystemDirectoryHandle,
-    isVisible: true,
-    loadState: 'unloaded',
-    rootFolderId: '/root',
-    selectionState: 'unchecked',
-    type: 'directory',
-    ...overrides,
-  };
-}
-
-function createMockAdapter(directoryMap: Record<string, IFileNode[]>): FileSystemAdapter {
-  const readDirectory = vi.fn(async (handle: DirectoryHandle) => directoryMap[handle.path] ?? []);
-
-  return {
-    exists: vi.fn(),
-    readDirectory,
-    readFile: vi.fn(),
-    requestDirectoryAccess: vi.fn(),
-  } as unknown as FileSystemAdapter;
-}
 
 describe('recursive-selection-query', () => {
   it('stops on already-loaded visible files before reading deeper unloaded directories', async () => {
@@ -579,6 +547,71 @@ describe('recursive-selection-query', () => {
     expect(maxActiveReads).toBeLessThanOrEqual(12);
   });
 
+  it('retains one frontier entry per unloaded directory in a wide tree', async () => {
+    const directoryCount = 4096;
+    const childDirectories = Array.from({ length: directoryCount }, (_, index) =>
+      createDirectoryNode({
+        depth: 1,
+        loadState: 'unloaded',
+        name: `dir-${index}`,
+        path: `/root/dir-${index}`,
+      })
+    );
+    const adapter = createMockAdapter({ '/root': childDirectories });
+    let peakBufferedDirectoryEntries = 0;
+
+    const result = await querySelectableFiles({
+      concurrency: 12,
+      excludeFilters: [],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      onBufferProfile: (profile) => {
+        peakBufferedDirectoryEntries = Math.max(
+          peakBufferedDirectoryEntries,
+          profile.bufferedDirectoryEntries
+        );
+      },
+      roots: [createDirectoryNode({ loadState: 'unloaded', name: 'root', path: '/root' })],
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual([]);
+    // The root remains retained while its adapter listing fills the next frontier.
+    expect(peakBufferedDirectoryEntries).toBe(directoryCount + 1);
+  });
+
+  it('profiles loaded frontier entries without mutating the caller roots', async () => {
+    const directoryCount = 64;
+    const roots = Array.from({ length: directoryCount }, (_, index) =>
+      createDirectoryNode({
+        children: [],
+        loadState: 'loaded',
+        name: `dir-${index}`,
+        path: `/dir-${index}`,
+      })
+    );
+    const originalRoots = [...roots];
+    let peakBufferedDirectoryEntries = 0;
+
+    const result = await querySelectableFiles({
+      excludeFilters: [],
+      fileSystemAdapter: createMockAdapter({}),
+      includeFilters: [],
+      onBufferProfile: (profile) => {
+        peakBufferedDirectoryEntries = Math.max(
+          peakBufferedDirectoryEntries,
+          profile.bufferedDirectoryEntries
+        );
+      },
+      roots,
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual([]);
+    expect(peakBufferedDirectoryEntries).toBe(directoryCount);
+    expect(roots).toStrictEqual(originalRoots);
+  });
+
   it('does not prematurely close a throughput batch when synchronous directory reads settle immediately', async () => {
     const adapter = createMockAdapter({
       '/root': [
@@ -678,28 +711,79 @@ describe('recursive-selection-query directory hydration updates', () => {
     expect(result.directoryUpdates).toEqual([]);
   });
 
-  it('does not retain directory updates unless collection is opted in (select-all memory guard)', async () => {
-    const adapter = createMockAdapter({
-      '/root/sub': [createFileNode({ depth: 2, name: 'b.ts', path: '/root/sub/b.ts' })],
-    });
-    const root = createDirectoryNode({
-      children: [
-        createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'sub', path: '/root/sub' }),
-      ],
-      loadState: 'loaded',
-      name: 'root',
-      path: '/root',
-    });
+  it.each([
+    { maxResults: 4 as number | undefined, mode: 'early-stop' },
+    { maxResults: undefined, mode: 'throughput' },
+  ])(
+    'does not retain directory updates in $mode mode unless collection is opted in',
+    async ({ maxResults, mode }) => {
+      const adapter = createMockAdapter({
+        '/root/sub': [createFileNode({ depth: 2, name: 'b.ts', path: '/root/sub/b.ts' })],
+      });
+      const root = createDirectoryNode({
+        children: [
+          createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'sub', path: '/root/sub' }),
+        ],
+        loadState: 'loaded',
+        name: 'root',
+        path: '/root',
+      });
 
-    const result = await querySelectableFiles({
-      excludeFilters: [],
-      fileSystemAdapter: adapter,
-      includeFilters: [],
-      roots: [root],
-      useRegex: false,
-    });
+      const result = await querySelectableFiles({
+        excludeFilters: [],
+        fileSystemAdapter: adapter,
+        includeFilters: [],
+        ...(maxResults === undefined ? {} : { maxResults }),
+        roots: [root],
+        useRegex: false,
+      });
 
-    expect(result.filePaths).toEqual(['/root/sub/b.ts']);
-    expect(result.directoryUpdates).toEqual([]);
-  });
+      expect(result.filePaths).toEqual(['/root/sub/b.ts']);
+      // Proves the variant really exercised its intended scan-mode branch, so
+      // a LOW_LIMIT_SCAN_THRESHOLD change cannot silently collapse both cases
+      // onto one path and leave the other unpinned.
+      expect(result.metrics.mode).toBe(mode);
+      expect(adapter.readDirectory).toHaveBeenCalledTimes(1);
+      expect(result.directoryUpdates).toEqual([]);
+    }
+  );
+
+  it.each([
+    { maxResults: 4 as number | undefined, mode: 'early-stop' },
+    { maxResults: undefined, mode: 'throughput' },
+  ])(
+    'still retains directory updates in $mode mode when collection IS opted in',
+    async ({ maxResults, mode }) => {
+      const adapter = createMockAdapter({
+        '/root/sub': [createFileNode({ depth: 2, name: 'b.ts', path: '/root/sub/b.ts' })],
+      });
+      const root = createDirectoryNode({
+        children: [
+          createDirectoryNode({ depth: 1, loadState: 'unloaded', name: 'sub', path: '/root/sub' }),
+        ],
+        loadState: 'loaded',
+        name: 'root',
+        path: '/root',
+      });
+
+      const result = await querySelectableFiles({
+        collectDirectoryUpdates: true,
+        excludeFilters: [],
+        fileSystemAdapter: adapter,
+        includeFilters: [],
+        ...(maxResults === undefined ? {} : { maxResults }),
+        roots: [root],
+        useRegex: false,
+      });
+
+      expect(result.metrics.mode).toBe(mode);
+      expect(adapter.readDirectory).toHaveBeenCalledTimes(1);
+      expect(result.directoryUpdates).toEqual([
+        {
+          children: [expect.objectContaining({ path: '/root/sub/b.ts' })],
+          path: '/root/sub',
+        },
+      ]);
+    }
+  );
 });

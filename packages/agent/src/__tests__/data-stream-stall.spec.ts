@@ -25,11 +25,12 @@ async function drain(response: Response): Promise<string> {
 describe('data-stream stall handling', () => {
   it('closes the session with an error when the source stalls', async () => {
     // withInactivityTimeout wraps the stalling source and throws StreamStalledError
-    // after 30ms of inactivity. AssistantDataStreamSession.startProcessing() catches
+    // after 30ms of inactivity while STREAMING (the source yields one part
+    // first, so the wider first-output window never applies). AssistantDataStreamSession.startProcessing() catches
     // that error, calls mapper.handleError(), which emits DataStreamCode.error ('3')
     // followed by a finishMessage ('d'). Without the watchdog this test would hang.
     const session = new AssistantDataStreamSession(
-      withInactivityTimeout(stallingSource(), 30),
+      withInactivityTimeout(stallingSource(), { firstOutputMs: 1000, interOutputMs: 30 }),
       () => {}
     );
     const body = await drain(session.createResponse());

@@ -4,6 +4,27 @@
 
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
 
+Per-thread workspace snapshots (`brainstrike_assistant_thread_workspaces`) are
+loaded into renderer-owned live stores by
+`useThreadWorkspaceCoordinator`; those stores remain the working authority.
+Initial boot is an ordering boundary because the active thread can restore
+before PGlite is ready. While that first snapshot read is pending, store
+notifications must not persist the unhydrated singleton state over the saved
+row. The coordinator captures a boot baseline instead, then merges only fields
+that changed in the live stores after that baseline into the loaded snapshot
+before applying and immediately persisting it. This delta covers apps and
+selection, file tabs, editor mode/scroll/pane state, Explorer expansion/scroll,
+and root views. If the initial read rejects after a live edit, the coordinator
+persists the current live snapshot immediately instead of waiting for another
+notification. Editor deltas are admitted only for tabs in the loaded snapshot;
+a changed tab set is preserved atomically with its live editor map. That key
+filter is required so stale pane/editor state from another thread cannot leak
+through a boot or `A -> null -> B` transition. Ordinary thread switches never
+reuse this boot merge: they synchronously flush the outgoing live snapshot,
+then hydrate the incoming snapshot under an intent guard. The deterministic
+ordering regressions live in
+`packages/app-shell/src/thread-workspace/__tests__/use-thread-workspace-coordinator.test.tsx`.
+
 Desktop assistant threads also persist their operating-root capability in the
 existing `mastra_threads.metadata` JSON (no schema migration):
 `operatingRootId` is the durable DB `roots.id`; `operatingRootDisplayName` and
@@ -163,6 +184,30 @@ contracts keep reloaded threads identical to live ones:
      (`ok:false`) hydrates as a failed tool call even though Mastra persists
      the invocation itself with `state:'result'`; the execution and replay
      paths must never maintain independent guarded-error code lists.
+
+Mastra deliberately skips its normal finish writer when an abort signal wins.
+For terminal watchdog aborts and user cancellation only, `agent-streaming.ts`
+therefore owns one bounded abort-finalization seam over Mastra's public live
+`MessageList`: it drains the unsaved user input, retains response parts only
+through the last completed tool invocation, drops non-renderable snapshots and
+all incomplete tool/text work, appends the model-visible
+`[Assistant turn aborted before completion.]` marker, and awaits
+`Memory.saveMessages` before disposing the per-run runtime — including when a
+recovery continuation fails during construction. A text-only partial response
+has no completed work and is intentionally omitted under Contract A. Initial,
+approval-resume, and suspended-tool resume streams share this Brainstrike-owned
+terminal seam; read-only memory streams skip it and remain write-free. If the
+snapshot write itself fails, the seam emits the structured
+`mastra_agent_aborted_turn_persist_failed` server error and preserves the turn's
+existing terminal chunks and cleanup instead of throwing after termination. A
+normally finished turn marks the seam closed before teardown, leaving Mastra's
+existing writer exactly-once. The live-loop PGlite proof covers normal
+completion, watchdog abort, user Stop, resumed streams, next-turn recall, and
+non-reexecution of completed tools. An individual provider attempt that stalls
+but is replaced by a successful continuation is not an aborted turn and does
+not persist an abort snapshot; abort finalization runs only when the turn itself
+becomes terminal.
+
 3. **Edited-prompt branch topology:** Mastra remains the only writer of message
    CONTENT, but its rows do not retain assistant-ui's parent graph. The client
    history adapter therefore persists only `{messageId,parentId}` edges in
@@ -678,8 +723,20 @@ Runtime invariants:
   Mastra emits the pause before exposing that model step's `step-finish`. On
   resume, Mastra emits the deferred pre-pause step finish and all subsequent
   steps; the normal terminal usage tap persists their exact aggregate once.
-  Missing or malformed cost metadata on a new OpenRouter completion fails
-  visibly rather than being mislabeled as an exact or zero-cost run.
+  MISSING cost metadata on a new OpenRouter completion records the cost as
+  UNKNOWN — the field is omitted, `billed_cost_usd` stores null, and the row
+  falls through to registry-priced/estimated provenance — with a visible
+  `provider_billed_cost_unreported` warning. It is never mislabeled as an exact
+  or zero-cost run, which is what the previous fail-visibly rule protected, and
+  it no longer destroys the completed turn: OpenRouter reports no cost at all
+  for anonymous/stealth routes (`stealth/ox-alpha`, migration 107), so the old
+  rule failed every one of those turns at the finish. MALFORMED metadata is
+  loud but equally non-fatal: it records unknown too, with
+  `provider_billed_cost_malformed` logged at ERROR rather than a throw, because
+  binning a finished answer over a telemetry field is the same bad trade
+  whatever the shape of the bad value. Absent is a fact about the route;
+  malformed is a broken contract someone should fix. Neither is ever recorded
+  as zero.
 - Thread-total headline + run-kind attribution (BST-953): every
   `brainstrike_assistant_run_usage` row carries `run_kind`
   (`'chat' | 'subagent' | 'compaction-summary' | 'om-observation' |
@@ -775,6 +832,18 @@ handle (BST-972 A1/A2) — and all gated on `if (runId)`):
 | `recordDesktopAssistantHookRunOutcome` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | THROWS (deliberate) |
 | `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
 | `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | `to_regclass` probe → `runsTableMissing: true`, no-op |
+
+**`duration_ms` is an INTEGER column, and durations are rounded at the
+PRODUCER.** The guard wrapper measures tool execution with `performance.now()`,
+whose deltas are fractional; forwarding the raw float made every stamped
+terminal tool event fail to persist (field regression 2026-08-23, 22P02
+"invalid input syntax for type integer") — holes in the exact timeline the
+debug bundle reads. `withRunEventDuration`
+(`packages/agent/src/mastra/tool-lifecycle-processors.ts`) is the single seam
+where a duration enters a run event and rounds there (non-finite drops the
+field). The column contract is pinned by the real-PGlite pair in
+`run-event-schema-provenance.integration.test.ts` — integer persists,
+fractional rejected — so the rounding is provably load-bearing.
 
 That is safe, and the reason is **runId provenance — NOT startup ordering**:
 
@@ -1674,11 +1743,14 @@ tool map, but via a distinct telemetry-only method,
 `recordSubagentToolOutput` (`token-measurement.ts`), NOT the primary map's
 `recordModelOutput`. The two intentionally diverge: `recordModelOutput` also
 feeds the run's `#projection` aggregate (`modelVisibleProjection*` in
-`toLogFields`), which reconciles against `providerReportedPromptTokens` — what
-the PARENT model actually saw in ITS prompt. A subagent tool output never
+`toLogFields`), which reconciles against `promptTokensSummedAcrossSteps`
+(logged name; the lifecycle field is `providerReportedPromptTokens`, the
+per-leg SUM across steps — spend, not a single request's context size, which
+is `latestStepPromptTokens`; the 2026-08-23 "context explosion" was this sum
+misread as one request). A subagent tool output never
 enters the parent's prompt (only the delegation's final result does), so
 routing it through `recordModelOutput` would inflate that aggregate for every
-delegating run without a matching change in `providerReportedPromptTokens`.
+delegating run without a matching change in the prompt sum.
 `recordSubagentToolOutput` pushes only the `ToolCallTelemetrySample`, leaving
 `#projection` untouched. Both methods feed the SAME `#toolCallTelemetry`
 array, so samples from either path ride the existing run-end

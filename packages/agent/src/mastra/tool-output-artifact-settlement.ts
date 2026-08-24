@@ -24,6 +24,7 @@ import { toJsonSafe } from '../stream/json';
 import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 import { isGuardedToolError } from '../tools/guard-tool-execution';
 import { readHookResultEnvelope } from '../tools/hook-runner';
+import { readToolCallId } from '../tools/read-tool-call-id';
 import { readMcpMultimodalOutput } from './mcp-multimodal-output';
 import { projectToolOutputArtifactPage } from './tool-output-artifact-reader';
 
@@ -131,19 +132,6 @@ function serializeToolOutput(output: unknown, toolName: string): SerializedToolO
     content,
     format,
   };
-}
-
-function readToolCallId(args: readonly unknown[]): string | undefined {
-  const context = args[1];
-  if (!(context && typeof context === 'object')) {
-    return;
-  }
-  const record = context as {
-    agent?: { toolCallId?: unknown };
-    toolCallId?: unknown;
-  };
-  const candidate = record.agent?.toolCallId ?? record.toolCallId;
-  return typeof candidate === 'string' && candidate.trim().length > 0 ? candidate : undefined;
 }
 
 function serializedFieldByteLength(value: string): number {

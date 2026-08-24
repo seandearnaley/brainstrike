@@ -1,4 +1,5 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
+import { SUBAGENT_NO_ANSWER_OUTCOME } from '@brainstrike/assistant-contract/personas';
 import { Button } from '@brainstrike/ui';
 import {
   AlertCircle,
@@ -14,6 +15,8 @@ import {
   mergeSubagentToolRows,
   readSubAgentToolRows,
   type SubAgentToolRow,
+  type SubAgentToolRowStatus,
+  type SubagentDelegationOutcome,
 } from './subagent-tool-rows';
 import { useToolDurationMs } from './tool-duration-context';
 import { formatActivityDuration } from './tool-durations';
@@ -25,26 +28,40 @@ export type SubagentCardProps = Pick<
 > & {
   /** In-flight child rows from live `subagent.tool.*` events (see SUBAGENTS). */
   liveRows?: readonly SubAgentToolRow[];
+  /**
+   * Terminal outcome the tool-call status cannot express (BST-1410) — today
+   * only `'no-answer'`: the child ran, made tool calls, and never wrote its
+   * summary. The delegation tool call itself SUCCEEDED, so without this the
+   * card reports that as Completed.
+   */
+  outcome?: SubagentDelegationOutcome | undefined;
 };
 type ToolStatus = SubagentCardProps['status'];
 
-type DisplayStatus = 'error' | 'running' | 'success';
+type DisplayStatus = 'error' | 'no-answer' | 'running' | 'success';
 
 const STATUS_LABELS: Record<DisplayStatus, string> = {
   error: 'Failed',
+  'no-answer': 'No answer',
   running: 'Running',
   success: 'Completed',
 };
 
 const STATUS_ICONS: Record<DisplayStatus, ReactElement> = {
   error: <AlertCircle aria-hidden="true" className="size-4 text-destructive" />,
+  // Amber, not destructive red: the delegation ran and its child work is real
+  // and browsable below — it simply produced no analysis. Destructive is
+  // reserved for something the user must fix.
+  'no-answer': (
+    <AlertCircle aria-hidden="true" className="size-4 text-amber-600 dark:text-amber-500" />
+  ),
   running: (
     <CircleDashed aria-hidden="true" className="size-4 animate-pulse text-muted-foreground" />
   ),
   success: <CheckCircle aria-hidden="true" className="size-4 text-green-600 dark:text-green-500" />,
 };
 
-const ROW_ICONS: Record<DisplayStatus, ReactElement> = {
+const ROW_ICONS: Record<SubAgentToolRowStatus, ReactElement> = {
   error: <AlertCircle aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />,
   running: (
     <CircleDashed
@@ -60,14 +77,20 @@ const ROW_ICONS: Record<DisplayStatus, ReactElement> = {
   ),
 };
 
-function resolveDisplayStatus(status: ToolStatus): DisplayStatus {
+function resolveDisplayStatus(
+  status: ToolStatus,
+  outcome: SubagentDelegationOutcome | undefined
+): DisplayStatus {
   if (status.type === 'running') {
     return 'running';
   }
   if (status.type === 'incomplete') {
     return 'error';
   }
-  return 'success';
+  // A completed tool call whose child never answered is NOT a success. Checked
+  // after the running/incomplete branches so a still-streaming delegation keeps
+  // its spinner.
+  return outcome === SUBAGENT_NO_ANSWER_OUTCOME ? 'no-answer' : 'success';
 }
 
 const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
@@ -86,9 +109,10 @@ export const SubagentExecutionCard = ({
   result,
   status,
   liveRows = EMPTY_LIVE_ROWS,
+  outcome,
 }: SubagentCardProps) => {
   const [expanded, setExpanded] = useState(false);
-  const displayStatus = resolveDisplayStatus(status);
+  const displayStatus = resolveDisplayStatus(status, outcome);
   const label = personaLabelForToolName(toolName);
   const rows = useMemo(
     () => mergeSubagentToolRows(readSubAgentToolRows(result), liveRows),

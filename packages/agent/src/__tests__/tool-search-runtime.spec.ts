@@ -149,13 +149,21 @@ describe('BrainstrikeToolSearchProcessor', () => {
     }
   );
 
-  it('makes deferred workspace-root discovery explicit on the initial search surface', async () => {
+  it('derives the search surface description from the ACTUAL deferred set', async () => {
+    // Review of #2625: this description carried its own hand-written family
+    // list — the OTHER place a model looks to decide whether searching for a
+    // capability is worthwhile — and it never mentioned canvas or skill
+    // scripts. It now derives per run from deferred-capability-families.ts,
+    // so it names exactly the families this fixture's deferred tools make
+    // real, and no others.
     const processor = createRankingProcessor();
     const step = await processor.processInputStep(createStepArgs());
 
-    expect(step.tools.search_tools.description).toContain(
-      'open workspace roots and focused context'
-    );
+    const description = String(step.tools.search_tools.description);
+    expect(description).toContain('workspace context and tapestry');
+    expect(description).toContain('directory listings');
+    expect(description).not.toContain('canvas documents');
+    expect(description).toContain('next turn');
   });
 
   it('observes the exact query and original ranked ids without schemas', async () => {

@@ -1,8 +1,9 @@
-import { afterEach, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BACKGROUND_INDEXING_POLICY_OPTIONS,
   createBackgroundIndexingEntryPolicy,
   DEFAULT_BACKGROUND_INDEXING_MAX_FILE_SIZE,
+  FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES,
   isUnconditionalExcludedNativePath,
   UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
 } from '../background-indexing-policy.js';
@@ -371,5 +372,42 @@ describe('background-indexing-policy', () => {
         relativePath: 'docs/large.md',
       })
     ).toBe(false);
+  });
+});
+
+describe('preset exclusion coherence', () => {
+  // `full-root` is the MORE permissive preset — it deliberately indexes things
+  // balanced skips (Python virtualenvs, generated output). So anything it still
+  // excludes is there as a SAFETY exclusion, and balanced excluding less than
+  // that is incoherent by construction.
+  //
+  // This is not hypothetical: `.pnpm-store` sat in the full-root safety list and
+  // not in balanced. A pnpm content-addressable store inside a repo is ~82k
+  // files, which is 1.6x the workspace walk's 50,000-file cap on its own — so
+  // the walk exhausted its budget inside the store and never reached `apps/`,
+  // `docs/` or `packages/`. Every workspace glob returned 0 matches for
+  // patterns that plainly match, and the Explorer subagent burned its whole
+  // step budget shelling out instead (BST-1410 field report, 2026-08-22).
+  const balanced = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
+  const fullRoot = createBackgroundIndexingEntryPolicy({ preset: 'full-root' });
+
+  const traverses = (
+    policy: ReturnType<typeof createBackgroundIndexingEntryPolicy>,
+    name: string
+  ): boolean => policy.shouldTraverseDirectory({ directoryName: name, relativePath: name });
+
+  it('never traverses a directory in balanced that full-root excludes for safety', () => {
+    const leakage = FULL_ROOT_SAFETY_EXCLUDED_DIRECTORY_SEGMENT_NAMES.filter(
+      (name) => traverses(balanced, name) && !traverses(fullRoot, name)
+    );
+    expect(leakage).toEqual([]);
+  });
+
+  it('excludes the pnpm content-addressable store in BOTH presets', () => {
+    // Named explicitly as well as covered by the invariant above: a store this
+    // large silently blinds every workspace tool, and the failure looks like
+    // "0 matches" rather than an error.
+    expect(traverses(balanced, '.pnpm-store')).toBe(false);
+    expect(traverses(fullRoot, '.pnpm-store')).toBe(false);
   });
 });

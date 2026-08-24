@@ -79,7 +79,7 @@
     "db:migrate:unsafe": "pnpm db:generate:unsafe && pnpm db:export",
     "dev": "tsc --build --watch",
     "eval:retrieval": "pnpm --filter @brainstrike/types --filter @brainstrike/queue --filter @brainstrike/indexing-contract --filter @brainstrike/tokenization --filter @brainstrike/utils run build && tsx src/evaluation/retrieval-eval-cli.ts",
-    "mutation": "npx @stryker-mutator/core run",
+    "mutation": "stryker run",
     "test": "vitest run --project unit",
     "test:all": "vitest run",
     "test:browser": "vitest run --project browser",

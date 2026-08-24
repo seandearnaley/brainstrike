@@ -10,6 +10,7 @@ import { type MastraDBMessage, MessageList, type ToolsInput } from '@mastra/core
 import { ToolSearchProcessor } from '@mastra/core/processors';
 import { MASTRA_THREAD_ID_KEY } from '@mastra/core/request-context';
 import type { Tool } from '@mastra/core/tools';
+import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families';
 import { createMastraAgentError } from './mastra-agent-error';
 
 const logger = createLogger('MastraToolDiscovery');
@@ -126,8 +127,26 @@ export interface ToolDiscoverySearchObservation {
 
 type ToolDiscoverySearchObserver = (observation: ToolDiscoverySearchObservation) => void;
 
-const SEARCH_TOOL_DESCRIPTION =
-  'Search deferred capabilities, including open workspace roots and focused context, persistent sessions, semantic or LSP inspection, web, skills, and embeddings. Matches load automatically for the next turn.';
+/**
+ * The model-facing description of `search_tools` itself — the OTHER place a
+ * model looks to decide whether searching for a capability is worthwhile
+ * (review of #2625: this carried a second, stale hand-written list that never
+ * mentioned canvas or skill scripts). Derived per run from the ACTUAL deferred
+ * set through the same family table as the instructions' discovery line, so
+ * the two surfaces cannot disagree and neither can advertise a capability the
+ * run cannot load.
+ */
+function buildSearchToolDescription(
+  deferredTools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>
+): string {
+  const originalIds = new Set(
+    Object.keys(deferredTools).map((sanitizedId) => toolNameMap.get(sanitizedId) ?? sanitizedId)
+  );
+  const families = describeAvailableDeferredCapabilityFamilies(originalIds);
+  const familiesClause = families.length > 0 ? ` this run: ${families}` : '';
+  return `Search deferred capabilities${familiesClause}. Matches load automatically for the next turn.`;
+}
 
 function readSearchQuery(args: readonly unknown[]): string | undefined {
   const input = args[0];
@@ -167,7 +186,8 @@ function wrapSearchTelemetry(
   searchTool: SearchTool,
   stepNumber: number | undefined,
   toolNameMap: ReadonlyMap<string, string>,
-  notify: ToolDiscoverySearchObserver
+  notify: ToolDiscoverySearchObserver,
+  description: string
 ): SearchTool {
   const execute = searchTool.execute;
   if (!execute) {
@@ -183,7 +203,7 @@ function wrapSearchTelemetry(
   descriptors.description = {
     configurable: descriptionDescriptor?.configurable ?? true,
     enumerable: descriptionDescriptor?.enumerable ?? true,
-    value: SEARCH_TOOL_DESCRIPTION,
+    value: description,
     writable:
       descriptionDescriptor && 'writable' in descriptionDescriptor
         ? descriptionDescriptor.writable
@@ -279,6 +299,7 @@ export class BrainstrikeToolSearchProcessor {
   private readonly onToolsLoaded: ((tools: ToolsInput) => void) | undefined;
   private readonly previousLoadedByThread = new Map<string, ReadonlySet<string>>();
   private readonly searchObservers = new Set<ToolDiscoverySearchObserver>();
+  private readonly searchToolDescription: string;
   private readonly toolNameMap: ReadonlyMap<string, string>;
 
   constructor(options: {
@@ -296,6 +317,10 @@ export class BrainstrikeToolSearchProcessor {
     this.loadPersistedMessages = options.loadPersistedMessages;
     this.model = options.model;
     this.onToolsLoaded = options.onToolsLoaded;
+    this.searchToolDescription = buildSearchToolDescription(
+      options.deferredTools,
+      options.toolNameMap
+    );
     this.toolNameMap = options.toolNameMap;
   }
 
@@ -431,7 +456,8 @@ export class BrainstrikeToolSearchProcessor {
         this.toolNameMap,
         (observation) => {
           this.notifySearchObservers(observation);
-        }
+        },
+        this.searchToolDescription
       );
       return result;
     } catch (error) {

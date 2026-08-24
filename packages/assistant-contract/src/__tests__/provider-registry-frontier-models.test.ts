@@ -123,6 +123,7 @@ describe('frontier model refresh (2026-07)', () => {
       const ids = llmIds('openrouter');
       expect(ids).toEqual(
         expect.arrayContaining([
+          'stealth/ox-alpha',
           'openai/gpt-5.6-sol',
           'openai/gpt-5.6-terra',
           'openai/gpt-5.6-luna',
@@ -176,6 +177,48 @@ describe('frontier model refresh (2026-07)', () => {
 
     it('defaults to openai/gpt-5.6-terra', () => {
       expect(resolveDefaultModel('openrouter')).toBe('openai/gpt-5.6-terra');
+    });
+
+    it('declares Ox Alpha from live OpenRouter route metadata', () => {
+      const oxAlpha = getLlmModelDefinition('openrouter', 'stealth/ox-alpha');
+
+      expect(oxAlpha).toEqual({
+        contextWindow: 1_048_576,
+        id: 'stealth/ox-alpha',
+        label: 'Ox Alpha (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0, outputPerMTok: 0 },
+        reasoning: {
+          defaultEffort: 'max',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['max', 'high', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('declares GLM 5.3 from the frozen OpenRouter catalog facts', () => {
+      const glm53 = getLlmModelDefinition('openrouter', 'z-ai/glm-5.3');
+
+      expect(glm53).toEqual({
+        contextWindow: 1_048_576,
+        id: 'z-ai/glm-5.3',
+        label: 'GLM-5.3 (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 1.4, outputPerMTok: 4.4 },
+        reasoning: {
+          defaultEffort: 'max',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['max', 'high', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      });
     });
 
     it("declares the new models' authoritative OpenRouter reasoning options", () => {

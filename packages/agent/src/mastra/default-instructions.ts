@@ -5,12 +5,51 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { formatTokenCount } from '@brainstrike/tokenization';
+import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
   if (budgetTokens === undefined || !Number.isFinite(budgetTokens) || budgetTokens <= 0) {
     return null;
   }
   return `Context budget: about ${formatTokenCount(budgetTokens)} of input context are available this run. Suggest starting a new thread if context runs low.`;
+}
+
+/**
+ * State today's date for the model.
+ *
+ * Nothing in the composed instructions used to say what day it was, and a model
+ * with no date does not abstain — it substitutes its training cutoff or a
+ * guess. An observed run reasoned "Today's date is unknown but likely later"
+ * and then wrote a fabricated date, three days off, into DURABLE working
+ * memory.
+ *
+ * It also has a second job. AGENTS.md instructs the agent to treat dated
+ * material under `docs/superpowers/` and `docs/archive/` as historical evidence
+ * rather than current behaviour — an instruction it cannot follow without
+ * knowing the date to compare against.
+ *
+ * DATE ONLY, never a timestamp. This note lands in the CACHED half of the
+ * instructions (`composeCacheAwareInstructions`' `stableText`), so a clock time
+ * would invalidate the cached prefix on every turn; a date moves at most once a
+ * day. The format is ISO plus the weekday name, deliberately locale-independent
+ * — `03/04/2026` denotes two different days depending on the reader, and the
+ * model has no way to know which convention produced it.
+ *
+ * Deliberately terse: this sits in the native-tool prompt budget, so it states
+ * the date, the weekday, that the cutoff is earlier, and how to read dated
+ * workspace docs — and nothing else. See the trim-first rule in
+ * `native-tool-prompt-budget.test.ts` before expanding it.
+ */
+export function buildCurrentDateNote(now: Date): string {
+  // LOCAL calendar day, never UTC. Brainstrike is local-first: the process
+  // clock IS the user's clock, so `toISOString()` would state tomorrow's date
+  // to anyone east of UTC in their early morning and yesterday's to anyone west
+  // of it in their evening — wrong for a meaningful slice of every day, and
+  // wrong in the direction that makes "is this doc stale?" unanswerable.
+  // `en-CA` is the locale whose short date format IS ISO 8601.
+  const iso = now.toLocaleDateString('en-CA');
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+  return `Today is ${iso} (${weekday}); your training cutoff is earlier. Treat dated workspace documents as evidence of what was true then, not now.`;
 }
 
 const TASK_STATUS_GLYPHS: Record<AssistantTaskStatus, string> = {
@@ -350,7 +389,21 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
  * a valid tool map that only registers, say, webSearch or lspInspect still
  * gets the instruction.
  */
-function buildParallelCallInstruction(names: ModelFacingToolNames): string {
+/**
+ * Batching guidance.
+ *
+ * Carries the `search_tools` exemption, deliberately placed HERE rather than
+ * only on the discovery line ~15 instructions away. "Batch independent reads,
+ * searches, or commands into one turn" is a plausible proximate cause of the
+ * observed waste: a model scanning for permission to batch reads "searches" as
+ * covering `search_tools`, and a caveat it has to go looking for is one it will
+ * not apply. Conditional on discovery being installed, so a run without it is
+ * never told about a tool it does not have.
+ */
+function buildParallelCallInstruction(
+  names: ModelFacingToolNames,
+  toolDiscoveryEnabled: boolean | undefined
+): string {
   const hasRelevantTool = [
     names.browserGetPageText,
     names.browserReadPage,
@@ -374,7 +427,13 @@ function buildParallelCallInstruction(names: ModelFacingToolNames): string {
   if (!hasRelevantTool) {
     return '';
   }
-  return 'Batch independent reads, searches, or commands into one turn.';
+  const base = 'Batch independent reads, searches, or commands into one turn';
+  // The exemption is CONDITIONAL on discovery actually being installed: naming
+  // a tool the run does not register would advertise a capability that is not
+  // there, which is the confusion this whole line exists to prevent.
+  return toolDiscoveryEnabled
+    ? `${base} — never search_tools, whose matches load only NEXT turn, so search before long-running work.`
+    : `${base}.`;
 }
 
 /**
@@ -495,9 +554,22 @@ function buildAskUserInstruction(names: ModelFacingToolNames): string {
   return `When you need a decision or information only the user has (an ambiguous request, a choice between approaches), ask with ${names.askUser} instead of guessing — the run pauses for their answer.`;
 }
 
+/**
+ * Deferred-capability guidance — emitted only when a catalog search is
+ * installed for the run.
+ *
+ * The next-turn clause is not a detail. A loaded match is unusable until the
+ * following turn, so batching `search_tools` with slow calls strands the
+ * discovery for the whole duration: an observed run issued it alongside two
+ * delegations that took ~15 minutes each, and spent three `search_tools` calls
+ * locating one tool the user had named explicitly. The ordering advice is the
+ * cheap half of that fix — the expensive half would be making a match callable
+ * in the turn that found it, which is Mastra's tool-search contract, not ours.
+ */
 function buildToolDiscoveryInstruction(
   names: ModelFacingToolNames,
-  enabled: boolean | undefined
+  enabled: boolean | undefined,
+  availableOriginalToolIds: ReadonlySet<string>
 ): string {
   if (!enabled) {
     return '';
@@ -507,7 +579,21 @@ function buildToolDiscoveryInstruction(
   );
   const alternativesClause =
     eagerAlternatives.length > 0 ? ` before ${eagerAlternatives.join(' / ')}` : '';
-  return `Some capabilities are deferred behind search_tools. For detailed or refreshed workspace context, persistent sessions, semantic or LSP inspection, web, or embeddings, call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
+  // The family list is COVERAGE, not color: a deferred capability the prompt
+  // never names is one the model declares nonexistent instead of searching for
+  // (field failure 2026-08-23 — "the canvas tool" and a skill's named
+  // run_skill_script were both dismissed as missing). It is DERIVED from the
+  // run's eligible tools through the shared family table
+  // (deferred-capability-families.ts, also the source of the search_tools
+  // description), never hand-listed: an unconditional list advertised canvas,
+  // Python, and skill scripts to WEB runs whose eligible set excludes them
+  // (review of #2625) — the exact confusion in the other direction. The
+  // "named but not loaded" sentence resolves the prompt-vs-surface
+  // contradiction: these instructions (and skill activations) name tools by
+  // exact id that are not in the model's callable list until discovered.
+  const families = describeAvailableDeferredCapabilityFamilies(availableOriginalToolIds);
+  const familiesClause = families.length > 0 ? `: ${families}` : '';
+  return `Some capabilities are deferred behind search_tools${familiesClause}. When a tool you need is not loaded — including one these instructions or a skill activation names — call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
 }
 
 /**
@@ -582,7 +668,7 @@ export function buildDefaultInstructions(
     : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
-  const parallelCallInstruction = buildParallelCallInstruction(names);
+  const parallelCallInstruction = buildParallelCallInstruction(names, options.toolDiscoveryEnabled);
   const hybridSearchClause = names.hybridSearch
     ? `Use ${names.hybridSearch} when a lookup mixes conceptual intent with distinctive exact terms.`
     : '';
@@ -648,7 +734,8 @@ export function buildDefaultInstructions(
   const askUserInstruction = buildAskUserInstruction(names);
   const toolDiscoveryInstruction = buildToolDiscoveryInstruction(
     names,
-    options.toolDiscoveryEnabled
+    options.toolDiscoveryEnabled,
+    new Set(toolNameMap.values())
   );
   const delegationInstruction = buildDelegationInstruction(options.personas);
   const projectWorkflowInstruction = [

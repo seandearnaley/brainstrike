@@ -1839,6 +1839,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
     const abortController = new AbortController();
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '30';
+    // The provider stream opens and then produces NOTHING, so this stall lands
+    // in the `awaiting-output` phase and is governed by the first-output
+    // window, not the inter-output one (BST-1408).
+    const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '30';
     const logRecords: LogRecord[] = [];
     const removeLogListener = addLogListener((record) => logRecords.push(record));
     try {
@@ -1948,6 +1953,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_INACTIVITY_MS');
       } else {
         process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = previousStreamInactivity;
+      }
+      if (previousFirstOutput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
       }
     }
   });

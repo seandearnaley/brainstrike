@@ -18,6 +18,42 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   non-`read` risk (unknown id ≠ read — no silent fallback). `id` is `string`
   (`AssistantBuiltInPersonaId` narrows the built-ins); optional `source:
   'built-in' | 'user'` (absent = built-in).
+
+  **THE STEP CAP IS DERIVED INTO THE DESCRIPTION, NOT WRITTEN INTO PROSE — do
+  not relitigate.** `delegationDescriptionForPersona` (personas.ts) appends
+  "Runs at most N steps…" from `persona.maxSteps`. Both places a description
+  reaches a model call it: the child `Agent` config in
+  `build-persona-subagents.ts` (which Mastra turns into the `agent-<id>` tool)
+  and the supervisor's own instructions via `persona-assembly.ts`. That
+  description is the only thing the supervisor reads when sizing a delegation;
+  it used to say just "use when a question needs surveying many files", with
+  the cap revealed only AFTER a failed delegation (the no-answer message) — the
+  supervisor was invited to over-scope and then told off for it.
+
+  Deriving beats restating for two reasons. There is no second copy to drift,
+  and a substring test guarding one would be leaky by construction ("16"
+  contains "1" and "6"). And USER-defined personas are covered for free: their
+  description comes from markdown frontmatter, which can never mention a cap,
+  so hardcoding the sentence in the built-ins would have left every user
+  persona with the original bug.
+
+  Built-ins declare `MAX_USER_PERSONA_MAX_STEPS` (16) rather than a private
+  larger number: a budget users cannot themselves declare would make the
+  shipped Explorer unreplicable by a user persona and would leave that constant
+  describing a limit the app ignores. The previous value of 8 left seven usable
+  tool steps once the reserved wrap-up step is subtracted.
+
+  **Personas report PROVENANCE, and never author the deliverable.** Child
+  instructions require `path:line` for anything read in code and an explicit
+  marker when a fact came from documentation or a comment instead — the two go
+  out of sync, and the caller cannot tell them apart afterwards. An `explore`
+  child reported `FOREGROUND_GATE_REOPEN_MS=250` as a code constant when it
+  exists only in `docs/agents/local-inference.md`, and the supervisor wrote it
+  into durable working memory under the heading "Verified architecture survey".
+  EVERY built-in is told not to produce the caller's final deliverable: one
+  asked to survey the repo "for a developer-onboarding document" spent its
+  budget returning a complete HTML page that the supervisor discarded, and the
+  Analyst takes the same delegations.
 - **User-defined personas (v2):** markdown files with frontmatter
   (`description` required; optional `name`, `tools`, `model:
   provider::modelId`, `maxSteps` ≤ 16; body = child instructions), scanned
@@ -131,6 +167,15 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `subagent.failed` (status `cancelled`) event via
   `createDelegationLifecycleTracker` (drained on the generator's abort paths),
   so a cancelled parent never leaves an orphaned `subagent.started`.
+  APPROVAL-RESUME legs synthesize a `start` tool-event for EVERY pending call
+  of the suspended step — not only the approved one — and `agent-*` siblings
+  additionally get their `subagent.started` (registered with the tracker so
+  aborts still drain them). Mastra resume legs never replay the step's
+  `tool-call` parts, and Mastra emits a step's `tool-result` chunks as one
+  batch after the slowest call settles (verified in the 1.59 dist): without the
+  sibling starts, a delegation sharing a step with an approved tool ran for
+  minutes with no card while the UI pinned the wait on the stale approved-tool
+  card (2026-08-24).
 - **Stream → run events (D9):** `processMastraStreamPart` (agent-streaming.ts)
   threads `runtime.delegationToolPersonas` (`agent-<key>` → personaId). A parent
   `tool-call`/`tool-result`/`tool-error` for a delegation tool ALSO emits
@@ -150,9 +195,87 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   deliberately does NOT feed the parent-run prompt-reconciliation aggregate
   `recordModelOutput` also updates; see assistant-persistence.md, `## TOOL-
   CALL TOKEN TELEMETRY`. This closes the BST-1190 follow-up gap.
-- **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
-  (tool-output-limits.ts) so an oversized delegation result trims structurally
-  (truncated + hint) instead of a hard size error.
+- **A child that never answered is NOT a success (BST-1410).** Mastra computes a
+  delegation result as `{ text: await streamResult.text, subAgentToolResults, usage }`.
+  When `maxSteps` cuts the child off ON a tool-calls step, `text` is `''` and
+  `onDelegationComplete` still reports `success: true` — which reaches the
+  supervisor as a successful-but-empty delegation. Observed in production
+  (run-7eb0e370, 2026-08-22): both delegations used exactly 8 step clusters
+  (the `explore` cap AT THE TIME; now 16), made 34 and 30 child tool calls over
+  ~8 minutes, returned
+  empty text, and the supervisor correctly judged them useless and abandoned
+  delegation for the rest of an 18-minute turn.
+  - `createDelegationConfig` now replaces an empty/whitespace `result.text` with
+    an explicit reason through Mastra's `resultText` override — the seam core
+    1.59 documents for exactly this case. The reason states only what is
+    OBSERVABLE (no answer written, N tool calls made) and names the step cap as
+    CONTEXT for re-scoping; the hook never receives a `finishReason`, so
+    asserting "it hit the cap" would be a guess.
+  - Child usage is reported BEFORE that branch returns: a child that burned
+    minutes and then failed to answer is exactly the case whose cost must still
+    be attributed.
+  - `createDelegationOutcomeCapture` (same construction site and lifetime as
+    `DelegationUsageCapture`, on all three stream legs) records the parent
+    toolCallId, and the mapper emits `subagent.failed`/`failed` with
+    `metadata.outcome = SUBAGENT_NO_ANSWER_OUTCOME` instead of
+    `subagent.finished`/`completed`. A capture is required rather than reading
+    the `tool-result` part, because by then `resultText` has ALREADY replaced
+    the empty text — emptiness is no longer observable there.
+  - The renderer reads that bounded `outcome` marker (never the human label,
+    which a hard child `tool-error` shares) via `readSubagentDelegationOutcome`,
+    scoped by `parentToolCallId` because two delegations run concurrently. The
+    SubagentCard then shows `No answer` in amber instead of `Completed` in
+    green: the delegation ran and its child rows stay browsable, so this is not
+    a destructive-red state. `SUBAGENT_NO_ANSWER_OUTCOME` lives in
+    `assistant-contract/personas.ts` because it is the wire between the
+    agent-side emitter and the card.
+  - **The child's LAST step is reserved for its summary — via Mastra's own
+    `onIterationComplete` hook, not a bolt-on.** `buildChildIterationPolicy`
+    (build-persona-subagents.ts) rides the child Agent's `defaultOptions`, so it
+    applies when Mastra invokes the delegation internally: `Agent.stream()`
+    deep-merges `defaultOptions` with the per-call options the delegation tool
+    passes, and that call sets `maxSteps` but never `onIterationComplete`
+    (verified against `@mastra/core@1.59.0`). On the step before the cap the
+    policy returns `{ continue: false, feedback: CHILD_WRAP_UP_FEEDBACK }`; core
+    appends the feedback to the child's own message list and grants exactly one
+    more model call before stopping — the behaviour `docs/subagents.md`
+    documents as "one final turn for a text response that incorporates the
+    feedback".
+  - **IN-LOOP is the point.** The summary turn inherits the child's abort
+    signal, usage accounting, memory scoping and gathered context for free, and
+    is spent from the persona's DECLARED budget rather than added on top of it:
+    a `maxSteps: 8` child still costs at most eight model calls. This replaced a
+    hand-rolled second `agent.stream()` call with its own abort signal, deadline,
+    `activeTools: []`/`toolChoice` juggling, usage plumbing, and a
+    `runtime.subAgentsById` field — all of which the framework hook makes
+    unnecessary. Do not reintroduce a second stream.
+  - Core only injects the feedback when the model intended to continue (it
+    checks `stepResult.isContinued`), so a child that already answered is never
+    interrupted. The policy additionally no-ops when the cap is unknown or is
+    less than two steps — reserving the only turn a one-step child has would
+    consume the budget it was given.
+  - Paired tests: `subagent-delegation.spec.ts` (hook), the step-capped
+    and wrap-up live-loop cases in
+    `mastra-subagent-execution.integration.spec.ts` (one child scripted to never
+    stop calling tools, reproducing the incident end-to-end; one that answers
+    only when it sees the wrap-up feedback in its own prompt, which pins both
+    that the feedback reached the child's next model call AND that the reserve
+    is spent from the declared budget — the tool-execution count discriminates
+    it from a bolt-on extra stream), plus `child-iteration-policy.spec.ts` for
+    the policy in isolation,
+    `subagent-tool-rows.test.ts` (outcome reader + concurrent-delegation
+    scoping), `subagent-execution-card.test.tsx` (card status).
+- **Budget guard:** an `agent-*` result's `subAgentToolResults` is PROJECTED to
+  compact per-child rows (`toolName`, `toolCallId`, `isError`, small `args`)
+  BEFORE any bounding (`projectDelegationResultForTransport`,
+  tool-output-limits.ts) — the raw child `result` bodies are dropped: the
+  parent model receives only the child's answer text and the card renders only
+  the identifying fields. 2026-08-24 field failure: one oversized raw child
+  result blew the generic budget, `trimCollectionToBudget` returned undefined
+  (a single unfittable item), and the preview fallback dropped the list
+  wholesale — a reopened card read "Completed · 0 tool calls" for a child that
+  did minutes of work. The `TRIMMABLE_COLLECTION_KEYS` entry remains as the
+  structural backstop for the (now tiny) projected list.
 - **Durable artifact analysis:** built-in personas include the read-only
   `brainstrike.readToolOutputArtifact` capability when the run registers it.
   Oversized-result settlement advertises whole-result delegation only after
@@ -182,11 +305,18 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   ui `subagent-tool-cards.test.tsx`.
 
 The SubagentCard renders per-child-tool rows from BOTH the tool part's persisted
-`subAgentToolResults` (authoritative on reload + at completion) AND, while the
-delegation is still running, LIVE `subagent.tool.*` run events from the current
-message (keyed by `parentToolCallId`); persisted rows supersede live rows by
+`subAgentToolResults` (authoritative on reload + at completion) AND LIVE
+`subagent.tool.*` run events read THREAD-WIDE, scoped by `parentToolCallId`
+(`readLiveSubagentToolRowsFromMessages`); persisted rows supersede live rows by
 child `toolCallId`, so a running delegation shows its in-progress tool count
-instead of "Running · 0 tool calls".
+instead of "Running · 0 tool calls". Thread-wide, not message-scoped, is
+load-bearing (2026-08-24): hydration weaves a run's events into ONE assistant
+group and an approval-resume turn SPLITS into sibling groups, so on reload the
+events can land on a different message than the card — a message-scoped read
+showed "0 tool calls" for a completed four-minute child. The events are
+parent-scoped by construction, so the wider read cannot pick up another
+delegation's rows. The same thread-wide rule applies to the no-answer outcome
+read (`readSubagentDelegationOutcomeFromMessages`).
 
 Because every `subagent.*` row is HIDDEN from the main run timeline (it belongs
 to the card), the timeline's `.started` → terminal pairing never had to be right

@@ -249,6 +249,17 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
     const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
     process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
     process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '30';
+    // The host never produces output, so this stall is `awaiting-output` and
+    // the first-output window governs it (BST-1408).
+    const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
+    process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '30';
+    // This case is about the TERMINAL stall path and the NEXT turn recovering,
+    // so it opts out of in-turn stall recovery (BST-1409). With the default
+    // budget the retry would consume this host fake's second, succeeding
+    // generation inside the first turn — which is the recovery spec's subject,
+    // not this one's.
+    const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
+    process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '1';
 
     let activeGeneration = false;
     let generationCount = 0;
@@ -348,6 +359,16 @@ describe('mastra local provider via llm-host proxy (real agent loop, real provid
       ).toContain('recovered');
       expect(generationCount).toBe(2);
     } finally {
+      if (previousFirstOutput === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
+      }
+      if (previousStallAttempts === undefined) {
+        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_STALL_ATTEMPTS');
+      } else {
+        process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = previousStallAttempts;
+      }
       if (previousToolTimeout === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
       } else {

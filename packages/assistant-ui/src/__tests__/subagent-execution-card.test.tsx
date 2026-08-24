@@ -45,6 +45,23 @@ describe('personaLabelForToolName', () => {
 });
 
 describe('SubagentExecutionCard', () => {
+  it('shows a delegation that ran but never answered as "No answer", not Completed', () => {
+    // BST-1410. The delegation tool call succeeds even when the child exhausts
+    // its step cap mid-tool-loop and writes nothing, so `status.type` alone
+    // reports it as Completed — the same silent success that misled the model.
+    renderCard({
+      outcome: 'no-answer',
+      result: completedResult,
+      status: { type: 'complete' },
+      toolCallId: 'delegation-1',
+      toolName: 'agent-explore',
+    });
+    expect(screen.getByText('· No answer')).toBeTruthy();
+    expect(screen.queryByText('· Completed')).toBeNull();
+    // Still a real delegation with real child work: the rows stay browsable.
+    expect(screen.getByText('· 2 tool calls')).toBeTruthy();
+  });
+
   it('renders a completed delegation summary with the persona label and tool-call count', () => {
     renderCard({
       result: completedResult,

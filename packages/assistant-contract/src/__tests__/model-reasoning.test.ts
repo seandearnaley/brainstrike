@@ -59,6 +59,16 @@ describe('resolveModelReasoningSupport', () => {
 });
 
 describe('resolveReasoningControlsAvailability', () => {
+  it('keeps Ox Alpha mandatory and excludes an Off effort', () => {
+    expect(resolveReasoningControlsAvailability('openrouter', 'stealth/ox-alpha')).toEqual({
+      available: true,
+      defaultEffort: 'max',
+      efforts: ['max', 'high', 'low'],
+      family: 'openrouter',
+      mandatory: true,
+    });
+  });
+
   it('constrains Kimi K3 to its published efforts and optional Off control', () => {
     expect(resolveReasoningControlsAvailability('openrouter', 'moonshotai/kimi-k3')).toEqual({
       available: true,

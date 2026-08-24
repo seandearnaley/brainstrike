@@ -150,7 +150,9 @@ export const GlobWorkspaceInputSchema = z
     includeIgnored: z
       .boolean()
       .optional()
-      .describe('Include normally excluded/generated paths (default false)'),
+      .describe(
+        'Include excluded paths: build output, generated artifacts, and gitignored files such as coverage/ or .env* (default false)'
+      ),
     limit: z.number().int().positive().max(1000).optional().describe('Match cap (default 200)'),
     offset: z.number().int().min(0).max(100_000).optional().describe('Pagination offset'),
     pattern: z

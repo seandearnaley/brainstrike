@@ -29,5 +29,6 @@ export * from './relative-path.js';
 export * from './string-utils.js';
 export * from './throttled-state.js';
 export * from './url-utils.js';
+export * from './workspace-ignore-matcher.js';
 
 export type { ColorScheme, FolderColors };

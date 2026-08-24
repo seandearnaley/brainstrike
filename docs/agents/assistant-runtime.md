@@ -46,9 +46,35 @@ below are LIVE.
 
 3. **Stream inactivity watchdog (LIVE)** —
    `packages/agent/src/stream/with-inactivity-timeout.ts` (`withInactivityTimeout`,
-   `StreamStalledError`). `streamChunksFromMastra` wraps the raw Mastra iterator.
-   A stream stall emits a visible assistant message, a terminal `run.failed`
-   event, and an error finish so the renderer does not remain in-flight forever.
+   `StreamStalledError`). `streamAttemptChunks` wraps the raw Mastra iterator.
+   The window is PHASE-AWARE across THREE phases (BST-1408, extended for
+   reasoning): `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` governs the wait for the
+   provider to produce its first OUTPUT **in each step**,
+   `BRAINSTRIKE_STREAM_REASONING_GAP_MS` every gap while it is emitting
+   REASONING, and `BRAINSTRIKE_STREAM_INACTIVITY_MS` every gap once it is
+   demonstrably ANSWERING — see the config list below for why they must not be
+   re-merged, why the phase boundary is provider output rather than "the first
+   part", and why a reasoning delta is not an answer. Since
+   BST-1409 a stall ends the ATTEMPT, not the turn; see ATTEMPTS VS TURNS below.
+   Only an unrecoverable stall emits a visible assistant message, a terminal
+   `run.failed` event, and an error finish so the renderer does not remain
+   in-flight forever.
+   An EMPTY MODEL RESPONSE rides the same attempt rails: a terminal `finish`
+   whose reason would complete the run, on a turn the model contributed
+   NOTHING to (no text/reasoning delta carrying a non-whitespace character —
+   whitespace-only output renders an equally empty bubble — and no
+   tool-lifecycle part, across every attempt; the deltas themselves still
+   stream, since formatting whitespace between real tokens is meaningful —
+   `ToolLifecycleState.sawModelContribution`, carried
+   like the billing flags; resume legs initialize it true because the resumed
+   tool call is model output), throws `EmptyModelResponseError` from the
+   mapper's `finish` case instead of completing. Field case 2026-08-23:
+   OpenRouter's `stealth/ox-alpha` route degraded into HTTP 200 streams with
+   one instant zero-usage step and a clean `stop` finish; mapping that to
+   `run.finished` painted an empty assistant bubble marked "success". An
+   ABNORMAL finish reason is deliberately NOT re-classified — it already fails
+   the run with its own truth (gate: `COMPLETED_FINISH_REASONS`, shared with
+   `makeTerminalRunEvent` so the two cannot drift).
    The adjacent `withToolCallInputTimeout` wrapper applies its OWN, much wider
    `BRAINSTRIKE_TOOL_CALL_INPUT_MS` window as an absolute deadline from the
    first streamed tool-input marker to its matching input end/complete call.
@@ -77,6 +103,15 @@ below are LIVE.
    consumer. For the built-in local provider this signal crosses
    `LlmHostChatModel → LocalLlmHostClient → LlmHostManager`, removes the exact
    pending request, and sends the hidden renderer's cancel command.
+   When watchdog expiry or caller Stop aborts a memory-backed turn, the stream
+   adapter persists the user input plus completed visible tool work from
+   Mastra's live `MessageList`, marks the assistant row
+   `[Assistant turn aborted before completion.]`, and excludes the incomplete
+   tail before runtime disposal. Stop therefore cannot resurrect execution on
+   the next turn. The same finalizer covers approval and suspended-tool resume
+   streams, while Mastra read-only memory remains write-free. Ordinary
+   completion still uses Mastra's finish writer only; teardown never performs a
+   second normal write.
 
 4. **Mastra error-processor layer (LIVE)** —
    `packages/agent/src/mastra/error-processors.ts`, wired into `new Agent` +
@@ -211,8 +246,9 @@ currently exposes no explicit client reasoning-effort path.
 
 **EVERY error finish is a failed durable outcome, not just `length`.** All three
 parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
-by `makeProviderErrorTermination`, `makeStreamStalledTermination`, and
-`makeToolCallInputTimeoutTermination` (all four abnormal-ending policies live in
+by `makeProviderErrorTermination`, `makeStreamStalledTermination`,
+`makeToolCallInputTimeoutTermination`, and the empty-model-response termination
+(all five abnormal-ending policies live in
 `packages/agent/src/mastra/stream-termination.ts` since BST-986; the watchdog
 MECHANISM stays in `../stream/with-*-timeout.ts`). This was NOT true until 2026-07-25:
 `getAbnormalFinishMessage` returns `undefined` for `'error'` (deliberately — the
@@ -534,9 +570,21 @@ Mastra applies that hook's result back to the live `MessageList`.
 projections are resolved. It replaces only old, completed, successful native
 read/search/retrieval calls that have a serializable non-multimodal stored
 projection. The newest eligible read/search/retrieval step stays verbatim, as do missing
-projections, errors, edits, commands, verification, tasks, discovery, skills,
+projections, errors, commands, verification, tasks, discovery, skills,
 approvals, incomplete calls, and MCP tools. It never mutates the live
-`MessageList` or durable rows. Same-turn and reload integration tests must keep
+`MessageList` or durable rows.
+
+EDITS get one narrow, separate treatment (2026-08-23 ctx-explosion
+investigation, H2): a SETTLED `writeWorkspaceFile` / `stringReplaceWorkspaceFile`
+call — successful result, outside the same recent-step window — whose
+serialized args exceed 2,000 chars has its prompt-side INPUT collapsed to the
+identifying fields (`path`, `root`) plus an honest `elidedArguments` marker.
+The call/result pair stays structurally in place (nothing is stubbed or
+replayed), the RESULT stays verbatim, failed or in-flight edits keep full args
+(they may matter for a retry), and durable rows are untouched — same
+wire-only `processLLMRequest` guarantee as the read filtering. Rationale: a
+57 KB write's content otherwise rides every subsequent request of every
+subsequent leg while carrying no information the file on disk does not. Same-turn and reload integration tests must keep
 proving raw arguments/results remain persisted. A file write followed by two
 successful reads therefore retires the older redundant read while preserving
 the write and newest verification result; later protected state/working-memory
@@ -641,10 +689,189 @@ cannot be compacted away.
 > `mastra-error-processors.spec.ts` (retry, prefill recovery, TokenLimiter
 > clobber-guard regression, pinned `maxProcessorRetries`, bounded-terminal).
 
+### ATTEMPTS VS TURNS (BST-1409)
+
+A turn may span several provider ATTEMPTS. `runTurnAttempts` (agent-streaming.ts)
+owns the turn; `streamAttemptChunks` owns one attempt and now PROPAGATES a
+watchdog error instead of deciding the turn's fate. `runtime.dispose()` moved to
+the turn's `finally` and has exactly one owner across all three legs — the
+runtime is reusable, since `dispose()` only shuts down mastra + the MCP client.
+
+- **A stall ends the attempt.** The turn continues with a fresh
+  `agent.stream` carrying the original request plus everything the stalled
+  attempt produced, read from Mastra's in-memory `messageList` on the stream
+  result. Bounded by `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2).
+- **Why the message list, not memory.** An aborted stream persists NOTHING to
+  `mastra_messages` — measured, not assumed (BST-1415): not the completed tool
+  calls, not even the user's message. That is also why re-sending the original
+  request in a continuation is safe rather than duplicative: the continuation is
+  the turn's only writer.
+- **`readProducedMessages()` returns `undefined` vs `[]` and the difference is
+  SAFETY-CRITICAL.** `[]` means the attempt genuinely produced nothing (a stall
+  before the first step), so continuing from the request alone re-runs nothing.
+  `undefined` means we could not tell, and continuing would re-send the request
+  as if the turn never started — every completed tool would execute a second
+  time. A turn that cannot prove what it produced does NOT resume.
+  An empty list is additionally CORROBORATED against what the attempt was
+  observed to do: `terminalToolCallStates` gains an entry per completed tool
+  call, so `produced.length === 0` while tools demonstrably ran is a
+  contradiction and refuses recovery too. That trust would otherwise rest
+  entirely on the reader, and being wrong reaches the re-execution outcome
+  through the branch treated as safe.
+- **Five refusals, all terminal:** user cancel (a decision, not a transport
+  fault), budget exhausted, unreadable produced messages, produced messages that
+  contradict completed tools, and `ToolCallInputStreamingTimeoutError` (a
+  generation fault — re-sending the same prompt has no reason to change it).
+  Recovery covers `StreamStalledError` only.
+- **Recovery is never silent.** Each stall emits `run.stalled` and each
+  continuation `run.resumed`, both carrying attempt/budget and the stall's full
+  BST-1408 breadcrumb (phase, parts-seen, `lastPartType`). A RECOVERED stall is
+  followed by no `run.failed`, so its `run.stalled` is the only durable record
+  of it and must carry the whole breadcrumb, not a subset. A refused stall's
+  `run.stalled` names the refusal.
+- **Per-attempt state, EXCEPT billing.** `ToolLifecycleState` is built per
+  attempt (`createTurnAttemptLifecycleState`), and the split is not uniform:
+  latency and in-flight lifecycle (`streamStartedAtMs`, `firstTextLatencyMs`,
+  the delegation tracker, the tool-call maps) are per attempt, because carrying
+  them would mis-time latency and re-settle tools the replaced attempt already
+  settled. BILLING is per TURN — a recovered turn really did spend the stalled
+  attempt's tokens, and the `message-finish` is what the run ledger and spend
+  analytics persist. `stepBilledCostUsd` / `stepCount` / the billed-cost flags
+  carry directly; TOKENS ride separate `carried*` fields because Mastra's finish
+  usage is cumulative over ONE stream and `stepped*` keeps its per-stream
+  meaning for the steered finish. Context sizes never accumulate: they describe
+  the latest step's prompt, and inflating them would claim a context window that
+  never existed.
+- **A replaced attempt SETTLES what it started.** The turn drains both
+  `makeCancelledDelegationRunEventChunks` AND
+  `makePendingToolOutputRunEventChunks` before discarding the attempt — the same
+  pair the terminal path drains. Without the second, a tool whose only terminal
+  observation was a `tool-output` part loses its `tool.completed` row and its
+  duration outright, because the continuation treats that tool result as INPUT
+  and never re-emits it.
+- **One turn reports one `run.started`.** A continuation is a fresh
+  `agent.stream`, so Mastra re-emits `start` and the mapper would produce a
+  second `run.started`; `withoutDuplicateRunStarted` drops it, and `run.resumed`
+  is what marks the new attempt. Left in, the timeline shows two "Assistant run
+  started" rows for one turn and every started/finished aggregation
+  double-counts recovered runs.
+- **A continuation that cannot be CONSTRUCTED terminates like everything else.**
+  `handleStreamFailure` already disposes the runtime and rethrows, so the turn
+  must not dispose again (`dispose()` has no idempotency guard, and a throw from
+  a second `mcpClient.disconnect()` would replace the original error). The turn
+  yields the same visible-text + `run.failed` + error-finish triple instead of
+  throwing mid-stream, which would have been the one ending whose cause is
+  invisible in the durable timeline.
+- **Only the INITIAL leg recovers.** Approval- and suspend-resume consume a
+  one-shot approval/snapshot that cannot be re-issued, so they run through the
+  same turn runner with `maxAttempts: 1` and keep the pre-BST-1409 behavior.
+- **Construction failures still REJECT the returned promise.** The first attempt
+  is built eagerly, before the generator is returned: a run rejected before any
+  stream part must surface as a transport rejection the renderer renders as an
+  error block (see the renderer safety net above), never as a mid-stream throw.
+  Pinned by the `stream_failure`/`empty_stream` cases in `mastra-streaming.spec.ts`.
+- Paired tests: `mastra-stall-recovery.integration.spec.ts` (recovery, budget
+  exhaustion, opt-out, user-cancel, continuation prompt contents, orphan drain
+  across a recovery). Every recovery case asserts the TOOL-EXECUTION COUNT: a
+  continuation that lost the completed steps would still answer plausibly, it
+  would just re-run every tool first, so only the count proves the carry-forward.
+
 Config (strict parse — malformed value THROWS, per the no-silent-fallbacks rule),
 defined in `packages/agent/src/config/resilience-config.ts`:
 - `BRAINSTRIKE_TOOL_TIMEOUT_MS` (default 60000) applies to every native and MCP tool execution.
-- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000)
+- `BRAINSTRIKE_STREAM_INACTIVITY_MS` (default 120000) — the tolerated gap
+  between parts, once the provider is demonstrably ANSWERING. Scoped to that
+  phase only since BST-1408, and narrowed again to exclude reasoning (see the
+  reasoning-gap entry below).
+- `BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS` (default 600000) — the budget for the
+  provider to produce its first output, **per step, not per stream**.
+  DELIBERATELY decoupled from the inactivity window and never tighter than it,
+  for the same reason the tool-call-input budget is (BST-839): the two answer
+  different questions — "has the provider started answering yet?" versus "is it
+  still delivering?". Sharing one number killed a healthy 18-minute turn,
+  because a request carrying ~169k prompt tokens at `reasoning.effort: 'max'`
+  can spend minutes producing nothing observable, which is indistinguishable
+  from a wedged transport at the stream-part layer. Same explicit-vs-default
+  resolution as the input budget: two EXPLICIT values in a contradictory shape
+  throw; an unset first-output window widens to the inactivity window.
+
+- `BRAINSTRIKE_STREAM_REASONING_GAP_MS` (default 600000) — the tolerated gap
+  between REASONING parts. Same explicit-vs-default resolution and same
+  never-tighter-than-inactivity invariant as the first-output window.
+
+  **A REASONING DELTA IS NOT AN ANSWER — do not relitigate.** BST-1408 split
+  "has it started?" from "is it still delivering?" but left reasoning on the
+  wrong side of that line: any non-scaffolding part flipped the stream to
+  `streaming`, so the FIRST reasoning token armed the 120s window for the rest
+  of the step. Interleaved-thinking models emit a burst of thought, pause to
+  think further, then continue — so that window was armed against precisely the
+  pauses high reasoning effort is made of. `google/gemini-3.7-flash` at
+  `reasoning.effort: 'high'` died on both attempts of one turn (run-352bcf33),
+  each time with `phase: 'streaming'` and `lastPartType: 'reasoning-delta'`.
+
+  Reasoning shares the first-output BUDGET because it asks the first-output
+  QUESTION: the model is working and has not begun its answer. It is a separate
+  phase rather than an addition to the scaffolding set, because a reasoning part
+  IS provider output — folding it into scaffolding would let it re-arm the
+  first-output window on every delta and would erode the closed-list rule that
+  makes unknown new part types default to "this is output".
+
+  The phase moves BOTH ways: the next answer part returns the stream to
+  `streaming`, so a wedged provider mid-answer is still caught by the tight
+  window, and reasoning resuming after text widens it again.
+
+  Owned by `MASTRA_REASONING_PART_KINDS` in `agent-streaming.ts`, typed
+  `Partial<Record<StaticMastraChunkType, …>>` — the SAME union derived from
+  Mastra's own `ChunkType['type']` that `MASTRA_STATIC_CHUNK_DISPOSITIONS` is
+  checked against — so a Mastra rename fails to COMPILE here rather than
+  silently dropping a type back into the tight window.
+
+  CONTENT vs MARKER inside that record is load-bearing. A thinking delta ENTERS
+  the reasoning phase; block bookkeeping (`reasoning-end`,
+  `reasoning-signature`) only PRESERVES the phase already in effect. Providers
+  exist that emit `text-start` BEFORE `reasoning-end`, so a marker that set the
+  phase would widen the window back out exactly as the answer began. Preserving
+  keeps a not-yet-answering stream wide — the gap between `reasoning-end` and
+  the first `text-delta` is still "has it begun answering?" — and an
+  already-answering stream tight.
+
+  `resolveStalledVisibleMessage` (stream-termination.ts) has its own branch for
+  this phase: "stalled without output" would be actively wrong when the model
+  was producing reasoning and stopped mid-thought.
+
+  **THE PHASE BOUNDARY IS PROVIDER OUTPUT, NOT "THE FIRST PART" — do not
+  relitigate.** Measured through the real Mastra loop, a turn's raw parts are:
+
+  ```
+  start       t+0ms      <- framework, instant
+  step-start  t+7ms      <- framework, instant
+  tool-call   t+312ms    <- provider, after 305ms of thinking
+  step-start  t+321ms    <- framework, instant
+  text-start  t+723ms    <- provider, after 402ms of thinking
+  ```
+
+  A rule that ends the wide window at the first RAW part therefore covers ~0ms
+  of provider time and measures every real time-to-first-token against the tight
+  one — which is the exact failure the split exists to prevent. Worse, Mastra
+  opens EVERY step with that prologue, so time-to-first-output recurs throughout
+  a turn: the captured incident's fatal gap was a MID-TURN step's TTFT
+  (`run.step.started` 07:51:41 → silence → killed 07:56:48), not the opening
+  one. `withInactivityTimeout` therefore takes a `countsAsProviderOutput`
+  classifier; `MASTRA_SCAFFOLDING_PART_TYPES` (`start`, `step-start`) both KEEPS
+  and RE-ARMS the wide window, so each step gets its own budget. That set is a
+  CLOSED list of scaffolding rather than an allowlist of output kinds: a Mastra
+  release adding a new provider part type must default to "this is output"
+  (tightening on a part known to come from the provider), never to "this is
+  free". The real-loop coverage is
+  `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec.ts` —
+  it exists because the shared fake-Mastra harness feeds a hand-written part
+  list with NO prologue and structurally cannot see this.
+- `BRAINSTRIKE_STREAM_STALL_ATTEMPTS` (default 2) — provider attempts per turn
+  before a stall becomes terminal. `1` disables recovery (the pre-BST-1409
+  behavior) and is what the terminal-path specs pin. Deliberately small: a
+  resume re-sends the whole prompt (~169k tokens in the captured incident), so
+  an unbounded budget would let a reliably-stalling route bill one turn
+  repeatedly.
 - `BRAINSTRIKE_TOOL_CALL_INPUT_MS` (default 600000) is the maximum wall-clock
   time for one incomplete streamed tool input; argument deltas do not reset it.
   Decoupled from — and never tighter than — the inactivity window (BST-839).
@@ -659,9 +886,25 @@ defined in `packages/agent/src/config/resilience-config.ts`:
   not include bearer tokens or silently restart/unload the external server. The
   timeout aborts the exact active provider request; it never lengthens the
   window or leaves generation running after the visible terminal failure.
-- Invariant: tool timeout < stream inactivity <= tool-call input budget (the
-  second comparison is enforced only against an explicitly configured input
-  budget; see above).
+- Invariant: tool timeout < stream inactivity <= tool-call input budget, and
+  stream inactivity <= stream first-output window, and stream inactivity <=
+  stream reasoning-gap window (all `<=` comparisons are enforced only against an
+  explicitly configured value; see above). The
+  FOUNDATIONAL tool-timeout ordering is checked before any derived window, so a
+  config breaking several invariants names the first thing to fix.
+- The stall diagnostic and the durable `run.failed` metadata carry `phase`
+  (`awaiting-output` | `reasoning` | `streaming`), `partsSeen` (scaffolding included — it is
+  transport activity, and `partsSeen: 2` beside `awaiting-output` is precisely
+  the "prologue arrived, provider never did" story), and `lastPartType`
+  (BST-1408). `lastPartType` is the last part the caller could NAME: an
+  undescribable part leaves the previous name in place rather than erasing the
+  breadcrumb. The user-visible text differs by phase too — a step that never
+  started reads "produced no output within Xms of the request starting", not
+  "stalled ... without output", which implied it had been streaming. `inactivityMs` alone could not say WHICH silence
+  fired or what the provider last sent, so the 2026-08-22 incident had to be
+  reconstructed by inference from run-event timestamps. The watchdog itself
+  stays generic over the stream element: `describePart` supplies the Mastra part
+  type from the call site rather than the timer module assuming a shape.
 - `BRAINSTRIKE_APPROVAL_STALE_MS` (default 86400000 = 24h) — advisory age after
   which a REDISCOVERED suspended approval is flagged `stale` in the re-surfaced
   notice (see PERMISSION ENGINE §restart-safe rediscovery). Deliberately
@@ -763,7 +1006,7 @@ renderer reload, or a dropped socket.
 
 Mastra title generation has its own finish-boundary lifecycle. The PGlite
 memory factory opts into top-level `generateTitle`, while
-`streamChunksFromMastra` starts the public
+`streamAttemptChunks` starts the public
 `Agent.generateTitleFromUserMessage` request before yielding the terminal
 finish. The downstream data-stream consumer stops pulling immediately after
 that finish, so the generator's `finally` must await the already-started title
@@ -2306,6 +2549,46 @@ decision.
 When changing this flow, update this section and the paired tests.
 
 ---
+
+## SYSTEM-INSTRUCTION COMPOSITION
+
+`composeRuntimeInstructions` (`agent-runtime.ts`) assembles what the model
+actually receives, in two halves that
+`composeCacheAwareInstructions` keeps apart:
+
+- **`stableText`** — the resolved instructions, the CURRENT-DATE note, and the
+  context-budget note. Cached.
+- **`volatileText`** — the task-list note. Re-sent each turn; never cached.
+
+**THE DATE IS COMPOSED OUTSIDE THE PROVIDER BRANCH — do not relitigate.**
+`buildCurrentDateNote` is joined into `stableText` alongside the budget note,
+NOT threaded into `buildDefaultInstructions`. There are three supported
+instruction paths — the hosted default, `buildLocalDefaultInstructions` for the
+built-in local model, and a caller-supplied `instructions` override — and only
+the first takes options. Injecting there left the other two shipping dateless
+prompts; the local one arguably needs it most, since a small local model is the
+least able to recover from not knowing the date.
+
+Nothing in the prompt used to state the day. A model with no date does not
+abstain — it substitutes its training cutoff or a guess. An observed run
+reasoned "Today's date is unknown but likely later" and then wrote a fabricated
+date, three days off, into DURABLE working memory. It is also load-bearing for
+an instruction AGENTS.md already gives (treat dated material under
+`docs/superpowers/` and `docs/archive/` as historical evidence), which is
+unfollowable without a date to compare against.
+
+**DATE ONLY, and LOCAL.** A clock time would invalidate the cached prefix on
+every turn; a date moves at most once a day. And the day is the user's, not
+UTC: Brainstrike is local-first, so the process clock IS the user's clock, and
+`toISOString()` would state tomorrow's date to anyone east of UTC in their early
+morning. The format is `en-CA` (whose short date IS ISO 8601) plus the weekday
+name — `03/04/2026` denotes two different days depending on the reader.
+
+The clock is INJECTED (`composeRuntimeInstructions({ now })`) so the composed
+instructions stay a pure function of their inputs. The paired guard drives
+`createMastraAgentRuntime` with frozen time and asserts the date reaches
+`config.instructions`; asserting `buildCurrentDateNote` directly would prove
+only that it renders a date it was handed.
 
 ## RUN-CREATION SEAM: WHAT MAY COMPOSE AROUND IT (BST-1115 W5 T4b)
 

@@ -6,7 +6,12 @@ import {
 } from '@brainstrike/assistant-contract/personas';
 import { createElement, useMemo } from 'react';
 import { SubagentExecutionCard } from './subagent-execution-card';
-import { type SubAgentToolRow, serializeLiveSubagentToolRows } from './subagent-tool-rows';
+import {
+  readSubagentDelegationOutcomeFromMessages,
+  type SubAgentToolRow,
+  type SubagentDelegationOutcome,
+  serializeLiveSubagentToolRowsFromMessages,
+} from './subagent-tool-rows';
 
 /**
  * The registered delegation-tool component: reads the current message's parts
@@ -22,12 +27,25 @@ import { type SubAgentToolRow, serializeLiveSubagentToolRows } from './subagent-
  * never re-render, freezing the live count on an early snapshot (D2).
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
+  // THREAD-wide, not message-scoped (2026-08-24 field failure): hydration can
+  // weave this delegation's `subagent.tool.*` events into a SIBLING message of
+  // an approval-resume turn, so a message-scoped read showed "0 tool calls"
+  // on reload for a child that did minutes of work. The events are
+  // `parentToolCallId`-scoped, so the wider read cannot pick up another
+  // delegation's rows.
   const liveRowsJson = useAuiState((state) =>
-    serializeLiveSubagentToolRows(state.message.parts, props.toolCallId)
+    serializeLiveSubagentToolRowsFromMessages(state.thread.messages, props.toolCallId)
   );
+  // Same thread-wide scope as the rows above. A string|undefined selector
+  // result is already value-stable under `useAuiState`'s `Object.is`
+  // comparison, so unlike the rows it needs no serialization dance.
+  const outcome = useAuiState((state) =>
+    readSubagentDelegationOutcomeFromMessages(state.thread.messages, props.toolCallId)
+  ) as SubagentDelegationOutcome | undefined;
   const liveRows = useMemo(() => JSON.parse(liveRowsJson) as SubAgentToolRow[], [liveRowsJson]);
   return createElement(SubagentExecutionCard, {
     liveRows,
+    ...(outcome ? { outcome } : {}),
     result: props.result,
     status: props.status,
     toolCallId: props.toolCallId,

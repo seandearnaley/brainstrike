@@ -72,8 +72,19 @@ import {
   toError,
   waitForPriorRootLoad,
 } from './use-lazy-file-tree-root-load';
+import type {
+  FileTreeDirectorySnapshot,
+  FileTreeRefreshResult,
+  LazyFileTreeState,
+  RootLoadOutcome,
+} from './use-lazy-file-tree-types';
 
 export { __resetInFlightRootLoads } from './use-lazy-file-tree-root-load';
+export type {
+  FileTreeDirectorySnapshot,
+  FileTreeRefreshResult,
+  LazyFileTreeState,
+} from './use-lazy-file-tree-types';
 
 const logger = createLogger('LazyFileTree');
 type SpecificPathProgressHandler = (loaded: number, total: number, currentPath: string) => void;
@@ -220,25 +231,6 @@ async function loadSpecificPathsSerial(args: {
     onProgress?.(index + 1, total, path);
   }
 }
-
-export interface LazyFileTreeState {
-  error: Error | null;
-  fileTree: IFileNode[];
-  isInitialLoading: boolean;
-  loadingPaths: Set<string>;
-}
-
-export type FileTreeRefreshResult = { status: 'cancelled' } | { status: 'completed' };
-
-export interface FileTreeDirectorySnapshot {
-  directoryPath: string;
-  entries: readonly IFileNode[];
-}
-
-export type RootLoadOutcome =
-  | FileTreeRefreshResult
-  | { error: Error; status: 'failed' }
-  | { status: 'skipped' };
 
 export interface UseLazyFileTreeReturn {
   /** @internal get cached descendant file count without tree traversal */

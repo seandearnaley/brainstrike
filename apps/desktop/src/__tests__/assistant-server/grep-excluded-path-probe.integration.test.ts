@@ -114,6 +114,37 @@ const probeRipgrepAvailable = (await discoverRipgrepPathForTests()) !== null;
 
 describe('probeExcludedPathMatches', () => {
   it.skipIf(!probeRipgrepAvailable)(
+    'still respects .llmignore, the one exclusion it may not steer past (BST-1432)',
+    async () => {
+      // This probe exists to look INSIDE normally-excluded trees, so it is the
+      // read path most likely to walk straight through an agent ignore file.
+      // Its whole job is bypassing exclusions; the hard boundary is the single
+      // exclusion that must survive that, or `.llmignore` means nothing on the
+      // one code path that goes looking where nothing else does.
+      const dir = await makeWorkspace({
+        '.llmignore': 'node_modules/secret/\n',
+        'node_modules/dep/index.ts': 'PROBE_HARD one\n',
+        'node_modules/secret/creds.ts': 'PROBE_HARD two\nPROBE_HARD three\n',
+      });
+
+      const result = await probeExcludedPathMatches(
+        {
+          caseSensitive: false,
+          isRegex: false,
+          pattern: 'PROBE_HARD',
+          roots: [root(dir)],
+        },
+        literalMatcher('PROBE_HARD')
+      );
+
+      expect(result).toEqual({
+        examplePaths: ['node_modules/dep/index.ts'],
+        matchCount: 1,
+      });
+    }
+  );
+
+  it.skipIf(!probeRipgrepAvailable)(
     'counts matches inside node_modules, which the normal passes exclude',
     async () => {
       const dir = await makeWorkspace({

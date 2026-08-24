@@ -10,6 +10,7 @@
  * never on `assistant-tools.ts`, so no import cycle is possible.
  */
 import fsPromises from 'node:fs/promises';
+import { assertNotAgentIgnored } from './agent-ignore-guard';
 import { resolveWorkspaceAbsolutePath } from './workspace-path-resolution';
 
 export const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
@@ -25,6 +26,14 @@ export async function readWorkspaceTextFile(args: {
   size: number;
 }> {
   const resolved = await resolveWorkspaceAbsolutePath(args.rootPath, args.requestedPath);
+  // Checked here, at the shared reader, so every consumer inherits it: LSP
+  // inspection, rename reindex, workspace-context, and @file injection all read
+  // through this one function (BST-1432).
+  await assertNotAgentIgnored({
+    canonicalAbsolutePath: resolved.absolutePath,
+    canonicalRootPath: args.rootPath,
+    relativePath: resolved.workspacePath,
+  });
 
   const stat = await fsPromises.stat(resolved.absolutePath);
   if (!stat.isFile()) {

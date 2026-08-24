@@ -100,10 +100,17 @@ function ObservationalMemoryModelField({
           already receiving it. Local chats keep observations paused.
         </p>
       ) : (
-        <p className="text-muted-foreground text-xs">
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="assistant-memory-manual-observer-note"
+        >
           The target identifies a provider/model such as{' '}
           <span className="font-mono">openai/gpt-5.4-mini</span>; Desktop resolves its credential
-          before constructing the observer.
+          before constructing the observer. Unlike Auto, a manual target is NOT tied to your chat
+          provider: whenever observations run on a chat using a different HOSTED provider, that
+          conversation reaches the observer's provider as well. A{' '}
+          <span className="font-mono">local</span> observer is the exception — it runs on this
+          device and sends nothing.
         </p>
       )}
       {hasUnavailableObservationModel && (

@@ -598,6 +598,17 @@ were local-dev constants x a flat 2.0 multiplier with no CI-derived floors):
   surface, or its scope cannot be measured.
 - A calibrated-lane breach is a REAL signal: file it as a regression ticket
   with the measured values, do not bump the floor to silence it.
+- Browser interaction helpers keep their complete sample inside the page. The
+  default `measureLocatorInteractionFrames` contract retains each element and
+  fails if React detaches it. Recursive folder selection deliberately uses the
+  narrower `measureNamedCheckboxInteractionFrame` boundary: it resolves one
+  checkbox by exact `aria-label` before the click and again after two animation
+  frames, then verifies the replacement's checked state. This permits the
+  folder row's expected replacement without admitting Playwright transport
+  time or weakening detach detection for stable rows. Its single sample is the
+  same interaction-to-paint quantity as `CHECKBOX_FRAME_MAX_MS`; the paired
+  `performance-benchmark-contract.vitest.ts` test pins the named benchmark,
+  known fixture count, and calibrated sibling budget.
 
 BST-369 adds a worker-memory **structural bound**, not a locally invented CI
 latency floor. On runtime-calibration head `156c0b052`, this command ran three
@@ -1602,6 +1613,62 @@ and WebContents never leak across cases. The paired harness test pins surface
 parity, duplicate registration failure, multi-listener cleanup, and reset
 semantics.
 
+### Mutation-lane contract guard (`pnpm test:scripts`, BST-1331)
+
+`scripts/verify-stryker-mutation-contracts.mjs` (guard test:
+`scripts/__tests__/verify-stryker-mutation-contracts.test.mjs`, run in the
+Static job via `pnpm test:scripts`) keeps the advisory Stryker lane from rotting
+silently — the lane is on-demand, so a drifted runner invocation or broken
+config stays invisible until someone runs `pnpm mutation` (the #2475 rot class;
+BST-1287 shipped the Stryker 10 upgrade this guard builds on).
+
+Discovery is workspace-driven: the globs under `packages:` in
+`pnpm-workspace.yaml` are expanded from the repo root (not just direct
+`packages/*` children), every resulting directory is scanned for a `mutation`
+script, an unparseable `package.json` under a scanned root throws instead of
+being skipped (it could hide a mutation script), and an empty discovery set
+throws rather than reporting green. The parser deliberately reads only a tiny
+YAML subset (top-level scalar globs); anything else fails loudly.
+
+Five invariants per contract:
+
+1. **Local-bin invocation, allowlisted.** The `mutation` script must match
+   `^stryker\s+run\b` (arguments allowed) AND declare `@stryker-mutator/core`
+   in its dependencies — that declaration is what puts the `stryker` bin in
+   the package's own `node_modules/.bin` under pnpm's isolated layout.
+   Anything else violates: `npx @stryker-mutator/core run` ignores the catalog
+   pin via registry resolution (the original BST-1287 gap), `npx stryker run`
+   keeps the registry in the path, and neutered commands (`echo skipped`)
+   kill the lane invisibly. This is deliberately an allowlist, not a denylist.
+2. **Unambiguous config by Stryker's own precedence.** Candidates are probed
+   in exactly @stryker-mutator/core 10's `SUPPORTED_CONFIG_FILE_NAMES` order
+   (`stryker.conf.json → stryker.conf.js → .mjs → .cjs → stryker.config.* →
+   dot variants`), and only the first existing file is evaluated — the same
+   file a real mutation run loads. TWO OR MORE candidates present is itself a
+   violation: a stale valid `.cjs` beside a broken `.js` replacement would
+   otherwise let the guard validate a file Stryker never reads.
+3. **Loadability under repo semantics.** The selected config is loaded exactly
+   as Stryker loads it (`.json` parsed; everything else through `import()`,
+   which gives CJS interop for `.cjs`; packages are `"type": "module"`, so
+   `.js` configs must be ESM — `file-system` deliberately ships `.cjs`). A
+   load failure is a violation carrying the underlying error.
+4. **Agreed reporter roster.** Values in `reporters` are STRYKER reporter
+   names; the supported set (`clear-text`, `html`, `json`, `progress`) is a
+   deliberate house roster, NOT a Vitest capability claim (Stryker built-ins
+   like `dots` are legal upstream — widening is a reviewed decision). A
+   NON-array `reporters` value is itself a violation, never coerced into
+   "nothing to validate" (NO SILENT FALLBACKS). Leaving `reporters` absent is
+   allowed: Stryker's defaults are inside the set. History: Vitest 4 removed
+   `basic` from @stryker-mutator/vitest-runner's supported reporters, which is
+   how the #2475 lane rotted — but that reporter name lives inside the vitest
+   runner plugin, so this check bounds the roster; it cannot itself see it.
+5. **Mutation Vitest wiring survives refactors.** `vitest.configFile` must
+   basename to `vitest.mutation.config.ts` and the referenced file must exist.
+
+Entrypoints follow the BST-836 shape: `main({ repoRoot })` anchors discovery,
+`directory` is honored as the same anchor so the generic entrypoint control
+harness drives it uniformly, and direct execution checks the real repo.
+
 ### TypeScript 7 CLI with the TypeScript 6 compatibility API (BST-1011)
 
 All bare `tsc` commands use the TypeScript 7 native compiler. The catalog's
@@ -2195,6 +2262,14 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   and rejects downgrade below the 0.8.2 fix. It also pins the exact reviewed version in
   `EXPECTED_REACT_DOCTOR_VERSION`, so a bump is a three-file change: root `package.json`,
   `.github/workflows/react-doctor.yml`, and that constant.
+- **Keep lint enabled when reading JSON coverage.** React Doctor's `analyzedFiles`,
+  `analyzedFileCount`, and `complete` fields describe its lint pass, not dead-code enumeration.
+  Passing `--no-lint` therefore reports zero analyzed files and `complete:false` even when the
+  command scans every project for dead code; that output is expected, not a repository config or
+  environment failure (BST-1142, verified against 0.9.11 on 2026-08-23 and upstream's
+  [JSON report contract](https://github.com/millionco/react-doctor/blob/main/docs/json-report.md)).
+  The root `react-doctor` script pins `--scope full` and deliberately omits `--no-lint`;
+  `scripts/__tests__/react-doctor-version-contract.test.mjs` guards both properties.
 - **0.9.11 activates four error-severity rules that 0.9.3 did not** (2026-08-15, BST-1273).
   Measured on the same tree, same 3366 scanned files: full-scan errors go 85 → 95 while total
   issues go 641 → 594. The additions are `react-hooks-js/todo` (×4), `react-doctor/
@@ -2258,10 +2333,12 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   entry, each appear **0 times** across `node_modules/react-doctor/dist/`, while real ids
   appear literally (`only-export-components` 12, `react-compiler-no-manual-memoization`
   10). Those four counts are byte-identical on 0.9.3 and 0.9.11. Neither has been
-  *empirically* confirmed dead: a local `npx react-doctor packages/db`
-  emits no findings summary at all, which is BST-1142 (react-doctor local runs returning
-  zero analyzed files). **Nothing was changed on grep evidence alone** — the override stays
-  until BST-1142 unblocks a real before/after. Note the manual-memoization protection does
+  *empirically* confirmed dead: a local `npx react-doctor packages/db` emitted no findings
+  summary, while BST-1142's separate full-repository JSON reproduction ran with `--no-lint`
+  and therefore reported zero lint coverage. Neither observation proves rule liveness.
+  **Nothing was changed on grep evidence alone** — the override stays until a separate
+  lint-enabled planted-violation control proves whether the rule is live. Note the
+  manual-memoization protection does
   still exist, just not via the engine the bullet above names: eslint-plugin-react-hooks'
   own `react-hooks/preserve-manual-memoization` is live, reporting 2 warnings, and is now
   tracked in `eslint-warning-baseline.json`.
@@ -2290,7 +2367,8 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
   without re-measuring both.
 
-Local: `pnpm run react-doctor` (full scan, telemetry off via config) ·
+Local: `pnpm run react-doctor` (lint-enabled full scan, telemetry off via config) ·
+`pnpm exec react-doctor . --no-supply-chain --scope full --json --no-cache` (fresh machine report) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·
 `npx react-doctor why <file>:<line>` (explain a rule).
 

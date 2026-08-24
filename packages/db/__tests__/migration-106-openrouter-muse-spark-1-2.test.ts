@@ -19,8 +19,10 @@ describe('migration 106 OpenRouter Muse Spark 1.2', () => {
     await db.close();
   });
 
-  it('is the latest numbered migration', () => {
-    expect(migrations.at(-1)).toBe(migration106OpenRouterMuseSpark12);
+  it('remains registered as numbered migration 106', () => {
+    expect(migrations.find((migration) => migration.version === 106)).toBe(
+      migration106OpenRouterMuseSpark12
+    );
   });
 
   it('adds the model disabled, preserves its toggle, and rolls back faithfully', {

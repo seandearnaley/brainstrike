@@ -60,7 +60,22 @@ interface ProjectionAggregate {
 }
 
 export interface RunTokenDiagnosticsLogOptions {
-  readonly providerReportedPromptTokens?: number;
+  /**
+   * The size of the LAST provider request's context — the number that says
+   * whether the prompt is growing.
+   */
+  readonly latestStepPromptTokens?: number;
+  /**
+   * Prompt tokens SUMMED across the leg's steps (Mastra's terminal usage
+   * restates this sum). This is spend, not context size: a 10-step leg at
+   * ~65k context each reads as ~650k here. The 2026-08-23 field incident was
+   * this value logged under a name ("providerReportedPromptTokens") that
+   * read as a single request's size — diagnosed as a context explosion that
+   * did not exist. Never log this without `latestStepPromptTokens` and
+   * `stepCount` beside it.
+   */
+  readonly promptTokensSummedAcrossSteps?: number;
+  readonly stepCount?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -547,8 +562,14 @@ export class RunTokenDiagnostics {
     if (measurementFailure) {
       fields['measurementFailureCode'] = measurementFailure.failureCode;
     }
-    if (options.providerReportedPromptTokens !== undefined) {
-      fields['providerReportedPromptTokens'] = options.providerReportedPromptTokens;
+    if (options.promptTokensSummedAcrossSteps !== undefined) {
+      fields['promptTokensSummedAcrossSteps'] = options.promptTokensSummedAcrossSteps;
+    }
+    if (options.latestStepPromptTokens !== undefined) {
+      fields['latestStepPromptTokens'] = options.latestStepPromptTokens;
+    }
+    if (options.stepCount !== undefined) {
+      fields['stepCount'] = options.stepCount;
     }
     return fields;
   }

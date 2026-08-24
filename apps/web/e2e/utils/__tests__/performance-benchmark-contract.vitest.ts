@@ -147,14 +147,17 @@ describe('performance benchmark measurement contracts', () => {
     const validation = source.slice(start, end);
 
     expect(validation).toContain('measureLocatorInteractionFrames');
+    expect(validation).toContain('measureNamedCheckboxInteractionFrame');
     expect(validation).toContain('name: /^Select (test1\\.js|test2\\.js)$/');
-    // BST-959: the fixture is fully known, so the checkbox count is asserted
-    // (a partially rendered tree fails instead of shrinking the measured
-    // set), the quantity is browser-side, and the budget is the sibling
-    // benchmark's CI-proven CHECKBOX_FRAME threshold — not the legacy
-    // wall-clock 2,000ms constant, which is vacuous over this quantity.
+    expect(validation).toContain("name: 'Select folder'");
+    // BST-959/BST-1037: both fixture quantities are known, so their checkbox
+    // counts are asserted (a partially rendered tree fails instead of
+    // shrinking the measured set). The recursive folder sample re-resolves by
+    // accessible name after paint because its original row detaches.
     expect(validation).toContain('expect(fileCheckboxes).toHaveCount(2)');
+    expect(validation).toContain('expect(folderCheckbox).toHaveCount(1)');
     expect(validation).toContain('PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_TOTAL_MAX_MS');
+    expect(validation).toContain('PERFORMANCE_THRESHOLDS.CHECKBOX_FRAME_MAX_MS');
     expect(validation).not.toContain('toBeLessThan(2000)');
     expect(validation).not.toContain('Date.now()');
     expect(validation).not.toContain('waitForTimeout(');

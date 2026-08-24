@@ -56,6 +56,9 @@ disagree with a historical document.
 | Tree views (shared TreeTable), right-click / context action system, z-index of any dialog/popover/menu/tooltip | `docs/agents/ui-conventions.md` |
 | GitHub workflows, React Doctor, knip | `docs/agents/ci-quality.md` |
 | Logging, factory reset, adding any new persistence | `docs/agents/platform-contracts.md` |
+| Creating, reading, updating, or triaging product/engineering tickets; linking PRs to tickets | `docs/agents/issue-tracker.md` |
+| External triage-skill category/state roles and Brainstrike's Linear vocabulary | `docs/agents/triage-labels.md` |
+| External domain-modeling or triage skills consuming project vocabulary and ADRs | `docs/agents/domain.md` |
 
 Cross-cutting invariants (full detail + rationale in the docs):
 

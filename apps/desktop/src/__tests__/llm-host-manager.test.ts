@@ -938,6 +938,18 @@ describe('LlmHostManager', () => {
       const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
       process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
       process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '1000';
+      // The host stream opens and produces NOTHING, so this stall lands in the
+      // `awaiting-output` phase and the first-output window governs it, not the
+      // inter-output one (BST-1408).
+      const previousFirstOutput = process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'];
+      process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = '1000';
+      // This case is about the watchdog cancelling the EXACT host request and
+      // the run terminating visibly, so it opts out of in-turn stall recovery
+      // (BST-1409); with the default budget the turn would continue instead.
+      // Recovery itself is pinned in the agent package's
+      // mastra-stall-recovery.integration.spec.ts.
+      const previousStallAttempts = process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'];
+      process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = '1';
       const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
 
       try {
@@ -969,7 +981,15 @@ describe('LlmHostManager', () => {
         await vi.advanceTimersByTimeAsync(1001);
 
         const body = await bodyPromise;
-        expect(body).toContain('The model stream stalled after 1000ms without output.');
+        // Phase-specific copy (BST-1408): the built-in local provider produced
+        // NOTHING, so the message must not imply it had been streaming. The
+        // durable metadata alongside it carries the full story —
+        // `phase: 'awaiting-output'`, `partsSeen: 2`, `lastPartType: 'step-start'`.
+        expect(body).toContain(
+          'The model produced no output within 1000ms of the request starting.'
+        );
+        expect(body).toContain('"phase":"awaiting-output"');
+        expect(body).toContain('"lastPartType":"step-start"');
         expect(body).toContain('stream_inactivity_timeout');
         expect(body).toContain('"finishReason":"error"');
         expect(session.isClosed()).toBe(true);
@@ -1052,6 +1072,16 @@ describe('LlmHostManager', () => {
         await expect(recoveredBodyPromise).resolves.toContain('recovered');
         expect(manager.pendingRequests.size).toBe(0);
       } finally {
+        if (previousFirstOutput === undefined) {
+          Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS');
+        } else {
+          process.env['BRAINSTRIKE_STREAM_FIRST_OUTPUT_MS'] = previousFirstOutput;
+        }
+        if (previousStallAttempts === undefined) {
+          Reflect.deleteProperty(process.env, 'BRAINSTRIKE_STREAM_STALL_ATTEMPTS');
+        } else {
+          process.env['BRAINSTRIKE_STREAM_STALL_ATTEMPTS'] = previousStallAttempts;
+        }
         if (previousToolTimeout === undefined) {
           Reflect.deleteProperty(process.env, 'BRAINSTRIKE_TOOL_TIMEOUT_MS');
         } else {
