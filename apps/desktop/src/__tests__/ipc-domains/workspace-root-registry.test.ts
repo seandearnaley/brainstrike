@@ -753,7 +753,7 @@ describe('WorkspaceRootRegistry', () => {
 
     // ...but the mounted record also carries the capability's own canonical
     // path: an absolute-path read with no rootId is resolved purely via
-    // findMountedRootForAbsolutePath, which only succeeds here if the
+    // WorkspaceRootMountTable's findForAbsolutePath, which only succeeds here if the
     // mount's canonicalPath (not just its presentationPath) is on file.
     await expect(
       registry.readDirectory({
@@ -973,14 +973,14 @@ describe('WorkspaceRootRegistry', () => {
     });
 
     const outer = await registry.addRoot(rootHandle('/canon/outer'));
-    // A second root nested inside the first: findMountedRootForAbsolutePath
+    // A second root nested inside the first: findForAbsolutePath
     // would normally pick this one for a path under it (longest containing
     // path wins), but a caller-supplied rootId short-circuits that lookup.
     await registry.addRoot(rootHandle('/canon/outer/nested'));
 
     // Reads made during a traversal anchored at the outer root are
     // authorized and attributed under the outer root's capability — that is
-    // the intent, not a side effect: `resolveMountedRoot` short-circuits to
+    // the intent, not a side effect: `resolveForRead` short-circuits to
     // `this.mounted.get(rootId)` before ever consulting path containment. A
     // self-identifying nested root still wins via the caller supplying its
     // OWN rootId (entryHandle?.rootId ?? parent.rootId precedence upstream);
