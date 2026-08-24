@@ -1,5 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
-import { readHandleCache } from '../adapter-with-handle-cache.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __resetUnsupportedHandleCacheReportForTests,
+  readHandleCache,
+} from '../adapter-with-handle-cache.js';
+
+const loggerErrorMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@brainstrike/logging', () => ({
+  createLogger: () => ({ error: loggerErrorMock }),
+}));
 
 interface CacheShape {
   read: () => void;
@@ -13,6 +22,11 @@ function isCacheShape(value: unknown): value is CacheShape {
 }
 
 describe('readHandleCache', () => {
+  beforeEach(() => {
+    loggerErrorMock.mockReset();
+    __resetUnsupportedHandleCacheReportForTests();
+  });
+
   it('returns null when the adapter capability is absent', () => {
     expect(readHandleCache({}, isCacheShape)).toBeNull();
   });
@@ -23,9 +37,14 @@ describe('readHandleCache', () => {
     expect(readHandleCache({ getHandleCache: () => cache }, isCacheShape)).toBe(cache);
   });
 
-  it('disables the cache path instead of throwing during render for a wrong shape', () => {
-    expect(
-      readHandleCache({ getHandleCache: () => ({ write: vi.fn() }) }, isCacheShape)
-    ).toBeNull();
+  it('reports a persistent wrong cache shape only once across repeated probes', () => {
+    const adapter = { getHandleCache: () => ({ write: vi.fn() }) };
+
+    expect(readHandleCache(adapter, isCacheShape)).toBeNull();
+    expect(readHandleCache(adapter, isCacheShape)).toBeNull();
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'Adapter getHandleCache() returned an unsupported cache shape; cache disabled.'
+    );
+    expect(loggerErrorMock).toHaveBeenCalledTimes(1);
   });
 });

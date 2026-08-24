@@ -45,14 +45,26 @@ interface CircuitBreakerState {
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Number of failures before opening
 const CIRCUIT_BREAKER_RESET_MS = 30_000; // Time before attempting to close circuit
 
+const FILE_HANDLE_CACHE_METHODS = [
+  'getFileHandle',
+  'removeFileHandle',
+] as const satisfies readonly (keyof FileHandleCache)[];
+type UncoveredFileHandleCacheMethod = Exclude<
+  keyof FileHandleCache,
+  (typeof FILE_HANDLE_CACHE_METHODS)[number]
+>;
+const FILE_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE: UncoveredFileHandleCacheMethod extends never
+  ? true
+  : never = true;
+
 function isFileHandleCache(value: unknown): value is FileHandleCache {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
   return (
-    typeof candidate['getFileHandle'] === 'function' &&
-    typeof candidate['removeFileHandle'] === 'function'
+    FILE_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE &&
+    FILE_HANDLE_CACHE_METHODS.every((method) => typeof candidate[method] === 'function')
   );
 }
 

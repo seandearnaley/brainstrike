@@ -113,7 +113,15 @@ const WEB_HANDLE_CACHE_METHODS = [
   'markHandleRestored',
   'removeRootHandle',
   'restoreLastRootHandle',
-] as const;
+] as const satisfies readonly (keyof WebHandleCacheShape)[];
+
+type UncoveredWebHandleCacheMethod = Exclude<
+  keyof WebHandleCacheShape,
+  (typeof WEB_HANDLE_CACHE_METHODS)[number]
+>;
+const WEB_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE: UncoveredWebHandleCacheMethod extends never
+  ? true
+  : never = true;
 
 function isWebHandleCacheShape(value: unknown): value is WebHandleCacheShape {
   if (typeof value !== 'object' || value === null) {
@@ -124,9 +132,11 @@ function isWebHandleCacheShape(value: unknown): value is WebHandleCacheShape {
   // known member that is present, require at least one recognized callable
   // member, then let each call site gate its own method.
   return (
+    WEB_HANDLE_CACHE_METHODS_ARE_EXHAUSTIVE &&
     WEB_HANDLE_CACHE_METHODS.every(
       (method) => candidate[method] === undefined || typeof candidate[method] === 'function'
-    ) && WEB_HANDLE_CACHE_METHODS.some((method) => typeof candidate[method] === 'function')
+    ) &&
+    WEB_HANDLE_CACHE_METHODS.some((method) => typeof candidate[method] === 'function')
   );
 }
 

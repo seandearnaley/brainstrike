@@ -3,6 +3,11 @@ import { createLogger } from '@brainstrike/logging';
 const logger = createLogger('AssistantBridge');
 let reportedMalformedAssistantBridge = false;
 
+/** @internal Test-only reset for deterministic module-state assertions. */
+export function __resetMalformedAssistantBridgeReportForTests(): void {
+  reportedMalformedAssistantBridge = false;
+}
+
 /**
  * Auth contract between the desktop assistant HTTP server and its renderer
  * clients. The desktop main process mints a per-boot capability token and hands

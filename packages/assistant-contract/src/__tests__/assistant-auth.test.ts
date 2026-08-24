@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getAssistantBridge } from '../assistant-auth.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __resetMalformedAssistantBridgeReportForTests,
+  getAssistantBridge,
+} from '../assistant-auth.js';
 
 const loggerErrorMock = vi.hoisted(() => vi.fn());
 
@@ -8,6 +11,10 @@ vi.mock('@brainstrike/logging', () => ({
 }));
 
 describe('getAssistantBridge', () => {
+  beforeEach(() => {
+    __resetMalformedAssistantBridgeReportForTests();
+  });
+
   afterEach(() => {
     loggerErrorMock.mockReset();
     vi.unstubAllGlobals();

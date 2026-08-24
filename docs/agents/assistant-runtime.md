@@ -1841,8 +1841,12 @@ Flow (desktop assistant server → agent runtime):
    your files". Settled result surface (`run-python-result.tsx`, mounted by
    `tool-fallback.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
    amber finish (destructive chrome is reserved for `unavailable`), cancelled
-   never renders as success or empty, truncation is a per-stream note, and
-   the card-level status maps cancelled/timed-out/killed to a `stopped` state
+   never renders as success or empty, and truncation is a per-stream note.
+   Structurally narrowed result numbers must be safe integers (non-negative
+   exit/omitted-byte values and a positive timeout) before this purpose-built
+   surface renders. Malformed numbers stay on the generic tool-result path
+   rather than producing `NaN`/`Infinity` UI. The card-level status maps
+   cancelled/timed-out/killed to a `stopped` state
    instead of the generic green check.
    The built-in local provider admits a call to this chain only after its
    arguments parse as a root JSON object. A
@@ -2640,8 +2644,9 @@ unapprovable/unanswerable; unreadable advisory plan fields (`risks`,
 list, an unknown `selectionMode`, or a selection mode without readable options
 likewise makes the question unanswerable rather than silently changing its
 interaction mode. An unreadable core payload renders a diagnostic failed alert
-with a scrollable raw-payload view capped at 4,000 serialized characters and
-logs once per run/tool-call identity across renderer remounts. The process-local
+with a scrollable raw-payload view capped at 4,000 serialized characters. The
+same bounded serialization is logged once per run/tool-call identity across
+renderer remounts; the raw malformed object never bypasses that cap. The process-local
 identity cache is capped at 64 entries with deterministic oldest-entry eviction;
 tests reset it explicitly rather than depending on file order. The user may
 safely reject an unreadable plan (never approve it). A readable question whose

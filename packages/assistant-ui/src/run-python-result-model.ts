@@ -75,12 +75,20 @@ interface StreamFields extends OmittedByteFields {
   readonly stdout: string;
 }
 
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return isNonNegativeSafeInteger(value) && value > 0;
+}
+
 function hasOmittedByteFields(
   value: Record<string, unknown>
 ): value is Record<string, unknown> & OmittedByteFields {
   return (
-    typeof value['stdoutOmittedBytes'] === 'number' &&
-    typeof value['stderrOmittedBytes'] === 'number'
+    isNonNegativeSafeInteger(value['stdoutOmittedBytes']) &&
+    isNonNegativeSafeInteger(value['stderrOmittedBytes'])
   );
 }
 
@@ -108,7 +116,7 @@ export function narrowRunPythonDisplayResult(value: unknown): RunPythonDisplayRe
   }
   switch (value['kind']) {
     case 'completed':
-      return typeof value['exitCode'] === 'number' && hasStreamFields(value)
+      return isNonNegativeSafeInteger(value['exitCode']) && hasStreamFields(value)
         ? {
             ...value,
             exitCode: value['exitCode'],
@@ -120,7 +128,7 @@ export function narrowRunPythonDisplayResult(value: unknown): RunPythonDisplayRe
           }
         : null;
     case 'timed_out':
-      return typeof value['timeoutMs'] === 'number' &&
+      return isPositiveSafeInteger(value['timeoutMs']) &&
         isSignalField(value['signal']) &&
         hasStreamFields(value)
         ? {

@@ -13,7 +13,7 @@ import {
   hasRegisteredSuspendResumeUi,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/logging';
+import { createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import { Button, Checkbox } from '@brainstrike/ui';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
 import {
@@ -37,7 +37,8 @@ const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 const SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT = 4000;
 
 function serializeSuspendPayloadDiagnostic(suspendPayload: unknown): string {
-  const serialized = JSON.stringify(suspendPayload, null, 2) ?? 'undefined';
+  const serialized =
+    JSON.stringify(redactSensitiveLogValue(suspendPayload), null, 2) ?? 'undefined';
   return serialized.length > SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT
     ? `${serialized.slice(0, SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT)}\n… (truncated)`
     : serialized;
@@ -408,11 +409,11 @@ function UnreadableSuspendPayloadNotice({
     }
     logger.warn('Unreadable tool suspension payload', {
       runId: request.runId,
-      suspendPayload: request.suspendPayload,
+      suspendPayload: payloadDetail,
       toolCallId: request.toolCallId,
       toolName: request.toolName,
     });
-  }, [pauseKey, request.runId, request.suspendPayload, request.toolCallId, request.toolName]);
+  }, [pauseKey, payloadDetail, request.runId, request.toolCallId, request.toolName]);
 
   return (
     <NoticeShell

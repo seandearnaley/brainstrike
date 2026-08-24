@@ -26,9 +26,13 @@ vi.mock('@assistant-ui/react', () => ({
   ) => selector({ thread: { messages: threadMessagesMock } }),
 }));
 
-vi.mock('@brainstrike/logging', () => ({
-  createLogger: () => ({ warn: loggerWarnMock }),
-}));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({ warn: loggerWarnMock }),
+  };
+});
 
 function lastResumeAction(): Record<string, unknown> | undefined {
   const message = appendMessageMock.mock.calls.at(-1)?.[0] as
@@ -287,7 +291,7 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByText(/"options": "not-an-array"/)).toHaveClass('max-h-48', 'overflow-auto');
   });
 
-  it('caps serialized unreadable payload diagnostics before rendering them', () => {
+  it('caps serialized unreadable payload diagnostics before rendering or logging them', async () => {
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -303,6 +307,39 @@ describe('AssistantToolSuspendNotice', () => {
     expect(diagnostic).not.toBeNull();
     expect(diagnostic?.textContent).toContain('… (truncated)');
     expect(diagnostic?.textContent?.length).toBeLessThanOrEqual(4020);
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+    const loggedContext = loggerWarnMock.mock.calls[0]?.[1] as
+      | { suspendPayload?: unknown }
+      | undefined;
+    expect(loggedContext?.suspendPayload).toBe(diagnostic?.textContent);
+  });
+
+  it('redacts secrets before rendering or logging unreadable payload diagnostics', async () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: {
+            nested: { apiKey: 'sk-sensitive', password: 'also-sensitive' },
+            options: 'not-an-array',
+            question: { nested: true },
+          },
+        }}
+      />
+    );
+
+    const diagnostic = screen
+      .getByTestId('assistant-ask-user-payload-unreadable')
+      .querySelector('pre');
+    expect(diagnostic).not.toBeNull();
+    expect(diagnostic?.textContent).toContain('[REDACTED]');
+    expect(diagnostic?.textContent).not.toContain('sk-sensitive');
+    expect(diagnostic?.textContent).not.toContain('also-sensitive');
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+    const loggedContext = loggerWarnMock.mock.calls[0]?.[1] as
+      | { suspendPayload?: unknown }
+      | undefined;
+    expect(loggedContext?.suspendPayload).toBe(diagnostic?.textContent);
   });
 
   it.each([
