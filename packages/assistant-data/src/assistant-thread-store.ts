@@ -89,6 +89,8 @@ export interface AssistantThreadDraftRuntime {
 
 const resourceThreadLoadPromises = new Map<string, Promise<void>>();
 let resourceThreadLoadGeneration = 0;
+const resourceThreadRefreshGenerationByResourceId = new Map<string, number>();
+let resourceThreadRefreshGeneration = 0;
 
 function serializeThread(thread: AssistantMemoryThread): AssistantMemoryThread {
   return {
@@ -733,6 +735,9 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         if (get().loadStateByResourceId[resourceId]?.status !== 'ready') {
           return;
         }
+        resourceThreadRefreshGeneration += 1;
+        const refreshGeneration = resourceThreadRefreshGeneration;
+        resourceThreadRefreshGenerationByResourceId.set(resourceId, refreshGeneration);
         const metadataSnapshotByThreadId = new Map(
           (get().threadsByResourceId[resourceId] ?? []).map((thread) => [
             thread.id,
@@ -740,7 +745,10 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           ])
         );
         const loaded = (await repository.listThreads(resourceId)).map(serializeThread);
-        if (loaded.length === 0) {
+        if (
+          loaded.length === 0 ||
+          resourceThreadRefreshGenerationByResourceId.get(resourceId) !== refreshGeneration
+        ) {
           return;
         }
         set((state) => {
@@ -900,6 +908,7 @@ export function useActiveAssistantThreadId(resourceIdOverride?: string): string 
 export function resetAssistantThreadStore(): void {
   resourceThreadLoadGeneration += 1;
   resourceThreadLoadPromises.clear();
+  resourceThreadRefreshGenerationByResourceId.clear();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},

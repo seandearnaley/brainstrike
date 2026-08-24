@@ -225,6 +225,42 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
   });
 
+  it('does not let an older thread-list refresh restore New Thread after a generated title refresh', async () => {
+    const defaultThread = {
+      ...makeThread('thread-a', '2026-04-22T10:00:00Z'),
+      title: 'New Thread',
+    };
+    const repository = createRepository([defaultThread]);
+    const staleRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    vi.mocked(repository.listThreads)
+      .mockReturnValueOnce(staleRefresh.promise)
+      .mockResolvedValueOnce([
+        {
+          ...defaultThread,
+          title: 'Paris Weather Chat',
+          updatedAt: new Date('2026-04-22T10:00:02Z'),
+        },
+      ]);
+
+    const olderRefresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore.getState().refreshResourceThreads(repository, workspaceId);
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris Weather Chat'
+    );
+
+    staleRefresh.resolve([defaultThread]);
+    await olderRefresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Paris Weather Chat'
+    );
+  });
+
   it('preserves a metadata write that completes while an older title refresh is in flight', async () => {
     const repository = createRepository([makeCuratedThread()]);
     const staleRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();
