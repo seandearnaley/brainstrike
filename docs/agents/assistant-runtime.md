@@ -2629,9 +2629,13 @@ see the version ceiling in mastra-boundary.md).
 
 The renderer structurally narrows both tools' `suspendPayload` before displaying
 or resuming it. An absent payload retains the generic actionable fallback for
-legacy suspended runs. A present but malformed plan or question instead renders
-an explicit failed alert with no resume controls: the user must never approve a
-plan whose terms were hidden or answer a question the client could not read.
+legacy suspended runs. Core plan terms (`title`, `overview`, and the steps array)
+and the `askUser` question must be readable; advisory presentation fields and
+malformed individual list entries are ignored so durable snapshots remain
+resumable across additive schema drift. An unreadable core payload renders a
+diagnostic failed alert with the raw payload and logs its run/tool identity. The
+user may safely reject an unreadable plan (never approve it), while an unreadable
+question can only be dismissed and never answered.
 
 **Transport table (parallel to approval):**
 

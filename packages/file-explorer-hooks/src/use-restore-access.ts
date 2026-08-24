@@ -1,7 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AdapterWithHandleCache } from './adapter-with-handle-cache.js';
+import { hasGetHandleCache } from './adapter-with-handle-cache.js';
 import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useRestoreAccess');
@@ -520,8 +520,9 @@ export function useRestoreAccess(): RestoreAccessState {
   }, []);
 
   const handleCache = useMemo(() => {
-    const adapter = fileSystemAdapter as AdapterWithHandleCache<WebHandleCacheShape> | null;
-    const cache = adapter?.getHandleCache?.() ?? null;
+    const cache = hasGetHandleCache<WebHandleCacheShape>(fileSystemAdapter)
+      ? (fileSystemAdapter.getHandleCache?.() ?? null)
+      : null;
     if (cache) {
       logger.debug('Handle cache available for restore checks', {
         hasNewMethod: typeof cache.getLastRootHandleForRestore === 'function',

@@ -16,7 +16,16 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { Button, Checkbox } from '@brainstrike/ui';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
-import { createContext, type ReactNode, use, useCallback, useId, useMemo, useState } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  use,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 
@@ -67,24 +76,14 @@ function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null | undef
     return null;
   }
   const { overview, risks, steps, title, verification } = value;
-  if (
-    typeof overview !== 'string' ||
-    typeof title !== 'string' ||
-    !Array.isArray(steps) ||
-    (risks !== undefined && typeof risks !== 'string') ||
-    (verification !== undefined && typeof verification !== 'string')
-  ) {
+  if (typeof overview !== 'string' || typeof title !== 'string' || !Array.isArray(steps)) {
     return null;
   }
 
   const parsedSteps: SubmitPlanPayload['steps'] = [];
   for (const step of steps) {
-    if (
-      !isRecord(step) ||
-      typeof step['title'] !== 'string' ||
-      (step['detail'] !== undefined && typeof step['detail'] !== 'string')
-    ) {
-      return null;
+    if (!isRecord(step) || typeof step['title'] !== 'string') {
+      continue;
     }
     parsedSteps.push({
       ...(typeof step['detail'] === 'string' ? { detail: step['detail'] } : {}),
@@ -109,24 +108,14 @@ function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
     return null;
   }
   const { options, question, selectionMode } = value;
-  if (
-    typeof question !== 'string' ||
-    (selectionMode !== undefined &&
-      selectionMode !== 'single_select' &&
-      selectionMode !== 'multi_select') ||
-    (options !== undefined && !Array.isArray(options))
-  ) {
+  if (typeof question !== 'string') {
     return null;
   }
 
   const parsedOptions: AskUserOption[] = [];
-  for (const option of options ?? []) {
-    if (
-      !isRecord(option) ||
-      typeof option['label'] !== 'string' ||
-      (option['description'] !== undefined && typeof option['description'] !== 'string')
-    ) {
-      return null;
+  for (const option of Array.isArray(options) ? options : []) {
+    if (!isRecord(option) || typeof option['label'] !== 'string') {
+      continue;
     }
     parsedOptions.push({
       ...(typeof option['description'] === 'string' ? { description: option['description'] } : {}),
@@ -135,9 +124,11 @@ function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
   }
 
   return {
-    ...(options === undefined ? {} : { options: parsedOptions }),
+    ...(Array.isArray(options) ? { options: parsedOptions } : {}),
     question,
-    ...(selectionMode === undefined ? {} : { selectionMode }),
+    ...(selectionMode === 'single_select' || selectionMode === 'multi_select'
+      ? { selectionMode }
+      : {}),
   };
 }
 
@@ -358,16 +349,31 @@ function NoticeShell({
 }
 
 function UnreadableSuspendPayloadNotice({
+  children,
   detail,
   request,
   testId,
   title,
 }: {
+  children?: ReactNode;
   detail: string;
   request: AssistantToolSuspendRequest;
   testId: string;
   title: string;
 }) {
+  const payloadDetail = useMemo(
+    () => JSON.stringify(request.suspendPayload, null, 2),
+    [request.suspendPayload]
+  );
+  useEffect(() => {
+    logger.warn('Unreadable tool suspension payload', {
+      runId: request.runId,
+      suspendPayload: request.suspendPayload,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+    });
+  }, [request.runId, request.suspendPayload, request.toolCallId, request.toolName]);
+
   return (
     <NoticeShell
       icon={<TriangleAlert className="size-4" />}
@@ -378,6 +384,10 @@ function UnreadableSuspendPayloadNotice({
     >
       <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       <p className="mt-1 text-muted-foreground text-xs">{detail}</p>
+      <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+        {payloadDetail}
+      </pre>
+      {children}
     </NoticeShell>
   );
 }
@@ -402,11 +412,23 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
   if (plan === null) {
     return (
       <UnreadableSuspendPayloadNotice
-        detail="The suspended request contains malformed plan details, so it cannot be approved or rejected here."
+        detail="The suspended request contains unreadable plan terms, so it cannot be approved. You can safely reject it so the assistant can revise."
         request={request}
         testId="assistant-submit-plan-payload-unreadable"
         title="Plan details could not be read"
-      />
+      >
+        <div className="mt-2">
+          <Button
+            disabled={locked}
+            onClick={() => submit({ action: 'rejected' }, 'Rejected the unreadable plan.')}
+            size="sm"
+            variant="outline"
+          >
+            <X className="size-3.5" />
+            Reject
+          </Button>
+        </div>
+      </UnreadableSuspendPayloadNotice>
     );
   }
 
@@ -497,6 +519,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   );
   const [freeText, setFreeText] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [unreadableDismissed, setUnreadableDismissed] = useState(false);
   const payload = readAskUserPayload(request.suspendPayload);
   const options: AskUserOption[] = payload?.options ?? [];
   const isMultiSelect = payload?.selectionMode === 'multi_select';
@@ -514,13 +537,22 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   }, []);
 
   if (payload === null) {
+    if (unreadableDismissed) {
+      return null;
+    }
     return (
       <UnreadableSuspendPayloadNotice
         detail="The suspended request contains malformed question details, so it cannot be answered here."
         request={request}
         testId="assistant-ask-user-payload-unreadable"
         title="Question details could not be read"
-      />
+      >
+        <div className="mt-2">
+          <Button onClick={() => setUnreadableDismissed(true)} size="sm" variant="outline">
+            Dismiss
+          </Button>
+        </div>
+      </UnreadableSuspendPayloadNotice>
     );
   }
 

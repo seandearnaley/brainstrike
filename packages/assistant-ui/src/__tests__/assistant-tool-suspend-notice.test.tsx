@@ -69,7 +69,8 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByText(/Run the tests/)).toBeInTheDocument();
   });
 
-  it('surfaces a malformed plan payload and prevents blind resume', () => {
+  it('surfaces a malformed plan payload and allows safe rejection only', async () => {
+    const user = userEvent.setup();
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -84,9 +85,42 @@ describe('AssistantToolSuspendNotice', () => {
       'alert'
     );
     expect(screen.getByText(/plan details could not be read/i)).toBeInTheDocument();
+    expect(screen.getByText(/"overview": 42/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /reject/i })).not.toBeInTheDocument();
-    expect(appendMessageMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /reject/i }));
+
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
+    expect(lastResumeAction()?.['resumeData']).toEqual({ action: 'rejected' });
+  });
+
+  it('keeps readable plan terms when optional presentation fields drift', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...planRequest,
+          suspendPayload: {
+            overview: 'Refactor safely.',
+            risks: 42,
+            steps: [
+              { title: 'Keep this step' },
+              { detail: { richer: true }, title: 'Keep this title' },
+              { title: 42 },
+            ],
+            title: 'Compatible plan',
+            verification: { command: 'pnpm test' },
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByText(/Compatible plan/)).toBeInTheDocument();
+    expect(screen.getByText('Refactor safely.')).toBeInTheDocument();
+    expect(screen.getByText('Keep this step')).toBeInTheDocument();
+    expect(screen.getByText('Keep this title')).toBeInTheDocument();
+    expect(screen.queryByText(/Risks:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verification:/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
   });
 
   it('keeps the actionable legacy fallback when a plan payload is absent', () => {
@@ -159,7 +193,8 @@ describe('AssistantToolSuspendNotice', () => {
     expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'San Francisco' });
   });
 
-  it('surfaces a malformed askUser payload and prevents answering an undisclosed question', () => {
+  it('surfaces a malformed askUser payload without allowing an answer and can dismiss it', async () => {
+    const user = userEvent.setup();
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -174,9 +209,35 @@ describe('AssistantToolSuspendNotice', () => {
       'alert'
     );
     expect(screen.getByText(/question details could not be read/i)).toBeInTheDocument();
+    expect(screen.getByText(/"options": "not-an-array"/)).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /your answer/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /dismiss/i }));
+
+    expect(screen.queryByTestId('assistant-ask-user-payload-unreadable')).not.toBeInTheDocument();
     expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a readable question across option and selection-mode drift', async () => {
+    const user = userEvent.setup();
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: {
+            options: [{ label: 'Keep me' }, { label: 42 }],
+            question: 'Still readable?',
+            selectionMode: 'ranked',
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByText('Still readable?')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-ask-user-payload-unreadable')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Keep me' }));
+    expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'Keep me' });
   });
 
   it('keeps the actionable legacy free-text fallback when an askUser payload is absent', () => {

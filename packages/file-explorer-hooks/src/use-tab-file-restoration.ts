@@ -23,7 +23,7 @@ import { createLogger } from '@brainstrike/logging';
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AdapterWithHandleCache } from './adapter-with-handle-cache.js';
+import { hasGetHandleCache } from './adapter-with-handle-cache.js';
 import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useTabFileRestoration');
@@ -256,18 +256,6 @@ export interface UseTabFileRestorationReturn {
   tabStatuses: Map<string, TabFileStatus>;
 }
 
-/**
- * Type guard to check if an adapter has the getHandleCache method.
- * Uses proper runtime checks with unknown intermediate type.
- */
-function hasGetHandleCache(adapter: unknown): adapter is AdapterWithHandleCache<FileHandleCache> {
-  if (typeof adapter !== 'object' || adapter === null) {
-    return false;
-  }
-  const candidate = adapter as Record<string, unknown>;
-  return typeof candidate['getHandleCache'] === 'function';
-}
-
 /** Shape of file system adapter with exists method (Electron) */
 interface AdapterWithExists {
   exists: (path: string) => Promise<boolean>;
@@ -445,7 +433,7 @@ export function useTabFileRestoration(
     if (platform !== 'web') {
       return null;
     }
-    if (!hasGetHandleCache(fileSystemAdapter)) {
+    if (!hasGetHandleCache<FileHandleCache>(fileSystemAdapter)) {
       return null;
     }
     return fileSystemAdapter.getHandleCache?.() ?? null;
