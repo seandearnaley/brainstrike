@@ -1,3 +1,7 @@
+import { createLogger } from '@brainstrike/logging';
+
+const logger = createLogger('AssistantBridge');
+
 /**
  * Auth contract between the desktop assistant HTTP server and its renderer
  * clients. The desktop main process mints a per-boot capability token and hands
@@ -51,7 +55,17 @@ export function getAssistantBridge(): AssistantBridge | undefined {
     return;
   }
   const bridge: unknown = window.assistant;
-  return bridge !== null && typeof bridge === 'object' && !Array.isArray(bridge)
-    ? bridge
-    : undefined;
+  if (bridge === undefined) {
+    return;
+  }
+  if (bridge === null || typeof bridge !== 'object' || Array.isArray(bridge)) {
+    logger.error(
+      'window.assistant is present but malformed; desktop assistant capabilities disabled.',
+      {
+        receivedType: Array.isArray(bridge) ? 'array' : bridge === null ? 'null' : typeof bridge,
+      }
+    );
+    return;
+  }
+  return bridge;
 }

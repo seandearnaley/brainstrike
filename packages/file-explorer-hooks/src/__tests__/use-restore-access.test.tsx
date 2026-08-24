@@ -129,6 +129,24 @@ describe('useRestoreAccess', () => {
     expect(result.current.storedFolders).toHaveLength(2);
   });
 
+  it('preserves listing for a partial cache without a restore method', async () => {
+    const handleCache = {
+      getAllRootHandles: vi
+        .fn()
+        .mockResolvedValue([{ folderId: 'saved', lastAccessedAt: 1, name: 'Saved Folder' }]),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.storedFolders).toEqual([{ folderId: 'saved', name: 'Saved Folder' }]);
+  });
+
   it('marks denial when restore returns null and handles remain', async () => {
     const handleCache = {
       clear: vi.fn().mockResolvedValue(undefined),

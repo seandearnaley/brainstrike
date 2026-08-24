@@ -70,7 +70,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null | undefined {
-  if (value === undefined) {
+  if (value === undefined || value === null) {
     return;
   }
   if (!isRecord(value)) {
@@ -122,7 +122,7 @@ function readAskUserOptions(options: unknown): AskUserOption[] | null | undefine
 }
 
 function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
-  if (value === undefined) {
+  if (value === undefined || value === null) {
     return;
   }
   if (!isRecord(value)) {

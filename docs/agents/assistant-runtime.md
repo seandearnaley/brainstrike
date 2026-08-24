@@ -2628,8 +2628,9 @@ see the version ceiling in mastra-boundary.md).
   resumable; multi-select joins with ", ".
 
 The renderer structurally narrows both tools' `suspendPayload` before displaying
-or resuming it. An absent payload retains the generic actionable fallback for
-legacy suspended runs. Core plan terms (`title`, `overview`, and the steps array)
+or resuming it. An absent payload (`undefined` or durable JSON `null`) retains
+the generic actionable fallback for legacy suspended runs. Core plan terms
+(`title`, `overview`, and the steps array)
 and the `askUser` question/options must be readable. Plan step titles and askUser
 options are decision terms, so one unreadable entry makes the decision
 unapprovable/unanswerable; unreadable advisory plan fields (`risks`,

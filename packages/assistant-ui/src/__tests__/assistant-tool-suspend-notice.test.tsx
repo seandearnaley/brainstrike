@@ -147,14 +147,17 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
   });
 
-  it('keeps the actionable legacy fallback when a plan payload is absent', () => {
-    render(<AssistantToolSuspendNotice data={{ ...planRequest, suspendPayload: undefined }} />);
+  it.each([undefined, null])(
+    'keeps the actionable legacy fallback when a plan payload is absent (%s)',
+    (suspendPayload) => {
+      render(<AssistantToolSuspendNotice data={{ ...planRequest, suspendPayload }} />);
 
-    expect(screen.getByText('Plan for your approval')).toBeInTheDocument();
-    expect(screen.getByText('A plan was submitted for your review.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
-  });
+      expect(screen.getByText('Plan for your approval')).toBeInTheDocument();
+      expect(screen.getByText('A plan was submitted for your review.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
+    }
+  );
 
   it('Approve appends a resume action { action: "approved" }', async () => {
     const user = userEvent.setup();
@@ -314,14 +317,15 @@ describe('AssistantToolSuspendNotice', () => {
     await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
   });
 
-  it('keeps the actionable legacy free-text fallback when an askUser payload is absent', () => {
-    render(
-      <AssistantToolSuspendNotice data={{ ...askFreeTextRequest, suspendPayload: undefined }} />
-    );
+  it.each([undefined, null])(
+    'keeps the actionable legacy free-text fallback when an askUser payload is absent (%s)',
+    (suspendPayload) => {
+      render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, suspendPayload }} />);
 
-    expect(screen.getByText('The assistant has a question')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: /your answer/i })).toBeEnabled();
-  });
+      expect(screen.getByText('The assistant has a question')).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: /your answer/i })).toBeEnabled();
+    }
+  );
 
   it('askUser single-select appends the chosen label', async () => {
     const user = userEvent.setup();
