@@ -1,6 +1,16 @@
-import type { GitBranchSummary } from '@brainstrike/types';
+import type { GitBranchSummary, GitStatusFile } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { buildBranchSwitchModel } from '../git-panel/branch-switch-model';
+import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../git-panel/branch-switch-model';
+
+function statusFile(overrides: Partial<GitStatusFile> & { path: string }): GitStatusFile {
+  return {
+    staged: false,
+    status: 'M',
+    unstaged: false,
+    untracked: false,
+    ...overrides,
+  };
+}
 
 function branch(overrides: Partial<GitBranchSummary> & { name: string }): GitBranchSummary {
   return {
@@ -87,5 +97,46 @@ describe('buildBranchSwitchModel', () => {
       'This folder is below the repository root — open the repository root to switch branches.'
     );
     expect(model.rows.every((row) => row.switchable === false)).toBe(true);
+  });
+});
+
+describe('deriveBranchSwitchDirty', () => {
+  it('is not dirty for a clean tree', () => {
+    expect(deriveBranchSwitchDirty({ files: [] })).toBe(false);
+  });
+
+  it('is not dirty when every file is untracked-only (Major 2 ruling)', () => {
+    expect(
+      deriveBranchSwitchDirty({
+        files: [statusFile({ path: 'new-file.txt', status: '?', untracked: true })],
+      })
+    ).toBe(false);
+  });
+
+  it('is dirty for an unstaged modification to a tracked file', () => {
+    expect(
+      deriveBranchSwitchDirty({
+        files: [statusFile({ path: 'tracked.txt', unstaged: true })],
+      })
+    ).toBe(true);
+  });
+
+  it('is dirty for a staged tracked change', () => {
+    expect(
+      deriveBranchSwitchDirty({
+        files: [statusFile({ path: 'tracked.txt', staged: true, status: 'M' })],
+      })
+    ).toBe(true);
+  });
+
+  it('is dirty when a tracked change is mixed with untracked files', () => {
+    expect(
+      deriveBranchSwitchDirty({
+        files: [
+          statusFile({ path: 'new-file.txt', status: '?', untracked: true }),
+          statusFile({ path: 'tracked.txt', unstaged: true }),
+        ],
+      })
+    ).toBe(true);
   });
 });

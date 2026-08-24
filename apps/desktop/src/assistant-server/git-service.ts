@@ -1060,6 +1060,13 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         if (params.branch === '-') {
           return { error: 'local branch "-" is not supported', ok: false };
         }
+        const startPoint = params.startPoint;
+        if (
+          startPoint !== undefined &&
+          (typeof startPoint !== 'string' || startPoint.length === 0)
+        ) {
+          return { error: 'startPoint must be a non-empty string when supplied', ok: false };
+        }
         const scope = await requireFullWorktreeRoot('Branch creation');
         if (!scope.ok) {
           return scope;
@@ -1070,13 +1077,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           // NEVER fall through to a plain switch: the caller asked to CREATE,
           // and quietly checking out an existing branch is a different action.
           return { error: `local branch "${branch}" already exists`, ok: false };
-        }
-        const startPoint = params.startPoint;
-        if (
-          startPoint !== undefined &&
-          (typeof startPoint !== 'string' || startPoint.length === 0)
-        ) {
-          return { error: 'startPoint must be a non-empty string when supplied', ok: false };
         }
         const run_ = await invokeHookFree([
           'switch',
