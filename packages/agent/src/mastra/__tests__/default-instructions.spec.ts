@@ -151,7 +151,9 @@ describe('default assistant instructions', () => {
       toolDiscoveryEnabled: true,
     });
     expect(withDiscovery).toContain('search_tools');
-    expect(withDiscovery).toContain('detailed or refreshed workspace context');
+    // This run's map registers NO workspace-context tools, so the derived
+    // family list must not advertise them (see the capability-coverage suite).
+    expect(withDiscovery).not.toContain('workspace context and tapestry');
     expect(withDiscovery).not.toContain('open workspace roots and focused context');
     expect(withDiscovery).not.toContain('web, skills, or embeddings');
     expect(withDiscovery).toContain(
@@ -686,5 +688,109 @@ describe('tool-discovery guidance', () => {
   it('says nothing about discovery when the catalog is not installed', () => {
     const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: false });
     expect(text).not.toContain('search_tools');
+  });
+});
+
+describe('tool-discovery capability coverage', () => {
+  const toolNameMap = new Map([
+    ['brainstrike_executeCommand', 'brainstrike.executeCommand'],
+    ['brainstrike_globWorkspace', 'brainstrike.globWorkspace'],
+  ]);
+
+  const fullToolNameMap = async () => {
+    const { isSkillNativeToolId, NATIVE_TOOL_DEFAULTS } = await import(
+      '@brainstrike/assistant-contract/tool-metadata'
+    );
+    const deferredIds = Object.entries(NATIVE_TOOL_DEFAULTS)
+      .filter(([id, defaults]) => defaults.loadingTier !== 'critical' && !isSkillNativeToolId(id))
+      .map(([id]) => id);
+    const map = new Map(toolNameMap);
+    for (const id of deferredIds) {
+      map.set(id.replace(/[^a-zA-Z0-9_-]/g, '_'), id);
+    }
+    return { deferredIds, map };
+  };
+
+  // Field failure (2026-08-23): the user asked for "the canvas tool"; the run
+  // deferred brainstrike.manageCanvas behind search_tools, but the discovery
+  // line's hand-written family list never mentioned canvas — so the model
+  // declared the tool nonexistent and never searched. Same run: a skill's
+  // activation named brainstrike.runSkillScript (also deferred), the model
+  // checked its visible tools, and worked around via executeCommand.
+  //
+  // The drift detector: every native tool the runtime would DEFER
+  // (loadingTier !== 'critical', skill ids force-cored — the exact rule in
+  // resolveToolDiscoverySurface) must belong to a family in
+  // deferred-capability-families.ts, and every family whose tools are eligible
+  // must be named on the discovery line. A deferred tool added without a
+  // family fails HERE, not in the field as a "tool does not exist"
+  // hallucination.
+  it('maps every runtime-deferred native tool to a capability family', async () => {
+    const { deferredIds } = await fullToolNameMap();
+    const { DEFERRED_CAPABILITY_FAMILIES } = await import('../deferred-capability-families');
+    expect(deferredIds.length).toBeGreaterThan(0);
+    const covered = new Set(DEFERRED_CAPABILITY_FAMILIES.flatMap((family) => [...family.ids]));
+    for (const id of deferredIds) {
+      expect(
+        covered.has(id),
+        `deferred tool ${id} belongs to no capability family — add it to deferred-capability-families.ts`
+      ).toBe(true);
+    }
+  });
+
+  it('names every ELIGIBLE family on the discovery line, given the full tool surface', async () => {
+    const { map } = await fullToolNameMap();
+    const { DEFERRED_CAPABILITY_FAMILIES } = await import('../deferred-capability-families');
+    const text = buildDefaultInstructions(map, { toolDiscoveryEnabled: true });
+    const discoveryLine =
+      text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    for (const family of DEFERRED_CAPABILITY_FAMILIES) {
+      expect(
+        discoveryLine,
+        `discovery line does not name available family "${family.phrase}"`
+      ).toContain(family.phrase);
+    }
+  });
+
+  it('omits families whose tools are NOT eligible for the run (web surface)', async () => {
+    // Review of #2625: an unconditional list advertised canvas documents,
+    // Python, browser pages, command sessions, diagnostics, DB self-query and
+    // skill scripts to WEB runs whose eligible set excludes those tools
+    // (WEB_NATIVE_TOOL_IDS) — the model would burn a turn searching for a
+    // capability that can never load. The list must derive from the run.
+    const { map } = await fullToolNameMap();
+    const { WEB_NATIVE_TOOL_IDS } = await import('@brainstrike/assistant-contract');
+    const webIds = new Set<string>(WEB_NATIVE_TOOL_IDS);
+    const webMap = new Map([...map].filter(([, originalId]) => webIds.has(originalId)));
+    const text = buildDefaultInstructions(webMap, { toolDiscoveryEnabled: true });
+    const discoveryLine =
+      text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    for (const phrase of [
+      'canvas documents',
+      'Python',
+      'browser pages',
+      'command sessions',
+      'diagnostics',
+      'DB self-query',
+      'skill scripts',
+    ]) {
+      expect(
+        discoveryLine,
+        `web surface must not advertise unavailable family "${phrase}"`
+      ).not.toContain(phrase);
+    }
+    // The families web DOES have stay advertised.
+    expect(discoveryLine).toContain('embedding search');
+    expect(discoveryLine).toContain('workspace context and tapestry');
+  });
+
+  it('tells the model that a tool NAMED but not loaded is reachable via search_tools', () => {
+    // The prompt-vs-surface contradiction: toolNameMap covers ALL eligible
+    // tools, so the instructions can name a tool (e.g. run_skill_script) that
+    // is not in the model's callable list. Without this sentence the model
+    // resolves the contradiction by declaring the tool nonexistent.
+    const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
+    const line = text.split('\n').find((candidate) => candidate.includes('search_tools')) ?? '';
+    expect(line.toLowerCase()).toContain('not loaded');
   });
 });

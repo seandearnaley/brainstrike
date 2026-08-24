@@ -25,8 +25,17 @@ export { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET };
 /** The canonical Mastra skill tool ids (never renamed/namespaced). */
 export const SKILL_TOOL_IDS = ['skill', 'skill_read', 'skill_search'] as const;
 
+/**
+ * Appended to every skill activation result. Names `brainstrike.runSkillScript`
+ * by exact id — which is a DEFERRED tool on hosted discovery runs — so it must
+ * carry its own recovery path: without the search_tools clause, a model that
+ * checks its visible tools concludes the tool does not exist and works around
+ * via executeCommand, bypassing the typed skill-script policy layer (field
+ * failure 2026-08-23). On non-discovery runs the tool is eager and the clause
+ * is inert.
+ */
 export const BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE =
-  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd. Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If declined, continue with native workspace tools and do not retry.';
+  '\n\nBrainstrike execution: run listed skill scripts with brainstrike.runSkillScript using literal args and mounted root/cwd — if that tool is not currently loaded, load it with search_tools when available (matches become callable next turn). Use brainstrike.writeWorkspaceFile for project writes; never construct shell heredocs. If the tool cannot be loaded or a script is declined, continue with native workspace tools and do not retry.';
 
 /** Mirrors countTokensHeuristic (4 chars/token) — same unit as the guard. */
 const APPROX_CHARS_PER_TOKEN = 4;
@@ -87,14 +96,42 @@ function withBoundedStringOutput<TTool extends object>(
   return { ...tool, execute: boundedExecute } as TTool;
 }
 
-function withActivationGuidance<TTool extends object>(tool: TTool): TTool {
+/**
+ * Bound the activation AND append the execution guidance, in that order.
+ *
+ * Review of #2625: nesting `withBoundedStringOutput(withActivationGuidance(…))`
+ * appended the guidance BEFORE bounding, and `fitToSerializedBudget` keeps a
+ * PREFIX — so any activation exceeding the budget lost the entire trailing
+ * guidance block, which is precisely the large, script-heavy SKILL.md most
+ * likely to need the `runSkillScript` recovery path. The bound now reserves
+ * the guidance's space: truncated content + honest note + guidance, all inside
+ * the budget — the same order the desktop activation context uses
+ * (`skills-activation-context.ts`: truncate first, then concatenate).
+ */
+function withBoundedActivationAndGuidance<TTool extends object>(
+  tool: TTool,
+  maxTokens: number,
+  buildNote: (originalChars: number) => string
+): TTool {
   const originalExecute = (tool as { execute?: AnyToolExecute }).execute;
   if (!originalExecute) {
     return tool;
   }
+  const maxSerializedChars = maxTokens * APPROX_CHARS_PER_TOKEN;
   const execute: AnyToolExecute = async (input, context) => {
     const output = await originalExecute(input, context);
-    return typeof output === 'string' ? output + BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE : output;
+    if (typeof output !== 'string') {
+      return output;
+    }
+    const withGuidance = output + BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE;
+    if (JSON.stringify(withGuidance).length <= maxSerializedChars) {
+      return withGuidance;
+    }
+    return fitToSerializedBudget(
+      output,
+      buildNote(output.length) + BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE,
+      maxSerializedChars
+    );
   };
   return { ...tool, execute } as TTool;
 }
@@ -106,13 +143,11 @@ function withActivationGuidance<TTool extends object>(tool: TTool): TTool {
 export function createAssistantSkillTools(skills: WorkspaceSkills) {
   const tools = createSkillTools(skills);
   return {
-    skill: withBoundedStringOutput(
-      withActivationGuidance(
-        withProviderContract(
-          tools.skill,
-          'Activate a skill by name or path.',
-          z.object({ name: z.string() })
-        )
+    skill: withBoundedActivationAndGuidance(
+      withProviderContract(
+        tools.skill,
+        'Activate a skill by name or path.',
+        z.object({ name: z.string() })
       ),
       SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
       (originalChars) =>

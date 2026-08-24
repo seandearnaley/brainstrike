@@ -2767,6 +2767,30 @@ actually installs `BrainstrikeToolSearchProcessor`. They tell the model to call
 `search_tools` for deferred capability families before substituting eager glob
 or shell tools.
 
+**THE DISCOVERY SURFACES NAME EVERY ELIGIBLE DEFERRED FAMILY — AND ONLY
+ELIGIBLE ONES.** A deferred capability the prompt never names is a tool the
+model declares nonexistent instead of searching for: the 2026-08-23 field
+failure dismissed both "the canvas tool" (`manageCanvas`) and a skill
+activation's named `runSkillScript` as missing, and worked around the latter
+via `executeCommand` — bypassing the typed skill-script policy layer. The
+opposite failure is advertising a family the run cannot load (a WEB run's
+eligible set excludes canvas/Python/browsers/command sessions/diagnostics/
+self-query/skill scripts). Both surfaces — the instructions' discovery line
+AND `search_tools`' own tool description — therefore DERIVE their family list
+per run from `deferred-capability-families.ts`, the single source; the
+`tool-discovery capability coverage` spec pins that every runtime-deferred
+native tool (`loadingTier !== 'critical'`, skill ids force-cored) belongs to
+a family, that eligible families are named, and that ineligible ones are not.
+The line also states that a tool NAMED by the instructions or a skill
+activation but not loaded is reachable via `search_tools` — the prompt names
+tools by exact id (`toolNameMap` spans both surfaces) that are not in the
+model's callable list until discovered, and without that sentence the model
+resolves the contradiction the wrong way.
+`BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE` (appended to every skill activation
+result, with its space RESERVED inside the activation budget so truncation
+can never slice it off) carries the same recovery clause for
+`runSkillScript`, self-gated on `search_tools` being available.
+
 **THE BATCHING EXEMPTION LIVES ON THE BATCHING LINE — do not relitigate.** A
 loaded match is callable only on the FOLLOWING turn, so batching `search_tools`
 with slow calls strands the discovery for their whole duration: an observed run

@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { formatTokenCount } from '@brainstrike/tokenization';
+import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
   if (budgetTokens === undefined || !Number.isFinite(budgetTokens) || budgetTokens <= 0) {
@@ -567,7 +568,8 @@ function buildAskUserInstruction(names: ModelFacingToolNames): string {
  */
 function buildToolDiscoveryInstruction(
   names: ModelFacingToolNames,
-  enabled: boolean | undefined
+  enabled: boolean | undefined,
+  availableOriginalToolIds: ReadonlySet<string>
 ): string {
   if (!enabled) {
     return '';
@@ -577,7 +579,21 @@ function buildToolDiscoveryInstruction(
   );
   const alternativesClause =
     eagerAlternatives.length > 0 ? ` before ${eagerAlternatives.join(' / ')}` : '';
-  return `Some capabilities are deferred behind search_tools. For detailed or refreshed workspace context, persistent sessions, semantic or LSP inspection, web, or embeddings, call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
+  // The family list is COVERAGE, not color: a deferred capability the prompt
+  // never names is one the model declares nonexistent instead of searching for
+  // (field failure 2026-08-23 — "the canvas tool" and a skill's named
+  // run_skill_script were both dismissed as missing). It is DERIVED from the
+  // run's eligible tools through the shared family table
+  // (deferred-capability-families.ts, also the source of the search_tools
+  // description), never hand-listed: an unconditional list advertised canvas,
+  // Python, and skill scripts to WEB runs whose eligible set excludes them
+  // (review of #2625) — the exact confusion in the other direction. The
+  // "named but not loaded" sentence resolves the prompt-vs-surface
+  // contradiction: these instructions (and skill activations) name tools by
+  // exact id that are not in the model's callable list until discovered.
+  const families = describeAvailableDeferredCapabilityFamilies(availableOriginalToolIds);
+  const familiesClause = families.length > 0 ? `: ${families}` : '';
+  return `Some capabilities are deferred behind search_tools${familiesClause}. When a tool you need is not loaded — including one these instructions or a skill activation names — call search_tools with a concise capability query${alternativesClause}. Loaded matches become callable on the next turn.`;
 }
 
 /**
@@ -718,7 +734,8 @@ export function buildDefaultInstructions(
   const askUserInstruction = buildAskUserInstruction(names);
   const toolDiscoveryInstruction = buildToolDiscoveryInstruction(
     names,
-    options.toolDiscoveryEnabled
+    options.toolDiscoveryEnabled,
+    new Set(toolNameMap.values())
   );
   const delegationInstruction = buildDelegationInstruction(options.personas);
   const projectWorkflowInstruction = [
