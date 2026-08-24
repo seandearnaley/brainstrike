@@ -319,17 +319,28 @@ describe('virtualized tier (BST-897)', () => {
     const viewport = await waitForOverflowingViewport();
     await waitForPinnedToEnd(viewport);
 
-    await scrollTo(viewport, 4000);
     const button = getButton();
+    // Pinned geometry settles before the button's virtualizer state. Establish
+    // the disabled starting state so the enabled wait below observes a real
+    // transition instead of passing on a stale opening render.
+    await waitFor(() => {
+      expect(button).toBeDisabled();
+    });
+
+    // Stay inside the already-mounted end window. Jumping to an arbitrary
+    // distant estimate makes row measurement corrections indistinguishable
+    // from append movement, which is not the contract this test owns.
+    await scrollTo(viewport, viewport.scrollTop - viewport.clientHeight);
     await waitFor(() => {
       expect(button).toBeEnabled();
     });
 
     const scrollTopBefore = viewport.scrollTop;
+    const scrollHeightBefore = viewport.scrollHeight;
     fireEvent.click(screen.getByTestId('append'));
 
     await waitFor(() => {
-      expect(document.querySelector('[data-thread-render-tier]')).not.toBeNull();
+      expect(viewport.scrollHeight).toBeGreaterThan(scrollHeightBefore);
     });
     // The reading position is untouched by the append …
     await waitFor(() => {
