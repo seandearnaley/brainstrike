@@ -1017,8 +1017,19 @@ additional explorer/status chrome):
     pairs `{ label, onReveal }` so supplying a handler without a label is a
     type error, and app-shell feeds it the platform-aware `revealLabel()`
     exported from `@brainstrike/file-explorer-ui/context-actions`.
-  - Branch chip: READ-ONLY `window.git.status` for the primary root
-    (branch/detached, ahead/behind, dirty dot) — no polling. It refetches on
+  - Branch chip: `window.git.status` supplies the primary root's
+    branch/detached, ahead/behind, and dirty-dot state — no polling. Opening the
+    chip loads `window.git.repository` and reuses the Git workbench's
+    `buildBranchSwitchModel`: local branches stay in repository recency order,
+    the current branch remains identified, and branches held by another
+    worktree render disabled with `in worktree: <name>`. Direct switch and new
+    branch both re-check clean status immediately before using the existing
+    `switchBranch` / `createBranch` bridge paths. A dirty checkout is refused
+    visibly because the new-worktree path remains unavailable until W3 lands;
+    there is no hidden fallback. Fetch names an explicit remote, Open in Changes
+    targets the same repository/worktree, and every bridge failure surfaces.
+    The chip text updates immediately after a successful switch or create while
+    the normal invalidation path catches up. It refetches status on
     BOTH live-refresh signals: every accepted `changes:invalidated`
     git-metadata push AND the primary root's own git-scope nonce
     (`selectGitScopeRefreshNonce`), which is what carries WORKING-TREE edits.

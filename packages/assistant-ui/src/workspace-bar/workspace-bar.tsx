@@ -36,7 +36,32 @@ export interface WorkspaceBarCheckout {
   readonly dirty: boolean;
 }
 
+export interface WorkspaceBarBranchRow {
+  readonly current: boolean;
+  readonly disabledReason: string | null;
+  readonly name: string;
+  readonly switchable: boolean;
+  readonly worktreeName: string | null;
+}
+
+/** Store-free branch-menu behavior supplied by app-shell's desktop Git capability. */
+export interface WorkspaceBarBranchMenu {
+  readonly defaultRemote: string | null;
+  readonly loading: boolean;
+  readonly onCreateBranch: (branch: string) => Promise<boolean>;
+  readonly onFetch: (remote: string) => Promise<boolean>;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onOpenChanges: () => void;
+  readonly onQueryChange: (query: string) => void;
+  readonly onSwitchBranch: (branch: string) => Promise<boolean>;
+  readonly query: string;
+  readonly remotes: readonly string[];
+  readonly rows: readonly WorkspaceBarBranchRow[];
+}
+
 export interface WorkspaceBarProps {
+  /** Desktop only — absent keeps the checkout chip informational. */
+  readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   /** Desktop only — read-only git state for the primary root; undefined hides the chip. */
   readonly checkout?: WorkspaceBarCheckout | undefined;
   readonly onAddFolder: () => void;
@@ -66,13 +91,17 @@ export interface WorkspaceBarProps {
  * app-shell's useWorkspaceBar() supplies everything, so this package stays
  * store-free.
  */
-export const WorkspaceBar = ({ checkout, ...folder }: WorkspaceBarProps): ReactElement => (
+export const WorkspaceBar = ({
+  branchMenu,
+  checkout,
+  ...folder
+}: WorkspaceBarProps): ReactElement => (
   // A plain container, not a labelled group: each chip carries its own
   // accessible name, and an extra grouping level would only add noise to the
   // composer's screen-reader path.
   <div className="mx-3 flex flex-wrap items-center gap-1.5" data-testid="workspace-bar">
     <FolderChip {...folder} />
-    {checkout ? <BranchChip checkout={checkout} /> : null}
+    {checkout ? <BranchChip checkout={checkout} menu={branchMenu} /> : null}
   </div>
 );
 

@@ -90,6 +90,8 @@ export {
 export * from './tool-fallback';
 export {
   WorkspaceBar,
+  type WorkspaceBarBranchMenu,
+  type WorkspaceBarBranchRow,
   type WorkspaceBarCheckout,
   type WorkspaceBarProps,
   type WorkspaceBarRecentRoot,

@@ -31,7 +31,8 @@ export interface BranchSwitchModel {
 
 const SUBFOLDER_SCOPE_REASON =
   'This folder is below the repository root — open the repository root to switch branches.';
-const DIRTY_REASON = 'Working tree has uncommitted changes — commit or stash first.';
+const DIRTY_REASON =
+  'Working tree has uncommitted changes. Switching in a new worktree is unavailable until Worktree support lands.';
 const CURRENT_REASON = 'Already checked out here.';
 
 /** Basename of a worktree path, separator-normalized (git prints POSIX or native). */
@@ -68,23 +69,23 @@ export function buildBranchSwitchModel(input: {
 }): BranchSwitchModel {
   const scopeReason = input.scope === 'workspace' ? SUBFOLDER_SCOPE_REASON : null;
   const needle = input.query.trim().toLowerCase();
-  const rows = input.branches
+  const rows: BranchSwitchRow[] = [];
+  for (const branch of input.branches) {
     // The current branch always survives the filter: hiding "where you are"
     // makes the list read as if the checkout moved.
-    .filter(
-      (branch) => branch.current || needle === '' || branch.name.toLowerCase().includes(needle)
-    )
-    .map((branch) => {
-      const worktreeName =
-        branch.worktreePath && !branch.current ? worktreeBasename(branch.worktreePath) : null;
-      const disabledReason = resolveDisabledReason(branch, worktreeName, input.dirty, scopeReason);
-      return {
-        current: branch.current,
-        disabledReason,
-        name: branch.name,
-        switchable: disabledReason === null,
-        worktreeName,
-      };
+    if (!(branch.current || needle === '' || branch.name.toLowerCase().includes(needle))) {
+      continue;
+    }
+    const worktreeName =
+      branch.worktreePath && !branch.current ? worktreeBasename(branch.worktreePath) : null;
+    const disabledReason = resolveDisabledReason(branch, worktreeName, input.dirty, scopeReason);
+    rows.push({
+      current: branch.current,
+      disabledReason,
+      name: branch.name,
+      switchable: disabledReason === null,
+      worktreeName,
     });
+  }
   return { dirty: input.dirty, rows, scopeReason };
 }

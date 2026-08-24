@@ -61,7 +61,7 @@ describe('buildBranchSwitchModel', () => {
     const alpha = model.rows.find((row) => row.name === 'feature/alpha');
     expect(alpha?.switchable).toBe(false);
     expect(alpha?.disabledReason).toBe(
-      'Working tree has uncommitted changes — commit or stash first.'
+      'Working tree has uncommitted changes. Switching in a new worktree is unavailable until Worktree support lands.'
     );
   });
 

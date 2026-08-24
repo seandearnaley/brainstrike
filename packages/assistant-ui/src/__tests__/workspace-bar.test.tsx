@@ -246,4 +246,106 @@ describe('WorkspaceBar', () => {
     expect(screen.getByTestId('workspace-bar-branch-chip')).toHaveTextContent('detached');
     expect(screen.getByTestId('workspace-bar-branch-chip')).toHaveAttribute('data-dirty', 'true');
   });
+
+  it('searches branch rows, identifies the current branch, and exposes worktree reasons', async () => {
+    const user = setup();
+    const onQueryChange = vi.fn();
+    const onSwitchBranch = vi.fn(async () => true);
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          branchMenu: {
+            defaultRemote: 'origin',
+            loading: false,
+            onCreateBranch: vi.fn(async () => true),
+            onFetch: vi.fn(async () => true),
+            onOpenChange: vi.fn(),
+            onOpenChanges: vi.fn(),
+            onQueryChange,
+            onSwitchBranch,
+            query: '',
+            remotes: ['origin'],
+            rows: [
+              {
+                current: true,
+                disabledReason: 'Already checked out here.',
+                name: 'main',
+                switchable: false,
+                worktreeName: null,
+              },
+              {
+                current: false,
+                disabledReason:
+                  'Checked out in worktree "beta-copy" — git allows one checkout per branch.',
+                name: 'feature/beta',
+                switchable: false,
+                worktreeName: 'beta-copy',
+              },
+              {
+                current: false,
+                disabledReason: null,
+                name: 'feature/alpha',
+                switchable: true,
+                worktreeName: null,
+              },
+            ],
+          },
+          checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        })}
+      />
+    );
+
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    expect(await screen.findByTestId('workspace-bar-branch-row-main')).toHaveTextContent('Current');
+    const held = screen.getByTestId('workspace-bar-branch-row-feature/beta');
+    expect(held).toBeDisabled();
+    expect(held).toHaveTextContent('in worktree: beta-copy');
+    expect(screen.getByText(/git allows one checkout per branch/u)).toBeVisible();
+
+    await user.type(screen.getByTestId('workspace-bar-branch-search'), 'alpha');
+    expect(onQueryChange).toHaveBeenLastCalledWith('alpha');
+    await user.click(screen.getByTestId('workspace-bar-branch-row-feature/alpha'));
+    expect(onSwitchBranch).toHaveBeenCalledWith('feature/alpha');
+  });
+
+  it('explains dirty refusal and offers New branch, Fetch, and Open in Changes', async () => {
+    const user = setup();
+    const onCreateBranch = vi.fn(async () => true);
+    const onFetch = vi.fn(async () => true);
+    const onOpenChanges = vi.fn();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          branchMenu: {
+            defaultRemote: 'origin',
+            loading: false,
+            onCreateBranch,
+            onFetch,
+            onOpenChange: vi.fn(),
+            onOpenChanges,
+            onQueryChange: vi.fn(),
+            onSwitchBranch: vi.fn(async () => false),
+            query: '',
+            remotes: ['origin'],
+            rows: [],
+          },
+          checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+        })}
+      />
+    );
+
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    expect(screen.getByTestId('workspace-bar-dirty-switch-reason')).toHaveTextContent(
+      'Switching in a new worktree is unavailable until Worktree support lands.'
+    );
+
+    await user.type(screen.getByTestId('workspace-bar-branch-new-name'), 'feature/new');
+    await user.click(screen.getByTestId('workspace-bar-create-branch'));
+    expect(onCreateBranch).toHaveBeenCalledWith('feature/new');
+
+    await user.click(screen.getByTestId('workspace-bar-fetch-origin'));
+    expect(onFetch).toHaveBeenCalledWith('origin');
+    await user.click(screen.getByTestId('workspace-bar-open-changes'));
+    expect(onOpenChanges).toHaveBeenCalledTimes(1);
+  });
 });
