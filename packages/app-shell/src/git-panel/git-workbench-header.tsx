@@ -542,7 +542,7 @@ export function GitWorkbenchHeader({
                       <span className="block truncate">{row.name}</span>
                       {row.worktreeName ? (
                         <span
-                          className="mt-0.5 block truncate text-[10px] text-muted-foreground"
+                          className="mt-0.5 block whitespace-normal text-[10px] text-muted-foreground"
                           data-testid="git-workbench-branch-disabled-reason"
                         >
                           {row.disabledReason}
