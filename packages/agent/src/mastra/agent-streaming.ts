@@ -27,6 +27,7 @@ import {
   resolveOpenRouterReasoningActive,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
+import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
 import type { AssistantToolApprovalAction } from '@brainstrike/assistant-contract/tool-approval';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolResumeAction } from '@brainstrike/assistant-contract/tool-suspend';
@@ -975,11 +976,66 @@ interface ToolApprovalIterationParams {
   sanitizedNameMap?: Map<string, string>;
 }
 
-interface ResumedApprovalToolCall {
+interface ResumedToolCallStart {
   args: unknown;
   displayToolName: string;
   registeredToolName: string;
   toolCallId: string;
+}
+
+interface ResumedApprovalToolCall extends ResumedToolCallStart {
+  /**
+   * The suspended step's OTHER pending calls (2026-08-24 field failure).
+   * Mastra resume legs never replay the step's `tool-call` parts, and the
+   * synthetic start used to cover only the approved call — so a sibling
+   * delegation in the same step ran for minutes with no card and no
+   * `subagent.started`, and the UI pinned the whole wait on the stale
+   * approved-tool card. Every pending call gets its start back.
+   */
+  siblings: readonly ResumedToolCallStart[];
+}
+
+/**
+ * Synthetic `start` chunks for EVERY pending call of a resumed suspended step
+ * (2026-08-24 field failure — see {@link ResumedApprovalToolCall.siblings}).
+ * Delegation (`agent-*`) siblings also get their `subagent.started`,
+ * registered with the lifecycle tracker so aborts still drain them and later
+ * subagent terminals have a mate.
+ */
+function* makeResumedStartChunks(
+  resumed: ResumedApprovalToolCall,
+  toolNames: Map<string, string>,
+  lifecycleState: ToolLifecycleState
+): Generator<StreamChunk> {
+  const starts: readonly ResumedToolCallStart[] = [resumed, ...resumed.siblings];
+  for (const start of starts) {
+    toolNames.set(start.toolCallId, start.registeredToolName);
+    yield {
+      name: start.displayToolName,
+      payload: {
+        args: start.args,
+        callId: start.toolCallId,
+        input: start.args,
+        toolCallId: start.toolCallId,
+      },
+      status: 'start',
+      type: 'tool-event',
+    };
+    if (start.registeredToolName.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX)) {
+      const delegationMetadata = {
+        parentToolCallId: start.toolCallId,
+        personaId: start.registeredToolName.slice(SUBAGENT_DELEGATION_TOOL_PREFIX.length),
+        toolName: start.displayToolName,
+      };
+      lifecycleState.delegationLifecycle.started(start.toolCallId, delegationMetadata);
+      yield makeRunEventChunk(
+        'subagent.started',
+        'running',
+        'Subagent started',
+        delegationMetadata
+      );
+    }
+  }
 }
 
 /**
@@ -1368,18 +1424,7 @@ async function* streamAttemptChunks({
       yield { breakdown: promptBreakdown, type: 'context-breakdown' };
     }
     if (resumedApprovalToolCall) {
-      toolNames.set(resumedApprovalToolCall.toolCallId, resumedApprovalToolCall.registeredToolName);
-      yield {
-        name: resumedApprovalToolCall.displayToolName,
-        payload: {
-          args: resumedApprovalToolCall.args,
-          callId: resumedApprovalToolCall.toolCallId,
-          input: resumedApprovalToolCall.args,
-          toolCallId: resumedApprovalToolCall.toolCallId,
-        },
-        status: 'start',
-        type: 'tool-event',
-      };
+      yield* makeResumedStartChunks(resumedApprovalToolCall, toolNames, lifecycleState);
     }
     const rawSource = readableStreamIterator(stream, streamAbortContext.signal);
     const toolInputBoundedSource = withToolCallInputTimeout(
@@ -2368,6 +2413,30 @@ async function readResumedApprovalToolCall(
     });
   }
 
+  const siblings: ResumedToolCallStart[] = [];
+  for (const candidate of run?.toolCalls ?? []) {
+    // Destructured consts so the narrowing survives into the push below.
+    const { args, toolCallId: siblingToolCallId, toolName: siblingToolName } = candidate;
+    if (
+      !siblingToolCallId ||
+      siblingToolCallId === action.toolCallId ||
+      !siblingToolName ||
+      args === undefined
+    ) {
+      continue;
+    }
+    siblings.push({
+      args,
+      displayToolName: resolveDiscoveredApprovalToolName(
+        siblingToolName,
+        runtime.toolNameMap,
+        action.runId
+      ),
+      registeredToolName: siblingToolName,
+      toolCallId: siblingToolCallId,
+    });
+  }
+
   return {
     args: toolCall.args,
     displayToolName: resolveDiscoveredApprovalToolName(
@@ -2376,6 +2445,7 @@ async function readResumedApprovalToolCall(
       action.runId
     ),
     registeredToolName: toolCall.toolName,
+    siblings,
     toolCallId: action.toolCallId,
   };
 }

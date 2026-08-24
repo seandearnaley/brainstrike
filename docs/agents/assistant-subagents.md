@@ -167,6 +167,15 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   `subagent.failed` (status `cancelled`) event via
   `createDelegationLifecycleTracker` (drained on the generator's abort paths),
   so a cancelled parent never leaves an orphaned `subagent.started`.
+  APPROVAL-RESUME legs synthesize a `start` tool-event for EVERY pending call
+  of the suspended step — not only the approved one — and `agent-*` siblings
+  additionally get their `subagent.started` (registered with the tracker so
+  aborts still drain them). Mastra resume legs never replay the step's
+  `tool-call` parts, and Mastra emits a step's `tool-result` chunks as one
+  batch after the slowest call settles (verified in the 1.59 dist): without the
+  sibling starts, a delegation sharing a step with an approved tool ran for
+  minutes with no card while the UI pinned the wait on the stale approved-tool
+  card (2026-08-24).
 - **Stream → run events (D9):** `processMastraStreamPart` (agent-streaming.ts)
   threads `runtime.delegationToolPersonas` (`agent-<key>` → personaId). A parent
   `tool-call`/`tool-result`/`tool-error` for a delegation tool ALSO emits
@@ -256,9 +265,17 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
     the policy in isolation,
     `subagent-tool-rows.test.ts` (outcome reader + concurrent-delegation
     scoping), `subagent-execution-card.test.tsx` (card status).
-- **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
-  (tool-output-limits.ts) so an oversized delegation result trims structurally
-  (truncated + hint) instead of a hard size error.
+- **Budget guard:** an `agent-*` result's `subAgentToolResults` is PROJECTED to
+  compact per-child rows (`toolName`, `toolCallId`, `isError`, small `args`)
+  BEFORE any bounding (`projectDelegationResultForTransport`,
+  tool-output-limits.ts) — the raw child `result` bodies are dropped: the
+  parent model receives only the child's answer text and the card renders only
+  the identifying fields. 2026-08-24 field failure: one oversized raw child
+  result blew the generic budget, `trimCollectionToBudget` returned undefined
+  (a single unfittable item), and the preview fallback dropped the list
+  wholesale — a reopened card read "Completed · 0 tool calls" for a child that
+  did minutes of work. The `TRIMMABLE_COLLECTION_KEYS` entry remains as the
+  structural backstop for the (now tiny) projected list.
 - **Durable artifact analysis:** built-in personas include the read-only
   `brainstrike.readToolOutputArtifact` capability when the run registers it.
   Oversized-result settlement advertises whole-result delegation only after
@@ -288,11 +305,18 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   ui `subagent-tool-cards.test.tsx`.
 
 The SubagentCard renders per-child-tool rows from BOTH the tool part's persisted
-`subAgentToolResults` (authoritative on reload + at completion) AND, while the
-delegation is still running, LIVE `subagent.tool.*` run events from the current
-message (keyed by `parentToolCallId`); persisted rows supersede live rows by
+`subAgentToolResults` (authoritative on reload + at completion) AND LIVE
+`subagent.tool.*` run events read THREAD-WIDE, scoped by `parentToolCallId`
+(`readLiveSubagentToolRowsFromMessages`); persisted rows supersede live rows by
 child `toolCallId`, so a running delegation shows its in-progress tool count
-instead of "Running · 0 tool calls".
+instead of "Running · 0 tool calls". Thread-wide, not message-scoped, is
+load-bearing (2026-08-24): hydration weaves a run's events into ONE assistant
+group and an approval-resume turn SPLITS into sibling groups, so on reload the
+events can land on a different message than the card — a message-scoped read
+showed "0 tool calls" for a completed four-minute child. The events are
+parent-scoped by construction, so the wider read cannot pick up another
+delegation's rows. The same thread-wide rule applies to the no-answer outcome
+read (`readSubagentDelegationOutcomeFromMessages`).
 
 Because every `subagent.*` row is HIDDEN from the main run timeline (it belongs
 to the card), the timeline's `.started` → terminal pairing never had to be right
