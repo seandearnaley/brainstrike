@@ -1076,6 +1076,49 @@ describe('git service — repository browser', () => {
     });
   });
 
+  it('creates and checks out a new local branch from an explicit start point', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    const created = await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
+    expect(created).toEqual({ ok: true, value: { branch: 'bs/bright-fox' } });
+
+    const status = await service.status();
+    expect(status.ok && status.value.branch).toBe('bs/bright-fox');
+  });
+
+  it('refuses a branch name that already exists rather than silently switching', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
+    const again = await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
+    expect(again).toEqual({ error: 'local branch "bs/bright-fox" already exists', ok: false });
+  });
+
+  it('rejects an empty branch name and the "-" shorthand', async () => {
+    const repo = await makeRepo();
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    expect(await service.createBranch({ branch: '' })).toEqual({
+      error: 'branch must be a non-empty string',
+      ok: false,
+    });
+    expect(await service.createBranch({ branch: '-' })).toEqual({
+      error: 'local branch "-" is not supported',
+      ok: false,
+    });
+  });
+
   it('switches only to an existing local branch and reports the new branch', async () => {
     const repo = await makeRepo('brainstrike-git-switch-');
     await writeFile(repo, 'file.txt', 'main\n');

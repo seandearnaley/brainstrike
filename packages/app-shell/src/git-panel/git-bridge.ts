@@ -14,6 +14,7 @@ import type {
   GitAheadBehind,
   GitCommitFile,
   GitCommitResult,
+  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitHistoryPage,
@@ -31,6 +32,7 @@ export type {
   GitBranchSummary,
   GitCommitFile,
   GitCommitResult,
+  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitHistoryCommit,
@@ -58,6 +60,10 @@ export interface GitBridge {
     rootId: string,
     params: { commit: string }
   ) => Promise<GitResult<readonly GitCommitFile[]>>;
+  createBranch: (
+    rootId: string,
+    params: { branch: string; startPoint?: string }
+  ) => Promise<GitResult<GitCreateBranchResult>>;
   diff: (rootId: string, params: GitDiffParams) => Promise<GitResult<GitDiff>>;
   fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
   history: (
@@ -89,6 +95,7 @@ const GIT_BRIDGE_REQUIRED_METHOD_SET = {
   aheadBehind: true,
   commit: true,
   commitFiles: true,
+  createBranch: true,
   diff: true,
   fetch: true,
   history: true,
