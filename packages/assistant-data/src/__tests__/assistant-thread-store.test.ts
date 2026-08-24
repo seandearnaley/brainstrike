@@ -225,6 +225,41 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
   });
 
+  it('keeps the latest title refresh when an older resource refresh resolves last', async () => {
+    const initialThread = {
+      ...makeThread('thread-title-race', '2026-04-22T11:00:00Z'),
+      title: 'New Thread',
+    };
+    const repository = createRepository([initialThread]);
+    const staleRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    vi.mocked(repository.listThreads)
+      .mockReturnValueOnce(staleRefresh.promise)
+      .mockResolvedValueOnce([
+        {
+          ...initialThread,
+          title: 'Generated Thread Title',
+          updatedAt: new Date('2026-04-22T11:01:00Z'),
+        },
+      ]);
+
+    const older = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    const newer = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    await newer;
+
+    staleRefresh.resolve([initialThread]);
+    await older;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.title).toBe(
+      'Generated Thread Title'
+    );
+  });
+
   it('preserves a metadata write that completes while an older title refresh is in flight', async () => {
     const repository = createRepository([makeCuratedThread()]);
     const staleRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();

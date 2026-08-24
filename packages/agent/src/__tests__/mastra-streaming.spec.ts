@@ -34,6 +34,7 @@ import {
   setMcpToolsets,
   setMockMessageList,
   setMockStreamParts,
+  setMockTitleGenerationResults,
   setStreamFailure,
   setStreamPartDelayMs,
   setStreamPartFailure,
@@ -114,6 +115,113 @@ describe('mastra streaming integration', () => {
         },
       },
     ]);
+  });
+
+  it('generates a title when a non-aborted stream ends without a raw finish part', async () => {
+    setMockStreamParts([{ textDelta: 'Here is the answer.', type: 'text-delta' }]);
+    setMockTitleGenerationResults(['Workspace Review']);
+    const thread = {
+      createdAt: new Date('2026-08-24T12:00:00.000Z'),
+      id: 'thread-title-missing-finish',
+      resourceId: 'resource-title-missing-finish',
+      title: 'New Thread',
+      updatedAt: new Date('2026-08-24T12:00:00.000Z'),
+    };
+    const memory = {
+      getMergedThreadConfig: vi.fn(() => ({ generateTitle: true })),
+      getThreadById: vi.fn(async () => thread),
+      id: 'memory-title-missing-finish',
+      saveThread: vi.fn(),
+    };
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'user-title-missing-finish',
+          parts: [{ text: 'Review this workspace.', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        memory: memory as never,
+        runtime: {
+          apiKey: 'test-key',
+          memory: {
+            resourceId: thread.resourceId,
+            threadId: thread.id,
+          },
+          provider: 'openai',
+        },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances[0]?.generateTitleFromUserMessageCalls).toHaveLength(1);
+    expect(memory.saveThread).toHaveBeenCalledWith({
+      thread: expect.objectContaining({ id: thread.id, title: 'Workspace Review' }),
+    });
+  });
+
+  it('retries one OpenRouter empty title on the same agent and persists the retry result', async () => {
+    setMockStreamParts([
+      { textDelta: 'Here is the answer.', type: 'text-delta' },
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: 0.001 } } },
+        type: 'finish',
+        usage: { completionTokens: 2, promptTokens: 8 },
+      },
+    ]);
+    setMockTitleGenerationResults(['', 'Reasoning Route Title']);
+    const thread = {
+      createdAt: new Date('2026-08-24T12:00:00.000Z'),
+      id: 'thread-title-openrouter-empty',
+      resourceId: 'resource-title-openrouter-empty',
+      title: 'New Thread',
+      updatedAt: new Date('2026-08-24T12:00:00.000Z'),
+    };
+    const memory = {
+      getMergedThreadConfig: vi.fn(() => ({ generateTitle: true })),
+      getThreadById: vi.fn(async () => thread),
+      id: 'memory-title-openrouter-empty',
+      saveThread: vi.fn(),
+    };
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'user-title-openrouter-empty',
+          parts: [{ text: 'Explain this reasoning route.', type: 'text' }],
+          role: 'user',
+        },
+      ],
+      {
+        memory: memory as never,
+        runtime: {
+          apiKey: 'test-key',
+          memory: {
+            resourceId: thread.resourceId,
+            threadId: thread.id,
+          },
+          model: 'openai/gpt-5.6-terra',
+          provider: 'openrouter',
+        },
+      }
+    );
+
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    const titleCalls = agentInstances[0]?.generateTitleFromUserMessageCalls ?? [];
+    expect(titleCalls).toHaveLength(2);
+    expect(titleCalls[1]).toEqual(titleCalls[0]);
+    expect(memory.saveThread).toHaveBeenCalledWith({
+      thread: expect.objectContaining({ id: thread.id, title: 'Reasoning Route Title' }),
+    });
   });
 
   it('persists a stalled attempt before disposing after continuation construction fails', async () => {
