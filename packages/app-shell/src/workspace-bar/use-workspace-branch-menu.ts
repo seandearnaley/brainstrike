@@ -4,12 +4,14 @@ import { createLogger } from '@brainstrike/logging';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useMemo, useState } from 'react';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
-import { buildBranchSwitchModel } from '../git-panel/branch-switch-model';
+import {
+  buildBranchSwitchModel,
+  DIRTY_REASON,
+  deriveBranchSwitchDirty,
+} from '../git-panel/branch-switch-model';
 import type { GitBridge, GitRepository, GitResult } from '../git-panel/git-bridge';
 
 const logger = createLogger('WorkspaceBranchMenu');
-const DIRTY_REFUSAL =
-  'This checkout has uncommitted changes. Direct switching was refused, and switching in a new worktree is unavailable until Worktree support lands.';
 
 interface WorkspaceBranchRoot {
   readonly path: string;
@@ -26,6 +28,7 @@ interface UseWorkspaceBranchMenuArgs {
 interface RepositoryState {
   readonly repository: GitRepository;
   readonly rootId: string;
+  readonly switchDirty: boolean;
 }
 
 function failureMessage(error: unknown): string {
@@ -57,13 +60,22 @@ export function useWorkspaceBranchMenu({
     }
     setLoadingRootId(rootId);
     try {
-      const result = await bridge.repository(rootId);
-      if (!result.ok) {
-        publishFailure('Repository details failed', result.error);
+      const repositoryResult = await bridge.repository(rootId);
+      if (!repositoryResult.ok) {
+        publishFailure('Repository details failed', repositoryResult.error);
         return null;
       }
-      setRepositoryState({ repository: result.value, rootId });
-      return result.value;
+      const statusResult = await bridge.status(rootId);
+      if (!statusResult.ok) {
+        publishFailure('Git status failed', statusResult.error);
+        return null;
+      }
+      setRepositoryState({
+        repository: repositoryResult.value,
+        rootId,
+        switchDirty: deriveBranchSwitchDirty(statusResult.value),
+      });
+      return repositoryResult.value;
     } catch (error: unknown) {
       publishFailure('Repository details failed', failureMessage(error));
       return null;
@@ -76,18 +88,20 @@ export function useWorkspaceBranchMenu({
     if (!(bridge && rootId)) {
       return false;
     }
-    if (checkout?.dirty) {
-      publishFailure('Branch switch unavailable', DIRTY_REFUSAL);
-      return false;
-    }
     try {
       const result = await bridge.status(rootId);
       if (!result.ok) {
         publishFailure('Git status failed', result.error);
         return false;
       }
-      if (!result.value.clean) {
-        publishFailure('Branch switch unavailable', DIRTY_REFUSAL);
+      const switchDirty = deriveBranchSwitchDirty(result.value);
+      if (repositoryState?.rootId === rootId) {
+        setRepositoryState((current) =>
+          current?.rootId === rootId ? { ...current, switchDirty } : current
+        );
+      }
+      if (switchDirty) {
+        publishFailure('Branch switch unavailable', DIRTY_REASON);
         return false;
       }
       return true;
@@ -95,7 +109,7 @@ export function useWorkspaceBranchMenu({
       publishFailure('Git status failed', failureMessage(error));
       return false;
     }
-  }, [bridge, checkout?.dirty, publishFailure, rootId]);
+  }, [bridge, publishFailure, repositoryState?.rootId, rootId]);
 
   const runMutation = useCallback(
     async <T>(
@@ -120,18 +134,19 @@ export function useWorkspaceBranchMenu({
     [bridge, publishFailure, rootId]
   );
 
-  const rows = useMemo(
+  const model = useMemo(
     () =>
-      repository && checkout
+      repositoryState?.rootId === rootId && checkout
         ? buildBranchSwitchModel({
-            branches: repository.branches,
-            dirty: checkout.dirty,
+            branches: repositoryState.repository.branches,
+            dirty: repositoryState.switchDirty,
             query,
-            scope: repository.scope,
-          }).rows
-        : [],
-    [checkout, query, repository]
+            scope: repositoryState.repository.scope,
+          })
+        : null,
+    [checkout, query, repositoryState, rootId]
   );
+  const rows = model?.rows ?? [];
 
   if (!(bridge && root && checkout)) {
     return null;
@@ -139,6 +154,7 @@ export function useWorkspaceBranchMenu({
 
   return {
     defaultRemote: repository?.defaultRemote ?? null,
+    dirtyReason: model?.dirty ? DIRTY_REASON : null,
     loading: loadingRootId === root.rootId,
     onCreateBranch: async (branch) => {
       if (!(await requireCleanCheckout())) {

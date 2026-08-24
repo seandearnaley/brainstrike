@@ -256,6 +256,7 @@ describe('WorkspaceBar', () => {
         {...baseProps({
           branchMenu: {
             defaultRemote: 'origin',
+            dirtyReason: null,
             loading: false,
             onCreateBranch: vi.fn(async () => true),
             onFetch: vi.fn(async () => true),
@@ -318,6 +319,8 @@ describe('WorkspaceBar', () => {
         {...baseProps({
           branchMenu: {
             defaultRemote: 'origin',
+            dirtyReason:
+              'Working tree has uncommitted changes. Switching in a new worktree is unavailable until Worktree support lands.',
             loading: false,
             onCreateBranch,
             onFetch,

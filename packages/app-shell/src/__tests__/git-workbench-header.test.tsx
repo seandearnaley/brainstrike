@@ -548,7 +548,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
 
     // Visible, not just a title tooltip on a disabled item (Major 1).
     expect(screen.getByTestId('git-workbench-branch-dirty-reason')).toHaveTextContent(
-      'Working tree has uncommitted changes — commit or stash first.'
+      'Working tree has uncommitted changes. Switching in a new worktree is unavailable until Worktree support lands.'
     );
     const row = screen.getByRole('menuitem', { name: 'feature/search' });
     expect(row).toHaveAttribute('aria-disabled', 'true');

@@ -47,6 +47,8 @@ export interface WorkspaceBarBranchRow {
 /** Store-free branch-menu behavior supplied by app-shell's desktop Git capability. */
 export interface WorkspaceBarBranchMenu {
   readonly defaultRemote: string | null;
+  /** Shared tracked-file switch gate; null for clean or untracked-only checkouts. */
+  readonly dirtyReason: string | null;
   readonly loading: boolean;
   readonly onCreateBranch: (branch: string) => Promise<boolean>;
   readonly onFetch: (remote: string) => Promise<boolean>;
@@ -86,7 +88,7 @@ export interface WorkspaceBarProps {
 
 /**
  * The composer workspace bar: Folder chip (this thread's primary + secondary
- * folders, recents, Add folder…) and a read-only Branch chip (desktop). Always
+ * folders, recents, Add folder…) and a Branch chip (desktop). Always
  * rendered — its job is orientation, not disambiguation. Pure + prop-driven:
  * app-shell's useWorkspaceBar() supplies everything, so this package stays
  * store-free.

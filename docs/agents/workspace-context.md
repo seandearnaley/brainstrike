@@ -1024,10 +1024,13 @@ additional explorer/status chrome):
     the current branch remains identified, and branches held by another
     worktree render disabled with `in worktree: <name>`. Direct switch and new
     branch both re-check clean status immediately before using the existing
-    `switchBranch` / `createBranch` bridge paths. A dirty checkout is refused
-    visibly because the new-worktree path remains unavailable until W3 lands;
-    there is no hidden fallback. Fetch names an explicit remote, Open in Changes
-    targets the same repository/worktree, and every bridge failure surfaces.
+    `switchBranch` / `createBranch` bridge paths. The shared switch gate derives
+    dirty state from tracked porcelain entries, so an untracked-only checkout
+    remains switchable while staged or modified tracked files are refused
+    visibly because the new-worktree path remains unavailable until W3 lands.
+    The chip's dirty dot still reflects all porcelain entries. There is no
+    hidden fallback. Fetch names an explicit remote, Open in Changes targets the
+    same repository/worktree, and every bridge failure surfaces.
     The chip text updates immediately after a successful switch or create while
     the normal invalidation path catches up. It refetches status on
     BOTH live-refresh signals: every accepted `changes:invalidated`

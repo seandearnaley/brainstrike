@@ -6,9 +6,6 @@ import type { WorkspaceBarBranchMenu, WorkspaceBarCheckout } from './workspace-b
 const countBadge = (count: number | null, glyph: string): string | null =>
   count !== null && count > 0 ? `${glyph}${count}` : null;
 
-const DIRTY_WORKTREE_REASON =
-  'Direct switching is unavailable while this checkout has uncommitted changes. Switching in a new worktree is unavailable until Worktree support lands.';
-
 export const BranchChip = ({
   checkout,
   menu,
@@ -87,12 +84,12 @@ export const BranchChip = ({
           placeholder="Search local branches…"
         />
 
-        {checkout.dirty ? (
+        {menu.dirtyReason ? (
           <p
             className="rounded-md bg-amber-500/10 px-2 py-1.5 text-amber-800 text-xs dark:text-amber-200"
             data-testid="workspace-bar-dirty-switch-reason"
           >
-            {DIRTY_WORKTREE_REASON}
+            {menu.dirtyReason}
           </p>
         ) : null}
 

@@ -12,12 +12,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   toast,
 }));
 
-const status = (clean: boolean): GitStatus => ({
+const status = (files: GitStatus['files'] = []): GitStatus => ({
   ahead: 0,
   behind: 0,
   branch: 'main',
-  clean,
-  files: [],
+  clean: files.length === 0,
+  files,
   isRepository: true,
   upstream: null,
 });
@@ -54,7 +54,7 @@ const repository: GitRepository = {
   worktrees: [],
 };
 
-function bridge(clean = true): GitBridge {
+function bridge(files: GitStatus['files'] = []): GitBridge {
   const okNull = vi.fn(async () => ({ ok: true as const, value: null }));
   return {
     aheadBehind: vi.fn(),
@@ -71,7 +71,7 @@ function bridge(clean = true): GitBridge {
     push: vi.fn(),
     repository: vi.fn(async () => ({ ok: true as const, value: repository })),
     stage: okNull,
-    status: vi.fn(async () => ({ ok: true as const, value: status(clean) })),
+    status: vi.fn(async () => ({ ok: true as const, value: status(files) })),
     structuredFileDiff: vi.fn(),
     switchBranch: vi.fn(async (_rootId, params) => ({
       ok: true as const,
@@ -114,8 +114,10 @@ describe('useWorkspaceBranchMenu', () => {
     expect(onBranchChanged).toHaveBeenCalledWith('recent');
   });
 
-  it('refuses a stale dirty checkout before invoking switch and explains the unavailable worktree path', async () => {
-    const git = bridge(false);
+  it('refuses a fresh tracked change before invoking switch and explains the unavailable worktree path', async () => {
+    const git = bridge([
+      { path: 'tracked.ts', staged: false, status: 'M', unstaged: true, untracked: false },
+    ]);
     const { result } = renderHook(() =>
       useWorkspaceBranchMenu({
         bridge: git,
@@ -137,6 +139,28 @@ describe('useWorkspaceBranchMenu', () => {
         variant: 'destructive',
       })
     );
+  });
+
+  it('allows an untracked-only checkout through the shared tracked-file gate', async () => {
+    const git = bridge([
+      { path: 'new.ts', staged: false, status: '?', unstaged: false, untracked: true },
+    ]);
+    const { result } = renderHook(() =>
+      useWorkspaceBranchMenu({
+        bridge: git,
+        checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+        onBranchChanged: vi.fn(),
+        root: { path: '/repo', rootId: 'root-1' },
+      })
+    );
+    act(() => result.current?.onOpenChange(true));
+    await waitFor(() => expect(result.current?.rows).toHaveLength(3));
+
+    expect(result.current?.rows.find((row) => row.name === 'recent')?.switchable).toBe(true);
+    await act(async () => {
+      await result.current?.onSwitchBranch('recent');
+    });
+    expect(git.switchBranch).toHaveBeenCalledWith('root-1', { branch: 'recent' });
   });
 
   it('creates, fetches, and opens the current checkout in Changes', async () => {
