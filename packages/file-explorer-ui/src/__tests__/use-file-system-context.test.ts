@@ -611,6 +611,56 @@ describe('useFileSystem context hook', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Memo identity (BST-1446): useFileSystemInstance's returned object is a
+// useMemo with a dependency list that must be BOTH complete (every value the
+// factory closes over is listed) and stable (none of those values churn on
+// an unrelated re-render). These tests pin both halves of that contract —
+// see the deps-array comment in use-file-system-context.ts for the audit.
+// ---------------------------------------------------------------------------
+
+describe('useFileSystem — return-object memo identity', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the same object reference across a re-render with no file-system-relevant change', () => {
+    const { result, rerender } = renderHook(() => useExposed(), {
+      wrapper: FileExplorerTestWrapper,
+    });
+
+    const before = result.current.fs;
+
+    // Re-invoking the hook (an "unrelated" parent re-render — no store
+    // mutation, no coreApi state change) must not churn the memo: every
+    // local wrapper function (clearRootDirectory, selectRootDirectory,
+    // removeRootDirectory, registerRestoredHandles, setRootHandle) is
+    // useCallback-stabilized specifically so this holds.
+    act(() => {
+      rerender();
+    });
+
+    expect(result.current.fs).toBe(before);
+  });
+
+  it('publishes a new object whose value reflects a genuine capability change (setAccessLoading)', () => {
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    const before = result.current.fs;
+    expect(before.isAccessLoading).toBe(false);
+
+    // setAccessLoading is one of the previously-omitted deps (coreApi.setAccessLoading);
+    // flipping it must both change the memo's identity and propagate the new value —
+    // proving the fix didn't over-stabilize the memo into ignoring real changes.
+    act(() => {
+      result.current.fs.setAccessLoading(true);
+    });
+
+    expect(result.current.fs).not.toBe(before);
+    expect(result.current.fs.isAccessLoading).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Debounce tests for handleWatcherChanges
 // These tests verify that multiple rapid file-system change notifications are
 // collapsed into a single FILE_EXPLORER_REFRESH_EVENT dispatch (300ms trailing

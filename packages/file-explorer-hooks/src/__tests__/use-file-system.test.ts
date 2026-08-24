@@ -11,7 +11,7 @@ import type { RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdaptersProvider } from '../adapters-context.js';
+import { AdaptersProvider, type AdaptersProviderProps } from '../adapters-context.js';
 import { useFileSystem } from '../use-file-system.js';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers.js';
 
@@ -1657,7 +1657,17 @@ describe('useFileSystem', () => {
     function wrapperFor(adapter: FileSystemAdapter) {
       const storageAdapter = createStorageAdapter('web');
       return ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+        // No-JSX file: createElement's typed overload requires `props` to satisfy
+        // AdaptersProviderProps in full (children included) regardless of the
+        // trailing children arg — JSX bypasses this via compiler-special-casing,
+        // which isn't available in a .ts file. The cast mirrors exactly what the
+        // JSX transform does at runtime (merge children into props), so children
+        // still nests through the third argument instead of an explicit prop.
+        createElement(
+          AdaptersProvider,
+          { fileSystemAdapter: adapter, storageAdapter } as AdaptersProviderProps,
+          children
+        );
     }
 
     it('registers the root on a successful picker-less add', async () => {
