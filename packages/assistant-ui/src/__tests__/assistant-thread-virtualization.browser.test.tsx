@@ -7,7 +7,7 @@ import {
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
 import '@testing-library/jest-dom/vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
@@ -211,7 +211,7 @@ const waitForOverflowingViewport = async (): Promise<HTMLElement> => {
  * assumption. Generous here costs nothing; every one of these waits returns as
  * soon as its condition holds.
  */
-const SETTLE_TIMEOUT_MS = 5000;
+const SETTLE_TIMEOUT_MS = Math.max(5000, getConfig().asyncUtilTimeout);
 
 /**
  * Settling after a scroll correction: measure → adjust → re-render. Tier 2 does
@@ -330,10 +330,9 @@ describe('virtualized tier (BST-897)', () => {
       { timeout: SETTLE_TIMEOUT_MS }
     );
 
-    // Derive the target from the mounted end window rather than assuming a
-    // particular overscan distance. Jumping into unmounted estimates makes row
-    // measurement corrections indistinguishable from append movement, which is
-    // not the contract this test owns.
+    // Clamp a one-viewport move to the mounted end window. Jumping into
+    // unmounted estimates makes row measurement corrections indistinguishable
+    // from append movement, which is not the contract this test owns.
     const firstMountedRow = screen.getAllByTestId('thread-message')[0];
     if (!firstMountedRow) {
       throw new Error('Expected the virtualizer to have a mounted end window');
@@ -341,7 +340,10 @@ describe('virtualized tier (BST-897)', () => {
     const viewportRect = viewport.getBoundingClientRect();
     const mountedStart =
       viewport.scrollTop + firstMountedRow.getBoundingClientRect().top - viewportRect.top;
-    await scrollTo(viewport, Math.max(mountedStart, viewport.scrollTop - viewport.clientHeight));
+    const scrollTopAtEnd = viewport.scrollTop;
+    const target = Math.max(mountedStart, scrollTopAtEnd - viewport.clientHeight);
+    expect(scrollTopAtEnd - target).toBeGreaterThan(24);
+    await scrollTo(viewport, target);
     await waitFor(
       () => {
         expect(button).toBeEnabled();
@@ -350,17 +352,13 @@ describe('virtualized tier (BST-897)', () => {
     );
 
     const scrollTopBefore = viewport.scrollTop;
-    fireEvent.click(screen.getByTestId('append'));
-
-    // DOM presence is monotone for this append. scrollHeight is not: measuring
-    // previously estimated rows can shrink the virtualizer total in the same
-    // frame and cancel the appended row's growth.
-    await waitFor(
-      () => {
-        expect(document.querySelector('[data-message-text="appended"]')).not.toBeNull();
-      },
-      { timeout: SETTLE_TIMEOUT_MS }
-    );
+    // Flush the append independently of whether the new row lands inside the
+    // current overscan window. Its committed layout is observed by the read
+    // below; scrollHeight is deliberately not used because late measurements
+    // can shrink it in the same frame.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('append'));
+    });
     // The reading position is untouched by the append …
     await waitFor(() => {
       expect(Math.abs(viewport.scrollTop - scrollTopBefore)).toBeLessThanOrEqual(2);
