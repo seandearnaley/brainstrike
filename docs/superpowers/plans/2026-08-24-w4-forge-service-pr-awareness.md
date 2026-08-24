@@ -1273,7 +1273,7 @@ describe('createPinnedGhEnvironment', () => {
     expect(env['PATH']).toBe('/usr/bin');
   });
 
-  it('drops inherited GH_* redirection but keeps the audited auth/config keys', () => {
+  it('drops inherited GH_* redirection but keeps GH_CONFIG_DIR and github.com tokens', () => {
     const env = createPinnedGhEnvironment(
       {
         GH_CONFIG_DIR: '/cfg',
@@ -1281,14 +1281,34 @@ describe('createPinnedGhEnvironment', () => {
         GH_HOST: 'evil.test',
         GH_REPO: 'evil/repo',
         GH_TOKEN: 'tok',
+        GITHUB_ENTERPRISE_TOKEN: 'gh-ent',
+        GITHUB_TOKEN: 'gh-tok',
       },
       'github.com'
     );
     expect(env['GH_HOST']).toBe('github.com');
     expect(env['GH_REPO']).toBeUndefined();
     expect(env['GH_TOKEN']).toBe('tok');
-    expect(env['GH_ENTERPRISE_TOKEN']).toBe('ent');
+    expect(env['GITHUB_TOKEN']).toBe('gh-tok');
     expect(env['GH_CONFIG_DIR']).toBe('/cfg');
+    expect(env['GH_ENTERPRISE_TOKEN']).toBeUndefined();
+    expect(env['GITHUB_ENTERPRISE_TOKEN']).toBeUndefined();
+  });
+
+  it('SECURITY: never forwards any of the four token vars to a non-github.com host', () => {
+    const env = createPinnedGhEnvironment(
+      {
+        GH_ENTERPRISE_TOKEN: 'ent',
+        GH_TOKEN: 'tok',
+        GITHUB_ENTERPRISE_TOKEN: 'gh-ent',
+        GITHUB_TOKEN: 'gh-tok',
+      },
+      'ghes.example.com'
+    );
+    expect(env['GH_TOKEN']).toBeUndefined();
+    expect(env['GITHUB_TOKEN']).toBeUndefined();
+    expect(env['GH_ENTERPRISE_TOKEN']).toBeUndefined();
+    expect(env['GITHUB_ENTERPRISE_TOKEN']).toBeUndefined();
   });
 });
 
@@ -1497,8 +1517,16 @@ import { readForgeChecks, rollupForgeChecks } from '@brainstrike/types';
 export const GH_TIMEOUT_MS = 20_000;
 const GH_MAX_BUFFER_BYTES = 4_000_000;
 
-/** GH_* variables carrying deliberate auth/config intent; everything else is dropped. */
-const PRESERVED_GH_ENV_KEYS = new Set(['GH_CONFIG_DIR', 'GH_ENTERPRISE_TOKEN', 'GH_TOKEN']);
+// SECURITY (F5, review 3847286911): an earlier draft preserved
+// `GH_ENTERPRISE_TOKEN` unconditionally alongside `GH_TOKEN`. `GH_HOST` is
+// derived from the OPENED repository's own remote (`parseForgeRemote`), not
+// from user input — so any env token go-gh would resolve for a host
+// unrelated to that remote can be exfiltrated to an attacker-chosen host by
+// merely opening a cloned repo. `GH_TOKEN`/`GITHUB_TOKEN` are forwarded ONLY
+// for `host === 'github.com'`; `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN`
+// are NEVER forwarded, on any host — enterprise users authenticate through
+// gh's own per-host stored credentials (`gh auth login --hostname <host>`).
+const GITHUB_COM_ONLY_TOKEN_KEYS = new Set(['GH_TOKEN', 'GITHUB_TOKEN']);
 
 export interface ForgeCommandRun {
   readonly exitCode: number | null;
@@ -1532,20 +1560,23 @@ export function createPinnedGhEnvironment(
   host: string
 ): NodeJS.ProcessEnv {
   const environment = { ...source };
-  const preserved = new Map<string, string>();
+  const isGithubDotCom = host === 'github.com';
   for (const key of Object.keys(environment)) {
     const normalizedKey = key.toUpperCase();
-    if (!normalizedKey.startsWith('GH_')) {
+    // `GITHUB_*` is checked too — `GITHUB_TOKEN`/`GITHUB_ENTERPRISE_TOKEN`
+    // do NOT start with `GH_`, so a `GH_`-only prefix check would pass them
+    // through unfiltered regardless of host.
+    const isGhFamily = normalizedKey.startsWith('GH_') || normalizedKey.startsWith('GITHUB_');
+    if (!isGhFamily) {
       continue;
     }
-    const value = environment[key];
-    if (value !== undefined && PRESERVED_GH_ENV_KEYS.has(normalizedKey)) {
-      preserved.set(key, value);
+    if (normalizedKey === 'GH_CONFIG_DIR') {
+      continue;
+    }
+    if (isGithubDotCom && GITHUB_COM_ONLY_TOKEN_KEYS.has(normalizedKey)) {
+      continue;
     }
     Reflect.deleteProperty(environment, key);
-  }
-  for (const [key, value] of preserved) {
-    environment[key] = value;
   }
   environment['GH_HOST'] = host;
   environment['GH_PROMPT_DISABLED'] = '1';
@@ -1829,8 +1860,8 @@ Create `apps/desktop/src/assistant-server/forge-pr-cache.ts`:
  * payload THROWS — a cache row we cannot interpret must not be rendered as a
  * PR with no checks.
  */
-import type { ForgeCheck, ForgePullRequest } from '@brainstrike/types';
-import { readForgeChecks, rollupForgeChecks } from '@brainstrike/types';
+import type { ForgeCheck, ForgeCheckConclusion, ForgePullRequest } from '@brainstrike/types';
+import { rollupForgeChecks } from '@brainstrike/types';
 
 export const FORGE_PR_CACHE_TABLE = 'brainstrike_forge_prs';
 
@@ -1877,13 +1908,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// DEVIATION FROM AN EARLIER DRAFT: this used to call `readForgeChecks` (the
+// `@brainstrike/types` reader for gh's RAW GraphQL node shape —
+// `{__typename, status, conclusion}` / `{state}`) against `checks_json`,
+// which stores the ALREADY-NORMALIZED `ForgeCheck[]` shape
+// (`{conclusion, name, url}`, lowercase conclusions). Feeding one reader the
+// other's shape rejects every valid cached row. This is the dedicated
+// validator for the normalized shape actually stored here.
+const FORGE_CHECK_CONCLUSIONS: ReadonlySet<string> = new Set<ForgeCheckConclusion>([
+  'action_required',
+  'cancelled',
+  'failure',
+  'neutral',
+  'pending',
+  'skipped',
+  'success',
+  'timed_out',
+]);
+
 function readChecks(value: unknown): readonly ForgeCheck[] {
   const source = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
-  const parsed = readForgeChecks(source);
-  if (!parsed.ok) {
-    throw new Error(`Cached forge checks are unreadable: ${parsed.reason}`);
+  if (!Array.isArray(source)) {
+    throw new Error('Cached forge checks are unreadable: the value is not an array.');
   }
-  return parsed.value;
+  return source.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Cached forge check ${index} is not an object.`);
+    }
+    const conclusion = entry['conclusion'];
+    const name = entry['name'];
+    const url = entry['url'];
+    if (typeof conclusion !== 'string' || !FORGE_CHECK_CONCLUSIONS.has(conclusion)) {
+      throw new Error(`Cached forge check ${index} has an unrecognized conclusion.`);
+    }
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      throw new Error(`Cached forge check ${index} has no name.`);
+    }
+    if (!(url === null || typeof url === 'string')) {
+      throw new Error(`Cached forge check ${index} has an unreadable URL.`);
+    }
+    return { conclusion: conclusion as ForgeCheckConclusion, name, url };
+  });
 }
 
 function readState(value: unknown): ForgePullRequest['state'] {
@@ -1893,11 +1958,19 @@ function readState(value: unknown): ForgePullRequest['state'] {
   throw new Error(`Cached forge PR has unrecognized state "${String(value)}".`);
 }
 
+// F8 (review 3847249678-adjacent internal finding #4): unlike every other
+// reader in this file, an EARLIER draft coerced an unrecognized non-null
+// value silently to `null` — rendering a genuine (if unrecognized) review
+// decision as "no review yet". Only `null` itself stays `null`; anything
+// else unrecognized throws, same as `readState`.
 function readReviewDecision(value: unknown): ForgePullRequest['reviewDecision'] {
+  if (value === null) {
+    return null;
+  }
   if (value === 'APPROVED' || value === 'CHANGES_REQUESTED' || value === 'REVIEW_REQUIRED') {
     return value;
   }
-  return null;
+  throw new Error(`Cached forge PR has an unrecognized review decision "${String(value)}".`);
 }
 
 function readObservedAt(value: unknown): string {
@@ -2433,10 +2506,32 @@ describe('ForgePullRequest cache round trip', () => {
       title: 't',
       url: 'https://example.test/pull/1',
     };
-    expect(JSON.parse(JSON.stringify(pullRequest.checks))).toEqual(pullRequest.checks);
+    expect(structuredClone(pullRequest.checks)).toEqual(pullRequest.checks);
   });
 });
 ```
+
+> **F1/F2/F3/F4/F6/F7/F8 coverage folded in by the coordinator's review pass:**
+> the sample above is the ORIGINAL Step-13 test set. The consolidated review
+> (PR #2639) added eight more cases to the shipped
+> `forge-service.test.ts` covering each fix below — see the shipped file for
+> exact bodies rather than duplicating ~180 lines here:
+> - F1 — a NEW `createForgeService` instance over a database already holding
+>   a cached row does not re-fire `opened` on its first refresh.
+> - F2 — a `gh-unauthenticated` failure is cleared and re-probed on the next
+>   `refresh(rootId, 'user')`; `window`/`invalidation` refreshes do not
+>   re-probe a cached success.
+> - F3 — a cache write that throws still returns `{ kind: 'pr', ... }` with
+>   `onPrUpdated` fired.
+> - F4 — `prStatus` with no cached row and no recorded failure returns
+>   `{ kind: 'unknown' }`, not a fabricated `none`.
+> - F6 — a head-sha change with the rollup unchanged produces
+>   `transitions: ['checks']`.
+> - F7 — two concurrent `refresh` calls for the same key produce exactly one
+>   `gh pr list` invocation.
+> - F8 — a cached row with an unrecognized `reviewDecision` fails the read
+>   loudly (`kind: 'unavailable'`, `reason: 'fetch-failed'`), not a silent
+>   `null` coercion.
 
 - [ ] **Step 14: Run the test to verify it fails**
 
@@ -2559,7 +2654,12 @@ function unavailable(failure: ForgeUnavailable): ForgePrStatus {
  * Which transitions this observation represents, given the previous one.
  * `opened` fires once per pull request (no previous observation, or a new
  * number); `merged` when the state becomes merged; `checks` when the rollup
- * moved to a settled verdict. An unchanged observation yields none.
+ * moved to a settled verdict, OR the head sha itself moved (F6, review
+ * 3847287503: `headSha` was recorded but never diffed). `ForgePrTransition`
+ * has no dedicated "new commits" variant, and Task 6's `observationKey`
+ * already embeds `headSha` (`<repoCommonDir>\0<branch>\0<headSha>`), so
+ * reusing `checks` here still coalesces correctly downstream. An unchanged
+ * observation yields none.
  */
 function diffObservations(
   previous: Observation | undefined,
@@ -2572,10 +2672,10 @@ function diffObservations(
   if (next.state === 'merged' && previous.state !== 'merged') {
     return ['merged'];
   }
-  if (
+  const checksSettled =
     next.checksRollup !== previous.checksRollup &&
-    (next.checksRollup === 'failing' || next.checksRollup === 'passing')
-  ) {
+    (next.checksRollup === 'failing' || next.checksRollup === 'passing');
+  if (checksSettled || next.headSha !== previous.headSha) {
     return ['checks'];
   }
   return [];
@@ -2591,6 +2691,10 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
   const lastFailureByKey = new Map<string, ForgeUnavailable>();
   const lastObservationByKey = new Map<string, Observation>();
   const lastNumberByKey = new Map<string, number>();
+  /** F1 (review 3847284227): keys already seeded from the durable cache row this session — see `seedObservationFromCache`. */
+  const seededObservationKeys = new Set<string>();
+  /** F7 (review 3847288650): in-flight `performFetchAndStore` calls, keyed like `lastFetchAtByKey`. */
+  const inFlightFetchByKey = new Map<string, Promise<ForgePrStatus>>();
   /** repo common dir -> root ids the renderer has actually asked about. */
   const rootIdsByCommonDir = new Map<string, Set<string>>();
 
@@ -2662,7 +2766,26 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     };
   }
 
-  async function requireGh(target: ResolvedTarget): Promise<ForgeUnavailable | null> {
+  /**
+   * F2 (review 3847281048): `ghDetection` genuinely is session-scoped for a
+   * SUCCESS, but auth is mutable runtime state the user is explicitly told
+   * to change (`gh auth login --hostname <host>`), and `probeGhAuth`
+   * performs a real network call — a transient blip must not poison the
+   * session. A FAILURE is never left memoized: it is deleted from its map
+   * as soon as it resolves, and an explicit `user`-reason refresh
+   * proactively clears any cached entry (success included) so it always
+   * re-probes.
+   */
+  async function requireGh(
+    target: ResolvedTarget,
+    reason: ForgeRefreshReason | null
+  ): Promise<ForgeUnavailable | null> {
+    if (reason === 'user') {
+      ghAuthByHost.delete(target.host);
+      if (ghDetection && (await ghDetection)) {
+        ghDetection = undefined;
+      }
+    }
     ghDetection ??= detectGhCli(run, target.cwd);
     const detection = await ghDetection;
     if (detection) {
@@ -2673,7 +2796,11 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       auth = probeGhAuth(run, target.cwd, target.host);
       ghAuthByHost.set(target.host, auth);
     }
-    return await auth;
+    const failure = await auth;
+    if (failure) {
+      ghAuthByHost.delete(target.host);
+    }
+    return failure;
   }
 
   async function readCached(target: ResolvedTarget): Promise<ForgePrStatus> {
@@ -2688,18 +2815,62 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       return unavailable({ detail, reason: 'fetch-failed' });
     }
     if (!cached) {
-      return failure
-        ? unavailable(failure)
-        : { kind: 'none', observedAt: new Date(now()).toISOString() };
+      // F4 (review 3847285317): no cached row AND no recorded failure means
+      // nothing has ever answered for this key — not an observed absence.
+      // Fabricating `{ kind: 'none', observedAt: now }` would lie to any
+      // "Last checked …" affordance built on that timestamp.
+      return failure ? unavailable(failure) : { kind: 'unknown' };
     }
     return failure
       ? { failure, kind: 'stale', observedAt: cached.observedAt, pullRequest: cached.pullRequest }
       : { kind: 'pr', observedAt: cached.observedAt, pullRequest: cached.pullRequest };
   }
 
-  async function fetchAndStore(target: ResolvedTarget): Promise<ForgePrStatus> {
-    const key = cacheKey(target.repoCommonDir, target.branch);
+  /**
+   * F1 (review 3847284227): seed the observation maps from the durable
+   * cache row the FIRST time this process-local service touches a key.
+   * Without this, a fresh service instance (an app restart) diffs every
+   * first refresh against an empty map and reports `opened` for a pull
+   * request that was already known.
+   */
+  async function seedObservationFromCache(target: ResolvedTarget, key: string): Promise<void> {
+    if (seededObservationKeys.has(key)) {
+      return;
+    }
+    seededObservationKeys.add(key);
+    if (lastObservationByKey.has(key)) {
+      return;
+    }
+    let cached: Awaited<ReturnType<typeof readForgePrCacheEntry>>;
+    try {
+      cached = await readForgePrCacheEntry(await getDatabase(), target.repoCommonDir, target.branch);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      logger.error('Forge PR cache seed read failed; diffing against no prior observation', {
+        detail,
+        key,
+      });
+      return;
+    }
+    if (!cached) {
+      return;
+    }
+    lastObservationByKey.set(key, {
+      checksRollup: cached.pullRequest.checksRollup,
+      headSha: cached.pullRequest.headSha,
+      state: cached.pullRequest.state,
+    });
+    lastNumberByKey.set(key, cached.pullRequest.number);
+  }
+
+  /** Fetch, diff, persist and push. Wrapped by `fetchAndStore` below for in-flight dedup (F7). */
+  async function performFetchAndStore(target: ResolvedTarget, key: string): Promise<ForgePrStatus> {
+    // F3 (review 3847282390): stamped unconditionally, before gh even runs.
+    // Stays stamped even if the cache WRITE below fails — the PR was still
+    // successfully fetched, so a failed persist must not make a `window`
+    // refresh retry sooner than its floor allows.
     lastFetchAtByKey.set(key, now());
+    await seedObservationFromCache(target, key);
     const fetched = await fetchForgePullRequest(run, {
       branch: target.branch,
       cwd: target.cwd,
@@ -2712,9 +2883,20 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     }
     lastFailureByKey.delete(key);
     const observedAt = new Date(now()).toISOString();
-    const database = await getDatabase();
     if (fetched.value === null) {
-      await deleteForgePrCacheEntry(database, target.repoCommonDir, target.branch);
+      // F3: a delete failure must not throw away an observed "no PR" —
+      // logged, not swallowed; a stale cached row may remain until the next
+      // successful delete.
+      try {
+        const database = await getDatabase();
+        await deleteForgePrCacheEntry(database, target.repoCommonDir, target.branch);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        logger.error('Forge PR cache delete failed; a stale cached row may remain', {
+          detail,
+          key,
+        });
+      }
       lastObservationByKey.delete(key);
       lastNumberByKey.delete(key);
       onPrUpdated({
@@ -2731,12 +2913,24 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       pullRequest,
       lastNumberByKey.get(key)
     );
-    await writeForgePrCacheEntry(database, {
-      branch: target.branch,
-      observedAt,
-      pullRequest,
-      repoCommonDir: target.repoCommonDir,
-    });
+    // F3: the cache is an optimization over a successfully fetched PR — a
+    // write failure degrades to delivering it uncached rather than
+    // rejecting a call that gh already answered.
+    try {
+      const database = await getDatabase();
+      await writeForgePrCacheEntry(database, {
+        branch: target.branch,
+        observedAt,
+        pullRequest,
+        repoCommonDir: target.repoCommonDir,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      logger.error('Forge PR cache write failed; delivering the fetched pull request uncached', {
+        detail,
+        key,
+      });
+    }
     lastObservationByKey.set(key, {
       checksRollup: pullRequest.checksRollup,
       headSha: pullRequest.headSha,
@@ -2752,6 +2946,27 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     return { kind: 'pr', observedAt, pullRequest };
   }
 
+  /**
+   * F7 (review 3847288650): dedup concurrent refreshes of the same
+   * `(repo, branch)` key into one `performFetchAndStore` call.
+   * `invalidation` has a deliberate 0 ms floor, so a burst of ref-move
+   * events (or the same repo tracked under two root ids) would otherwise
+   * spawn one 20 s-timeout `gh` call per event. The check-and-set below is
+   * synchronous, so it cannot race with itself.
+   */
+  function fetchAndStore(target: ResolvedTarget): Promise<ForgePrStatus> {
+    const key = cacheKey(target.repoCommonDir, target.branch);
+    const existing = inFlightFetchByKey.get(key);
+    if (existing) {
+      return existing;
+    }
+    const promise = performFetchAndStore(target, key).finally(() => {
+      inFlightFetchByKey.delete(key);
+    });
+    inFlightFetchByKey.set(key, promise);
+    return promise;
+  }
+
   async function statusFor(
     rootId: string,
     reason: ForgeRefreshReason | null
@@ -2764,7 +2979,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       return { ok: true, value: unavailable(resolved.value.failure) };
     }
     const target = resolved.value;
-    const ghFailure = await requireGh(target);
+    const ghFailure = await requireGh(target, reason);
     if (ghFailure) {
       return { ok: true, value: unavailable(ghFailure) };
     }
@@ -2876,7 +3091,7 @@ In `resolveTarget`'s success return, add `identity: parsed.value,`. Then replace
 - [ ] **Step 17: Run the test to verify it passes**
 
 Run: `cd apps/desktop && pnpm vitest run src/__tests__/assistant-server/forge-service.test.ts`
-Expected: PASS — 16 passed. In particular `never free-runs: the module contains no timer` must be green.
+Expected: PASS — 18 passed for the sample above (17 in `createForgeService` + 1 in `ForgePullRequest cache round trip`). In particular `never free-runs: the module contains no timer` must be green. The shipped file carries 26 after the F1–F8 additions noted above.
 
 - [ ] **Step 18: Type-check, lint and run the desktop unit lane**
 
@@ -3582,6 +3797,17 @@ Compose the inventory's single `onInvalidate` callback so the forge service sees
           forgeService?.onRepositoryInvalidated(event.gitCommonDir);
         },
 ```
+
+> **Watcher-burst debounce obligation:** `forgeService.onRepositoryInvalidated`
+> is safe to call at the `invalidation` reason's 0 ms floor ONLY because
+> `git-inventory-watcher.ts`'s `onInvalidate` is already a TRUE trailing
+> debounce with a max-wait cap — it fires at most once per debounce window
+> per `gitCommonDir`, not once per raw fs event. This composition must not be
+> changed to call `onRepositoryInvalidated` from a less-debounced or
+> per-event source; Task 2's own in-flight dedup (`fetchAndStore`'s
+> in-flight promise map) exists to collapse concurrent root ids resolving to
+> the SAME `(repo, branch)` key, not to compensate for undebounced watcher
+> noise.
 
 Add the imports at the top of `main.ts`:
 
@@ -6555,7 +6781,12 @@ Finally, switch the Threads panel to folder grouping and confirm `threadPrPills`
 
 - [ ] **Step 7: Update the remaining architecture docs**
 
-- `docs/agents/database.md`: add migration 110 (`brainstrike_forge_prs`) to the migration ledger, note it is registered in BOTH runners and in the reset registry, and that the renderer reads it through ONE unparameterized live query.
+- `docs/agents/database.md`: Task 2 already added the migration-110 paragraph
+  ("Migration 110 owns the FK-less `brainstrike_forge_prs` cache…") when it
+  registered the table in both runners and the reset registry. Task 7 must
+  EDIT that existing paragraph — appending one sentence noting the renderer
+  reads it through ONE unparameterized live query — NOT append a second,
+  duplicate migration-110 paragraph.
 - `docs/agents/workspace-context.md`: in the MAIN vs FOCUSED section, add that forge identity is always derived from the thread's PRIMARY root's repository — a FOCUSED selection must never drive it, for the same reason it must never drive cwd.
 
 - [ ] **Step 8: Full gate in one run**
