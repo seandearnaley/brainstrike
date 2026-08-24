@@ -708,7 +708,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
 function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const [dismissed, setDismissed] = useState(false);
   const detail = useMemo(
-    () => JSON.stringify(request.suspendPayload, null, 2),
+    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
     [request.suspendPayload]
   );
   if (dismissed) {
@@ -778,6 +778,10 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
   // point: every named domain must be individually acknowledged.
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const domains = narrowNetworkSuspendPayload(request.suspendPayload);
+  const payloadDetail = useMemo(
+    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
+    [request.suspendPayload]
+  );
 
   const deny = useCallback(() => {
     submit({ action: 'deny' } satisfies { action: 'deny' }, "You didn't allow internet access.");
@@ -811,7 +815,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
           The request didn't say which domains it needs, so it can't be allowed.
         </p>
         <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
-          {JSON.stringify(request.suspendPayload, null, 2)}
+          {payloadDetail}
         </pre>
         <div className="mt-2">
           <Button autoFocus disabled={locked} onClick={deny} size="sm" variant="default">

@@ -517,6 +517,25 @@ describe('AssistantToolSuspendNotice', () => {
     expect(appendMessageMock).not.toHaveBeenCalled();
   });
 
+  it('caps serialized diagnostics for an unregistered suspending tool', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          runId: 'run-unsupported-large',
+          suspendPayload: { detail: 'x'.repeat(8000) },
+          toolCallId: 'call-unsupported-large',
+          toolName: 'brainstrike.somethingElse',
+        }}
+      />
+    );
+
+    const diagnostic = screen
+      .getByTestId('assistant-tool-suspend-unsupported-notice')
+      .querySelector('pre');
+    expect(diagnostic?.textContent).toContain('… (truncated)');
+    expect(diagnostic?.textContent?.length).toBeLessThanOrEqual(4020);
+  });
+
   it('leaves the REGISTERED suspending tools rendering and resuming normally', async () => {
     const user = userEvent.setup();
     const plan = render(<AssistantToolSuspendNotice data={planRequest} />);
@@ -712,6 +731,23 @@ describe('run_python network escalation — Gate B (BST-1070)', () => {
     expect(screen.getByTestId('run-python-network-unreadable')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-run-python-network-notice')).toBeInTheDocument();
     expect(screen.queryByTestId('run-python-network-allow')).not.toBeInTheDocument();
+  });
+
+  it('caps serialized diagnostics for an unreadable network payload', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...networkRequest,
+          suspendPayload: { allowedDomains: 'x'.repeat(8000), kind: 'network' },
+        }}
+      />
+    );
+
+    const diagnostic = screen
+      .getByTestId('assistant-run-python-network-notice')
+      .querySelector('pre');
+    expect(diagnostic?.textContent).toContain('… (truncated)');
+    expect(diagnostic?.textContent?.length).toBeLessThanOrEqual(4020);
   });
 
   it('a REDISCOVERED escalation renders the same card with the pending-since lines', () => {
