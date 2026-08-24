@@ -233,14 +233,20 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
   }
 
   /**
-   * `ghDetection` genuinely is session-scoped for a SUCCESS ("gh either
-   * exists or it does not"), but auth is mutable runtime state the user is
-   * explicitly told to change (`gh auth login --hostname <host>`), and
-   * `probeGhAuth` performs a real network token-validation call — a single
-   * transient DNS/proxy/503 blip must not poison the session. So a FAILURE
-   * (of either check) is never left memoized: it is deleted from its map as
-   * soon as it resolves, and an explicit `user`-reason refresh (the one
-   * affordance offered for "I just fixed this") proactively clears any
+   * `ghDetection` is session-scoped for BOTH outcomes: "gh either exists or
+   * it does not" is treated as stable for the life of the process, so a
+   * `gh-missing` failure stays memoized too — this bounds how often the CLI
+   * itself gets probed across the window-focus and invalidation refreshes
+   * that call `requireGh` (pinned by the "probes only once" test). It is
+   * cleared only by an explicit `user`-reason refresh (the affordance
+   * offered for "I just installed/fixed it").
+   *
+   * Auth is different: it is mutable runtime state the user is explicitly
+   * told to change (`gh auth login --hostname <host>`), and `probeGhAuth`
+   * performs a real network token-validation call — a single transient
+   * DNS/proxy/503 blip must not poison the session. So an auth FAILURE is
+   * never left memoized: it is deleted from `ghAuthByHost` as soon as it
+   * resolves, and an explicit `user`-reason refresh proactively clears any
    * cached entry — success included — so it always re-probes rather than
    * trusting a positive that may since have been revoked.
    */

@@ -144,7 +144,7 @@ git switch -c seandearnaley/bst-1391-w4-forge-service   # from the previous bran
   - `type ForgeReviewDecision = 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED'`
   - `type ForgeUnavailableReason = 'detached-head' | 'fetch-failed' | 'gh-missing' | 'gh-unauthenticated' | 'no-remote' | 'unparsable-remote' | 'unsupported-forge'`
   - `interface ForgeUnavailable { readonly detail: string; readonly reason: ForgeUnavailableReason }`
-  - `type ForgePrStatus` (four-variant union, see code)
+  - `type ForgePrStatus` (five-variant union, see code)
   - `type ForgeResult<T>`
   - `type ForgePrTransition = 'checks' | 'merged' | 'opened'`
   - `interface ForgePrUpdatedEvent { readonly branch: string; readonly generation: number; readonly pullRequest: ForgePullRequest | null; readonly repoCommonDir: string; readonly transitions: readonly ForgePrTransition[] }`
@@ -624,6 +624,10 @@ export interface ForgeUnavailable {
  * - `none` — a successful observation that found no PR for this branch.
  * - `unavailable` — no observation is possible at all; no chip, reason shown
  *   in the BranchChip's forge diagnostic.
+ * - `unknown` — no observation has happened yet (e.g. before the first fetch
+ *   resolves). Distinct from `unavailable`: there is no failure to report, so
+ *   nothing renders in either the chip or the BranchChip's diagnostic — it is
+ *   silent, not degraded.
  */
 export type ForgePrStatus =
   | {
@@ -634,7 +638,8 @@ export type ForgePrStatus =
     }
   | { readonly failure: ForgeUnavailable; readonly kind: 'unavailable' }
   | { readonly kind: 'none'; readonly observedAt: string }
-  | { readonly kind: 'pr'; readonly observedAt: string; readonly pullRequest: ForgePullRequest };
+  | { readonly kind: 'pr'; readonly observedAt: string; readonly pullRequest: ForgePullRequest }
+  | { readonly kind: 'unknown' };
 
 export type ForgeResult<T> =
   | { readonly error: string; readonly ok: false }
@@ -2767,14 +2772,23 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
   }
 
   /**
-   * F2 (review 3847281048): `ghDetection` genuinely is session-scoped for a
-   * SUCCESS, but auth is mutable runtime state the user is explicitly told
-   * to change (`gh auth login --hostname <host>`), and `probeGhAuth`
-   * performs a real network call — a transient blip must not poison the
-   * session. A FAILURE is never left memoized: it is deleted from its map
-   * as soon as it resolves, and an explicit `user`-reason refresh
-   * proactively clears any cached entry (success included) so it always
-   * re-probes.
+   * F2 (review 3847281048): `ghDetection` is session-scoped for BOTH
+   * outcomes — a `gh-missing` failure stays memoized too, bounding how often
+   * the CLI itself gets probed across window-focus/invalidation refreshes;
+   * it is cleared only by an explicit `user`-reason refresh. Auth is
+   * different: it is mutable runtime state the user is explicitly told to
+   * change (`gh auth login --hostname <host>`), and `probeGhAuth` performs a
+   * real network call — a transient blip must not poison the session. So an
+   * auth FAILURE is never left memoized: it is deleted from its map as soon
+   * as it resolves, and an explicit `user`-reason refresh proactively clears
+   * any cached entry (success included) so it always re-probes.
+   *
+   * POSSIBLE FOLLOW-UP (not required here): while unauthenticated, every
+   * prStatus/refresh call re-probes `gh auth status` from scratch (bounded
+   * only by how often the renderer calls in) — a short negative-probe
+   * cooldown, cleared by the same `user`-reason refresh, would bound that
+   * further. Deferred; today's behaviour is correct, just not maximally
+   * frugal.
    */
   async function requireGh(
     target: ResolvedTarget,
@@ -3884,6 +3898,7 @@ git commit -m "feat(desktop): window.forge exact-set bridge and forge IPC domain
 
 - **The BranchChip stays non-interactive unless there is something to say.** With no `forgeDiagnostic` it renders EXACTLY today's `role="img"` span (W1's contract and its existing tests). With one, it renders a `DropdownMenu` trigger whose accessible name gains `; PR status unavailable — <reason>` and whose single menu item repeats the reason. W4 owns only those rows; the full branch menu is the "Later" delivery row.
 - **`kind: 'none'` renders no chip and no diagnostic.** "gh answered, this branch has no PR" is an ordinary state, not a degradation.
+- **`kind: 'unknown'` also renders no chip and no diagnostic**, same as `none` — but it is a DIFFERENT fact: no observation has happened yet (e.g. before the first fetch resolves), versus `none`'s "gh answered, there is no PR". Neither has a failure to report, so both stay silent; only `unavailable` has a reason to show.
 - **`kind: 'stale'` renders the chip with a stale glyph** (`◌`, `data-stale="true"`) and the failure text inside the popover — spec §13, verbatim.
 
 - [ ] **Step 1: Write the failing PrChip test**
@@ -3939,6 +3954,11 @@ describe('PrChip', () => {
       kind: 'unavailable',
     };
     const { container } = render(<PrChip forge={forge({ status })} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders nothing when no observation has happened yet', () => {
+    const { container } = render(<PrChip forge={forge({ status: { kind: 'unknown' } })} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -4163,8 +4183,10 @@ const REVIEW_LABEL: Readonly<Record<NonNullable<ForgePullRequest['reviewDecision
 /**
  * The composer's PR chip (spec §4.4). Present ONLY when there is a pull
  * request to describe: an `unavailable` status renders nothing here and states
- * its reason in the BranchChip's forge diagnostic instead, and a `none` status
- * is an ordinary "this branch has no PR" with nothing to show.
+ * its reason in the BranchChip's forge diagnostic instead, a `none` status is
+ * an ordinary "this branch has no PR" with nothing to show, and an `unknown`
+ * status (no observation yet) renders nothing either — same silence as
+ * `none`, but a different fact (see the Design decisions section above).
  *
  * A `stale` status renders the last-known PR with `data-stale="true"` and puts
  * the failure in the popover — never a fresh-looking chip over a failed
@@ -4172,7 +4194,7 @@ const REVIEW_LABEL: Readonly<Record<NonNullable<ForgePullRequest['reviewDecision
  */
 export const PrChip = ({ forge }: { readonly forge: WorkspaceBarForge }): ReactElement | null => {
   const { status } = forge;
-  if (status.kind === 'none' || status.kind === 'unavailable') {
+  if (status.kind === 'none' || status.kind === 'unavailable' || status.kind === 'unknown') {
     return null;
   }
   const { pullRequest } = status;
@@ -4301,7 +4323,7 @@ PrChip.displayName = 'PrChip';
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `cd packages/assistant-ui && pnpm vitest run --project unit src/__tests__/pr-chip.test.tsx`
-Expected: PASS — 10 passed.
+Expected: PASS — 11 passed.
 
 - [ ] **Step 5: Write the failing BranchChip diagnostic test**
 
@@ -4927,7 +4949,9 @@ git commit -m "feat(ui): PR chip and BranchChip forge diagnostic in the workspac
 - Modify: `packages/app-shell/src/__tests__/threads-panel.test.tsx`
 
 **Interfaces:**
-- Consumes (Task 2): the `brainstrike_forge_prs` table; (Task 1) `ForgePrCacheEntry`, `rollupForgeChecks`, `readForgeChecks`; (W2, existing) `ThreadBranchLookup`, `lookupThreadBranch`, `ThreadBranchInfo`.
+- Consumes (Task 2): the `brainstrike_forge_prs` table; (Task 1) `ForgePrCacheEntry`, `ForgeCheckConclusion`, `rollupForgeChecks`; (W2, existing) `ThreadBranchLookup`, `lookupThreadBranch`, `ThreadBranchInfo`.
+
+**Note on `checks_json`:** `readForgeChecks` (Task 1) validates gh's RAW GraphQL node shape (`{__typename, status, conclusion}` / `{state}`) — it is NOT the reader for this column. `checks_json` holds the ALREADY-NORMALIZED `ForgeCheck[]` shape (`{conclusion, name, url}`, lowercase conclusions) that `apps/desktop/src/assistant-server/forge-pr-cache.ts` writes, and that module already carries a dedicated `FORGE_CHECK_CONCLUSIONS`-style validator for exactly this shape (its own `readChecks`, private to that file). `packages/app-shell` cannot import `apps/desktop` code (see `packages/app-shell/src/terminal-panel/terminal-bridge.ts`'s header comment for the standing rule), so this hook mirrors that validator locally — same discipline as `packages/app-shell/src/canvas/canvas-read-repository.ts` mirroring `canvas-repository.ts`'s SQL shapes — rather than feeding the cached rows to the wrong-shape reader, which would reject every row.
 - Produces:
   - `ThreadBranchInfo` gains `readonly gitCommonDir: string` (the realpath'd common dir of the repository owning the worktree that supplied the branch).
   - `packages/app-shell/src/hooks/use-forge-pr-cache.ts`:
@@ -5188,10 +5212,20 @@ Create `packages/app-shell/src/hooks/use-forge-pr-cache.ts`:
  * The rollup glyph is DERIVED from `checks_json` with the same
  * `rollupForgeChecks` the main process used, so the pill and the composer chip
  * can never disagree about the same observation.
+ *
+ * `checks_json` round-trips the ALREADY-NORMALIZED `ForgeCheck[]` shape
+ * (`{conclusion, name, url}`, lowercase conclusions) that
+ * `apps/desktop/src/assistant-server/forge-pr-cache.ts` writes — NOT gh's raw
+ * GraphQL node shape, which is what `readForgeChecks` (`@brainstrike/types`)
+ * validates. Feeding the raw-shape reader the normalized rows would reject
+ * every one. `packages/app-shell` cannot import `apps/desktop` code, so
+ * `readChecks` below mirrors that file's own `FORGE_CHECK_CONCLUSIONS`-style
+ * validator rather than re-deriving an equivalent one from scratch — keep the
+ * two in sync if either changes.
  */
 import { type DbHandle, makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
-import type { ForgeCheck, ForgePrCacheEntry } from '@brainstrike/types';
-import { readForgeChecks, rollupForgeChecks } from '@brainstrike/types';
+import type { ForgeCheck, ForgeCheckConclusion, ForgePrCacheEntry } from '@brainstrike/types';
+import { rollupForgeChecks } from '@brainstrike/types';
 import { useMemo } from 'react';
 
 export const FORGE_PR_CACHE_SQL = `
@@ -5222,14 +5256,49 @@ export interface ForgePrCacheState {
 
 const EMPTY: ForgePrCacheLookup = new Map();
 
-function readChecks(value: unknown): readonly ForgeCheck[] | null {
-  const source = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
-  const parsed = readForgeChecks(source);
-  return parsed.ok ? parsed.value : null;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// Mirrors `apps/desktop/src/assistant-server/forge-pr-cache.ts`'s private
+// `readChecks` — the validator for the NORMALIZED `ForgeCheck[]` shape stored
+// in `checks_json`, not the raw gh node shape `readForgeChecks` validates.
+// `packages/app-shell` cannot import `apps/desktop` code, so this is a
+// deliberate mirror rather than a shared import; keep the two in sync.
+const FORGE_CHECK_CONCLUSIONS: ReadonlySet<string> = new Set<ForgeCheckConclusion>([
+  'action_required',
+  'cancelled',
+  'failure',
+  'neutral',
+  'pending',
+  'skipped',
+  'success',
+  'timed_out',
+]);
+
+function readChecks(value: unknown): readonly ForgeCheck[] {
+  const source = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
+  if (!Array.isArray(source)) {
+    throw new Error('Cached forge checks are unreadable: the value is not an array.');
+  }
+  return source.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Cached forge check ${index} is not an object.`);
+    }
+    const conclusion = entry['conclusion'];
+    const name = entry['name'];
+    const url = entry['url'];
+    if (typeof conclusion !== 'string' || !FORGE_CHECK_CONCLUSIONS.has(conclusion)) {
+      throw new Error(`Cached forge check ${index} has an unrecognized conclusion.`);
+    }
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      throw new Error(`Cached forge check ${index} has no name.`);
+    }
+    if (!(url === null || typeof url === 'string')) {
+      throw new Error(`Cached forge check ${index} has an unreadable URL.`);
+    }
+    return { conclusion: conclusion as ForgeCheckConclusion, name, url };
+  });
 }
 
 /**
@@ -5260,11 +5329,13 @@ export function projectForgePrRows(rows: readonly unknown[]): {
     ) {
       return { byRepoBranch: EMPTY, error: new Error('Forge PR cache returned an invalid row.') };
     }
-    const checks = readChecks(row['checksJson']);
-    if (checks === null) {
+    let checks: readonly ForgeCheck[];
+    try {
+      checks = readChecks(row['checksJson']);
+    } catch (error) {
       return {
         byRepoBranch: EMPTY,
-        error: new Error('Forge PR cache returned unreadable checks.'),
+        error: error instanceof Error ? error : new Error('Forge PR cache returned unreadable checks.'),
       };
     }
     byRepoBranch.set(forgePrCacheKey(repoCommonDir, branch), {
@@ -5603,6 +5674,14 @@ git commit -m "feat(threads): PR pill and Has-PR filter in the thread rows (BST-
 2. **`appendThreadRunEvent` is the only writer available to the renderer** and
    its `INSERT … SELECT FROM brainstrike_assistant_thread_runs` no-ops on a
    missing parent. That is the correct behaviour here.
+3. **A checks verdict is only ever asserted from a settled rollup.** F6 made
+   `diffObservations` emit `['checks']` when only the head sha moved (new
+   commits pushed, no verdict yet), so at transition time `checksRollup` can
+   still be `'pending'` or `'none'`. Neither the timeline row nor the
+   `prChecks` OS notification is allowed to claim "passed" or "failed" for an
+   unsettled rollup — the timeline falls back to a neutral "checks running" /
+   "new commits" label, and the notification is suppressed until the rollup
+   settles.
 
 - [ ] **Step 1: Add the run-event kinds**
 
@@ -6094,6 +6173,20 @@ describe('useForgeRunEvents', () => {
     );
   });
 
+  it('records pr.checks with a neutral label and does NOT notify when the rollup is unsettled', async () => {
+    const { push } = installBridge();
+    const { notifications, repository } = harness();
+    push({
+      pullRequest: { ...pullRequest, checksRollup: 'pending' },
+      transitions: ['checks'],
+    });
+    await waitFor(() => expect(repository.appendThreadRunEvent).toHaveBeenCalled());
+    const [, event] = (repository.appendThreadRunEvent as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, { label: string }];
+    expect(event.label).toBe('Checks running on pull request #42');
+    expect(notifications.onForgeEvent).not.toHaveBeenCalled();
+  });
+
   it('records pr.merged', async () => {
     const { push } = installBridge();
     const { repository } = harness();
@@ -6209,6 +6302,23 @@ function describe(
       status: 'completed',
     };
   }
+  // `checks` also fires when only the head sha moved (F6), so the rollup can
+  // still be unsettled here. Never assert a verdict from a `'pending'` or
+  // `'none'` rollup — fall back to a neutral label instead.
+  if (pullRequest.checksRollup === 'pending') {
+    return {
+      detail: pullRequest.title,
+      label: `Checks running on pull request #${pullRequest.number}`,
+      status: 'info',
+    };
+  }
+  if (pullRequest.checksRollup === 'none') {
+    return {
+      detail: pullRequest.title,
+      label: `New commits on pull request #${pullRequest.number}`,
+      status: 'info',
+    };
+  }
   const failing = pullRequest.checksRollup === 'failing';
   return {
     detail: pullRequest.checks.map((check) => check.name).join(', '),
@@ -6295,6 +6405,16 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
           // checks only, and a merge is already visible as a faded pill.
           continue;
         }
+        if (
+          transition === 'checks' &&
+          (pullRequest.checksRollup === 'pending' || pullRequest.checksRollup === 'none')
+        ) {
+          // F6: `checks` also fires when only the head sha moved, so the
+          // rollup may still be unsettled. There is no verdict to notify on
+          // yet — the timeline row above already says so neutrally, and the
+          // `prChecks` notification only ever fires for a settled rollup.
+          continue;
+        }
         const watchingThread = matching.find((thread) => thread.metadata?.forgePrWatch !== false);
         if (!watchingThread) {
           continue;
@@ -6324,7 +6444,7 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
 - [ ] **Step 13: Run it to verify it passes**
 
 Run: `cd packages/app-shell && pnpm vitest run src/__tests__/use-forge-run-events.test.ts`
-Expected: PASS — 8 passed.
+Expected: PASS — 9 passed.
 
 - [ ] **Step 14: Mount the hook and wire the Watch toggle**
 
@@ -6866,7 +6986,7 @@ Gaps deliberately left, each with an owner: `gh pr create` shell-output correlat
 
 **2. Placeholder scan.** No `TBD`, no "similar to Task N", no "add error handling". Two forward references are explicit and self-contained: Task 4 Step 14's `onWatchChange: () => undefined` is replaced by Task 6 Step 14 with the full code, and Task 2 Step 15's `identity` implementation is corrected in Step 16 with the full replacement body. Both show the code.
 
-**3. Type consistency.** Names used identically across tasks: `ForgePrStatus` (4 variants), `ForgeUnavailable{detail,reason}`, `ForgePullRequest`, `ForgeCheck`, `ForgeChecksRollup`, `ForgePrCacheEntry`, `ForgePrUpdatedEvent{branch,generation,pullRequest,repoCommonDir,transitions}`, `ForgeRefreshReason{'invalidation'|'user'|'window'}`, `ForgeIdentityState`, `ForgeCommandRunner`, `ForgeCacheDatabase`, `ForgeBridge{identity,onPrUpdated,prStatus,refresh}`, `WorkspaceBarForge`, `ThreadForgePrState`, `ForgePrCacheLookup`, `forgePrCacheKey`, `lookupThreadForgePr`, `useForgePrCache`, `useThreadForgePr`, `useForgeRunEvents`, `ForgeNotificationEvent`. `ForgeRefreshReason` and `ForgeIdentityState` are declared in `apps/desktop` in Task 2 and MOVED to `@brainstrike/types` in Task 3 Step 1 — that move is a numbered step with the exact edit, not an inconsistency.
+**3. Type consistency.** Names used identically across tasks: `ForgePrStatus` (5 variants — `stale`, `unavailable`, `none`, `pr`, `unknown`), `ForgeUnavailable{detail,reason}`, `ForgePullRequest`, `ForgeCheck`, `ForgeChecksRollup`, `ForgePrCacheEntry`, `ForgePrUpdatedEvent{branch,generation,pullRequest,repoCommonDir,transitions}`, `ForgeRefreshReason{'invalidation'|'user'|'window'}`, `ForgeIdentityState`, `ForgeCommandRunner`, `ForgeCacheDatabase`, `ForgeBridge{identity,onPrUpdated,prStatus,refresh}`, `WorkspaceBarForge`, `ThreadForgePrState`, `ForgePrCacheLookup`, `forgePrCacheKey`, `lookupThreadForgePr`, `useForgePrCache`, `useThreadForgePr`, `useForgeRunEvents`, `ForgeNotificationEvent`. `ForgeRefreshReason` and `ForgeIdentityState` are declared in `apps/desktop` in Task 2 and MOVED to `@brainstrike/types` in Task 3 Step 1 — that move is a numbered step with the exact edit, not an inconsistency.
 
 ---
 
