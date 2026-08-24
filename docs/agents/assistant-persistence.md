@@ -44,20 +44,34 @@ Automatic thread titles use Mastra Memory's top-level `generateTitle: true`
 option and public `Agent.generateTitleFromUserMessage`. At either Mastra's raw
 terminal finish or the adapter's finish-less synthetic terminal, the stream
 adapter starts that canonical title request with the active agent model before
-yielding the UI finish. It then keeps the per-run Mastra instance alive only for
-one bounded 30-second lifecycle. OpenRouter empty/reasoning-only output or a
-generation failure gets at most one same-agent/request retry; no provider or
-model fallback is permitted. A still-empty or failed result is diagnosed and
-left eligible for a later user turn. Preflight/configuration, provider
-generation, empty output, timeout, and persistence failures have distinct
-structured diagnostics that exclude prompt text and credentials. The main
-response therefore is not held up by title latency, and generation remains
-independent of Observational Memory, its token threshold, and whether OM is
-thread- or resource-scoped. The generated title is persisted through public
-`Memory.saveThread`; `PgliteMemoryStore.saveThread` is the transactional
-boundary that may replace only an empty/default/system-owned title and stamps
-`titleSource: 'om'`, while the manual rename path clears the marker and always
-wins even if generation was already in flight.
+yielding the UI finish. Each generation attempt resolves that exact configured
+model through public `Agent.getModel`, passes a transparent model wrapper back
+to `generateTitleFromUserMessage`, and injects a per-attempt abort signal into
+the underlying model's `doStream`/`doGenerate` call. The shared 30-second
+deadline aborts provider generation rather than merely abandoning its promise.
+OpenRouter empty/reasoning-only output or a generation failure gets at most one
+same-agent/request retry; no provider or model fallback is permitted. A
+still-empty or failed result is diagnosed and left eligible for a later user
+turn. Preflight/configuration, provider generation, empty output, timeout, and
+persistence failures have distinct structured diagnostics that exclude prompt
+text and credentials. The main response therefore is not held up by title
+latency, and generation remains independent of Observational Memory, its token
+threshold, and whether OM is thread- or resource-scoped.
+
+The same transparent model wrapper carries active provider routing options, so
+title generation uses the same OpenRouter route and reasoning configuration as
+the successful assistant turn. Before persistence, the title task rereads the
+thread's current title ownership. It passes a runtime-only abort signal through
+public `Memory.saveThread`; `PgliteMemoryStore.saveThread` checks that signal
+inside its transaction and rolls back when the shared deadline expires. A
+timed-out write therefore cannot commit later, and the outer stream lifecycle
+can release its per-run Mastra runtime at the deadline. This seam is verified
+against pinned `@mastra/core` 1.59.0 and `@mastra/memory` 1.26.0: public
+`Memory.saveThread` passes the supplied thread object to the configured store.
+`PgliteMemoryStore.saveThread` remains the transactional boundary that may
+replace only an empty/default/system-owned title and stamps `titleSource: 'om'`,
+while the manual rename path clears the marker and always wins even if
+generation was already in flight.
 
 Title generation deliberately does not delay the main assistant response, so
 provider `message-finish` is not a reliable primary title-refresh signal.

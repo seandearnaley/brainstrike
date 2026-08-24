@@ -41,14 +41,17 @@ import type {
 } from '@mastra/core/agent';
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
+import { RequestContext } from '@mastra/core/request-context';
 import type { ChunkType } from '@mastra/core/stream';
 import { canOverwriteThreadTitle } from '../pglite-mastra-memory/thread-title-policy';
+import { attachThreadTitleSaveAbortSignal } from '../pglite-mastra-memory/thread-title-save-cancellation';
 import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
 } from '../providers/native-web-search';
+import { wrapModelWithCallTransform } from '../providers/prompt-transform-proxy';
 import { getDefaultModel } from '../providers/provider-factory';
 import { formatDiagnosticChunkType } from '../stream/diagnostic-chunk-type';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
@@ -1997,7 +2000,8 @@ type ThreadTitlePhase = 'generation' | 'persistence' | 'preflight';
 
 async function awaitThreadTitleDeadline<T>(
   operation: Promise<T>,
-  remainingMs: number
+  remainingMs: number,
+  onTimeout?: () => void
 ): Promise<T | typeof THREAD_TITLE_TIMEOUT> {
   if (remainingMs <= 0) {
     return THREAD_TITLE_TIMEOUT;
@@ -2007,7 +2011,10 @@ async function awaitThreadTitleDeadline<T>(
     return await Promise.race([
       operation,
       new Promise<typeof THREAD_TITLE_TIMEOUT>((resolve) => {
-        timeout = setTimeout(() => resolve(THREAD_TITLE_TIMEOUT), remainingMs);
+        timeout = setTimeout(() => {
+          onTimeout?.();
+          resolve(THREAD_TITLE_TIMEOUT);
+        }, remainingMs);
       }),
     ]);
   } finally {
@@ -2082,13 +2089,32 @@ async function readThreadTitlePreflight(
 
 async function runThreadTitleAttempt(
   runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined,
   request: ThreadTitleRequest,
   remainingMs: number
 ): Promise<ThreadTitleAttemptResult> {
+  const controller = new AbortController();
   try {
+    const requestContext = request.requestContext ?? new RequestContext();
     const title = await awaitThreadTitleDeadline(
-      runtime.agent.generateTitleFromUserMessage(request),
-      remainingMs
+      (async () => {
+        const model = await runtime.agent.getModel({
+          requestContext,
+          ...(request.model ? { modelConfig: request.model } : {}),
+        });
+        const { providerOptions } = buildGenerationProviderOptionsOption(runtimeData);
+        return runtime.agent.generateTitleFromUserMessage({
+          ...request,
+          model: wrapModelWithCallTransform(model, (params) => ({
+            ...params,
+            ...(providerOptions ? { providerOptions } : {}),
+            abortSignal: controller.signal,
+          })),
+          requestContext,
+        });
+      })(),
+      remainingMs,
+      () => controller.abort(new Error('Mastra thread title generation deadline expired.'))
     );
     if (title === THREAD_TITLE_TIMEOUT) {
       return { status: 'timeout' };
@@ -2160,7 +2186,7 @@ async function generateBoundedThreadTitle(
     const remainingMs = deadline - Date.now();
     const result =
       remainingMs > 0
-        ? await runThreadTitleAttempt(runtime, request, remainingMs)
+        ? await runThreadTitleAttempt(runtime, runtimeData, request, remainingMs)
         : ({ status: 'timeout' } as const);
     if (result.status === 'title') {
       return result.title;
@@ -2189,23 +2215,48 @@ async function persistGeneratedThreadTitle({
   title: string;
 }): Promise<void> {
   try {
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) {
+    if (deadline - Date.now() <= 0) {
       logThreadTitleTimeout('persistence', { runtimeData, threadId });
       return;
     }
-    const result = await awaitThreadTitleDeadline(
+    const persistenceRemainingMs = deadline - Date.now();
+    if (persistenceRemainingMs <= 0) {
+      logThreadTitleTimeout('persistence', { runtimeData, threadId });
+      return;
+    }
+    const currentThread = await awaitThreadTitleDeadline(
+      memory.getThreadById({ threadId }),
+      persistenceRemainingMs
+    );
+    if (currentThread === THREAD_TITLE_TIMEOUT) {
+      logThreadTitleTimeout('persistence', { runtimeData, threadId });
+      return;
+    }
+    if (!(currentThread && canOverwriteThreadTitle(currentThread))) {
+      return;
+    }
+    const saveRemainingMs = deadline - Date.now();
+    if (saveRemainingMs <= 0) {
+      logThreadTitleTimeout('persistence', { runtimeData, threadId });
+      return;
+    }
+    const controller = new AbortController();
+    const saveResult = await awaitThreadTitleDeadline(
       memory.saveThread({
         ...(preflight.memoryConfig ? { memoryConfig: preflight.memoryConfig } : {}),
-        thread: {
-          ...preflight.thread,
-          title,
-          updatedAt: new Date(),
-        },
+        thread: attachThreadTitleSaveAbortSignal(
+          {
+            ...currentThread,
+            title,
+            updatedAt: new Date(),
+          },
+          controller.signal
+        ),
       }),
-      remainingMs
+      saveRemainingMs,
+      () => controller.abort(new Error('Mastra thread title persistence deadline expired.'))
     );
-    if (result === THREAD_TITLE_TIMEOUT) {
+    if (saveResult === THREAD_TITLE_TIMEOUT) {
       logThreadTitleTimeout('persistence', { runtimeData, threadId });
     }
   } catch (error) {

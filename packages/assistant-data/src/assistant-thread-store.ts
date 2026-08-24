@@ -88,14 +88,7 @@ export interface AssistantThreadDraftRuntime {
 }
 
 const resourceThreadLoadPromises = new Map<string, Promise<void>>();
-const resourceThreadRefreshGeneration = new Map<string, number>();
 let resourceThreadLoadGeneration = 0;
-
-function advanceResourceThreadRefresh(resourceId: string): number {
-  const generation = (resourceThreadRefreshGeneration.get(resourceId) ?? 0) + 1;
-  resourceThreadRefreshGeneration.set(resourceId, generation);
-  return generation;
-}
 
 function serializeThread(thread: AssistantMemoryThread): AssistantMemoryThread {
   return {
@@ -731,16 +724,15 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         repository: AssistantThreadRepository,
         resourceId: string
       ): Promise<void> => {
-        // Re-list already-loaded threads so titles generated out-of-band after
-        // a run's visible terminal chunk become visible. Only refreshes a
-        // resource that has
+        // Re-list already-loaded threads so titles set out-of-band (the
+        // observational-memory thread-title extractor names threads as a run's
+        // observations run) become visible. Only refreshes a resource that has
         // finished its initial load — ensureResourceThreads owns first load and
         // the empty-resource default-thread seed. Selection/open state is keyed
         // by id, which the merge preserves, so it is untouched here.
         if (get().loadStateByResourceId[resourceId]?.status !== 'ready') {
           return;
         }
-        const refreshGeneration = advanceResourceThreadRefresh(resourceId);
         const metadataSnapshotByThreadId = new Map(
           (get().threadsByResourceId[resourceId] ?? []).map((thread) => [
             thread.id,
@@ -748,10 +740,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           ])
         );
         const loaded = (await repository.listThreads(resourceId)).map(serializeThread);
-        if (
-          loaded.length === 0 ||
-          resourceThreadRefreshGeneration.get(resourceId) !== refreshGeneration
-        ) {
+        if (loaded.length === 0) {
           return;
         }
         set((state) => {
@@ -789,7 +778,6 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       ): Promise<void> => {
         const normalizedTitle = title.trim();
         await repository.renameThread(threadId, normalizedTitle);
-        advanceResourceThreadRefresh(resourceId);
         set((state) => ({
           threadsByResourceId: {
             ...state.threadsByResourceId,
@@ -912,7 +900,6 @@ export function useActiveAssistantThreadId(resourceIdOverride?: string): string 
 export function resetAssistantThreadStore(): void {
   resourceThreadLoadGeneration += 1;
   resourceThreadLoadPromises.clear();
-  resourceThreadRefreshGeneration.clear();
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: {},
     draftRuntimeByThreadId: {},

@@ -378,6 +378,10 @@ export const mastraAgentModuleMock = {
       return titleGenerationHandler(options, this.generateTitleCalls.length);
     }
 
+    getModel(options?: { modelConfig?: unknown }) {
+      return options?.modelConfig ?? this.model;
+    }
+
     listSuspendedRuns() {
       return Promise.resolve({ runs: suspendedRuns, total: suspendedRuns.length });
     }
