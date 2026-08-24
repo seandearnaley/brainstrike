@@ -112,13 +112,13 @@ describe('run token diagnostics', () => {
       type: 'text',
       value: `projected ${secret}`,
     });
-    const fields = diagnostics.toLogFields({ providerReportedPromptTokens: 321 });
+    const fields = diagnostics.toLogFields({ promptTokensSummedAcrossSteps: 321 });
 
     expect(fields).toMatchObject({
       measurementMode: 'exact-selected-model',
       measurementStatus: 'measured',
       modelVisibleProjectionCount: 1,
-      providerReportedPromptTokens: 321,
+      promptTokensSummedAcrossSteps: 321,
       resolvedDomainBudgetTokens: 1500,
       resolvedTransportBudgetTokens: 3000,
       tokenizer: 'o200k_base',
@@ -254,7 +254,7 @@ describe('run token diagnostics', () => {
 
     // A subagent/persona-delegated tool call: must land in per-tool
     // telemetry, but must NOT feed `modelVisibleProjection*` — that
-    // aggregate reconciles against `providerReportedPromptTokens`, i.e. what
+    // aggregate reconciles against `promptTokensSummedAcrossSteps`, i.e. what
     // the PARENT model actually saw in its OWN prompt, which a child tool
     // output never enters.
     diagnostics.recordSubagentToolOutput('brainstrike.grepSearch', {

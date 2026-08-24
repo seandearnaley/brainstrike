@@ -570,9 +570,21 @@ Mastra applies that hook's result back to the live `MessageList`.
 projections are resolved. It replaces only old, completed, successful native
 read/search/retrieval calls that have a serializable non-multimodal stored
 projection. The newest eligible read/search/retrieval step stays verbatim, as do missing
-projections, errors, edits, commands, verification, tasks, discovery, skills,
+projections, errors, commands, verification, tasks, discovery, skills,
 approvals, incomplete calls, and MCP tools. It never mutates the live
-`MessageList` or durable rows. Same-turn and reload integration tests must keep
+`MessageList` or durable rows.
+
+EDITS get one narrow, separate treatment (2026-08-23 ctx-explosion
+investigation, H2): a SETTLED `writeWorkspaceFile` / `stringReplaceWorkspaceFile`
+call — successful result, outside the same recent-step window — whose
+serialized args exceed 2,000 chars has its prompt-side INPUT collapsed to the
+identifying fields (`path`, `root`) plus an honest `elidedArguments` marker.
+The call/result pair stays structurally in place (nothing is stubbed or
+replayed), the RESULT stays verbatim, failed or in-flight edits keep full args
+(they may matter for a retry), and durable rows are untouched — same
+wire-only `processLLMRequest` guarantee as the read filtering. Rationale: a
+57 KB write's content otherwise rides every subsequent request of every
+subsequent leg while carrying no information the file on disk does not. Same-turn and reload integration tests must keep
 proving raw arguments/results remain persisted. A file write followed by two
 successful reads therefore retires the older redundant read while preserving
 the write and newest verification result; later protected state/working-memory

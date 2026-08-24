@@ -568,6 +568,10 @@ async function processMastraStreamPart(
       const terminalUsage = readStreamPartUsage(p);
       const terminalPromptTokens = terminalUsage?.promptTokens ?? terminalUsage?.inputTokens;
       if (typeof terminalPromptTokens === 'number' && Number.isFinite(terminalPromptTokens)) {
+        // Mastra's terminal usage is the CROSS-STEP SUM, so this re-stamp is
+        // consistent with the step path's accumulation (and is the only
+        // source on a zero-step stream). It is spend, not context size — see
+        // the field's doc comment.
         lifecycleState.providerReportedPromptTokens = terminalPromptTokens;
       }
       return {
@@ -2002,7 +2006,11 @@ function logTokenDiagnostics(
   const fields = runtime.tokenDiagnostics.toLogFields({
     ...(lifecycleState.providerReportedPromptTokens === undefined
       ? {}
-      : { providerReportedPromptTokens: lifecycleState.providerReportedPromptTokens }),
+      : { promptTokensSummedAcrossSteps: lifecycleState.providerReportedPromptTokens }),
+    ...(lifecycleState.latestStepPromptTokens === undefined
+      ? {}
+      : { latestStepPromptTokens: lifecycleState.latestStepPromptTokens }),
+    stepCount: lifecycleState.stepCount,
   });
   const context = {
     code: 'mastra_agent_token_measurement',

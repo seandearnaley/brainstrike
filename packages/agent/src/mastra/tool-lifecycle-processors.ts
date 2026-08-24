@@ -91,7 +91,12 @@ export interface ToolLifecycleState {
   latestStepCompletionTokens?: number;
   latestStepPromptTokens?: number;
   outputOnlyToolEvents: Map<string, OutputOnlyToolEvent>;
-  /** Actual provider/Mastra prompt usage, absent when the stream never reported it. */
+  /**
+   * Prompt tokens SUMMED across the leg's steps — spend, NOT context size
+   * (see `UsageMeteringState` in usage-metering.ts for the 2026-08-23
+   * misread this naming caused). Per-request size lives in
+   * `latestStepPromptTokens`.
+   */
   providerReportedPromptTokens?: number;
   requiresBilledCost: boolean;
   /**

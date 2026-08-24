@@ -346,11 +346,55 @@ describe('mastra streaming integration', () => {
       measurementStatus: 'measured',
       model: 'gpt-5.6-terra',
       modelVisibleProjectionCount: 0,
+      // Finish-only stream: the sum comes from Mastra's terminal usage, no
+      // step-finish ever ran, and there is no per-request measurement to
+      // report — absence is honest, 7-as-latest would be fabricated.
+      promptTokensSummedAcrossSteps: 7,
       provider: 'openai',
-      providerReportedPromptTokens: 7,
+      stepCount: 0,
       tokenizer: 'o200k_base',
       toolDefinitionCount: 0,
     });
+  });
+
+  it('reports the per-request context size and step count honestly, not only the leg sum', async () => {
+    // Field confusion (2026-08-23): a 10-step leg logged
+    // providerReportedPromptTokens 733,954 — read as a catastrophic context
+    // explosion, investigated as one, and disproven: the field stored the SUM
+    // of prompt tokens across the leg's steps, while the actual per-request
+    // context topped out far lower. The log must carry BOTH numbers under
+    // names that cannot be misread, plus the step count that relates them.
+    setMockStreamParts([
+      { textDelta: 'two-step answer', type: 'text-delta' },
+      { type: 'step-finish', usage: { completionTokens: 2, promptTokens: 10 } },
+      { type: 'step-finish', usage: { completionTokens: 3, promptTokens: 40 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 50 } },
+    ]);
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'two steps', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+      for await (const _chunk of iterator) {
+        // drain
+      }
+    } finally {
+      removeLogListener();
+    }
+    const fields = logRecords
+      .map((record) => record.args[0] as Record<string, unknown>)
+      .find((arg) => arg?.['code'] === 'mastra_agent_token_measurement');
+    expect(fields).toMatchObject({
+      // The actual size of the LAST request's context — the number that says
+      // whether the prompt is growing.
+      latestStepPromptTokens: 40,
+      // The leg's spend: 10 + 40 (Mastra's terminal usage restates this sum).
+      promptTokensSummedAcrossSteps: 50,
+      stepCount: 2,
+    });
+    expect(fields).not.toHaveProperty('providerReportedPromptTokens');
   });
 
   it('uses the final step prompt and step count for a completed multi-step calibration row', async () => {
@@ -559,10 +603,12 @@ describe('mastra streaming integration', () => {
 
   it('omits token-estimate calibration when token measurement failed', async () => {
     const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      latestStepPromptTokens: 7,
       measurementMode: 'declared-compatible-reference',
       measurementStatus: 'failed',
       modelVisibleProjectionBackstopTokens: 0,
-      providerReportedPromptTokens: 7,
+      promptTokensSummedAcrossSteps: 7,
+      stepCount: 1,
       toolDefinitionCount: 0,
     });
     setMockStreamParts([

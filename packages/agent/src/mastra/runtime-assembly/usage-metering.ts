@@ -231,7 +231,14 @@ export interface UsageMeteringState {
   latestStepCompletionTokens?: number;
   /** Prompt usage from the latest provider step, not the billed run sum. */
   latestStepPromptTokens?: number;
-  /** Actual provider/Mastra prompt usage, absent when the stream never reported it. */
+  /**
+   * Prompt tokens SUMMED across the leg's steps — spend, NOT context size
+   * (that is `latestStepPromptTokens`). Aliases `steppedPromptTokens` on the
+   * step path and Mastra's terminal usage (the same cross-step sum) at the
+   * finish. The 2026-08-23 incident was this value read as one request's
+   * size: a 10-step leg logged 733,954 and was investigated as a context
+   * explosion that did not exist.
+   */
   providerReportedPromptTokens?: number;
   steppedCompletionTokens: number;
   steppedPromptTokens: number;
