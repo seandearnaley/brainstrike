@@ -48,12 +48,27 @@ import { useMemo } from 'react';
  *
  * The guard is `occurred_at`-shaped: an answer must have occurred AFTER the
  * pause it answers. `sequence` cannot serve (it is per-run, so it is
- * meaningless across the two legs), but `occurred_at` is wall-clock from one
- * process and IS comparable across them. A tie fails the comparison and so
+ * meaningless across the two legs), but `occurred_at` IS comparable across
+ * them, because every run-event stamp comes from ONE producer: the agent
+ * stream's `makeRunEventChunk`
+ * (`packages/agent/src/mastra/stream-run-event-chunks.ts`,
+ * `timestamp ?? new Date().toISOString()`). The repository only normalizes
+ * what it is handed (`assistant-memory-repository.ts` `appendThreadRunEvent`)
+ * and the column carries NO `DEFAULT NOW()`, so there is no second clock — the
+ * pausing leg and the resume leg are stamped by the same process. The bound
+ * worth knowing: that is wall clock, not monotonic, so a backwards NTP step
+ * between legs could in principle invert them. Legs are separated by human
+ * deliberation, so a sub-second correction cannot; nothing here is safe against
+ * a large manual clock change, and that is accepted rather than defended.
+ *
+ * Resolution is milliseconds (`toISOString`). A tie fails the comparison and so
  * counts as NOT an answer — the safe direction, since it keeps an obligation
- * lit rather than silently dropping one. The three terminal kinds could not be
- * emitted by the pausing leg anyway, so the guard only ever binds on
- * `tool.started`.
+ * lit rather than silently dropping one. That is also the COMMON case rather
+ * than a corner: a pre-pause `tool.started` and the pause it precedes are
+ * emitted back-to-back and frequently share a millisecond, and "not an answer"
+ * is exactly what that start must be. A real answer follows human deliberation,
+ * so it can never tie. The three terminal kinds could not be emitted by the
+ * pausing leg anyway, so the guard only ever binds on `tool.started`.
  *
  * IT USED TO BE `run_id`-SHAPED — `AND NOT (answer.kind = 'tool.started' AND
  * answer.run_id = requested.run_id)` — on the reasoning that the runs already

@@ -55,7 +55,13 @@ async function seedRun(threadId: string, resourceId: string, runId: string): Pro
 async function seedEvent(
   runId: string,
   kind: AssistantRunEventKind,
-  toolCallId: string | null
+  toolCallId: string | null,
+  /**
+   * Explicit `occurred_at`. Defaults to one minute per seeded event, so the
+   * seeding order IS the chronological order for every test that does not care.
+   * Pass it only to exercise the timestamp boundary itself.
+   */
+  timestamp?: string
 ): Promise<void> {
   sequence += 1;
   await repository.appendThreadRunEvent(runId, {
@@ -65,7 +71,7 @@ async function seedEvent(
     ...(toolCallId === null ? {} : { metadata: { toolCallId } }),
     sequence,
     status: kind === 'tool.approval.requested' ? 'running' : 'completed',
-    timestamp: new Date(Date.UTC(2026, 7, 20, 12, sequence)).toISOString(),
+    timestamp: timestamp ?? new Date(Date.UTC(2026, 7, 20, 12, sequence)).toISOString(),
   });
 }
 
@@ -110,15 +116,19 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
   });
 
-  // THE PRODUCER ORDERING, and the reason `tool.started` needs a same-run
-  // exclusion. Mastra's approval gate runs INSIDE `toolCallStep`, i.e. after
-  // the model's `tool-call` part has already streamed — so the PAUSING leg
-  // emits `tool.started` for this very `toolCallId` BEFORE the pause. Pinned
-  // against the live Mastra loop in
+  // THE PRODUCER ORDERING, and the reason an answer must POSTDATE its pause.
+  // Mastra's approval gate runs INSIDE `toolCallStep`, i.e. after the model's
+  // `tool-call` part has already streamed — so the PAUSING leg emits
+  // `tool.started` for this very `toolCallId` BEFORE the pause. Pinned against
+  // the live Mastra loop in
   // `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
-  // ('tool.started' then 'tool.approval.requested'). Without the exclusion
-  // every pause is instantly answered by its own pre-pause event and the
-  // "needs you" glyph never lights for anyone.
+  // ('tool.started' then 'tool.approval.requested'). Without the guard every
+  // pause is instantly answered by its own pre-pause event and the "needs you"
+  // glyph never lights for anyone.
+  //
+  // The guard used to be a same-RUN exclusion, which closed this case but not
+  // the two-gated-call one below: a call whose gate is reached a leg later has
+  // its pre-pause start on a DIFFERENT run than its pause.
   it('keeps a pause whose OWN run already emitted tool.started for that call', async () => {
     const thread = await repository.createThread(RESOURCE_ID);
     await seedRun(thread.id, RESOURCE_ID, 'run-prepause');
@@ -128,9 +138,8 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
   });
 
-  // …and the exclusion is exactly that narrow: the resume leg mints a NEW
-  // runId, so a `tool.started` (or any terminal) from a different run is a real
-  // answer and still clears the thread.
+  // …and the guard is exactly that narrow: an event that POSTDATES the pause is
+  // a real answer and still clears the thread, whatever run it came from.
   it('drops that pause once a DIFFERENT run answers the same call', async () => {
     const thread = await repository.createThread(RESOURCE_ID);
     await seedRun(thread.id, RESOURCE_ID, 'run-prepause');
@@ -248,6 +257,44 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
   });
 
+  /**
+   * THE TIE, which is the ordinary case rather than a corner.
+   *
+   * `occurred_at` is milliseconds (`toISOString`), and a pre-pause
+   * `tool.started` and the pause it precedes are emitted back-to-back by the
+   * same producer — so sharing a millisecond is normal, not exotic. The guard
+   * is strict `>`, so a tie is NOT an answer, which is exactly what that start
+   * must be. It is also the safe direction in general: it keeps an obligation
+   * lit rather than silently dropping one, and a real answer follows human
+   * deliberation so it can never tie.
+   */
+  it('does not treat an answer kind sharing the pause timestamp as an answer', async () => {
+    const sameMs = '2026-08-20T12:30:00.000Z';
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-tie');
+    await seedEvent('run-tie', 'tool.started', 'call-tie', sameMs);
+    await seedEvent('run-tie', 'tool.approval.requested', 'call-tie', sameMs);
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
+  // …and one millisecond later IS an answer, so the boundary is `>` and not
+  // `>=`-with-slack. Without this pair, a guard that never matched anything
+  // would pass the test above.
+  it('treats an answer one millisecond after the pause as an answer', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-tie-plus');
+    await seedEvent(
+      'run-tie-plus',
+      'tool.approval.requested',
+      'call-tie',
+      '2026-08-20T12:30:00.000Z'
+    );
+    await seedEvent('run-tie-plus', 'tool.completed', 'call-tie', '2026-08-20T12:30:00.001Z');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
   it('does not let an answer for a DIFFERENT toolCallId resolve the pause', async () => {
     const thread = await repository.createThread(RESOURCE_ID);
     await seedRun(thread.id, RESOURCE_ID, 'run-paused');
@@ -327,9 +374,12 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     ]);
     expect(indexes.rows[1]?.indexdef).toContain("kind = 'tool.approval.requested'::text");
     expect(indexes.rows[0]?.indexdef).toContain('toolCallId');
-    // The same-run `tool.started` exclusion is evaluated on this side, so the
-    // answer index carries run_id too.
-    expect(indexes.rows[0]?.indexdef).toContain('run_id');
+    // The postdates-the-pause comparison is evaluated on this side, so the
+    // answer index carries occurred_at. It replaced a trailing run_id, which
+    // encoded the premise that a call's pre-pause start always shares its
+    // pause's run — false whenever a step gates two calls (BST-1440).
+    expect(indexes.rows[0]?.indexdef).toContain('occurred_at');
+    expect(indexes.rows[0]?.indexdef).not.toContain('run_id');
   });
 
   // The correction this query exists for: a paused leg is recorded

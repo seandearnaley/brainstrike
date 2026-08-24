@@ -2218,5 +2218,25 @@ describe('resume-leg sibling tool visibility', () => {
       parentToolCallId: 'call-sibling-delegation',
       personaId: 'explore',
     });
+
+    // BST-1440: the synthetic starts now also produce DURABLE `tool.started`
+    // run events — that is what clears the Threads panel's "needs you" signal
+    // on ANSWER rather than on completion. Siblings get one too, deliberately:
+    // a call pending in the same suspended step is genuinely in flight, which
+    // is why it gets a start chunk at all.
+    //
+    // SAFE only because a leg writes at most ONE `tool.approval.requested`:
+    // the stream stops at the first `tool-call-approval` part, so a sibling's
+    // own pause row can only be written on a LATER leg than this start — and
+    // `THREADS_AWAITING_APPROVAL_SQL` requires an answer to POSTDATE its pause,
+    // so this start cannot resolve it. COUPLING, for whoever changes that: if
+    // the stream ever surfaces every pending pause on one leg, a still-gated
+    // sibling's pause would predate this start and be cleared by it — the glyph
+    // would go dark on an approval nobody answered. Emitting starts for
+    // still-gated siblings has to stop at the same time.
+    const toolStarted = findRunEventChunks(chunks, 'tool.started');
+    const startedIds = toolStarted.map((chunk) => chunk.event.metadata?.['toolCallId']);
+    expect(startedIds).toContain('call-approved');
+    expect(startedIds).toContain('call-sibling-delegation');
   });
 });

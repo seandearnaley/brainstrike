@@ -1619,11 +1619,12 @@ function createTurnAttemptLifecycleState(
     // cost from the final step alone.
     sawStepBilledCost: carried?.sawStepBilledCost ?? false,
     sawStepWithoutBilledCost: carried?.sawStepWithoutBilledCost ?? false,
-    stepBilledCostUsd: carried?.stepBilledCostUsd ?? 0,
-    stepCount: carried?.stepCount ?? 0,
     // PER ATTEMPT, unlike the billing fields above: the steered finish reports
     // these directly as Mastra's cross-step sum for ONE stream, and the turn's
     // multi-attempt total rides `carried*` instead.
+    startedToolCallIds: new Set(),
+    stepBilledCostUsd: carried?.stepBilledCostUsd ?? 0,
+    stepCount: carried?.stepCount ?? 0,
     steppedCompletionTokens: 0,
     steppedPromptTokens: 0,
     streamStartedAtMs: Date.now(),
