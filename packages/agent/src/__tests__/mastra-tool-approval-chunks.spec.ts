@@ -1914,7 +1914,11 @@ describe('run_python approval executionContext stamping (BST-1070)', () => {
     ]);
     const iterator = await streamMastraAgent(
       [{ id: 'u1', parts: [{ text: 'run some python', type: 'text' }], role: 'user' }],
-      { requireToolApproval: true, runtime: { apiKey: 'test-key', provider: 'openai' } }
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: { id: 'sibling-storage' } as never,
+      }
     );
     const chunks: unknown[] = [];
     for await (const chunk of iterator) {
@@ -2044,5 +2048,76 @@ describe('listSuspendedMastraRuns classification (BST-1084)', () => {
 
     expect(result.approvals).toHaveLength(1);
     expect(result.suspends).toHaveLength(0);
+  });
+});
+
+describe('resume-leg sibling tool visibility', () => {
+  // Field failure (2026-08-24): Mastra resume legs never replay the suspended
+  // step's tool-call parts, and the synthetic start covered ONLY the approved
+  // call — so a sibling delegation in the same step ran for four minutes with
+  // NO card and no subagent.started, and the UI pinned the whole wait on the
+  // stale approved-tool card. Every pending call of the suspended run must get
+  // its start back; agent-* siblings also get their subagent.started so the
+  // delegation card exists and later subagent terminals have a mate.
+  it('synthesizes starts for the approved call AND its siblings, with subagent.started for delegations', async () => {
+    setSuspendedRuns([
+      {
+        runId: 'run-sibling-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-24T00:00:00Z'),
+        toolCalls: [
+          {
+            args: { path: 'scripts/context.mjs' },
+            requiresApproval: true,
+            toolCallId: 'call-approved',
+            toolName: 'run_skill_script',
+          },
+          {
+            args: { prompt: 'survey the repo' },
+            requiresApproval: false,
+            toolCallId: 'call-sibling-delegation',
+            toolName: 'agent-explore',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'resumed answer', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 5 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-sibling-1',
+        toolCallId: 'call-approved',
+        toolName: 'run_skill_script',
+      },
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: { id: 'sibling-workflow-storage' } as never,
+      }
+    );
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const startEvents = chunks.filter(
+      (chunk) =>
+        (chunk as { type?: string; status?: string }).type === 'tool-event' &&
+        (chunk as { status?: string }).status === 'start'
+    ) as { payload?: { toolCallId?: string } }[];
+    const startIds = startEvents.map((event) => event.payload?.toolCallId);
+    expect(startIds).toContain('call-approved');
+    expect(startIds).toContain('call-sibling-delegation');
+
+    const subagentStarted = findRunEventChunks(chunks, 'subagent.started');
+    expect(subagentStarted).toHaveLength(1);
+    expect(subagentStarted[0]?.event.metadata).toMatchObject({
+      parentToolCallId: 'call-sibling-delegation',
+      personaId: 'explore',
+    });
   });
 });

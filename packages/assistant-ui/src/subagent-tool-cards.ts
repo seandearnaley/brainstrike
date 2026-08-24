@@ -7,10 +7,10 @@ import {
 import { createElement, useMemo } from 'react';
 import { SubagentExecutionCard } from './subagent-execution-card';
 import {
-  readSubagentDelegationOutcome,
+  readSubagentDelegationOutcomeFromMessages,
   type SubAgentToolRow,
   type SubagentDelegationOutcome,
-  serializeLiveSubagentToolRows,
+  serializeLiveSubagentToolRowsFromMessages,
 } from './subagent-tool-rows';
 
 /**
@@ -27,14 +27,20 @@ import {
  * never re-render, freezing the live count on an early snapshot (D2).
  */
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
+  // THREAD-wide, not message-scoped (2026-08-24 field failure): hydration can
+  // weave this delegation's `subagent.tool.*` events into a SIBLING message of
+  // an approval-resume turn, so a message-scoped read showed "0 tool calls"
+  // on reload for a child that did minutes of work. The events are
+  // `parentToolCallId`-scoped, so the wider read cannot pick up another
+  // delegation's rows.
   const liveRowsJson = useAuiState((state) =>
-    serializeLiveSubagentToolRows(state.message.parts, props.toolCallId)
+    serializeLiveSubagentToolRowsFromMessages(state.thread.messages, props.toolCallId)
   );
-  // Read from the SAME message parts as the rows above. A string|undefined
-  // selector result is already value-stable under `useAuiState`'s `Object.is`
+  // Same thread-wide scope as the rows above. A string|undefined selector
+  // result is already value-stable under `useAuiState`'s `Object.is`
   // comparison, so unlike the rows it needs no serialization dance.
   const outcome = useAuiState((state) =>
-    readSubagentDelegationOutcome(state.message.parts, props.toolCallId)
+    readSubagentDelegationOutcomeFromMessages(state.thread.messages, props.toolCallId)
   ) as SubagentDelegationOutcome | undefined;
   const liveRows = useMemo(() => JSON.parse(liveRowsJson) as SubAgentToolRow[], [liveRowsJson]);
   return createElement(SubagentExecutionCard, {

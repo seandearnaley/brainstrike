@@ -282,3 +282,48 @@ describe('mergeSubagentToolRows', () => {
     expect(merged).toHaveLength(1);
   });
 });
+
+describe('readLiveSubagentToolRowsFromMessages', () => {
+  // Field failure (2026-08-24): on reload, hydration weaves a run's
+  // subagent.tool.* events into ONE assistant group, and an approval-resume
+  // turn splits into sibling groups — so the events can land on a DIFFERENT
+  // message than the delegation card. The card read only its own message's
+  // parts and showed "0 tool calls" for a child that did four minutes of
+  // work. Events are parentToolCallId-scoped by design, so a thread-wide read
+  // is safe and reload-robust.
+  it('finds rows woven into a SIBLING message', async () => {
+    const { readLiveSubagentToolRowsFromMessages } = await import('../subagent-tool-rows');
+    const messages = [
+      { parts: [{ text: 'card lives here, events do not', type: 'text' }] },
+      {
+        parts: [
+          liveEventPart({
+            childToolName: 'readWorkspaceFile',
+            kind: 'subagent.tool.completed',
+            parentToolCallId: 'parent-1',
+            toolCallId: 'child-1',
+          }),
+        ],
+      },
+    ];
+    const rows = readLiveSubagentToolRowsFromMessages(messages, 'parent-1');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'success', toolName: 'readWorkspaceFile' });
+  });
+
+  it('ignores rows belonging to a different delegation', async () => {
+    const { readLiveSubagentToolRowsFromMessages } = await import('../subagent-tool-rows');
+    const messages = [
+      {
+        parts: [
+          liveEventPart({
+            kind: 'subagent.tool.completed',
+            parentToolCallId: 'someone-else',
+            toolCallId: 'child-9',
+          }),
+        ],
+      },
+    ];
+    expect(readLiveSubagentToolRowsFromMessages(messages, 'parent-1')).toHaveLength(0);
+  });
+});

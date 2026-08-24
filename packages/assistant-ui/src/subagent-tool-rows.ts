@@ -154,3 +154,54 @@ export function mergeSubagentToolRows(
   }
   return Array.from(byKey.values());
 }
+
+interface MessageWithParts {
+  readonly parts?: readonly unknown[];
+}
+
+/**
+ * Thread-wide variant of {@link readLiveSubagentToolRows} (2026-08-24 field
+ * failure): hydration weaves a run's `subagent.tool.*` events into ONE
+ * assistant group, and an approval-resume turn splits into sibling groups —
+ * so on reload the events can land on a DIFFERENT message than the delegation
+ * card, and a message-scoped read shows "0 tool calls" for a child that did
+ * minutes of work. The events are `parentToolCallId`-scoped by design, so
+ * reading every message's parts is safe and reload-robust.
+ */
+export function readLiveSubagentToolRowsFromMessages(
+  messages: readonly MessageWithParts[],
+  parentToolCallId: string
+): SubAgentToolRow[] {
+  const parts: unknown[] = [];
+  for (const message of messages) {
+    if (Array.isArray(message.parts)) {
+      parts.push(...message.parts);
+    }
+  }
+  return readLiveSubagentToolRows(parts, parentToolCallId);
+}
+
+/** Value-stable serialization of {@link readLiveSubagentToolRowsFromMessages}. */
+export function serializeLiveSubagentToolRowsFromMessages(
+  messages: readonly MessageWithParts[],
+  parentToolCallId: string
+): string {
+  return JSON.stringify(readLiveSubagentToolRowsFromMessages(messages, parentToolCallId));
+}
+
+/** Thread-wide variant of {@link readSubagentDelegationOutcome} — same rationale. */
+export function readSubagentDelegationOutcomeFromMessages(
+  messages: readonly MessageWithParts[],
+  parentToolCallId: string
+): SubagentDelegationOutcome | undefined {
+  for (const message of messages) {
+    if (!Array.isArray(message.parts)) {
+      continue;
+    }
+    const outcome = readSubagentDelegationOutcome(message.parts, parentToolCallId);
+    if (outcome) {
+      return outcome;
+    }
+  }
+  return;
+}
