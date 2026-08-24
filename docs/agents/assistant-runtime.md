@@ -1960,14 +1960,13 @@ properties of that row are load-bearing:
   not treat it as terminal — the two ask different questions, which is exactly
   why `tool.started` needs an ORDERING guard the three terminals do not: the
   approval gate runs inside `toolCallStep`, so the PAUSING leg already emitted
-  a `tool.started` for that same call before the pause row. The guard is a
-  same-run exclusion rather than a `sequence` / `occurred_at` comparison
-  (`sequence` is per-run and meaningless across the two legs). The SQL, the
-  exclusion clause, and the producer that makes it load-bearing are specified
-  once in `docs/agents/assistant-persistence.md` § THREAD GROUPS — do not
-  restate the rule here; an earlier restatement of it drifted into the opposite
-  ruling ("no ordering guard is needed") and contradicted the shipped query
-  until BST-1440.
+  a `tool.started` for that same call before the pause row. The guard compares
+  `occurred_at` (`sequence` is per-run and meaningless across the two legs).
+  The SQL, the guard, and the producer shapes that make it load-bearing are
+  specified once in `docs/agents/assistant-persistence.md` § THREAD GROUPS — do
+  not restate the rule here. Two earlier restatements each drifted: one into the
+  opposite ruling ("no ordering guard is needed"), and one into a run-scoped
+  guard that a step with two gated calls defeats.
 - IT DELIBERATELY IGNORES `thread_runs.status`. A leg that pauses for approval
   finishes with `finishReason: 'tool-calls'`, which every terminal writer
   records as `completed`, so a `status = 'running'` join would make the

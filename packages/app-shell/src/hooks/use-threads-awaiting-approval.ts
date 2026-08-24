@@ -46,22 +46,39 @@ import { useMemo } from 'react';
  * `toolCallId` alone would therefore let every pause answer ITSELF and the
  * "needs you" glyph would never light for anyone.
  *
- * The exclusion is `run_id`-shaped rather than order-shaped because the runs
- * already carry the ordering: the pre-pause `tool.started` is emitted by the
- * pausing leg and so shares the pause's `run_id`, while the approve path
- * re-yields the tool start on a RESUME leg that minted a NEW runId. So a
- * same-run `tool.started` is always the pre-pause one and a different-run one
- * is always post-approve — no `sequence`/`occurred_at` comparison needed, and
- * `sequence` could not serve anyway (it is per-run). The three terminal kinds
- * need no such exclusion: none of them can be emitted by the leg that paused.
+ * The guard is `occurred_at`-shaped: an answer must have occurred AFTER the
+ * pause it answers. `sequence` cannot serve (it is per-run, so it is
+ * meaningless across the two legs), but `occurred_at` is wall-clock from one
+ * process and IS comparable across them. A tie fails the comparison and so
+ * counts as NOT an answer — the safe direction, since it keeps an obligation
+ * lit rather than silently dropping one. The three terminal kinds could not be
+ * emitted by the pausing leg anyway, so the guard only ever binds on
+ * `tool.started`.
+ *
+ * IT USED TO BE `run_id`-SHAPED — `AND NOT (answer.kind = 'tool.started' AND
+ * answer.run_id = requested.run_id)` — on the reasoning that the runs already
+ * carry the ordering: a call's pre-pause start shares its pause's run, and only
+ * the post-approve start is on a different one. That premise is FALSE whenever
+ * a step has TWO gated calls. Mastra's `foreach(toolCallStep)` is sequential,
+ * so it pauses on A alone while B's `tool-call` part has already streamed:
+ * leg 1 emits `tool.started` for BOTH A and B, and B does not reach its own
+ * gate — and its own pause row — until leg 2. B's pre-pause start is therefore
+ * on a DIFFERENT run than B's pause, the same-run exclusion never fires for it,
+ * and B's own pre-pause start answered B's pause. The glyph went dark while the
+ * user was genuinely still being asked about B. That producer shape is pinned
+ * against the live loop in
+ * `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
+ * ("PAUSES ONE CALL AT A TIME") and its projection outcome in this hook's
+ * integration lane. The defect predates BST-1440: with the older producer it
+ * merely surfaced later, once `tool.completed` cleared the first pause.
  *
  * The resume-leg re-yield is what makes this projection clear on ANSWER rather
  * than on completion (BST-1440), and it is produced by `makeResumedStartChunks`
  * in `packages/agent/src/mastra/agent-streaming.ts` — Mastra never replays a
  * resumed step's `tool-call` part, so that seam synthesises the start and hands
  * it to the same tool-lifecycle chunk maker the mainline uses. Until it did,
- * this whole clause was dead weight and the glyph stayed lit, for a call the
- * user had already approved, until `tool.completed` landed.
+ * `tool.started` never appeared on a resume leg at all and the glyph stayed
+ * lit, for a call the user had already approved, until `tool.completed` landed.
  *
  * Exported for the real-PGlite lane
  * (`__tests__/use-threads-awaiting-approval.integration.test.ts`), which proves
@@ -88,7 +105,7 @@ export const THREADS_AWAITING_APPROVAL_SQL = `
           'tool.failed',
           'tool.resume.unsupported'
         )
-        AND NOT (answer.kind = 'tool.started' AND answer.run_id = requested.run_id)
+        AND answer.occurred_at > requested.occurred_at
     )
   ORDER BY "threadId" ASC
 `;

@@ -172,6 +172,82 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
   });
 
+  /**
+   * TWO gated calls in ONE step — the shape that breaks a purely `run_id`-shaped
+   * ordering guard, and the reason this query orders on `occurred_at`.
+   *
+   * Every row below is a PRODUCTION shape, observed on the live @mastra/core
+   * loop and pinned there by
+   * `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
+   * ("PAUSES ONE CALL AT A TIME"). Mastra's `foreach(toolCallStep)` is
+   * sequential, so with two gated calls in one step it pauses on A alone; B's
+   * `tool-call` part has ALREADY streamed, so leg 1 emits `tool.started` for
+   * BOTH. Approving A resumes, A runs, and then B reaches its own gate and
+   * pauses on leg 2.
+   *
+   * So B's pre-pause `tool.started` is on leg 1 while B's pause row is on
+   * leg 2 — DIFFERENT runs. The same-run exclusion alone therefore cannot
+   * exclude it, and B's own pre-pause start would answer B's pause: approving A
+   * would silently take the "needs you" glyph dark while B is genuinely still
+   * waiting for the user. `occurred_at` is what actually carries the ordering
+   * across legs.
+   */
+  it('keeps the thread lit when a SECOND gated call pauses on the resume leg', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-1');
+    await seedEvent('run-leg-1', 'tool.started', 'call-a');
+    await seedEvent('run-leg-1', 'tool.started', 'call-b');
+    await seedEvent('run-leg-1', 'tool.approval.requested', 'call-a');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-2');
+    await seedEvent('run-leg-2', 'tool.started', 'call-a');
+    await seedEvent('run-leg-2', 'tool.approval.requested', 'call-b');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
+  /** ...and answering B on a third leg finally clears the thread. */
+  it('drops it once the SECOND call is answered too', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-1');
+    await seedEvent('run-leg-1', 'tool.started', 'call-a');
+    await seedEvent('run-leg-1', 'tool.started', 'call-b');
+    await seedEvent('run-leg-1', 'tool.approval.requested', 'call-a');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-2');
+    await seedEvent('run-leg-2', 'tool.started', 'call-a');
+    await seedEvent('run-leg-2', 'tool.approval.requested', 'call-b');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-3');
+    await seedEvent('run-leg-3', 'tool.started', 'call-b');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
+  /**
+   * The same two-gated-call thread under the PRE-BST-1440 producer, where the
+   * resume leg emitted no `tool.started` at all. This is the evidence that the
+   * dark-signal defect PREDATES that change rather than being introduced by it:
+   * run against the old `run_id`-shaped guard, this seed returned `[]` — B's
+   * own leg-1 `tool.started` answered B's leg-2 pause the moment
+   * `tool.completed` cleared A's. BST-1440 changed only WHEN it surfaced
+   * (approve-time instead of A-completion-time), never whether.
+   */
+  it('keeps it lit under the pre-BST-1440 producer shape too', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-1');
+    await seedEvent('run-leg-1', 'tool.started', 'call-a');
+    await seedEvent('run-leg-1', 'tool.started', 'call-b');
+    await seedEvent('run-leg-1', 'tool.approval.requested', 'call-a');
+
+    // Pre-BST-1440 the resume leg emitted NO tool.started at all.
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-2');
+    await seedEvent('run-leg-2', 'tool.completed', 'call-a');
+    await seedEvent('run-leg-2', 'tool.approval.requested', 'call-b');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
   it('does not let an answer for a DIFFERENT toolCallId resolve the pause', async () => {
     const thread = await repository.createThread(RESOURCE_ID);
     await seedRun(thread.id, RESOURCE_ID, 'run-paused');
