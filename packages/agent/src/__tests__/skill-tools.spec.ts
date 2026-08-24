@@ -14,6 +14,7 @@
 import { createSkill, resolveAgentSkills } from '@mastra/core/skills';
 import { describe, expect, it } from 'vitest';
 import {
+  BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE,
   createAssistantSkillTools,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   SKILL_TOOL_IDS,
@@ -153,5 +154,35 @@ describe('activation execution guidance', () => {
     const { BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE } = await import('../skills/skill-tools');
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('search_tools');
     expect(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE).toContain('next turn');
+  });
+});
+
+describe('activation guidance survives truncation', () => {
+  // Review of #2625: the wrappers nested as
+  // withBoundedStringOutput(withActivationGuidance(...)), so the guidance was
+  // appended BEFORE bounding — and fitToSerializedBudget keeps a PREFIX, so an
+  // activation exceeding the budget lost the entire trailing guidance block.
+  // That is precisely the large, script-heavy SKILL.md most likely to need the
+  // runSkillScript recovery path (the 2026-08-23 field failure's shape). The
+  // bound must reserve the guidance's space: truncated content + honest note +
+  // guidance, all inside the budget — the same order the desktop activation
+  // context uses.
+  it('keeps the execution guidance on an over-budget activation', async () => {
+    const hugeInstructions = 'run scripts/setup.mjs then scripts/build.mjs. '.repeat(2000);
+    const tools = createAssistantSkillTools(inlineEngine(hugeInstructions));
+    const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
+
+    expect(output).toContain('[Skill instructions truncated');
+    expect(output.endsWith(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE)).toBe(true);
+    // Still inside the transport budget the bound exists to satisfy.
+    expect(JSON.stringify(output).length).toBeLessThanOrEqual(
+      SKILL_ACTIVATION_RESULT_TOKEN_BUDGET * 4
+    );
+  });
+
+  it('appends the guidance verbatim on an under-budget activation', async () => {
+    const tools = createAssistantSkillTools(inlineEngine('Short instructions.'));
+    const output = String(await executeTool(tools.skill, { name: 'test-skill' }));
+    expect(output.endsWith(BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE)).toBe(true);
   });
 });
