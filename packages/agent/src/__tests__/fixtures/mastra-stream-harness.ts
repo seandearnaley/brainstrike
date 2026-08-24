@@ -71,7 +71,7 @@ let titleGenerationHandler:
   | ((options: unknown, call: number) => Promise<string | undefined> | string | undefined)
   | undefined;
 let titleGenerationResults: Array<string | undefined | Error | Promise<string | undefined>> = [];
-let titleModel: object | undefined;
+let titleModel: Error | object | undefined;
 /**
  * Per-`stream()`-call part overrides, keyed by 1-based call number on the
  * agent instance (same numbering as `setStreamFailure`). Lets a multi-attempt
@@ -100,7 +100,7 @@ export function setMockTitleGenerationHandler(
   titleGenerationHandler = handler;
 }
 
-export function setMockTitleModel(model: object | undefined): void {
+export function setMockTitleModel(model: Error | object | undefined): void {
   titleModel = model;
 }
 
@@ -404,6 +404,9 @@ export const mastraAgentModuleMock = {
 
     getModel(options?: unknown) {
       this.getModelCalls.push(options);
+      if (titleModel instanceof Error) {
+        throw titleModel;
+      }
       return titleModel ?? this.model;
     }
 

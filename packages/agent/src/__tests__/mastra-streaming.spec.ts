@@ -413,6 +413,133 @@ describe('mastra streaming integration', () => {
     expect(JSON.stringify(logRecords)).not.toContain('private config detail');
   });
 
+  it('skips title generation without a complete thread scope or textual user input', async () => {
+    setMockTitleGenerationResults(['Unreachable title']);
+    setMockStreamParts([
+      { textDelta: 'The main response succeeded.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 8 } },
+    ]);
+    const unscopedMemory = makeTitleMemory();
+    const unscopedIterator = await streamMastraAgent(
+      [{ id: 'user-unscoped-title', parts: [{ text: 'Name this.', type: 'text' }], role: 'user' }],
+      {
+        memory: unscopedMemory as never,
+        runtime: { apiKey: ['unit', 'test'].join('-'), provider: 'openai' },
+      }
+    );
+    for await (const _chunk of unscopedIterator) {
+      // drain
+    }
+
+    const noTextMemory = makeTitleMemory();
+    const noTextIterator = await streamMastraAgent(
+      [{ id: 'user-no-text-title', parts: [], role: 'user' }],
+      {
+        memory: noTextMemory as never,
+        runtime: {
+          apiKey: ['unit', 'test'].join('-'),
+          memory: {
+            resourceId: noTextMemory.thread.resourceId,
+            threadId: noTextMemory.thread.id,
+          },
+          provider: 'openai',
+        },
+      }
+    );
+    for await (const _chunk of noTextIterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-2)?.generateTitleFromUserMessageCalls).toHaveLength(0);
+    expect(agentInstances.at(-1)?.generateTitleFromUserMessageCalls).toHaveLength(0);
+    expect(unscopedMemory.saveThread).not.toHaveBeenCalled();
+    expect(noTextMemory.saveThread).not.toHaveBeenCalled();
+  });
+
+  it('keeps disabled and user-owned thread titles unchanged', async () => {
+    setMockTitleGenerationResults(['Unreachable title']);
+    const disabledMemory = makeTitleMemory({ generateTitle: false });
+    const disabledIterator = await startTitleContractTurn(disabledMemory);
+    for await (const _chunk of disabledIterator) {
+      // drain
+    }
+
+    const userOwnedMemory = makeTitleMemory({
+      getThreadById: vi.fn().mockResolvedValue({
+        ...makeTitleMemory().thread,
+        title: 'My chosen title',
+      }),
+    });
+    const userOwnedIterator = await startTitleContractTurn(userOwnedMemory);
+    for await (const _chunk of userOwnedIterator) {
+      // drain
+    }
+
+    expect(disabledMemory.saveThread).not.toHaveBeenCalled();
+    expect(userOwnedMemory.saveThread).not.toHaveBeenCalled();
+    expect(agentInstances.at(-2)?.generateTitleFromUserMessageCalls).toHaveLength(0);
+    expect(agentInstances.at(-1)?.generateTitleFromUserMessageCalls).toHaveLength(0);
+  });
+
+  it('reports title model resolution and PGlite read/write failures by stage', async () => {
+    const logRecords: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => logRecords.push(record));
+    try {
+      setMockTitleModel(new Error('private model resolution detail'));
+      const modelIterator = await startTitleContractTurn(makeTitleMemory());
+      for await (const _chunk of modelIterator) {
+        // drain
+      }
+
+      setMockTitleModel(undefined);
+      const readMemory = makeTitleMemory({
+        getThreadById: vi.fn().mockRejectedValue({ code: 'PGLITE_READ_PRIVATE' }),
+      });
+      const readIterator = await startTitleContractTurn(readMemory);
+      for await (const _chunk of readIterator) {
+        // drain
+      }
+
+      setMockTitleGenerationResults(['Write failure title']);
+      const writeMemory = makeTitleMemory({
+        saveThread: vi.fn().mockRejectedValue({ code: 'PGLITE_WRITE_PRIVATE' }),
+      });
+      const writeIterator = await startTitleContractTurn(writeMemory);
+      for await (const _chunk of writeIterator) {
+        // drain
+      }
+    } finally {
+      removeLogListener();
+    }
+
+    expect(findTitleDiagnostic(logRecords, 'mastra_thread_title_provider_failed')).toMatchObject({
+      attempt: 1,
+      stage: 'provider',
+    });
+    const persistenceDiagnostics = logRecords
+      .flatMap((record) => record.args)
+      .filter(
+        (argument): argument is Record<string, unknown> =>
+          Boolean(argument && typeof argument === 'object') &&
+          (argument as { code?: unknown }).code === 'mastra_thread_title_persistence_failed'
+      );
+    expect(persistenceDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          databaseCode: 'PGLITE_READ_PRIVATE',
+          errorName: 'UnknownError',
+          stage: 'persistence-read',
+        }),
+        expect.objectContaining({
+          databaseCode: 'PGLITE_WRITE_PRIVATE',
+          errorName: 'UnknownError',
+          stage: 'persistence-write',
+        }),
+      ])
+    );
+    expect(JSON.stringify(logRecords)).not.toContain('private model resolution detail');
+  });
+
   it('aborts the underlying title provider request when the lifecycle expires', async () => {
     vi.useFakeTimers();
     let titleSignal: AbortSignal | undefined;
