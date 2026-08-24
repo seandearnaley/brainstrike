@@ -19,6 +19,7 @@
 import type { AssistantRunEventKind } from '@brainstrike/assistant-contract';
 import {
   type AssistantThreadRepository,
+  buildAssistantThreadRunsSchemaSql,
   createPgliteAssistantThreadRepository,
 } from '@brainstrike/assistant-data';
 import { wasmLoader } from '@brainstrike/db';
@@ -369,7 +370,7 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     );
 
     expect(indexes.rows.map((row) => row.indexname)).toEqual([
-      'brainstrike_assistant_run_events_approval_answer_idx',
+      'brainstrike_assistant_run_events_approval_answer_at_idx',
       'brainstrike_assistant_run_events_approval_pause_idx',
     ]);
     expect(indexes.rows[1]?.indexdef).toContain("kind = 'tool.approval.requested'::text");
@@ -380,6 +381,54 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     // pause's run — false whenever a step gates two calls (BST-1440).
     expect(indexes.rows[0]?.indexdef).toContain('occurred_at');
     expect(indexes.rows[0]?.indexdef).not.toContain('run_id');
+  });
+
+  /**
+   * THE UPGRADE, which the test above structurally cannot check.
+   *
+   * `CREATE INDEX IF NOT EXISTS` keys off the NAME. The answer index changed
+   * its trailing column from `run_id` to `occurred_at` (BST-1440), so had it
+   * kept its old name, every database created before that change would have
+   * silently skipped the new definition — keeping the run_id shape forever,
+   * returning correct rows while heap-filtering timestamps on every
+   * run_events notify. The suite above builds a FRESH database, which never has
+   * the old index, so it would pass throughout.
+   *
+   * This seeds the pre-change state explicitly and then lets the bootstrap run.
+   */
+  it('replaces a pre-existing run_id-shaped answer index instead of skipping it', async () => {
+    // The bootstrap has to have run once for the table to exist…
+    await repository.createThread(RESOURCE_ID);
+    // …then put the database back into its pre-BST-1440 shape.
+    await database.query(
+      'DROP INDEX IF EXISTS brainstrike_assistant_run_events_approval_answer_at_idx'
+    );
+    await database.query(
+      `CREATE INDEX brainstrike_assistant_run_events_approval_answer_idx
+         ON brainstrike_assistant_run_events (resource_id, thread_id, (metadata->>'toolCallId'), run_id)
+         WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported')`
+    );
+
+    // Re-run the bootstrap DDL itself, which is what an upgrading install does
+    // on its next app start. It cannot be triggered through the repository here:
+    // both the repository and its schema-init promise are memoized BY DATABASE
+    // HANDLE, and a new handle over `memory://` would be an empty database
+    // rather than an existing one. Executing the same SQL the initializer
+    // executes is the honest simulation, and it is the SQL under test.
+    await database.exec(buildAssistantThreadRunsSchemaSql());
+
+    const names = await database.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes
+       WHERE tablename = 'brainstrike_assistant_run_events'
+         AND indexname LIKE '%approval_answer%'
+       ORDER BY indexname`
+    );
+
+    // The old shape is GONE, not merely shadowed: leaving it would keep paying
+    // its write cost on the hottest table in the schema for no read benefit.
+    expect(names.rows.map((row) => row.indexname)).toEqual([
+      'brainstrike_assistant_run_events_approval_answer_at_idx',
+    ]);
   });
 
   // The correction this query exists for: a paused leg is recorded
