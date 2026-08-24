@@ -120,8 +120,12 @@ function isWebHandleCacheShape(value: unknown): value is WebHandleCacheShape {
     return false;
   }
   const candidate = value as Record<string, unknown>;
-  return WEB_HANDLE_CACHE_METHODS.every(
-    (method) => candidate[method] === undefined || typeof candidate[method] === 'function'
+  return (
+    WEB_HANDLE_CACHE_METHODS.every(
+      (method) => candidate[method] === undefined || typeof candidate[method] === 'function'
+    ) &&
+    (typeof candidate['getLastRootHandleForRestore'] === 'function' ||
+      typeof candidate['restoreLastRootHandle'] === 'function')
   );
 }
 

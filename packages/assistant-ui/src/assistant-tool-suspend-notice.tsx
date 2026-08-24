@@ -24,7 +24,6 @@ import {
   useEffect,
   useId,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
@@ -34,6 +33,7 @@ const logger = createLogger('AssistantToolSuspendNotice');
 
 const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
+const loggedUnreadablePauseKeys = new Set<string>();
 
 /**
  * Callback that clears the persisted plan-mode toggle. Provided by the
@@ -154,6 +154,10 @@ function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
       ? { selectionMode }
       : {}),
   };
+}
+
+function readAskUserQuestion(value: unknown): string | null {
+  return isRecord(value) && typeof value['question'] === 'string' ? value['question'] : null;
 }
 
 function isAssistantToolSuspendRequest(value: unknown): value is AssistantToolSuspendRequest {
@@ -385,17 +389,16 @@ function UnreadableSuspendPayloadNotice({
   testId: string;
   title: string;
 }) {
-  const loggedPauseKey = useRef<string | null>(null);
   const pauseKey = `${request.runId}:${request.toolCallId}:${request.toolName}`;
   const payloadDetail = useMemo(
     () => JSON.stringify(request.suspendPayload, null, 2),
     [request.suspendPayload]
   );
   useEffect(() => {
-    if (loggedPauseKey.current === pauseKey) {
+    if (loggedUnreadablePauseKeys.has(pauseKey)) {
       return;
     }
-    loggedPauseKey.current = pauseKey;
+    loggedUnreadablePauseKeys.add(pauseKey);
     logger.warn('Unreadable tool suspension payload', {
       runId: request.runId,
       suspendPayload: request.suspendPayload,
@@ -550,6 +553,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const [freeText, setFreeText] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const payload = readAskUserPayload(request.suspendPayload);
+  const readableQuestion = payload === null ? readAskUserQuestion(request.suspendPayload) : null;
   const options: AskUserOption[] = payload?.options ?? [];
   const isMultiSelect = payload?.selectionMode === 'multi_select';
 
@@ -568,11 +572,39 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   if (payload === null) {
     return (
       <UnreadableSuspendPayloadNotice
-        detail="The suspended request contains malformed question details, so it cannot be answered here."
+        detail={
+          readableQuestion
+            ? 'The question is readable, but its choice controls are not. Answer in your own words or stop the run.'
+            : 'The suspended request contains malformed question details, so it cannot be answered here.'
+        }
         request={request}
         testId="assistant-ask-user-payload-unreadable"
         title="Question details could not be read"
-      />
+      >
+        {readableQuestion ? (
+          <div className="mt-2 space-y-2">
+            <p className="text-foreground/90 text-xs">{readableQuestion}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                aria-label="Answer in your own words"
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+                disabled={locked}
+                onChange={(event) => setFreeText(event.target.value)}
+                placeholder="Type your answer…"
+                value={freeText}
+              />
+              <Button
+                disabled={locked || freeText.trim().length === 0}
+                onClick={() => submitAnswer(freeText.trim(), `Answered: ${freeText.trim()}`)}
+                size="sm"
+                variant="default"
+              >
+                Send answer
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </UnreadableSuspendPayloadNotice>
     );
   }
 

@@ -2638,9 +2638,13 @@ list, an unknown `selectionMode`, or a selection mode without readable options
 likewise makes the question unanswerable rather than silently changing its
 interaction mode. An unreadable core payload renders a diagnostic failed alert
 with a bounded, scrollable raw-payload view and logs once per run/tool-call
-identity. The user may safely reject an unreadable plan (never approve it). An
-unreadable question has no safe typed answer and no durable run event explaining
-the dead end, so its alert remains visible and cannot be dismissed or answered.
+identity across renderer remounts. The user may safely reject an unreadable plan
+(never approve it). A readable question whose choice controls drift remains an
+explicit failed alert, shows the raw payload, and offers a clearly-labelled
+free-text answer through the schema's supported string arm; it never guesses a
+choice interaction. If the question itself is unreadable there is no safe typed
+answer and no durable run event explaining the dead end, so its alert remains
+visible and cannot be dismissed or answered.
 
 **Transport table (parallel to approval):**
 

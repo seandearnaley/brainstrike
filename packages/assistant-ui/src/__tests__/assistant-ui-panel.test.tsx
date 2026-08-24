@@ -457,6 +457,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   afterEach(() => {
+    Object.assign(window, { assistant: undefined });
     cleanup();
     vi.clearAllMocks();
     vi.useRealTimers();

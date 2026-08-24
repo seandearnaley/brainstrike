@@ -1,3 +1,7 @@
+import { createLogger } from '@brainstrike/logging';
+
+const logger = createLogger('adapterWithHandleCache');
+
 /** Read and validate an adapter's platform-specific handle cache. */
 export function readHandleCache<HandleCache>(
   adapter: unknown,
@@ -16,7 +20,8 @@ export function readHandleCache<HandleCache>(
     return null;
   }
   if (!isHandleCache(handleCache)) {
-    throw new TypeError('Adapter getHandleCache() returned an unsupported cache shape.');
+    logger.error('Adapter getHandleCache() returned an unsupported cache shape; cache disabled.');
+    return null;
   }
   return handleCache;
 }

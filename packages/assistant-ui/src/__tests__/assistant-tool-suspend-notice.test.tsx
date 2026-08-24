@@ -239,7 +239,8 @@ describe('AssistantToolSuspendNotice', () => {
     expect(appendMessageMock).not.toHaveBeenCalled();
   });
 
-  it('refuses an askUser choice set when any option is unreadable', () => {
+  it('makes a readable question explicitly answerable when its choices are unreadable', async () => {
+    const user = userEvent.setup();
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -255,7 +256,11 @@ describe('AssistantToolSuspendNotice', () => {
 
     expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Keep me' })).not.toBeInTheDocument();
-    expect(appendMessageMock).not.toHaveBeenCalled();
+    expect(screen.getByText('Still readable?')).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: /answer in your own words/i }), 'No');
+    await user.click(screen.getByRole('button', { name: /send answer/i }));
+    await waitFor(() => expect(appendMessageMock).toHaveBeenCalledTimes(1));
+    expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'No' });
   });
 
   it('bounds unreadable payload diagnostics inside the notice', () => {
@@ -278,23 +283,26 @@ describe('AssistantToolSuspendNotice', () => {
       'an unknown selection mode',
       { options: [{ label: 'Keep me' }], question: 'Pick one', selectionMode: 'ranked' },
     ],
-  ])('surfaces %s instead of changing the answer interaction', (_case, suspendPayload) => {
+  ])('surfaces %s with an explicit free-text recovery', (_case, suspendPayload) => {
     render(<AssistantToolSuspendNotice data={{ ...askFreeTextRequest, suspendPayload }} />);
 
     expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: /your answer/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /answer in your own words/i })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Keep me' })).not.toBeInTheDocument();
   });
 
-  it('logs an unreadable pause only once when the payload object is re-created', async () => {
+  it('logs an unreadable pause only once across unmount and remount', async () => {
     const data = {
       ...askFreeTextRequest,
+      runId: 'run-log-dedupe',
       suspendPayload: { options: 'not-an-array', question: { nested: true } },
+      toolCallId: 'call-log-dedupe',
     };
     const view = render(<AssistantToolSuspendNotice data={data} />);
     await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
 
-    view.rerender(
+    view.unmount();
+    render(
       <AssistantToolSuspendNotice
         data={{
           ...data,

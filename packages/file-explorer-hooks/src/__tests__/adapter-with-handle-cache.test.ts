@@ -23,9 +23,9 @@ describe('readHandleCache', () => {
     expect(readHandleCache({ getHandleCache: () => cache }, isCacheShape)).toBe(cache);
   });
 
-  it('fails visibly when a present capability returns the wrong cache shape', () => {
-    expect(() =>
+  it('disables the cache path instead of throwing during render for a wrong shape', () => {
+    expect(
       readHandleCache({ getHandleCache: () => ({ write: vi.fn() }) }, isCacheShape)
-    ).toThrow('Adapter getHandleCache() returned an unsupported cache shape.');
+    ).toBeNull();
   });
 });

@@ -47,5 +47,11 @@ declare global {
  * return undefined rather than receiving a stub.
  */
 export function getAssistantBridge(): AssistantBridge | undefined {
-  return typeof window === 'undefined' ? undefined : window.assistant;
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const bridge: unknown = window.assistant;
+  return bridge !== null && typeof bridge === 'object' && !Array.isArray(bridge)
+    ? bridge
+    : undefined;
 }
