@@ -311,17 +311,23 @@ describe('BranchChip menu', () => {
 
   it('offers "Switch in a new worktree" for a dirty tree ONLY when the capability is supplied', async () => {
     const user = setup();
+    // Same dirty-disabled row for BOTH halves of this test — only the
+    // callback differs. If the positive half used the default fixture's
+    // `feature/alpha` (switchable: true), the worktree item would be absent
+    // from the negative half for the wrong reason (row.switchable) and the
+    // capability gate itself would go unfalsified.
+    const dirtyDisabledRows: WorkspaceBarBranchMenu['rows'] = [
+      {
+        current: false,
+        disabledReason: 'Working tree has uncommitted changes — commit or stash first.',
+        name: 'feature/alpha',
+        switchable: false,
+        worktreeName: null,
+      },
+    ];
     const withCapability = branchMenu({
       onSwitchInNewWorktree: vi.fn(),
-      rows: [
-        {
-          current: false,
-          disabledReason: 'Working tree has uncommitted changes — commit or stash first.',
-          name: 'feature/alpha',
-          switchable: false,
-          worktreeName: null,
-        },
-      ],
+      rows: dirtyDisabledRows,
     });
     const { unmount } = render(
       <WorkspaceBar {...baseProps()} branchMenu={withCapability} checkout={dirty} />
@@ -331,7 +337,13 @@ describe('BranchChip menu', () => {
     expect(withCapability.onSwitchInNewWorktree).toHaveBeenCalledWith('feature/alpha');
     unmount();
 
-    render(<WorkspaceBar {...baseProps()} branchMenu={branchMenu()} checkout={dirty} />);
+    render(
+      <WorkspaceBar
+        {...baseProps()}
+        branchMenu={branchMenu({ rows: dirtyDisabledRows })}
+        checkout={dirty}
+      />
+    );
     await user.click(screen.getByTestId('workspace-bar-branch-chip'));
     expect(screen.queryByTestId('workspace-bar-branch-worktree-feature/alpha')).toBeNull();
   });
@@ -350,6 +362,24 @@ describe('BranchChip menu', () => {
       'This folder is below the repository root.'
     );
     expect(screen.queryByTestId('workspace-bar-branch-row-feature/alpha')).toBeNull();
+  });
+
+  it('calls onQueryChange with the typed value from the filter input', async () => {
+    const user = setup();
+    const menu = branchMenu();
+    render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await user.type(await screen.findByTestId('workspace-bar-branch-search'), 'a');
+    expect(menu.onQueryChange).toHaveBeenCalledWith('a');
+  });
+
+  it('calls onFetch when the Fetch item is clicked', async () => {
+    const user = setup();
+    const menu = branchMenu();
+    render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await user.click(await screen.findByTestId('workspace-bar-branch-fetch'));
+    expect(menu.onFetch).toHaveBeenCalledTimes(1);
   });
 
   it('creates a branch from the inline field', async () => {

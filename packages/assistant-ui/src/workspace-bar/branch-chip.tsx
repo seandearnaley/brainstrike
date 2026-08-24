@@ -3,6 +3,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
@@ -24,6 +25,9 @@ import type {
 
 const countBadge = (count: number | null, glyph: string): string | null =>
   count !== null && count > 0 ? `${glyph}${count}` : null;
+
+const CHIP_CLASSES =
+  'inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground';
 
 const BranchGlyphs = ({
   ahead,
@@ -66,7 +70,6 @@ const BranchMenuRow = ({
         data-testid={`workspace-bar-branch-row-${row.name}`}
         disabled={!row.switchable || menu.pending}
         onSelect={() => menu.onSwitch(row.name)}
-        title={row.disabledReason ?? undefined}
       >
         <span className="flex size-3.5 shrink-0 items-center justify-center">
           {row.current ? <Check aria-hidden="true" className="size-3.5" /> : null}
@@ -132,7 +135,7 @@ export const BranchChip = ({
     return (
       <span
         aria-label={summary}
-        className="inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground"
+        className={CHIP_CLASSES}
         data-dirty={checkout.dirty ? 'true' : 'false'}
         data-testid="workspace-bar-branch-chip"
         role="img"
@@ -156,7 +159,7 @@ export const BranchChip = ({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={`Branch: ${summary}`}
-        className="inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground"
+        className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
         data-dirty={checkout.dirty ? 'true' : 'false'}
         data-testid="workspace-bar-branch-chip"
         title={summary}
@@ -170,13 +173,15 @@ export const BranchChip = ({
             aria-label="Filter branches"
             className="h-8 font-mono text-xs"
             data-testid="workspace-bar-branch-search"
-            disabled={branchMenu.pending}
             onChange={(event) => branchMenu.onQueryChange(event.target.value)}
             onKeyDown={(event) => event.stopPropagation()}
             placeholder="Filter branches"
             value={branchMenu.query}
           />
         </div>
+        <DropdownMenuLabel className="px-3 py-1 text-[10px] text-muted-foreground uppercase tracking-wide">
+          Local branches
+        </DropdownMenuLabel>
         {branchMenu.pending ? (
           <span className="block px-3 py-1 text-[10px] text-muted-foreground">
             Branch operation in progress.

@@ -788,7 +788,25 @@ describe('BranchChip menu', () => {
 
   it('offers "Switch in a new worktree" for a dirty tree ONLY when the capability is supplied', async () => {
     const user = setup();
-    const withCapability = branchMenu({ onSwitchInNewWorktree: vi.fn() });
+    // Same dirty-disabled row for BOTH halves — only the callback differs.
+    // The default fixture's `feature/alpha` is `switchable: true`, so using
+    // it for the negative half would hide the worktree item for the WRONG
+    // reason (row.switchable) and leave the capability gate unfalsified —
+    // the positive half needs `switchable: false` too, or its own click
+    // never finds the item either (BST-1447 post-review fix).
+    const dirtyDisabledRows: WorkspaceBarBranchMenu['rows'] = [
+      {
+        current: false,
+        disabledReason: 'Working tree has uncommitted changes — commit or stash first.',
+        name: 'feature/alpha',
+        switchable: false,
+        worktreeName: null,
+      },
+    ];
+    const withCapability = branchMenu({
+      onSwitchInNewWorktree: vi.fn(),
+      rows: dirtyDisabledRows,
+    });
     const { unmount } = render(
       <WorkspaceBar {...baseProps()} branchMenu={withCapability} checkout={dirty} />
     );
@@ -797,7 +815,13 @@ describe('BranchChip menu', () => {
     expect(withCapability.onSwitchInNewWorktree).toHaveBeenCalledWith('feature/alpha');
     unmount();
 
-    render(<WorkspaceBar {...baseProps()} branchMenu={branchMenu()} checkout={dirty} />);
+    render(
+      <WorkspaceBar
+        {...baseProps()}
+        branchMenu={branchMenu({ rows: dirtyDisabledRows })}
+        checkout={dirty}
+      />
+    );
     await user.click(screen.getByTestId('workspace-bar-branch-chip'));
     expect(screen.queryByTestId('workspace-bar-branch-worktree-feature/alpha')).toBeNull();
   });
@@ -912,6 +936,16 @@ export const WorkspaceBar = ({
 
 - [ ] **Step 4: Rewrite the BranchChip**
 
+(Post-review update, BST-1447: the shipped row `DropdownMenuItem` drops
+`title={row.disabledReason ?? undefined}` — the item is `pointer-events-none`
+while disabled, so the native tooltip is unreachable; the visible
+`data-testid="workspace-bar-branch-reason-…"` span below the name is the only
+channel that actually carries the reason. The `DropdownMenuLabel` "Local
+branches" header, the shared `CHIP_CLASSES` constant, and the filter input
+staying enabled while `pending` — so the user can keep narrowing the list
+mid-operation, since only the rows/actions below it need to freeze — are
+unchanged from the sample below.)
+
 Replace `packages/assistant-ui/src/workspace-bar/branch-chip.tsx` in full:
 
 ```tsx
@@ -991,7 +1025,6 @@ const BranchRow = ({
         data-testid={`workspace-bar-branch-row-${row.name}`}
         disabled={!row.switchable || menu.pending}
         onSelect={() => menu.onSwitch(row.name)}
-        title={row.disabledReason ?? undefined}
       >
         {row.current ? (
           <Check aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
