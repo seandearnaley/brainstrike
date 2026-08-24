@@ -32,6 +32,13 @@ below are LIVE.
    visible. Auth headers, request persistence, and request-body construction
    still share the bounded watchdog for every provider, including local.
 
+   Renderer consumers read the optional desktop assistant transport through
+   `getAssistantBridge()` from `@brainstrike/assistant-contract`. That contract
+   owns the `window.assistant` shape, returns no capability on web/SSR, and
+   reports a present malformed bridge at most once per renderer process so hot
+   render/request probes cannot flood logs; do not recreate local bridge
+   interfaces, unchecked double casts, or web stubs.
+
 2. **Per-tool guard (LIVE)** —
    `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
    the combined Mastra tool map in `createMastraAgentRuntime`'s tool pipeline
@@ -1834,8 +1841,12 @@ Flow (desktop assistant server → agent runtime):
    your files". Settled result surface (`run-python-result.tsx`, mounted by
    `tool-fallback.tsx`): killed ≠ completed ≠ didn't-run, non-zero exit is an
    amber finish (destructive chrome is reserved for `unavailable`), cancelled
-   never renders as success or empty, truncation is a per-stream note, and
-   the card-level status maps cancelled/timed-out/killed to a `stopped` state
+   never renders as success or empty, and truncation is a per-stream note.
+   Structurally narrowed result numbers must be safe integers (non-negative
+   exit/omitted-byte values and a positive timeout) before this purpose-built
+   surface renders. Malformed numbers stay on the generic tool-result path
+   rather than producing `NaN`/`Infinity` UI. The card-level status maps
+   cancelled/timed-out/killed to a `stopped` state
    instead of the generic green check.
    The built-in local provider admits a call to this chain only after its
    arguments parse as a root JSON object. A
@@ -2621,6 +2632,30 @@ see the version ceiling in mastra-boundary.md).
   Mastra). The tool still accepts the LEGACY bare `string | string[]`
   (AskUserAnswer) so runs suspended before the envelope migration stay
   resumable; multi-select joins with ", ".
+
+The renderer structurally narrows both tools' `suspendPayload` before displaying
+or resuming it. An absent payload (`undefined` or durable JSON `null`) retains
+the generic actionable fallback for legacy suspended runs. Core plan terms
+(`title`, `overview`, and the steps array)
+and the `askUser` question/options must be readable. Plan step titles and askUser
+options are decision terms, so one unreadable entry makes the decision
+unapprovable/unanswerable; unreadable advisory plan fields (`risks`,
+`verification`, or a step `detail`) remain omitted. A present non-array option
+list, an unknown `selectionMode`, or a selection mode without readable options
+likewise makes the question unanswerable rather than silently changing its
+interaction mode. An unreadable core payload renders a diagnostic failed alert
+with a scrollable raw-payload view capped at 4,000 serialized characters. The
+same bounded serialization is logged once per run/tool-call identity across
+renderer remounts; the raw malformed object never bypasses that cap. The process-local
+identity cache is capped at 64 entries with deterministic oldest-entry eviction;
+tests reset it explicitly rather than depending on file order. The user may
+safely reject an unreadable plan (never approve it). A readable question whose
+choice controls drift remains an explicit failed alert, shows the bounded raw
+payload, and offers a clearly-labelled free-text answer through the schema's
+supported string arm; it never guesses a choice interaction. If the question
+itself is unreadable there is no safe typed answer and no durable run event
+explaining the dead end, so its alert remains visible and cannot be dismissed or
+answered.
 
 **Transport table (parallel to approval):**
 

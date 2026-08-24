@@ -457,6 +457,7 @@ describe('AssistantUiPanel model picker', () => {
   });
 
   afterEach(() => {
+    Object.assign(window, { assistant: undefined });
     cleanup();
     vi.clearAllMocks();
     vi.useRealTimers();
@@ -476,6 +477,16 @@ describe('AssistantUiPanel model picker', () => {
         api: '/api/assistant',
         requestBodyLimitBytes: HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
       })
+    );
+  });
+
+  it('does not turn a malformed desktop bridge URL into an assistant endpoint', () => {
+    Object.assign(window, { assistant: { url: {} } });
+
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ api: '/api/assistant' })
     );
   });
 

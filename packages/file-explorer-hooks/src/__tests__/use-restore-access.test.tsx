@@ -6,6 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdaptersProvider } from '../adapters-context.js';
 import { useRestoreAccess } from '../use-restore-access.js';
 
+const loggerMock = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+}));
+
+vi.mock('@brainstrike/logging', () => ({
+  createLogger: () => loggerMock,
+}));
+
 const createWrapper = (adapter: FileSystemAdapter) => {
   const storageAdapter = createStorageAdapter('web');
   return ({ children }: { children: ReactNode }) => (
@@ -127,6 +138,39 @@ describe('useRestoreAccess', () => {
     // Legacy path doesn't set pendingRestore since there's no raw handle
     expect(result.current.pendingRestore).toBeNull();
     expect(result.current.storedFolders).toHaveLength(2);
+  });
+
+  it('preserves listing for a partial cache without a restore method', async () => {
+    const handleCache = {
+      getAllRootHandles: vi
+        .fn()
+        .mockResolvedValue([{ folderId: 'saved', lastAccessedAt: 1, name: 'Saved Folder' }]),
+    };
+
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache(handleCache)),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.storedFolders).toEqual([{ folderId: 'saved', name: 'Saved Folder' }]);
+  });
+
+  it('reports and disables an unrelated cache object with no recognized callable member', async () => {
+    const { result } = renderHook(() => useRestoreAccess(), {
+      wrapper: createWrapper(createAdapterWithCache({ unrelated: vi.fn() })),
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(result.current.storedFolders).toEqual([]);
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Adapter getHandleCache() returned an unsupported cache shape; cache disabled.'
+    );
   });
 
   it('marks denial when restore returns null and handles remain', async () => {
