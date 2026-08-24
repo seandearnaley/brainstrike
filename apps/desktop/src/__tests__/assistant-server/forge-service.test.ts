@@ -1,0 +1,463 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import type { ForgePullRequest } from '@brainstrike/types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ForgeCommandRun, ForgeCommandRunner } from '../../assistant-server/forge-gh-client';
+import type { ForgeCacheDatabase } from '../../assistant-server/forge-pr-cache';
+import {
+  createForgeService,
+  FORGE_REFRESH_MIN_INTERVAL_MS,
+  type ForgeRepositoryResolver,
+} from '../../assistant-server/forge-service';
+
+const ROOT_ID = 'root-1';
+const COMMON_DIR = '/repos/widgets/.git';
+
+const prJson = (overrides: Record<string, unknown> = {}): string =>
+  JSON.stringify([
+    {
+      headRefOid: 'sha-1',
+      isDraft: false,
+      number: 42,
+      reviewDecision: null,
+      state: 'OPEN',
+      statusCheckRollup: [
+        { __typename: 'CheckRun', conclusion: 'SUCCESS', name: 'unit', status: 'COMPLETED' },
+      ],
+      title: 'Widget it',
+      url: 'https://github.com/acme/widgets/pull/42',
+      ...overrides,
+    },
+  ]);
+
+function resolver(
+  overrides: Partial<{
+    branch: string | null;
+    remoteReason: string | null;
+    remoteUrl: string | null;
+  }> = {}
+): ForgeRepositoryResolver {
+  return async () => ({
+    ok: true,
+    value: {
+      context: {
+        branch: 'branch' in overrides ? (overrides.branch ?? null) : 'feature/bar',
+        commonDir: COMMON_DIR,
+        remoteReason: overrides.remoteReason ?? null,
+        remoteUrl:
+          'remoteUrl' in overrides
+            ? (overrides.remoteUrl ?? null)
+            : 'git@github.com:acme/widgets.git',
+      },
+      cwd: '/repos/widgets',
+    },
+  });
+}
+
+/** In-memory stand-in for `brainstrike_forge_prs`, keyed like the real PK. */
+function fakeDatabase(): ForgeCacheDatabase & {
+  readonly rows: Map<string, Record<string, unknown>>;
+} {
+  const rows = new Map<string, Record<string, unknown>>();
+  return {
+    query: async (sql: string, params: unknown[] = []) => {
+      const key = `${String(params[0])}\0${String(params[1])}`;
+      if (sql.includes('SELECT')) {
+        const row = rows.get(key);
+        return { rows: row ? [row] : [] };
+      }
+      if (sql.trimStart().startsWith('DELETE')) {
+        rows.delete(key);
+        return { rows: [] };
+      }
+      rows.set(key, {
+        checksJson: params[8],
+        headSha: params[9],
+        isDraft: params[6],
+        number: params[2],
+        observedAt: params[10],
+        reviewDecision: params[7],
+        state: params[5],
+        title: params[4],
+        url: params[3],
+      });
+      return { rows: [] };
+    },
+    rows,
+  };
+}
+
+function ghRunner(byCommand: Readonly<Record<string, ForgeCommandRun>>): ForgeCommandRunner {
+  return vi.fn(async ({ args }) => {
+    const key = args[0] === 'pr' ? 'pr' : (args[0] ?? '');
+    return byCommand[key] ?? { exitCode: 1, stderr: `unstubbed gh ${args.join(' ')}`, stdout: '' };
+  });
+}
+
+const HEALTHY_GH: Readonly<Record<string, ForgeCommandRun>> = {
+  '--version': { exitCode: 0, stderr: '', stdout: 'gh version 2.60.0' },
+  auth: { exitCode: 0, stderr: '', stdout: '' },
+  pr: { exitCode: 0, stderr: '', stdout: prJson() },
+};
+
+describe('createForgeService', () => {
+  let clock = 1_000_000;
+  beforeEach(() => {
+    clock = 1_000_000;
+  });
+  const now = () => clock;
+
+  it('never free-runs: the module contains no timer', () => {
+    const source = readFileSync(
+      path.join(import.meta.dirname, '../../assistant-server/forge-service.ts'),
+      'utf8'
+    );
+    expect(source).not.toMatch(/setInterval|setTimeout/u);
+  });
+
+  it('fetches, caches and reports a pull request', async () => {
+    const database = fakeDatabase();
+    const service = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run: ghRunner(HEALTHY_GH),
+    });
+    const refreshed = await service.refresh(ROOT_ID, 'user');
+    expect(refreshed.ok).toBe(true);
+    expect(refreshed.ok && refreshed.value.kind).toBe('pr');
+    expect(
+      refreshed.ok && refreshed.value.kind === 'pr' && refreshed.value.pullRequest.number
+    ).toBe(42);
+    expect(database.rows.size).toBe(1);
+  });
+
+  it('reports the first observation as an "opened" transition', async () => {
+    const onPrUpdated = vi.fn();
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated,
+      resolveRepository: resolver(),
+      run: ghRunner(HEALTHY_GH),
+    });
+    await service.refresh(ROOT_ID, 'user');
+    expect(onPrUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branch: 'feature/bar',
+        repoCommonDir: COMMON_DIR,
+        transitions: ['opened'],
+      })
+    );
+  });
+
+  it('reports a checks transition when the rollup changes on the same head', async () => {
+    const database = fakeDatabase();
+    const onPrUpdated = vi.fn();
+    const failingChecks = prJson({
+      statusCheckRollup: [
+        { __typename: 'CheckRun', conclusion: 'FAILURE', name: 'unit', status: 'COMPLETED' },
+      ],
+    });
+    const queue = [
+      HEALTHY_GH['pr'] as ForgeCommandRun,
+      { exitCode: 0, stderr: '', stdout: failingChecks },
+    ];
+    const run: ForgeCommandRunner = vi.fn(async ({ args }) => {
+      if (args[0] === 'pr') {
+        return queue.shift() as ForgeCommandRun;
+      }
+      return HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun;
+    });
+    const service = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated,
+      resolveRepository: resolver(),
+      run,
+    });
+    await service.refresh(ROOT_ID, 'user');
+    await service.refresh(ROOT_ID, 'user');
+    expect(onPrUpdated).toHaveBeenLastCalledWith(
+      expect.objectContaining({ transitions: ['checks'] })
+    );
+  });
+
+  it('reports a merged transition and keeps the row', async () => {
+    const database = fakeDatabase();
+    const onPrUpdated = vi.fn();
+    const merged = prJson({ state: 'MERGED' });
+    const queue = [
+      HEALTHY_GH['pr'] as ForgeCommandRun,
+      { exitCode: 0, stderr: '', stdout: merged },
+    ];
+    const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
+      args[0] === 'pr'
+        ? (queue.shift() as ForgeCommandRun)
+        : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
+    );
+    const service = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated,
+      resolveRepository: resolver(),
+      run,
+    });
+    await service.refresh(ROOT_ID, 'user');
+    await service.refresh(ROOT_ID, 'user');
+    expect(onPrUpdated).toHaveBeenLastCalledWith(
+      expect.objectContaining({ transitions: ['merged'] })
+    );
+    expect(database.rows.size).toBe(1);
+  });
+
+  it('deletes the cached row when gh reports no pull request', async () => {
+    const database = fakeDatabase();
+    const queue = [
+      HEALTHY_GH['pr'] as ForgeCommandRun,
+      { exitCode: 0, stderr: '', stdout: '[]' } as ForgeCommandRun,
+    ];
+    const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
+      args[0] === 'pr'
+        ? (queue.shift() as ForgeCommandRun)
+        : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
+    );
+    const service = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    await service.refresh(ROOT_ID, 'user');
+    const second = await service.refresh(ROOT_ID, 'user');
+    expect(second.ok && second.value.kind).toBe('none');
+    expect(database.rows.size).toBe(0);
+  });
+
+  it('returns the last-known PR as STALE with the failure when gh fails', async () => {
+    const database = fakeDatabase();
+    const queue = [
+      HEALTHY_GH['pr'] as ForgeCommandRun,
+      { exitCode: 1, stderr: 'HTTP 503: upstream', stdout: '' } as ForgeCommandRun,
+    ];
+    const run: ForgeCommandRunner = vi.fn(async ({ args }) =>
+      args[0] === 'pr'
+        ? (queue.shift() as ForgeCommandRun)
+        : (HEALTHY_GH[args[0] === 'auth' ? 'auth' : '--version'] as ForgeCommandRun)
+    );
+    const service = createForgeService({
+      getDatabase: async () => database,
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    await service.refresh(ROOT_ID, 'user');
+    const stale = await service.refresh(ROOT_ID, 'user');
+    expect(stale.ok && stale.value.kind).toBe('stale');
+    expect(stale.ok && stale.value.kind === 'stale' && stale.value.failure.detail).toContain(
+      'HTTP 503'
+    );
+    expect(stale.ok && stale.value.kind === 'stale' && stale.value.pullRequest.number).toBe(42);
+  });
+
+  it('throttles a window refresh but never an invalidation or a user refresh', async () => {
+    const run = ghRunner(HEALTHY_GH);
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    await service.refresh(ROOT_ID, 'window');
+    const afterFirst = (run as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    await service.refresh(ROOT_ID, 'window');
+    expect((run as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(afterFirst);
+    await service.refresh(ROOT_ID, 'invalidation');
+    expect((run as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThan(
+      afterFirst
+    );
+    clock += FORGE_REFRESH_MIN_INTERVAL_MS.window + 1;
+    const beforeWindow = (run as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    await service.refresh(ROOT_ID, 'window');
+    expect((run as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThan(
+      beforeWindow
+    );
+  });
+
+  it('is unavailable with a reason on a detached HEAD', async () => {
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver({ branch: null }),
+      run: ghRunner(HEALTHY_GH),
+    });
+    const status = await service.prStatus(ROOT_ID);
+    expect(status.ok && status.value.kind).toBe('unavailable');
+    expect(status.ok && status.value.kind === 'unavailable' && status.value.failure.reason).toBe(
+      'detached-head'
+    );
+  });
+
+  it('is unavailable with the git reason when the repository has no usable remote', async () => {
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver({
+        remoteReason: 'The repository has no git remotes.',
+        remoteUrl: null,
+      }),
+      run: ghRunner(HEALTHY_GH),
+    });
+    const status = await service.prStatus(ROOT_ID);
+    expect(status.ok && status.value.kind === 'unavailable' && status.value.failure).toEqual({
+      detail: 'The repository has no git remotes.',
+      reason: 'no-remote',
+    });
+  });
+
+  it('is unavailable with a parse reason on an unparsable remote', async () => {
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver({ remoteUrl: '/Users/sean/mirrors/widgets.git' }),
+      run: ghRunner(HEALTHY_GH),
+    });
+    const status = await service.prStatus(ROOT_ID);
+    expect(status.ok && status.value.kind === 'unavailable' && status.value.failure.reason).toBe(
+      'unparsable-remote'
+    );
+  });
+
+  it('says GitLab is not supported yet instead of running gh against it', async () => {
+    const run = ghRunner(HEALTHY_GH);
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver({ remoteUrl: 'git@gitlab.com:acme/widgets.git' }),
+      run,
+    });
+    const status = await service.prStatus(ROOT_ID);
+    expect(status.ok && status.value.kind === 'unavailable' && status.value.failure.reason).toBe(
+      'unsupported-forge'
+    );
+    expect(
+      status.ok && status.value.kind === 'unavailable' && status.value.failure.detail
+    ).toContain('GitLab');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('promotes an unlabelled enterprise host once gh authenticates for it', async () => {
+    const run = ghRunner(HEALTHY_GH);
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver({ remoteUrl: 'git@git.acme.internal:acme/widgets.git' }),
+      run,
+    });
+    const status = await service.refresh(ROOT_ID, 'user');
+    expect(status.ok && status.value.kind).toBe('pr');
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ args: ['auth', 'status', '--hostname', 'git.acme.internal'] })
+    );
+  });
+
+  it('is unavailable with an install hint when gh is missing, and probes only once', async () => {
+    const run: ForgeCommandRunner = vi.fn(async () => ({
+      exitCode: null,
+      failureReason: 'notFound' as const,
+      stderr: '',
+      stdout: '',
+    }));
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    const first = await service.prStatus(ROOT_ID);
+    await service.prStatus(ROOT_ID);
+    expect(first.ok && first.value.kind === 'unavailable' && first.value.failure.reason).toBe(
+      'gh-missing'
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes only the repositories it has already resolved when a repo is invalidated', async () => {
+    const run = ghRunner(HEALTHY_GH);
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver(),
+      run,
+    });
+    service.onRepositoryInvalidated(COMMON_DIR);
+    await Promise.resolve();
+    expect(run).not.toHaveBeenCalled();
+    await service.prStatus(ROOT_ID);
+    const before = (run as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    service.onRepositoryInvalidated(COMMON_DIR);
+    await new Promise((resolve) => queueMicrotask(() => resolve(null)));
+    await vi.waitFor(() =>
+      expect((run as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThan(
+        before
+      )
+    );
+  });
+
+  it('reports identity separately so the BranchChip can explain a missing chip', async () => {
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: resolver({ remoteUrl: '/Users/sean/mirrors/widgets.git' }),
+      run: ghRunner(HEALTHY_GH),
+    });
+    const identity = await service.identity(ROOT_ID);
+    expect(identity.ok).toBe(true);
+    expect(identity.ok && identity.value.identity).toBeNull();
+    expect(identity.ok && identity.value.repoCommonDir).toBe(COMMON_DIR);
+    expect(identity.ok && identity.value.failure?.reason).toBe('unparsable-remote');
+  });
+
+  it('propagates a repository resolution failure as an error result', async () => {
+    const service = createForgeService({
+      getDatabase: async () => fakeDatabase(),
+      now,
+      onPrUpdated: vi.fn(),
+      resolveRepository: async () => ({ error: 'No open folder matches root id "x".', ok: false }),
+      run: ghRunner(HEALTHY_GH),
+    });
+    await expect(service.prStatus('x')).resolves.toEqual({
+      error: 'No open folder matches root id "x".',
+      ok: false,
+    });
+  });
+});
+
+describe('ForgePullRequest cache round trip', () => {
+  it('keeps the rollup derivable from the stored checks', () => {
+    const pullRequest: ForgePullRequest = {
+      checks: [{ conclusion: 'failure', name: 'unit', url: null }],
+      checksRollup: 'failing',
+      headSha: 'sha',
+      isDraft: false,
+      number: 1,
+      reviewDecision: null,
+      state: 'open',
+      title: 't',
+      url: 'https://example.test/pull/1',
+    };
+    expect(JSON.parse(JSON.stringify(pullRequest.checks))).toEqual(pullRequest.checks);
+  });
+});
