@@ -15,6 +15,7 @@ export type DesktopIpcDomain =
   | 'embeddings'
   | 'fileExports'
   | 'files'
+  | 'forge'
   | 'git'
   | 'hooks'
   | 'llm-host'

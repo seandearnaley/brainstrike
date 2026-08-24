@@ -17,7 +17,7 @@ import {
   LogLevel,
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { ChangesInvalidationEvent } from '@brainstrike/types';
+import type { ChangesInvalidationEvent, ForgePrUpdatedEvent } from '@brainstrike/types';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
@@ -29,6 +29,8 @@ import {
 } from './assistant-server/command-session-manager';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
+import { execFileGhRunner } from './assistant-server/forge-gh-client';
+import { createForgeService, type ForgeService } from './assistant-server/forge-service';
 import {
   createGitInventoryService,
   type GitInventoryService,
@@ -99,6 +101,7 @@ import {
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { createForgeIpcHandlers, createForgeRepositoryResolver } from './forge-ipc-handlers';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -113,6 +116,7 @@ import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
+import { registerForgeIpcHandlers } from './ipc-forge';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
@@ -795,6 +799,8 @@ let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
 let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
+let forgeService: ForgeService | undefined;
+let unregisterForgeIpc: (() => void) | undefined;
 // BST-1112: cross-workspace git worktree inventory. Constructed and started
 // inside `app.whenReady()` (NOT at module scope): its `start()` call performs
 // an eager build whose first step reads the database, which in turn spawns a
@@ -952,6 +958,9 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
           await gitInventoryService.stop();
           gitInventoryService = null;
         }
+        unregisterForgeIpc?.();
+        unregisterForgeIpc = undefined;
+        forgeService = undefined;
       })
     );
 
@@ -1486,12 +1495,44 @@ if (singleInstanceLockAcquired) {
           window.webContents.send(DESKTOP_IPC_CHANNELS.changes.invalidated, payload);
         }
       };
+      // BST-1391 (W4): forge PR awareness. ONE instance, never at module
+      // scope, same posture as GitInventoryService above. It reads the DB
+      // through db-main's provider and spawns `gh` only inside a resolved,
+      // containment-checked workspace root.
+      let forgePrUpdatedGeneration = 0;
+      forgeService = createForgeService({
+        getDatabase,
+        onPrUpdated: (event) => {
+          forgePrUpdatedGeneration += 1;
+          const payload: ForgePrUpdatedEvent = {
+            ...event,
+            generation: forgePrUpdatedGeneration,
+          };
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (window.isDestroyed()) {
+              continue;
+            }
+            window.webContents.send(DESKTOP_IPC_CHANNELS.forge.prUpdated, payload);
+          }
+        },
+        resolveRepository: createForgeRepositoryResolver(createDatabaseRootResolver(getDatabase)),
+        run: execFileGhRunner,
+      });
+      unregisterForgeIpc = registerForgeIpcHandlers(
+        createForgeIpcHandlers({ service: forgeService })
+      );
       gitInventoryService = createGitInventoryService({
         loadRoots: async () => {
           const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
           return roots.map((root) => ({ id: root.rootId, path: root.path }));
         },
-        onInvalidate: broadcastChangesInvalidation,
+        // The refs watcher moving `refs/remotes/<remote>/<branch>` is the
+        // "a push happened" signal §8 asks for: broadcast to renderers AND
+        // let the forge service refresh the repositories it already tracks.
+        onInvalidate: (event) => {
+          broadcastChangesInvalidation(event);
+          forgeService?.onRepositoryInvalidated(event.gitCommonDir);
+        },
         run: execFileGitRunner,
         // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
         // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —

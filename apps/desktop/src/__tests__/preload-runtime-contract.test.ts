@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { BROWSER_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/browser-pane/availability';
 import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
+import { FORGE_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/forge/availability';
 import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
 import { PLATFORM_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/platform-bridge';
 import {
@@ -280,6 +281,10 @@ describe('preload runtime contract', () => {
       FILE_SYSTEM_UNWATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.unwatch,
       FILE_SYSTEM_WATCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.watch,
       FILE_SYSTEM_WATCH_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.files.watchEvent,
+      FORGE_IDENTITY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.identity,
+      FORGE_PR_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.prStatus,
+      FORGE_PR_UPDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.forge.prUpdated,
+      FORGE_REFRESH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.forge.refresh,
       GIT_AHEAD_BEHIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.aheadBehind,
       GIT_COMMIT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commit,
       GIT_COMMIT_FILES_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commitFiles,
@@ -366,6 +371,7 @@ describe('preload runtime contract', () => {
       changes: CHANGES_BRIDGE_REQUIRED_METHODS,
       commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
       envBootstrap: ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS,
+      forge: FORGE_BRIDGE_REQUIRED_METHODS,
       git: GIT_BRIDGE_REQUIRED_METHODS,
       notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
       platform: PLATFORM_BRIDGE_REQUIRED_METHODS,

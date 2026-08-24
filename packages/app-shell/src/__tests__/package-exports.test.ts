@@ -22,6 +22,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './connected-prompt-manager-lazy',
         './cost-tracking-settings',
         './diagnostics',
+        './forge/availability',
         './git-panel',
         './git-panel/availability',
         './navigation',
