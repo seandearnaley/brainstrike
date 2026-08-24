@@ -425,6 +425,33 @@ describe('useWorkspaceBar', () => {
     );
   });
 
+  it('refreshes the recents ledger after a same-session grant, without a remount', async () => {
+    const { result } = await setup();
+    await waitFor(() =>
+      expect(result.current.recentRoots).toEqual([{ displayName: 'alpha', path: '/ws/alpha' }])
+    );
+
+    // Models main appending the just-granted folder to `recentRootsList` the
+    // instant `addRoot()` resolves — the ledger the bar's snapshot must catch
+    // up to without a remount/reload.
+    fs.listRecentRoots.mockResolvedValueOnce([
+      { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
+      { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
+      { displayName: 'docs', lastGrantedAt: 3, path: '/ws/docs' },
+    ]);
+
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    await waitFor(() => expect(updateThreadMetadata).toHaveBeenCalled());
+
+    await waitFor(() =>
+      expect(result.current.recentRoots).toEqual(
+        expect.arrayContaining([{ displayName: 'docs', path: '/ws/docs' }])
+      )
+    );
+  });
+
   it('waits for roots reconciliation before attaching a just-added folder', async () => {
     vi.useFakeTimers();
     // The registration effect has not written the row yet when the add resolves.
