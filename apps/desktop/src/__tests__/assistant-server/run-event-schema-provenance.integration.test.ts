@@ -212,16 +212,36 @@ describe('duration_ms column contract', () => {
       );
       expect((persisted.rows as readonly { duration_ms: number }[])[0]?.duration_ms).toBe(16);
 
-      // CONTROL: the column contract is INTEGER — a raw fractional value is
-      // rejected by PGlite itself, which is exactly the 22P02 the field saw.
-      await expect(
-        db.query(
-          `INSERT INTO brainstrike_assistant_run_events
-            (id, run_id, resource_id, thread_id, sequence, kind, status, label, duration_ms, occurred_at, created_at, updated_at)
-           VALUES ($1, 'run-dur', 'workspace-a', 'thread-dur', 999, 'tool.completed', 'completed', 'Tool completed', $2, NOW(), NOW(), NOW())`,
-          ['event-dur-frac', 15.733_332_999_981_94]
-        )
-      ).rejects.toThrow(/invalid input syntax for type integer/);
+      // CONTROL through the REAL writer (review of #2626): a fractional
+      // durationMs fed to observeDesktopAssistantRunEvents — the exact
+      // producer→writer path the field regression took — is rejected by the
+      // INTEGER column with the same 22P02 the field saw. This is what makes
+      // the producer-side rounding provably load-bearing: the writer binds
+      // event.durationMs straight through, so integrality must hold upstream.
+      async function* fractionalEventStream(): AsyncGenerator<StreamChunk> {
+        yield {
+          event: {
+            durationMs: 15.733_332_999_981_94,
+            id: 'event-dur-frac',
+            kind: 'tool.completed',
+            label: 'Tool completed',
+            status: 'completed',
+            timestamp: '2026-08-23T10:00:01.000Z',
+          },
+          type: 'run-event',
+        };
+      }
+      const drainFractional = async (): Promise<void> => {
+        for await (const _chunk of observeDesktopAssistantRunEvents(
+          fractionalEventStream(),
+          'run-dur',
+          [],
+          async () => db
+        )) {
+          // flush surfaces the persistence failure
+        }
+      };
+      await expect(drainFractional()).rejects.toThrow(/invalid input syntax for type integer/);
     } finally {
       await db.close();
     }

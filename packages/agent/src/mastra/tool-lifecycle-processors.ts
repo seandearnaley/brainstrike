@@ -372,7 +372,10 @@ function withRunEventDuration(chunk: StreamChunk, rawDurationMs: number): Stream
   // terminal tool event fail to persist (field regression 2026-08-23, 22P02
   // "invalid input syntax for type integer"), punching holes in the durable
   // timeline the debug bundle reads. A non-finite value drops the field
-  // entirely rather than persisting garbage.
+  // entirely rather than persisting garbage. Deliberately INTEGRALITY only:
+  // the column would also reject values past 2^31-1 (22003), but a single
+  // call measuring ~24.8 days is not a real input — a clamp here would be
+  // dead code wearing a safety label.
   const durationMs = Math.round(rawDurationMs);
   if (chunk.type !== 'run-event' || !Number.isFinite(durationMs)) {
     return chunk;
