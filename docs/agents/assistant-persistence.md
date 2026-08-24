@@ -964,6 +964,24 @@ Three rulings the SQL depends on (do not relitigate):
   leg with a NEW runId. So clear-on-approve is preserved with no `sequence` /
   `occurred_at` comparison. The three terminal kinds need no such exclusion —
   none of them can be emitted by the leg that paused.
+
+  THE RE-YIELD IS REAL, and only became so in BST-1440. Mastra never replays a
+  resumed step's `tool-call` part (`approveToolCall` delegates to
+  `resumeStream`, which re-executes `toolCallStep` with `messages: []`; the one
+  `tool-call` replay inside that step is gated on a background-task manager
+  Brainstrike does not register — @mastra/core 1.59). `makeResumedStartChunks`
+  (`packages/agent/src/mastra/agent-streaming.ts`) therefore SYNTHESISES the
+  start chunk for every pending call of the resumed step, and routes it through
+  `makeToolLifecycleRunEventChunk` — the same single seam the mainline
+  `tool-call` part reaches through `mapGenericToolEvent`, so the `tool.started`
+  run event cannot ship on one path and not the other. Before that it shipped
+  only on the mainline, this exclusion clause was dead weight, and the glyph
+  cleared when the approved tool FINISHED rather than when the user answered —
+  masking the truthful Running state for the whole execution. The resume-leg
+  emission is pinned against the live approval loop in
+  `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`;
+  the projection outcome is pinned in
+  `packages/app-shell/src/__tests__/use-threads-awaiting-approval.integration.test.ts`.
 - **The query does NOT read `thread_runs.status`.** A leg that pauses for
   approval finishes with `finishReason: 'tool-calls'`, which every terminal
   writer records as `status = 'completed'`, while the user's obligation and the
@@ -2199,8 +2217,11 @@ Where state lives (do not relitigate):
   `apps/web/e2e/threads-panel-folders.test.ts` (`@web-smoke`). Threads are
   SEEDED as `mastra_threads` rows through the renderer's `electronAPI.db`
   bridge (`e2e/utils/seed-threads.ts`) because the binding is written at the
-  FIRST REQUEST, so the only product gesture that mints a bound thread — "New
-  thread here" — needs a folder section that only a bound thread can produce.
+  FIRST REQUEST, so the product gestures that mint a bound thread — "New thread
+  here", and the workspace bar's "Make primary" (`use-workspace-bar.ts` writes
+  the same three `operatingRoot*` metadata keys as `persistThreadRootBinding`;
+  see `docs/agents/workspace-context.md` § workspace bar) — each need a folder
+  section that only a bound thread can produce.
   The seed reads the DURABLE `roots.id` back from the database rather than
   reusing the adapter root id, and the desktop fixture `realpath`s its temp
   repo: `roots.path` keeps whatever path was mounted while git reports the

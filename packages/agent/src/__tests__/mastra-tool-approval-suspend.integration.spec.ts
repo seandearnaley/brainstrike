@@ -711,6 +711,39 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       )
       .map((chunk) => chunk.event.kind);
     expect(resumeRunEventKinds).toContain('tool.completed');
+
+    // ── The OTHER half of the producer->projection contract (BST-1440) ──
+    // The resume leg must re-yield `tool.started` for the SAME `toolCallId`,
+    // and it must arrive BEFORE the terminal. That start is what answers the
+    // pause the moment the user approves, rather than when the approved tool
+    // finishes: `use-threads-awaiting-approval.ts` counts `tool.started` as a
+    // resolution and excludes only the SAME-run (pre-pause) one, so this event
+    // is the only thing that can clear the "needs you" glyph during a
+    // long-running approved call.
+    //
+    // Mastra never replays the step's `tool-call` part on a resume leg
+    // (@mastra/core 1.59: `approveToolCall` -> `resumeStream` re-executes
+    // `toolCallStep` with `messages: []`, and the only `tool-call` replay in
+    // that step is gated on a background-task manager Brainstrike does not
+    // register), so `makeResumedStartChunks` synthesises the start — and routes
+    // it through the SAME lifecycle seam the mainline `tool-call` part uses.
+    // This is the only place that emission can be observed against the real
+    // approval loop.
+    //
+    // The DIFFERENT-run half of the contract is structural rather than visible
+    // here: `run_id` is the Brainstrike `thread_runs` id minted per request by
+    // `createThreadRunId` (app-shell), and approve dispatches a NEW request, so
+    // the resume leg always writes these events under a new run row. That half
+    // is graded in
+    // `packages/app-shell/src/__tests__/use-threads-awaiting-approval.integration.test.ts`.
+    const resumeApprovedCallEventKinds = resumeChunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .filter((chunk) => chunk.event.metadata?.toolCallId === 'call-ask-approve-1')
+      .map((chunk) => chunk.event.kind);
+    expect(resumeApprovedCallEventKinds).toEqual(['tool.started', 'tool.completed']);
+
     const resumeFinish = resumeChunks.find((chunk) => chunk.type === 'message-finish');
     expect(resumeFinish).toBeDefined();
 

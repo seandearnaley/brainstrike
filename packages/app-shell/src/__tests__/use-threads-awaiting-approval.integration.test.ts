@@ -143,8 +143,22 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
   });
 
-  // The approve path re-yields the tool start on the resume leg, and that
-  // different-run `tool.started` alone is enough to clear the obligation —
+  // CLEAR-ON-ANSWER, not clear-on-completion (BST-1440). The different-run
+  // `tool.started` seeded below is a PRODUCTION shape, and only became one with
+  // that ticket: the approve-resume leg synthesises the suspended step's start
+  // chunks (Mastra never replays a resumed step's `tool-call` part) and now
+  // routes them through the same tool-lifecycle seam the mainline uses, so it
+  // really does emit `tool.started` for the paused `toolCallId`. Before that,
+  // the producer emitted no such event and this row pinned nothing — the glyph
+  // cleared only when the approved tool FINISHED.
+  //
+  // The emission is asserted against the live @mastra/core approval loop in
+  // `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
+  // ("The OTHER half of the producer->projection contract"). The different RUN
+  // is structural: approve dispatches a NEW request, so `createThreadRunId`
+  // mints a new `thread_runs` row for the resume leg.
+  //
+  // That different-run `tool.started` alone is enough to clear the obligation —
   // the user has answered even though the tool has not finished.
   it('drops that pause on a DIFFERENT run tool.started alone', async () => {
     const thread = await repository.createThread(RESOURCE_ID);

@@ -388,7 +388,26 @@ function withRunEventDuration(chunk: StreamChunk, rawDurationMs: number): Stream
   return { ...chunk, event: { ...chunk.event, durationMs } };
 }
 
-function makeToolLifecycleRunEventChunk(
+/**
+ * THE SINGLE OWNER of "a mapped tool event implies its durable run event".
+ *
+ * Exported (BST-1440) so the approval-RESUME leg reaches the same decision the
+ * mainline does. Mastra never replays a suspended step's `tool-call` part on a
+ * resume leg — `approveToolCall` delegates to `resumeStream`, which re-executes
+ * `toolCallStep` with `messages: []`, and the only `tool-call` replay inside
+ * that step is gated on a background-task manager Brainstrike does not register
+ * (@mastra/core 1.59). So `makeResumedStartChunks` in `agent-streaming.ts`
+ * SYNTHESISES the `status: 'start'` tool event and hands it here, exactly as
+ * {@link mapGenericToolEvent} hands over the mapped one. A second
+ * `makeRunEventChunk('tool.started', ...)` call site would have been the
+ * shorter edit and is precisely how the resume leg drifted out of step in the
+ * first place: the start chunk shipped, the run event did not, and the "needs
+ * you" glyph stayed lit until the approved tool FINISHED.
+ *
+ * `mastraPartType` is the Mastra part the event came from; the resume leg
+ * passes `'tool-call'` because that is the part it stands in for.
+ */
+export function makeToolLifecycleRunEventChunk(
   toolEvent: StreamChunkTool,
   mastraPartType: string | undefined,
   lifecycleState: ToolLifecycleState

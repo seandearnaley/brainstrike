@@ -58,7 +58,13 @@ import {
 } from '../stream/with-tool-call-input-timeout';
 import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
-import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
+import type {
+  AgentMessage,
+  RuntimeData,
+  StreamChunk,
+  StreamChunkTool,
+  StreamIterator,
+} from '../types';
 import {
   type AbortedTurnPersistence,
   attachAbortedTurnMessageList,
@@ -136,6 +142,7 @@ import {
   makeLifecycleStepMetadata,
   makePendingToolOutputRunEventChunks,
   makeTerminalRunEvent,
+  makeToolLifecycleRunEventChunk,
   mapDelegationToolOutput,
   mapGenericToolEvent,
   mapToolLifecyclePart,
@@ -1001,6 +1008,28 @@ interface ResumedApprovalToolCall extends ResumedToolCallStart {
  * Delegation (`agent-*`) siblings also get their `subagent.started`,
  * registered with the lifecycle tracker so aborts still drain them and later
  * subagent terminals have a mate.
+ *
+ * Each synthetic start is routed through {@link makeToolLifecycleRunEventChunk}
+ * — the SAME seam the mainline `tool-call` part reaches through
+ * `mapGenericToolEvent` — so the durable `tool.started` run event travels with
+ * the chunk instead of being minted (or, as until BST-1440, forgotten) here.
+ * That run event is what clears the Threads panel's "needs you" glyph the
+ * moment the user ANSWERS: `use-threads-awaiting-approval.ts` counts
+ * `tool.started` as a resolution and excludes only the SAME-run pre-pause one,
+ * and this leg always writes under a new `thread_runs` row. Without it the
+ * glyph stayed lit — for a call the user had already approved — until
+ * `tool.completed` landed, and masked the truthful Running state meanwhile.
+ * Ordering per call is therefore identical to the mainline's:
+ * tool event, then `tool.started`, then any `subagent.started`.
+ *
+ * SIBLINGS EMIT IT TOO, deliberately. A sibling pending in the same suspended
+ * step is a real in-flight call the moment the step resumes — it is why the
+ * synthetic start chunk exists for siblings at all — so suppressing only its
+ * run event would re-open the exact producer/UI split this seam closes. If a
+ * sibling was itself approval-gated and re-pauses on this leg, its new
+ * `tool.approval.requested` is written under THIS run, so the start emitted
+ * here is same-run and cannot answer it; only the superseded pause from the
+ * previous leg is cleared, which is correct.
  */
 function* makeResumedStartChunks(
   resumed: ResumedApprovalToolCall,
@@ -1010,7 +1039,7 @@ function* makeResumedStartChunks(
   const starts: readonly ResumedToolCallStart[] = [resumed, ...resumed.siblings];
   for (const start of starts) {
     toolNames.set(start.toolCallId, start.registeredToolName);
-    yield {
+    const toolEvent: StreamChunkTool = {
       name: start.displayToolName,
       payload: {
         args: start.args,
@@ -1021,6 +1050,12 @@ function* makeResumedStartChunks(
       status: 'start',
       type: 'tool-event',
     };
+    yield toolEvent;
+    // `'tool-call'` is the Mastra part this synthetic start stands in for.
+    const startRunEvent = makeToolLifecycleRunEventChunk(toolEvent, 'tool-call', lifecycleState);
+    if (startRunEvent) {
+      yield startRunEvent;
+    }
     if (start.registeredToolName.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX)) {
       const delegationMetadata = {
         parentToolCallId: start.toolCallId,

@@ -55,6 +55,14 @@ import { useMemo } from 'react';
  * `sequence` could not serve anyway (it is per-run). The three terminal kinds
  * need no such exclusion: none of them can be emitted by the leg that paused.
  *
+ * The resume-leg re-yield is what makes this projection clear on ANSWER rather
+ * than on completion (BST-1440), and it is produced by `makeResumedStartChunks`
+ * in `packages/agent/src/mastra/agent-streaming.ts` — Mastra never replays a
+ * resumed step's `tool-call` part, so that seam synthesises the start and hands
+ * it to the same tool-lifecycle chunk maker the mainline uses. Until it did,
+ * this whole clause was dead weight and the glyph stayed lit, for a call the
+ * user had already approved, until `tool.completed` landed.
+ *
  * Exported for the real-PGlite lane
  * (`__tests__/use-threads-awaiting-approval.integration.test.ts`), which proves
  * this SELECT's OUTCOME against seeded rows. Substring assertions over the
