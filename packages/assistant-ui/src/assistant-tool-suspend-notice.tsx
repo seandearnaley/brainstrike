@@ -28,12 +28,20 @@ import {
 } from 'react';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
+import { rememberUnreadablePauseLogIdentity } from './unreadable-pause-log-cache';
 
 const logger = createLogger('AssistantToolSuspendNotice');
 
 const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
-const loggedUnreadablePauseKeys = new Set<string>();
+const SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT = 4000;
+
+function serializeSuspendPayloadDiagnostic(suspendPayload: unknown): string {
+  const serialized = JSON.stringify(suspendPayload, null, 2) ?? 'undefined';
+  return serialized.length > SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT
+    ? `${serialized.slice(0, SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT)}\n… (truncated)`
+    : serialized;
+}
 
 /**
  * Callback that clears the persisted plan-mode toggle. Provided by the
@@ -391,14 +399,13 @@ function UnreadableSuspendPayloadNotice({
 }) {
   const pauseKey = `${request.runId}:${request.toolCallId}:${request.toolName}`;
   const payloadDetail = useMemo(
-    () => JSON.stringify(request.suspendPayload, null, 2),
+    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
     [request.suspendPayload]
   );
   useEffect(() => {
-    if (loggedUnreadablePauseKeys.has(pauseKey)) {
+    if (!rememberUnreadablePauseLogIdentity(pauseKey)) {
       return;
     }
-    loggedUnreadablePauseKeys.add(pauseKey);
     logger.warn('Unreadable tool suspension payload', {
       runId: request.runId,
       suspendPayload: request.suspendPayload,

@@ -1,6 +1,7 @@
 import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('AssistantBridge');
+let reportedMalformedAssistantBridge = false;
 
 /**
  * Auth contract between the desktop assistant HTTP server and its renderer
@@ -59,12 +60,15 @@ export function getAssistantBridge(): AssistantBridge | undefined {
     return;
   }
   if (bridge === null || typeof bridge !== 'object' || Array.isArray(bridge)) {
-    logger.error(
-      'window.assistant is present but malformed; desktop assistant capabilities disabled.',
-      {
-        receivedType: Array.isArray(bridge) ? 'array' : bridge === null ? 'null' : typeof bridge,
-      }
-    );
+    if (!reportedMalformedAssistantBridge) {
+      reportedMalformedAssistantBridge = true;
+      logger.error(
+        'window.assistant is present but malformed; desktop assistant capabilities disabled.',
+        {
+          receivedType: Array.isArray(bridge) ? 'array' : bridge === null ? 'null' : typeof bridge,
+        }
+      );
+    }
     return;
   }
   return bridge;

@@ -3,6 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantToolSuspendNotice, PlanModeExitProvider } from '../assistant-tool-suspend-notice';
+import {
+  __resetUnreadablePauseLogForTests,
+  UNREADABLE_PAUSE_LOG_CAPACITY,
+} from '../unreadable-pause-log-cache';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const loggerWarnMock = vi.hoisted(() => vi.fn());
@@ -54,6 +58,10 @@ const askFreeTextRequest: AssistantToolSuspendRequest = {
   toolCallId: 'call-2',
   toolName: 'brainstrike.askUser',
 };
+
+beforeEach(() => {
+  __resetUnreadablePauseLogForTests();
+});
 
 describe('AssistantToolSuspendNotice', () => {
   beforeEach(() => {
@@ -279,6 +287,24 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByText(/"options": "not-an-array"/)).toHaveClass('max-h-48', 'overflow-auto');
   });
 
+  it('caps serialized unreadable payload diagnostics before rendering them', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: { options: 'x'.repeat(8000), question: { nested: true } },
+        }}
+      />
+    );
+
+    const diagnostic = screen
+      .getByTestId('assistant-ask-user-payload-unreadable')
+      .querySelector('pre');
+    expect(diagnostic).not.toBeNull();
+    expect(diagnostic?.textContent).toContain('… (truncated)');
+    expect(diagnostic?.textContent?.length).toBeLessThanOrEqual(4020);
+  });
+
   it.each([
     ['a non-array option list', { options: 'not-an-array', question: 'Pick one' }],
     ['an option list with no readable entries', { options: [{ label: 42 }], question: 'Pick one' }],
@@ -315,6 +341,59 @@ describe('AssistantToolSuspendNotice', () => {
     );
 
     await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('resets unreadable-pause log identities for deterministic test isolation', async () => {
+    const data = {
+      ...askFreeTextRequest,
+      runId: 'run-log-reset',
+      suspendPayload: { options: 'not-an-array', question: { nested: true } },
+      toolCallId: 'call-log-reset',
+    };
+    const first = render(<AssistantToolSuspendNotice data={data} />);
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+
+    first.unmount();
+    __resetUnreadablePauseLogForTests();
+    loggerWarnMock.mockReset();
+    render(<AssistantToolSuspendNotice data={data} />);
+
+    await waitFor(() => expect(loggerWarnMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('bounds unreadable-pause log identities and evicts the oldest deterministically', async () => {
+    for (let index = 0; index <= UNREADABLE_PAUSE_LOG_CAPACITY; index += 1) {
+      const view = render(
+        <AssistantToolSuspendNotice
+          data={{
+            ...askFreeTextRequest,
+            runId: `run-log-cap-${index}`,
+            suspendPayload: { options: 'not-an-array', question: { nested: true } },
+            toolCallId: `call-log-cap-${index}`,
+          }}
+        />
+      );
+      view.unmount();
+    }
+
+    await waitFor(() =>
+      expect(loggerWarnMock).toHaveBeenCalledTimes(UNREADABLE_PAUSE_LOG_CAPACITY + 1)
+    );
+
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          runId: 'run-log-cap-0',
+          suspendPayload: { options: 'not-an-array', question: { nested: true } },
+          toolCallId: 'call-log-cap-0',
+        }}
+      />
+    );
+
+    await waitFor(() =>
+      expect(loggerWarnMock).toHaveBeenCalledTimes(UNREADABLE_PAUSE_LOG_CAPACITY + 2)
+    );
   });
 
   it.each([undefined, null])(

@@ -17,10 +17,12 @@ describe('getAssistantBridge', () => {
     vi.stubGlobal('window', { assistant: 'not-a-bridge' });
 
     expect(getAssistantBridge()).toBeUndefined();
+    expect(getAssistantBridge()).toBeUndefined();
     expect(loggerErrorMock).toHaveBeenCalledWith(
       'window.assistant is present but malformed; desktop assistant capabilities disabled.',
       { receivedType: 'string' }
     );
+    expect(loggerErrorMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns an object bridge for downstream capability probes', () => {

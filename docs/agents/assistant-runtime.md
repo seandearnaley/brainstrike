@@ -34,8 +34,10 @@ below are LIVE.
 
    Renderer consumers read the optional desktop assistant transport through
    `getAssistantBridge()` from `@brainstrike/assistant-contract`. That contract
-   owns the `window.assistant` shape and returns no capability on web/SSR; do not
-   recreate local bridge interfaces, unchecked double casts, or web stubs.
+   owns the `window.assistant` shape, returns no capability on web/SSR, and
+   reports a present malformed bridge at most once per renderer process so hot
+   render/request probes cannot flood logs; do not recreate local bridge
+   interfaces, unchecked double casts, or web stubs.
 
 2. **Per-tool guard (LIVE)** —
    `packages/agent/src/tools/guard-tool-execution.ts`. `applyToolGuards` wraps
@@ -2638,14 +2640,17 @@ unapprovable/unanswerable; unreadable advisory plan fields (`risks`,
 list, an unknown `selectionMode`, or a selection mode without readable options
 likewise makes the question unanswerable rather than silently changing its
 interaction mode. An unreadable core payload renders a diagnostic failed alert
-with a bounded, scrollable raw-payload view and logs once per run/tool-call
-identity across renderer remounts. The user may safely reject an unreadable plan
-(never approve it). A readable question whose choice controls drift remains an
-explicit failed alert, shows the raw payload, and offers a clearly-labelled
-free-text answer through the schema's supported string arm; it never guesses a
-choice interaction. If the question itself is unreadable there is no safe typed
-answer and no durable run event explaining the dead end, so its alert remains
-visible and cannot be dismissed or answered.
+with a scrollable raw-payload view capped at 4,000 serialized characters and
+logs once per run/tool-call identity across renderer remounts. The process-local
+identity cache is capped at 64 entries with deterministic oldest-entry eviction;
+tests reset it explicitly rather than depending on file order. The user may
+safely reject an unreadable plan (never approve it). A readable question whose
+choice controls drift remains an explicit failed alert, shows the bounded raw
+payload, and offers a clearly-labelled free-text answer through the schema's
+supported string arm; it never guesses a choice interaction. If the question
+itself is unreadable there is no safe typed answer and no durable run event
+explaining the dead end, so its alert remains visible and cannot be dismissed or
+answered.
 
 **Transport table (parallel to approval):**
 
