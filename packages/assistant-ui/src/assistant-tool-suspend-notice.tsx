@@ -24,6 +24,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
@@ -83,7 +84,7 @@ function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null | undef
   const parsedSteps: SubmitPlanPayload['steps'] = [];
   for (const step of steps) {
     if (!isRecord(step) || typeof step['title'] !== 'string') {
-      continue;
+      return null;
     }
     parsedSteps.push({
       ...(typeof step['detail'] === 'string' ? { detail: step['detail'] } : {}),
@@ -100,6 +101,26 @@ function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null | undef
   };
 }
 
+function readAskUserOptions(options: unknown): AskUserOption[] | null | undefined {
+  if (options === undefined) {
+    return;
+  }
+  if (!Array.isArray(options)) {
+    return null;
+  }
+  const parsedOptions: AskUserOption[] = [];
+  for (const option of options) {
+    if (!isRecord(option) || typeof option['label'] !== 'string') {
+      continue;
+    }
+    parsedOptions.push({
+      ...(typeof option['description'] === 'string' ? { description: option['description'] } : {}),
+      label: option['label'],
+    });
+  }
+  return options.length > 0 && parsedOptions.length === 0 ? null : parsedOptions;
+}
+
 function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
   if (value === undefined) {
     return;
@@ -111,20 +132,23 @@ function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
   if (typeof question !== 'string') {
     return null;
   }
-
-  const parsedOptions: AskUserOption[] = [];
-  for (const option of Array.isArray(options) ? options : []) {
-    if (!isRecord(option) || typeof option['label'] !== 'string') {
-      continue;
-    }
-    parsedOptions.push({
-      ...(typeof option['description'] === 'string' ? { description: option['description'] } : {}),
-      label: option['label'],
-    });
+  const parsedOptions = readAskUserOptions(options);
+  if (parsedOptions === null) {
+    return null;
+  }
+  if (
+    selectionMode !== undefined &&
+    selectionMode !== 'single_select' &&
+    selectionMode !== 'multi_select'
+  ) {
+    return null;
+  }
+  if (selectionMode !== undefined && (!parsedOptions || parsedOptions.length === 0)) {
+    return null;
   }
 
   return {
-    ...(Array.isArray(options) ? { options: parsedOptions } : {}),
+    ...(parsedOptions ? { options: parsedOptions } : {}),
     question,
     ...(selectionMode === 'single_select' || selectionMode === 'multi_select'
       ? { selectionMode }
@@ -361,18 +385,24 @@ function UnreadableSuspendPayloadNotice({
   testId: string;
   title: string;
 }) {
+  const loggedPauseKey = useRef<string | null>(null);
+  const pauseKey = `${request.runId}:${request.toolCallId}:${request.toolName}`;
   const payloadDetail = useMemo(
     () => JSON.stringify(request.suspendPayload, null, 2),
     [request.suspendPayload]
   );
   useEffect(() => {
+    if (loggedPauseKey.current === pauseKey) {
+      return;
+    }
+    loggedPauseKey.current = pauseKey;
     logger.warn('Unreadable tool suspension payload', {
       runId: request.runId,
       suspendPayload: request.suspendPayload,
       toolCallId: request.toolCallId,
       toolName: request.toolName,
     });
-  }, [request.runId, request.suspendPayload, request.toolCallId, request.toolName]);
+  }, [pauseKey, request.runId, request.suspendPayload, request.toolCallId, request.toolName]);
 
   return (
     <NoticeShell
