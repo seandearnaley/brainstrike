@@ -323,25 +323,44 @@ describe('virtualized tier (BST-897)', () => {
     // Pinned geometry settles before the button's virtualizer state. Establish
     // the disabled starting state so the enabled wait below observes a real
     // transition instead of passing on a stale opening render.
-    await waitFor(() => {
-      expect(button).toBeDisabled();
-    });
+    await waitFor(
+      () => {
+        expect(button).toBeDisabled();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
 
-    // Stay inside the already-mounted end window. Jumping to an arbitrary
-    // distant estimate makes row measurement corrections indistinguishable
-    // from append movement, which is not the contract this test owns.
-    await scrollTo(viewport, viewport.scrollTop - viewport.clientHeight);
-    await waitFor(() => {
-      expect(button).toBeEnabled();
-    });
+    // Derive the target from the mounted end window rather than assuming a
+    // particular overscan distance. Jumping into unmounted estimates makes row
+    // measurement corrections indistinguishable from append movement, which is
+    // not the contract this test owns.
+    const firstMountedRow = screen.getAllByTestId('thread-message')[0];
+    if (!firstMountedRow) {
+      throw new Error('Expected the virtualizer to have a mounted end window');
+    }
+    const viewportRect = viewport.getBoundingClientRect();
+    const mountedStart =
+      viewport.scrollTop + firstMountedRow.getBoundingClientRect().top - viewportRect.top;
+    await scrollTo(viewport, Math.max(mountedStart, viewport.scrollTop - viewport.clientHeight));
+    await waitFor(
+      () => {
+        expect(button).toBeEnabled();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
 
     const scrollTopBefore = viewport.scrollTop;
-    const scrollHeightBefore = viewport.scrollHeight;
     fireEvent.click(screen.getByTestId('append'));
 
-    await waitFor(() => {
-      expect(viewport.scrollHeight).toBeGreaterThan(scrollHeightBefore);
-    });
+    // DOM presence is monotone for this append. scrollHeight is not: measuring
+    // previously estimated rows can shrink the virtualizer total in the same
+    // frame and cancel the appended row's growth.
+    await waitFor(
+      () => {
+        expect(document.querySelector('[data-message-text="appended"]')).not.toBeNull();
+      },
+      { timeout: SETTLE_TIMEOUT_MS }
+    );
     // The reading position is untouched by the append …
     await waitFor(() => {
       expect(Math.abs(viewport.scrollTop - scrollTopBefore)).toBeLessThanOrEqual(2);
