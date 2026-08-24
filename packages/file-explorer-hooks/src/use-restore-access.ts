@@ -1,7 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { hasGetHandleCache } from './adapter-with-handle-cache.js';
+import { readHandleCache } from './adapter-with-handle-cache.js';
 import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useRestoreAccess');
@@ -104,6 +104,25 @@ interface WebHandleCacheShape {
   markHandleRestored?: (folderId: string) => Promise<void>;
   removeRootHandle?: (folderId: string) => Promise<void>;
   restoreLastRootHandle?: () => Promise<{ handle: FileSystemDirectoryHandle } | null>;
+}
+
+const WEB_HANDLE_CACHE_METHODS = [
+  'clear',
+  'getAllRootHandles',
+  'getLastRootHandleForRestore',
+  'markHandleRestored',
+  'removeRootHandle',
+  'restoreLastRootHandle',
+] as const;
+
+function isWebHandleCacheShape(value: unknown): value is WebHandleCacheShape {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return WEB_HANDLE_CACHE_METHODS.every(
+    (method) => candidate[method] === undefined || typeof candidate[method] === 'function'
+  );
 }
 
 interface LoadStoredHandlesOptions {
@@ -520,9 +539,7 @@ export function useRestoreAccess(): RestoreAccessState {
   }, []);
 
   const handleCache = useMemo(() => {
-    const cache = hasGetHandleCache<WebHandleCacheShape>(fileSystemAdapter)
-      ? (fileSystemAdapter.getHandleCache?.() ?? null)
-      : null;
+    const cache = readHandleCache(fileSystemAdapter, isWebHandleCacheShape);
     if (cache) {
       logger.debug('Handle cache available for restore checks', {
         hasNewMethod: typeof cache.getLastRootHandleForRestore === 'function',

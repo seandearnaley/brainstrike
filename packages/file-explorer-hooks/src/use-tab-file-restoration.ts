@@ -23,7 +23,7 @@ import { createLogger } from '@brainstrike/logging';
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { extractPathSegments } from '@brainstrike/utils/path-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { hasGetHandleCache } from './adapter-with-handle-cache.js';
+import { readHandleCache } from './adapter-with-handle-cache.js';
 import { useAdapters } from './adapters-context.js';
 
 const logger = createLogger('useTabFileRestoration');
@@ -44,6 +44,17 @@ interface CircuitBreakerState {
 /** Circuit breaker configuration */
 const CIRCUIT_BREAKER_THRESHOLD = 5; // Number of failures before opening
 const CIRCUIT_BREAKER_RESET_MS = 30_000; // Time before attempting to close circuit
+
+function isFileHandleCache(value: unknown): value is FileHandleCache {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate['getFileHandle'] === 'function' &&
+    typeof candidate['removeFileHandle'] === 'function'
+  );
+}
 
 /**
  * Concurrency limiter with circuit breaker pattern.
@@ -433,10 +444,7 @@ export function useTabFileRestoration(
     if (platform !== 'web') {
       return null;
     }
-    if (!hasGetHandleCache<FileHandleCache>(fileSystemAdapter)) {
-      return null;
-    }
-    return fileSystemAdapter.getHandleCache?.() ?? null;
+    return readHandleCache(fileSystemAdapter, isFileHandleCache);
   }, [fileSystemAdapter, platform]);
 
   // Handle Electron restoration

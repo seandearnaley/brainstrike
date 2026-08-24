@@ -1,15 +1,22 @@
-/** Adapter capability that exposes its platform-specific persisted handle cache. */
-export interface AdapterWithHandleCache<HandleCache> {
-  getHandleCache?: () => HandleCache;
-}
-
-/** Check whether an unknown adapter exposes the handle-cache capability. */
-export function hasGetHandleCache<HandleCache>(
-  adapter: unknown
-): adapter is AdapterWithHandleCache<HandleCache> {
+/** Read and validate an adapter's platform-specific handle cache. */
+export function readHandleCache<HandleCache>(
+  adapter: unknown,
+  isHandleCache: (value: unknown) => value is HandleCache
+): HandleCache | null {
   if (typeof adapter !== 'object' || adapter === null) {
-    return false;
+    return null;
   }
   const candidate = adapter as Record<string, unknown>;
-  return typeof candidate['getHandleCache'] === 'function';
+  const getHandleCache = candidate['getHandleCache'];
+  if (typeof getHandleCache !== 'function') {
+    return null;
+  }
+  const handleCache = getHandleCache.call(adapter);
+  if (handleCache === null || handleCache === undefined) {
+    return null;
+  }
+  if (!isHandleCache(handleCache)) {
+    throw new TypeError('Adapter getHandleCache() returned an unsupported cache shape.');
+  }
+  return handleCache;
 }

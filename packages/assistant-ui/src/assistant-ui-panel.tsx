@@ -1384,7 +1384,9 @@ const ChatThreadUI = ({
 /** Initial API URL for the data stream runtime (hosted providers). */
 function resolveInitialAssistantApi(): string {
   const bridge = getAssistantBridge();
-  return bridge?.url ? `${bridge.url}/assistant` : '/api/assistant';
+  return typeof bridge?.url === 'string' && bridge.url
+    ? `${bridge.url}/assistant`
+    : '/api/assistant';
 }
 
 export const AssistantUiPanel = ({

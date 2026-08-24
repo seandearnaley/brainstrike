@@ -2630,16 +2630,17 @@ see the version ceiling in mastra-boundary.md).
 The renderer structurally narrows both tools' `suspendPayload` before displaying
 or resuming it. An absent payload retains the generic actionable fallback for
 legacy suspended runs. Core plan terms (`title`, `overview`, and the steps array)
-and the `askUser` question must be readable. Plan step titles are decision terms,
-so one unreadable step makes the plan unapprovable; unreadable advisory plan
-fields (`risks`, `verification`, or a step `detail`) remain omitted. A partially
-readable option list may omit malformed siblings, but a present non-array list,
-a non-empty list with no readable options, or an unknown `selectionMode` makes
-the question unanswerable rather than silently changing its interaction mode.
-An unreadable core payload renders a diagnostic failed alert with the raw payload
-and logs once per run/tool-call identity. The user may safely reject an unreadable
-plan (never approve it), while an unreadable question can only be dismissed and
-never answered.
+and the `askUser` question/options must be readable. Plan step titles and askUser
+options are decision terms, so one unreadable entry makes the decision
+unapprovable/unanswerable; unreadable advisory plan fields (`risks`,
+`verification`, or a step `detail`) remain omitted. A present non-array option
+list, an unknown `selectionMode`, or a selection mode without readable options
+likewise makes the question unanswerable rather than silently changing its
+interaction mode. An unreadable core payload renders a diagnostic failed alert
+with a bounded, scrollable raw-payload view and logs once per run/tool-call
+identity. The user may safely reject an unreadable plan (never approve it). An
+unreadable question has no safe typed answer and no durable run event explaining
+the dead end, so its alert remains visible and cannot be dismissed or answered.
 
 **Transport table (parallel to approval):**
 

@@ -111,14 +111,14 @@ function readAskUserOptions(options: unknown): AskUserOption[] | null | undefine
   const parsedOptions: AskUserOption[] = [];
   for (const option of options) {
     if (!isRecord(option) || typeof option['label'] !== 'string') {
-      continue;
+      return null;
     }
     parsedOptions.push({
       ...(typeof option['description'] === 'string' ? { description: option['description'] } : {}),
       label: option['label'],
     });
   }
-  return options.length > 0 && parsedOptions.length === 0 ? null : parsedOptions;
+  return parsedOptions;
 }
 
 function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
@@ -414,7 +414,7 @@ function UnreadableSuspendPayloadNotice({
     >
       <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       <p className="mt-1 text-muted-foreground text-xs">{detail}</p>
-      <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
         {payloadDetail}
       </pre>
       {children}
@@ -549,7 +549,6 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   );
   const [freeText, setFreeText] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [unreadableDismissed, setUnreadableDismissed] = useState(false);
   const payload = readAskUserPayload(request.suspendPayload);
   const options: AskUserOption[] = payload?.options ?? [];
   const isMultiSelect = payload?.selectionMode === 'multi_select';
@@ -567,22 +566,13 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   }, []);
 
   if (payload === null) {
-    if (unreadableDismissed) {
-      return null;
-    }
     return (
       <UnreadableSuspendPayloadNotice
         detail="The suspended request contains malformed question details, so it cannot be answered here."
         request={request}
         testId="assistant-ask-user-payload-unreadable"
         title="Question details could not be read"
-      >
-        <div className="mt-2">
-          <Button onClick={() => setUnreadableDismissed(true)} size="sm" variant="outline">
-            Dismiss
-          </Button>
-        </div>
-      </UnreadableSuspendPayloadNotice>
+      />
     );
   }
 

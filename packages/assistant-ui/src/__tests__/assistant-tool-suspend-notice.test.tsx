@@ -217,8 +217,7 @@ describe('AssistantToolSuspendNotice', () => {
     expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'San Francisco' });
   });
 
-  it('surfaces a malformed askUser payload without allowing an answer and can dismiss it', async () => {
-    const user = userEvent.setup();
+  it('keeps a malformed askUser payload visible without allowing an answer', () => {
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -236,15 +235,11 @@ describe('AssistantToolSuspendNotice', () => {
     expect(screen.getByText(/"options": "not-an-array"/)).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /your answer/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /send/i })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /dismiss/i }));
-
-    expect(screen.queryByTestId('assistant-ask-user-payload-unreadable')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /dismiss/i })).not.toBeInTheDocument();
     expect(appendMessageMock).not.toHaveBeenCalled();
   });
 
-  it('keeps readable options when malformed sibling options are dropped', async () => {
-    const user = userEvent.setup();
+  it('refuses an askUser choice set when any option is unreadable', () => {
     render(
       <AssistantToolSuspendNotice
         data={{
@@ -258,10 +253,22 @@ describe('AssistantToolSuspendNotice', () => {
       />
     );
 
-    expect(screen.getByText('Still readable?')).toBeInTheDocument();
-    expect(screen.queryByTestId('assistant-ask-user-payload-unreadable')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Keep me' }));
-    expect(lastResumeAction()?.['resumeData']).toEqual({ answer: 'Keep me' });
+    expect(screen.getByTestId('assistant-ask-user-payload-unreadable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Keep me' })).not.toBeInTheDocument();
+    expect(appendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('bounds unreadable payload diagnostics inside the notice', () => {
+    render(
+      <AssistantToolSuspendNotice
+        data={{
+          ...askFreeTextRequest,
+          suspendPayload: { options: 'not-an-array', question: { nested: true } },
+        }}
+      />
+    );
+
+    expect(screen.getByText(/"options": "not-an-array"/)).toHaveClass('max-h-48', 'overflow-auto');
   });
 
   it.each([

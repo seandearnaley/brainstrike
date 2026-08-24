@@ -479,6 +479,16 @@ describe('AssistantUiPanel model picker', () => {
     );
   });
 
+  it('does not turn a malformed desktop bridge URL into an assistant endpoint', () => {
+    Object.assign(window, { assistant: { url: {} } });
+
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    expect(useBrainstrikeDataStreamRuntimeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ api: '/api/assistant' })
+    );
+  });
+
   describe('compaction summary dispatch', () => {
     const summaryPayload = {
       createdAt: '2026-08-09T12:00:00.000Z',
