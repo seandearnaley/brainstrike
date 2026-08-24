@@ -10,7 +10,7 @@
  * NO SILENT DISABLES: every non-switchable row carries the reason it is not
  * switchable, ordered most-specific-cause first, and the caller renders it.
  */
-import type { GitBranchSummary } from '@brainstrike/types';
+import type { GitBranchSummary, GitStatus } from '@brainstrike/types';
 
 export interface BranchSwitchRow {
   readonly current: boolean;
@@ -31,8 +31,22 @@ export interface BranchSwitchModel {
 
 const SUBFOLDER_SCOPE_REASON =
   'This folder is below the repository root — open the repository root to switch branches.';
-const DIRTY_REASON = 'Working tree has uncommitted changes — commit or stash first.';
+/** Exported so callers can render the SAME copy as a visible banner (Major 1) — never a paraphrase. */
+export const DIRTY_REASON = 'Working tree has uncommitted changes — commit or stash first.';
 const CURRENT_REASON = 'Already checked out here.';
+
+/**
+ * True only when a TRACKED file is staged or modified. Untracked-only trees
+ * are NOT dirty for switch-gating purposes (Major 2 ruling): switching
+ * branches neither touches nor is blocked by files git doesn't track, so
+ * gating on `!status.clean` gave a false "commit or stash" prompt for a tree
+ * that had nothing to commit or stash. The service's porcelain-v2 parser
+ * (`git-service.ts`) tags every entry `untracked: false` except plain `?`
+ * lines, so this is exactly "any tracked entry exists".
+ */
+export function deriveBranchSwitchDirty(status: Pick<GitStatus, 'files'>): boolean {
+  return status.files.some((file) => !file.untracked);
+}
 
 /** Basename of a worktree path, separator-normalized (git prints POSIX or native). */
 function worktreeBasename(worktreePath: string): string {

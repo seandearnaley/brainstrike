@@ -504,4 +504,101 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     expect(switchBranch).toHaveBeenCalledWith('feature/search');
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
   });
+
+  // ── Branch-switch dirty gate (BST-1447 review: Major 1 + Major 2 + Minor 3) ─
+
+  it('disables branch rows and shows the visible dirty reason for a tracked change, never calling switchBranch', async () => {
+    const switchBranch = vi.fn(async () => undefined);
+    render(
+      <GitWorkbenchHeader
+        fetchRemote={NOOP_ASYNC}
+        isLoading={false}
+        isSyncing={false}
+        refreshStatus={vi.fn()}
+        repository={makeRepository({
+          branches: [
+            {
+              current: true,
+              head: '0'.repeat(40),
+              name: 'main',
+              upstream: null,
+              worktreePath: null,
+            },
+            {
+              current: false,
+              head: '1'.repeat(40),
+              name: 'feature/search',
+              upstream: null,
+              worktreePath: null,
+            },
+          ],
+        })}
+        status={makeStatus({
+          clean: false,
+          files: [
+            { path: 'tracked.txt', staged: false, status: 'M', unstaged: true, untracked: false },
+          ],
+        })}
+        switchBranch={switchBranch}
+      />
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /Current branch/ }));
+
+    // Visible, not just a title tooltip on a disabled item (Major 1).
+    expect(screen.getByTestId('git-workbench-branch-dirty-reason')).toHaveTextContent(
+      'Working tree has uncommitted changes — commit or stash first.'
+    );
+    const row = screen.getByRole('menuitem', { name: 'feature/search' });
+    expect(row).toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(row);
+    expect(switchBranch).not.toHaveBeenCalled();
+  });
+
+  it('does NOT disable branch rows for an untracked-only tree (Major 2 ruling)', async () => {
+    render(
+      <GitWorkbenchHeader
+        fetchRemote={NOOP_ASYNC}
+        isLoading={false}
+        isSyncing={false}
+        refreshStatus={vi.fn()}
+        repository={makeRepository({
+          branches: [
+            {
+              current: true,
+              head: '0'.repeat(40),
+              name: 'main',
+              upstream: null,
+              worktreePath: null,
+            },
+            {
+              current: false,
+              head: '1'.repeat(40),
+              name: 'feature/search',
+              upstream: null,
+              worktreePath: null,
+            },
+          ],
+        })}
+        status={makeStatus({
+          clean: false,
+          files: [
+            { path: 'new-file.txt', staged: false, status: '?', unstaged: false, untracked: true },
+          ],
+        })}
+        switchBranch={NOOP_ASYNC}
+      />
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /Current branch/ }));
+
+    expect(screen.queryByTestId('git-workbench-branch-dirty-reason')).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'feature/search' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+  });
 });

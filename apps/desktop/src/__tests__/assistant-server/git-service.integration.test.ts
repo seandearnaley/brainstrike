@@ -1090,6 +1090,33 @@ describe('git service — repository browser', () => {
     expect(status.ok && status.value.branch).toBe('bs/bright-fox');
   });
 
+  it('creates the branch at the GIVEN start point, not silently at HEAD (Minor 4)', async () => {
+    const repo = await makeRepo('brainstrike-git-create-branch-startpoint-');
+    await writeFile(repo, 'file.txt', 'first\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'first commit'], { cwd: repo });
+    const firstCommit = (
+      await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })
+    ).stdout.trim();
+
+    // A second commit moves HEAD forward, so "starts at HEAD" and "starts at
+    // the first commit" become distinguishable outcomes.
+    await writeFile(repo, 'file.txt', 'second\n');
+    await execFileAsync('git', ['commit', '-qam', 'second commit'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    const created = await service.createBranch({
+      branch: 'bs/from-first-commit',
+      startPoint: firstCommit,
+    });
+    expect(created).toEqual({ ok: true, value: { branch: 'bs/from-first-commit' } });
+
+    const resolved = (
+      await execFileAsync('git', ['rev-parse', 'bs/from-first-commit'], { cwd: repo })
+    ).stdout.trim();
+    expect(resolved).toBe(firstCommit);
+  });
+
   it('refuses a branch name that already exists rather than silently switching', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'file.txt', 'initial\n');
@@ -1115,6 +1142,44 @@ describe('git service — repository browser', () => {
     });
     expect(await service.createBranch({ branch: '-' })).toEqual({
       error: 'local branch "-" is not supported',
+      ok: false,
+    });
+  });
+
+  it('refuses an option-looking branch name as a visible git error, never a flag parse (Minor 5)', async () => {
+    // Mirrors switchBranch's "switches to an option-looking local branch"
+    // parity test above, but createBranch's `-c <branch>` has no existing ref
+    // to disambiguate against — git itself refuses `--force` as a ref name
+    // (confirmed against real git: exit 128, "not a valid branch name"),
+    // rather than silently treating it as the `--force` flag to `switch`.
+    const repo = await makeRepo('brainstrike-git-create-branch-option-');
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    const created = await service.createBranch({ branch: '--force' });
+
+    expect(created.ok).toBe(false);
+    if (!created.ok) {
+      expect(created.error).not.toBe('');
+    }
+    const branches = await execFileAsync('git', ['branch', '--list'], { cwd: repo });
+    expect(branches.stdout).not.toContain('force');
+  });
+
+  it('rejects an empty startPoint rather than silently falling back to HEAD (Minor 6)', async () => {
+    const repo = await makeRepo('brainstrike-git-create-branch-empty-startpoint-');
+    await writeFile(repo, 'file.txt', 'initial\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+
+    // Exercises the SAME path the IPC handler now forwards an explicit ''
+    // startPoint through (git-ipc-handlers.ts no longer drops it on
+    // falsiness) — this is the service-side half of that contract.
+    expect(await service.createBranch({ branch: 'bs/empty-startpoint', startPoint: '' })).toEqual({
+      error: 'startPoint must be a non-empty string when supplied',
       ok: false,
     });
   });

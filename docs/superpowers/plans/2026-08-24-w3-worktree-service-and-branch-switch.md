@@ -145,12 +145,22 @@ gh stack init --base integration/workspace-checkout-awareness seandearnaley/bst-
 
 - [ ] **Step 1: Write the failing model test**
 
-Create `packages/app-shell/src/__tests__/branch-switch-model.test.ts`:
+Create `packages/app-shell/src/__tests__/branch-switch-model.test.ts`. (Post-review update, BST-1447: the review's Major 2 ruling — dirty means a TRACKED file changed, never untracked-only — landed as a second export, `deriveBranchSwitchDirty`, in the same module; its cases are appended below the original `buildBranchSwitchModel` suite.)
 
 ```ts
-import type { GitBranchSummary } from '@brainstrike/types';
+import type { GitBranchSummary, GitStatusFile } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { buildBranchSwitchModel } from '../git-panel/branch-switch-model';
+import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../git-panel/branch-switch-model';
+
+function statusFile(overrides: Partial<GitStatusFile> & { path: string }): GitStatusFile {
+  return {
+    staged: false,
+    status: 'M',
+    unstaged: false,
+    untracked: false,
+    ...overrides,
+  };
+}
 
 function branch(overrides: Partial<GitBranchSummary> & { name: string }): GitBranchSummary {
   return {
@@ -222,6 +232,47 @@ describe('buildBranchSwitchModel', () => {
     expect(model.rows.every((row) => row.switchable === false)).toBe(true);
   });
 });
+
+describe('deriveBranchSwitchDirty', () => {
+  it('is not dirty for a clean tree', () => {
+    expect(deriveBranchSwitchDirty({ files: [] })).toBe(false);
+  });
+
+  it('is not dirty when every file is untracked-only (Major 2 ruling)', () => {
+    expect(
+      deriveBranchSwitchDirty({
+        files: [statusFile({ path: 'new-file.txt', status: '?', untracked: true })],
+      })
+    ).toBe(false);
+  });
+
+  it('is dirty for an unstaged modification to a tracked file', () => {
+    expect(
+      deriveBranchSwitchDirty({
+        files: [statusFile({ path: 'tracked.txt', unstaged: true })],
+      })
+    ).toBe(true);
+  });
+
+  it('is dirty for a staged tracked change', () => {
+    expect(
+      deriveBranchSwitchDirty({
+        files: [statusFile({ path: 'tracked.txt', staged: true, status: 'M' })],
+      })
+    ).toBe(true);
+  });
+
+  it('is dirty when a tracked change is mixed with untracked files', () => {
+    expect(
+      deriveBranchSwitchDirty({
+        files: [
+          statusFile({ path: 'new-file.txt', status: '?', untracked: true }),
+          statusFile({ path: 'tracked.txt', unstaged: true }),
+        ],
+      })
+    ).toBe(true);
+  });
+});
 ```
 
 - [ ] **Step 2: Run it and confirm it fails**
@@ -231,7 +282,7 @@ Expected: FAIL — `Failed to resolve import "../git-panel/branch-switch-model"`
 
 - [ ] **Step 3: Write the model**
 
-Create `packages/app-shell/src/git-panel/branch-switch-model.ts`:
+Create `packages/app-shell/src/git-panel/branch-switch-model.ts`. (Post-review update, BST-1447: `DIRTY_REASON` is exported so callers render the identical copy as a visible banner rather than a paraphrase, and a `deriveBranchSwitchDirty` export gives both callers — the header dropdown and, per Task 2, the composer chip — ONE tracked-only dirty derivation instead of each reading `!status.clean` itself.)
 
 ```ts
 /**
@@ -246,7 +297,7 @@ Create `packages/app-shell/src/git-panel/branch-switch-model.ts`:
  * NO SILENT DISABLES: every non-switchable row carries the reason it is not
  * switchable, ordered most-specific-cause first, and the caller renders it.
  */
-import type { GitBranchSummary } from '@brainstrike/types';
+import type { GitBranchSummary, GitStatus } from '@brainstrike/types';
 
 export interface BranchSwitchRow {
   readonly current: boolean;
@@ -267,8 +318,22 @@ export interface BranchSwitchModel {
 
 const SUBFOLDER_SCOPE_REASON =
   'This folder is below the repository root — open the repository root to switch branches.';
-const DIRTY_REASON = 'Working tree has uncommitted changes — commit or stash first.';
+/** Exported so callers can render the SAME copy as a visible banner (Major 1) — never a paraphrase. */
+export const DIRTY_REASON = 'Working tree has uncommitted changes — commit or stash first.';
 const CURRENT_REASON = 'Already checked out here.';
+
+/**
+ * True only when a TRACKED file is staged or modified. Untracked-only trees
+ * are NOT dirty for switch-gating purposes (Major 2 ruling): switching
+ * branches neither touches nor is blocked by files git doesn't track, so
+ * gating on `!status.clean` gave a false "commit or stash" prompt for a tree
+ * that had nothing to commit or stash. The service's porcelain-v2 parser
+ * (`git-service.ts`) tags every entry `untracked: false` except plain `?`
+ * lines, so this is exactly "any tracked entry exists".
+ */
+export function deriveBranchSwitchDirty(status: Pick<GitStatus, 'files'>): boolean {
+  return status.files.some((file) => !file.untracked);
+}
 
 /** Basename of a worktree path, separator-normalized (git prints POSIX or native). */
 function worktreeBasename(worktreePath: string): string {
@@ -324,10 +389,12 @@ export function buildBranchSwitchModel(input: {
 }
 ```
 
+The `dirty` input stays a plain `boolean` — callers derive it with `deriveBranchSwitchDirty` (or, in a test, pass a literal) rather than the model reaching into `GitStatus` itself, so the existing `buildBranchSwitchModel` test cases above are untouched by the ruling.
+
 - [ ] **Step 4: Run it and confirm it passes**
 
 Run: `cd packages/app-shell && pnpm vitest run src/__tests__/branch-switch-model.test.ts`
-Expected: PASS — `7 passed`.
+Expected: PASS — `7 passed` (`12 passed` after the Step-1 update above adds the `deriveBranchSwitchDirty` suite).
 
 - [ ] **Step 5: Write the failing `createBranch` integration test**
 
@@ -369,6 +436,8 @@ Append inside the existing top-level `describe` in `apps/desktop/src/__tests__/a
   });
 ```
 
+(Post-review update, BST-1447: three more cases were appended alongside these — Minor 4's real start-point coverage (create at the FIRST of two commits and assert `git rev-parse` resolves there, not to HEAD), Minor 5's option-looking-name parity with `switchBranch`'s existing `--detach` test (`createBranch({ branch: '--force' })` must be a visible git refusal, never a flag parse), and Minor 6's empty-`startPoint` refusal (the service-side half of the IPC-handler fix in Step 9 below, since no existing `git-ipc-handlers.integration.test.ts` coverage of `createBranch` needed a matching contract-test update). See the actual test file for their bodies — they follow the same `makeRepo`/`writeFile`/`serviceFor` helpers as every other test in the suite, not the `createRepositoryFixture` shorthand above.)
+
 - [ ] **Step 6: Run it and confirm it fails**
 
 Run: `cd apps/desktop && pnpm exec vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism src/__tests__/assistant-server/git-service.integration.test.ts -t "creates and checks out a new local branch"`
@@ -376,7 +445,7 @@ Expected: FAIL — `service.createBranch is not a function`.
 
 - [ ] **Step 7: Add the service op**
 
-In `apps/desktop/src/assistant-server/git-service.ts`, insert immediately **before** `switchBranch` in the returned object (keys stay alphabetical):
+In `apps/desktop/src/assistant-server/git-service.ts`, insert immediately **before** `switchBranch` in the returned object (keys stay alphabetical). (Post-review update, BST-1447 Nit 7: cheap in-memory `startPoint` validation was moved ABOVE `requireFullWorktreeRoot` and the `show-ref` spawn — alongside the branch-name guards — so a malformed call fails before any process spawn or filesystem check, not after.)
 
 ```ts
     /** Create a new local branch at `startPoint` and check it out in this worktree. */
@@ -391,6 +460,13 @@ In `apps/desktop/src/assistant-server/git-service.ts`, insert immediately **befo
         if (params.branch === '-') {
           return { error: 'local branch "-" is not supported', ok: false };
         }
+        const startPoint = params.startPoint;
+        if (
+          startPoint !== undefined &&
+          (typeof startPoint !== 'string' || startPoint.length === 0)
+        ) {
+          return { error: 'startPoint must be a non-empty string when supplied', ok: false };
+        }
         const scope = await requireFullWorktreeRoot('Branch creation');
         if (!scope.ok) {
           return scope;
@@ -401,10 +477,6 @@ In `apps/desktop/src/assistant-server/git-service.ts`, insert immediately **befo
           // NEVER fall through to a plain switch: the caller asked to CREATE,
           // and quietly checking out an existing branch is a different action.
           return { error: `local branch "${branch}" already exists`, ok: false };
-        }
-        const startPoint = params.startPoint;
-        if (startPoint !== undefined && (typeof startPoint !== 'string' || startPoint.length === 0)) {
-          return { error: 'startPoint must be a non-empty string when supplied', ok: false };
         }
         const run_ = await invokeHookFree([
           'switch',
@@ -446,14 +518,17 @@ Expected: PASS — the three new tests plus the existing `switchBranch` ones.
     createBranch: 'git:createBranch',
 ```
 
-`apps/desktop/src/git-ipc-handlers.ts`, in the returned handlers object (alphabetical, beside `switchBranch`):
+`apps/desktop/src/git-ipc-handlers.ts`, in the returned handlers object (alphabetical, beside `switchBranch`). (Post-review update, BST-1447 Minor 6: the spread condition forwards `startPoint` on `!== undefined`, not truthiness — the original truthy check silently dropped an explicit `''`, so it never reached the service's own `startPoint must be a non-empty string when supplied` refusal; see the Step 5 test-file note above for the service-level test that now covers this.)
 
 ```ts
     createBranch: (rootId: unknown, params: { branch: string; startPoint?: string }) =>
       withService(rootId, (service) =>
         service.createBranch({
           branch: params?.branch,
-          ...(params?.startPoint ? { startPoint: params.startPoint } : {}),
+          // Forward on `!== undefined`, not truthiness: an explicit '' must
+          // reach the service and hit ITS stated refusal, not get silently
+          // dropped here and treated as "no start point supplied".
+          ...(params?.startPoint === undefined ? {} : { startPoint: params.startPoint }),
         })
       ),
 ```
@@ -563,6 +638,69 @@ and replace the `repository.scope === 'workspace' ? … : repository.branches.ma
           })()}
 ```
 
+**Post-review update (BST-1447, Major 1 + Major 2 ruling).** The review found two problems with the block above: (1) `dirty: !status.clean` counted untracked-only files as dirty, wrongly gating switching on files git doesn't track (the Major 2 ruling this task's Step 1/3 already fixed at the model layer); (2) a disabled row's reason was ONLY a `title=` tooltip on a Radix-disabled (`pointer-events-none`) item — invisible to anyone who can't hover, and to screen readers. The wiring now reads:
+
+```ts
+import { DIRTY_REASON, buildBranchSwitchModel, deriveBranchSwitchDirty } from './branch-switch-model';
+```
+
+```tsx
+          {(() => {
+            const model = buildBranchSwitchModel({
+              branches: repository.branches,
+              dirty: deriveBranchSwitchDirty(status),
+              query: '',
+              scope: repository.scope,
+            });
+            if (model.scopeReason) {
+              return (
+                <div className="px-2 py-2 text-muted-foreground text-xs">{model.scopeReason}</div>
+              );
+            }
+            return (
+              <>
+                {model.dirty ? (
+                  <div
+                    className="px-2 py-1.5 text-muted-foreground text-xs"
+                    data-testid="git-workbench-branch-dirty-reason"
+                  >
+                    {DIRTY_REASON}
+                  </div>
+                ) : null}
+                {model.rows.map((row) => (
+                  <DropdownMenuItem
+                    disabled={!row.switchable}
+                    key={row.name}
+                    // Worktree-affecting mutation: switching a branch changes this
+                    // worktree's `branch`/`head`, which the dropdown reads out of
+                    // the inventory. Refresh it after the switch lands so the next
+                    // open does not describe the pre-switch topology.
+                    onSelect={() => {
+                      void switchBranch(row.name).then(() => refreshInventory());
+                    }}
+                    title={row.disabledReason ?? undefined}
+                  >
+                    {row.current ? <Check aria-hidden="true" /> : <span className="size-4" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{row.name}</span>
+                      {row.worktreeName ? (
+                        <span
+                          className="mt-0.5 block truncate text-[10px] text-muted-foreground"
+                          data-testid="git-workbench-branch-disabled-reason"
+                        >
+                          {row.disabledReason}
+                        </span>
+                      ) : null}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </>
+            );
+          })()}
+```
+
+The dirty banner is visible ABOVE the row list (not a per-row tooltip); an in-worktree row now shows its full `disabledReason` sentence as visible secondary text (`git-workbench-branch-disabled-reason`), matching the worktree dropdown's existing `git-workbench-worktree-disabled-reason` pattern earlier in this file — `title=` stays as a bonus, but nothing depends on it being read. `packages/app-shell/src/__tests__/git-workbench-header.test.tsx` gained two cases pinning this: a tracked change disables rows, shows the visible banner, and a click never calls `switchBranch`; an untracked-only tree does neither.
+
 - [ ] **Step 12: Run the touched packages' suites**
 
 Run: `cd packages/app-shell && pnpm test && pnpm type-check`
@@ -579,6 +717,8 @@ git commit -m "feat(BST-TBD): git:createBranch op and a shared branch-switch row
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
+
+(Post-review fix-round commit for this task landed separately as `fix(BST-1447): visible switch-gate reasons and tracked-only dirty semantics`.)
 
 ---
 

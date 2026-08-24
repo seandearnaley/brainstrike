@@ -268,7 +268,10 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
       withService(rootId, (service) =>
         service.createBranch({
           branch: params?.branch,
-          ...(params?.startPoint ? { startPoint: params.startPoint } : {}),
+          // Forward on `!== undefined`, not truthiness: an explicit '' must
+          // reach the service and hit ITS stated refusal, not get silently
+          // dropped here and treated as "no start point supplied".
+          ...(params?.startPoint === undefined ? {} : { startPoint: params.startPoint }),
         })
       ),
     diff: (rootId: unknown, params: unknown) =>
