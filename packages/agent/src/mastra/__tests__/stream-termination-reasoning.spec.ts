@@ -25,6 +25,7 @@ describe('makeStreamWatchdogTermination — reasoning stall', () => {
       sawModelContribution: true,
       sawStepBilledCost: false,
       sawStepWithoutBilledCost: false,
+      startedToolCallIds: new Set(),
       stepBilledCostUsd: 0,
       stepCount: 0,
       steppedCompletionTokens: 0,

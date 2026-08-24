@@ -49,16 +49,34 @@ function runEventToolCallId(data: AssistantRunEvent): string | undefined {
  * Approve; a two-second script behind a five-minute approval read as five
  * minutes.
  *
- * Nothing downstream can repair that. Measured against the real approval path,
- * the resume leg emits `tool.completed` FIRST, with no second `tool.started`,
- * no `run.resumed` (both approval paths run `maxAttempts: 1`, so the stall loop
- * never reaches the attempt that emits it) and no `run.started` (Mastra's
- * `resumeStream` emits no `start` part). The information only exists at the
- * producer, which is why it now travels on the event.
+ * That is why `durationMs` exists and why it wins here: it is measured at the
+ * producer around the real `execute`, so it is independent of which run events
+ * survived and of how long the human took.
+ *
+ * HISTORY, because this comment used to say the opposite. It claimed the resume
+ * leg emits `tool.completed` FIRST with no second `tool.started`, and that
+ * nothing downstream could repair the deliberation gap. That was true when
+ * written and is FALSE since BST-1440: the resume leg now synthesises a
+ * `tool.started` (`makeResumedStartChunks` in
+ * `packages/agent/src/mastra/agent-streaming.ts`, routed through the shared
+ * lifecycle seam) so the Threads panel's "needs you" signal can clear when the
+ * user ANSWERS rather than when the tool finishes.
+ *
+ * What that changes here, precisely:
+ *   - `durationMs` PRESENT — the normal path for anything this build produced —
+ *     is unaffected. It wins outright before `startedAt` is ever consulted, so
+ *     the extra start event is inert.
+ *   - `durationMs` ABSENT is now MORE accurate, not less. The resume-leg
+ *     `tool.started` overwrites the pausing leg's entry (parts are in append
+ *     order), so the delta spans the resumed execution instead of the human's
+ *     deliberation. The old comment's "nothing downstream can repair that" no
+ *     longer holds — a two-second script behind a five-minute approval reads as
+ *     two seconds on this path too.
+ * Both branches are pinned in `__tests__/tool-durations.test.ts`.
  *
  * FALLS BACK to the `tool.started` → terminal timestamp delta when there is no
  * `durationMs` — an older persisted thread, or a runtime that did not record.
- * That is the pre-existing behaviour, never a fabricated value.
+ * Never a fabricated value.
  * Pure + unit-tested against realistic event shapes.
  */
 export function collectToolDurations(parts: readonly unknown[]): Record<string, number> {

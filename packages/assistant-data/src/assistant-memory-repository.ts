@@ -1034,12 +1034,30 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_pause_idx
 
 -- The anti-join side. Keyed additionally on the extracted toolCallId, which is
 -- the equality the NOT EXISTS pairs on; jsonb ->> is immutable, so it is
--- indexable as an expression. run_id trails it because the anti-join also
--- excludes the SAME-run tool.started the pausing leg emits before the pause
--- (Mastra gates inside toolCallStep); carrying it here keeps that exclusion on
--- the index rather than sending every candidate row to a heap fetch.
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_answer_idx
-  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id, (metadata->>'toolCallId'), run_id)
+-- indexable as an expression. occurred_at trails it because the anti-join also
+-- requires the answer to POSTDATE the pause: an answer kind can be emitted
+-- before the pause it would otherwise resolve (Mastra gates inside
+-- toolCallStep, and its foreach is sequential, so one leg can stream
+-- tool.started for a call whose own gate — and pause row — comes a leg later).
+-- Carrying the timestamp here keeps that comparison on the index rather than
+-- sending every candidate row to a heap fetch. It replaced a trailing run_id,
+-- which encoded the FALSE premise that a call's pre-pause start always shares
+-- its pause's run; that holds only when a step gates exactly one call (BST-1440).
+--
+-- RENAMED, and the rename IS the upgrade mechanism. CREATE INDEX IF NOT EXISTS
+-- keys off the NAME, not the definition: reusing the old
+-- ..._approval_answer_idx name would silently no-op on every database created
+-- before this change, leaving it on the run_id shape forever while the query
+-- still returned correct rows and heap-filtered timestamps on every
+-- run_events notify. A fresh-PGlite test cannot see that, because it never has
+-- the old index to begin with. So the new shape gets a new name, and the old
+-- one is dropped explicitly — cheap on every later init, since a DROP INDEX IF
+-- EXISTS on an absent index is just a catalog check. The upgrade path itself is
+-- covered in use-threads-awaiting-approval.integration.test.ts.
+DROP INDEX IF EXISTS brainstrike_assistant_run_events_approval_answer_idx;
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_events_approval_answer_at_idx
+  ON ${ASSISTANT_RUN_EVENTS_TABLE} (resource_id, thread_id, (metadata->>'toolCallId'), occurred_at)
   WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported');
 
 -- Terminal provider forensics (Flight Recorder P3). Bootstrapped here and

@@ -19,6 +19,7 @@
 import type { AssistantRunEventKind } from '@brainstrike/assistant-contract';
 import {
   type AssistantThreadRepository,
+  buildAssistantThreadRunsSchemaSql,
   createPgliteAssistantThreadRepository,
 } from '@brainstrike/assistant-data';
 import { wasmLoader } from '@brainstrike/db';
@@ -55,7 +56,13 @@ async function seedRun(threadId: string, resourceId: string, runId: string): Pro
 async function seedEvent(
   runId: string,
   kind: AssistantRunEventKind,
-  toolCallId: string | null
+  toolCallId: string | null,
+  /**
+   * Explicit `occurred_at`. Defaults to one minute per seeded event, so the
+   * seeding order IS the chronological order for every test that does not care.
+   * Pass it only to exercise the timestamp boundary itself.
+   */
+  timestamp?: string
 ): Promise<void> {
   sequence += 1;
   await repository.appendThreadRunEvent(runId, {
@@ -65,7 +72,7 @@ async function seedEvent(
     ...(toolCallId === null ? {} : { metadata: { toolCallId } }),
     sequence,
     status: kind === 'tool.approval.requested' ? 'running' : 'completed',
-    timestamp: new Date(Date.UTC(2026, 7, 20, 12, sequence)).toISOString(),
+    timestamp: timestamp ?? new Date(Date.UTC(2026, 7, 20, 12, sequence)).toISOString(),
   });
 }
 
@@ -110,15 +117,19 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
   });
 
-  // THE PRODUCER ORDERING, and the reason `tool.started` needs a same-run
-  // exclusion. Mastra's approval gate runs INSIDE `toolCallStep`, i.e. after
-  // the model's `tool-call` part has already streamed — so the PAUSING leg
-  // emits `tool.started` for this very `toolCallId` BEFORE the pause. Pinned
-  // against the live Mastra loop in
+  // THE PRODUCER ORDERING, and the reason an answer must POSTDATE its pause.
+  // Mastra's approval gate runs INSIDE `toolCallStep`, i.e. after the model's
+  // `tool-call` part has already streamed — so the PAUSING leg emits
+  // `tool.started` for this very `toolCallId` BEFORE the pause. Pinned against
+  // the live Mastra loop in
   // `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
-  // ('tool.started' then 'tool.approval.requested'). Without the exclusion
-  // every pause is instantly answered by its own pre-pause event and the
-  // "needs you" glyph never lights for anyone.
+  // ('tool.started' then 'tool.approval.requested'). Without the guard every
+  // pause is instantly answered by its own pre-pause event and the "needs you"
+  // glyph never lights for anyone.
+  //
+  // The guard used to be a same-RUN exclusion, which closed this case but not
+  // the two-gated-call one below: a call whose gate is reached a leg later has
+  // its pre-pause start on a DIFFERENT run than its pause.
   it('keeps a pause whose OWN run already emitted tool.started for that call', async () => {
     const thread = await repository.createThread(RESOURCE_ID);
     await seedRun(thread.id, RESOURCE_ID, 'run-prepause');
@@ -128,9 +139,8 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
   });
 
-  // …and the exclusion is exactly that narrow: the resume leg mints a NEW
-  // runId, so a `tool.started` (or any terminal) from a different run is a real
-  // answer and still clears the thread.
+  // …and the guard is exactly that narrow: an event that POSTDATES the pause is
+  // a real answer and still clears the thread, whatever run it came from.
   it('drops that pause once a DIFFERENT run answers the same call', async () => {
     const thread = await repository.createThread(RESOURCE_ID);
     await seedRun(thread.id, RESOURCE_ID, 'run-prepause');
@@ -143,8 +153,22 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
   });
 
-  // The approve path re-yields the tool start on the resume leg, and that
-  // different-run `tool.started` alone is enough to clear the obligation —
+  // CLEAR-ON-ANSWER, not clear-on-completion (BST-1440). The different-run
+  // `tool.started` seeded below is a PRODUCTION shape, and only became one with
+  // that ticket: the approve-resume leg synthesises the suspended step's start
+  // chunks (Mastra never replays a resumed step's `tool-call` part) and now
+  // routes them through the same tool-lifecycle seam the mainline uses, so it
+  // really does emit `tool.started` for the paused `toolCallId`. Before that,
+  // the producer emitted no such event and this row pinned nothing — the glyph
+  // cleared only when the approved tool FINISHED.
+  //
+  // The emission is asserted against the live @mastra/core approval loop in
+  // `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
+  // ("The OTHER half of the producer->projection contract"). The different RUN
+  // is structural: approve dispatches a NEW request, so `createThreadRunId`
+  // mints a new `thread_runs` row for the resume leg.
+  //
+  // That different-run `tool.started` alone is enough to clear the obligation —
   // the user has answered even though the tool has not finished.
   it('drops that pause on a DIFFERENT run tool.started alone', async () => {
     const thread = await repository.createThread(RESOURCE_ID);
@@ -154,6 +178,120 @@ describe('threads-awaiting-approval query on real PGlite', () => {
 
     await seedRun(thread.id, RESOURCE_ID, 'run-resume');
     await seedEvent('run-resume', 'tool.started', 'call-prepause');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
+  /**
+   * TWO gated calls in ONE step — the shape that breaks a purely `run_id`-shaped
+   * ordering guard, and the reason this query orders on `occurred_at`.
+   *
+   * Every row below is a PRODUCTION shape, observed on the live @mastra/core
+   * loop and pinned there by
+   * `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`
+   * ("PAUSES ONE CALL AT A TIME"). Mastra's `foreach(toolCallStep)` is
+   * sequential, so with two gated calls in one step it pauses on A alone; B's
+   * `tool-call` part has ALREADY streamed, so leg 1 emits `tool.started` for
+   * BOTH. Approving A resumes, A runs, and then B reaches its own gate and
+   * pauses on leg 2.
+   *
+   * So B's pre-pause `tool.started` is on leg 1 while B's pause row is on
+   * leg 2 — DIFFERENT runs. The same-run exclusion alone therefore cannot
+   * exclude it, and B's own pre-pause start would answer B's pause: approving A
+   * would silently take the "needs you" glyph dark while B is genuinely still
+   * waiting for the user. `occurred_at` is what actually carries the ordering
+   * across legs.
+   */
+  it('keeps the thread lit when a SECOND gated call pauses on the resume leg', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-1');
+    await seedEvent('run-leg-1', 'tool.started', 'call-a');
+    await seedEvent('run-leg-1', 'tool.started', 'call-b');
+    await seedEvent('run-leg-1', 'tool.approval.requested', 'call-a');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-2');
+    await seedEvent('run-leg-2', 'tool.started', 'call-a');
+    await seedEvent('run-leg-2', 'tool.approval.requested', 'call-b');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
+  /** ...and answering B on a third leg finally clears the thread. */
+  it('drops it once the SECOND call is answered too', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-1');
+    await seedEvent('run-leg-1', 'tool.started', 'call-a');
+    await seedEvent('run-leg-1', 'tool.started', 'call-b');
+    await seedEvent('run-leg-1', 'tool.approval.requested', 'call-a');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-2');
+    await seedEvent('run-leg-2', 'tool.started', 'call-a');
+    await seedEvent('run-leg-2', 'tool.approval.requested', 'call-b');
+
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-3');
+    await seedEvent('run-leg-3', 'tool.started', 'call-b');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
+  });
+
+  /**
+   * The same two-gated-call thread under the PRE-BST-1440 producer, where the
+   * resume leg emitted no `tool.started` at all. This is the evidence that the
+   * dark-signal defect PREDATES that change rather than being introduced by it:
+   * run against the old `run_id`-shaped guard, this seed returned `[]` — B's
+   * own leg-1 `tool.started` answered B's leg-2 pause the moment
+   * `tool.completed` cleared A's. BST-1440 changed only WHEN it surfaced
+   * (approve-time instead of A-completion-time), never whether.
+   */
+  it('keeps it lit under the pre-BST-1440 producer shape too', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-1');
+    await seedEvent('run-leg-1', 'tool.started', 'call-a');
+    await seedEvent('run-leg-1', 'tool.started', 'call-b');
+    await seedEvent('run-leg-1', 'tool.approval.requested', 'call-a');
+
+    // Pre-BST-1440 the resume leg emitted NO tool.started at all.
+    await seedRun(thread.id, RESOURCE_ID, 'run-leg-2');
+    await seedEvent('run-leg-2', 'tool.completed', 'call-a');
+    await seedEvent('run-leg-2', 'tool.approval.requested', 'call-b');
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
+  /**
+   * THE TIE, which is the ordinary case rather than a corner.
+   *
+   * `occurred_at` is milliseconds (`toISOString`), and a pre-pause
+   * `tool.started` and the pause it precedes are emitted back-to-back by the
+   * same producer — so sharing a millisecond is normal, not exotic. The guard
+   * is strict `>`, so a tie is NOT an answer, which is exactly what that start
+   * must be. It is also the safe direction in general: it keeps an obligation
+   * lit rather than silently dropping one, and a real answer follows human
+   * deliberation so it can never tie.
+   */
+  it('does not treat an answer kind sharing the pause timestamp as an answer', async () => {
+    const sameMs = '2026-08-20T12:30:00.000Z';
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-tie');
+    await seedEvent('run-tie', 'tool.started', 'call-tie', sameMs);
+    await seedEvent('run-tie', 'tool.approval.requested', 'call-tie', sameMs);
+
+    expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([thread.id]);
+  });
+
+  // …and one millisecond later IS an answer, so the boundary is `>` and not
+  // `>=`-with-slack. Without this pair, a guard that never matched anything
+  // would pass the test above.
+  it('treats an answer one millisecond after the pause as an answer', async () => {
+    const thread = await repository.createThread(RESOURCE_ID);
+    await seedRun(thread.id, RESOURCE_ID, 'run-tie-plus');
+    await seedEvent(
+      'run-tie-plus',
+      'tool.approval.requested',
+      'call-tie',
+      '2026-08-20T12:30:00.000Z'
+    );
+    await seedEvent('run-tie-plus', 'tool.completed', 'call-tie', '2026-08-20T12:30:00.001Z');
 
     expect(await awaitingApprovalThreadIds(RESOURCE_ID)).toEqual([]);
   });
@@ -232,14 +370,65 @@ describe('threads-awaiting-approval query on real PGlite', () => {
     );
 
     expect(indexes.rows.map((row) => row.indexname)).toEqual([
-      'brainstrike_assistant_run_events_approval_answer_idx',
+      'brainstrike_assistant_run_events_approval_answer_at_idx',
       'brainstrike_assistant_run_events_approval_pause_idx',
     ]);
     expect(indexes.rows[1]?.indexdef).toContain("kind = 'tool.approval.requested'::text");
     expect(indexes.rows[0]?.indexdef).toContain('toolCallId');
-    // The same-run `tool.started` exclusion is evaluated on this side, so the
-    // answer index carries run_id too.
-    expect(indexes.rows[0]?.indexdef).toContain('run_id');
+    // The postdates-the-pause comparison is evaluated on this side, so the
+    // answer index carries occurred_at. It replaced a trailing run_id, which
+    // encoded the premise that a call's pre-pause start always shares its
+    // pause's run — false whenever a step gates two calls (BST-1440).
+    expect(indexes.rows[0]?.indexdef).toContain('occurred_at');
+    expect(indexes.rows[0]?.indexdef).not.toContain('run_id');
+  });
+
+  /**
+   * THE UPGRADE, which the test above structurally cannot check.
+   *
+   * `CREATE INDEX IF NOT EXISTS` keys off the NAME. The answer index changed
+   * its trailing column from `run_id` to `occurred_at` (BST-1440), so had it
+   * kept its old name, every database created before that change would have
+   * silently skipped the new definition — keeping the run_id shape forever,
+   * returning correct rows while heap-filtering timestamps on every
+   * run_events notify. The suite above builds a FRESH database, which never has
+   * the old index, so it would pass throughout.
+   *
+   * This seeds the pre-change state explicitly and then lets the bootstrap run.
+   */
+  it('replaces a pre-existing run_id-shaped answer index instead of skipping it', async () => {
+    // The bootstrap has to have run once for the table to exist…
+    await repository.createThread(RESOURCE_ID);
+    // …then put the database back into its pre-BST-1440 shape.
+    await database.query(
+      'DROP INDEX IF EXISTS brainstrike_assistant_run_events_approval_answer_at_idx'
+    );
+    await database.query(
+      `CREATE INDEX brainstrike_assistant_run_events_approval_answer_idx
+         ON brainstrike_assistant_run_events (resource_id, thread_id, (metadata->>'toolCallId'), run_id)
+         WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported')`
+    );
+
+    // Re-run the bootstrap DDL itself, which is what an upgrading install does
+    // on its next app start. It cannot be triggered through the repository here:
+    // both the repository and its schema-init promise are memoized BY DATABASE
+    // HANDLE, and a new handle over `memory://` would be an empty database
+    // rather than an existing one. Executing the same SQL the initializer
+    // executes is the honest simulation, and it is the SQL under test.
+    await database.exec(buildAssistantThreadRunsSchemaSql());
+
+    const names = await database.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes
+       WHERE tablename = 'brainstrike_assistant_run_events'
+         AND indexname LIKE '%approval_answer%'
+       ORDER BY indexname`
+    );
+
+    // The old shape is GONE, not merely shadowed: leaving it would keep paying
+    // its write cost on the hottest table in the schema for no read benefit.
+    expect(names.rows.map((row) => row.indexname)).toEqual([
+      'brainstrike_assistant_run_events_approval_answer_at_idx',
+    ]);
   });
 
   // The correction this query exists for: a paused leg is recorded

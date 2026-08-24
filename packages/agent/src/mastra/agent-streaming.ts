@@ -58,7 +58,13 @@ import {
 } from '../stream/with-tool-call-input-timeout';
 import type { ToolExecutionDurations } from '../tools/tool-execution-durations';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
-import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
+import type {
+  AgentMessage,
+  RuntimeData,
+  StreamChunk,
+  StreamChunkTool,
+  StreamIterator,
+} from '../types';
 import {
   type AbortedTurnPersistence,
   attachAbortedTurnMessageList,
@@ -136,6 +142,7 @@ import {
   makeLifecycleStepMetadata,
   makePendingToolOutputRunEventChunks,
   makeTerminalRunEvent,
+  makeToolLifecycleRunEventChunk,
   mapDelegationToolOutput,
   mapGenericToolEvent,
   mapToolLifecyclePart,
@@ -1001,6 +1008,33 @@ interface ResumedApprovalToolCall extends ResumedToolCallStart {
  * Delegation (`agent-*`) siblings also get their `subagent.started`,
  * registered with the lifecycle tracker so aborts still drain them and later
  * subagent terminals have a mate.
+ *
+ * Each synthetic start is routed through {@link makeToolLifecycleRunEventChunk}
+ * — the SAME seam the mainline `tool-call` part reaches through
+ * `mapGenericToolEvent` — so the durable `tool.started` run event travels with
+ * the chunk instead of being minted (or, as until BST-1440, forgotten) here.
+ * That run event is what clears the Threads panel's "needs you" glyph the
+ * moment the user ANSWERS: `use-threads-awaiting-approval.ts` counts
+ * `tool.started` as a resolution, and this start occurs AFTER the pause row it
+ * answers (the pause was written by an earlier leg). Without it the glyph
+ * stayed lit — for a call the user had already approved — until
+ * `tool.completed` landed, and masked the truthful Running state meanwhile.
+ * Ordering per call is therefore identical to the mainline's:
+ * tool event, then `tool.started`, then any `subagent.started`.
+ *
+ * SIBLINGS EMIT IT TOO, deliberately. A sibling pending in the same suspended
+ * step is a real in-flight call the moment the step resumes — it is why the
+ * synthetic start chunk exists for siblings at all — so suppressing only its
+ * run event would re-open the exact producer/UI split this seam closes.
+ *
+ * A sibling here can NOT be an unanswered approval pause, which is what makes
+ * that safe: Mastra's `foreach(toolCallStep)` is sequential, so a step with two
+ * gated calls pauses on the FIRST alone and the second never enters the
+ * suspended snapshot until the first resolves. Siblings are therefore the
+ * step's non-gated pending work (delegations, in-flight calls) — pinned against
+ * the live loop by "PAUSES ONE CALL AT A TIME" in
+ * `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`,
+ * which also records the consequence for the projection's ordering guard.
  */
 function* makeResumedStartChunks(
   resumed: ResumedApprovalToolCall,
@@ -1010,7 +1044,7 @@ function* makeResumedStartChunks(
   const starts: readonly ResumedToolCallStart[] = [resumed, ...resumed.siblings];
   for (const start of starts) {
     toolNames.set(start.toolCallId, start.registeredToolName);
-    yield {
+    const toolEvent: StreamChunkTool = {
       name: start.displayToolName,
       payload: {
         args: start.args,
@@ -1021,6 +1055,12 @@ function* makeResumedStartChunks(
       status: 'start',
       type: 'tool-event',
     };
+    yield toolEvent;
+    // `'tool-call'` is the Mastra part this synthetic start stands in for.
+    const startRunEvent = makeToolLifecycleRunEventChunk(toolEvent, 'tool-call', lifecycleState);
+    if (startRunEvent) {
+      yield startRunEvent;
+    }
     if (start.registeredToolName.startsWith(SUBAGENT_DELEGATION_TOOL_PREFIX)) {
       const delegationMetadata = {
         parentToolCallId: start.toolCallId,
@@ -1579,11 +1619,12 @@ function createTurnAttemptLifecycleState(
     // cost from the final step alone.
     sawStepBilledCost: carried?.sawStepBilledCost ?? false,
     sawStepWithoutBilledCost: carried?.sawStepWithoutBilledCost ?? false,
-    stepBilledCostUsd: carried?.stepBilledCostUsd ?? 0,
-    stepCount: carried?.stepCount ?? 0,
     // PER ATTEMPT, unlike the billing fields above: the steered finish reports
     // these directly as Mastra's cross-step sum for ONE stream, and the turn's
     // multi-attempt total rides `carried*` instead.
+    startedToolCallIds: new Set(),
+    stepBilledCostUsd: carried?.stepBilledCostUsd ?? 0,
+    stepCount: carried?.stepCount ?? 0,
     steppedCompletionTokens: 0,
     steppedPromptTokens: 0,
     streamStartedAtMs: Date.now(),

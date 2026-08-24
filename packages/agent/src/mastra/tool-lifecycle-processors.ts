@@ -114,6 +114,28 @@ export interface ToolLifecycleState {
   sawStepBilledCost: boolean;
   sawStepWithoutBilledCost: boolean;
   /**
+   * Call ids that already emitted `tool.started` ON THIS LEG.
+   *
+   * The scope is the point. Since BST-1440 there are TWO producers of a
+   * `tool.started` for one approved call — Mastra's own `tool-call` part on the
+   * pausing leg, and the synthetic start `makeResumedStartChunks` hands over on
+   * the resume leg — and that pair is LEGITIMATE: it is what lets the "needs
+   * you" projection clear on answer instead of on completion. The two legs are
+   * separate runs with separate `ToolLifecycleState`s, so a per-leg set permits
+   * it while still refusing a duplicate WITHIN one leg. A cross-leg guard
+   * (persisted, or keyed on the thread) would suppress the resume-leg start and
+   * silently restore the bug.
+   *
+   * What it defends: the resume-leg emission rests on a version-pinned negative
+   * — @mastra/core 1.59 never replays a resumed step's `tool-call` part,
+   * because its one replay site is gated on a `backgroundTaskManager` this repo
+   * does not register. If a bump flips that, or something registers one, the
+   * synthetic start and the replayed part land in the SAME leg and we would
+   * durably write two `tool.started` rows per approved call, with no error and
+   * no log — the same silent-drift failure this change closes on the other side.
+   */
+  startedToolCallIds: Set<string>;
+  /**
    * Mid-run steering (BST-588): polled at each step boundary. When true after
    * a step-finish, the run ends gracefully (run.steered + run.finished events
    * + normal finish) so the queued steer message dispatches as the next turn.
@@ -388,7 +410,52 @@ function withRunEventDuration(chunk: StreamChunk, rawDurationMs: number): Stream
   return { ...chunk, event: { ...chunk.event, durationMs } };
 }
 
-function makeToolLifecycleRunEventChunk(
+/**
+ * THE SINGLE OWNER of "a mapped tool event implies its durable run event".
+ *
+ * Exported (BST-1440) so the approval-RESUME leg reaches the same decision the
+ * mainline does. Mastra never replays a suspended step's `tool-call` part on a
+ * resume leg — `approveToolCall` delegates to `resumeStream`, which re-executes
+ * `toolCallStep` with `messages: []`, and the only `tool-call` replay inside
+ * that step is gated on a background-task manager Brainstrike does not register
+ * (@mastra/core 1.59). So `makeResumedStartChunks` in `agent-streaming.ts`
+ * SYNTHESISES the `status: 'start'` tool event and hands it here, exactly as
+ * {@link mapGenericToolEvent} hands over the mapped one. A second
+ * `makeRunEventChunk('tool.started', ...)` call site would have been the
+ * shorter edit and is precisely how the resume leg drifted out of step in the
+ * first place: the start chunk shipped, the run event did not, and the "needs
+ * you" glyph stayed lit until the approved tool FINISHED.
+ *
+ * `mastraPartType` is the Mastra part the event came from; the resume leg
+ * passes `'tool-call'` because that is the part it stands in for.
+ */
+/**
+ * `tool.started`, at most once per call PER LEG.
+ *
+ * Extracted rather than inlined in the switch because the idempotence check
+ * pushed {@link makeToolLifecycleRunEventChunk} past the cognitive-complexity
+ * ceiling — and because the per-leg scope deserves to be stated where it is
+ * enforced. The pausing leg and the resume leg each emit one start for an
+ * approved call and BOTH are wanted; see
+ * {@link ToolLifecycleState.startedToolCallIds} for why a wider scope would
+ * silently undo BST-1440.
+ */
+function makeToolStartedRunEventChunk(
+  toolCallId: string | undefined,
+  metadata: AssistantRunEventMetadata,
+  lifecycleState: ToolLifecycleState
+): StreamChunk | undefined {
+  if (!toolCallId) {
+    return;
+  }
+  if (lifecycleState.startedToolCallIds.has(toolCallId)) {
+    return;
+  }
+  lifecycleState.startedToolCallIds.add(toolCallId);
+  return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
+}
+
+export function makeToolLifecycleRunEventChunk(
   toolEvent: StreamChunkTool,
   mastraPartType: string | undefined,
   lifecycleState: ToolLifecycleState
@@ -398,10 +465,7 @@ function makeToolLifecycleRunEventChunk(
 
   switch (toolEvent.status) {
     case 'start':
-      if (!toolCallId) {
-        return;
-      }
-      return makeRunEventChunk('tool.started', 'running', 'Tool started', metadata);
+      return makeToolStartedRunEventChunk(toolCallId, metadata, lifecycleState);
     case 'success': {
       if (!toolCallId) {
         // Mastra terminal tool parts must carry the same stable call id as their

@@ -311,6 +311,65 @@ function createAskThenToolCallModel(args: {
   };
 }
 
+/**
+ * A scripted model that emits TWO tool calls in ONE step (turn 1), then final
+ * text on every later turn. Two approval-gated calls in a single step is the
+ * shape that decides whether approving one can silently answer the other.
+ */
+function createTwoToolCallModel(args: {
+  calls: readonly { input: string; toolCallId: string }[];
+  finalText: string;
+  toolName: string;
+}): LanguageModelV2 {
+  let turn = 0;
+  const enqueue = (parts: LanguageModelV2StreamPart[]) =>
+    new ReadableStream<LanguageModelV2StreamPart>({
+      start(controller) {
+        for (const part of parts) {
+          controller.enqueue(part);
+        }
+        controller.close();
+      },
+    });
+
+  return {
+    doGenerate: () => Promise.reject(new Error('doGenerate is not used by this test')),
+    doStream: () => {
+      turn += 1;
+      if (turn === 1) {
+        return Promise.resolve({
+          stream: enqueue([
+            { type: 'stream-start', warnings: [] },
+            ...args.calls.map(
+              (call): LanguageModelV2StreamPart => ({
+                input: call.input,
+                toolCallId: call.toolCallId,
+                toolName: args.toolName,
+                type: 'tool-call',
+              })
+            ),
+            { finishReason: 'tool-calls', type: 'finish', usage: USAGE },
+          ]),
+        });
+      }
+      const id = `text-final-${turn}`;
+      return Promise.resolve({
+        stream: enqueue([
+          { type: 'stream-start', warnings: [] },
+          { id, type: 'text-start' },
+          { delta: args.finalText, id, type: 'text-delta' },
+          { id, type: 'text-end' },
+          { finishReason: 'stop', type: 'finish', usage: USAGE },
+        ]),
+      });
+    },
+    modelId: 'fake-model',
+    provider: 'fake',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  };
+}
+
 const ASK_POLICY = {
   policies: { edit: 'deny', execute: 'ask', mcp: 'allow', read: 'allow' },
   riskByTool: { shell_tool: 'execute' },
@@ -416,6 +475,112 @@ function readPersistedToolInvocationArgs(content: unknown, toolCallId: string): 
 describe("'ask' suspends for approval and resumes (real @mastra/core/agent + real PGlite)", () => {
   beforeEach(() => {
     modelHolder.current = undefined;
+  });
+
+  /**
+   * PAUSES ONE CALL AT A TIME — the producer shape that decides how the "needs
+   * you" projection must express ordering (BST-1440 review).
+   *
+   * Mastra's `foreach(toolCallStep)` is SEQUENTIAL. With two approval-gated
+   * calls in a single step it pauses on the FIRST alone; the second call's
+   * `tool-call` part has already streamed, so the pausing leg emits
+   * `tool.started` for BOTH, but only the first gets a
+   * `tool.approval.requested`. Approving the first resumes, it executes, and
+   * only THEN does the second reach its own gate and pause — on the resume leg.
+   *
+   * Two consequences, both load-bearing and neither guessable from the docs:
+   *
+   * 1. The resumed step's pending set holds ONE call, so `makeResumedStartChunks`
+   *    synthesises a start for that call alone. Approving A can NOT emit a start
+   *    for B, because B is not pending yet.
+   * 2. B's pre-pause `tool.started` (leg 1) and B's pause row (leg 2) are on
+   *    DIFFERENT runs. A same-run exclusion therefore cannot suppress it, which
+   *    is why `use-threads-awaiting-approval.ts` orders on `occurred_at` — see
+   *    that hook's integration lane for the projection outcome.
+   */
+  it('PAUSES ONE CALL AT A TIME: two gated calls, approving one pauses the other', async () => {
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const askExecute = vi.fn((inputData: { command: string }) =>
+      Promise.resolve({ ran: inputData.command })
+    );
+    const askTool = makeAskTool(askExecute);
+    const thread = { resourceId: 'resource-two-gated', threadId: 'thread-two-gated' } as const;
+
+    modelHolder.current = createTwoToolCallModel({
+      calls: [
+        { input: JSON.stringify({ command: 'echo A' }), toolCallId: 'call-two-gated-a' },
+        { input: JSON.stringify({ command: 'echo B' }), toolCallId: 'call-two-gated-b' },
+      ],
+      finalText: 'Both done.',
+      toolName: 'shell_tool',
+    });
+
+    const runtime = {
+      apiKey: 'test-key',
+      memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+      permissionPolicy: ASK_POLICY,
+      provider: 'openai' as const,
+    };
+
+    const describeToolRunEvents = (chunks: readonly StreamChunk[]) =>
+      chunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+            chunk.type === 'run-event'
+        )
+        .filter((chunk) => typeof chunk.event.metadata?.toolCallId === 'string')
+        .map((chunk) => `${String(chunk.event.metadata?.toolCallId)}:${chunk.event.kind}`);
+    const approvalsIn = (chunks: readonly StreamChunk[]) =>
+      chunks
+        .filter(
+          (chunk): chunk is Extract<StreamChunk, { type: 'tool-approval-required' }> =>
+            chunk.type === 'tool-approval-required'
+        )
+        .map((chunk) => chunk.toolCallId);
+
+    const suspendChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-two-gated', parts: [{ text: 'run both', type: 'text' }], role: 'user' }],
+        { memory, runtime, storage, tools: { shell_tool: askTool } }
+      )
+    );
+
+    // BOTH calls start; only the FIRST pauses.
+    expect(describeToolRunEvents(suspendChunks)).toEqual([
+      'call-two-gated-a:tool.started',
+      'call-two-gated-b:tool.started',
+      'call-two-gated-a:tool.approval.requested',
+    ]);
+    expect(approvalsIn(suspendChunks)).toEqual(['call-two-gated-a']);
+    expect(askExecute).not.toHaveBeenCalled();
+
+    const approval = findApprovalChunk(suspendChunks);
+    const resumeChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'shell_tool',
+        },
+        { memory, requireToolApproval: true, runtime, storage, tools: { shell_tool: askTool } }
+      )
+    );
+
+    // The resume leg re-yields the start for the APPROVED call only — B is not
+    // in the resumed step's pending set — and then B pauses here, on THIS leg.
+    expect(describeToolRunEvents(resumeChunks)).toEqual([
+      'call-two-gated-a:tool.started',
+      'call-two-gated-b:tool.approval.requested',
+    ]);
+    expect(approvalsIn(resumeChunks)).toEqual(['call-two-gated-b']);
+
+    // Only the approved call ran. B is still waiting on the user.
+    expect(askExecute).toHaveBeenCalledTimes(1);
+    expect(askExecute.mock.calls[0]?.[0]).toMatchObject({ command: 'echo A' });
+
+    await database.close();
   });
 
   it('rejects malformed local arguments before Mastra creates an approval snapshot', async () => {
@@ -711,6 +876,39 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       )
       .map((chunk) => chunk.event.kind);
     expect(resumeRunEventKinds).toContain('tool.completed');
+
+    // ── The OTHER half of the producer->projection contract (BST-1440) ──
+    // The resume leg must re-yield `tool.started` for the SAME `toolCallId`,
+    // and it must arrive BEFORE the terminal. That start is what answers the
+    // pause the moment the user approves, rather than when the approved tool
+    // finishes: `use-threads-awaiting-approval.ts` counts `tool.started` as a
+    // resolution and excludes only the SAME-run (pre-pause) one, so this event
+    // is the only thing that can clear the "needs you" glyph during a
+    // long-running approved call.
+    //
+    // Mastra never replays the step's `tool-call` part on a resume leg
+    // (@mastra/core 1.59: `approveToolCall` -> `resumeStream` re-executes
+    // `toolCallStep` with `messages: []`, and the only `tool-call` replay in
+    // that step is gated on a background-task manager Brainstrike does not
+    // register), so `makeResumedStartChunks` synthesises the start — and routes
+    // it through the SAME lifecycle seam the mainline `tool-call` part uses.
+    // This is the only place that emission can be observed against the real
+    // approval loop.
+    //
+    // The DIFFERENT-run half of the contract is structural rather than visible
+    // here: `run_id` is the Brainstrike `thread_runs` id minted per request by
+    // `createThreadRunId` (app-shell), and approve dispatches a NEW request, so
+    // the resume leg always writes these events under a new run row. That half
+    // is graded in
+    // `packages/app-shell/src/__tests__/use-threads-awaiting-approval.integration.test.ts`.
+    const resumeApprovedCallEventKinds = resumeChunks
+      .filter(
+        (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> => chunk.type === 'run-event'
+      )
+      .filter((chunk) => chunk.event.metadata?.toolCallId === 'call-ask-approve-1')
+      .map((chunk) => chunk.event.kind);
+    expect(resumeApprovedCallEventKinds).toEqual(['tool.started', 'tool.completed']);
+
     const resumeFinish = resumeChunks.find((chunk) => chunk.type === 'message-finish');
     expect(resumeFinish).toBeDefined();
 

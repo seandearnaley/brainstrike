@@ -115,18 +115,22 @@ describe('useThreadsAwaitingApproval', () => {
     expect(query).not.toContain('sequence');
   });
 
-  // The single run-scoped clause, and it EXCLUDES rather than pairs. Mastra
-  // gates approval inside `toolCallStep`, so the pausing leg emits
-  // `tool.started` for the same `toolCallId` BEFORE the pause row (order pinned
-  // in `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`).
+  // The ordering guard, and it EXCLUDES rather than pairs. Mastra gates
+  // approval inside `toolCallStep`, so the pausing leg emits `tool.started` for
+  // the same `toolCallId` BEFORE the pause row (order pinned in
+  // `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`).
   // Without this, every pause answers itself and the glyph never lights.
-  it('never lets the pausing run own tool.started answer its own pause', () => {
+  //
+  // It is `occurred_at`-shaped, NOT `run_id`-shaped: with two gated calls in one
+  // step the second call's pre-pause start lands on the leg BEFORE its own pause
+  // row, so a same-run exclusion never fires for it. Whether that actually keeps
+  // the thread lit is decided in the real-PGlite lane; a substring cannot say.
+  it('never lets a tool.started that PRECEDES a pause answer it', () => {
     renderAwaitingApproval();
     const query = lastLiveQueryArgs().query ?? '';
 
-    expect(query).toContain(
-      "NOT (answer.kind = 'tool.started' AND answer.run_id = requested.run_id)"
-    );
+    expect(query).toContain('answer.occurred_at > requested.occurred_at');
+    expect(query).not.toContain('answer.run_id = requested.run_id');
   });
 
   it('treats every answer to a pause as a resolution, including the tool starting', () => {

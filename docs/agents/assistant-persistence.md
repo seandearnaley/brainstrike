@@ -947,7 +947,7 @@ Three rulings the SQL depends on (do not relitigate):
   as a comparison. A pause row with a NULL `toolCallId` is excluded — nothing
   could ever answer it, and `NULL = NULL` inside the `NOT EXISTS` would pin the
   badge forever.
-- **A `tool.started` from the PAUSING run is excluded, and that exclusion is the
+- **An answer must OCCUR AFTER the pause it answers, and that comparison is the
   whole ordering guard.** Mastra's approval gate runs INSIDE `toolCallStep`,
   i.e. after the model's `tool-call` part has already streamed; that part maps
   to `status: 'start'` (`packages/agent/src/mastra/tool-event-mapper.ts`) and so
@@ -957,13 +957,51 @@ Three rulings the SQL depends on (do not relitigate):
   `@mastra/core` approval loop in
   `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`.
   Pairing `tool.started` on `toolCallId` alone therefore let every pause answer
-  ITSELF, and the "needs you" glyph never lit for anyone. The fix is
-  `AND NOT (answer.kind = 'tool.started' AND answer.run_id = requested.run_id)`:
-  the runs already carry the ordering, because the pre-pause start shares the
-  pause's `run_id` while the approve path re-yields the tool start on a resume
-  leg with a NEW runId. So clear-on-approve is preserved with no `sequence` /
-  `occurred_at` comparison. The three terminal kinds need no such exclusion —
-  none of them can be emitted by the leg that paused.
+  ITSELF, and the "needs you" glyph never lit for anyone. The guard is
+  `AND answer.occurred_at > requested.occurred_at`. `sequence` could not serve
+  (it is per-run, so it is meaningless across the two legs), but `occurred_at`
+  is wall-clock from one process and IS comparable across them. A tie fails the
+  comparison and so counts as NOT an answer — the safe direction, because it
+  keeps an obligation lit rather than silently dropping one. The three terminal
+  kinds could not be emitted by the pausing leg anyway, so the guard only ever
+  binds on `tool.started`.
+
+  IT USED TO BE `run_id`-SHAPED (`AND NOT (answer.kind = 'tool.started' AND
+  answer.run_id = requested.run_id)`), on the reasoning that the runs already
+  carry the ordering: a call's pre-pause start shares its pause's run, and only
+  a post-approve start is on a different one. **That premise is false whenever
+  one step holds TWO gated calls**, and it was corrected in BST-1440's review.
+  `foreach(toolCallStep)` is sequential, so Mastra pauses on A alone while B's
+  `tool-call` part has ALREADY streamed: leg 1 emits `tool.started` for BOTH,
+  and B does not reach its own gate — or its own pause row — until leg 2. B's
+  pre-pause start is therefore on a DIFFERENT run than B's pause, the same-run
+  exclusion never fired for it, and B's own pre-pause start answered B's pause:
+  the glyph went dark while the user was still genuinely being asked about B.
+  The producer shape is pinned by "PAUSES ONE CALL AT A TIME" in the approval
+  spec above; the projection outcome by "keeps the thread lit when a SECOND
+  gated call pauses on the resume leg" in
+  `packages/app-shell/src/__tests__/use-threads-awaiting-approval.integration.test.ts`.
+  The defect PREDATES BST-1440 — under the older producer it merely surfaced
+  later, once `tool.completed` cleared the first pause, which that lane also
+  pins.
+
+  THE RE-YIELD IS REAL, and only became so in BST-1440. Mastra never replays a
+  resumed step's `tool-call` part (`approveToolCall` delegates to
+  `resumeStream`, which re-executes `toolCallStep` with `messages: []`; the one
+  `tool-call` replay inside that step is gated on a background-task manager
+  Brainstrike does not register — @mastra/core 1.59). `makeResumedStartChunks`
+  (`packages/agent/src/mastra/agent-streaming.ts`) therefore SYNTHESISES the
+  start chunk for every pending call of the resumed step, and routes it through
+  `makeToolLifecycleRunEventChunk` — the same single seam the mainline
+  `tool-call` part reaches through `mapGenericToolEvent`, so the `tool.started`
+  run event cannot ship on one path and not the other. Before that it shipped
+  only on the mainline, this exclusion clause was dead weight, and the glyph
+  cleared when the approved tool FINISHED rather than when the user answered —
+  masking the truthful Running state for the whole execution. The resume-leg
+  emission is pinned against the live approval loop in
+  `packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts`;
+  the projection outcome is pinned in
+  `packages/app-shell/src/__tests__/use-threads-awaiting-approval.integration.test.ts`.
 - **The query does NOT read `thread_runs.status`.** A leg that pauses for
   approval finishes with `finishReason: 'tool-calls'`, which every terminal
   writer records as `status = 'completed'`, while the user's obligation and the
@@ -2199,8 +2237,11 @@ Where state lives (do not relitigate):
   `apps/web/e2e/threads-panel-folders.test.ts` (`@web-smoke`). Threads are
   SEEDED as `mastra_threads` rows through the renderer's `electronAPI.db`
   bridge (`e2e/utils/seed-threads.ts`) because the binding is written at the
-  FIRST REQUEST, so the only product gesture that mints a bound thread — "New
-  thread here" — needs a folder section that only a bound thread can produce.
+  FIRST REQUEST, so the product gestures that mint a bound thread — "New thread
+  here", and the workspace bar's "Make primary" (`use-workspace-bar.ts` writes
+  the same three `operatingRoot*` metadata keys as `persistThreadRootBinding`;
+  see `docs/agents/workspace-context.md` § workspace bar) — each need a folder
+  section that only a bound thread can produce.
   The seed reads the DURABLE `roots.id` back from the database rather than
   reusing the adapter root id, and the desktop fixture `realpath`s its temp
   repo: `roots.path` keeps whatever path was mounted while git reports the

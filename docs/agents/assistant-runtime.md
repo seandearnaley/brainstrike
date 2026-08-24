@@ -1952,15 +1952,21 @@ properties of that row are load-bearing:
 - RESOLUTION IS DERIVED AND RUN-AGNOSTIC. Nothing marks the row answered. A
   pause is resolved by the LATER existence of `tool.started` / `tool.completed`
   / `tool.failed` / `tool.resume.unsupported` for the SAME
-  `metadata->>'toolCallId'`. It must be paired on that id and never on
-  `run_id`: the approve/decline resume is a SEPARATE leg that mints its own
-  `runId` and its own `thread_runs` row, so the event that answers a pause
-  always carries a different run id than the pause. `sequence` is per-run and
-  therefore meaningless across the two legs, and no ordering guard is needed
-  because no outcome for a call can precede the pause that gated it.
-  `tool.started` counts as resolved here (a tool that started was approved)
-  even though the run-timeline derivation does not treat it as terminal — the
-  two ask different questions.
+  `metadata->>'toolCallId'`. PAIRING is on that id and never on `run_id`: the
+  approve/decline resume is a SEPARATE leg that mints its own `runId` and its
+  own `thread_runs` row, so the event that answers a pause always carries a
+  different run id than the pause. `tool.started` counts as resolved here (a
+  tool that started was approved) even though the run-timeline derivation does
+  not treat it as terminal — the two ask different questions, which is exactly
+  why `tool.started` needs an ORDERING guard the three terminals do not: the
+  approval gate runs inside `toolCallStep`, so the PAUSING leg already emitted
+  a `tool.started` for that same call before the pause row. The guard compares
+  `occurred_at` (`sequence` is per-run and meaningless across the two legs).
+  The SQL, the guard, and the producer shapes that make it load-bearing are
+  specified once in `docs/agents/assistant-persistence.md` § THREAD GROUPS — do
+  not restate the rule here. Two earlier restatements each drifted: one into the
+  opposite ruling ("no ordering guard is needed"), and one into a run-scoped
+  guard that a step with two gated calls defeats.
 - IT DELIBERATELY IGNORES `thread_runs.status`. A leg that pauses for approval
   finishes with `finishReason: 'tool-calls'`, which every terminal writer
   records as `completed`, so a `status = 'running'` join would make the
