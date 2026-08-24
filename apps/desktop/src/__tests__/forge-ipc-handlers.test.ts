@@ -159,3 +159,78 @@ describe('createForgeRepositoryResolver', () => {
     expect(execFileGitRunner).not.toHaveBeenCalled();
   });
 });
+
+describe('createForgeRepositoryResolver — resolution cache (BST-1391 review, S4)', () => {
+  async function setupCachedResolverFixture() {
+    const directory = await mkdtemp(path.join(tmpdir(), 'forge-ipc-cache-'));
+    temporaryDirectories.push(directory);
+    const root = path.join(directory, 'workspace');
+    const commonDir = path.join(root, '.git');
+    await mkdir(commonDir, { recursive: true });
+    const canonicalCommonDir = await realpath(commonDir);
+    const run = vi.mocked(execFileGitRunner);
+    run.mockImplementation(async ({ args }) => {
+      const command = args.join(' ');
+      if (command === 'rev-parse --path-format=absolute --git-common-dir') {
+        return { exitCode: 0, stderr: '', stdout: `${canonicalCommonDir}\n`, timedOut: false };
+      }
+      if (command === 'symbolic-ref --quiet --short HEAD') {
+        return { exitCode: 0, stderr: '', stdout: 'main\n', timedOut: false };
+      }
+      if (command === 'remote') {
+        return { exitCode: 0, stderr: '', stdout: 'origin\n', timedOut: false };
+      }
+      if (command === 'config --get branch.main.remote') {
+        return { exitCode: 0, stderr: '', stdout: 'origin\n', timedOut: false };
+      }
+      if (command === 'remote get-url origin') {
+        return {
+          exitCode: 0,
+          stderr: '',
+          stdout: 'git@github.com:brainstrike/widgets.git\n',
+          timedOut: false,
+        };
+      }
+      throw new Error(`Unexpected git command: ${command}`);
+    });
+    const resolver = createForgeRepositoryResolver({
+      listRoots: async () => [{ displayName: 'Workspace', path: root, rootId: 'root-1' }],
+    });
+    return { canonicalCommonDir, resolver, run };
+  }
+
+  it('caches a resolution: a second call for the same rootId does not re-run git', async () => {
+    const { resolver, run } = await setupCachedResolverFixture();
+
+    const first = await resolver('root-1');
+    const second = await resolver('root-1');
+
+    expect(first.ok).toBe(true);
+    expect(second).toEqual(first);
+    expect(run).toHaveBeenCalledTimes(5);
+  });
+
+  it('invalidateResolverCache(commonDir) clears the cache, forcing a re-resolve', async () => {
+    const { canonicalCommonDir, resolver, run } = await setupCachedResolverFixture();
+
+    await resolver('root-1');
+    expect(run).toHaveBeenCalledTimes(5);
+
+    resolver.invalidateResolverCache(canonicalCommonDir);
+    await resolver('root-1');
+
+    expect(run).toHaveBeenCalledTimes(10);
+  });
+
+  it('invalidateResolverCache with an unrelated commonDir leaves the cache intact', async () => {
+    const { resolver, run } = await setupCachedResolverFixture();
+
+    await resolver('root-1');
+    expect(run).toHaveBeenCalledTimes(5);
+
+    resolver.invalidateResolverCache('/some/other/repo/.git');
+    await resolver('root-1');
+
+    expect(run).toHaveBeenCalledTimes(5);
+  });
+});

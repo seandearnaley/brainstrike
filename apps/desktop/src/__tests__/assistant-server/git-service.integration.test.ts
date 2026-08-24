@@ -2169,3 +2169,147 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
     expect(result.value.deletions).toBeNull();
   });
 });
+
+describe('git service — forgeRepositoryContext (real repos, BST-1391 review)', () => {
+  async function makeRepoWithCommit(prefix?: string): Promise<string> {
+    const repo = await makeRepo(prefix);
+    await writeFile(repo, 'README.md', '# repository\n');
+    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    return repo;
+  }
+
+  async function currentBranch(repo: string): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['symbolic-ref', '--short', 'HEAD'], {
+      cwd: repo,
+    });
+    return stdout.trim();
+  }
+
+  it('reports branch: null on a detached HEAD', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-detached-');
+    const { stdout: headSha } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFileAsync('git', ['checkout', '-q', '--detach', headSha.trim()], { cwd: repo });
+
+    const result = await serviceFor(repo).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.branch).toBeNull();
+  });
+
+  it('states a reason when the repository has no remotes', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-noremote-');
+
+    const result = await serviceFor(repo).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe('The repository has no git remotes.');
+  });
+
+  it('states a reason for multiple remotes with no "origin" (resolveDefaultRemote leaves it unconfigured)', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-multiremote-');
+    await execFileAsync('git', ['remote', 'add', 'upstream', 'https://example.com/upstream.git'], {
+      cwd: repo,
+    });
+    await execFileAsync('git', ['remote', 'add', 'fork', 'https://example.com/fork.git'], {
+      cwd: repo,
+    });
+
+    const result = await serviceFor(repo).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe(
+      'The repository has 2 remotes and no "origin" — set a branch upstream to choose one.'
+    );
+  });
+
+  it('states a reason when the branch tracks a configured remote that no longer exists', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-unknownremote-');
+    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+      cwd: repo,
+    });
+    const branch = await currentBranch(repo);
+    await execFileAsync('git', ['config', `branch.${branch}.remote`, 'ghost'], { cwd: repo });
+
+    const result = await serviceFor(repo).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe('current branch names unknown remote "ghost"');
+  });
+
+  it('states a reason when `git remote get-url` fails', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-geturlfail-');
+    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+      cwd: repo,
+    });
+    const failGetUrlRunner: GitCommandRunner = (params) => {
+      if (params.args[0] === 'remote' && params.args[1] === 'get-url') {
+        return Promise.resolve({
+          exitCode: 1,
+          stderr: "fatal: simulated get-url failure for 'origin'",
+          stdout: '',
+          timedOut: false,
+        });
+      }
+      return execFileGitRunner(params);
+    };
+
+    const result = await createGitService({
+      cwd: repo,
+      run: failGetUrlRunner,
+    }).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe(
+      'git could not read the URL of remote "origin": fatal: simulated get-url failure for \'origin\''
+    );
+  });
+
+  // TDD (S5b): a successful `git remote get-url` exit with EMPTY stdout used
+  // to pair `remoteUrl: ''` with `remoteReason: null`, violating the type's
+  // own documented invariant ("remoteReason is non-null exactly when
+  // remoteUrl is null") and sending '' into parseForgeRemote downstream.
+  it('treats an empty `git remote get-url` stdout as a stated failure, never `remoteUrl: ""`', async () => {
+    const repo = await makeRepoWithCommit('brainstrike-git-forge-emptyurl-');
+    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+      cwd: repo,
+    });
+    const emptyGetUrlRunner: GitCommandRunner = (params) => {
+      if (params.args[0] === 'remote' && params.args[1] === 'get-url') {
+        return Promise.resolve({ exitCode: 0, stderr: '', stdout: '', timedOut: false });
+      }
+      return execFileGitRunner(params);
+    };
+
+    const result = await createGitService({
+      cwd: repo,
+      run: emptyGetUrlRunner,
+    }).forgeRepositoryContext();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.remoteUrl).toBeNull();
+    expect(result.value.remoteReason).toBe('git returned an empty URL for remote "origin"');
+  });
+});

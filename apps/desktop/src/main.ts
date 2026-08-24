@@ -958,6 +958,30 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
           await gitInventoryService.stop();
           gitInventoryService = null;
         }
+      })
+    );
+
+    // Its own step, deliberately NOT nested inside 'git-inventory' above:
+    // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
+    // unguarded, and `runShutdownStep` catches a rejection at the step
+    // boundary — nesting forge teardown after it would silently skip these
+    // three lines on a throwing watcher disposer, leaving `ipcMain` handlers
+    // registered and a live `forgeService` heading into 'database' below.
+    // forge has the same DB dependency as git-inventory (`getDatabase` ->
+    // `readForgePrCacheEntry`/`writeForgePrCacheEntry`) but is otherwise
+    // unrelated to git-inventory's success, so it gets its own
+    // failure-isolated step, BEFORE 'database' for the same reason.
+    //
+    // `unregisterForgeIpc()` only removes IPC handlers — it does not drain.
+    // An `invalidation` refresh in flight (0 ms floor, so one can be running
+    // right up to quit) keeps going and will call `getDatabase()` after
+    // `closeDatabase()` runs below; its `gh` child (20 s timeout) is never
+    // killed because no `AbortSignal` is threaded into
+    // `createForgeService`/`createGitService`. The resulting failure is
+    // structured (`ForgeResult`), never a silent fallback, so this is a
+    // latency/resource-cleanliness gap, not a correctness one.
+    recordFailure(
+      await runShutdownStep('forge', async () => {
         unregisterForgeIpc?.();
         unregisterForgeIpc = undefined;
         forgeService = undefined;
@@ -1500,6 +1524,13 @@ if (singleInstanceLockAcquired) {
       // through db-main's provider and spawns `gh` only inside a resolved,
       // containment-checked workspace root.
       let forgePrUpdatedGeneration = 0;
+      // Kept as its own binding (not inlined into `resolveRepository` below)
+      // so the git-metadata watcher's `onInvalidate` callback below can also
+      // clear this resolver's per-rootId cache on the SAME commonDir signal
+      // that already drives `forgeService.onRepositoryInvalidated`.
+      const forgeRepositoryResolver = createForgeRepositoryResolver(
+        createDatabaseRootResolver(getDatabase)
+      );
       forgeService = createForgeService({
         getDatabase,
         onPrUpdated: (event) => {
@@ -1515,7 +1546,7 @@ if (singleInstanceLockAcquired) {
             window.webContents.send(DESKTOP_IPC_CHANNELS.forge.prUpdated, payload);
           }
         },
-        resolveRepository: createForgeRepositoryResolver(createDatabaseRootResolver(getDatabase)),
+        resolveRepository: forgeRepositoryResolver,
         run: execFileGhRunner,
       });
       unregisterForgeIpc = registerForgeIpcHandlers(
@@ -1532,6 +1563,7 @@ if (singleInstanceLockAcquired) {
         onInvalidate: (event) => {
           broadcastChangesInvalidation(event);
           forgeService?.onRepositoryInvalidated(event.gitCommonDir);
+          forgeRepositoryResolver.invalidateResolverCache(event.gitCommonDir);
         },
         run: execFileGitRunner,
         // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
