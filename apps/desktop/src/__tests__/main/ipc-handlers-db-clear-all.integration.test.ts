@@ -63,6 +63,8 @@ const PRESENT_RELATIONS = [
   'brainstrike_tool_call_telemetry',
   'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
+  // Forge PR cache (migration 110, BST-1391).
+  'brainstrike_forge_prs',
   'brainstrike_mind_ops',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',

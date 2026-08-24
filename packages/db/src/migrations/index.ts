@@ -107,6 +107,7 @@ import { migration105EmbeddingJobInputHash } from './105-embedding-job-input-has
 import { migration106OpenRouterMuseSpark12 } from './106-openrouter-muse-spark-1-2.js';
 import { migration107OpenRouterOxAlpha } from './107-openrouter-ox-alpha.js';
 import { migration108OpenRouterGlm53 } from './108-openrouter-glm-5-3.js';
+import { migration110ForgePrCache } from './110-forge-pr-cache.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -220,6 +221,7 @@ export const migrations: Migration[] = [
   migration106OpenRouterMuseSpark12,
   migration107OpenRouterOxAlpha,
   migration108OpenRouterGlm53,
+  migration110ForgePrCache,
 ];
 
 // Export base migrations (without chunks table) for test environments
