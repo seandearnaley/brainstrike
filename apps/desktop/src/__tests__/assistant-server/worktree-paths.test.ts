@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 import {
   assertWorktreeTargetOutsideRoots,
@@ -45,10 +46,6 @@ describe('generateWorktreeName', () => {
 
   it('THROWS rather than inventing a colliding name when the space is exhausted', () => {
     // A silent numeric suffix would be a fallback; the caller must see this.
-    const everything = new Set<string>();
-    for (let index = 0; index < 100_000; index += 1) {
-      everything.add(`n${index}`);
-    }
     const alwaysTaken = { has: () => true, size: 100_000 } as unknown as ReadonlySet<string>;
     expect(() => generateWorktreeName(alwaysTaken)).toThrow(
       'Could not generate an unused worktree name after 64 attempts.'
@@ -74,6 +71,10 @@ describe('resolveWorktreeTargetPath', () => {
 });
 
 describe('assertWorktreeTargetOutsideRoots', () => {
+  it('pins the BrainStrike in-root exemption to the shared indexing policy', () => {
+    expect(UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES).toContain('.brainstrike/worktrees');
+  });
+
   it('accepts a target outside every granted root', () => {
     expect(() =>
       assertWorktreeTargetOutsideRoots('/home/me/.brainstrike/worktrees/a/b', ['/work/app'])

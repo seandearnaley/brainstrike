@@ -78,7 +78,7 @@ export interface WorktreeListEntry {
   /** The action that would make an unusable row usable, or null. */
   readonly remedy: 'grant-access' | null;
   readonly repositoryRoot: string;
-  /** Durable `roots.id`, derived by path from the live `roots` table. */
+  /** Durable id of the first live workspace root containing this worktree. */
   readonly rootId: string | null;
   readonly trust: 'unvalidated' | 'validated';
   readonly trustReason: string | null;

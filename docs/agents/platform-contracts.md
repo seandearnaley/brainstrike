@@ -770,7 +770,8 @@ indexed state only.
   main-owned git-metadata watcher that needs `.git/HEAD` events the default
   patterns would drop. `undefined` selects the default layers: the
   `fileFilter.shouldIgnorePath` guard PLUS (BST-1342) the background-indexing
-  policy's unconditional excluded-path prefixes (`.claude/worktrees`),
+  policy's unconditional excluded-path prefixes (`.claude/worktrees` and
+  `.brainstrike/worktrees`),
   applied root-relatively and skipped entirely when the subscription root
   itself sits inside an excluded tree. `StartParcelWatchOptions` and concrete
   Electron `WatchDirectoryOptions` also expose
@@ -779,8 +780,8 @@ indexed state only.
   callback receives no filtered-boundary evidence. Only `ipc-handlers.ts`'s
   MAIN-owned Explorer `fs:watch` dependency passes `true`; this broadens only
   `dist`, `build`, and `.DS_Store` while keeping `.git`, `node_modules`,
-  `.pnpm-store`, `.next`, `.turbo`, plus the hard `.claude/worktrees`
-  exclusion native. The JS guard emits root-relative boundaries without
+  `.pnpm-store`, `.next`, `.turbo`, plus the hard `.claude/worktrees` and
+  `.brainstrike/worktrees` exclusions native. The JS guard emits root-relative boundaries without
   exposing detailed Explorer changes. Both watcher and renderer batching cap
   retained boundaries at 64 and surface explicit overflow. Tracked files in
   the retained high-cardinality trees require a future bounded Git-aware

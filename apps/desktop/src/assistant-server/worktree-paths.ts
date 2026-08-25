@@ -1,24 +1,21 @@
 /**
  * Pure path/name policy for managed worktrees (spec §6.1 [D3], §6.2).
  *
- * Deliberately dependency-free (node:crypto + node:path only) so the whole
- * policy — including the BST-1342 containment refusal — is unit-testable
- * without git, a database, or Electron.
+ * Deliberately free of git/database/Electron dependencies so the whole policy
+ * — including the BST-1342 containment refusal — is unit-testable.
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { WorktreeExternalTool } from '@brainstrike/types';
+import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/utils';
 
 /**
  * In-root locations that are HARD-EXCLUDED from indexing and watching, so a
- * worktree may legitimately live there. Mirrors
- * `UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES` in
- * `@brainstrike/utils/background-indexing-policy` — kept as a literal here
- * because desktop main must not pull that renderer-oriented module in, and
- * pinned equal to it by `worktree-paths.test.ts`'s companion assertion in
- * Layer 4.
+ * worktree may legitimately live there. Derived from the same shared policy
+ * the indexer, native watcher, and live-grep prefilter consume, so an exemption
+ * here cannot silently diverge from the exclusion floor.
  */
-const EXCLUDED_IN_ROOT_PREFIXES = ['.brainstrike/worktrees', '.claude/worktrees'] as const;
+const EXCLUDED_IN_ROOT_PREFIXES = UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES;
 
 const EXTERNAL_TOOL_DIRECTORIES: readonly (readonly [string, WorktreeExternalTool])[] = [
   ['.claude/worktrees', 'claude-code'],
@@ -161,7 +158,11 @@ export function assertWorktreeTargetOutsideRoots(
       continue;
     }
     const relative = normalize(target).slice(normalize(rootPath).length + 1);
-    if (EXCLUDED_IN_ROOT_PREFIXES.some((prefix) => relative.startsWith(`${prefix}/`))) {
+    if (
+      EXCLUDED_IN_ROOT_PREFIXES.some(
+        (prefix) => relative === prefix || relative.startsWith(`${prefix}/`)
+      )
+    ) {
       continue;
     }
     throw new Error(

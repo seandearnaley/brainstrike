@@ -180,18 +180,17 @@ const SPECIAL_TEXT_PREFIXES = [
   '.editorconfig',
 ];
 
-// Nested-path exclusions the segment matcher can't express. `.claude/worktrees`
-// holds throwaway git worktree copies of the whole repo (Claude Code creates
-// them); indexing them duplicates the entire corpus and pollutes semantic
-// search with near-identical hits. Excluding the two-segment path — rather than
-// the `.claude` segment — keeps the useful rest of `.claude` (skills, commands,
-// settings, memory) indexable. Applied to both presets: for balanced it is a
-// content decision, for full-root a safety exclusion like node_modules.
-const EXCLUDED_DIRECTORY_PATH_PREFIXES = ['.claude/worktrees'] as const;
+// Nested-path exclusions the segment matcher can't express. These directories
+// hold linked worktree copies of the whole repo; indexing them duplicates the
+// corpus and pollutes semantic search with near-identical hits. Excluding the
+// two-segment paths — rather than all of `.claude` or `.brainstrike` — keeps
+// their useful config trees indexable. Applied to both presets: for balanced
+// this is a content decision, for full-root a safety exclusion like node_modules.
+const EXCLUDED_DIRECTORY_PATH_PREFIXES = ['.claude/worktrees', '.brainstrike/worktrees'] as const;
 
 /**
  * BST-1246 companion to the segments export: the nested-path exclusions the
- * segment matcher can't express (`.claude/worktrees`), applied by both presets.
+ * segment matcher can't express, applied by both presets.
  */
 export const UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES: readonly string[] = Object.freeze([
   ...EXCLUDED_DIRECTORY_PATH_PREFIXES,

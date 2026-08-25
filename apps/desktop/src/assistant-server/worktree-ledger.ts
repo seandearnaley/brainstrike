@@ -12,11 +12,23 @@
  * no in-repository locking here.
  */
 import {
+  type ManagedWorktreeCreator,
   type ManagedWorktreeRow,
   type ManagedWorktreeSetupStatus,
   WORKTREE_LEDGER_TABLE,
   type WorktreeSetupOutcome,
 } from '@brainstrike/types';
+
+const MANAGED_WORKTREE_CREATORS = [
+  'agent',
+  'user',
+] as const satisfies readonly ManagedWorktreeCreator[];
+const MANAGED_WORKTREE_SETUP_STATUSES = [
+  'failed',
+  'none',
+  'skipped',
+  'succeeded',
+] as const satisfies readonly ManagedWorktreeSetupStatus[];
 
 /** Exactly the surface the SQL here needs — satisfied by db-main's handle and a bare PGlite. */
 export interface WorktreeLedgerDatabase {
@@ -39,34 +51,84 @@ const COLUMNS = `
   archive_snapshot_ref AS "archiveSnapshotRef"
 `;
 
-/** Postgres returns `timestamptz` as a Date through PGlite; the row type is ISO strings. */
-function toIso(value: unknown): string | null {
-  if (value === null || value === undefined) {
+function readRecord(row: unknown): Record<string, unknown> {
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) {
+    throw new Error('Malformed brainstrike_worktrees row: expected an object.');
+  }
+  return row as Record<string, unknown>;
+}
+
+function readRequiredString(record: Record<string, unknown>, column: string): string {
+  const value = record[column];
+  if (typeof value !== 'string') {
+    throw new Error(`Malformed brainstrike_worktrees row: ${column} must be a string.`);
+  }
+  return value;
+}
+
+function readNullableString(record: Record<string, unknown>, column: string): string | null {
+  const value = record[column];
+  if (value === null) {
     return null;
   }
-  return value instanceof Date ? value.toISOString() : String(value);
+  if (typeof value !== 'string') {
+    throw new Error(`Malformed brainstrike_worktrees row: ${column} must be a string or null.`);
+  }
+  return value;
+}
+
+function readTimestamp(value: unknown, column: string): string {
+  if (value instanceof Date && !Number.isNaN(value.valueOf())) {
+    return value.toISOString();
+  }
+  if (typeof value === 'string') {
+    const timestamp = new Date(value);
+    if (!Number.isNaN(timestamp.valueOf())) {
+      return timestamp.toISOString();
+    }
+  }
+  throw new Error(`Malformed brainstrike_worktrees row: ${column} must be a timestamp.`);
+}
+
+function readNullableTimestamp(record: Record<string, unknown>, column: string): string | null {
+  const value = record[column];
+  return value === null ? null : readTimestamp(value, column);
+}
+
+function readCreatedBy(record: Record<string, unknown>): ManagedWorktreeCreator {
+  const value = record['createdBy'];
+  const creator = MANAGED_WORKTREE_CREATORS.find((candidate) => candidate === value);
+  if (!creator) {
+    throw new Error('Malformed brainstrike_worktrees row: createdBy is outside the closed set.');
+  }
+  return creator;
+}
+
+function readSetupStatus(record: Record<string, unknown>): ManagedWorktreeSetupStatus {
+  const value = record['setupStatus'];
+  const status = MANAGED_WORKTREE_SETUP_STATUSES.find((candidate) => candidate === value);
+  if (!status) {
+    throw new Error('Malformed brainstrike_worktrees row: setupStatus is outside the closed set.');
+  }
+  return status;
 }
 
 function readRow(row: unknown): ManagedWorktreeRow {
-  const record = row as Record<string, unknown>;
-  const createdAt = toIso(record['createdAt']);
-  if (typeof record['id'] !== 'string' || createdAt === null) {
-    throw new Error('Malformed brainstrike_worktrees row.');
-  }
+  const record = readRecord(row);
   return {
-    archivedAt: toIso(record['archivedAt']),
-    archiveSnapshotRef: (record['archiveSnapshotRef'] as string | null) ?? null,
-    baseRef: String(record['baseRef']),
-    branch: (record['branch'] as string | null) ?? null,
-    createdAt,
-    createdBy: record['createdBy'] as ManagedWorktreeRow['createdBy'],
-    id: record['id'],
-    path: String(record['path']),
-    repoCommonDir: String(record['repoCommonDir']),
-    runId: (record['runId'] as string | null) ?? null,
-    setupOutput: (record['setupOutput'] as string | null) ?? null,
-    setupStatus: record['setupStatus'] as ManagedWorktreeSetupStatus,
-    threadId: (record['threadId'] as string | null) ?? null,
+    archivedAt: readNullableTimestamp(record, 'archivedAt'),
+    archiveSnapshotRef: readNullableString(record, 'archiveSnapshotRef'),
+    baseRef: readRequiredString(record, 'baseRef'),
+    branch: readNullableString(record, 'branch'),
+    createdAt: readTimestamp(record['createdAt'], 'createdAt'),
+    createdBy: readCreatedBy(record),
+    id: readRequiredString(record, 'id'),
+    path: readRequiredString(record, 'path'),
+    repoCommonDir: readRequiredString(record, 'repoCommonDir'),
+    runId: readNullableString(record, 'runId'),
+    setupOutput: readNullableString(record, 'setupOutput'),
+    setupStatus: readSetupStatus(record),
+    threadId: readNullableString(record, 'threadId'),
   };
 }
 
@@ -184,8 +246,9 @@ export function createWorktreeLedger(
       return requireRow(rows, id);
     },
     async markRestored(id) {
-      // The snapshot ref is kept: it is the evidence of what was restored, and
-      // dropping it would make a second restore unverifiable.
+      // The archive-consistency CHECK requires both archive columns to return
+      // to NULL together. The historical ref survives in the repository's
+      // archive ref and Layer 5's durable timeline event, not this active row.
       const rows = await query(
         `UPDATE ${WORKTREE_LEDGER_TABLE} SET archived_at = NULL, archive_snapshot_ref = NULL
           WHERE id = $1 RETURNING ${COLUMNS}`,

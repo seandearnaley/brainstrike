@@ -131,6 +131,9 @@ describe('migration 109: managed worktree ledger', () => {
         [`w-setup-${setupStatus}`, `/wt/setup-${setupStatus}`, setupStatus]
       );
     }
+
+    const rows = await db.query<CountRow>(`SELECT COUNT(*)::int AS count FROM ${TABLE}`);
+    expect(Number(rows.rows[0]?.count ?? 0)).toBe(ALL_CREATORS.length + ALL_SETUP_STATUSES.length);
   });
 
   it('allows a NULL branch (a detached worktree) and a NULL thread', {

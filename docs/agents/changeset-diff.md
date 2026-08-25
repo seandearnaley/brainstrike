@@ -434,7 +434,7 @@ option is not renderer/wire input. Generic Parcel/Electron watchers remain
 default-false and retain every `DEFAULT_IGNORE_PATTERNS` entry natively, so
 Notes Vault keeps its prior callback/load behavior. The Explorer opt-in keeps
 `.git`, `node_modules`, `.pnpm-store`, `.next`, `.turbo`, plus hard
-`.claude/worktrees` native-suppressed. Recursively broadening those
+`.claude/worktrees` and `.brainstrike/worktrees` native-suppressed. Recursively broadening those
 high-cardinality dependency/cache trees can exhaust native watcher resources;
 lossless support for a force-tracked file inside one requires a separate,
 bounded Git-aware tracked-path watcher architecture. This pipeline does not

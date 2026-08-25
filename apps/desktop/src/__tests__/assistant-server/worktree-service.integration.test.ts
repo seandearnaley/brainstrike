@@ -4,15 +4,21 @@
  * prove only that the arguments were assembled.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
+import type { GitInventory } from '@brainstrike/types';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
 import { vector } from '@electric-sql/pglite-pgvector';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  createWorktreeLedger,
+  type WorktreeLedgerDatabase,
+} from '../../assistant-server/worktree-ledger';
+import { repositorySlug } from '../../assistant-server/worktree-paths';
 import { createWorktreeService } from '../../assistant-server/worktree-service';
 import { execFileGitRunner } from '../../git-ipc-handlers';
 
@@ -40,6 +46,15 @@ function freshManagedDir(): string {
   return dir;
 }
 
+function asLedgerDatabase(database: PGlite): WorktreeLedgerDatabase {
+  return {
+    async query(sql, params) {
+      const result = await database.query(sql, params);
+      return { rows: result.rows };
+    },
+  };
+}
+
 describe('WorktreeService (real git + real PGlite)', () => {
   let db: PGlite;
   let repo: string;
@@ -47,8 +62,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
 
   const buildService = (overrides: Partial<Parameters<typeof createWorktreeService>[0]> = {}) =>
     createWorktreeService({
-      getDatabase: () => Promise.resolve(db as unknown as { query: PGlite['query'] }),
-      homeDirectory: managedDirectory,
+      getDatabase: () => Promise.resolve(asLedgerDatabase(db)),
       readSettings: () =>
         Promise.resolve({ isDefaultDirectory: true, managedDirectory, setupCommand: null }),
       resolveInventory: () => Promise.resolve({ errors: [], repositories: [] }),
@@ -103,6 +117,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     expect(worktree.branch).toBe('bs/bright-fox');
     expect(worktree.createdBy).toBe('user');
     expect(worktree.threadId).toBe('t-1');
+    expect(worktree.id[14]).toBe('7');
     // The directory really exists and really is a linked worktree.
     expect(readFileSync(path.join(worktree.path, 'hello.ts'), 'utf8')).toContain(
       'export const value'
@@ -152,13 +167,17 @@ describe('WorktreeService (real git + real PGlite)', () => {
 
   it('refuses a directory name already taken by a live ledger row', async () => {
     const service = buildService();
-    await service.create({
+    const first = await service.create({
       baseRef: 'main',
       branch: { name: 'bs/one' },
       createdBy: 'user',
       name: 'same-name',
       rootId: 'r-1',
     });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      return;
+    }
     const second = await service.create({
       baseRef: 'main',
       branch: { name: 'bs/two' },
@@ -167,7 +186,64 @@ describe('WorktreeService (real git + real PGlite)', () => {
       rootId: 'r-1',
     });
     expect(second.ok).toBe(false);
-    expect(second.ok === false && second.error).toContain('already exists');
+    expect(second).toEqual({
+      error: `A worktree at "${first.value.worktree.path}" already exists.`,
+      ok: false,
+    });
+  });
+
+  it('removes the git worktree when ledger insert loses a duplicate-path race', async () => {
+    const repoRoot = realpathSync(repo);
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    const target = path.join(
+      realpathSync(managedDirectory),
+      repositorySlug(repoRoot, commonDir),
+      'ledger-race'
+    );
+    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    await ledger.insert({
+      archivedAt: null,
+      archiveSnapshotRef: null,
+      baseRef: 'main',
+      branch: 'bs/preexisting-ledger-row',
+      createdAt: new Date().toISOString(),
+      createdBy: 'user',
+      id: '01993a12-0000-7000-8000-000000000001',
+      path: target,
+      repoCommonDir: commonDir,
+      runId: null,
+      setupOutput: null,
+      setupStatus: 'none',
+      threadId: null,
+    });
+
+    let hidDuplicateFromPreflight = false;
+    const underlying = asLedgerDatabase(db);
+    const staleReadDatabase: WorktreeLedgerDatabase = {
+      async query(sql, params) {
+        if (!hidDuplicateFromPreflight && sql.includes('WHERE path = $1')) {
+          hidDuplicateFromPreflight = true;
+          return { rows: [] };
+        }
+        return underlying.query(sql, params);
+      },
+    };
+    const service = buildService({
+      getDatabase: () => Promise.resolve(staleReadDatabase),
+    });
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/ledger-race' },
+      createdBy: 'user',
+      name: 'ledger-race',
+      rootId: 'r-1',
+    });
+
+    expect(created.ok).toBe(false);
+    expect(created.ok === false && created.error).toMatch(/duplicate key|unique/iu);
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(`worktree ${target}`);
   });
 
   it('REFUSES a managed directory inside a granted root, naming the root', async () => {
@@ -207,6 +283,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     }
     await expect(service.isManagedWorktreePath(created.value.worktree.path)).resolves.toBe(true);
     await expect(service.isManagedWorktreePath(repo)).resolves.toBe(false);
+    mkdirSync(path.join(managedDirectory, 'not-a-row'), { recursive: true });
     await expect(
       service.isManagedWorktreePath(path.join(managedDirectory, 'not-a-row'))
     ).resolves.toBe(false);
@@ -239,5 +316,137 @@ describe('WorktreeService (real git + real PGlite)', () => {
       usable: false,
     });
     expect(ghost?.disabledReason).toBe('Worktree is missing on disk — restore it or archive it.');
+    expect(ghost?.repositoryRoot).toBe(realpathSync(repo));
+  });
+
+  it('joins a realistic inventory with ledger provenance, labels, gates, and containing root ids', async () => {
+    const created = await buildService().create({
+      baseRef: 'main',
+      branch: { name: 'bs/inventory-both' },
+      createdBy: 'agent',
+      name: 'inventory-both',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+
+    const externalPath = path.join(tmpdir(), '.codex', 'worktrees', 'external-one');
+    const prunablePath = path.join(tmpdir(), 'prunable-one');
+    const lockedPath = path.join(repo, 'locked-one');
+    const descriptor = (
+      overrides: Partial<GitInventory['repositories'][number]['worktrees'][number]>
+    ) => ({
+      bare: false,
+      branch: 'main',
+      containment: ['r-container'],
+      current: false,
+      detached: false,
+      head: '0123456789012345678901234567890123456789',
+      lockedReason: null,
+      name: 'fixture',
+      path: created.value.worktree.path,
+      provenance: 'scanned' as const,
+      prunableReason: null,
+      trust: 'validated' as const,
+      trustReason: null,
+      ...overrides,
+    });
+    const inventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: created.value.worktree.repoCommonDir, repositoryRoot: repo },
+          worktrees: [
+            descriptor({}),
+            descriptor({
+              containment: 'outside-roots',
+              name: 'external-one',
+              path: externalPath,
+            }),
+            descriptor({
+              containment: 'outside-roots',
+              name: 'prunable-one',
+              path: prunablePath,
+              prunableReason: 'gitdir file points to non-existent location',
+              trust: 'unvalidated',
+              trustReason: 'worktree path could not be resolved',
+            }),
+            descriptor({
+              lockedReason: 'maintenance',
+              name: 'locked-one',
+              path: lockedPath,
+            }),
+          ],
+        },
+      ],
+    } satisfies GitInventory;
+    const listed = await buildService({
+      resolveInventory: () => Promise.resolve(inventory),
+      resolveRootPaths: () =>
+        Promise.resolve([
+          { id: 'r-1', path: repo },
+          { id: 'r-container', path: managedDirectory },
+        ]),
+    }).list();
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) {
+      return;
+    }
+
+    expect(listed.value.find((entry) => entry.path === created.value.worktree.path)).toMatchObject({
+      managed: true,
+      provenance: 'both',
+      rootId: 'r-container',
+      usable: true,
+    });
+    expect(listed.value.find((entry) => entry.path === externalPath)).toMatchObject({
+      externalTool: 'codex',
+      managed: false,
+      provenance: 'scanned',
+      remedy: 'grant-access',
+      usable: false,
+    });
+    expect(listed.value.find((entry) => entry.path === prunablePath)).toMatchObject({
+      disabledReason: 'Worktree is prunable: gitdir file points to non-existent location',
+      usable: false,
+    });
+    expect(listed.value.find((entry) => entry.path === lockedPath)).toMatchObject({
+      disabledReason: 'Locked: maintenance',
+      usable: false,
+    });
+  });
+
+  it.each([
+    ['baseRef', null],
+    ['repoCommonDir', 42],
+    ['createdBy', 'robot'],
+    ['setupStatus', 'maybe'],
+    ['branch', 42],
+  ])('rejects a malformed ledger %s value instead of coercing it', async (field, value) => {
+    const row: Record<string, unknown> = {
+      archivedAt: null,
+      archiveSnapshotRef: null,
+      baseRef: 'main',
+      branch: null,
+      createdAt: new Date(),
+      createdBy: 'user',
+      id: '01993a12-0000-7000-8000-000000000002',
+      path: '/worktree',
+      repoCommonDir: '/repo/.git',
+      runId: null,
+      setupOutput: null,
+      setupStatus: 'none',
+      threadId: null,
+      [field]: value,
+    };
+    const ledger = createWorktreeLedger(() =>
+      Promise.resolve({ query: () => Promise.resolve({ rows: [row] }) })
+    );
+
+    await expect(ledger.get(row['id'] as string)).rejects.toThrow(
+      'Malformed brainstrike_worktrees row'
+    );
   });
 });
