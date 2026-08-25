@@ -11,6 +11,19 @@ import {
   runDesktopScheduledDatabaseWork,
 } from '../../platform/desktop-database-work';
 
+function timeout(
+  pendingCount = 2,
+  willTerminateHost = false,
+  requestKind: 'query' | 'transaction:start' = 'query'
+): DbHostRequestTimeoutError {
+  return new DbHostRequestTimeoutError({
+    pendingCount,
+    requestKind,
+    timeoutMs: 30_000,
+    willTerminateHost,
+  });
+}
+
 describe('run-critical database work', () => {
   afterEach(() => {
     resetDesktopDatabaseWorkSchedulerForTests();
@@ -54,54 +67,11 @@ describe('run-critical database work', () => {
     expect(operation).toHaveBeenCalledTimes(1);
   });
 
-  it('retries one eligible saturated-host timeout and reports the retry', async () => {
-    const timeout = new DbHostRequestTimeoutError({
-      pendingCount: 2,
-      requestKind: 'query',
-      timeoutMs: 30_000,
-      willTerminateHost: false,
-    });
-    const operation = vi.fn().mockRejectedValueOnce(timeout).mockResolvedValueOnce('snapshot');
-    const onRetry = vi.fn();
-
-    await expect(
-      runCriticalDatabaseOperation({
-        label: 'assistant-workflow-snapshot-read',
-        onRetry,
-        operation,
-        retry: 'idempotent',
-      })
-    ).resolves.toBe('snapshot');
-
-    expect(operation).toHaveBeenCalledTimes(2);
-    expect(onRetry).toHaveBeenCalledOnce();
-    expect(onRetry).toHaveBeenCalledWith({ attempt: 2, error: timeout });
-  });
-
   it.each([
-    {
-      error: new Error('arbitrary database failure'),
-      name: 'an arbitrary failure',
-    },
-    {
-      error: new DbHostRequestTimeoutError({
-        pendingCount: 1,
-        requestKind: 'query',
-        timeoutMs: 30_000,
-        willTerminateHost: false,
-      }),
-      name: 'a potentially wedged host timeout',
-    },
-    {
-      error: new DbHostRequestTimeoutError({
-        pendingCount: 2,
-        requestKind: 'transaction:start',
-        timeoutMs: 30_000,
-        willTerminateHost: true,
-      }),
-      name: 'a terminating host timeout',
-    },
-  ])('surfaces $name without retrying', async ({ error }) => {
+    new Error('arbitrary database failure'),
+    timeout(1),
+    timeout(2, true, 'transaction:start'),
+  ])('surfaces an ineligible failure without retrying', async (error) => {
     const operation = vi.fn().mockRejectedValue(error);
     const onRetry = vi.fn();
 
@@ -119,18 +89,8 @@ describe('run-critical database work', () => {
   });
 
   it('surfaces the typed failure after exactly one retry is exhausted', async () => {
-    const firstTimeout = new DbHostRequestTimeoutError({
-      pendingCount: 2,
-      requestKind: 'query',
-      timeoutMs: 30_000,
-      willTerminateHost: false,
-    });
-    const terminalTimeout = new DbHostRequestTimeoutError({
-      pendingCount: 2,
-      requestKind: 'query',
-      timeoutMs: 30_000,
-      willTerminateHost: false,
-    });
+    const firstTimeout = timeout();
+    const terminalTimeout = timeout();
     const operation = vi
       .fn()
       .mockRejectedValueOnce(firstTimeout)
@@ -151,13 +111,7 @@ describe('run-critical database work', () => {
   });
 
   it('retries only workflow snapshot reads and survives an evidence sink failure', async () => {
-    const timeout = new DbHostRequestTimeoutError({
-      pendingCount: 3,
-      requestKind: 'query',
-      timeoutMs: 30_000,
-      willTerminateHost: false,
-    });
-    const query = vi.fn().mockRejectedValueOnce(timeout).mockResolvedValueOnce({ rows: [] });
+    const query = vi.fn().mockRejectedValueOnce(timeout(3)).mockResolvedValueOnce({ rows: [] });
     const eventSink = vi.fn(() => {
       throw new Error('evidence sink failed');
     });

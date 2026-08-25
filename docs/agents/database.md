@@ -184,7 +184,7 @@ background lane into an equal-priority queue.
 
 Run-scoped assistant operations enter this SAME scheduler as `foreground`; they own no second policy.
 Transient saturation requires another pending request or one abandoned within its preceding request-timeout window.
-An abandonment surviving another full window marks the host wedged; transaction timeouts terminate the host.
+An abandonment surviving another full window marks the host wedged until a host response proves forward progress; transaction timeouts terminate the host.
 Neither is retryable. Eligible idempotent work may retry once with warning plus durable evidence; exhaustion surfaces the typed
 `DbHostRequestTimeoutError`. The retry is another foreground admission, so the 250 ms starvation bound and required foreground/normal turn remain authoritative.
 

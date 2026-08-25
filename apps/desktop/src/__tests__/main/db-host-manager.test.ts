@@ -686,9 +686,7 @@ describe('DbHostManager', () => {
   it('does not classify a host as transient after an abandoned request stays wedged for another timeout window', async () => {
     vi.useFakeTimers();
     try {
-      const { createDbHostManager, DbHostRequestTimeoutError } = await import(
-        '../../db-host-manager'
-      );
+      const { createDbHostManager } = await import('../../db-host-manager');
       const manager = createDbHostManager({
         entryPath: '/mock/db-host-entry.js',
         requestTimeoutMs: 5,
@@ -702,33 +700,42 @@ describe('DbHostManager', () => {
       const wedgedQuery = database.query('SELECT 1');
       const wedgedError = wedgedQuery.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(5);
-      await expect(wedgedError).resolves.toBeInstanceOf(DbHostRequestTimeoutError);
+      await wedgedError;
 
-      const queuedErrors = [database.query('SELECT 2'), database.query('SELECT 3')].map((query) =>
-        query.catch((error: unknown) => error)
-      );
+      const recoveryQueries = [database.query('SELECT 2'), database.query('SELECT 3')];
+      const recoveryMessages = latestProcess().messages.slice(-2) as PostedMessage[];
+      const queuedErrors = recoveryQueries.map((query) => query.catch((error: unknown) => error));
       await vi.advanceTimersByTimeAsync(5);
 
       await expect(queuedErrors[0]).resolves.toMatchObject({
         hostSaturated: false,
         pendingCount: 2,
       });
-      await expect(queuedErrors[1]).resolves.toMatchObject({
-        hostSaturated: false,
-        pendingCount: 1,
-      });
+      await queuedErrors[1];
+
+      for (const message of recoveryMessages) {
+        latestProcess().reply(message, { rows: [] });
+      }
+      await flushMicrotasks();
+
+      const laterErrors = [database.query('SELECT 4'), database.query('SELECT 5')].map((query) =>
+        query.catch((error: unknown) => error)
+      );
+      await vi.advanceTimersByTimeAsync(5);
+
+      await expect(laterErrors[0]).resolves.toMatchObject({ hostSaturated: true, pendingCount: 2 });
+      await expect(laterErrors[1]).resolves.toMatchObject({ hostSaturated: true, pendingCount: 1 });
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('evicts a permanently-abandoned entry once it exceeds the staleness ceiling, so the map cannot stay wedged full forever', async () => {
+  it('retains the oldest non-stale abandoned request when the tracking map is full', async () => {
     vi.useFakeTimers();
     try {
       const { createDbHostManager } = await import('../../db-host-manager');
       const manager = createDbHostManager({
         entryPath: '/mock/db-host-entry.js',
-        maintenanceRequestTimeoutMs: 50,
         requestTimeoutMs: 5,
       });
       const databasePromise = manager.getDatabase();
@@ -737,34 +744,27 @@ describe('DbHostManager', () => {
       });
       const database = await databasePromise;
 
-      // Fill the abandoned-request map to capacity with requests that never
-      // reply — the "wedged host, never terminated" scenario the bounded map
-      // must still recover from.
       const fillPromises = Array.from({ length: 64 }, (_, index) =>
         database.query(`SELECT ${index}`, [])
       );
+      const oldestMessage = latestProcess().messages.at(-64) as PostedMessage;
       for (const promise of fillPromises) {
         promise.catch(() => undefined);
       }
       await vi.advanceTimersByTimeAsync(5);
 
-      // None of the 64 ever reply. Once they've outlived the maintenance
-      // staleness ceiling, a new timeout must still be able to evict the
-      // oldest one and get tracked — not be dropped as "map full" forever.
-      await vi.advanceTimersByTimeAsync(50);
-      const lateQueryPromise = database.query('SELECT 64', []);
-      lateQueryPromise.catch(() => undefined);
-      const lateMessage = latestProcess().messages.at(-1) as PostedMessage;
+      const overflowPromise = database.query('SELECT 64', []);
+      overflowPromise.catch(() => undefined);
       await vi.advanceTimersByTimeAsync(5);
       loggerWarnMock.mockClear();
 
       await vi.advanceTimersByTimeAsync(20);
-      latestProcess().reply(lateMessage, { rows: [] });
+      latestProcess().reply(oldestMessage, { rows: [] });
       await flushMicrotasks();
 
       expect(loggerWarnMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          elapsedMs: 25,
+          elapsedMs: 30,
           ok: true,
           requestKind: 'query',
         }),

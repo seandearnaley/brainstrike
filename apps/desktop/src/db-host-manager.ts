@@ -896,8 +896,10 @@ class DefaultDbHostManager implements DbHostManager {
           'DB host request completed after timeout'
         );
       }
+      this.#clearStaleAbandonedRequests(Date.now());
       return;
     }
+    this.#clearStaleAbandonedRequests(Date.now());
     this.#pending.delete(message.id);
     clearTimeout(pending.timer);
     if (message.ok) {
@@ -905,6 +907,14 @@ class DefaultDbHostManager implements DbHostManager {
       return;
     }
     pending.reject(toError(message.error));
+  }
+
+  #clearStaleAbandonedRequests(now: number): void {
+    for (const [id, request] of this.#abandoned) {
+      if (now - request.timedOutAt >= request.timeoutMs) {
+        this.#abandoned.delete(id);
+      }
+    }
   }
 
   #rejectAll(error: Error): void {
