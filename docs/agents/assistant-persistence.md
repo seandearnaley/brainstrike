@@ -595,8 +595,32 @@ Layers:
 6. **Forge trigger source** (`packages/app-shell/src/hooks/use-forge-run-events.ts`) —
    `forge:prUpdated` pushes from the main-process ForgeService. Not a stream
    scan: a forge observation never appears in the message stream. Coalesced on
-   `<repoCommonDir> <branch> <headSha>:<kind>`, gated per thread by
+   `<repoCommonDir>\0<branch>\0<headSha>:<kind>` (the `\0` separator matches
+   `forge-service.ts`'s own `cacheKey` convention), gated per thread by
    `metadata.forgePrWatch !== false`.
+   The branch lookup this trigger source matches pushes against
+   (`useThreadBranchByRootPath`, activated on demand — see that hook's doc)
+   starts EMPTY and only resolves asynchronously; a push that arrives before
+   the first resolution is BUFFERED (a ref queue, deduped by
+   `<observationKey>\0<transition>`) rather than treated as a non-match, and
+   drained once the lookup reports `loaded` — see `ForgeBranchLookup` and
+   `isLookupReady` in `use-forge-run-events.ts` (BST-1391 M2). This closes the
+   "the very first push is lost" gap; it does not add a live-refresh path for
+   an ALREADY-OPEN thread — see the reload-visibility note below.
+   RELOAD-VISIBILITY LIMITATION (BST-1391 M4): the appended `pr.*` row is
+   durable in `brainstrike_assistant_run_events` the moment
+   `appendThreadRunEvent` resolves, but the assistant-run-timeline UI renders
+   from assistant-ui DATA PARTS on the message stream, not from a live query
+   against that table — `listThreadRunEvents` is read ONLY at thread-history
+   HYDRATION time (`createAssistantThreadHistoryAdapter`, on thread
+   open/reload), which is what turns persisted run events into synthetic data
+   parts. No existing seam re-hydrates an already-open thread's timeline
+   mid-session (unlike `thread.metadata.forgePrUrl`, which the thread list's
+   live query DOES pick up, so the PR chip/pill update without a reopen). A
+   `pr.*` row therefore does not appear in an OPEN thread's timeline until
+   that thread is reopened or the app reloads. Inventing a live-refresh path
+   for this is future work, not this task's — see Task 7's CDT checklist for
+   how this is verified rather than assumed.
 
 When changing this flow, update this section and the paired tests
 (`packages/app-state/src/__tests__/notification-*.test.ts(x)`,

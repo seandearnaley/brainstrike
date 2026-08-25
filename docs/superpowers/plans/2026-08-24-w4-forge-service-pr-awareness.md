@@ -6780,6 +6780,23 @@ cd ../.. && pnpm dlx ultracite fix packages
 ```
 Expected: all green.
 
+**Known limitation (BST-1391 M4, found in the T6 fix round): reload
+visibility.** The `pr.*` row is durable the instant `appendThreadRunEvent`
+resolves, but the assistant-run-timeline UI renders from data parts on the
+message stream, and those are produced ONLY at thread-history hydration
+(`createAssistantThreadHistoryAdapter`, which runs on thread open/reload) —
+no existing seam re-hydrates an already-open thread's timeline mid-session.
+A `pr.*` row appended while its thread is open therefore will NOT appear
+until that thread is reopened or the app reloads. This is UNLIKE
+`thread.metadata.forgePrUrl`, which the thread list's live query already
+picks up — the PR chip/pill update live without a reopen; only the timeline
+row lags. Investigated and intentionally not fixed in-band: no cheap existing
+hook re-hydrates one open thread's run events, and inventing new plumbing for
+it is future work, not this task's. Documented in
+`use-forge-run-events.ts`'s header and
+`docs/agents/assistant-persistence.md`'s "ASSISTANT RUN NOTIFICATIONS" layer
+6. Task 7's CDT checklist verifies this explicitly rather than assuming it.
+
 - [ ] **Step 17: CDT verification**
 
 Run the Task 7 probe with a PR whose checks flip, and confirm it reports a `pr.checks` timeline row in the thread and `notificationPermission`-gated dispatch (the probe reports the computed row text, not a screenshot impression).
@@ -7162,6 +7179,8 @@ Then repeat with `gh` renamed out of PATH (`PATH=/usr/bin:/bin node scripts/veri
 - after clicking the chip, `branchDiagnosticText` contains `GitHub CLI (gh) was not found on PATH.`
 
 Finally, switch the Threads panel to folder grouping and confirm `threadPrPills` contains at least one `{ checks, state, text: "#<number>…" }` entry.
+
+Also verify the M4 reload-visibility limitation explicitly rather than assuming it (`docs/agents/assistant-persistence.md`'s "ASSISTANT RUN NOTIFICATIONS" layer 6): with the target thread OPEN, trigger a `checks` transition and confirm the probe's `pr.checks` timeline row is ABSENT from the still-open thread; then reopen/reload that same thread and confirm the row IS present. Record both computed states in the PR description — this pins that the documented limitation is real (not stale) and that hydration on reopen still recovers the row.
 
 - [ ] **Step 7: Update the remaining architecture docs**
 

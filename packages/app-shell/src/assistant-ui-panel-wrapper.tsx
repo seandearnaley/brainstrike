@@ -1702,12 +1702,28 @@ export function AssistantUiPanelWrapper({
   const { onRunFailed, onRunFinished, onToolApprovalRequired } = notificationCallbacks;
   // Deferred activation (BST-1116 W6 finding 4) — see `useForgeBranchLookupActivation`'s doc.
   const forgeBranchLookupEnabled = useForgeBranchLookupActivation();
-  const { byRootId, byRootIdAndPath, byRootPath } = useThreadBranchByRootPath({
+  const {
+    available: forgeBranchLookupAvailable,
+    byRootId,
+    byRootIdAndPath,
+    byRootPath,
+    loaded: forgeBranchLookupLoaded,
+  } = useThreadBranchByRootPath({
     enabled: forgeBranchLookupEnabled,
   });
+  // `available`/`loaded` are threaded through (BST-1391 M2), not discarded:
+  // `useForgeRunEvents` needs them to tell "still loading" apart from "no
+  // match" so a push that races the lookup's first load gets buffered
+  // instead of silently dropped — see `ForgeBranchLookup`'s doc.
   const forgeBranchLookup = useMemo(
-    () => ({ byRootId, byRootIdAndPath, byRootPath }),
-    [byRootId, byRootIdAndPath, byRootPath]
+    () => ({
+      available: forgeBranchLookupAvailable,
+      byRootId,
+      byRootIdAndPath,
+      byRootPath,
+      loaded: forgeBranchLookupLoaded,
+    }),
+    [forgeBranchLookupAvailable, byRootId, byRootIdAndPath, byRootPath, forgeBranchLookupLoaded]
   );
 
   // Forge observations arrive out of band from main, so they need their own

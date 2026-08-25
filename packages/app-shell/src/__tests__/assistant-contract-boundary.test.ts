@@ -137,7 +137,14 @@ describe('app-shell assistant contract boundary', () => {
     // boundary, plus its deferred branch-lookup activation (BST-1116 W6
     // finding 4 — must not run an eager repo/worktree scan on every mount);
     // keep both inside this narrowly raised budget.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1890);
+    // Bumped 1890 → 1905 for BST-1391 M2 (fix round): the wrapper now
+    // threads `available`/`loaded` from `useThreadBranchByRootPath` through
+    // to `forgeBranchLookup` instead of discarding them — two extra
+    // destructured fields, two extra memo inputs, and a doc comment
+    // explaining why. The buffering/draining decision itself lives entirely
+    // in `hooks/use-forge-run-events.ts`; the wrapper only stops throwing
+    // away readiness facts it already had.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1905);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {

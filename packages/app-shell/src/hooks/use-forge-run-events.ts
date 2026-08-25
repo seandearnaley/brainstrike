@@ -14,6 +14,19 @@
  * the run whose push produced the pull request. `run_id` is NOT NULL with an
  * FK to the renderer-bootstrapped thread-runs table, so a thread with no runs
  * gets no row; that is logged, and the chip and the pill still show the PR.
+ *
+ * KNOWN LIMITATION — reload visibility (BST-1391 M4): `appendThreadRunEvent`
+ * writes the `pr.*` row durably, but the assistant-run-timeline UI renders
+ * from data parts on the message stream, hydrated from
+ * `listThreadRunEvents` ONLY when a thread's history is loaded
+ * (`createAssistantThreadHistoryAdapter`). Nothing re-hydrates an
+ * ALREADY-OPEN thread mid-session, so a `pr.*` row appended while its thread
+ * is open does not appear until that thread is reopened or the app reloads —
+ * unlike `thread.metadata.forgePrUrl`, which the thread list's live query
+ * does pick up (the PR chip/pill update without a reopen). See
+ * `docs/agents/assistant-persistence.md`'s "ASSISTANT RUN NOTIFICATIONS"
+ * layer 6 for the full writeup. Not fixed here: inventing a live-refresh path
+ * is future work, not this task's.
  */
 import type { ForgeNotificationEvent } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
 import type { AssistantMemoryThread, AssistantThreadRepository } from '@brainstrike/assistant-data';
@@ -32,13 +45,47 @@ const EVENT_KIND: Readonly<Record<ForgePrTransition, 'pr.checks' | 'pr.merged' |
   opened: 'pr.opened',
 };
 
+/**
+ * The branch lookup `useForgeRunEvents` needs, PLUS the readiness the plain
+ * `ThreadBranchLookup` (shared with the Threads panel's branch chips) does
+ * not carry: `available` and `loaded`, threaded straight from
+ * `ThreadBranchByRootPathState` (see that type's doc). `lookupThreadBranch`
+ * only ever needs the three maps — this hook additionally needs to tell
+ * "the maps are empty because nothing matches" apart from "the maps are
+ * empty because the load hasn't resolved yet", which is exactly what M2
+ * (BST-1391) requires: a push that arrives during the second case must be
+ * buffered, not treated as a real non-match. See `isLookupReady`.
+ */
+export type ForgeBranchLookup = ThreadBranchLookup & {
+  /** Whether the desktop git-inventory bridge is present at all. `false`
+   * means the lookup will NEVER produce data (web, or no bridge) — a push
+   * against it is a true non-match, not a "still loading" state. */
+  readonly available: boolean;
+  /** Whether the underlying git inventory has resolved at least once since
+   * `useForgeBranchLookupActivation` flipped it on. `false` while
+   * `available` is `true` means the first scan is still in flight. */
+  readonly loaded: boolean;
+};
+
 export interface UseForgeRunEventsArgs {
   readonly assistantThreadRepository: AssistantThreadRepository | null;
-  readonly branchLookup: ThreadBranchLookup;
+  readonly branchLookup: ForgeBranchLookup;
   readonly memoryResourceId: string;
   readonly notifications: AssistantRunNotificationCallbacks;
   readonly selectedMemoryThreadId: string | undefined;
   readonly threads: readonly AssistantMemoryThread[];
+}
+
+/**
+ * Whether `branchLookup`'s current contents can be trusted to answer a match
+ * question NOW. Either the git bridge will never have data (`!available`,
+ * e.g. web) — in which case an empty map is a permanent, honest fact — or it
+ * IS available and its current load has actually resolved (`loaded`). The
+ * false case (`available && !loaded`) is the ONLY state where an empty map
+ * means "ask again later", not "no".
+ */
+function isLookupReady(branchLookup: ForgeBranchLookup): boolean {
+  return !branchLookup.available || branchLookup.loaded;
 }
 
 function describe(
@@ -90,6 +137,26 @@ function describe(
 
 type ForgeTimelineCopy = ReturnType<typeof describe>;
 
+/**
+ * The `sequence` every forge timeline row is stored with.
+ *
+ * `brainstrike_assistant_run_events.sequence` is a Postgres `integer` (int4,
+ * max 2_147_483_647 — see the `CREATE TABLE` in
+ * `assistant-memory-repository.ts`), and the reader orders
+ * `sequence ASC, occurred_at ASC, id ASC`. The agent stream's own live
+ * counter starts at 0/1 and stays small for the lifetime of a single run, so
+ * `0` (the previous value here) sorted a `pr.*` observation BEFORE every real
+ * step of the run it was attached to (BST-1391 M3) — exactly backwards, since
+ * a forge push is always a REACTION to a run that already happened.
+ * `1_000_000_000` is comfortably below the int4 ceiling and comfortably above
+ * any stream counter a real run could reach, so a forge row always sorts
+ * after the run's own steps. Two forge rows on the SAME run tie on
+ * `sequence` and fall back to `occurred_at` for their relative order, which
+ * is correct — they are independent observations, not a span with an
+ * internal order of their own.
+ */
+export const FORGE_OBSERVATION_SEQUENCE = 1_000_000_000;
+
 function appendTimelineRow(input: {
   readonly copy: ForgeTimelineCopy;
   readonly event: ForgePrUpdatedEvent;
@@ -100,8 +167,18 @@ function appendTimelineRow(input: {
 }): void {
   const { copy, event, pullRequest, repository, thread, transition } = input;
   const runId = thread.latestRun?.id;
-  if (!(runId && repository)) {
+  // Split so each absent precondition logs its OWN true reason (BST-1391 L5)
+  // rather than a single message that can't tell a run-less thread apart
+  // from a caller with no repository capability at all.
+  if (!runId) {
     logger.info('Forge observation has no run to attach a timeline row to', {
+      prNumber: pullRequest.number,
+      threadId: thread.id,
+    });
+    return;
+  }
+  if (!repository) {
+    logger.info('Forge observation cannot attach a timeline row: no thread repository available', {
       prNumber: pullRequest.number,
       threadId: thread.id,
     });
@@ -120,7 +197,7 @@ function appendTimelineRow(input: {
         prUrl: pullRequest.url,
         repoCommonDir: event.repoCommonDir,
       },
-      sequence: 0,
+      sequence: FORGE_OBSERVATION_SEQUENCE,
       status: copy.status,
       timestamp: new Date().toISOString(),
     })
@@ -133,16 +210,42 @@ function appendTimelineRow(input: {
     });
 }
 
+/**
+ * Writes `thread.metadata.forgePrUrl`. Two BST-1391 L6 corrections over the
+ * original:
+ *
+ * 1. `updateThreadMetadata` MERGES server-side
+ *    (`SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb` —
+ *    `assistant-memory-repository.ts`), so this writes ONLY the forge key.
+ *    Spreading `thread.metadata` back would re-persist that possibly-stale
+ *    prop snapshot over every OTHER key, silently reverting any of them that
+ *    changed elsewhere since this thread list was last refreshed.
+ * 2. The "already up to date" check compares against the URL THIS hook last
+ *    WROTE for the thread (`lastPersisted`), not `thread.metadata.forgePrUrl`
+ *    — that prop is whatever the caller's live query last delivered, which
+ *    will not have caught up with a write this same render pass just issued.
+ *    Comparing against the stale prop re-issues an identical write on every
+ *    subsequent `checks` transition for the same PR until the query refetch
+ *    lands. `lastPersisted` is a plain ref map — no eviction, matching the
+ *    dispatcher's own `dispatchedKeys` precedent
+ *    (`run-notification-dispatcher.ts`).
+ */
 function persistForgePrUrl(
   repository: AssistantThreadRepository | null,
   thread: AssistantMemoryThread,
-  pullRequest: ForgePullRequest
+  pullRequest: ForgePullRequest,
+  lastPersisted: Map<string, string>
 ): void {
-  if (!(repository && thread.metadata?.forgePrUrl !== pullRequest.url)) {
+  if (!repository) {
     return;
   }
+  const previouslyWritten = lastPersisted.get(thread.id) ?? thread.metadata?.forgePrUrl;
+  if (previouslyWritten === pullRequest.url) {
+    return;
+  }
+  lastPersisted.set(thread.id, pullRequest.url);
   repository
-    .updateThreadMetadata(thread.id, { ...thread.metadata, forgePrUrl: pullRequest.url })
+    .updateThreadMetadata(thread.id, { forgePrUrl: pullRequest.url })
     .catch((error: unknown) => {
       logger.error('Failed to persist the thread forge PR URL', {
         error,
@@ -153,16 +256,17 @@ function persistForgePrUrl(
 
 function recordTransition(input: {
   readonly event: ForgePrUpdatedEvent;
+  readonly lastPersistedForgePrUrl: Map<string, string>;
   readonly matching: readonly AssistantMemoryThread[];
   readonly pullRequest: ForgePullRequest;
   readonly repository: AssistantThreadRepository | null;
   readonly transition: ForgePrTransition;
 }): void {
-  const { event, matching, pullRequest, repository, transition } = input;
+  const { event, lastPersistedForgePrUrl, matching, pullRequest, repository, transition } = input;
   const copy = describe(transition, pullRequest);
   for (const thread of matching) {
     appendTimelineRow({ copy, event, pullRequest, repository, thread, transition });
-    persistForgePrUrl(repository, thread, pullRequest);
+    persistForgePrUrl(repository, thread, pullRequest, lastPersistedForgePrUrl);
   }
 }
 
@@ -211,7 +315,7 @@ function buildForgeNotification(input: {
 function matchingThreads(
   event: ForgePrUpdatedEvent,
   threads: readonly AssistantMemoryThread[],
-  branchLookup: ThreadBranchLookup
+  branchLookup: ForgeBranchLookup
 ): readonly AssistantMemoryThread[] {
   return threads.filter((thread) => {
     const resolved = lookupThreadBranch(thread, branchLookup);
@@ -219,20 +323,63 @@ function matchingThreads(
   });
 }
 
-function handleForgePrUpdated(event: ForgePrUpdatedEvent, args: UseForgeRunEventsArgs): void {
+/**
+ * `'processed'` — matched at least one thread and recorded every transition.
+ * `'ignored'` — a true non-match (or an empty-transitions/null-PR push): the
+ * branch lookup was ready and had nothing to say.
+ * `'buffered'` — matched nothing, but the branch lookup is NOT ready yet
+ * (BST-1391 M2), so this is NOT a real non-match. The caller must retain the
+ * event and retry it once `isLookupReady` flips true — see the drain effect
+ * in `useForgeRunEvents`.
+ */
+type ForgePushOutcome = 'buffered' | 'ignored' | 'processed';
+
+function handleForgePrUpdated(
+  event: ForgePrUpdatedEvent,
+  args: UseForgeRunEventsArgs,
+  processedTransitionKeys: Set<string>,
+  lastPersistedForgePrUrl: Map<string, string>
+): ForgePushOutcome {
   const { assistantThreadRepository, branchLookup, notifications, threads } = args;
   const { pullRequest, transitions } = event;
   if (transitions.length === 0 || pullRequest === null) {
-    return;
+    return 'ignored';
   }
   const matching = matchingThreads(event, threads, branchLookup);
   if (matching.length === 0) {
-    return;
+    if (!isLookupReady(branchLookup)) {
+      return 'buffered';
+    }
+    // Ready and still no match: an honest non-match, not a silent drop — the
+    // caller is a thread-list scan, not a fallback path, so this is a
+    // routine "no thread works on this branch" outcome and stays at debug.
+    logger.debug(
+      'Forge push matched no thread; the branch lookup is loaded, so this is a true non-match',
+      {
+        branch: event.branch,
+        repoCommonDir: event.repoCommonDir,
+      }
+    );
+    return 'ignored';
   }
-  const observationKey = `${event.repoCommonDir} ${event.branch} ${pullRequest.headSha}`;
+  // `\0`-separated to match the forge-service cache key convention
+  // (`apps/desktop/src/assistant-server/forge-service.ts`'s `cacheKey`) —
+  // BST-1391 L9.
+  const observationKey = `${event.repoCommonDir}\0${event.branch}\0${pullRequest.headSha}`;
   for (const transition of transitions) {
+    const transitionKey = `${observationKey}\0${transition}`;
+    if (processedTransitionKeys.has(transitionKey)) {
+      // Already recorded — either a live push repeated the exact same
+      // observation, or the drain effect is retrying a buffered event that
+      // was already drained. `appendThreadRunEvent` has no coalescing of its
+      // own (unlike the notification dispatcher's `dispatchedKeys`), so this
+      // is what stops a double timeline row (BST-1391 M2).
+      continue;
+    }
+    processedTransitionKeys.add(transitionKey);
     recordTransition({
       event,
+      lastPersistedForgePrUrl,
       matching,
       pullRequest,
       repository: assistantThreadRepository,
@@ -248,6 +395,7 @@ function handleForgePrUpdated(event: ForgePrUpdatedEvent, args: UseForgeRunEvent
       notifications.onForgeEvent(notification);
     }
   }
+  return 'processed';
 }
 
 /**
@@ -267,11 +415,24 @@ function handleForgePrUpdated(event: ForgePrUpdatedEvent, args: UseForgeRunEvent
  * `useThreadBranchByRootPath({ enabled: true })`'s own invalidation-driven
  * refresh keeps the lookup live (see `useGitInventory`'s `deferInitialLoad`
  * doc — a false→true `enabled` transition performs the first real load).
- * The very first push may still arrive before that load resolves and go
- * unmatched; that is the SAME "eventually consistent, chip/pill still show
- * the PR" degrade already accepted for the no-run-timeline-row case above,
- * not a new exception. Deliberately NOT a shared cache across callers — that
- * is future work, not this task's.
+ *
+ * THE COST IS DEFERRED, NOT REMOVED (BST-1391 L7): this only postpones the
+ * FIRST scan until it is provably needed; it does not shrink or dedupe it.
+ * If the Threads panel is ALSO in folder-grouping view when the first push
+ * arrives, that is a SEPARATE `useThreadBranchByRootPath` instance
+ * (`threads-panel.tsx`) — both are already active for their own reasons and
+ * each independently re-scans on the SAME `forge:prUpdated`-driven
+ * invalidation, i.e. the cost can be paid TWICE concurrently rather than
+ * shared. A single cache keyed by inventory generation, shared across every
+ * `useThreadBranchByRootPath` caller, would remove that duplication — that is
+ * future work, not this task's.
+ *
+ * The very first push commonly arrives before the load THIS activation
+ * triggers has resolved, and `matchingThreads` (in `use-forge-run-events.ts`)
+ * necessarily sees empty maps at that instant. `useForgeRunEvents` does NOT
+ * treat that as a non-match: it buffers the push and drains it once
+ * `isLookupReady` reports the load has resolved (BST-1391 M2) — the push
+ * that woke this hook up is not the one exception that goes unmatched.
  */
 export function useForgeBranchLookupActivation(): boolean {
   const bridge = useMemo(() => resolveForgeBridge(), []);
@@ -296,12 +457,60 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
   const latest = useRef(args);
   latest.current = args;
 
+  // Pushes `handleForgePrUpdated` returned `'buffered'` for — matched no
+  // thread while the branch lookup was still loading. Retained rather than
+  // dropped so the push that flips `useForgeBranchLookupActivation` active is
+  // not the one push guaranteed to be lost (BST-1391 M2).
+  const pendingRef = useRef<ForgePrUpdatedEvent[]>([]);
+  // Every `<observationKey>\0<transition>` already recorded, live OR drained.
+  // Shared across both paths so a drain that fires more than once for the
+  // same buffered push cannot double-append a timeline row — see
+  // `handleForgePrUpdated`'s dedupe check.
+  const processedTransitionKeysRef = useRef<Set<string>>(new Set());
+  // The last `forgePrUrl` this hook itself wrote per thread id — see
+  // `persistForgePrUrl`'s doc (BST-1391 L6).
+  const lastPersistedForgePrUrlRef = useRef<Map<string, string>>(new Map());
+
   useEffect(() => {
     if (!bridge) {
       return;
     }
     return bridge.onPrUpdated((event: ForgePrUpdatedEvent) => {
-      handleForgePrUpdated(event, latest.current);
+      const outcome = handleForgePrUpdated(
+        event,
+        latest.current,
+        processedTransitionKeysRef.current,
+        lastPersistedForgePrUrlRef.current
+      );
+      if (outcome === 'buffered') {
+        pendingRef.current = [...pendingRef.current, event];
+      }
     });
   }, [bridge]);
+
+  // Drains buffered pushes once the branch lookup can actually answer them.
+  // Keyed on `branchLookup`'s own identity (a fresh object from the wrapper
+  // every time `useThreadBranchByRootPath` resolves a load), not on a timer
+  // or the thread list, so this fires exactly when there is new information
+  // to retry buffered pushes against — see `isLookupReady`.
+  const { branchLookup } = args;
+  useEffect(() => {
+    if (pendingRef.current.length === 0 || !isLookupReady(branchLookup)) {
+      return;
+    }
+    const draining = pendingRef.current;
+    pendingRef.current = [];
+    for (const event of draining) {
+      // A re-buffer here would be a bug (this effect only runs once
+      // `isLookupReady` is true), but `handleForgePrUpdated` returning
+      // `'buffered'` again is handled the same as any other outcome: the
+      // event is simply not re-queued, so a stuck lookup cannot loop.
+      handleForgePrUpdated(
+        event,
+        latest.current,
+        processedTransitionKeysRef.current,
+        lastPersistedForgePrUrlRef.current
+      );
+    }
+  }, [branchLookup]);
 }

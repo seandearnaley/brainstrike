@@ -46,8 +46,9 @@ export type RunNotificationEvent =
  * deliberately carries no `runId` rather than fabricating one.
  *
  * `observationKey` is the coalescing identity —
- * `<repoCommonDir> <branch> <headSha>` — so re-observing the SAME
- * head never re-notifies, while a new push does.
+ * `<repoCommonDir>\0<branch>\0<headSha>` (the `\0` separator matches
+ * `forge-service.ts`'s own `cacheKey` convention — BST-1391 L9) — so
+ * re-observing the SAME head never re-notifies, while a new push does.
  */
 export interface ForgeNotificationEvent {
   readonly checksOutcome?: 'failing' | 'passing';
