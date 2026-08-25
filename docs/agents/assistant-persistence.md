@@ -851,6 +851,12 @@ handle (BST-972 A1/A2) — and all gated on `if (runId)`):
 | `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
 | `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | `to_regclass` probe → `runsTableMissing: true`, no-op |
 
+Run-critical desktop reads and event writes use the existing foreground `DatabaseWorkScheduler`
+lane. A run-scoped `mastra_workflow_snapshot` SELECT and same-id event upsert may retry once for
+typed, non-terminating host saturation. Snapshot retries emit `run.database.retried`; event retries
+stamp sanitized `metadata.databaseRetry`. Serial host ordering plus same-id upsert prevents duplication
+after late completion. Retries are logged; arbitrary, wedged, terminating, and exhausted failures remain typed.
+
 **`duration_ms` is an INTEGER column, and durations are rounded at the
 PRODUCER.** The guard wrapper measures tool execution with `performance.now()`,
 whose deltas are fractional; forwarding the raw float made every stamped
