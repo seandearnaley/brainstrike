@@ -100,5 +100,7 @@ export {
   type WorkspaceBarRecentRoot,
   type WorkspaceBarReveal,
   type WorkspaceBarRoot,
+  type WorkspaceBarWorktreeOption,
+  type WorkspaceBarWorktreePicker,
   type WorkspaceBarWorktreeSummary,
 } from './workspace-bar/workspace-bar';

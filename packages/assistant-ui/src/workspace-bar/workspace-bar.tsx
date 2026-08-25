@@ -48,6 +48,30 @@ export interface WorkspaceBarWorktreeSummary {
   readonly worktreeId: string;
 }
 
+export interface WorkspaceBarWorktreeOption {
+  readonly branch: string | null;
+  readonly current: boolean;
+  readonly disabledReason: string | null;
+  readonly externalTool: 'claude-code' | 'codex' | 'cursor' | null;
+  readonly managed: boolean;
+  readonly name: string;
+  readonly path: string;
+  readonly remedy: 'grant-access' | null;
+  readonly repositoryName: string;
+  readonly usable: boolean;
+  readonly worktreeId: string | null;
+}
+
+export interface WorkspaceBarWorktreePicker {
+  readonly error: string | null;
+  readonly loading: boolean;
+  readonly onGrantAccess: (() => void) | undefined;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onSelect: (option: WorkspaceBarWorktreeOption) => void;
+  readonly open: boolean;
+  readonly options: readonly WorkspaceBarWorktreeOption[];
+}
+
 export interface WorkspaceBarCreateWorktreeRequest {
   readonly baseRef: string;
   readonly branch: { readonly detached: true } | { readonly name: string };
@@ -74,9 +98,11 @@ export interface WorkspaceBarMode {
   readonly onCreate: (request: WorkspaceBarCreateWorktreeRequest) => Promise<void>;
   readonly onCreateBranchHere: ((branch: string) => void) | undefined;
   readonly onHandOffToLocal: (() => void) | undefined;
+  /** Asks the caller to open the controlled "Use an existing worktree…" picker. */
   readonly onOpenPicker: () => void;
   readonly onReveal: (() => void) | undefined;
   readonly pending: boolean;
+  readonly picker: WorkspaceBarWorktreePicker;
   readonly setupSummary: string;
   readonly worktree: WorkspaceBarWorktreeSummary | null;
 }

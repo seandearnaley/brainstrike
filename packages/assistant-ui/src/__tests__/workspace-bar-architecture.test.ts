@@ -31,17 +31,19 @@ describe('WorkspaceBar architecture', () => {
     );
   });
 
-  it('keeps the create dialog lexically inside ModeChip JSX', () => {
+  it('keeps the worktree dialogs lexically inside ModeChip JSX', () => {
     const source = readSource('workspace-bar/mode-chip.tsx');
     const modeChipStart = source.indexOf('export const ModeChip');
     const displayNameStart = source.indexOf('ModeChip.displayName');
     expect(modeChipStart).toBeGreaterThan(-1);
     expect(displayNameStart).toBeGreaterThan(modeChipStart);
     expect(source.slice(modeChipStart, displayNameStart)).toContain('<WorktreeCreateDialog');
+    expect(source.slice(modeChipStart, displayNameStart)).toContain('<WorktreePickerDialog');
   });
 
   it('hides the mode chip when the platform omits the capability', () => {
     render(createElement(WorkspaceBar, baseBarProps));
     expect(screen.queryByTestId('workspace-bar-mode-chip')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('worktree-picker-dialog')).not.toBeInTheDocument();
   });
 });

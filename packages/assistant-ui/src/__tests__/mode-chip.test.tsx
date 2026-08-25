@@ -34,6 +34,15 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   onOpenPicker: vi.fn(),
   onReveal: vi.fn(),
   pending: false,
+  picker: {
+    error: null,
+    loading: false,
+    onGrantAccess: undefined,
+    onOpenChange: vi.fn(),
+    onSelect: vi.fn(),
+    open: false,
+    options: [],
+  },
   setupSummary: '.worktreeinclude: 1 pattern · setup script: present',
   worktree: null,
   ...overrides,
@@ -53,18 +62,21 @@ const interactiveWorktreeMode = () => {
   const onArchive = vi.fn<() => void>();
   const onCreateBranchHere = vi.fn<(branch: string) => void>();
   const onHandOffToLocal = vi.fn<() => void>();
+  const onOpenPicker = vi.fn<() => void>();
   const onReveal = vi.fn<() => void>();
   return {
     mode: mode({
       onArchive,
       onCreateBranchHere,
       onHandOffToLocal,
+      onOpenPicker,
       onReveal,
       worktree,
     }),
     onArchive,
     onCreateBranchHere,
     onHandOffToLocal,
+    onOpenPicker,
     onReveal,
   };
 };
@@ -378,8 +390,20 @@ describe('ModeChip', () => {
     expect(screen.getByTestId('workspace-bar-mode-archive')).toBeVisible();
     // "Open in Terminal" is deferred to W6 — ABSENT, never a disabled stub.
     expect(screen.queryByTestId('workspace-bar-mode-open-terminal')).toBeNull();
-    // L1 tripwire: the reserved picker callback is intentionally not wired yet.
-    expect(screen.queryByTestId('workspace-bar-mode-pick-worktree')).toBeNull();
+    expect(screen.getByTestId('workspace-bar-mode-pick-worktree')).toBeVisible();
+  });
+
+  it('wires Use existing worktree only to its own handler', async () => {
+    const user = setup();
+    const value = interactiveWorktreeMode();
+    render(<WorkspaceBar {...baseBarProps} mode={value.mode} />);
+    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-pick-worktree'));
+    expect(value.onOpenPicker).toHaveBeenCalledTimes(1);
+    expect(value.onArchive).not.toHaveBeenCalled();
+    expect(value.onCreateBranchHere).not.toHaveBeenCalled();
+    expect(value.onHandOffToLocal).not.toHaveBeenCalled();
+    expect(value.onReveal).not.toHaveBeenCalled();
   });
 
   it('wires Hand off to Local only to its own handler', async () => {

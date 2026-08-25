@@ -6,10 +6,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@brainstrike/ui';
-import { Archive, ChevronDown, FolderOpen, GitBranchPlus, Home, Layers, Plus } from 'lucide-react';
+import {
+  Archive,
+  ChevronDown,
+  FolderOpen,
+  FolderSearch,
+  GitBranchPlus,
+  Home,
+  Layers,
+  Plus,
+} from 'lucide-react';
 import { type ReactElement, useState } from 'react';
 import type { WorkspaceBarMode, WorkspaceBarWorktreeSummary } from './workspace-bar';
 import { WorktreeCreateDialog } from './worktree-create-dialog';
+import { WorktreePickerDialog } from './worktree-picker-dialog';
 
 const CHIP_CLASSES =
   'inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 text-[11px] text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60';
@@ -151,12 +161,9 @@ const DiagnosticOnlyModeChip = ({
  * there is no environment story to explain, and the omit-don't-stub convention
  * applies to a mode exactly as it does to a bridge.
  *
- * The create dialog lives INSIDE this component's JSX because dialog nesting
- * depth is LEXICAL (`ui-conventions.md`): hoisting it would drop it to tier 1
- * and paint its scrim under the chip's own popup.
- *
- * `mode.onOpenPicker` is reserved for a follow-up task's "Use an existing
- * worktree…" picker and is intentionally not wired to a menu item yet.
+ * The create and picker dialogs live INSIDE this component's JSX because
+ * dialog nesting depth is LEXICAL (`ui-conventions.md`): hoisting either one
+ * would drop it to tier 1 and paint its scrim under the chip's own popup.
  */
 export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactElement => {
   const [createOpen, setCreateOpen] = useState(false);
@@ -199,6 +206,14 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
           <ModeMenuBody mode={mode} />
           <DropdownMenuSeparator />
           <DropdownMenuItem
+            data-testid="workspace-bar-mode-pick-worktree"
+            disabled={mode.pending}
+            onSelect={mode.onOpenPicker}
+          >
+            <FolderSearch aria-hidden="true" className="size-3.5" />
+            Use existing worktree…
+          </DropdownMenuItem>
+          <DropdownMenuItem
             className="items-start"
             data-testid="workspace-bar-mode-new-worktree"
             disabled={mode.pending || mode.createDisabledReason !== null}
@@ -222,6 +237,7 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
       {createOpen ? (
         <WorktreeCreateDialog mode={mode} onOpenChange={setCreateOpen} open={createOpen} />
       ) : null}
+      <WorktreePickerDialog picker={mode.picker} />
     </>
   );
 };

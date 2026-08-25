@@ -148,6 +148,8 @@ describe('assistant UI panel architecture', () => {
       'type WorkspaceBarRecentRoot,',
       'type WorkspaceBarReveal,',
       'type WorkspaceBarRoot,',
+      'type WorkspaceBarWorktreeOption,',
+      'type WorkspaceBarWorktreePicker,',
       'type WorkspaceBarWorktreeSummary,',
     ]) {
       expect(indexSource).toContain(exported);
