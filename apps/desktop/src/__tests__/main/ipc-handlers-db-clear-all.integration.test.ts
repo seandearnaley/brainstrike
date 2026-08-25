@@ -65,6 +65,8 @@ const PRESENT_RELATIONS = [
   'brainstrike_diagnostic_events',
   // Forge PR cache (migration 110, BST-1391).
   'brainstrike_forge_prs',
+  // Managed-worktree ledger (migration 109, BST-1390).
+  'brainstrike_worktrees',
   'brainstrike_mind_ops',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',

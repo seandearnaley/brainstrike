@@ -85,6 +85,14 @@ export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number]
 
 // biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
+  /** Last observed branch of the thread's checkout. Display only — live from git. */
+  readonly checkoutBranch?: string;
+  /** Where this thread works: the folder's own checkout, or an isolated worktree. */
+  readonly checkoutMode?: 'local' | 'worktree';
+  /** `brainstrike_worktrees.id` — the AUTHORITY when `checkoutMode === 'worktree'`. */
+  readonly checkoutWorktreeId?: string;
+  /** Absolute worktree path retained for tooltips; never used as authority. */
+  readonly checkoutWorktreePath?: string;
   readonly color?: AssistantThreadColorId;
   readonly icon?: AssistantThreadIconId;
   /**
@@ -1335,6 +1343,10 @@ const assistantThreadSchemaInitPromises = new WeakMap<DbHandle, Promise<void>>()
 const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
 const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
+  'checkoutBranch',
+  'checkoutMode',
+  'checkoutWorktreeId',
+  'checkoutWorktreePath',
   'color',
   'forgePrUrl',
   'forgePrWatch',
@@ -1592,11 +1604,93 @@ function assertCompleteOperatingRootMetadata(metadata: {
   }
 }
 
+const CHECKOUT_MODES = new Set(['local', 'worktree']);
+
+function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== 'string' || !CHECKOUT_MODES.has(value)) {
+    throw new Error('Invalid assistant thread metadata checkout mode.');
+  }
+  return value as 'local' | 'worktree';
+}
+
+/**
+ * All-or-nothing validation for the thread's checkout, mirroring
+ * `assertCompleteOperatingRootMetadata`.
+ *
+ * `checkoutWorktreeId` is the AUTHORITY in worktree mode (exactly like
+ * `operatingRootId` is for the folder binding) and `checkoutWorktreePath` is
+ * the display hint the chip's tooltip renders, so a worktree checkout needs
+ * both: an id with no path renders a chip with nothing to show, and a path
+ * with no id has no durable identity to resolve. A LOCAL checkout carrying
+ * either is not "mostly right" — it is two contradictory statements about
+ * where the thread works, and it is rejected rather than silently pruned.
+ *
+ * CAUTION for writers: `updateThreadMetadata` merges patches via JSONB `||`
+ * and validates the PATCH, not the merged row. Switching a worktree thread
+ * back to local by patching only `{ checkoutMode: 'local' }` leaves the old
+ * worktree keys in the stored row, which this assert then rejects on every
+ * read — bricking that thread's hydration. A worktree→local transition MUST
+ * remove `checkoutWorktreeId`/`checkoutWorktreePath` in the same update
+ * (the checkout-wiring layer's key-removal support exists for exactly this).
+ */
+function assertCompleteCheckoutMetadata(metadata: {
+  readonly checkoutBranch?: string | undefined;
+  readonly checkoutMode?: 'local' | 'worktree' | undefined;
+  readonly checkoutWorktreeId?: string | undefined;
+  readonly checkoutWorktreePath?: string | undefined;
+}): void {
+  const hasAnyCheckoutMetadata = Boolean(
+    metadata.checkoutBranch ||
+      metadata.checkoutMode ||
+      metadata.checkoutWorktreeId ||
+      metadata.checkoutWorktreePath
+  );
+  if (!hasAnyCheckoutMetadata) {
+    return;
+  }
+  if (!metadata.checkoutMode) {
+    throw new Error('Assistant thread checkout metadata is incomplete.');
+  }
+  if (metadata.checkoutMode === 'worktree') {
+    if (!(metadata.checkoutWorktreeId && metadata.checkoutWorktreePath)) {
+      throw new Error('Assistant thread checkout metadata is incomplete.');
+    }
+    return;
+  }
+  if (metadata.checkoutWorktreeId || metadata.checkoutWorktreePath) {
+    throw new Error('Assistant thread checkout metadata is inconsistent.');
+  }
+}
+
+function sanitizeCheckoutMetadata(
+  value: Record<string, unknown>
+): Pick<
+  AssistantThreadMetadata,
+  'checkoutBranch' | 'checkoutMode' | 'checkoutWorktreeId' | 'checkoutWorktreePath'
+> {
+  const checkoutMode = optionalCheckoutMode(value['checkoutMode']);
+  const checkoutWorktreeId = optionalString(value['checkoutWorktreeId']);
+  const checkoutWorktreePath = optionalString(value['checkoutWorktreePath']);
+  const checkoutBranch = optionalString(value['checkoutBranch']);
+  const checkoutMetadata = {
+    ...(checkoutBranch ? { checkoutBranch } : {}),
+    ...(checkoutMode ? { checkoutMode } : {}),
+    ...(checkoutWorktreeId ? { checkoutWorktreeId } : {}),
+    ...(checkoutWorktreePath ? { checkoutWorktreePath } : {}),
+  };
+  assertCompleteCheckoutMetadata(checkoutMetadata);
+  return checkoutMetadata;
+}
+
 function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undefined {
   if (!isRecord(value)) {
     return;
   }
   const metadata: MutableAssistantThreadMetadata = {};
+  Object.assign(metadata, sanitizeCheckoutMetadata(value));
   const icon = optionalThreadIconId(value['icon']);
   const color = optionalThreadColorId(value['color']);
   const forgePrUrl = optionalString(value['forgePrUrl']);
@@ -1686,6 +1780,11 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   if (metadata.color !== undefined && !ASSISTANT_THREAD_COLOR_ID_SET.has(metadata.color)) {
     throw new Error('Invalid assistant thread metadata color.');
   }
+  optionalCheckoutMode(metadata.checkoutMode);
+  assertCompleteCheckoutMetadata(metadata);
+  assertOptionalThreadMetadataString(metadata.checkoutBranch, 'checkout branch');
+  assertOptionalThreadMetadataString(metadata.checkoutWorktreeId, 'checkout worktree id');
+  assertOptionalThreadMetadataString(metadata.checkoutWorktreePath, 'checkout worktree path');
   assertOptionalThreadMetadataString(metadata.forgePrUrl, 'forge pull request URL');
   if (metadata.forgePrWatch !== undefined && typeof metadata.forgePrWatch !== 'boolean') {
     throw new Error('Invalid assistant thread metadata forge watch flag.');

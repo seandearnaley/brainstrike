@@ -3323,6 +3323,94 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     });
   });
 
+  it('persists and reloads a worktree checkout', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-worktree-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await repository.updateThreadMetadata(thread.id, {
+      checkoutBranch: 'bs/bright-fox',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/repo/bright-fox',
+    });
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata).toMatchObject({
+      checkoutBranch: 'bs/bright-fox',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/repo/bright-fox',
+    });
+  });
+
+  it('persists a local checkout with no worktree keys', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-local-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await repository.updateThreadMetadata(thread.id, { checkoutMode: 'local' });
+
+    const [reloaded] = await repository.listThreads('r');
+    expect(reloaded?.metadata?.checkoutMode).toBe('local');
+    expect(reloaded?.metadata?.checkoutWorktreeId).toBeUndefined();
+  });
+
+  it('rejects a worktree checkout missing its authority id', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-incomplete-worktree-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutMode: 'worktree',
+        checkoutWorktreePath: '/managed/repo/bright-fox',
+      })
+    ).rejects.toThrow('Assistant thread checkout metadata is incomplete.');
+  });
+
+  it('rejects a worktree id with no mode', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-modeless-worktree-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, { checkoutWorktreeId: 'w-1' })
+    ).rejects.toThrow('Assistant thread checkout metadata is incomplete.');
+  });
+
+  it('rejects a local checkout that still carries worktree keys', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-inconsistent-local-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutMode: 'local',
+        checkoutWorktreeId: 'w-1',
+        checkoutWorktreePath: '/managed/repo/bright-fox',
+      })
+    ).rejects.toThrow('Assistant thread checkout metadata is inconsistent.');
+  });
+
+  it('rejects an unknown checkout mode rather than coercing it', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-unknown-checkout');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('r');
+
+    await expect(
+      repository.updateThreadMetadata(thread.id, {
+        checkoutMode: 'cloud' as unknown as 'local',
+      })
+    ).rejects.toThrow('Invalid assistant thread metadata checkout mode.');
+  });
+
   it('persists carousel topology before Mastra content and hydrates the selected edit branch', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-message-carousel-topology');
     const db = await wasmLoader.createPGlite(pgliteDataDir);

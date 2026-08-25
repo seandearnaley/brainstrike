@@ -535,6 +535,30 @@ renders instantly on boot and offline; the composer's live status instead
 reads the capability-gated `window.forge` bridge, which is the only surface
 that needs the transient in-flight/error state this table does not carry.
 
+## MANAGED WORKTREE LEDGER (migration 109, BST-1390)
+
+`brainstrike_worktrees` records every linked git worktree BrainStrike itself
+created (`created_by IN ('agent','user')`), keyed by its `path` (UNIQUE) and
+its realpath'd `repo_common_dir`. It is the authorization source for the ONE
+sanctioned picker-less root mount besides recents (`isManagedWorktreePath`,
+`workspace-recent-roots.ts`) and the provenance source the git inventory joins
+to produce `'both'` / `'agent-reported'`.
+
+Deliberate omissions, all load-bearing:
+
+- **No `root_id`.** The durable `roots.id` is derived by path from the live
+  `roots` table in `WorktreeService.list`; a stored copy goes stale the moment
+  the folder is disconnected.
+- **No foreign keys, and NOT in `THREAD_DELETE_SIDECAR_TABLES`.** A worktree
+  outlives its thread on purpose — cascading it would orphan a directory of
+  uncommitted work. Thread delete offers "also archive its worktree" instead.
+- **Not mirrored in `buildAssistantThreadRunsSchemaSql`.** That mirror exists
+  only for registered thread-delete sidecars.
+
+Registered in both runners and in `BRAINSTRIKE_RESET_TABLES`. Factory reset
+clears the ROWS; deleting the worktree DIRECTORIES is a separate, explicitly
+confirmed step (see `platform-contracts.md`).
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

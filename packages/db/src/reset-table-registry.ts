@@ -103,6 +103,11 @@ const BRAINSTRIKE_RESET_TABLES = [
   // factory reset) and are unreachable from web, where these rows would
   // otherwise dangle forever.
   'brainstrike_workspace_snapshots',
+  // Managed-worktree ledger (migration 109, BST-1390). The ROWS are cleared;
+  // the worktree DIRECTORIES on disk are a separate, explicitly-confirmed step
+  // in factory reset (see platform-contracts.md) — a reset must never silently
+  // delete a folder full of the user's uncommitted work.
+  'brainstrike_worktrees',
 ] as const;
 
 /** Indexing/workspace data owned by the Drizzle schema. */
@@ -173,7 +178,7 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
   ];
 }
 
-/** The full 38-relation reset set (23 Brainstrike + 9 core + the Mastra six). */
+/** The full 39-relation reset set (24 Brainstrike + 9 core + the Mastra six). */
 export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }

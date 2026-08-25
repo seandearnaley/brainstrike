@@ -946,6 +946,7 @@ export function registerDatabaseIpcHandlers(
             await clearOptionalRelation(tx, 'brainstrike_diagnostic_events');
             // Forge PR cache (migration 110, BST-1391): FK-less, main-written.
             await clearOptionalRelation(tx, 'brainstrike_forge_prs');
+            await clearOptionalRelation(tx, 'brainstrike_worktrees');
             // Mind op-log (migration 079, BST-993): tombstones for data this
             // clear just destroyed must not survive onto the fresh database.
             await clearOptionalRelation(tx, 'brainstrike_mind_ops');
