@@ -94,8 +94,11 @@ export {
   type WorkspaceBarBranchMenu,
   type WorkspaceBarBranchRow,
   type WorkspaceBarCheckout,
+  type WorkspaceBarCreateWorktreeRequest,
+  type WorkspaceBarMode,
   type WorkspaceBarProps,
   type WorkspaceBarRecentRoot,
   type WorkspaceBarReveal,
   type WorkspaceBarRoot,
+  type WorkspaceBarWorktreeSummary,
 } from './workspace-bar/workspace-bar';

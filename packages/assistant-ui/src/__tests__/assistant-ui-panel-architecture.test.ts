@@ -142,10 +142,13 @@ describe('assistant UI panel architecture', () => {
       'type WorkspaceBarBranchMenu,',
       'type WorkspaceBarBranchRow,',
       'type WorkspaceBarCheckout,',
+      'type WorkspaceBarCreateWorktreeRequest,',
+      'type WorkspaceBarMode,',
       'type WorkspaceBarProps,',
       'type WorkspaceBarRecentRoot,',
       'type WorkspaceBarReveal,',
       'type WorkspaceBarRoot,',
+      'type WorkspaceBarWorktreeSummary,',
     ]) {
       expect(indexSource).toContain(exported);
     }

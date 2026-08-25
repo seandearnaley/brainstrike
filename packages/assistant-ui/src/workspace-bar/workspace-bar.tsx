@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { BranchChip } from './branch-chip';
 import { FolderChip } from './folder-chip';
+import { ModeChip } from './mode-chip';
 import { PrChip, type WorkspaceBarForge } from './pr-chip';
 
 /** A folder mounted in this thread's workspace (primary or secondary). */
@@ -35,6 +36,43 @@ export interface WorkspaceBarCheckout {
   /** null = detached HEAD */
   readonly branch: string | null;
   readonly dirty: boolean;
+}
+
+export interface WorkspaceBarWorktreeSummary {
+  readonly branch: string | null;
+  readonly detached: boolean;
+  readonly name: string;
+  readonly path: string;
+  readonly setupReason: string | null;
+  readonly setupStatus: 'failed' | 'none' | 'skipped' | 'succeeded';
+  readonly worktreeId: string;
+}
+
+export interface WorkspaceBarCreateWorktreeRequest {
+  readonly baseRef: string;
+  readonly branch: { readonly detached: true } | { readonly name: string };
+  readonly name: string;
+}
+
+export interface WorkspaceBarMode {
+  /** Base refs the create sheet offers, most useful first. */
+  readonly baseRefs: readonly { readonly label: string; readonly value: string }[];
+  readonly defaultBranchPrefix: string;
+  readonly defaultName: string;
+  /** Non-null ⇒ the chip is DISABLED and says why (spec §4.5). */
+  readonly disabledReason: string | null;
+  readonly localPath: string | null;
+  /** Resolved `<managedDirectory>/<slug>/<name>` preview shown in the create sheet's Location block. */
+  readonly managedTargetPath: string;
+  readonly onArchive: (() => void) | undefined;
+  readonly onCreate: (request: WorkspaceBarCreateWorktreeRequest) => Promise<void>;
+  readonly onCreateBranchHere: ((branch: string) => void) | undefined;
+  readonly onHandOffToLocal: (() => void) | undefined;
+  readonly onOpenPicker: () => void;
+  readonly onReveal: (() => void) | undefined;
+  readonly pending: boolean;
+  readonly setupSummary: string;
+  readonly worktree: WorkspaceBarWorktreeSummary | null;
 }
 
 /** One local branch row, already gated by app-shell's `buildBranchSwitchModel`. */
@@ -84,6 +122,8 @@ export interface WorkspaceBarProps {
    * reason on the BranchChip instead.
    */
   readonly forge?: WorkspaceBarForge | undefined;
+  /** Desktop only — Local / Worktree selection [D1]. Absent ⇒ no chip. */
+  readonly mode?: WorkspaceBarMode | undefined;
   readonly onAddFolder: () => void;
   /** Present only when the platform can re-mount a recent folder without a picker (desktop). */
   readonly onAddRecent?: ((path: string) => void) | undefined;
@@ -140,6 +180,7 @@ export const WorkspaceBar = ({
   branchMenu,
   checkout,
   forge,
+  mode,
   ...folder
 }: WorkspaceBarProps): ReactElement => {
   const forgeDiagnostic = forgeDiagnosticOf(forge);
@@ -157,6 +198,7 @@ export const WorkspaceBar = ({
         />
       ) : null}
       {forge ? <PrChip forge={forge} /> : null}
+      {mode ? <ModeChip mode={mode} /> : null}
     </div>
   );
 };
