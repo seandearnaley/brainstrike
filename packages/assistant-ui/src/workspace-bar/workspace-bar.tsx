@@ -54,16 +54,22 @@ export interface WorkspaceBarCreateWorktreeRequest {
   readonly name: string;
 }
 
+interface WorkspaceBarBaseRefOption {
+  readonly label: string;
+  readonly value: string;
+}
+
 export interface WorkspaceBarMode {
   /** Base refs the create sheet offers, most useful first. */
-  readonly baseRefs: readonly { readonly label: string; readonly value: string }[];
+  readonly baseRefs: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOption[]];
+  readonly createDisabledReason: string | null;
   readonly defaultBranchPrefix: string;
   readonly defaultName: string;
-  /** Non-null ⇒ the chip is DISABLED and says why (spec §4.5). */
+  /** Non-null ⇒ the chip opens a diagnostic-only menu that says why (spec §4.5). */
   readonly disabledReason: string | null;
   readonly localPath: string | null;
-  /** Resolved `<managedDirectory>/<slug>/<name>` preview shown in the create sheet's Location block. */
-  readonly managedTargetPath: string;
+  /** Resolved `<managedDirectory>/<slug>` parent used for the create sheet's live Location preview. */
+  readonly managedParentPath: string;
   readonly onArchive: (() => void) | undefined;
   readonly onCreate: (request: WorkspaceBarCreateWorktreeRequest) => Promise<void>;
   readonly onCreateBranchHere: ((branch: string) => void) | undefined;

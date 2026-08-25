@@ -24,6 +24,20 @@ export interface WorktreeCreateDialogProps {
   readonly open: boolean;
 }
 
+const worktreeNameError = (name: string): string | null => {
+  const trimmedName = name.trim();
+  if (
+    trimmedName.length === 0 ||
+    trimmedName === '.' ||
+    trimmedName === '..' ||
+    trimmedName.includes('/') ||
+    trimmedName.includes('\\')
+  ) {
+    return 'Worktree name must be a single path segment.';
+  }
+  return null;
+};
+
 /**
  * The create sheet from spec §4.3: Start from · Branch (auto `bs/<name>`,
  * editable, or detached [D2]) · Location (read-only) · Setup summary ·
@@ -45,18 +59,23 @@ export function WorktreeCreateDialog({
   const [name, setName] = useState(mode.defaultName);
   const [branch, setBranch] = useState(`${mode.defaultBranchPrefix}${mode.defaultName}`);
   const [detached, setDetached] = useState(false);
-  const [baseRef, setBaseRef] = useState(mode.baseRefs[0]?.value ?? 'HEAD');
+  const [baseRef, setBaseRef] = useState(mode.baseRefs[0].value);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const trimmedName = name.trim();
+  const nameError = worktreeNameError(name);
 
   const submit = (): void => {
+    if (nameError || mode.pending || submitting) {
+      return;
+    }
     setSubmitting(true);
     setError(null);
     mode
       .onCreate({
         baseRef,
         branch: detached ? { detached: true } : { name: branch.trim() },
-        name: name.trim(),
+        name: trimmedName,
       })
       .then(() => {
         onOpenChange(false);
@@ -97,11 +116,20 @@ export function WorktreeCreateDialog({
           <div className="space-y-2">
             <Label htmlFor="worktree-name">Folder name</Label>
             <Input
+              aria-invalid={nameError !== null}
               data-testid="worktree-create-name"
               id="worktree-name"
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setError(null);
+                setName(event.target.value);
+              }}
               value={name}
             />
+            {nameError ? (
+              <p className="text-destructive text-xs" data-testid="worktree-create-name-error">
+                {nameError}
+              </p>
+            ) : null}
           </div>
           <div className="flex items-center justify-between gap-3">
             <Label className="font-normal text-sm" htmlFor="worktree-detached">
@@ -120,7 +148,10 @@ export function WorktreeCreateDialog({
               <Input
                 data-testid="worktree-create-branch"
                 id="worktree-branch"
-                onChange={(event) => setBranch(event.target.value)}
+                onChange={(event) => {
+                  setBranch(event.target.value);
+                  setError(null);
+                }}
                 value={branch}
               />
             </div>
@@ -131,7 +162,7 @@ export function WorktreeCreateDialog({
               className="break-all font-mono text-muted-foreground text-xs"
               data-testid="worktree-create-location"
             >
-              {mode.managedTargetPath}
+              {`${mode.managedParentPath}/${trimmedName || mode.defaultName}`}
             </p>
             <p className="text-muted-foreground text-xs">
               Change the location in Settings → Workspace.
@@ -145,9 +176,22 @@ export function WorktreeCreateDialog({
             >
               {mode.setupSummary}
             </p>
+            <p className="text-muted-foreground text-xs" data-testid="worktree-create-setup-note">
+              A setup command from this repository or your Settings runs after creation, and files
+              listed in .worktreeinclude — including gitignored ones — are copied in.
+            </p>
           </div>
+          {mode.pending ? (
+            <p className="text-muted-foreground text-xs" data-testid="worktree-create-pending">
+              Worktree operation in progress.
+            </p>
+          ) : null}
           {error ? (
-            <p className="text-destructive text-sm" data-testid="worktree-create-error">
+            <p
+              className="text-destructive text-sm"
+              data-testid="worktree-create-error"
+              role="alert"
+            >
               {error}
             </p>
           ) : null}
@@ -158,11 +202,11 @@ export function WorktreeCreateDialog({
           </Button>
           <Button
             data-testid="worktree-create-submit"
-            disabled={submitting || mode.pending || name.trim().length === 0}
+            disabled={submitting || mode.pending || nameError !== null}
             onClick={submit}
             type="button"
           >
-            Create &amp; use
+            {submitting ? 'Creating…' : 'Create & use'}
           </Button>
         </DialogFooter>
       </DialogContent>
