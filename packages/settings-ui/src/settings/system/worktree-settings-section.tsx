@@ -31,11 +31,6 @@ export function WorktreeSettingsSection({
   settings,
   status,
 }: WorktreeSettingsSectionProps): ReactElement {
-  const [directory, setDirectory] = useState(settings?.managedDirectory ?? '');
-  const [command, setCommand] = useState((settings?.setupCommand ?? []).join(' '));
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
   if (status.kind === 'unavailable') {
     return (
       <p className="text-muted-foreground text-sm" data-testid="worktree-settings-unavailable">
@@ -54,6 +49,21 @@ export function WorktreeSettingsSection({
       </p>
     );
   }
+
+  return <WorktreeSettingsForm onSave={onSave} settings={settings} />;
+}
+
+function WorktreeSettingsForm({
+  onSave,
+  settings,
+}: {
+  readonly onSave: WorktreeSettingsSectionProps['onSave'];
+  readonly settings: WorktreeSettings;
+}): ReactElement {
+  const [directory, setDirectory] = useState(settings.managedDirectory);
+  const [command, setCommand] = useState((settings.setupCommand ?? []).join(' '));
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const save = (next: {
     readonly managedDirectory: string | null;
@@ -92,7 +102,7 @@ export function WorktreeSettingsSection({
         <p className="text-muted-foreground text-xs">
           Worktrees BrainStrike creates live under this folder. It must sit outside every connected
           workspace folder — an in-folder location would be indexed and watched as part of that
-          folder.
+          folder. Leave this field empty to use the default location.
         </p>
       </div>
       <div className="space-y-2">
@@ -111,7 +121,7 @@ export function WorktreeSettingsSection({
         </p>
       </div>
       {saveError ? (
-        <p className="text-destructive text-sm" data-testid="worktree-settings-error">
+        <p className="text-destructive text-sm" data-testid="worktree-settings-error" role="alert">
           {saveError}
         </p>
       ) : null}

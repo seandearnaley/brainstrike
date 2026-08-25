@@ -1,9 +1,8 @@
-import type { WorktreeSettings } from '@brainstrike/types';
 import { ThemeSettings } from '@brainstrike/ui';
 import {
   Bot,
   Cpu,
-  GitBranch,
+  FolderTree,
   Palette,
   Search,
   Settings,
@@ -23,7 +22,7 @@ import { SubagentPersonasSettingsSection } from './settings/system/subagent-pers
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 import {
   WorktreeSettingsSection,
-  type WorktreeSettingsStatus,
+  type WorktreeSettingsSectionProps,
 } from './settings/system/worktree-settings-section';
 import type { SettingsCategory } from './settings-page-content';
 
@@ -90,12 +89,9 @@ export function createFactoryResetSettingsCategory(
 }
 
 export interface CreateWorkspaceSettingsCategoryOptions {
-  readonly onSave: (next: {
-    readonly managedDirectory: string | null;
-    readonly setupCommand: readonly string[] | null;
-  }) => Promise<void>;
-  readonly settings: WorktreeSettings | null;
-  readonly status: WorktreeSettingsStatus;
+  readonly onSave: WorktreeSettingsSectionProps['onSave'];
+  readonly settings: WorktreeSettingsSectionProps['settings'];
+  readonly status: WorktreeSettingsSectionProps['status'];
 }
 
 export function createWorkspaceSettingsCategory(
@@ -111,7 +107,7 @@ export function createWorkspaceSettingsCategory(
     ),
     description:
       'Choose where BrainStrike creates managed worktrees, and set an optional per-worktree setup command.',
-    icon: GitBranch,
+    icon: FolderTree,
     id: 'workspace',
     keywords: ['worktree', 'worktrees', 'managed directory', 'workspace', 'git', 'setup command'],
     title: 'Workspace',

@@ -1,7 +1,7 @@
 import { resolveWorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
 import type { WorktreeSettingsStatus } from '@brainstrike/settings-ui/settings/system/worktree-settings-section';
 import type { WorktreeSettings } from '@brainstrike/types';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export interface UseWorktreeSettingsResult {
   readonly save: (next: {
@@ -20,13 +20,14 @@ export interface UseWorktreeSettingsResult {
  * contract.
  */
 export function useWorktreeSettings(): UseWorktreeSettingsResult {
+  const bridge = useMemo(() => resolveWorktreesBridge(), []);
   const [settings, setSettings] = useState<WorktreeSettings | null>(null);
-  const [status, setStatus] = useState<WorktreeSettingsStatus>({ kind: 'loading' });
+  const [status, setStatus] = useState<WorktreeSettingsStatus>(
+    bridge ? { kind: 'loading' } : { kind: 'unavailable' }
+  );
 
   useEffect(() => {
-    const bridge = resolveWorktreesBridge();
     if (!bridge) {
-      setStatus({ kind: 'unavailable' });
       return;
     }
     let cancelled = false;
@@ -55,14 +56,13 @@ export function useWorktreeSettings(): UseWorktreeSettingsResult {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bridge]);
 
   const save = useCallback(
     async (next: {
       readonly managedDirectory: string | null;
       readonly setupCommand: readonly string[] | null;
     }): Promise<void> => {
-      const bridge = resolveWorktreesBridge();
       if (!bridge) {
         throw new Error('Worktrees are a desktop feature. This build has no worktree bridge.');
       }
@@ -72,7 +72,7 @@ export function useWorktreeSettings(): UseWorktreeSettingsResult {
       }
       setSettings(result.value);
     },
-    []
+    [bridge]
   );
 
   return { save, settings, status };

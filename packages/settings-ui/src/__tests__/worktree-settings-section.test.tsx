@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -42,6 +42,20 @@ describe('WorktreeSettingsSection', () => {
       '/home/me/.brainstrike/worktrees'
     );
     expect(screen.getByTestId('worktree-settings-default-badge')).toBeVisible();
+  });
+
+  it('shows the resolved directory after loading completes', () => {
+    const { rerender } = render(
+      <WorktreeSettingsSection onSave={vi.fn()} settings={null} status={{ kind: 'loading' }} />
+    );
+
+    rerender(
+      <WorktreeSettingsSection onSave={vi.fn()} settings={SETTINGS} status={{ kind: 'ready' }} />
+    );
+
+    expect(screen.getByTestId('worktree-settings-directory')).toHaveValue(
+      '/home/me/.brainstrike/worktrees'
+    );
   });
 
   it('saves an explicit directory', async () => {

@@ -219,6 +219,23 @@ describe('Desktop SettingsPageContent', () => {
     expect(await within(nav).findByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
   });
 
+  it('registers Workspace with the live worktree capability status', async () => {
+    render(
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+
+    const nav = await screen.findByRole('navigation', { name: /settings categories/i });
+    fireEvent.click(await within(nav).findByRole('button', { name: /^Workspace$/i }));
+
+    expect(await screen.findByTestId('worktree-settings-unavailable')).toHaveTextContent(
+      'Worktrees are a desktop feature'
+    );
+  });
+
   it('renders the Provider Hub, not a separate API Keys category', async () => {
     render(
       <ThemeProvider storageAdapter={themeStorageAdapter}>
