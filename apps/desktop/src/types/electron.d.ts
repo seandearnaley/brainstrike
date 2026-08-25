@@ -39,8 +39,14 @@ import type {
   GitStatus,
   GitSwitchBranchResult,
   IFileNode,
+  ManagedWorktreeRow,
   StructuredFileDiff,
   StructuredFileDiffParams,
+  WorktreeArchiveResult,
+  WorktreeCreateParams,
+  WorktreeCreateResult,
+  WorktreeListEntry,
+  WorktreeSettings,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -653,6 +659,34 @@ declare global {
      */
     userCommands?: {
       list: () => Promise<UserSlashCommandsListResult>;
+    };
+    /**
+     * Desktop-only managed-worktree bridge (BST-1390).
+     *
+     * ⚠️ MUST stay in sync with `WorktreesBridge` in
+     * `packages/app-shell/src/worktrees/worktrees-bridge.ts`.
+     * `resolveWorktreesBridge()` rejects a bridge missing any method, so a
+     * method declared here but absent from the preload — or vice versa —
+     * disables worktree mode at runtime.
+     */
+    worktrees?: {
+      archive: (params: {
+        force?: boolean;
+        runId?: string;
+        worktreeId: string;
+      }) => Promise<GitResult<WorktreeArchiveResult>>;
+      create: (params: WorktreeCreateParams) => Promise<GitResult<WorktreeCreateResult>>;
+      createBranchHere: (params: {
+        branch: string;
+        worktreeId: string;
+      }) => Promise<GitResult<ManagedWorktreeRow>>;
+      getSettings: () => Promise<GitResult<WorktreeSettings>>;
+      list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
+      restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;
+      setSettings: (params: {
+        managedDirectory: string | null;
+        setupCommand: readonly string[] | null;
+      }) => Promise<GitResult<WorktreeSettings>>;
     };
   }
 }

@@ -10,6 +10,7 @@ import {
   TERMINAL_BRIDGE_REQUIRED_METHODS,
 } from '@brainstrike/app-shell/terminal-panel/availability';
 import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
+import { WORKTREES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/worktrees/availability';
 import { ENV_BOOTSTRAP_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { PROVIDER_AUTH_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/provider-auth';
 import { SECRETS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/secrets-bridge';
@@ -349,6 +350,13 @@ describe('preload runtime contract', () => {
       STORAGE_GET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getItem,
       STORAGE_REMOVE_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.removeItem,
       STORAGE_SET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.setItem,
+      WORKTREES_ARCHIVE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.archive,
+      WORKTREES_CREATE_BRANCH_HERE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.createBranchHere,
+      WORKTREES_CREATE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.create,
+      WORKTREES_GET_SETTINGS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.getSettings,
+      WORKTREES_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.list,
+      WORKTREES_RESTORE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.restore,
+      WORKTREES_SET_SETTINGS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.worktrees.setSettings,
     } as const;
 
     for (const [constantName, channel] of Object.entries(expectedConstants)) {
@@ -381,6 +389,7 @@ describe('preload runtime contract', () => {
       skills: SKILLS_BRIDGE_REQUIRED_METHODS,
       terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
       userCommands: USER_COMMANDS_BRIDGE_REQUIRED_METHODS,
+      worktrees: WORKTREES_BRIDGE_REQUIRED_METHODS,
     };
 
     for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {

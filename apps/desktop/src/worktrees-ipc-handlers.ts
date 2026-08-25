@@ -1,0 +1,181 @@
+/**
+ * The `worktrees` IPC narrowing boundary. Every renderer-supplied argument is
+ * `unknown`; validation failures return a typed `{ ok: false }` `GitResult`,
+ * never a thrown error — mirroring `changes-ipc-handlers.ts`.
+ *
+ * `resolveService` is LAZY for the same reason `resolveInventoryService` is:
+ * this domain is registered at module load while the service is constructed at
+ * `app.whenReady()`. Absence is reported as a visible typed failure, never as
+ * an empty worktree list — an empty list is a real, different fact.
+ */
+import { createLogger } from '@brainstrike/logging';
+import type {
+  GitResult,
+  ManagedWorktreeRow,
+  WorktreeArchiveResult,
+  WorktreeCreateParams,
+  WorktreeCreateResult,
+  WorktreeListEntry,
+  WorktreeSettings,
+} from '@brainstrike/types';
+import type { WorktreeService } from './assistant-server/worktree-service';
+
+const logger = createLogger('WorktreesIpc');
+
+export interface WorktreesIpcHandlers {
+  readonly archive: (payload: unknown) => Promise<GitResult<WorktreeArchiveResult>>;
+  readonly create: (payload: unknown) => Promise<GitResult<WorktreeCreateResult>>;
+  readonly createBranchHere: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
+  readonly getSettings: () => Promise<GitResult<WorktreeSettings>>;
+  readonly list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
+  readonly restore: (payload: unknown) => Promise<GitResult<WorktreeCreateResult>>;
+  readonly setSettings: (payload: unknown) => Promise<GitResult<WorktreeSettings>>;
+}
+
+export interface WorktreesIpcHandlersOptions {
+  readonly readSettings: () => Promise<WorktreeSettings>;
+  readonly resolveService: () => WorktreeService | null;
+  readonly writeSettings: (next: {
+    readonly managedDirectory: string | null;
+    readonly setupCommand: readonly string[] | null;
+  }) => Promise<WorktreeSettings>;
+}
+
+const SERVICE_UNAVAILABLE = 'The worktree service is not available in this session.';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
+  if (
+    !(
+      isRecord(payload) &&
+      nonEmptyString(payload['rootId']) &&
+      nonEmptyString(payload['baseRef']) &&
+      nonEmptyString(payload['name'])
+    ) ||
+    (payload['createdBy'] !== 'agent' && payload['createdBy'] !== 'user')
+  ) {
+    return {
+      error: 'worktrees:create requires { rootId, baseRef, name, branch, createdBy }.',
+      ok: false,
+    };
+  }
+  const branch = payload['branch'];
+  const detached = isRecord(branch) && branch['detached'] === true;
+  const named = isRecord(branch) && nonEmptyString(branch['name']);
+  if (!(detached || named)) {
+    return {
+      error: 'worktrees:create branch must be { detached: true } or { name: string }.',
+      ok: false,
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      baseRef: payload['baseRef'],
+      branch: detached
+        ? { detached: true }
+        : { name: (branch as Record<string, unknown>)['name'] as string },
+      createdBy: payload['createdBy'],
+      name: payload['name'],
+      rootId: payload['rootId'],
+      ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
+      ...(nonEmptyString(payload['threadId']) ? { threadId: payload['threadId'] } : {}),
+    },
+  };
+}
+
+export function createWorktreesIpcHandlers(
+  options: WorktreesIpcHandlersOptions
+): WorktreesIpcHandlers {
+  const failed = (channel: string, error: unknown): GitResult<never> => {
+    logger.error(`Unexpected ${channel} handler failure`, { error });
+    return { error: error instanceof Error ? error.message : String(error), ok: false };
+  };
+
+  async function withService<T>(
+    channel: string,
+    op: (service: WorktreeService) => Promise<GitResult<T>>
+  ): Promise<GitResult<T>> {
+    const service = options.resolveService();
+    if (!service) {
+      return { error: SERVICE_UNAVAILABLE, ok: false };
+    }
+    try {
+      return await op(service);
+    } catch (error) {
+      return failed(channel, error);
+    }
+  }
+
+  return {
+    archive: async () => ({
+      error: 'worktrees:archive is not implemented in this build.',
+      ok: false,
+    }),
+    create: async (payload) => {
+      const params = validateCreate(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:create', (service) => service.create(params.value));
+    },
+    createBranchHere: async () => ({
+      error: 'worktrees:createBranchHere is not implemented in this build.',
+      ok: false,
+    }),
+    getSettings: async () => {
+      try {
+        return { ok: true, value: await options.readSettings() };
+      } catch (error) {
+        return failed('worktrees:getSettings', error);
+      }
+    },
+    list: async () => await withService('worktrees:list', (service) => service.list()),
+    restore: async () => ({
+      error: 'worktrees:restore is not implemented in this build.',
+      ok: false,
+    }),
+    setSettings: async (payload) => {
+      if (!isRecord(payload)) {
+        return { error: 'worktrees:setSettings requires an object payload.', ok: false };
+      }
+      const managedDirectory = payload['managedDirectory'];
+      const setupCommand = payload['setupCommand'];
+      if (!(managedDirectory === null || nonEmptyString(managedDirectory))) {
+        return {
+          error: 'worktrees:setSettings managedDirectory must be an absolute path or null.',
+          ok: false,
+        };
+      }
+      if (
+        !(
+          setupCommand === null ||
+          (Array.isArray(setupCommand) && setupCommand.every((part) => nonEmptyString(part)))
+        )
+      ) {
+        return {
+          error: 'worktrees:setSettings setupCommand must be a non-empty string array or null.',
+          ok: false,
+        };
+      }
+      try {
+        return {
+          ok: true,
+          value: await options.writeSettings({
+            managedDirectory: managedDirectory as string | null,
+            setupCommand: setupCommand as readonly string[] | null,
+          }),
+        };
+      } catch (error) {
+        return failed('worktrees:setSettings', error);
+      }
+    },
+  };
+}

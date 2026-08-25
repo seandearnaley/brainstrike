@@ -142,6 +142,9 @@
       "@brainstrike/app-shell/changes/availability": [
         "../../packages/app-shell/src/changes/availability.ts"
       ],
+      "@brainstrike/app-shell/worktrees/availability": [
+        "../../packages/app-shell/src/worktrees/availability.ts"
+      ],
       "@brainstrike/app-shell/git-panel/availability": [
         "../../packages/app-shell/src/git-panel/availability.ts"
       ],

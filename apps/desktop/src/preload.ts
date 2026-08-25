@@ -122,6 +122,13 @@ const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
 const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
 const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
 const CHANGES_INVALIDATED_EVENT = 'changes:invalidated' as const;
+const WORKTREES_ARCHIVE_CHANNEL = 'worktrees:archive' as const;
+const WORKTREES_CREATE_CHANNEL = 'worktrees:create' as const;
+const WORKTREES_CREATE_BRANCH_HERE_CHANNEL = 'worktrees:createBranchHere' as const;
+const WORKTREES_GET_SETTINGS_CHANNEL = 'worktrees:getSettings' as const;
+const WORKTREES_LIST_CHANNEL = 'worktrees:list' as const;
+const WORKTREES_RESTORE_CHANNEL = 'worktrees:restore' as const;
+const WORKTREES_SET_SETTINGS_CHANNEL = 'worktrees:setSettings' as const;
 const FORGE_IDENTITY_CHANNEL = 'forge:identity' as const;
 const FORGE_PR_STATUS_CHANNEL = 'forge:prStatus' as const;
 const FORGE_REFRESH_CHANNEL = 'forge:refresh' as const;
@@ -1359,6 +1366,28 @@ if (shouldExposeBridge('changes')) {
       ipcRenderer.invoke(CHANGES_RESOLVE_VIEW_CHANNEL, rootId, changeset),
     rewindPreview: (payload: { threadId: string } & ({ messageId: string } | { runId: string })) =>
       ipcRenderer.invoke(CHANGES_REWIND_PREVIEW_CHANNEL, payload),
+  });
+}
+
+// Managed-worktree bridge (desktop-only, BST-1390): create / list / archive /
+// restore linked worktrees and read the managed-directory settings. Web never
+// constructs this bridge, so `window.worktrees` is simply absent there;
+// consumers capability-check it rather than `isElectron()`.
+if (shouldExposeBridge('worktrees')) {
+  contextBridge.exposeInMainWorld('worktrees', {
+    archive: (params: { force?: boolean; runId?: string; worktreeId: string }) =>
+      ipcRenderer.invoke(WORKTREES_ARCHIVE_CHANNEL, params),
+    create: (params: unknown) => ipcRenderer.invoke(WORKTREES_CREATE_CHANNEL, params),
+    createBranchHere: (params: { branch: string; worktreeId: string }) =>
+      ipcRenderer.invoke(WORKTREES_CREATE_BRANCH_HERE_CHANNEL, params),
+    getSettings: () => ipcRenderer.invoke(WORKTREES_GET_SETTINGS_CHANNEL),
+    list: () => ipcRenderer.invoke(WORKTREES_LIST_CHANNEL),
+    restore: (params: { worktreeId: string }) =>
+      ipcRenderer.invoke(WORKTREES_RESTORE_CHANNEL, params),
+    setSettings: (params: {
+      managedDirectory: string | null;
+      setupCommand: readonly string[] | null;
+    }) => ipcRenderer.invoke(WORKTREES_SET_SETTINGS_CHANNEL, params),
   });
 }
 

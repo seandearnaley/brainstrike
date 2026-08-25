@@ -262,6 +262,15 @@ export const DESKTOP_IPC_CHANNELS = {
     read: 'vector-preferences:read',
     write: 'vector-preferences:write',
   },
+  worktrees: {
+    archive: 'worktrees:archive',
+    create: 'worktrees:create',
+    createBranchHere: 'worktrees:createBranchHere',
+    getSettings: 'worktrees:getSettings',
+    list: 'worktrees:list',
+    restore: 'worktrees:restore',
+    setSettings: 'worktrees:setSettings',
+  },
 } as const;
 
 export const DESKTOP_PRELOAD_IPC_CHANNELS = DESKTOP_IPC_CHANNELS;
