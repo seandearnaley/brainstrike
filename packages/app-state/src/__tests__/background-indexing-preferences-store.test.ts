@@ -89,6 +89,39 @@ describe('background-indexing-preferences-store', () => {
     });
   });
 
+  it('does not republish an equivalent mounted worktree indexing map', () => {
+    const store = useBackgroundIndexingPreferencesStore.getState();
+    const roots = [{ adapterRootId: 'adapter-a', dbRootId: 'db-a', indexed: false }] as const;
+    store.setWorktreeRootIndexingState(roots);
+    const published =
+      useBackgroundIndexingPreferencesStore.getState().worktreeRootIndexingByAdapterRootId;
+
+    store.setWorktreeRootIndexingState(roots);
+
+    expect(
+      useBackgroundIndexingPreferencesStore.getState().worktreeRootIndexingByAdapterRootId
+    ).toBe(published);
+  });
+
+  it('preserves mounted worktree indexing state across persisted-state merges', () => {
+    useBackgroundIndexingPreferencesStore
+      .getState()
+      .setWorktreeRootIndexingState([
+        { adapterRootId: 'adapter-a', dbRootId: 'db-a', indexed: false },
+      ]);
+    const current = useBackgroundIndexingPreferencesStore.getState();
+    const merge = storeWithPersist.persist?.getOptions?.().merge;
+    if (!merge) {
+      throw new Error('persist merge unavailable for background indexing preferences test');
+    }
+
+    const merged = merge({ enabled: false }, current) as BackgroundIndexingPreferencesStore;
+
+    expect(merged.worktreeRootIndexingByAdapterRootId).toBe(
+      current.worktreeRootIndexingByAdapterRootId
+    );
+  });
+
   it('migrates pre-workspace-index preferences without overriding an explicit disabled state', () => {
     const options = (
       useBackgroundIndexingPreferencesStore as PersistApi<

@@ -901,7 +901,9 @@ function orderTargetsByIndexedCoverage(
 
 function publishNoSyncableTargetStatus(args: {
   collectionId: string;
+  deferredRootPaths: readonly string[];
   excludedRootPaths: readonly string[];
+  mountedSyncableTargetCount: number;
   orderedTargets: readonly ResolvedSyncLoopTarget[];
   resolvedTargets: readonly ResolvedSyncLoopTargetCandidate[];
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
@@ -919,6 +921,21 @@ function publishNoSyncableTargetStatus(args: {
         state: 'waiting',
       })
     );
+    return;
+  }
+  const deferredRootPath = args.deferredRootPaths[0];
+  if (deferredRootPath) {
+    args.setStatus(
+      createCoverageStatusPatch({
+        activeRootPath: deferredRootPath,
+        collectionId: args.collectionId,
+        lastError: createUnresolvedRootCoverageMessage(deferredRootPath),
+        state: 'waiting',
+      })
+    );
+    return;
+  }
+  if (args.mountedSyncableTargetCount > 0) {
     return;
   }
   const excludedRootPath = args.excludedRootPaths[0];
@@ -1174,6 +1191,7 @@ function buildSyncLoopTargets(args: {
 }
 
 interface SyncTargetSelection {
+  deferredRootPaths: string[];
   excludedRootPaths: string[];
   targets: SyncLoopTarget[];
 }
@@ -1191,11 +1209,17 @@ function filterSyncTargetsByIndexingDefault(
   rootsReconciliationSettled: boolean
 ): SyncTargetSelection {
   if (!rootsReconciliationSettled) {
-    return { excludedRootPaths: [], targets: [] };
+    return {
+      deferredRootPaths: targets.map((target) => target.handle.path),
+      excludedRootPaths: [],
+      targets: [],
+    };
   }
+  const deferredRootPaths: string[] = [];
   const excludedRootPaths: string[] = [];
   const selectedTargets: SyncLoopTarget[] = [];
   for (const target of targets) {
+    const rootPath = target.handle.path;
     const rootId = target.handle.rootId;
     if (!rootId) {
       selectedTargets.push(target);
@@ -1203,9 +1227,10 @@ function filterSyncTargetsByIndexingDefault(
     }
     const kind = dbRootKindByAdapterRootId.get(rootId);
     if (kind === undefined) {
+      deferredRootPaths.push(rootPath);
       logger.debug('Deferring sync target with unknown root kind pending registration', {
         rootId,
-        rootPath: target.handle.path,
+        rootPath,
       });
       continue;
     }
@@ -1220,9 +1245,9 @@ function filterSyncTargetsByIndexingDefault(
       selectedTargets.push(target);
       continue;
     }
-    excludedRootPaths.push(target.handle.path);
+    excludedRootPaths.push(rootPath);
   }
-  return { excludedRootPaths, targets: selectedTargets };
+  return { deferredRootPaths, excludedRootPaths, targets: selectedTargets };
 }
 
 function logExcludedRootsOncePerRootSet(args: {
@@ -1610,17 +1635,17 @@ export function WorkspaceCollectionSyncProvider({
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
 
   useEffect(() => {
-    if (!rootsReconciliationSettled) {
+    if (!(hasHydrated && rootsReconciliationSettled)) {
       setWorktreeRootIndexingState([]);
       return;
     }
     const mountedHandles = getActiveRootHandles({
-      rootDirectoryHandle,
-      rootDirectoryHandles,
+      rootDirectoryHandle: rootDirectoryHandleRef.current,
+      rootDirectoryHandles: rootDirectoryHandlesRef.current,
     });
     setWorktreeRootIndexingState(
       mountedHandles.flatMap((handle) => {
-        const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path);
+        const adapterRootId = handle.rootId ?? rootIdByPathRef.current.get(handle.path);
         if (!(adapterRootId && dbRootKindByAdapterRootId.get(adapterRootId) === 'worktree')) {
           return [];
         }
@@ -1640,9 +1665,8 @@ export function WorkspaceCollectionSyncProvider({
   }, [
     dbRootIdByAdapterRootId,
     dbRootKindByAdapterRootId,
-    rootDirectoryHandle,
-    rootDirectoryHandles,
-    rootIdByPath,
+    hasHydrated,
+    rootSetKey,
     rootsReconciliationSettled,
     setWorktreeRootIndexingState,
     worktreeRootIndexingOptInById,
@@ -2215,16 +2239,23 @@ export function WorkspaceCollectionSyncProvider({
         worktreeRootIndexingOptInById,
         rootsReconciliationSettled
       );
+      const mountedHandles = getActiveRootHandles({
+        rootDirectoryHandle,
+        rootDirectoryHandles,
+      });
+      const workspaceSelection = filterSyncTargetsByIndexingDefault(
+        buildFullSyncTargets(mountedHandles),
+        dbRootKindByAdapterRootId,
+        dbRootIdByAdapterRootId,
+        worktreeRootIndexingOptInById,
+        rootsReconciliationSettled
+      );
       excludedRootLogStateRef.current = logExcludedRootsOncePerRootSet({
         excludedRootPaths: selection.excludedRootPaths,
         previous: excludedRootLogStateRef.current,
         rootSetKey,
       });
       const { targets } = selection;
-      const mountedHandles = getActiveRootHandles({
-        rootDirectoryHandle,
-        rootDirectoryHandles,
-      });
       if (
         handleActiveSyncLoopRequest({
           options,
@@ -2347,7 +2378,9 @@ export function WorkspaceCollectionSyncProvider({
 
         publishNoSyncableTargetStatus({
           collectionId: managedCollectionId,
-          excludedRootPaths: selection.excludedRootPaths,
+          deferredRootPaths: workspaceSelection.deferredRootPaths,
+          excludedRootPaths: workspaceSelection.excludedRootPaths,
+          mountedSyncableTargetCount: workspaceSelection.targets.length,
           orderedTargets,
           resolvedTargets,
           setStatus: setSyncStatus,

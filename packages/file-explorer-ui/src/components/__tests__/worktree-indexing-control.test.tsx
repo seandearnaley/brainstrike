@@ -19,7 +19,7 @@ describe('WorktreeIndexingControl', () => {
     ]);
     render(<WorktreeIndexingControl rootId="adapter-a" />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Not indexed' }));
+    await userEvent.click(screen.getByRole('button', { name: /Not indexed/ }));
 
     expect(
       screen.getByText(/excluded by default to avoid duplicate corpus indexing/i)

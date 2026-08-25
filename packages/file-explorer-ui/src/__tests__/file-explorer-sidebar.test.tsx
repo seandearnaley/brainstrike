@@ -198,7 +198,7 @@ describe('FileExplorerSidebar', () => {
       );
     });
 
-    expect(screen.getByRole('button', { name: 'Not indexed' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
   });
 
   // Forest mode: two roots → two section headers + two treegrids (EXACTLY 2)

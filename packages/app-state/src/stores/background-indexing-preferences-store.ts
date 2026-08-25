@@ -252,6 +252,11 @@ function migrateBackgroundIndexingPreferencesState(
   };
 }
 
+const mergeBackgroundIndexingPreferences = createSanitizedPersistMerge<
+  BackgroundIndexingPreferencesStore,
+  BackgroundIndexingPreferencesData
+>(migrateBackgroundIndexingPreferencesState);
+
 async function readBackgroundIndexingPreferencesFromStorage(
   persistApi: BackgroundIndexingPreferencesPersistApi
 ): Promise<BackgroundIndexingPreferencesData> {
@@ -273,7 +278,7 @@ async function readBackgroundIndexingPreferencesFromStorage(
 function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPreferencesStore {
   const store = create<BackgroundIndexingPreferencesStore>()(
     persist(
-      (set) => ({
+      (set, get) => ({
         ...DEFAULT_STATE,
         markHydrated: () => set({ hasHydrated: true }),
         reset: () =>
@@ -317,14 +322,26 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
               indexed: root.indexed,
             };
           }
+          const current = get().worktreeRootIndexingByAdapterRootId;
+          const nextRootIds = Object.keys(worktreeRootIndexingByAdapterRootId);
+          if (
+            nextRootIds.length === Object.keys(current).length &&
+            nextRootIds.every((rootId) => {
+              const previous = current[rootId];
+              const next = worktreeRootIndexingByAdapterRootId[rootId];
+              return previous?.dbRootId === next?.dbRootId && previous?.indexed === next?.indexed;
+            })
+          ) {
+            return;
+          }
           set({ worktreeRootIndexingByAdapterRootId });
         },
       }),
       {
-        merge: createSanitizedPersistMerge<
-          BackgroundIndexingPreferencesStore,
-          BackgroundIndexingPreferencesData
-        >(migrateBackgroundIndexingPreferencesState),
+        merge: (persistedState, currentState) => ({
+          ...mergeBackgroundIndexingPreferences(persistedState, currentState),
+          worktreeRootIndexingByAdapterRootId: currentState.worktreeRootIndexingByAdapterRootId,
+        }),
         migrate: (persistedState: unknown) =>
           migrateBackgroundIndexingPreferencesState(persistedState),
         name: STORE_NAME,
@@ -409,9 +426,12 @@ export async function ensureBackgroundIndexingPreferencesHydrated(options?: {
 
   if (!hasHydrated()) {
     const storageState = await readBackgroundIndexingPreferencesFromStorage(persistApi);
+    const { worktreeRootIndexingByAdapterRootId } =
+      useBackgroundIndexingPreferencesStore.getState();
     useBackgroundIndexingPreferencesStore.setState({
       ...storageState,
       hasHydrated: true,
+      worktreeRootIndexingByAdapterRootId,
     });
   }
 

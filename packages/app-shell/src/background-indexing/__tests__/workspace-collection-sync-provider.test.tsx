@@ -3137,6 +3137,38 @@ describe('WorkspaceCollectionSyncProvider', () => {
       window.dispatchEvent(new Event(FILE_EXPLORER_REFRESH_EVENT));
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
       expect(exclusionLogs).toHaveLength(1);
+
+      useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+        lastError: 'Existing mixed-root status',
+        state: 'waiting',
+      });
+      const resolveCallsBeforeWatcherRefresh = resolveDbRootIdMock.mock.calls.length;
+      window.dispatchEvent(
+        new CustomEvent(FILE_EXPLORER_REFRESH_EVENT, {
+          detail: {
+            roots: [
+              {
+                changes: [
+                  { kind: 'file', path: `${worktreeRoot.path}/changed.ts`, type: 'modified' },
+                ],
+                rootId: worktreeRoot.rootId,
+                rootPath: worktreeRoot.path,
+              },
+            ],
+            scope: 'incremental',
+            source: 'watcher',
+          },
+        })
+      );
+      await waitFor(() =>
+        expect(resolveDbRootIdMock.mock.calls.length).toBeGreaterThan(
+          resolveCallsBeforeWatcherRefresh
+        )
+      );
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+        lastError: 'Existing mixed-root status',
+        state: 'waiting',
+      });
     } finally {
       removeListener();
       syncSpy.mockRestore();

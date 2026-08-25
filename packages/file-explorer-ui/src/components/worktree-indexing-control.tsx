@@ -17,18 +17,25 @@ export function WorktreeIndexingControl({ rootId }: WorktreeIndexingControlProps
     return null;
   }
 
-  const label = indexingState.indexed ? 'Indexed' : 'Not indexed';
+  const label = indexingState.indexed ? 'Indexing enabled' : 'Not indexed';
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button className="h-5 px-1.5 text-[10px]" size="sm" type="button" variant="outline">
+        <Button
+          aria-label={`Worktree indexing settings: ${label}`}
+          className="h-5 px-1.5 text-[10px]"
+          size="sm"
+          type="button"
+          variant="outline"
+        >
           {label}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 space-y-3 text-xs">
         <p>
           Managed worktrees are excluded by default to avoid duplicate corpus indexing. You can opt
-          this worktree in without changing other roots.
+          this worktree in without changing other roots. Turning indexing off stops future indexing;
+          existing indexed data remains until you delete it.
         </p>
         <Button
           className="w-full"
@@ -38,7 +45,9 @@ export function WorktreeIndexingControl({ rootId }: WorktreeIndexingControlProps
           size="sm"
           type="button"
         >
-          {indexingState.indexed ? 'Stop indexing this worktree' : 'Index this worktree'}
+          {indexingState.indexed
+            ? 'Exclude this worktree from future indexing'
+            : 'Index this worktree'}
         </Button>
       </PopoverContent>
     </Popover>
