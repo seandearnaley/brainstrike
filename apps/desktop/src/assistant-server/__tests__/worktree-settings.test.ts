@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   defaultManagedWorktreeDirectory,
   readWorktreeSettings,
@@ -149,6 +149,21 @@ describe('worktree settings', () => {
     ).rejects.toThrow('worktreeSettings managedDirectory must be an absolute path.');
   });
 
+  it('never calls setItem when the write is refused (relative path)', async () => {
+    const storage = new MemoryStorageAdapter();
+    const setItemSpy = vi.spyOn(storage, 'setItem');
+
+    await expect(
+      writeWorktreeSettings(
+        storage,
+        HOME_DIRECTORY,
+        { managedDirectory: 'relative/worktrees', setupCommand: null },
+        NO_MOUNTED_ROOTS
+      )
+    ).rejects.toThrow('worktreeSettings managedDirectory must be an absolute path.');
+    expect(setItemSpy).not.toHaveBeenCalled();
+  });
+
   it('refuses to persist a managed directory inside a mounted root', async () => {
     const storage = new MemoryStorageAdapter();
 
@@ -160,5 +175,20 @@ describe('worktree settings', () => {
         () => Promise.resolve(['/work/project'])
       )
     ).rejects.toThrow('Managed worktrees must not live inside the granted folder "/work/project"');
+  });
+
+  it('never calls setItem when the write is refused (containment)', async () => {
+    const storage = new MemoryStorageAdapter();
+    const setItemSpy = vi.spyOn(storage, 'setItem');
+
+    await expect(
+      writeWorktreeSettings(
+        storage,
+        HOME_DIRECTORY,
+        { managedDirectory: '/work/project/worktrees', setupCommand: null },
+        () => Promise.resolve(['/work/project'])
+      )
+    ).rejects.toThrow('Managed worktrees must not live inside the granted folder "/work/project"');
+    expect(setItemSpy).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,16 @@
+import type { WorktreeSettings } from '@brainstrike/types';
 import { ThemeSettings } from '@brainstrike/ui';
-import { Bot, Cpu, Palette, Search, Settings, ShieldCheck, Sigma, Webhook } from 'lucide-react';
+import {
+  Bot,
+  Cpu,
+  GitBranch,
+  Palette,
+  Search,
+  Settings,
+  ShieldCheck,
+  Sigma,
+  Webhook,
+} from 'lucide-react';
 import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
@@ -10,6 +21,10 @@ import { PermissionSettingsSection } from './settings/system/permission-settings
 import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
 import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
+import {
+  WorktreeSettingsSection,
+  type WorktreeSettingsStatus,
+} from './settings/system/worktree-settings-section';
 import type { SettingsCategory } from './settings-page-content';
 
 export function createAppearanceSettingsCategory(): SettingsCategory {
@@ -71,6 +86,35 @@ export function createFactoryResetSettingsCategory(
     id: 'factory-reset',
     keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
     title: 'Factory Reset',
+  };
+}
+
+export interface CreateWorkspaceSettingsCategoryOptions {
+  readonly onSave: (next: {
+    readonly managedDirectory: string | null;
+    readonly setupCommand: readonly string[] | null;
+  }) => Promise<void>;
+  readonly settings: WorktreeSettings | null;
+  readonly status: WorktreeSettingsStatus;
+}
+
+export function createWorkspaceSettingsCategory(
+  options: CreateWorkspaceSettingsCategoryOptions
+): SettingsCategory {
+  return {
+    content: (
+      <WorktreeSettingsSection
+        onSave={options.onSave}
+        settings={options.settings}
+        status={options.status}
+      />
+    ),
+    description:
+      'Choose where BrainStrike creates managed worktrees, and set an optional per-worktree setup command.',
+    icon: GitBranch,
+    id: 'workspace',
+    keywords: ['worktree', 'worktrees', 'managed directory', 'workspace', 'git', 'setup command'],
+    title: 'Workspace',
   };
 }
 

@@ -29,7 +29,7 @@ describe('registerWorktreesIpcHandlers', () => {
     vi.clearAllMocks();
   });
 
-  it('registers all seven channels and routes create to the correct handler', async () => {
+  it('registers all seven channels and routes each to the correct handler', async () => {
     const { ipcMain } = await import('electron');
     const handlers = stubHandlers();
 
@@ -50,14 +50,93 @@ describe('registerWorktreesIpcHandlers', () => {
     );
     expect(registeredChannels).toHaveLength(7);
 
-    const createHandler = handleMock.mock.calls.find(
-      ([channel]) => channel === DESKTOP_IPC_CHANNELS.worktrees.create
-    )?.[1] as (event: unknown, payload: unknown) => unknown;
+    const handlerFor = (channel: string) =>
+      handleMock.mock.calls.find(([registered]) => registered === channel)?.[1] as (
+        event: unknown,
+        ...args: unknown[]
+      ) => unknown;
+    const clearHandlerMocks = () => {
+      vi.mocked(handlers.archive).mockClear();
+      vi.mocked(handlers.create).mockClear();
+      vi.mocked(handlers.createBranchHere).mockClear();
+      vi.mocked(handlers.getSettings).mockClear();
+      vi.mocked(handlers.list).mockClear();
+      vi.mocked(handlers.restore).mockClear();
+      vi.mocked(handlers.setSettings).mockClear();
+    };
+
     const payload = { name: 'feature' };
-    await createHandler({}, payload);
+    await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.create)({}, payload);
     expect(handlers.create).toHaveBeenCalledWith(payload);
     expect(handlers.archive).not.toHaveBeenCalled();
     expect(handlers.createBranchHere).not.toHaveBeenCalled();
+    expect(handlers.getSettings).not.toHaveBeenCalled();
+    expect(handlers.list).not.toHaveBeenCalled();
+    expect(handlers.restore).not.toHaveBeenCalled();
+    expect(handlers.setSettings).not.toHaveBeenCalled();
+
+    clearHandlerMocks();
+    const archivePayload = { worktreeId: 'w1' };
+    await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.archive)({}, archivePayload);
+    expect(handlers.archive).toHaveBeenCalledWith(archivePayload);
+    expect(handlers.create).not.toHaveBeenCalled();
+    expect(handlers.createBranchHere).not.toHaveBeenCalled();
+    expect(handlers.getSettings).not.toHaveBeenCalled();
+    expect(handlers.list).not.toHaveBeenCalled();
+    expect(handlers.restore).not.toHaveBeenCalled();
+    expect(handlers.setSettings).not.toHaveBeenCalled();
+
+    clearHandlerMocks();
+    const createBranchHerePayload = { branch: 'feature', worktreeId: 'w1' };
+    await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.createBranchHere)({}, createBranchHerePayload);
+    expect(handlers.createBranchHere).toHaveBeenCalledWith(createBranchHerePayload);
+    expect(handlers.archive).not.toHaveBeenCalled();
+    expect(handlers.create).not.toHaveBeenCalled();
+    expect(handlers.getSettings).not.toHaveBeenCalled();
+    expect(handlers.list).not.toHaveBeenCalled();
+    expect(handlers.restore).not.toHaveBeenCalled();
+    expect(handlers.setSettings).not.toHaveBeenCalled();
+
+    clearHandlerMocks();
+    await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.getSettings)({});
+    expect(handlers.getSettings).toHaveBeenCalledWith();
+    expect(handlers.archive).not.toHaveBeenCalled();
+    expect(handlers.create).not.toHaveBeenCalled();
+    expect(handlers.createBranchHere).not.toHaveBeenCalled();
+    expect(handlers.list).not.toHaveBeenCalled();
+    expect(handlers.restore).not.toHaveBeenCalled();
+    expect(handlers.setSettings).not.toHaveBeenCalled();
+
+    clearHandlerMocks();
+    await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.list)({});
+    expect(handlers.list).toHaveBeenCalledWith();
+    expect(handlers.archive).not.toHaveBeenCalled();
+    expect(handlers.create).not.toHaveBeenCalled();
+    expect(handlers.createBranchHere).not.toHaveBeenCalled();
+    expect(handlers.getSettings).not.toHaveBeenCalled();
+    expect(handlers.restore).not.toHaveBeenCalled();
+    expect(handlers.setSettings).not.toHaveBeenCalled();
+
+    clearHandlerMocks();
+    const restorePayload = { worktreeId: 'w1' };
+    await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.restore)({}, restorePayload);
+    expect(handlers.restore).toHaveBeenCalledWith(restorePayload);
+    expect(handlers.archive).not.toHaveBeenCalled();
+    expect(handlers.create).not.toHaveBeenCalled();
+    expect(handlers.createBranchHere).not.toHaveBeenCalled();
+    expect(handlers.getSettings).not.toHaveBeenCalled();
+    expect(handlers.list).not.toHaveBeenCalled();
+    expect(handlers.setSettings).not.toHaveBeenCalled();
+
+    clearHandlerMocks();
+    const setSettingsPayload = { managedDirectory: '/x', setupCommand: null };
+    await handlerFor(DESKTOP_IPC_CHANNELS.worktrees.setSettings)({}, setSettingsPayload);
+    expect(handlers.setSettings).toHaveBeenCalledWith(setSettingsPayload);
+    expect(handlers.archive).not.toHaveBeenCalled();
+    expect(handlers.create).not.toHaveBeenCalled();
+    expect(handlers.createBranchHere).not.toHaveBeenCalled();
+    expect(handlers.getSettings).not.toHaveBeenCalled();
+    expect(handlers.list).not.toHaveBeenCalled();
     expect(handlers.restore).not.toHaveBeenCalled();
   });
 
