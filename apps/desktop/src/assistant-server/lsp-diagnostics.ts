@@ -347,7 +347,11 @@ class LspServerConnection {
   private readonly connection: MessageConnection;
   private readonly diagnostics = new Map<string, RawDiagnostic[]>();
   private readonly versions = new Map<string, number>();
+  private childSpawnError: Error | undefined;
+  private childSpawned = false;
+  private disposal: Promise<void> | undefined;
   private initialized: Promise<void> | undefined;
+  private killChild = (signal: NodeJS.Signals): boolean => this.child.kill(signal);
   private disposed = false;
 
   constructor(
@@ -363,7 +367,15 @@ class LspServerConnection {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.childExit = new Promise((resolve) => {
-      this.child.once('error', () => resolve());
+      this.child.once('spawn', () => {
+        this.childSpawned = true;
+      });
+      this.child.once('error', (error) => {
+        if (!this.childSpawned) {
+          this.childSpawnError = error;
+          resolve();
+        }
+      });
       this.child.once('exit', () => resolve());
     });
     // Drain stderr so a chatty server can't fill the pipe buffer and stall.
@@ -397,6 +409,26 @@ class LspServerConnection {
 
   get pid(): number {
     return this.child.pid ?? -1;
+  }
+
+  /** Inject a child-process runtime error for deterministic lifecycle tests. */
+  emitChildErrorForTest(error: Error): void {
+    this.child.emit('error', error);
+  }
+
+  /** Reject the next signal delivery without touching the real subprocess. */
+  rejectNextKillForTest(): void {
+    const actualKill = this.killChild;
+    this.killChild = () => {
+      this.killChild = actualKill;
+      return false;
+    };
+  }
+
+  /** Authoritatively clean up a subprocess after an injected kill failure. */
+  async forceKillForTest(): Promise<void> {
+    this.child.kill('SIGKILL');
+    await this.childExit;
   }
 
   /**
@@ -581,10 +613,12 @@ class LspServerConnection {
     return this.diagnostics.has(diagnosticsKey(absolutePath));
   }
 
-  async dispose(): Promise<void> {
-    if (this.disposed) {
-      return;
-    }
+  dispose(): Promise<void> {
+    this.disposal ??= this.disposeOnce();
+    return this.disposal;
+  }
+
+  private async disposeOnce(): Promise<void> {
     this.disposed = true;
     // Only attempt a graceful LSP shutdown while the process is still alive;
     // writing shutdown/exit to an already-exited server just races an EPIPE
@@ -606,11 +640,21 @@ class LspServerConnection {
     } catch {
       /* connection already down */
     }
+    if (this.childSpawnError) {
+      await this.childExit;
+      return;
+    }
+    if (this.child.exitCode !== null || this.child.signalCode !== null) {
+      await this.childExit;
+      return;
+    }
     // SIGKILL is the authoritative teardown (no orphaned server process).
-    this.child.kill('SIGKILL');
+    const killAccepted = this.killChild('SIGKILL');
+    if (!killAccepted && this.child.exitCode === null && this.child.signalCode === null) {
+      throw new Error(`Failed to terminate LSP subprocess ${this.pid}`);
+    }
     // `kill()` only queues the signal. Do not report disposal complete until
-    // Node observes process exit; otherwise the next pooled server can start
-    // while its predecessor is still consuming resources.
+    // Node observes process exit. A post-spawn child `error` is not settlement.
     await this.childExit;
   }
 }
@@ -945,6 +989,26 @@ export async function __getPooledPidsForTest(): Promise<number[]> {
   return settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value.pid] : []));
 }
 
+/** Direct lifecycle controls for deterministic disposal tests. */
+export async function __getPooledLifecycleForTest(rootId: string): Promise<{
+  dispose: () => Promise<void>;
+  emitChildError: (error: Error) => void;
+  forceKill: () => Promise<void>;
+  rejectNextKill: () => void;
+}> {
+  const pending = pool.get(rootId);
+  if (!pending) {
+    throw new Error(`No pooled LSP server for root ${rootId}`);
+  }
+  const connection = await pending;
+  return {
+    dispose: () => connection.dispose(),
+    emitChildError: (error) => connection.emitChildErrorForTest(error),
+    forceKill: () => connection.forceKillForTest(),
+    rejectNextKill: () => connection.rejectNextKillForTest(),
+  };
+}
+
 /**
  * Dispose every pooled language server (SIGKILL — no orphans). Wired into
  * main.ts factory-reset runtimes AND graceful shutdown, mirroring the shell
@@ -958,7 +1022,11 @@ export async function disposeLspServers(): Promise<number> {
   const connections = settled.flatMap((result) =>
     result.status === 'fulfilled' ? [result.value] : []
   );
-  await Promise.allSettled(connections.map((connection) => connection.dispose()));
+  const disposals = await Promise.allSettled(connections.map((connection) => connection.dispose()));
+  const failure = disposals.find((result) => result.status === 'rejected');
+  if (failure?.status === 'rejected') {
+    throw failure.reason;
+  }
   return connections.length;
 }
 

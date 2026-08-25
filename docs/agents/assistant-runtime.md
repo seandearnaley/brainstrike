@@ -1517,9 +1517,10 @@ capability-gated, no `isElectron()`).
   factory-reset `runtimes[]` and graceful shutdown in `main.ts` (alongside the
   shell/terminal reapers); `evictLspServersForRoot(rootId)` fires from the
   `fs:removeRoot` IPC handler. Disposal awaits the child process's actual exit,
-  not merely `child.kill()` accepting the signal, so a successor cannot overlap
-  a predecessor that teardown still owns. The no-orphan proof is the heart of
-  `lsp-diagnostics.integration.test.ts`.
+  not merely `child.kill()` accepting the signal, so each caller awaiting that
+  connection's disposal observes honest settlement. Pool closure against new
+  acquisitions during global/root teardown is separate follow-up territory.
+  The no-orphan proof is the heart of `lsp-diagnostics.integration.test.ts`.
 - **No silent fallbacks.** An unresolvable server, an unsupported language, or
   a diagnostics timeout all resolve to an honest result the caller attaches —
   never a throw that would fail the already-applied edit. Unsupported languages
