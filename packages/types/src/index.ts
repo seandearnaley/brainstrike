@@ -18,6 +18,7 @@ export * from './git.js';
 export * from './tapestry-colors.js';
 export * from './view-filter-preset-types.js';
 export * from './workspace-path-utils.js';
+export * from './worktree.js';
 
 // Explicitly re-export the classes as values
 export { ConcurrentLoadingError, FileContentError, PartialRefreshError };
