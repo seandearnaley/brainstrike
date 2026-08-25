@@ -135,17 +135,24 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     context: RepositoryContext,
     name: string
   ): Promise<GitResult<string>> {
-    await fsPromises.mkdir(settings.managedDirectory, { recursive: true });
-    const managedDirectory = await fsPromises.realpath(settings.managedDirectory);
     const slug = repositorySlug(context.repositoryRoot, context.commonDir);
-    let target: string;
+    const roots = await deps.resolveRootPaths();
+    // Lexical pre-check on the RAW paths before any mkdir: a refused managed
+    // directory must not be created on disk as a side effect of the refusal.
+    // The canonical re-check below still guards symlinked configurations.
     try {
-      target = resolveWorktreeTargetPath(managedDirectory, slug, name);
+      const rawTarget = resolveWorktreeTargetPath(settings.managedDirectory, slug, name);
+      assertWorktreeTargetOutsideRoots(
+        rawTarget,
+        roots.map((root) => root.path)
+      );
     } catch (error) {
       logger.warn('worktree create refused by path policy', { error, name });
       return { error: toErrorMessage(error), ok: false };
     }
-    const roots = await deps.resolveRootPaths();
+    await fsPromises.mkdir(settings.managedDirectory, { recursive: true });
+    const managedDirectory = await fsPromises.realpath(settings.managedDirectory);
+    const target = resolveWorktreeTargetPath(managedDirectory, slug, name);
     const canonicalRootPaths = await Promise.all(
       roots.map((root) => fsPromises.realpath(root.path))
     );

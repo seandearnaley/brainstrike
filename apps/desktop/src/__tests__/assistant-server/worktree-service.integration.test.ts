@@ -4,7 +4,15 @@
  * prove only that the arguments were assembled.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
@@ -266,6 +274,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     expect(created.ok === false && created.error).toContain(
       'Managed worktrees must not live inside the granted folder'
     );
+    expect(existsSync(path.join(repo, 'wt'))).toBe(false);
   });
 
   it('authorizes ONLY a live ledger path under the managed directory', async () => {
@@ -335,6 +344,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     const externalPath = path.join(tmpdir(), '.codex', 'worktrees', 'external-one');
     const prunablePath = path.join(tmpdir(), 'prunable-one');
     const lockedPath = path.join(repo, 'locked-one');
+    const untrustedPath = path.join(tmpdir(), 'untrusted-one');
     const descriptor = (
       overrides: Partial<GitInventory['repositories'][number]['worktrees'][number]>
     ) => ({
@@ -378,6 +388,13 @@ describe('WorktreeService (real git + real PGlite)', () => {
               name: 'locked-one',
               path: lockedPath,
             }),
+            descriptor({
+              containment: 'outside-roots',
+              name: 'untrusted-one',
+              path: untrustedPath,
+              trust: 'unvalidated',
+              trustReason: null,
+            }),
           ],
         },
       ],
@@ -414,6 +431,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
     });
     expect(listed.value.find((entry) => entry.path === lockedPath)).toMatchObject({
       disabledReason: 'Locked: maintenance',
+      usable: false,
+    });
+    expect(listed.value.find((entry) => entry.path === untrustedPath)).toMatchObject({
+      disabledReason: 'This worktree could not be verified against its own .git.',
       usable: false,
     });
   });
