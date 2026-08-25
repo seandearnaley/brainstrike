@@ -5,6 +5,35 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 export type BackgroundIndexingMode = 'root-folder-cache';
+export type BackgroundIndexingRootKind = 'fsa' | 'legacy' | 'path' | 'snapshot' | 'worktree';
+
+export function isBackgroundIndexingRootKind(value: unknown): value is BackgroundIndexingRootKind {
+  return (
+    value === 'fsa' ||
+    value === 'legacy' ||
+    value === 'path' ||
+    value === 'snapshot' ||
+    value === 'worktree'
+  );
+}
+
+/**
+ * [D8] A `kind: 'worktree'` root defaults to indexing OFF until the hash-reuse
+ * cost is MEASURED with the BST-393 benchmark harness. Content-hash-addressed
+ * chunks make re-indexing a worktree plausibly cheap, but "plausibly" is not a
+ * measurement, and N parallel worktrees of one repo at the old cost is the
+ * failure mode this guards against. There is currently no per-root override
+ * mechanism anywhere in the app — this is an unconditional default until one
+ * is built, not a UI toggle; see `packages/app-shell/src/background-indexing/
+ * workspace-collection-sync-provider.tsx` (the sync-target filter) for the one
+ * call site that consumes this.
+ */
+export function defaultBackgroundIndexingEnabled(rootKind: string | null): boolean {
+  if (rootKind !== null && !isBackgroundIndexingRootKind(rootKind)) {
+    throw new Error(`Unsupported persisted root kind: ${String(rootKind)}`);
+  }
+  return rootKind !== 'worktree';
+}
 
 interface BackgroundIndexingPreferencesData {
   enabled: boolean;

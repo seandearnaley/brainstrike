@@ -550,6 +550,11 @@ sanctioned picker-less root mount besides recents (`isManagedWorktreePath`,
 `workspace-recent-roots.ts`) and the provenance source the git inventory joins
 to produce `'both'` / `'agent-reported'`.
 
+Boot-time root reconciliation reads active ledger identities through
+`WorktreeService.listManagedPaths()`, which returns only `{ id, path }` and
+deliberately does not resolve git inventory or workspace-root containment.
+`WorktreeService.list()` remains the full inventory-joined UI surface.
+
 Deliberate omissions, all load-bearing:
 
 - **No `root_id`.** The durable `roots.id` is derived by path from the live

@@ -93,11 +93,10 @@ describe('subscription fetch token acquisition', () => {
       accessToken: 'FRESH-TOKEN',
       ok: true as const,
     }));
-    const build = makeFactory({ getFreshAccessToken });
-    const codexFetch = build('openai-codex', CREDENTIAL);
-
     const baseFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
     try {
+      const build = makeFactory({ getFreshAccessToken });
+      const codexFetch = build('openai-codex', CREDENTIAL);
       await codexFetch('https://api.openai.com/v1/responses', {
         body: JSON.stringify({ model: 'gpt-5.5' }),
         method: 'POST',

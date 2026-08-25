@@ -23,6 +23,7 @@ import {
 } from '../file-read-errors';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import type { ManagedWorktreeAuthorizer } from './workspace-recent-roots';
 import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
 
 interface WorkspaceRootRegistryFileSystemSeams {
@@ -46,6 +47,7 @@ interface RegisterFileSystemIpcHandlersOptions {
    * Production callers omit it and only registered mock paths are synthetic.
    */
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
+  readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
   readonly storage: ElectronStorageAdapter;
   /** Explicit constructor seams for unit tests of native-root composition. */
   readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
@@ -300,6 +302,7 @@ export function registerFileSystemIpcHandlers({
   fileSystem,
   getRootsDatabase,
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
+  managedWorktreeAuthorizer,
   storage,
   workspaceRootRegistryFileSystemSeams,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
@@ -445,6 +448,7 @@ export function registerFileSystemIpcHandlers({
     },
     storage,
   });
+  roots.setManagedWorktreeAuthorizer(managedWorktreeAuthorizer ?? null);
 
   const addSelectedRoot = async (): Promise<RootDescriptor> =>
     roots.addRoot(await resolveRequestedDirectoryHandle(fileSystem));

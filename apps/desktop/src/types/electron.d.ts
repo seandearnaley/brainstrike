@@ -39,6 +39,7 @@ import type {
   GitStatus,
   GitSwitchBranchResult,
   IFileNode,
+  ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   StructuredFileDiff,
   StructuredFileDiffParams,
@@ -682,6 +683,7 @@ declare global {
       }) => Promise<GitResult<ManagedWorktreeRow>>;
       getSettings: () => Promise<GitResult<WorktreeSettings>>;
       list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
+      listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
       restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;
       setSettings: (params: {
         managedDirectory: string | null;

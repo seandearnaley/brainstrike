@@ -1,4 +1,5 @@
 import {
+  defaultBackgroundIndexingEnabled,
   ensureBackgroundIndexingPreferencesHydrated,
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
@@ -1159,6 +1160,71 @@ function buildSyncLoopTargets(args: {
   return buildFullSyncTargets(allHandles);
 }
 
+interface SyncTargetSelection {
+  excludedRootPaths: string[];
+  targets: SyncLoopTarget[];
+}
+
+interface ExcludedRootLogState {
+  loggedRootPaths: Set<string>;
+  rootSetKey: string;
+}
+
+function filterSyncTargetsByIndexingDefault(
+  targets: readonly SyncLoopTarget[],
+  dbRootKindByAdapterRootId: ReadonlyMap<string, string>,
+  rootsReconciliationSettled: boolean
+): SyncTargetSelection {
+  if (!rootsReconciliationSettled) {
+    return { excludedRootPaths: [], targets: [] };
+  }
+  const excludedRootPaths: string[] = [];
+  const selectedTargets: SyncLoopTarget[] = [];
+  for (const target of targets) {
+    const rootId = target.handle.rootId;
+    if (!rootId) {
+      selectedTargets.push(target);
+      continue;
+    }
+    const kind = dbRootKindByAdapterRootId.get(rootId);
+    if (kind === undefined) {
+      logger.debug('Deferring sync target with unknown root kind pending registration', {
+        rootId,
+        rootPath: target.handle.path,
+      });
+      continue;
+    }
+    // This deliberately throws for a future/invalid persisted kind, even from
+    // an effect or event path: NO SILENT FALLBACKS forbids guessing whether an
+    // unrecognized root should be indexed.
+    if (defaultBackgroundIndexingEnabled(kind)) {
+      selectedTargets.push(target);
+      continue;
+    }
+    excludedRootPaths.push(target.handle.path);
+  }
+  return { excludedRootPaths, targets: selectedTargets };
+}
+
+function logExcludedRootsOncePerRootSet(args: {
+  excludedRootPaths: readonly string[];
+  previous: ExcludedRootLogState;
+  rootSetKey: string;
+}): ExcludedRootLogState {
+  const next =
+    args.previous.rootSetKey === args.rootSetKey
+      ? args.previous
+      : { loggedRootPaths: new Set<string>(), rootSetKey: args.rootSetKey };
+  for (const rootPath of args.excludedRootPaths) {
+    if (next.loggedRootPaths.has(rootPath)) {
+      continue;
+    }
+    next.loggedRootPaths.add(rootPath);
+    logger.info('Excluded worktree root from background indexing by default', { rootPath });
+  }
+  return next;
+}
+
 function createWaitForBackgroundPermit(
   db: DbHandle
 ): (options: { readonly label: string }) => Promise<void> {
@@ -1402,11 +1468,20 @@ export function WorkspaceCollectionSyncProvider({
   // Errors are logged and swallowed — must never block boot.
   // The returned callbacks are ref-stable: identity does not change when the
   // reconciliation map resolves, so the service useMemo is not reconstructed.
-  const { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId } = useRootsReconciliation({
-    adapter: fileSystemAdapter,
-    db,
+  const {
+    registerRoot,
+    resolveDbRootId,
+    dbRootIdByAdapterRootId,
+    dbRootKindByAdapterRootId,
+    rootsReconciliationSettled,
+  } = useRootsReconciliation({ adapter: fileSystemAdapter, db });
+  // Unlike focus-only handle changes, a genuine kind-map change MUST recreate
+  // triggerSync so the owning effect restarts a pass that deferred an unknown
+  // root while its registration was in flight.
+  const excludedRootLogStateRef = useRef<ExcludedRootLogState>({
+    loggedRootPaths: new Set(),
+    rootSetKey,
   });
-
   // Mid-session root registration (phase 5): roots added via Add Folder get
   // their DB roots row at add time, so their imports write real root_id values
   // immediately instead of NULL-until-next-boot. registerRoot awaits the boot
@@ -2064,12 +2139,22 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
 
-      const targets = buildSyncLoopTargets({
-        rootDirectoryHandle,
-        rootDirectoryHandles,
-        rootIdByPath,
-        scope,
+      const selection = filterSyncTargetsByIndexingDefault(
+        buildSyncLoopTargets({
+          rootDirectoryHandle,
+          rootDirectoryHandles,
+          rootIdByPath,
+          scope,
+        }),
+        dbRootKindByAdapterRootId,
+        rootsReconciliationSettled
+      );
+      excludedRootLogStateRef.current = logExcludedRootsOncePerRootSet({
+        excludedRootPaths: selection.excludedRootPaths,
+        previous: excludedRootLogStateRef.current,
+        rootSetKey,
       });
+      const { targets } = selection;
       const mountedHandles = getActiveRootHandles({
         rootDirectoryHandle,
         rootDirectoryHandles,
@@ -2280,8 +2365,12 @@ export function WorkspaceCollectionSyncProvider({
           }
         });
     },
+    // BST-1268: rootSetKey deliberately replaces the focused handle, handles
+    // array, and path map identities so focus-only changes cannot recreate and
+    // cancel this callback while an import is active.
     [
       backgroundDb,
+      dbRootKindByAdapterRootId,
       enabled,
       hasHydrated,
       indexingPolicyPreset,
@@ -2290,8 +2379,8 @@ export function WorkspaceCollectionSyncProvider({
       reportAsyncError,
       resetSyncStatus,
       resolveDbRootId,
-      // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not recreate this callback (BST-1268); the live values are read through render-synced refs.
       rootSetKey,
+      rootsReconciliationSettled,
       service,
       setSyncStatus,
       treeRestorationSettled,
@@ -2440,6 +2529,9 @@ export function WorkspaceCollectionSyncProvider({
       disposed = true;
       unsubscribe();
     };
+    // BST-1268: rootSetKey deliberately replaces the focused handle, handles
+    // array, and path map identities so focus-only changes do not recreate this
+    // coverage subscription or fire its immediate recovery audit.
   }, [
     backgroundDb,
     enabled,
@@ -2447,7 +2539,6 @@ export function WorkspaceCollectionSyncProvider({
     indexingPolicyPreset,
     managedCollectionId,
     resolveDbRootId,
-    // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not re-run the audit (BST-1268); live values are read through render-synced refs.
     rootSetKey,
     setSyncStatus,
   ]);

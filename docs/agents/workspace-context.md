@@ -971,6 +971,38 @@ additional explorer/status chrome):
   left, beside the database item): main root name (+N), popover listing every
   mounted root (path or "browser folder", Main badge, Focused marker) with a
   per-row "Set as main" → `setMainRoot`.
+- **`roots.kind = 'worktree'` (BST-1390).** A root mounted for a BrainStrike-
+  managed worktree carries its own kind, set at INSERT by `reconcileRoots` from
+  the ledger-only `window.worktrees.listManagedPaths()` path set. This boot-
+  critical read never builds git inventory or resolves workspace-root joins.
+  Until the first successful desktop ledger read, reconciliation updates
+  existing rows but defers new inserts so a transient bridge failure cannot
+  durably misclassify a managed worktree as `path`.
+  `kind` is never modified on an existing row, so a worktree root registered
+  before W3 keeps its old kind — visible, not silently rewritten. The DB
+  column has a real CHECK constraint (migration 039, widened by migration 111
+  to add `'worktree'`) — this is NOT type-level-only, unlike an earlier draft
+  of this plan assumed. Background indexing defaults to OFF for this kind
+  [D8] (see `defaultBackgroundIndexingEnabled` in
+  `packages/app-state/src/stores/background-indexing-preferences-store.ts`,
+  consumed by the one sync-target filter in
+  `workspace-collection-sync-provider.tsx`) until the hash-reuse cost is
+  measured against the BST-393 benchmark; there is no per-root override
+  mechanism yet, so this is currently unconditional, not a default a user can
+  flip — that is a known, deliberate gap, not a bug. A mounted root with a
+  durable id but no published kind is deferred from the current sync pass;
+  publishing its reactive kind map restarts the pass, so mid-session Add Folder
+  cannot race the D8 exclusion.
+- **The second (and last) sanctioned picker-less mount.** `fs:addRootByPath`
+  now accepts a path authorized by EITHER the recent-roots ledger (BST-1395)
+  OR the managed-worktree authorizer (BST-1390): a live `brainstrike_worktrees`
+  row whose realpath sits under the realpath'd managed directory. The ledger is
+  checked first so a broken authorizer cannot take the recents path down with
+  it. Managed worktrees are deliberately NOT written into `recentRootsList` at
+  grant time — that list is the user's folders, not the app's scratch
+  directories — and (BST-1390 Task 10) `restoreRoots` now also skips recording
+  a `kind='worktree'` entry into recents on relaunch, closing the leak the
+  grant-time suppression alone left open across a restart.
 - Composer **workspace bar** (`packages/assistant-ui/src/workspace-bar/`,
   wired by `packages/app-shell/src/hooks/use-workspace-bar.ts` +
   `use-thread-checkout-status.ts`, mounted in the composer stack as a SIBLING
@@ -1001,12 +1033,17 @@ additional explorer/status chrome):
   - Recents come from main's `recentRootsList` ledger
     (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
     `fs:listRecentRoots`), minus folders already mounted in this workspace.
-    `fs:addRootByPath` re-mounts ONLY a path present in that ledger and is the
-    single sanctioned picker-less mount (BST-1395). Scope that claim exactly:
-    the ledger is the authorization gate for `addRootByPath`, so **the BAR**
-    cannot mount an arbitrary path — every path it can offer was already
-    granted through the OS picker or a successful restore, and a stray or stale
-    path string is rejected. It is NOT a hardening boundary against a
+    `fs:addRootByPath` has TWO ordered gates: first that ledger (BST-1395), then
+    the server-owned managed-worktree authorizer (BST-1390, spec §6.2), which
+    requires realpath containment plus a live ledger row and fails closed on
+    every authorizer error. A recents-ledger grant is re-recorded; a managed
+    worktree grant is not recorded into Recents at grant time, and `restoreRoots`
+    now batch-reads persisted root kinds and skips `kind='worktree'` entries on
+    relaunch (BST-1390 Task 10), so that suppression survives relaunch when the
+    kind query succeeds and the row exists; it deliberately fails open to ordinary
+    Recents behavior if the kind query throws or the root row was never written. Thus **the BAR** cannot
+    mount an arbitrary path: a stray or stale path string is rejected. This is
+    NOT a hardening boundary against a
     compromised renderer: main-process storage is itself renderer-writable
     through the unrestricted `storage:setItem` bridge, which puts the ledger in
     the SAME trust class as `rootsList` + `fs:restoreRoots`. A renderer that can

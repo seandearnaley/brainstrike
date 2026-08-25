@@ -7,12 +7,32 @@ export type RootsQueryFn = (sql: string, params?: unknown[]) => Promise<{ rows: 
 
 export interface ReconcileRootsArgs {
   adapterRoots: readonly RootDescriptor[];
+  /**
+   * Paths of managed worktrees (from `window.worktrees.listManagedPaths()`). A
+   * root at one of these paths is inserted with
+   * `kind: 'worktree'` instead of `platformKind`, so the background-indexing
+   * default [D8] and (eventually) the Explorer can tell it apart from a
+   * folder the user chose via the OS picker. Absent on web (no bridge) — the
+   * platform kind then applies, exactly as before this change.
+   */
+  managedWorktreePaths?: ReadonlySet<string>;
+  /**
+   * Whether the managed-worktree path set is authoritative. Defaults to true
+   * for direct/test callers; the renderer passes false until its first
+   * successful desktop ledger read.
+   */
+  managedWorktreePathsKnown?: boolean;
   platformKind: 'fsa' | 'path';
   query: RootsQueryFn;
 }
 
 export interface ReconcileRootsResult {
   dbRootIdByAdapterRootId: Map<string, string>;
+  /**
+   * The DB `roots.kind` value associated with each adapter root id. Existing
+   * rows retain their persisted kind; this map is a read-through only.
+   */
+  dbRootKindByAdapterRootId: Map<string, string>;
 }
 
 interface DbRootRow {
@@ -68,7 +88,7 @@ function findExistingRootMatch(args: {
 }
 
 async function insertRoot(args: {
-  platformKind: ReconcileRootsArgs['platformKind'];
+  kind: 'fsa' | 'path' | 'worktree';
   query: RootsQueryFn;
   root: RootDescriptor;
 }): Promise<void> {
@@ -76,7 +96,7 @@ async function insertRoot(args: {
     `INSERT INTO roots (id, kind, display_name, path, last_verified_at)
      VALUES ($1, $2, $3, $4, NOW())
      ON CONFLICT (id) DO NOTHING`,
-    [args.root.rootId, args.platformKind, args.root.displayName, args.root.handle.path]
+    [args.root.rootId, args.kind, args.root.displayName, args.root.handle.path]
   );
 }
 
@@ -146,8 +166,10 @@ async function restoreRootLiveStatus(query: RootsQueryFn, row: DbRootRow): Promi
  * restoreRoots(), so registering them would orphan DB rows.
  */
 export async function reconcileRoots(args: ReconcileRootsArgs): Promise<ReconcileRootsResult> {
-  const { adapterRoots, platformKind, query } = args;
+  const { adapterRoots, managedWorktreePaths, platformKind, query } = args;
+  const managedWorktreePathsKnown = args.managedWorktreePathsKnown ?? true;
   const mapping = new Map<string, string>();
+  const dbRootKindByAdapterRootId = new Map<string, string>();
 
   const result = await query('SELECT id, kind, path, status FROM roots');
   const dbRows = result.rows.filter(isDbRootRow);
@@ -157,6 +179,7 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
   );
 
   for (const root of adapterRoots) {
+    const rootPath = root.handle.path;
     if (!isRegistrableRoot(root)) {
       logger.warn('Skipping unregistrable root', {
         permissionState: root.permissionState,
@@ -179,10 +202,18 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
     if (matched) {
       await restoreRootLiveStatus(query, matched);
       mapping.set(root.rootId, matched.id);
+      dbRootKindByAdapterRootId.set(root.rootId, matched.kind ?? platformKind);
       continue;
     }
+    if (!managedWorktreePathsKnown) {
+      logger.warn('Deferring new root insert: managed worktree set is unknown', {
+        rootId: root.rootId,
+      });
+      continue;
+    }
+    const kind = managedWorktreePaths?.has(rootPath) ? 'worktree' : platformKind;
     try {
-      await insertRoot({ platformKind, query, root });
+      await insertRoot({ kind, query, root });
     } catch (error) {
       if (platformKind !== 'path') {
         throw error;
@@ -194,7 +225,8 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       const existingRow = await resolvePathUniqueRace({ error, query, root });
       await restoreRootLiveStatus(query, existingRow);
       mapping.set(root.rootId, existingRow.id);
-      dbByPath.set(root.handle.path, { ...existingRow, status: 'live' });
+      dbRootKindByAdapterRootId.set(root.rootId, existingRow.kind ?? platformKind);
+      dbByPath.set(rootPath, { ...existingRow, status: 'live' });
       logger.warn('Root path registered by a concurrent writer — converged on existing row', {
         dbRootId: existingRow.id,
         rootId: root.rootId,
@@ -202,15 +234,16 @@ export async function reconcileRoots(args: ReconcileRootsArgs): Promise<Reconcil
       continue;
     }
     // Keep dbByPath current so a subsequent root with the same path maps to this id
-    dbByPath.set(root.handle.path, {
+    dbByPath.set(rootPath, {
       id: root.rootId,
-      kind: platformKind,
-      path: root.handle.path,
+      kind,
+      path: rootPath,
       status: 'live',
     });
     mapping.set(root.rootId, root.rootId);
-    logger.info('Registered new root', { kind: platformKind, rootId: root.rootId });
+    dbRootKindByAdapterRootId.set(root.rootId, kind);
+    logger.info('Registered new root', { kind, rootId: root.rootId });
   }
 
-  return { dbRootIdByAdapterRootId: mapping };
+  return { dbRootIdByAdapterRootId: mapping, dbRootKindByAdapterRootId };
 }

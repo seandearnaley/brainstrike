@@ -4,6 +4,7 @@ import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electro
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ManagedWorktreeAuthorizer } from '../../ipc-domains/workspace-recent-roots';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 const handlers = new Map<string, IpcHandler>();
@@ -21,6 +22,7 @@ import { registerIpcHandlers } from '../../ipc-handlers';
 
 describe('ipc-handlers filesystem composition', () => {
   let fileSystem: ElectronFileSystemAdapter;
+  let managedWorktreeAuthorizer: ReturnType<typeof vi.fn<ManagedWorktreeAuthorizer>>;
   let storage: ElectronStorageAdapter;
   let storedValues: Map<string, string>;
 
@@ -52,8 +54,10 @@ describe('ipc-handlers filesystem composition', () => {
         storedValues.set(key, value);
       }),
     } as unknown as ElectronStorageAdapter;
+    managedWorktreeAuthorizer = vi.fn<ManagedWorktreeAuthorizer>(async () => 'unmanaged');
     registerIpcHandlers(fileSystem, storage, () => null, {
       isSyntheticFileSystemPath: () => true,
+      managedWorktreeAuthorizer,
     });
   });
 
@@ -150,5 +154,13 @@ describe('ipc-handlers filesystem composition', () => {
       handlers.get('fs:exists')?.({} as IpcMainInvokeEvent, '/users/test/docs')
     ).resolves.toBe(true);
     expect(fileSystem.exists).toHaveBeenCalledWith(path.resolve('/users/test/docs'));
+  });
+
+  it('threads the managed-worktree authorizer through the filesystem composition root', async () => {
+    managedWorktreeAuthorizer.mockResolvedValue('authorized');
+
+    await handlers.get('fs:addRootByPath')?.({} as IpcMainInvokeEvent, '/managed/app/bright-fox');
+
+    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
   });
 });

@@ -83,8 +83,12 @@ function normalize(candidate: string): string {
   return path.normalize(candidate).replaceAll('\\', '/').replace(/\/+$/, '');
 }
 
-/** True when `candidate` IS `container` or sits below it. */
-function isWithin(candidate: string, container: string): boolean {
+/**
+ * True when `candidate` IS `container` or sits below it. NOTE: the sibling
+ * `isWithinRoot(root, target)` in `workspace-path.ts` takes its arguments in
+ * the OPPOSITE order — check which one you are calling.
+ */
+export function isPathWithin(candidate: string, container: string): boolean {
   const normalizedCandidate = normalize(candidate);
   const normalizedContainer = normalize(container);
   return (
@@ -154,7 +158,7 @@ export function assertWorktreeTargetOutsideRoots(
   rootPaths: readonly string[]
 ): void {
   for (const rootPath of rootPaths) {
-    if (!isWithin(target, rootPath)) {
+    if (!isPathWithin(target, rootPath)) {
       continue;
     }
     const relative = normalize(target).slice(normalize(rootPath).length + 1);

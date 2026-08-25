@@ -26,7 +26,9 @@ function pathRoot(rootId: string, name: string, path: string): RootDescriptor {
 
 describe('reconcileRoots', () => {
   it('maps desktop path roots onto an existing live DB row by path without modifying it', async () => {
-    const dbRows = [{ id: 'db-1', path: '/workspace/my-project', status: 'live' }];
+    const dbRows = [
+      { id: 'db-1', kind: 'snapshot', path: '/workspace/my-project', status: 'live' },
+    ];
     const query = vi.fn(async (sql: string, _params?: unknown[]) =>
       sql.includes('SELECT') ? { rows: dbRows } : { rows: [] }
     );
@@ -38,6 +40,7 @@ describe('reconcileRoots', () => {
     });
 
     expect(result.dbRootIdByAdapterRootId.get('adapter-1')).toBe('db-1');
+    expect(result.dbRootKindByAdapterRootId.get('adapter-1')).toBe('snapshot');
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('UPDATE'))).toBe(false);
     expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT'))).toBe(false);
   });
@@ -193,12 +196,72 @@ describe('reconcileRoots', () => {
     });
 
     expect(result.dbRootIdByAdapterRootId.get('adapter-2')).toBe('adapter-2');
+    expect(result.dbRootKindByAdapterRootId.get('adapter-2')).toBe('fsa');
     const insertCall = query.mock.calls.find(([sql]) =>
       (sql as string).includes('INSERT INTO roots')
     );
     expect(insertCall?.[1]).toEqual(
       expect.arrayContaining(['adapter-2', 'fsa', 'fresh-folder', 'fresh-folder'])
     );
+  });
+
+  it('inserts a managed worktree path with kind worktree', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    const result = await reconcileRoots({
+      adapterRoots: [pathRoot('worktree-root', 'bright-fox', '/managed/app/bright-fox')],
+      managedWorktreePaths: new Set(['/managed/app/bright-fox']),
+      platformKind: 'path',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]).toEqual([
+      'worktree-root',
+      'worktree',
+      'bright-fox',
+      '/managed/app/bright-fox',
+    ]);
+    expect(result.dbRootKindByAdapterRootId.get('worktree-root')).toBe('worktree');
+  });
+
+  it('keeps the platform kind for an ordinary path when another path is managed', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    await reconcileRoots({
+      adapterRoots: [pathRoot('ordinary-root', 'project', '/workspace/project')],
+      managedWorktreePaths: new Set(['/managed/app/bright-fox']),
+      platformKind: 'path',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]?.[1]).toBe('path');
+  });
+
+  it('keeps the platform kind when managed worktree paths are unavailable on web', async () => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) =>
+      sql.includes('SELECT') ? { rows: [] } : { rows: [] }
+    );
+
+    await reconcileRoots({
+      adapterRoots: [fsaRoot('web-root', 'project')],
+      platformKind: 'fsa',
+      query,
+    });
+
+    const insertCall = query.mock.calls.find(([sql]) =>
+      (sql as string).includes('INSERT INTO roots')
+    );
+    expect(insertCall?.[1]?.[1]).toBe('fsa');
   });
 
   it('registers two same-name FSA roots independently', async () => {

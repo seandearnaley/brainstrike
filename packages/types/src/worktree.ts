@@ -50,6 +50,12 @@ export interface ManagedWorktreeRow {
   readonly threadId: string | null;
 }
 
+/** Ledger-only identity needed by boot-time root reconciliation. */
+export interface ManagedWorktreePathEntry {
+  readonly id: string;
+  readonly path: string;
+}
+
 /** External tool that owns a scanned worktree path (spec §5.3) — a LABEL, not provenance. */
 export type WorktreeExternalTool = 'claude-code' | 'codex' | 'cursor';
 
