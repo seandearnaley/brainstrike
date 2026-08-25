@@ -23,6 +23,7 @@ import type {
   GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
+  WorktreeArchiveResult,
   WorktreeCreateParams,
   WorktreeCreateResult,
   WorktreeDescriptor,
@@ -38,6 +39,12 @@ import {
   toErrorMessage,
 } from './git-service';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
+import {
+  captureArchiveSnapshot,
+  captureMissingArchiveSnapshot,
+  inspectWorktreeSafety,
+  type WorktreeSafetyReport,
+} from './worktree-archive';
 import { createWorktreeLedger, type WorktreeLedgerDatabase } from './worktree-ledger';
 import {
   assertWorktreeTargetOutsideRoots,
@@ -48,10 +55,16 @@ import {
 
 const logger = createLogger('WorktreeService');
 
-/** What `runSetup` (Layer 5) needs; stubbed to a `'none'` outcome until then. */
+/** What `runSetup` needs to run `.worktreeinclude` copy + the setup command. */
 export interface WorktreeSetupInput {
+  /** Test seam; production uses `WORKTREE_INCLUDE_MAX_TOTAL_BYTES`. */
+  readonly copyMaxBytes?: number;
   readonly settings: WorktreeSettings;
   readonly sourcePath: string;
+  /** Test seam; production allows a two-second SIGTERM grace period. */
+  readonly terminationGraceMs?: number;
+  /** Test seam; production uses `WORKTREE_SETUP_TIMEOUT_MS`. */
+  readonly timeoutMs?: number;
   readonly worktree: ManagedWorktreeRow;
 }
 
@@ -72,6 +85,12 @@ interface RepositoryContext {
   readonly commonDir: string;
   readonly cwd: string;
   readonly repositoryRoot: string;
+}
+
+interface WorktreeArchiveParams {
+  readonly force?: boolean;
+  readonly runId?: string;
+  readonly worktreeId: string;
 }
 
 /** FIFO async mutex: tasks run strictly one at a time, failures don't wedge it. */
@@ -239,6 +258,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         copiedPaths: [],
         output: '',
         reason: toErrorMessage(error),
+        skippedCopies: [],
         status: 'failed',
         truncated: false,
       };
@@ -337,7 +357,362 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { ok: true, value: entries };
   }
 
+  async function inspectArchiveRow(
+    row: ManagedWorktreeRow
+  ): Promise<GitResult<WorktreeSafetyReport>> {
+    const inventory = await deps.resolveInventory();
+    const descriptor = inventory.repositories
+      .flatMap((repository) => repository.worktrees)
+      .find((worktree) => worktree.path === row.path);
+    return await inspectWorktreeSafety({
+      baseRef: row.baseRef,
+      invoke: invokeIn(row.path),
+      lockedReason: descriptor?.lockedReason ?? null,
+      threadIsRunning: await ledger.hasRunningThread(row.id),
+    });
+  }
+
+  async function removeArchivedWorktree(
+    row: ManagedWorktreeRow,
+    force: boolean
+  ): Promise<GitResult<null>> {
+    const removeRun = await invokeGitHookFree(invokeIn(row.repoCommonDir), [
+      'worktree',
+      'remove',
+      ...(force ? ['--force'] : []),
+      '--',
+      row.path,
+    ]);
+    if (removeRun.exitCode !== 0) {
+      return { error: describeFailure(removeRun), ok: false };
+    }
+    return { ok: true, value: null };
+  }
+
+  function resolveArchiveBlocker(safety: WorktreeSafetyReport, force: boolean): string | null {
+    if (safety.threadIsRunning) {
+      // The ONE blocker `force` never overrides.
+      const runningBlocker = safety.blockers.find((blocker) => blocker.length > 0);
+      if (!runningBlocker) {
+        throw new Error(
+          'Internal error: threadIsRunning but no blocker was reported — archive refused (fail-closed).'
+        );
+      }
+      return runningBlocker;
+    }
+    if (!(force || safety.blockers.length === 0)) {
+      return safety.blockers.find((blocker) => blocker.length > 0) ?? null;
+    }
+    return null;
+  }
+
+  async function archiveMissingWorktree(
+    row: ManagedWorktreeRow
+  ): Promise<GitResult<WorktreeArchiveResult>> {
+    const snapshot = await captureMissingArchiveSnapshot({
+      cwd: row.repoCommonDir,
+      run: deps.run,
+      worktree: row,
+    });
+    if (!snapshot.ok) {
+      return snapshot;
+    }
+    // The directory is already gone, so removal cannot run. Expire the stale
+    // administrative entry immediately before making the ledger archival
+    // durable; otherwise inventory would keep rediscovering a ghost path.
+    const pruneRun = await invokeGitHookFree(invokeIn(row.repoCommonDir), [
+      'worktree',
+      'prune',
+      '--expire',
+      'now',
+    ]);
+    if (pruneRun.exitCode !== 0) {
+      return { error: describeFailure(pruneRun), ok: false };
+    }
+    try {
+      const worktree = await ledger.markArchived(row.id, snapshot.value);
+      return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
+    } catch (error) {
+      logger.error('missing worktree was pruned but its archive ledger write failed', {
+        error,
+        snapshotRef: snapshot.value,
+        worktreeId: row.id,
+      });
+      return {
+        error: `The missing worktree registration was pruned, but its archive status could not be recorded: ${toErrorMessage(
+          error
+        )}; your snapshot is at ${snapshot.value}.`,
+        ok: false,
+      };
+    }
+  }
+
+  async function archiveUnserialized(
+    params: WorktreeArchiveParams
+  ): Promise<GitResult<WorktreeArchiveResult>> {
+    const row = await ledger.get(params.worktreeId);
+    if (!row || row.archivedAt !== null) {
+      return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
+    }
+    try {
+      await fsPromises.stat(row.path);
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+        throw error;
+      }
+      return await archiveMissingWorktree(row);
+    }
+    const safety = await inspectArchiveRow(row);
+    if (!safety.ok) {
+      return safety;
+    }
+    const snapshot = await captureArchiveSnapshot({ cwd: row.path, run: deps.run, worktree: row });
+    if (!snapshot.ok) {
+      return snapshot;
+    }
+    const blocker = resolveArchiveBlocker(safety.value, params.force === true);
+    if (blocker !== null) {
+      return { error: blocker, ok: false };
+    }
+    const removed = await removeArchivedWorktree(row, params.force === true);
+    if (!removed.ok) {
+      return removed;
+    }
+    try {
+      const worktree = await ledger.markArchived(row.id, snapshot.value);
+      return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
+    } catch (error) {
+      logger.error('worktree was removed but its archive ledger write failed', {
+        error,
+        snapshotRef: snapshot.value,
+        worktreeId: row.id,
+      });
+      return {
+        error: `The worktree was removed, but its archive status could not be recorded: ${toErrorMessage(
+          error
+        )}; your snapshot is at ${snapshot.value}.`,
+        ok: false,
+      };
+    }
+  }
+
+  async function assertRestoreTargetAvailable(target: string): Promise<GitResult<null>> {
+    try {
+      const entries = await fsPromises.readdir(target);
+      if (entries.length === 0) {
+        return { ok: true, value: null };
+      }
+      return {
+        error: `"${target}" already exists and is not empty — move it aside before restoring.`,
+        ok: false,
+      };
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        return { ok: true, value: null };
+      }
+      throw error;
+    }
+  }
+
+  async function replayArchiveSnapshot(
+    row: ManagedWorktreeRow,
+    snapshotRef: string
+  ): Promise<GitResult<null>> {
+    // Git restore defaults to --no-overlay; that is load-bearing because paths
+    // absent from the captured tree must be deleted for archive round-trips.
+    const replayRun = await invokeGitHookFree(invokeIn(row.path), [
+      'restore',
+      `--source=${snapshotRef}`,
+      '--worktree',
+      '--',
+      '.',
+    ]);
+    if (replayRun.exitCode === 0) {
+      return { ok: true, value: null };
+    }
+    const replayError = describeFailure(replayRun);
+    try {
+      const removeRun = await invokeGitHookFree(invokeIn(row.repoCommonDir), [
+        'worktree',
+        'remove',
+        '--force',
+        '--',
+        row.path,
+      ]);
+      if (removeRun.exitCode !== 0) {
+        logger.error('could not compensate for failed archive snapshot replay', {
+          removalError: describeFailure(removeRun),
+          restoreError: replayError,
+          target: row.path,
+          worktreeId: row.id,
+        });
+      }
+    } catch (cleanupError) {
+      logger.error('archive snapshot replay compensation threw', {
+        cleanupError,
+        restoreError: replayError,
+        target: row.path,
+        worktreeId: row.id,
+      });
+    }
+    return { error: replayError, ok: false };
+  }
+
+  async function recordRestoredWorktree(
+    row: ManagedWorktreeRow,
+    snapshotRef: string
+  ): Promise<GitResult<WorktreeCreateResult>> {
+    const setup = {
+      copiedPaths: [],
+      output: '',
+      reason: null,
+      skippedCopies: [],
+      status: 'none',
+      truncated: false,
+    } as const;
+    try {
+      const worktree = await ledger.markRestored(row.id);
+      return { ok: true, value: { setup, worktree } };
+    } catch (error) {
+      logger.error('worktree was restored but its ledger write failed', {
+        error,
+        snapshotRef,
+        target: row.path,
+        worktreeId: row.id,
+      });
+      return {
+        error: `The worktree was restored to ${row.path}, but its ledger status could not be recorded: ${toErrorMessage(
+          error
+        )}.`,
+        ok: false,
+      };
+    }
+  }
+
+  async function resolveRestoreAddArgs(
+    row: ManagedWorktreeRow,
+    snapshotRef: string,
+    repositoryInvoke: ReturnType<typeof invokeIn>
+  ): Promise<GitResult<readonly string[]>> {
+    if (row.branch === null) {
+      return {
+        ok: true,
+        value: ['worktree', 'add', '--detach', '--', row.path, `${snapshotRef}^`],
+      };
+    }
+    const expectedTipRun = await invokeGitHookFree(repositoryInvoke, [
+      'rev-parse',
+      '--verify',
+      `${snapshotRef}^`,
+    ]);
+    if (expectedTipRun.exitCode !== 0) {
+      return { error: describeFailure(expectedTipRun), ok: false };
+    }
+    const branchTipRun = await invokeGitHookFree(repositoryInvoke, [
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      `refs/heads/${row.branch}`,
+    ]);
+    if (branchTipRun.exitCode === 1) {
+      return {
+        ok: true,
+        value: ['worktree', 'add', '-b', row.branch, '--', row.path, `${snapshotRef}^`],
+      };
+    }
+    if (branchTipRun.exitCode !== 0) {
+      return { error: describeFailure(branchTipRun), ok: false };
+    }
+    const branchTip = branchTipRun.stdout.trim();
+    const expectedTip = expectedTipRun.stdout.trim();
+    if (branchTip !== expectedTip) {
+      return {
+        error: `"${row.branch}" has moved since this worktree was archived (now ${branchTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename or move the branch first.`,
+        ok: false,
+      };
+    }
+    return { ok: true, value: ['worktree', 'add', '--', row.path, row.branch] };
+  }
+
+  async function restoreUnserialized(params: {
+    readonly worktreeId: string;
+  }): Promise<GitResult<WorktreeCreateResult>> {
+    const row = await ledger.get(params.worktreeId);
+    if (!row) {
+      return { error: `Managed worktree "${params.worktreeId}" is not in the ledger.`, ok: false };
+    }
+    if (row.archivedAt === null || row.archiveSnapshotRef === null) {
+      return {
+        error: 'That worktree is not archived — there is nothing to restore.',
+        ok: false,
+      };
+    }
+    const snapshotRef = row.archiveSnapshotRef;
+    const repositoryInvoke = invokeIn(row.repoCommonDir);
+    const verifySnapshotRun = await invokeGitHookFree(repositoryInvoke, [
+      'rev-parse',
+      '--verify',
+      `${snapshotRef}^{commit}`,
+    ]);
+    if (verifySnapshotRun.exitCode !== 0) {
+      return {
+        error: `The archive snapshot "${snapshotRef}" no longer exists in this repository, so this worktree cannot be restored.`,
+        ok: false,
+      };
+    }
+    const verifyParentRun = await invokeGitHookFree(repositoryInvoke, [
+      'rev-parse',
+      '--verify',
+      `${snapshotRef}^`,
+    ]);
+    if (verifyParentRun.exitCode === 128) {
+      return {
+        error:
+          'This worktree was archived while missing on disk — there is nothing to restore. Create a new worktree instead.',
+        ok: false,
+      };
+    }
+    if (verifyParentRun.exitCode !== 0) {
+      return { error: describeFailure(verifyParentRun), ok: false };
+    }
+    const targetAvailable = await assertRestoreTargetAvailable(row.path);
+    if (!targetAvailable.ok) {
+      return targetAvailable;
+    }
+    const addArgs = await resolveRestoreAddArgs(row, snapshotRef, repositoryInvoke);
+    if (!addArgs.ok) {
+      return addArgs;
+    }
+    await fsPromises.mkdir(path.dirname(row.path), { recursive: true });
+    const addRun = await invokeGitHookFree(repositoryInvoke, addArgs.value);
+    if (addRun.exitCode !== 0) {
+      return { error: describeFailure(addRun), ok: false };
+    }
+    const replayed = await replayArchiveSnapshot(row, snapshotRef);
+    if (!replayed.ok) {
+      return replayed;
+    }
+    return await recordRestoredWorktree(row, snapshotRef);
+  }
+
   return {
+    /**
+     * Snapshot, then remove. ORDER IS THE CONTRACT: the snapshot is captured
+     * BEFORE the safety verdict is acted on and before `git worktree remove`
+     * runs, so a forced archive of dirty work is always restorable. The ledger
+     * row is marked archived only AFTER the removal succeeds — a failed
+     * removal must never leave a row claiming a directory is gone.
+     */
+    async archive(params: WorktreeArchiveParams): Promise<GitResult<WorktreeArchiveResult>> {
+      return await serialize(async () => {
+        try {
+          return await archiveUnserialized(params);
+        } catch (error) {
+          logger.error('worktree archive failed', { error, worktreeId: params.worktreeId });
+          return { error: toErrorMessage(error), ok: false };
+        }
+      });
+    },
     /** Create a managed worktree, record it, and run its setup. */
     async create(params: WorktreeCreateParams): Promise<GitResult<WorktreeCreateResult>> {
       return await serialize(async () => {
@@ -345,6 +720,57 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return await createUnserialized(params);
         } catch (error) {
           logger.error('worktree create failed', { error, name: params.name });
+          return { error: toErrorMessage(error), ok: false };
+        }
+      });
+    },
+    /** Create a branch at the detached worktree's HEAD and check it out there [D2]. */
+    async createBranchHere(params: {
+      readonly branch: string;
+      readonly worktreeId: string;
+    }): Promise<GitResult<ManagedWorktreeRow>> {
+      return await serialize(async () => {
+        try {
+          const row = await ledger.get(params.worktreeId);
+          if (!row || row.archivedAt !== null) {
+            return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
+          }
+          const invoke = invokeIn(row.path);
+          const attachedBranchRun = await invokeGitHookFree(invoke, [
+            'symbolic-ref',
+            '--quiet',
+            '--short',
+            'HEAD',
+          ]);
+          if (attachedBranchRun.exitCode === 0) {
+            return {
+              error: `Managed worktree "${row.id}" is attached to branch "${attachedBranchRun.stdout.trim()}"; createBranchHere requires a detached worktree.`,
+              ok: false,
+            };
+          }
+          if (attachedBranchRun.exitCode !== 1) {
+            return { error: describeFailure(attachedBranchRun), ok: false };
+          }
+          const exists = await invoke([
+            'show-ref',
+            '--verify',
+            '--hash',
+            `refs/heads/${params.branch}`,
+          ]);
+          if (exists.exitCode === 0) {
+            return { error: `local branch "${params.branch}" already exists`, ok: false };
+          }
+          const switchRun = await invokeGitHookFree(invoke, [
+            'switch',
+            '--no-guess',
+            '-c',
+            params.branch,
+          ]);
+          if (switchRun.exitCode !== 0) {
+            return { error: describeFailure(switchRun), ok: false };
+          }
+          return { ok: true, value: await ledger.updateBranch(row.id, params.branch) };
+        } catch (error) {
           return { error: toErrorMessage(error), ok: false };
         }
       });
@@ -394,6 +820,19 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         logger.error('managed worktree path list failed', { error });
         return { error: toErrorMessage(error), ok: false };
       }
+    },
+    /** Recreate an archived worktree and replay its durable archive snapshot. */
+    async restore(params: {
+      readonly worktreeId: string;
+    }): Promise<GitResult<WorktreeCreateResult>> {
+      return await serialize(async () => {
+        try {
+          return await restoreUnserialized(params);
+        } catch (error) {
+          logger.error('worktree restore failed', { error, worktreeId: params.worktreeId });
+          return { error: toErrorMessage(error), ok: false };
+        }
+      });
     },
   };
 }

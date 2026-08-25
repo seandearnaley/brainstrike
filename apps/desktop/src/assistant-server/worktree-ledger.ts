@@ -247,8 +247,10 @@ export function createWorktreeLedger(
     },
     async markRestored(id) {
       // The archive-consistency CHECK requires both archive columns to return
-      // to NULL together. The historical ref survives in the repository's
-      // archive ref and Layer 5's durable timeline event, not this active row.
+      // to NULL together. The archive ref survives only until the next archive
+      // of this worktree, when the deterministic ref is update-ref'd again.
+      // After restore, this row no longer points to it, so an older snapshot is
+      // reflog-only hand-recovery. Task 18 is the home for durable event history.
       const rows = await query(
         `UPDATE ${WORKTREE_LEDGER_TABLE} SET archived_at = NULL, archive_snapshot_ref = NULL
           WHERE id = $1 RETURNING ${COLUMNS}`,

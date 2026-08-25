@@ -79,6 +79,38 @@ describe('WorktreeSettingsSection', () => {
     });
   });
 
+  it('saves the explicit disabled setup state', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(() => Promise.resolve());
+    render(
+      <WorktreeSettingsSection onSave={onSave} settings={SETTINGS} status={{ kind: 'ready' }} />
+    );
+
+    await user.click(screen.getByTestId('worktree-settings-disable-setup'));
+    await user.click(screen.getByTestId('worktree-settings-save'));
+
+    expect(onSave).toHaveBeenCalledWith({
+      managedDirectory: '/home/me/.brainstrike/worktrees',
+      setupCommand: 'disabled',
+    });
+  });
+
+  it('reflects a persisted disabled setup state on initial render', () => {
+    render(
+      <WorktreeSettingsSection
+        onSave={vi.fn()}
+        settings={{ ...SETTINGS, setupCommand: 'disabled' }}
+        status={{ kind: 'ready' }}
+      />
+    );
+
+    expect(screen.getByTestId('worktree-settings-disable-setup')).toBeChecked();
+    expect(screen.getByTestId('worktree-settings-setup-command')).toBeDisabled();
+    expect(screen.getByTestId('worktree-settings-setup-command-preview')).toHaveTextContent(
+      'Setup is disabled.'
+    );
+  });
+
   it.each(['"', "'"])('rejects setup commands containing %s without saving', async (quote) => {
     const user = userEvent.setup();
     const onSave = vi.fn(() => Promise.resolve());

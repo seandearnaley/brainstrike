@@ -25,17 +25,6 @@ beforeEach(() => {
 });
 
 describe('worktrees IPC handlers', () => {
-  it.each([
-    ['archive', 'worktrees:archive'],
-    ['createBranchHere', 'worktrees:createBranchHere'],
-    ['restore', 'worktrees:restore'],
-  ] as const)('%s returns its typed not-implemented failure', async (method, channel) => {
-    expect(await handlers()[method]({})).toEqual({
-      error: `${channel} is not implemented in this build.`,
-      ok: false,
-    });
-  });
-
   it('reports an absent service as a typed failure, never an empty list', async () => {
     const withoutService = createWorktreesIpcHandlers({
       readSettings: () =>
@@ -96,6 +85,51 @@ describe('worktrees IPC handlers', () => {
     };
     await handlers().create(params);
     expect(service.create).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed archive payload at the boundary', async () => {
+    expect(await handlers().archive({ worktreeId: 42 })).toEqual({
+      error: 'worktrees:archive requires { worktreeId }.',
+      ok: false,
+    });
+    expect(service.archive).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated archive to the service', async () => {
+    service.archive.mockResolvedValue({ ok: true, value: { snapshotRef: 'ref', worktree: null } });
+    const params = { force: true, runId: 'run-1', worktreeId: 'wt-1' };
+    await handlers().archive(params);
+    expect(service.archive).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed createBranchHere payload at the boundary', async () => {
+    expect(await handlers().createBranchHere({ branch: 42, worktreeId: 'wt-1' })).toEqual({
+      error: 'worktrees:createBranchHere requires { branch, worktreeId }.',
+      ok: false,
+    });
+    expect(service.createBranchHere).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated createBranchHere to the service', async () => {
+    service.createBranchHere.mockResolvedValue({ ok: true, value: null });
+    const params = { branch: 'bs/attached', worktreeId: 'wt-1' };
+    await handlers().createBranchHere(params);
+    expect(service.createBranchHere).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed restore payload at the boundary', async () => {
+    expect(await handlers().restore({ worktreeId: 42 })).toEqual({
+      error: 'worktrees:restore requires { worktreeId }.',
+      ok: false,
+    });
+    expect(service.restore).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated restore to the service', async () => {
+    service.restore.mockResolvedValue({ ok: true, value: { setup: null, worktree: null } });
+    const params = { worktreeId: 'wt-1' };
+    await handlers().restore(params);
+    expect(service.restore).toHaveBeenCalledWith(params);
   });
 
   it('never lets a thrown service error cross the IPC boundary', async () => {
@@ -176,10 +210,47 @@ describe('worktrees IPC handlers', () => {
 
     const result = await ipcHandlers.setSettings({ managedDirectory: null, setupCommand: [] });
     expect(result).toEqual({
-      error: 'worktrees:setSettings setupCommand must be a non-empty string array or null.',
+      error:
+        'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
       ok: false,
     });
     expect(writeSettings).not.toHaveBeenCalled();
+  });
+
+  it('rejects a string setup state other than disabled', async () => {
+    const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve({} as never),
+      resolveService: () => service as never,
+      writeSettings,
+    });
+
+    await expect(
+      ipcHandlers.setSettings({ managedDirectory: null, setupCommand: 'enabled' })
+    ).resolves.toEqual({
+      error:
+        'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
+      ok: false,
+    });
+    expect(writeSettings).not.toHaveBeenCalled();
+  });
+
+  it('round-trips the disabled setup state through the write boundary', async () => {
+    const next = { managedDirectory: null, setupCommand: 'disabled' as const };
+    const settings = {
+      isDefaultDirectory: true,
+      managedDirectory: '/home/test/.brainstrike/worktrees',
+      setupCommand: 'disabled' as const,
+    };
+    const writeSettings = vi.fn(() => Promise.resolve(settings));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve(settings),
+      resolveService: () => service as never,
+      writeSettings,
+    });
+
+    await expect(ipcHandlers.setSettings(next)).resolves.toEqual({ ok: true, value: settings });
+    expect(writeSettings).toHaveBeenCalledWith(next);
   });
 
   it('round-trips valid settings through the write boundary', async () => {

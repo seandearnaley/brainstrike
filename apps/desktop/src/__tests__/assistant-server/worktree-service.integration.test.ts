@@ -3,17 +3,7 @@
  * add` actually runs and the ledger actually persists — a mocked runner would
  * prove only that the arguments were assembled.
  */
-import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
@@ -41,85 +31,100 @@ import {
   type WorktreeLedgerDatabase,
 } from '../../assistant-server/worktree-ledger';
 import { repositorySlug } from '../../assistant-server/worktree-paths';
-import { createWorktreeService } from '../../assistant-server/worktree-service';
-import { execFileGitRunner } from '../../git-ipc-handlers';
-
-const tempDirs: string[] = [];
-
-function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' });
-}
-
-function freshRepo(label: string): string {
-  const dir = mkdtempSync(path.join(tmpdir(), `bst-wt-${label}-`));
-  tempDirs.push(dir);
-  git(dir, ['init', '-b', 'main']);
-  git(dir, ['config', 'user.email', 'test@brainstrike.invalid']);
-  git(dir, ['config', 'user.name', 'BrainStrike Test']);
-  writeFileSync(path.join(dir, 'hello.ts'), 'export const value = 1;\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-m', 'initial commit']);
-  return dir;
-}
-
-function freshManagedDir(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'bst-managed-'));
-  tempDirs.push(dir);
-  return dir;
-}
-
-function asLedgerDatabase(database: PGlite): WorktreeLedgerDatabase {
-  return {
-    async query(sql, params) {
-      const result = await database.query(sql, params);
-      return { rows: result.rows };
-    },
-  };
-}
+import type { createWorktreeService } from '../../assistant-server/worktree-service';
+import {
+  asLedgerDatabase,
+  buildTestService,
+  createTestWorkspace,
+  git,
+} from './worktree-service.shared';
 
 describe('WorktreeService (real git + real PGlite)', () => {
   let db: PGlite;
   let repo: string;
   let managedDirectory: string;
+  const workspace = createTestWorkspace();
 
   const buildService = (overrides: Partial<Parameters<typeof createWorktreeService>[0]> = {}) =>
-    createWorktreeService({
-      getDatabase: () => Promise.resolve(asLedgerDatabase(db)),
-      readSettings: () =>
-        Promise.resolve({ isDefaultDirectory: true, managedDirectory, setupCommand: null }),
-      resolveInventory: () => Promise.resolve({ errors: [], repositories: [] }),
-      resolveRootCwd: (rootId: string) =>
-        Promise.resolve(
-          rootId === 'r-1'
-            ? { ok: true as const, value: repo }
-            : { error: 'unknown root', ok: false as const }
-        ),
-      resolveRootPaths: () => Promise.resolve([{ id: 'r-1', path: repo }]),
-      run: execFileGitRunner,
-      runSetup: () =>
-        Promise.resolve({
-          copiedPaths: [],
-          output: '',
-          reason: null,
-          status: 'none' as const,
-          truncated: false,
-        }),
-      ...overrides,
-    });
+    buildTestService({ db, managedDirectory, repo }, overrides);
 
   beforeEach(async () => {
     loggerErrorSpy.mockClear();
     db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
     await runMigrations(db);
-    repo = freshRepo('repo');
-    managedDirectory = freshManagedDir();
+    repo = workspace.freshRepo('repo');
+    managedDirectory = workspace.freshManagedDir();
   });
 
   afterEach(async () => {
     await db.close();
-    for (const dir of tempDirs.splice(0)) {
-      rmSync(dir, { force: true, recursive: true });
+    workspace.cleanup();
+  });
+
+  it('archives a vanished worktree with an empty parentless snapshot and prunes its registration', async () => {
+    const service = buildService();
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/vanished-archive' },
+      createdBy: 'user',
+      name: 'vanished-archive',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
     }
+    const worktreePath = created.value.worktree.path;
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain(worktreePath);
+    rmSync(worktreePath, { force: true, recursive: true });
+
+    const archived = await service.archive({ worktreeId: created.value.worktree.id });
+
+    expect(archived.ok).toBe(true);
+    if (!archived.ok) {
+      return;
+    }
+    expect(archived.value.worktree.archivedAt).not.toBeNull();
+    expect(archived.value.worktree.archiveSnapshotRef).toBe(archived.value.snapshotRef);
+    expect(
+      git(repo, ['rev-parse', '--verify', `${archived.value.snapshotRef}^{commit}`]).trim()
+    ).toMatch(/^[0-9a-f]{40}$/u);
+    expect(git(repo, ['ls-tree', '-r', '--name-only', archived.value.snapshotRef])).toBe('');
+    expect(() => git(repo, ['rev-parse', '--verify', `${archived.value.snapshotRef}^`])).toThrow();
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(worktreePath);
+  });
+
+  it('refuses to restore an archive captured after its worktree vanished', async () => {
+    const service = buildService();
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/vanished-restore' },
+      createdBy: 'user',
+      name: 'vanished-restore',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    rmSync(created.value.worktree.path, { force: true, recursive: true });
+    const archived = await service.archive({ worktreeId: created.value.worktree.id });
+    expect(archived.ok).toBe(true);
+    if (!archived.ok) {
+      return;
+    }
+
+    await expect(service.restore({ worktreeId: created.value.worktree.id })).resolves.toEqual({
+      error:
+        'This worktree was archived while missing on disk — there is nothing to restore. Create a new worktree instead.',
+      ok: false,
+    });
+    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
+      archivedAt: expect.any(String),
+      archiveSnapshotRef: archived.value.snapshotRef,
+    });
+    expect(existsSync(created.value.worktree.path)).toBe(false);
   });
 
   it('lists active managed paths without consulting git inventory or workspace roots', async () => {
@@ -170,6 +175,19 @@ describe('WorktreeService (real git + real PGlite)', () => {
       ok: true,
       value: [{ id: '01993a12-0000-7000-8000-000000000011', path: '/managed/active' }],
     });
+  });
+
+  it('keeps repository setup execution reachable only from granted-root creation', () => {
+    const source = readFileSync(
+      path.resolve(process.cwd(), 'src/assistant-server/worktree-service.ts'),
+      'utf8'
+    );
+
+    expect(source.match(/deps\.runSetup\(/gu)).toHaveLength(1);
+    expect(source.match(/runSetupSafely\(/gu)).toHaveLength(2);
+    expect(source).toMatch(
+      /async function createUnserialized[\s\S]*?resolveRepositoryContext\(params\.rootId\)[\s\S]*?runSetupSafely\(\{/u
+    );
   });
 
   it('creates a branch-on-create worktree on disk and records it in the ledger', async () => {
@@ -342,8 +360,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
   });
 
   it('removes a newly created managed directory after canonical path refusal', async () => {
-    const container = mkdtempSync(path.join(tmpdir(), 'bst-wt-canonical-refusal-'));
-    tempDirs.push(container);
+    const container = workspace.freshTempDir('bst-wt-canonical-refusal-');
     const canonicalRoot = path.join(container, 'canonical-root');
     const rootAlias = path.join(container, 'root-alias');
     const refusedManagedDirectory = path.join(canonicalRoot, 'managed-worktrees');
@@ -396,6 +413,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
       copiedPaths: [],
       output: '',
       reason: 'setup runner exploded',
+      skippedCopies: [],
       status: 'failed',
       truncated: false,
     });
@@ -424,6 +442,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
           copiedPaths: ['package.json'],
           output: 'setup complete',
           reason: null,
+          skippedCopies: [],
           status: 'succeeded' as const,
           truncated: false,
         }),

@@ -150,6 +150,16 @@ export type GitCommandRunner = (params: {
    */
   readonly binaryStdout?: boolean | undefined;
   readonly cwd: string;
+  /**
+   * Extra environment variables merged OVER the runner's pinned base
+   * environment (never replacing it wholesale) — e.g. a private
+   * `GIT_INDEX_FILE` for an isolated staging operation. After that merge, the
+   * runner MUST re-apply `GIT_TERMINAL_PROMPT=0`, `GIT_LITERAL_PATHSPECS=1`,
+   * and `LC_ALL=C`; those safety-pinned keys are never caller-overridable.
+   * Optional; most callers omit it and get the runner's ordinary pinned
+   * environment.
+   */
+  readonly env?: Readonly<Record<string, string>> | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;
 }) => Promise<GitCommandRun>;

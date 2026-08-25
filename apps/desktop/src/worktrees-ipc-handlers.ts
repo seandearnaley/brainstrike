@@ -19,6 +19,7 @@ import type {
   WorktreeCreateResult,
   WorktreeListEntry,
   WorktreeSettings,
+  WorktreeSetupCommand,
 } from '@brainstrike/types';
 import type { WorktreeService } from './assistant-server/worktree-service';
 
@@ -40,7 +41,7 @@ export interface WorktreesIpcHandlersOptions {
   readonly resolveService: () => WorktreeService | null;
   readonly writeSettings: (next: {
     readonly managedDirectory: string | null;
-    readonly setupCommand: readonly string[] | null;
+    readonly setupCommand: WorktreeSetupCommand;
   }) => Promise<WorktreeSettings>;
 }
 
@@ -88,10 +89,60 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
       createdBy: payload['createdBy'],
       name: payload['name'],
       rootId: payload['rootId'],
+      // Schema-stability field: forwarded now but intentionally inert until
+      // the worktree timeline lands in Task 18.
       ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
       ...(nonEmptyString(payload['threadId']) ? { threadId: payload['threadId'] } : {}),
     },
   };
+}
+
+function validateArchive(payload: unknown): GitResult<{
+  readonly force?: boolean;
+  readonly runId?: string;
+  readonly worktreeId: string;
+}> {
+  if (!(isRecord(payload) && nonEmptyString(payload['worktreeId']))) {
+    return { error: 'worktrees:archive requires { worktreeId }.', ok: false };
+  }
+  if (payload['force'] !== undefined && typeof payload['force'] !== 'boolean') {
+    return { error: 'worktrees:archive force must be a boolean when present.', ok: false };
+  }
+  return {
+    ok: true,
+    value: {
+      worktreeId: payload['worktreeId'],
+      ...(typeof payload['force'] === 'boolean' ? { force: payload['force'] } : {}),
+      // Schema-stability field: forwarded now but intentionally inert until
+      // the worktree timeline lands in Task 18.
+      ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
+    },
+  };
+}
+
+function validateCreateBranchHere(payload: unknown): GitResult<{
+  readonly branch: string;
+  readonly worktreeId: string;
+}> {
+  if (
+    !(
+      isRecord(payload) &&
+      nonEmptyString(payload['branch']) &&
+      nonEmptyString(payload['worktreeId'])
+    )
+  ) {
+    return { error: 'worktrees:createBranchHere requires { branch, worktreeId }.', ok: false };
+  }
+  return { ok: true, value: { branch: payload['branch'], worktreeId: payload['worktreeId'] } };
+}
+
+function validateRestore(payload: unknown): GitResult<{
+  readonly worktreeId: string;
+}> {
+  if (!(isRecord(payload) && nonEmptyString(payload['worktreeId']))) {
+    return { error: 'worktrees:restore requires { worktreeId }.', ok: false };
+  }
+  return { ok: true, value: { worktreeId: payload['worktreeId'] } };
 }
 
 export function createWorktreesIpcHandlers(
@@ -118,10 +169,13 @@ export function createWorktreesIpcHandlers(
   }
 
   return {
-    archive: async () => ({
-      error: 'worktrees:archive is not implemented in this build.',
-      ok: false,
-    }),
+    archive: async (payload) => {
+      const params = validateArchive(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:archive', (service) => service.archive(params.value));
+    },
     create: async (payload) => {
       const params = validateCreate(payload);
       if (!params.ok) {
@@ -129,10 +183,15 @@ export function createWorktreesIpcHandlers(
       }
       return await withService('worktrees:create', (service) => service.create(params.value));
     },
-    createBranchHere: async () => ({
-      error: 'worktrees:createBranchHere is not implemented in this build.',
-      ok: false,
-    }),
+    createBranchHere: async (payload) => {
+      const params = validateCreateBranchHere(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:createBranchHere', (service) =>
+        service.createBranchHere(params.value)
+      );
+    },
     getSettings: async () => {
       try {
         return { ok: true, value: await options.readSettings() };
@@ -143,10 +202,13 @@ export function createWorktreesIpcHandlers(
     list: async () => await withService('worktrees:list', (service) => service.list()),
     listManagedPaths: async () =>
       await withService('worktrees:listManagedPaths', (service) => service.listManagedPaths()),
-    restore: async () => ({
-      error: 'worktrees:restore is not implemented in this build.',
-      ok: false,
-    }),
+    restore: async (payload) => {
+      const params = validateRestore(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:restore', (service) => service.restore(params.value));
+    },
     setSettings: async (payload) => {
       if (!isRecord(payload)) {
         return { error: 'worktrees:setSettings requires an object payload.', ok: false };
@@ -167,13 +229,15 @@ export function createWorktreesIpcHandlers(
       if (
         !(
           setupCommand === null ||
+          setupCommand === 'disabled' ||
           (Array.isArray(setupCommand) &&
             setupCommand.length > 0 &&
             setupCommand.every((part) => nonEmptyString(part)))
         )
       ) {
         return {
-          error: 'worktrees:setSettings setupCommand must be a non-empty string array or null.',
+          error:
+            'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
           ok: false,
         };
       }
@@ -182,7 +246,7 @@ export function createWorktreesIpcHandlers(
           ok: true,
           value: await options.writeSettings({
             managedDirectory: managedDirectory as string | null,
-            setupCommand: setupCommand as readonly string[] | null,
+            setupCommand: setupCommand as WorktreeSetupCommand,
           }),
         };
       } catch (error) {

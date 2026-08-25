@@ -7,14 +7,14 @@
  */
 import path from 'node:path';
 import type { StorageAdapter } from '@brainstrike/storage';
-import type { WorktreeSettings } from '@brainstrike/types';
+import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
 import { assertWorktreeTargetOutsideRoots } from './worktree-paths';
 
 export const WORKTREE_SETTINGS_STORAGE_KEY = 'worktreeSettings' as const;
 
 interface StoredWorktreeSettings {
   readonly managedDirectory: string | null;
-  readonly setupCommand: readonly string[] | null;
+  readonly setupCommand: WorktreeSetupCommand;
 }
 
 /** `~/.brainstrike/worktrees` — outside every granted root by construction [D3]. */
@@ -48,15 +48,18 @@ function parseStored(raw: string | null): StoredWorktreeSettings {
   if (
     setupCommand !== undefined &&
     setupCommand !== null &&
+    setupCommand !== 'disabled' &&
     (!Array.isArray(setupCommand) ||
       setupCommand.length === 0 ||
       !setupCommand.every((part) => typeof part === 'string' && part.length > 0))
   ) {
-    throw new Error('worktreeSettings setupCommand must be a non-empty string array.');
+    throw new Error(
+      'worktreeSettings setupCommand must be a non-empty string array, "disabled", or null.'
+    );
   }
   return {
     managedDirectory: (managedDirectory as string | null | undefined) ?? null,
-    setupCommand: (setupCommand as readonly string[] | null | undefined) ?? null,
+    setupCommand: (setupCommand as WorktreeSetupCommand | undefined) ?? null,
   };
 }
 
@@ -86,7 +89,7 @@ export async function writeWorktreeSettings(
   homeDirectory: string,
   next: {
     readonly managedDirectory: string | null;
-    readonly setupCommand: readonly string[] | null;
+    readonly setupCommand: WorktreeSetupCommand;
   },
   listMountedRootPaths: () => Promise<readonly string[]>
 ): Promise<WorktreeSettings> {

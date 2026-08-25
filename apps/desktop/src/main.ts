@@ -46,6 +46,7 @@ import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roo
 import { isPathWithin } from './assistant-server/worktree-paths';
 import { createWorktreeService } from './assistant-server/worktree-service';
 import { readWorktreeSettings, writeWorktreeSettings } from './assistant-server/worktree-settings';
+import { runWorktreeSetup } from './assistant-server/worktree-setup';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
@@ -1635,16 +1636,7 @@ if (singleInstanceLockAcquired) {
           return roots.map((root) => ({ id: root.rootId, path: root.path }));
         },
         run: execFileGitRunner,
-        runSetup: () =>
-          // Layer 5 replaces this with the real `.worktreeinclude` + setup-command
-          // runner. Until then every create honestly reports "nothing ran".
-          Promise.resolve({
-            copiedPaths: [],
-            output: '',
-            reason: null,
-            status: 'none',
-            truncated: false,
-          }),
+        runSetup: (setupInput) => runWorktreeSetup(setupInput),
       });
 
       // BST-1164 (W7 T1): shadow-git snapshot backbone. Constructed HERE,

@@ -48,7 +48,7 @@ import { type ExecFileException, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { createPinnedGitEnvironment } from '../git-ipc-handlers';
+import { createGitCommandEnvironment } from '../git-ipc-handlers';
 import {
   describeFailure,
   GIT_MAX_BUFFER_BYTES,
@@ -126,8 +126,9 @@ function classifyExecFailure(error: ExecFileException): {
 /**
  * Adapt Node's `execFile` to {@link SnapshotGitCommandRunner}: argument array
  * (no shell), resolve-never-reject, the house pinned git environment
- * (`createPinnedGitEnvironment` — hostile `GIT_*` vars stripped, C locale for
- * parseable stderr) with the caller's `env` extension merged on top.
+ * (`createGitCommandEnvironment` — hostile `GIT_*` vars stripped, ordinary
+ * caller overrides merged on top, then safety keys re-pinned) for parseable
+ * stderr and non-interactive execution.
  */
 export const execFileSnapshotGitRunner: SnapshotGitCommandRunner = ({
   args,
@@ -137,7 +138,7 @@ export const execFileSnapshotGitRunner: SnapshotGitCommandRunner = ({
   signal,
   timeoutMs,
 }) => {
-  const environment = { ...createPinnedGitEnvironment(process.env), ...env };
+  const environment = createGitCommandEnvironment(process.env, env);
   if (binaryStdout) {
     return new Promise<GitCommandRun>((resolve) => {
       execFile(
