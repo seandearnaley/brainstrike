@@ -72,6 +72,10 @@ interface WorkspaceRootRegistryOptions {
   readonly storage: ElectronStorageAdapter;
 }
 
+interface AddRootOptions {
+  readonly recordInRecentRoots?: boolean;
+}
+
 export class WorkspaceRootRegistry {
   private readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
   private disposed = false;
@@ -101,7 +105,10 @@ export class WorkspaceRootRegistry {
     this.storage = options.storage;
   }
 
-  addRoot(handle: DirectoryHandle): Promise<RootDescriptor> {
+  addRoot(
+    handle: DirectoryHandle,
+    { recordInRecentRoots = true }: AddRootOptions = {}
+  ): Promise<RootDescriptor> {
     return this.serializeMutation(async () => {
       const presentationPath = path.normalize(handle.path);
       // Sequential, not Promise.all: addRoot already runs inside
@@ -141,9 +148,11 @@ export class WorkspaceRootRegistry {
         if (persisted) {
           await writeLastFolderBestEffort(this.storage, entry.path);
         }
-        // The grant happened whether or not rootsList persistence succeeded, so
-        // the ledger records it either way.
-        await recordRecentRoot(this.storage, entry.path);
+        if (recordInRecentRoots) {
+          // The grant happened whether or not rootsList persistence succeeded,
+          // so the ledger records it either way.
+          await recordRecentRoot(this.storage, entry.path);
+        }
         return descriptorFor(entry, 'granted', persisted);
       } finally {
         if (!probeAdopted) {
@@ -164,13 +173,21 @@ export class WorkspaceRootRegistry {
    * serializeMutation — it delegates to addRoot, which serializes.
    */
   async addRootByPath(requestedPath: string): Promise<RootDescriptor> {
-    return this.addRoot(
-      await resolveGrantedRootHandle(
-        this.storage,
-        requestedPath,
-        this.managedWorktreeAuthorizer ?? undefined
-      )
+    const granted = await resolveGrantedRootHandle(
+      this.storage,
+      requestedPath,
+      this.managedWorktreeAuthorizer ?? undefined
     );
+    const descriptor = await this.addRoot(granted.handle, {
+      recordInRecentRoots: granted.grantSource === 'recents',
+    });
+    if (granted.grantSource === 'managed-worktree') {
+      logger.info('Mounted managed worktree without picker', {
+        path: granted.handle.path,
+        rootId: descriptor.rootId,
+      });
+    }
+    return descriptor;
   }
 
   dispose(): void {
@@ -181,13 +198,6 @@ export class WorkspaceRootRegistry {
     void this.mutationTail.finally(() => {
       this.mounts.closeAll();
     });
-  }
-
-  /** Paths of every currently mounted root — the settings containment check's input. */
-  listMountedRootPaths(): Promise<readonly string[]> {
-    return this.serializeMutation(async () =>
-      (await readStoredRootsOrQuarantine(this.storage)).map((entry) => entry.path)
-    );
   }
 
   /** Newest-first ledger of previously granted folders. */

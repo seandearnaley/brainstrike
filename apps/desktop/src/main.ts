@@ -43,6 +43,7 @@ import { createSnapshotService, type SnapshotService } from './assistant-server/
 import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
 import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-reaper';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
+import { isPathWithin } from './assistant-server/worktree-paths';
 import { createWorktreeService } from './assistant-server/worktree-service';
 import { readWorktreeSettings, writeWorktreeSettings } from './assistant-server/worktree-settings';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
@@ -1297,8 +1298,15 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
   chunkingHostManager,
   embeddingHostManager,
   getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
-  managedWorktreeAuthorizer: (candidate) =>
-    worktreeService ? worktreeService.isManagedWorktreePath(candidate) : Promise.resolve(false),
+  managedWorktreeAuthorizer: async (candidate) => {
+    if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
+      return 'authorized';
+    }
+    const settings = await readWorktreeSettings(storage, app.getPath('home'));
+    return isPathWithin(candidate, settings.managedDirectory)
+      ? 'managed-but-unauthorized'
+      : 'unmanaged';
+  },
   onResetLocal: handleResetLocal,
   onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
 });

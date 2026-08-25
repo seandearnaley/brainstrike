@@ -1001,12 +1001,13 @@ additional explorer/status chrome):
   - Recents come from main's `recentRootsList` ledger
     (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
     `fs:listRecentRoots`), minus folders already mounted in this workspace.
-    `fs:addRootByPath` re-mounts ONLY a path present in that ledger and is the
-    single sanctioned picker-less mount (BST-1395). Scope that claim exactly:
-    the ledger is the authorization gate for `addRootByPath`, so **the BAR**
-    cannot mount an arbitrary path — every path it can offer was already
-    granted through the OS picker or a successful restore, and a stray or stale
-    path string is rejected. It is NOT a hardening boundary against a
+    `fs:addRootByPath` has TWO ordered gates: first that ledger (BST-1395), then
+    the server-owned managed-worktree authorizer (BST-1390, spec §6.2), which
+    requires realpath containment plus a live ledger row and fails closed on
+    every authorizer error. A recents-ledger grant is re-recorded; a managed
+    worktree grant is deliberately NOT added to Recents. Thus **the BAR** cannot
+    mount an arbitrary path: a stray or stale path string is rejected. This is
+    NOT a hardening boundary against a
     compromised renderer: main-process storage is itself renderer-writable
     through the unrestricted `storage:setItem` bridge, which puts the ledger in
     the SAME trust class as `rootsList` + `fs:restoreRoots`. A renderer that can

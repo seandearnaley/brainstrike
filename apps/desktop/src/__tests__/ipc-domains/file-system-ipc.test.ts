@@ -71,6 +71,21 @@ describe('file system IPC domain', () => {
     expect(storage.setItem).toHaveBeenCalledWith('lastFolderPath', handle.path);
   });
 
+  it('installs the managed-worktree authorizer for addRootByPath', async () => {
+    const managedWorktreeAuthorizer = vi.fn(async () => 'authorized' as const);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => true,
+      managedWorktreeAuthorizer,
+      storage,
+    });
+
+    await handlers.get('fs:addRootByPath')?.({} as IpcMainInvokeEvent, '/managed/app/bright-fox');
+
+    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
+  });
+
   it('honors only the explicit synthetic-filesystem registration seam', async () => {
     vi.stubEnv('VITEST', 'true');
     fileSystem = createFileSystem('/mock/denied-by-explicit-seam');

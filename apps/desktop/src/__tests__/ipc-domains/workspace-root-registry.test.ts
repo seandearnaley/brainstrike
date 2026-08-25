@@ -1,75 +1,28 @@
 import path from 'node:path';
-import {
-  type DirectoryHandle,
-  getFileSizeConfig,
-  setFileSizeConfig,
-} from '@brainstrike/file-system';
+import { getFileSizeConfig, setFileSizeConfig } from '@brainstrike/file-system';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
-import {
-  type SecureWorkspaceRoot,
+import type {
+  SecureWorkspaceRoot,
   WorkspaceRootRegistry,
 } from '../../ipc-domains/workspace-root-registry';
-
-function createStorage(initial: Record<string, string> = {}): ElectronStorageAdapter {
-  const values = new Map(Object.entries(initial));
-  return {
-    clear: vi.fn(async () => values.clear()),
-    getAllKeys: vi.fn(async () => [...values.keys()]),
-    getItem: vi.fn(async (key: string) => values.get(key) ?? null),
-    removeItem: vi.fn(async (key: string) => {
-      values.delete(key);
-    }),
-    setItem: vi.fn(async (key: string, value: string) => {
-      values.set(key, value);
-    }),
-  } as unknown as ElectronStorageAdapter;
-}
-
-function rootHandle(rootPath: string): DirectoryHandle {
-  return {
-    kind: 'directory',
-    name: path.basename(rootPath),
-    path: rootPath,
-    platform: 'electron',
-  };
-}
-
-function secureRoot(canonicalPath: string): SecureWorkspaceRoot {
-  return {
-    canonicalPath,
-    close: vi.fn(),
-    listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
-    readFile: vi.fn(async () => ({ content: Buffer.from('inside'), status: 'ok' as const })),
-  };
-}
+import {
+  createRegistry,
+  createStorage,
+  registryDatabaseQuery,
+  rootHandle,
+  secureRoot,
+} from './workspace-root-registry-test-helpers';
 
 describe('WorkspaceRootRegistry', () => {
-  let dbQuery: ReturnType<typeof vi.fn>;
   let storage: ElectronStorageAdapter;
 
   beforeEach(() => {
-    dbQuery = vi.fn(async () => ({ rows: [] }));
+    registryDatabaseQuery.mockReset();
+    registryDatabaseQuery.mockResolvedValue({ rows: [] });
     storage = createStorage();
   });
-
-  function createRegistry(
-    overrides: Partial<ConstructorParameters<typeof WorkspaceRootRegistry>[0]> = {}
-  ): WorkspaceRootRegistry {
-    const db = { query: dbQuery } as unknown as WorkspaceRootsQueryable;
-    return new WorkspaceRootRegistry({
-      createSecureRoot: async (rootPath) => secureRoot(rootPath),
-      disposeCommandSessionsForRoot: vi.fn(async () => 0),
-      evictLspServersForRoot: vi.fn(async () => undefined),
-      getRootsDatabase: async () => db,
-      pathExists: async () => true,
-      resolveCanonicalRoot: async (rootPath) => path.normalize(rootPath),
-      storage,
-      ...overrides,
-    });
-  }
 
   it('durably logs a read denial before rethrowing (BST-1257)', async () => {
     const captured: LogRecord[] = [];
@@ -79,7 +32,7 @@ describe('WorkspaceRootRegistry', () => {
       }
     });
     try {
-      const registry = createRegistry();
+      const registry = createRegistry({ storage });
       await registry.addRoot(rootHandle('/workspace'));
 
       // Lexically inside the mounted root, but the raw path carries a real
@@ -118,6 +71,7 @@ describe('WorkspaceRootRegistry', () => {
       const registry = createRegistry({
         createSecureRoot: async () => inaccessible,
         resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+        storage,
       });
       await registry.addRoot(rootHandle('/workspace'));
 
@@ -152,6 +106,7 @@ describe('WorkspaceRootRegistry', () => {
       const registry = createRegistry({
         createSecureRoot: async () => missing,
         resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+        storage,
       });
       await registry.addRoot(rootHandle('/workspace'));
 
@@ -189,6 +144,7 @@ describe('WorkspaceRootRegistry', () => {
       },
       resolveReadPath: async (requestedPath, canonicalRoot) =>
         path.join(canonicalRoot, path.basename(requestedPath)),
+      storage,
     });
     await registry.restoreRoots();
     const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
@@ -222,7 +178,7 @@ describe('WorkspaceRootRegistry', () => {
       }
     });
     try {
-      const registry = createRegistry();
+      const registry = createRegistry({ storage });
       const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
         requestedPath: unknown,
         claimedRootPath: unknown,
@@ -274,7 +230,7 @@ describe('WorkspaceRootRegistry', () => {
       }
     });
     try {
-      const registry = createRegistry();
+      const registry = createRegistry({ storage });
       const readScoped = registry.readFileByAbsolutePath.bind(registry) as unknown as (
         requestedPath: unknown,
         claimedRootPath: unknown,
@@ -336,7 +292,7 @@ describe('WorkspaceRootRegistry', () => {
     const rawTail = 'RAW_ROOT_ID_TAIL_MUST_NOT_APPEAR';
     const rootId = `renderer\nroot-${'r'.repeat(2_000_000)}${rawTail}`;
     try {
-      await expect(read(createRegistry(), rootId)).rejects.toThrow();
+      await expect(read(createRegistry({ storage }), rootId)).rejects.toThrow();
 
       expect(captured).toHaveLength(1);
       const diagnosticFields = captured[0]?.args[1];
@@ -359,17 +315,17 @@ describe('WorkspaceRootRegistry', () => {
 
   it('fails visibly instead of treating malformed persistence as zero roots', async () => {
     storage = createStorage({ rootsList: '{broken' });
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
 
     await expect(registry.restoreRoots()).rejects.toThrow(
       'persisted workspace root registry is not valid JSON'
     );
-    expect(dbQuery).not.toHaveBeenCalled();
+    expect(registryDatabaseQuery).not.toHaveBeenCalled();
   });
 
   it('addRoot quarantines a corrupt rootsList and proceeds with a fresh list', async () => {
     storage = createStorage({ rootsList: '{not json' });
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
 
     const descriptor = await registry.addRoot(rootHandle('/workspace'));
 
@@ -381,7 +337,7 @@ describe('WorkspaceRootRegistry', () => {
 
   it('removeRoot quarantines a corrupt rootsList without half-deleting state', async () => {
     storage = createStorage({ rootsList: '{not json' });
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
 
     await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
     expect(await storage.getItem('rootsList.corrupt')).toBe('{not json');
@@ -391,14 +347,17 @@ describe('WorkspaceRootRegistry', () => {
   it('removeRoot retires an already-mounted persisted root when the store is corrupt', async () => {
     const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
     storage = createStorage({ rootsList: JSON.stringify([entry]) });
-    const registry = createRegistry({ createSecureRoot: async () => secureRoot('/workspace') });
+    const registry = createRegistry({
+      createSecureRoot: async () => secureRoot('/workspace'),
+      storage,
+    });
     await registry.restoreRoots();
 
     // Corrupt the persisted list out-of-band while the root stays mounted —
     // the not-found branch below must not be gated on sessionRootIds, since
     // a persisted (non-session) root was never added to that set.
     await storage.setItem('rootsList', '{not json');
-    dbQuery.mockClear();
+    registryDatabaseQuery.mockClear();
 
     await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
     await expect(
@@ -414,7 +373,7 @@ describe('WorkspaceRootRegistry', () => {
     // now-unmounted path and run DB-id-keyed cleanup) — not just retire the
     // in-memory mount — otherwise the roots row stays live and server-side
     // consumers keep serving the folder until next boot.
-    expect(dbQuery).toHaveBeenCalledWith(
+    expect(registryDatabaseQuery).toHaveBeenCalledWith(
       expect.stringContaining('UPDATE roots'),
       expect.anything()
     );
@@ -423,7 +382,7 @@ describe('WorkspaceRootRegistry', () => {
   it('propagates a quarantine I/O failure instead of swallowing it', async () => {
     storage = createStorage({ rootsList: '{not json' });
     vi.mocked(storage.removeItem).mockRejectedValueOnce(new Error('disk full'));
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
 
     await expect(registry.addRoot(rootHandle('/workspace'))).rejects.toThrow('disk full');
   });
@@ -432,7 +391,7 @@ describe('WorkspaceRootRegistry', () => {
     const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
     storage = createStorage({ rootsList: JSON.stringify([entry]) });
     vi.mocked(storage.getItem).mockRejectedValueOnce(new Error('disk read error'));
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
 
     await expect(registry.addRoot(rootHandle('/other'))).rejects.toThrow('disk read error');
     expect(storage.setItem).not.toHaveBeenCalledWith('rootsList.corrupt', expect.any(String));
@@ -446,6 +405,7 @@ describe('WorkspaceRootRegistry', () => {
       createSecureRoot: async () => {
         throw new Error('native addon temporarily unavailable');
       },
+      storage,
     });
 
     await expect(registry.restoreRoots()).resolves.toEqual([
@@ -470,6 +430,7 @@ describe('WorkspaceRootRegistry', () => {
         secureRoot(canonicalByPath.get(rootPath) ?? path.normalize(rootPath)),
       resolveCanonicalRoot: async (rootPath) =>
         canonicalByPath.get(rootPath) ?? path.normalize(rootPath),
+      storage,
     });
 
     const descriptor = await registry.addRoot(rootHandle('/another-alias/workspace'));
@@ -489,9 +450,10 @@ describe('WorkspaceRootRegistry', () => {
     const mounted = secureRoot('/workspace');
     const registry = createRegistry({
       createSecureRoot: async () => mounted,
+      storage,
     });
     await registry.restoreRoots();
-    dbQuery.mockRejectedValueOnce(new Error('db unavailable'));
+    registryDatabaseQuery.mockRejectedValueOnce(new Error('db unavailable'));
 
     await expect(registry.removeRoot('root-a')).rejects.toThrow('db unavailable');
     expect(await storage.getItem('rootsList')).toBe(JSON.stringify([entry]));
@@ -502,7 +464,10 @@ describe('WorkspaceRootRegistry', () => {
     const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
     storage = createStorage({ rootsList: JSON.stringify([entry]) });
     const mounted = secureRoot('/workspace');
-    const registry = createRegistry({ createSecureRoot: async () => mounted });
+    const registry = createRegistry({
+      createSecureRoot: async () => mounted,
+      storage,
+    });
     await registry.restoreRoots();
     let rootRegistryRead = false;
     vi.mocked(storage.getItem).mockImplementation(async (key) => {
@@ -560,6 +525,7 @@ describe('WorkspaceRootRegistry', () => {
         }
         return secureRoot(rootPath);
       },
+      storage,
     });
 
     const first = registry.addRoot(rootHandle('/first'));
@@ -610,6 +576,7 @@ describe('WorkspaceRootRegistry', () => {
           readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
         };
       },
+      storage,
     });
     const handle = rootHandle('/canon/project');
 
@@ -659,6 +626,7 @@ describe('WorkspaceRootRegistry', () => {
       // Bypass real filesystem validation so a read-routing assertion below
       // can exercise a fake, non-existent path.
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
 
     const sessionResult = await registry.addRoot(rootHandle('/canon/project'));
@@ -718,6 +686,7 @@ describe('WorkspaceRootRegistry', () => {
       }),
       // Bypass real filesystem validation for the fake canonical path.
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
     const descriptor = await registry.addRoot(rootHandle('/canon/project'));
 
@@ -744,6 +713,7 @@ describe('WorkspaceRootRegistry', () => {
       createSecureRoot: async () => secureRoot('/real/workspace'),
       // Bypass real filesystem validation for the fake canonical path.
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
 
     const descriptor = await registry.addRoot(rootHandle('/alias/workspace'));
@@ -774,6 +744,7 @@ describe('WorkspaceRootRegistry', () => {
     const registry = createRegistry({
       createSecureRoot: async () => capability,
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
     const handle = rootHandle('/canon/project');
 
@@ -797,6 +768,7 @@ describe('WorkspaceRootRegistry', () => {
   it('a configured maxFileSize above the native cap fails loud, not unreadable', async () => {
     const registry = createRegistry({
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
     const descriptor = await registry.addRoot(rootHandle('/canon/project'));
     const defaultFileSizeConfig = getFileSizeConfig();
@@ -836,6 +808,7 @@ describe('WorkspaceRootRegistry', () => {
         readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
       }),
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
     const descriptor = await registry.addRoot(rootHandle('/canon/project'));
 
@@ -867,6 +840,7 @@ describe('WorkspaceRootRegistry', () => {
         requestedPath.endsWith('link.txt')
           ? '/canon/project/real-target.txt'
           : path.normalize(requestedPath),
+      storage,
     });
     const descriptor = await registry.addRoot(rootHandle('/canon/project'));
 
@@ -890,6 +864,7 @@ describe('WorkspaceRootRegistry', () => {
         readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
       }),
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
     const descriptor = await registry.addRoot(rootHandle('/canon/project'));
 
@@ -908,6 +883,7 @@ describe('WorkspaceRootRegistry', () => {
     const registry = createRegistry({
       createSecureRoot: async () => secureRoot('/canon/project'),
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
     const descriptor = await registry.addRoot(rootHandle('/canon/project'));
     expect(descriptor.rootId).not.toBe('stale-root-id');
@@ -929,6 +905,7 @@ describe('WorkspaceRootRegistry', () => {
     const registry = createRegistry({
       createSecureRoot: async () => secureRoot('/canon/project'),
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
     await registry.addRoot(rootHandle('/canon/project'));
 
@@ -947,6 +924,7 @@ describe('WorkspaceRootRegistry', () => {
     const registry = createRegistry({
       createSecureRoot: async () => secureRoot('/canon/project'),
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
     await registry.addRoot(rootHandle('/canon/project'));
 
@@ -970,6 +948,7 @@ describe('WorkspaceRootRegistry', () => {
         listDir: rootPath === '/canon/outer' ? outerListDir : innerListDir,
       }),
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      storage,
     });
 
     const outer = await registry.addRoot(rootHandle('/canon/outer'));

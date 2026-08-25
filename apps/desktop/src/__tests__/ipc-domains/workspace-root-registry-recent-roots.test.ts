@@ -1,94 +1,40 @@
-import path from 'node:path';
-import type { DirectoryHandle } from '@brainstrike/file-system';
+import { AccessError } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import {
   RECENT_ROOTS_LIMIT,
   resolveGrantedRootHandle,
 } from '../../ipc-domains/workspace-recent-roots';
-import {
-  type SecureWorkspaceRoot,
-  WorkspaceRootRegistry,
-} from '../../ipc-domains/workspace-root-registry';
+import { loggerMock } from './workspace-root-registry-logger-test-helper';
+import { createRegistry, createStorage, rootHandle } from './workspace-root-registry-test-helpers';
 
 // Quarantine and write-failure paths log deliberately. Capturing the logger
 // keeps the suite's output pristine AND makes "it was reported" an assertion
 // rather than something a reader has to spot in the scrollback.
-const { loggerMock } = vi.hoisted(() => ({
-  loggerMock: {
-    debug: vi.fn(),
-    error: vi.fn(),
-    fatal: vi.fn(),
-    info: vi.fn(),
-    trace: vi.fn(),
-    warn: vi.fn(),
-  },
-}));
-vi.mock('@brainstrike/logging', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
-  createLogger: () => loggerMock,
-}));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const { loggerMock: sharedLoggerMock } = await import(
+    './workspace-root-registry-logger-test-helper'
+  );
+  return {
+    ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+    createLogger: () => sharedLoggerMock,
+  };
+});
 
 const QUARANTINE_MESSAGE = 'Quarantined a corrupt recently-granted workspace folder ledger';
-
-function createStorage(): ElectronStorageAdapter {
-  const values = new Map<string, string>();
-  return {
-    clear: vi.fn(async () => values.clear()),
-    getAllKeys: vi.fn(async () => [...values.keys()]),
-    getItem: vi.fn(async (key: string) => values.get(key) ?? null),
-    removeItem: vi.fn(async (key: string) => {
-      values.delete(key);
-    }),
-    setItem: vi.fn(async (key: string, value: string) => {
-      values.set(key, value);
-    }),
-  } as unknown as ElectronStorageAdapter;
-}
-
-function rootHandle(rootPath: string): DirectoryHandle {
-  return {
-    kind: 'directory',
-    name: path.basename(rootPath),
-    path: rootPath,
-    platform: 'electron',
-  };
-}
-
-function secureRoot(canonicalPath: string): SecureWorkspaceRoot {
-  return {
-    canonicalPath,
-    close: vi.fn(),
-    listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
-    readFile: vi.fn(async () => ({ content: Buffer.from('inside'), status: 'ok' as const })),
-  };
-}
 
 describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   let storage: ElectronStorageAdapter;
 
-  function createRegistry(): WorkspaceRootRegistry {
-    const db = { query: vi.fn(async () => ({ rows: [] })) } as unknown as WorkspaceRootsQueryable;
-    return new WorkspaceRootRegistry({
-      createSecureRoot: async (rootPath) => secureRoot(rootPath),
-      disposeCommandSessionsForRoot: vi.fn(async () => 0),
-      evictLspServersForRoot: vi.fn(async () => undefined),
-      getRootsDatabase: async () => db,
-      pathExists: async () => true,
-      resolveCanonicalRoot: async (rootPath) => path.normalize(rootPath),
-      storage,
-    });
-  }
-
   beforeEach(() => {
     storage = createStorage();
     loggerMock.error.mockClear();
+    loggerMock.info.mockClear();
     loggerMock.warn.mockClear();
   });
 
   it('records every successful addRoot in recentRootsList, newest first, deduped', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     await registry.addRoot(rootHandle('/ws/alpha'));
     await registry.addRoot(rootHandle('/ws/beta'));
     await registry.addRoot(rootHandle('/ws/alpha'));
@@ -100,7 +46,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('caps the ledger at the newest RECENT_ROOTS_LIMIT grants', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     const overflow = RECENT_ROOTS_LIMIT + 2;
     for (let index = 0; index < overflow; index += 1) {
       // eslint-disable-next-line react-doctor/async-await-in-loop -- grants must land serially: the cap under test is an ordering property of the grant sequence.
@@ -114,7 +60,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('keys a trailing-separator path to the same ledger slot as the bare path', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     await registry.addRoot(rootHandle('/ws/alpha/'));
 
     const recents = await registry.listRecentRoots();
@@ -130,7 +76,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('keeps disconnected grants past the connected-root count within the cap', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     await registry.addRoot(rootHandle('/ws/disconnected'));
     const disconnected = await registry.listRecentRoots();
     expect(disconnected.map((entry) => entry.path)).toEqual(['/ws/disconnected']);
@@ -150,7 +96,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('addRootByPath mounts a previously granted path without a picker and rejects an unknown one', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     await registry.addRoot(rootHandle('/ws/alpha'));
     const restored = await registry.restoreRoots();
     const restoredRootId = restored[0]?.rootId;
@@ -168,8 +114,43 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     );
   });
 
+  it('refreshes a recents-granted addRootByPath entry', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(2000);
+      await storage.setItem(
+        'recentRootsList',
+        JSON.stringify([{ lastGrantedAt: 1000, path: '/ws/alpha' }])
+      );
+      const registry = createRegistry({ storage });
+
+      await registry.addRootByPath('/ws/alpha');
+
+      await expect(registry.listRecentRoots()).resolves.toEqual([
+        expect.objectContaining({ lastGrantedAt: 2000, path: '/ws/alpha' }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not record an authorizer-granted managed worktree in Recents', async () => {
+    const registry = createRegistry({ storage });
+    registry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
+
+    await expect(registry.addRootByPath('/managed/app/bright-fox')).resolves.toMatchObject({
+      permissionState: 'granted',
+    });
+
+    await expect(registry.listRecentRoots()).resolves.toEqual([]);
+    expect(loggerMock.info).toHaveBeenCalledWith('Mounted managed worktree without picker', {
+      path: '/managed/app/bright-fox',
+      rootId: expect.any(String),
+    });
+  });
+
   it('restoreRoots records an absent restored entry with its stored addedAt', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     await storage.setItem(
       'rootsList',
       JSON.stringify([{ addedAt: 1_700_000_000_000, path: '/ws/gamma', rootId: 'r-gamma' }])
@@ -186,7 +167,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(1_000_000);
-      const registry = createRegistry();
+      const registry = createRegistry({ storage });
       await storage.setItem(
         'rootsList',
         JSON.stringify([{ addedAt: 1, path: '/ws/gamma', rootId: 'r-gamma' }])
@@ -208,7 +189,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('quarantines a malformed ledger on the read path instead of bricking Recents', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     const corruptRaw = JSON.stringify([{ path: '/ws/alpha' }]);
     await storage.setItem('recentRootsList', corruptRaw);
 
@@ -222,7 +203,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('quarantines a malformed ledger on the record path and self-heals from the next grant', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     const corruptRaw = JSON.stringify([{ path: '/ws/alpha' }]);
     await storage.setItem('recentRootsList', corruptRaw);
 
@@ -235,7 +216,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('quarantines a malformed ledger on addRootByPath and rejects with the never-granted remedy', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     const corruptRaw = 'not json at all';
     await storage.setItem('recentRootsList', corruptRaw);
 
@@ -248,7 +229,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('propagates a ledger read I/O failure rather than mistaking it for corruption', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     vi.mocked(storage.getItem).mockImplementation(async (key: string) => {
       if (key === 'recentRootsList') {
         throw new Error('storage offline');
@@ -262,7 +243,7 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
   });
 
   it('tolerates a recentRootsList write failure without failing addRoot (accepted deviation)', async () => {
-    const registry = createRegistry();
+    const registry = createRegistry({ storage });
     const setItemMock = vi.mocked(storage.setItem);
     const originalSetItem = setItemMock.getMockImplementation();
     setItemMock.mockImplementation(async (key: string, value: string) => {
@@ -289,9 +270,12 @@ describe('resolveGrantedRootHandle managed-worktree gate (BST-1390, spec §6.2)'
   it('accepts a path the managed-worktree authorizer claims, with an EMPTY recents ledger', async () => {
     const empty = createStorage();
     const handle = await resolveGrantedRootHandle(empty, '/managed/app/bright-fox', () =>
-      Promise.resolve(true)
+      Promise.resolve('authorized')
     );
-    expect(handle).toMatchObject({ kind: 'directory', path: '/managed/app/bright-fox' });
+    expect(handle).toMatchObject({
+      grantSource: 'managed-worktree',
+      handle: { kind: 'directory', path: '/managed/app/bright-fox' },
+    });
   });
 
   it('still accepts a recents-granted path when the authorizer says no', async () => {
@@ -301,14 +285,23 @@ describe('resolveGrantedRootHandle managed-worktree gate (BST-1390, spec §6.2)'
       JSON.stringify([{ lastGrantedAt: 1, path: '/ws/alpha' }])
     );
     await expect(
-      resolveGrantedRootHandle(seeded, '/ws/alpha', () => Promise.resolve(false))
-    ).resolves.toMatchObject({ path: '/ws/alpha' });
+      resolveGrantedRootHandle(seeded, '/ws/alpha', () => Promise.resolve('unmanaged'))
+    ).resolves.toMatchObject({ grantSource: 'recents', handle: { path: '/ws/alpha' } });
   });
 
-  it('rejects a path NEITHER gate authorizes, and names both remedies', async () => {
+  it('uses the ordinary never-granted remedy for an unmanaged path', async () => {
     const empty = createStorage();
     await expect(
-      resolveGrantedRootHandle(empty, '/somewhere/else', () => Promise.resolve(false))
+      resolveGrantedRootHandle(empty, '/somewhere/else', () => Promise.resolve('unmanaged'))
+    ).rejects.toThrow('Folder was never granted in this app; use Add Folder to grant it.');
+  });
+
+  it('names the managed-worktree denial only for a path under the managed directory', async () => {
+    const empty = createStorage();
+    await expect(
+      resolveGrantedRootHandle(empty, '/managed/app/not-a-row', () =>
+        Promise.resolve('managed-but-unauthorized')
+      )
     ).rejects.toThrow(
       'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
     );
@@ -331,6 +324,24 @@ describe('resolveGrantedRootHandle managed-worktree gate (BST-1390, spec §6.2)'
       resolveGrantedRootHandle(seeded, '/ws/alpha', () => {
         throw new Error('authorizer exploded');
       })
-    ).resolves.toMatchObject({ path: '/ws/alpha' });
+    ).resolves.toMatchObject({ grantSource: 'recents', handle: { path: '/ws/alpha' } });
+  });
+
+  it('fails closed and logs when the managed-worktree authorizer throws', async () => {
+    const empty = createStorage();
+    const request = resolveGrantedRootHandle(empty, '/managed/app/bright-fox', () => {
+      throw new Error('authorizer exploded');
+    });
+
+    await expect(request).rejects.toEqual(
+      expect.objectContaining({
+        message: 'Folder was never granted in this app; use Add Folder to grant it.',
+      })
+    );
+    await expect(request).rejects.toBeInstanceOf(AccessError);
+    expect(loggerMock.error).toHaveBeenCalledWith('managed-worktree authorization check threw', {
+      error: expect.objectContaining({ message: 'authorizer exploded' }),
+      path: '/managed/app/bright-fox',
+    });
   });
 });

@@ -204,7 +204,16 @@ export async function listRecentRootEntries(
  * directory. Injected rather than imported so this leaf module keeps its
  * zero-dependency shape and the DB-backed ledger stays in `WorktreeService`.
  */
-export type ManagedWorktreeAuthorizer = (candidatePath: string) => Promise<boolean>;
+export type ManagedWorktreeAuthorization = 'authorized' | 'managed-but-unauthorized' | 'unmanaged';
+
+export type ManagedWorktreeAuthorizer = (
+  candidatePath: string
+) => Promise<ManagedWorktreeAuthorization>;
+
+export interface GrantedRootHandle {
+  readonly grantSource: 'managed-worktree' | 'recents';
+  readonly handle: DirectoryHandle;
+}
 
 /**
  * The TWO gates on the picker-less `addRootByPath`, in order:
@@ -227,37 +236,49 @@ export async function resolveGrantedRootHandle(
   storage: ElectronStorageAdapter,
   requestedPath: string,
   isManagedWorktreePath?: ManagedWorktreeAuthorizer
-): Promise<DirectoryHandle> {
+): Promise<GrantedRootHandle> {
   const normalized = normalizeRecentRootPath(requestedPath);
   const granted = (await readRecentRootsOrQuarantine(storage)).some((entry) =>
     recentPathsEqual(entry.path, normalized)
   );
-  if (!granted) {
-    let managed = false;
-    if (isManagedWorktreePath) {
-      try {
-        managed = await isManagedWorktreePath(normalized);
-      } catch (error) {
-        // A broken authorizer must not become an implicit grant, and must not
-        // be silent either.
-        logger.error('managed-worktree authorization check threw', { error, path: normalized });
-        managed = false;
-      }
-    }
-    if (!managed) {
-      throw new AccessError(
-        isManagedWorktreePath
-          ? 'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
-          : 'Folder was never granted in this app; use Add Folder to grant it.',
-        requestedPath,
-        'read'
-      );
-    }
-  }
-  return {
+  const handle: DirectoryHandle = {
     kind: 'directory',
     name: path.basename(normalized) || normalized,
     path: normalized,
     platform: 'electron',
   };
+  if (granted) {
+    return { grantSource: 'recents', handle };
+  }
+  if (!isManagedWorktreePath) {
+    throw new AccessError(
+      'Folder was never granted in this app; use Add Folder to grant it.',
+      requestedPath,
+      'read'
+    );
+  }
+
+  let authorization: ManagedWorktreeAuthorization;
+  try {
+    authorization = await isManagedWorktreePath(normalized);
+  } catch (error) {
+    // A broken authorizer must not become an implicit grant, and must not be
+    // silent either.
+    logger.error('managed-worktree authorization check threw', { error, path: normalized });
+    throw new AccessError(
+      'Folder was never granted in this app; use Add Folder to grant it.',
+      requestedPath,
+      'read'
+    );
+  }
+  if (authorization === 'authorized') {
+    return { grantSource: 'managed-worktree', handle };
+  }
+  throw new AccessError(
+    authorization === 'managed-but-unauthorized'
+      ? 'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
+      : 'Folder was never granted in this app; use Add Folder to grant it.',
+    requestedPath,
+    'read'
+  );
 }
