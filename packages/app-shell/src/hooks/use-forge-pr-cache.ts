@@ -1,9 +1,29 @@
+/**
+ * The renderer-side mirror of `apps/desktop/src/assistant-server/forge-pr-cache.ts`'s
+ * SELECT: a list-wide live query over `brainstrike_forge_prs`, projected into
+ * a `(repoCommonDir, branch)` lookup the thread rows join against.
+ *
+ * `app-shell` cannot import `apps/desktop` (renderer/main boundary), so this
+ * cannot reuse main's reader directly — but both sides CAN import
+ * `@brainstrike/types`, which is where `readChecks`, `FORGE_CHECK_CONCLUSIONS`
+ * (via `readChecks`) and `forgePrCacheKey` actually live. Importing them here
+ * rather than re-declaring them is the point: a conclusion added to
+ * `ForgeCheckConclusion` without updating a SECOND copy of the validator would
+ * pass on one side and throw the entire projection on the other, and a NUL
+ * key builder that drifted between the two sides would silently stop joining
+ * rows the desktop cache wrote.
+ *
+ * THROW-DON'T-COERCE, same posture as main: `projectForgePrRows` fails the
+ * WHOLE projection (empty map, `error` set) on a single malformed row rather
+ * than rendering the other rows as if the bad one were simply absent — an
+ * absent PR and an unreadable one must never look the same to the user.
+ */
 import { type DbHandle, makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import {
-  type ForgeCheck,
-  type ForgeCheckConclusion,
   type ForgePrCacheEntry,
   type ForgePrState,
+  forgePrCacheKey,
+  readChecks,
   rollupForgeChecks,
 } from '@brainstrike/types';
 import { useMemo } from 'react';
@@ -22,16 +42,6 @@ export const FORGE_PR_CACHE_SQL = `
 `;
 
 const EMPTY_FORGE_PR_CACHE: ForgePrCacheLookup = new Map();
-const FORGE_CHECK_CONCLUSIONS: ReadonlySet<string> = new Set<ForgeCheckConclusion>([
-  'action_required',
-  'cancelled',
-  'failure',
-  'neutral',
-  'pending',
-  'skipped',
-  'success',
-  'timed_out',
-]);
 
 export type ForgePrCacheLookup = ReadonlyMap<string, ForgePrCacheEntry>;
 
@@ -49,37 +59,8 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
-function readChecks(value: unknown): readonly ForgeCheck[] {
-  const source = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
-  if (!Array.isArray(source)) {
-    throw new Error('Cached forge checks are unreadable: the value is not an array.');
-  }
-  return source.map((entry, index) => {
-    if (!isRecord(entry)) {
-      throw new Error(`Cached forge check ${index} is not an object.`);
-    }
-    const conclusion = entry['conclusion'];
-    const name = entry['name'];
-    const url = entry['url'];
-    if (typeof conclusion !== 'string' || !FORGE_CHECK_CONCLUSIONS.has(conclusion)) {
-      throw new Error(`Cached forge check ${index} has an unrecognized conclusion.`);
-    }
-    if (typeof name !== 'string' || name.trim().length === 0) {
-      throw new Error(`Cached forge check ${index} has no name.`);
-    }
-    if (!(url === null || typeof url === 'string')) {
-      throw new Error(`Cached forge check ${index} has an unreadable URL.`);
-    }
-    return { conclusion: conclusion as ForgeCheckConclusion, name, url };
-  });
-}
-
 function readState(value: unknown): ForgePrState | null {
   return value === 'closed' || value === 'merged' || value === 'open' ? value : null;
-}
-
-export function forgePrCacheKey(gitCommonDir: string, branch: string): string {
-  return `${gitCommonDir}\0${branch}`;
 }
 
 export function projectForgePrRows(rows: readonly unknown[]): {
@@ -105,7 +86,15 @@ export function projectForgePrRows(rows: readonly unknown[]): {
       }
       const state = readState(row['state']);
       const url = row['url'];
-      if (typeof number !== 'number' || typeof url !== 'string' || state === null) {
+      // typeof === 'number' + Number.isInteger, never Number(number): a
+      // numeric string is corruption here, the same stricter posture
+      // `forge-pr-cache.ts`'s `readNumber` enforces on main.
+      if (
+        typeof number !== 'number' ||
+        !Number.isInteger(number) ||
+        typeof url !== 'string' ||
+        state === null
+      ) {
         throw new Error('Forge PR cache query returned a malformed pull-request row.');
       }
       const checks = readChecks(row['checksJson']);

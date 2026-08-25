@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FORGE_CHECK_CONCLUSIONS,
   type ForgeCheck,
+  forgePrCacheKey,
   parseForgeRemote,
+  readChecks,
   readForgeChecks,
   resolveForgeRemoteName,
   rollupForgeChecks,
@@ -364,5 +367,66 @@ describe('rollupForgeChecks', () => {
     expect(
       rollupForgeChecks([check('success', 'a'), check('skipped', 'b'), check('neutral', 'c')])
     ).toBe('passing');
+  });
+});
+
+describe('forgePrCacheKey', () => {
+  it('joins repoCommonDir and branch with a NUL byte', () => {
+    expect(forgePrCacheKey('/repos/widgets/.git', 'main')).toBe('/repos/widgets/.git\0main');
+  });
+
+  it('keeps two repositories with the same branch name distinct', () => {
+    expect(forgePrCacheKey('/repos/widgets/.git', 'main')).not.toBe(
+      forgePrCacheKey('/repos/other/.git', 'main')
+    );
+  });
+});
+
+describe('FORGE_CHECK_CONCLUSIONS', () => {
+  it('lists every ForgeCheckConclusion variant', () => {
+    expect([...FORGE_CHECK_CONCLUSIONS].sort()).toEqual([
+      'action_required',
+      'cancelled',
+      'failure',
+      'neutral',
+      'pending',
+      'skipped',
+      'success',
+      'timed_out',
+    ]);
+  });
+});
+
+describe('readChecks — cached (already-normalized) ForgeCheck[]', () => {
+  it('accepts a parsed array value', () => {
+    expect(readChecks([{ conclusion: 'success', name: 'unit', url: null }])).toEqual([
+      { conclusion: 'success', name: 'unit', url: null },
+    ]);
+  });
+
+  it('accepts the same value delivered as a JSON string', () => {
+    expect(
+      readChecks(JSON.stringify([{ conclusion: 'pending', name: 'lint', url: null }]))
+    ).toEqual([{ conclusion: 'pending', name: 'lint', url: null }]);
+  });
+
+  it('throws when the value is not an array', () => {
+    expect(() => readChecks({ conclusion: 'success' })).toThrow(/not an array/);
+  });
+
+  it('throws on an entry with an unrecognized conclusion', () => {
+    expect(() => readChecks([{ conclusion: 'bogus', name: 'unit', url: null }])).toThrow(
+      /unrecognized conclusion/
+    );
+  });
+
+  it('throws on an entry with no name', () => {
+    expect(() => readChecks([{ conclusion: 'success', name: '', url: null }])).toThrow(/no name/);
+  });
+
+  it('throws on an entry with an unreadable URL', () => {
+    expect(() => readChecks([{ conclusion: 'success', name: 'unit', url: 42 }])).toThrow(
+      /unreadable URL/
+    );
   });
 });

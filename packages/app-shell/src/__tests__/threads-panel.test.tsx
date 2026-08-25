@@ -2265,11 +2265,12 @@ describe('ThreadsPanel folders', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    // The four boxes are ONE labelled group, not four loose checkboxes that
-    // happen to sit under a heading: a screen reader announces "Show only" when
-    // focus enters, which is the only thing that says these narrow the list.
+    // The three boxes are ONE labelled group, not loose checkboxes that happen
+    // to sit under a heading: a screen reader announces "Show only" when focus
+    // enters, which is the only thing that says these narrow the list. "Has PR"
+    // is not among them outside folder grouping — see the dedicated test below.
     const showOnly = await screen.findByRole('group', { name: 'Show only' });
-    expect(within(showOnly).getAllByRole('checkbox')).toHaveLength(4);
+    expect(within(showOnly).getAllByRole('checkbox')).toHaveLength(3);
     fireEvent.click(within(showOnly).getByRole('checkbox', { name: 'Running' }));
 
     await waitFor(() => {
@@ -2747,5 +2748,160 @@ describe('ThreadsPanel folders', () => {
     expect(await screen.findByRole('menuitem', { name: 'Rename…' })).toBeVisible();
     expect(screen.queryByRole('menuitem', { name: 'Move to Research' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Remove from Group' })).not.toBeInTheDocument();
+  });
+
+  // "Has PR" can only ever match while folder grouping is active AND the
+  // branch-lookup bridge is present — offering it elsewhere would be a filter
+  // that can only ever answer "nothing".
+  it('offers "Has PR" only once folder grouping is active', async () => {
+    bindThreadToRoot('thread-a');
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    let showOnly = await screen.findByRole('group', { name: 'Show only' });
+    expect(within(showOnly).queryByRole('checkbox', { name: 'Has PR' })).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('radio', { name: 'Folder' }));
+    await screen.findAllByTestId('thread-folder-count');
+
+    showOnly = screen.getByRole('group', { name: 'Show only' });
+    expect(within(showOnly).getByRole('checkbox', { name: 'Has PR' })).toBeInTheDocument();
+  });
+
+  // Web omits the branch-lookup bridge entirely (the omit-don't-stub
+  // constraint) rather than fabricating one, so the option stays hidden even
+  // inside folder grouping when that bridge is absent.
+  it('omits "Has PR" in folder grouping when the branch-lookup bridge is unavailable', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.available = false;
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    const showOnly = screen.getByRole('group', { name: 'Show only' });
+    expect(within(showOnly).queryByRole('checkbox', { name: 'Has PR' })).not.toBeInTheDocument();
+  });
+
+  // A "Has PR" ticked while folder grouping (and the branch lookup) was
+  // available must not strand the list at zero rows once the user leaves that
+  // mode — the checkbox that would undo it has just disappeared too.
+  it('does not strand the list when leaving folder grouping with "Has PR" still ticked', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      { branch: 'main', containment: ['root-1'], detached: false, path: '/tmp/workspace-a/' },
+    ];
+    dbMocks.forgePrRows = [
+      {
+        branch: 'main',
+        checksJson: [],
+        isDraft: false,
+        number: 2574,
+        repoCommonDir: '/tmp/workspace-a/.git',
+        state: 'open',
+        url: 'https://github.test/acme/widgets/pull/2574',
+      },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Show only' })).getByRole('checkbox', {
+        name: 'Has PR',
+      })
+    );
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+    });
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom groups' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+  });
+
+  describe('thread row PR pill — live query route', () => {
+    function seedMatchingPrRow(): void {
+      gitMocks.worktrees = [
+        { branch: 'main', containment: ['root-1'], detached: false, path: '/tmp/workspace-a/' },
+      ];
+      dbMocks.forgePrRows = [
+        {
+          branch: 'main',
+          checksJson: [{ conclusion: 'success', name: 'unit', url: null }],
+          isDraft: false,
+          number: 2574,
+          repoCommonDir: '/tmp/workspace-a/.git',
+          state: 'open',
+          url: 'https://github.test/acme/widgets/pull/2574',
+        },
+      ];
+    }
+
+    // Proves the whole chain end-to-end: a row seeded through the live-query
+    // route (not `ThreadMetadataBadgesForTest` directly) joins on the
+    // `gitCommonDir` the git inventory mock reports for the bound root, and
+    // renders a real `thread-pr-pill` inside the actual thread row.
+    it('renders a thread-pr-pill inside a real thread row', async () => {
+      bindThreadToRoot('thread-a');
+      seedMatchingPrRow();
+      renderThreadsPanel();
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+      });
+
+      await enterFolderGrouping();
+
+      const pill = within(rowFor('First thread')).getByTestId('thread-pr-pill');
+      expect(pill).toHaveTextContent('#2574');
+      expect(within(rowFor('Second thread')).queryByTestId('thread-pr-pill')).toBeNull();
+    });
+
+    it('narrows the list to threads with a cached PR through the "Has PR" filter', async () => {
+      bindThreadToRoot('thread-a');
+      seedMatchingPrRow();
+      renderThreadsPanel();
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+      });
+
+      await enterFolderGrouping();
+      fireEvent.click(
+        within(screen.getByRole('group', { name: 'Show only' })).getByRole('checkbox', {
+          name: 'Has PR',
+        })
+      );
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+      });
+      expect(screen.getByText('First thread')).toBeVisible();
+    });
+
+    // The F1 fix: a malformed cache row fails the whole projection, and the
+    // failure must be visible, not indistinguishable from "no PRs cached".
+    it('renders the projection-failure banner when the forge PR cache query errors', async () => {
+      bindThreadToRoot('thread-a');
+      dbMocks.forgePrError = new Error('checks_json is unreadable');
+      renderThreadsPanel();
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+      });
+
+      await enterFolderGrouping();
+
+      expect(await screen.findByTestId('thread-pr-status-error')).toHaveTextContent(
+        'Pull request status unavailable: checks_json is unreadable'
+      );
+    });
   });
 });

@@ -1,7 +1,6 @@
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
-import type { ForgePrCacheEntry } from '@brainstrike/types';
+import { type ForgePrCacheEntry, forgePrCacheKey } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { forgePrCacheKey } from '../hooks/use-forge-pr-cache';
 import type { ThreadBranchLookup } from '../thread-branch-resolution';
 import { lookupThreadForgePr } from '../thread-forge-pr-resolution';
 

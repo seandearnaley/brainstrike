@@ -1305,12 +1305,12 @@ function ThreadMetadataBadges({
   }
   return (
     <div
-      className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden [&>span:nth-child(n+3)]:@[560px]/threads:inline-flex [&>span:nth-child(n+3)]:hidden"
+      className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden"
       data-testid="thread-metadata-badges"
     >
       {/* Branch first, then PR: in folder grouping these two are the row's most
-          local facts, and they are the badges the narrow-panel container query
-          protects. */}
+          local facts, and they are always visible once the container clears
+          420px — see the `wideOnly` note on ThreadBadge for the rest. */}
       {branch ? (
         <ThreadBadge icon={GitBranch}>{branch.detached ? 'detached' : branch.branch}</ThreadBadge>
       ) : null}
@@ -1331,10 +1331,10 @@ function ThreadMetadataBadges({
           </span>
         </span>
       ) : null}
-      {providerLabel ? <ThreadBadge>{providerLabel}</ThreadBadge> : null}
-      {modelLabel ? <ThreadBadge>{modelLabel}</ThreadBadge> : null}
-      {reasoningLabel ? <ThreadBadge>{reasoningLabel}</ThreadBadge> : null}
-      {maxOutputLabel ? <ThreadBadge>{maxOutputLabel}</ThreadBadge> : null}
+      {providerLabel ? <ThreadBadge wideOnly>{providerLabel}</ThreadBadge> : null}
+      {modelLabel ? <ThreadBadge wideOnly>{modelLabel}</ThreadBadge> : null}
+      {reasoningLabel ? <ThreadBadge wideOnly>{reasoningLabel}</ThreadBadge> : null}
+      {maxOutputLabel ? <ThreadBadge wideOnly>{maxOutputLabel}</ThreadBadge> : null}
     </div>
   );
 }
@@ -1345,12 +1345,30 @@ export { ThreadMetadataBadges as ThreadMetadataBadgesForTest };
 function ThreadBadge({
   children,
   icon: Icon,
+  wideOnly,
 }: {
   readonly children: ReactNode;
   readonly icon?: LucideIcon;
+  /**
+   * Hidden until the container clears 560px, INSTEAD of the 420px every other
+   * badge in this row gets. Carried per-badge rather than as a positional
+   * `nth-child` selector on the container: `nth-child` counts RENDERED
+   * children, and branch/PR are both conditional, so a positional rule's
+   * meaning shifted with whichever optional badges happened to render —
+   * bumping its threshold once (`n+2` to `n+3`) only patched the case with
+   * both branch and PR present, and on every row with NEITHER (every row
+   * outside folder grouping, and every row on web) it kept a second badge
+   * visible in the 420-560px band that previously stayed hidden there,
+   * eating into the title's `min-w-0` truncation for rows that have nothing
+   * to do with a PR at all. A class the badge carries itself is correct
+   * regardless of what else in the row rendered.
+   */
+  readonly wideOnly?: boolean;
 }): ReactElement {
   return (
-    <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] text-muted-foreground leading-4">
+    <span
+      className={`${wideOnly ? '@[560px]/threads:inline-flex hidden' : 'inline-flex'} shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] text-muted-foreground leading-4`}
+    >
       {Icon ? <Icon aria-hidden="true" className="size-2.5" /> : null}
       {children}
     </span>
@@ -2603,6 +2621,7 @@ export interface ThreadsPanelProps {
 function ThreadsPanelToolbar({
   folderSortBy,
   groupBy,
+  hasPrFilterAvailable,
   newGroupDisabled,
   newThreadDisabled,
   newThreadTitle,
@@ -2620,6 +2639,8 @@ function ThreadsPanelToolbar({
 }: {
   readonly folderSortBy: ThreadsPanelFolderSortBy;
   readonly groupBy: ThreadsPanelGroupBy;
+  /** See `ThreadsViewOptionsPopover` — gates whether "Has PR" is offered at all. */
+  readonly hasPrFilterAvailable: boolean;
   readonly newGroupDisabled: boolean;
   readonly newThreadDisabled: boolean;
   readonly newThreadTitle: string;
@@ -2685,6 +2706,7 @@ function ThreadsPanelToolbar({
         <ThreadsViewOptionsPopover
           folderSortBy={folderSortBy}
           groupBy={groupBy}
+          hasPrFilterAvailable={hasPrFilterAvailable}
           onClearThreadFilters={onClearThreadFilters}
           onFolderSortByChange={onFolderSortByChange}
           onGroupByChange={onGroupByChange}
@@ -2864,7 +2886,12 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     return [...rootIds];
   }, [folderGrouping, threads]);
   const folderRows = useThreadFolderRows(database, threadRootIds);
-  const { byRootId, byRootIdAndPath, byRootPath } = useThreadBranchByRootPath({
+  const {
+    available: branchLookupAvailable,
+    byRootId,
+    byRootIdAndPath,
+    byRootPath,
+  } = useThreadBranchByRootPath({
     enabled: folderGrouping,
   });
   const branchLookup = useMemo<ThreadBranchLookup>(
@@ -2873,10 +2900,20 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   );
   // Gated on folder grouping exactly like the branch chips: the pill only
   // exists there, and an ungated live query would subscribe every panel mount.
-  const { byRepoBranch: forgePrLookup } = useForgePrCache({
+  const { byRepoBranch: forgePrLookup, error: forgePrError } = useForgePrCache({
     database,
     enabled: folderGrouping,
   });
+  // "Has PR" can only ever match a thread while folder grouping is active AND
+  // the branch lookup's bridge is present (desktop; web omits it — the
+  // omit-don't-stub constraint, matching how the chips themselves disappear
+  // rather than fabricating a branch). Both `branchLookup` and `forgePrLookup`
+  // above are already gated on `folderGrouping` alone, so `hasPrThreadIds`
+  // below is naturally empty outside that combination — this flag exists so
+  // the OPTION disappears too, and so a filter left ticked from a session
+  // where it worked doesn't silently strand the list at zero rows once its
+  // data sources are gated again.
+  const hasPrFilterAvailable = folderGrouping && branchLookupAvailable;
 
   // Folder sections mint persisted collapse keys; this is the symmetric prune
   // to the one `deleteGroup` does for group keys. The RESOLVED folder rows are
@@ -2895,7 +2932,16 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     pruneFolderCollapseIds([...folderRowsByRootId.keys()]);
   }, [folderRowsByRootId, folderRowsResolved, pruneFolderCollapseIds]);
 
-  const threadFiltersActive = hasActiveThreadFilters(threadFilters);
+  // Ignores a `hasPr: true` left over from a session where folder grouping
+  // (or the branch lookup bridge) was available: without this, leaving that
+  // mode would strand the list at zero rows behind a filter the "Has PR"
+  // option has ALSO just disappeared for (see `hasPrFilterAvailable` above),
+  // with no visible control left to un-tick it.
+  const effectiveThreadFilters = useMemo(
+    () => (hasPrFilterAvailable ? threadFilters : { ...threadFilters, hasPr: false }),
+    [hasPrFilterAvailable, threadFilters]
+  );
+  const threadFiltersActive = hasActiveThreadFilters(effectiveThreadFilters);
   // "Has PR" is a projection over the same lookup the pill renders from, so a
   // filtered row and its pill can never disagree.
   const hasPrThreadIds = useMemo(
@@ -2910,7 +2956,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   const filteredThreads = useMemo(
     () =>
       filterThreadsByThreadFilters({
-        filters: threadFilters,
+        filters: effectiveThreadFilters,
         hasPrThreadIds,
         needsYouThreadIds: threadsAwaitingApproval.threadIds,
         runningThreadIds: activeThreads.threadIds,
@@ -2919,8 +2965,8 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       }),
     [
       activeThreads.threadIds,
+      effectiveThreadFilters,
       hasPrThreadIds,
-      threadFilters,
       threads,
       threadsAwaitingApproval.threadIds,
       unseenThreadIds.unseen,
@@ -3252,6 +3298,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       <ThreadsPanelToolbar
         folderSortBy={folderSortBy}
         groupBy={groupBy}
+        hasPrFilterAvailable={hasPrFilterAvailable}
         newGroupDisabled={!groupsRepository}
         newThreadDisabled={!(repository && resourceId) || loadState?.status === 'loading'}
         newThreadTitle={
@@ -3310,6 +3357,11 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       {threadsAwaitingApproval.error ? (
         <p className="px-3 pb-2 text-[11px] text-destructive" data-testid="thread-approvals-error">
           Approval status unavailable: {threadsAwaitingApproval.error.message}
+        </p>
+      ) : null}
+      {forgePrError ? (
+        <p className="px-3 pb-2 text-[11px] text-destructive" data-testid="thread-pr-status-error">
+          Pull request status unavailable: {forgePrError.message}
         </p>
       ) : null}
 

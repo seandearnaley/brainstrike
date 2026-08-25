@@ -140,6 +140,7 @@ function ViewOptionCheckbox({
 export function ThreadsViewOptionsPopover({
   folderSortBy,
   groupBy,
+  hasPrFilterAvailable,
   onClearThreadFilters,
   onFolderSortByChange,
   onGroupByChange,
@@ -150,6 +151,15 @@ export function ThreadsViewOptionsPopover({
 }: {
   readonly folderSortBy: ThreadsPanelFolderSortBy;
   readonly groupBy: ThreadsPanelGroupBy;
+  /**
+   * "Has PR" can only ever match while folder grouping is active AND the
+   * branch-lookup bridge is present (desktop; web omits it — the
+   * omit-don't-stub constraint). Offering the checkbox outside that
+   * combination would let a user tick a filter that can never narrow
+   * anything but "nothing at all" — see `threads-panel.tsx`'s
+   * `hasPrFilterAvailable`, the single source of this flag.
+   */
+  readonly hasPrFilterAvailable: boolean;
   readonly onClearThreadFilters: () => void;
   readonly onFolderSortByChange: (folderSortBy: ThreadsPanelFolderSortBy) => void;
   readonly onGroupByChange: (groupBy: ThreadsPanelGroupBy) => void;
@@ -160,6 +170,9 @@ export function ThreadsViewOptionsPopover({
 }): ReactElement {
   const folderGrouping = groupBy === 'folder';
   const filtersActive = hasActiveThreadFilters(threadFilters);
+  const filterOptions = hasPrFilterAvailable
+    ? THREAD_FILTER_OPTIONS
+    : THREAD_FILTER_OPTIONS.filter((option) => option.value !== 'hasPr');
   // The dot answers "is the list you see the default list", so an active filter
   // lights it exactly like a non-default grouping does: a narrowed list with no
   // visible marker is the panel silently hiding threads.
@@ -224,7 +237,7 @@ export function ThreadsViewOptionsPopover({
               legend-free label stays honest to assistive tech. */}
           <fieldset aria-label="Show only" className="min-w-0">
             <div className="px-2 pb-1 text-[11px] text-muted-foreground">Show only</div>
-            {THREAD_FILTER_OPTIONS.map((option) => (
+            {filterOptions.map((option) => (
               <ViewOptionCheckbox
                 checked={threadFilters[option.value]}
                 key={option.value}

@@ -1,9 +1,6 @@
+import { forgePrCacheKey } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import {
-  FORGE_PR_CACHE_SQL,
-  forgePrCacheKey,
-  projectForgePrRows,
-} from '../hooks/use-forge-pr-cache';
+import { FORGE_PR_CACHE_SQL, projectForgePrRows } from '../hooks/use-forge-pr-cache';
 
 function passingRow(): Record<string, unknown> {
   return {
@@ -63,6 +60,13 @@ describe('projectForgePrRows', () => {
 
   it('fails the whole projection when one PR row is malformed', () => {
     const projected = projectForgePrRows([passingRow(), { ...passingRow(), number: 'nope' }]);
+
+    expect(projected.error).toBeInstanceOf(Error);
+    expect(projected.byRepoBranch.size).toBe(0);
+  });
+
+  it('fails the projection on a non-integer number rather than coercing it', () => {
+    const projected = projectForgePrRows([{ ...passingRow(), number: 2574.5 }]);
 
     expect(projected.error).toBeInstanceOf(Error);
     expect(projected.byRepoBranch.size).toBe(0);
