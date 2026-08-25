@@ -124,7 +124,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       rootPath: repoRoot,
     });
 
-    expect(result.available).toBe(true);
+    expect(result.available, result.message ?? result.reason).toBe(true);
     expect(result.diagnostics ?? []).toEqual([]);
   }, 30_000);
 
@@ -235,8 +235,6 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       const disposed = await disposeLspServers();
       expect(disposed).toBeGreaterThanOrEqual(1);
       expect(countPooledLspServers()).toBe(0);
-      // Give the OS a beat to reap.
-      await new Promise((resolve) => setTimeout(resolve, 300));
       expect(isProcessAlive(pid)).toBe(false);
     } finally {
       await fsPromises.rm(root, { force: true, recursive: true });

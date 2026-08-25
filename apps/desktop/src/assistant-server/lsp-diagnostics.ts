@@ -343,6 +343,7 @@ function boundDiagnostics(raw: RawDiagnostic[]): {
  */
 class LspServerConnection {
   private readonly child: ChildProcess;
+  private readonly childExit: Promise<void>;
   private readonly connection: MessageConnection;
   private readonly diagnostics = new Map<string, RawDiagnostic[]>();
   private readonly versions = new Map<string, number>();
@@ -360,6 +361,10 @@ class LspServerConnection {
       // biome-ignore lint/style/useNamingConvention: OS env var name is fixed
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    this.childExit = new Promise((resolve) => {
+      this.child.once('error', () => resolve());
+      this.child.once('exit', () => resolve());
     });
     // Drain stderr so a chatty server can't fill the pipe buffer and stall.
     this.child.stderr?.on('data', () => {
@@ -603,6 +608,10 @@ class LspServerConnection {
     }
     // SIGKILL is the authoritative teardown (no orphaned server process).
     this.child.kill('SIGKILL');
+    // `kill()` only queues the signal. Do not report disposal complete until
+    // Node observes process exit; otherwise the next pooled server can start
+    // while its predecessor is still consuming resources.
+    await this.childExit;
   }
 }
 
