@@ -529,7 +529,7 @@ properties above: dropping a watched job, reverting `!cancelled()` to
 `always()`, restoring the `|| true` suppression, or deleting the recovery job
 each make the contract fail.
 
-### Biome pinned at 2.5.8 — the 2.5.3/2.5.4 module-graph panic is fixed (2026-08-15, BST-1273)
+### Biome 2.5.8 cleared the 2.5.3/2.5.4 module-graph hold (2026-08-15, BST-1273)
 
 `@biomejs/biome` is pinned to exactly 2.5.8 (root + `apps/web`; the two must
 stay in lockstep). History: Biome 2.5.3/2.5.4 hit a module-graph panic
