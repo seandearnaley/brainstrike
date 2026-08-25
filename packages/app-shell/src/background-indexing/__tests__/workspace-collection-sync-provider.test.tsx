@@ -72,6 +72,7 @@ const {
   completeEmbeddingChunkBatchMock,
   enqueueBackfillMock,
   cancelBackfillMock,
+  dbRootIdState,
   dbRootKindState,
   rootsReconciliationSettledState,
   dbState,
@@ -136,6 +137,9 @@ const {
       }),
     })
   ),
+  dbRootIdState: {
+    current: new Map<string, string>(),
+  },
   dbRootKindState: {
     current: new Map<string, string>(),
   },
@@ -450,7 +454,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 
 vi.mock('../../roots/use-roots-reconciliation', () => ({
   useRootsReconciliation: () => ({
-    dbRootIdByAdapterRootId: new Map<string, string>(),
+    dbRootIdByAdapterRootId: dbRootIdState.current,
     dbRootKindByAdapterRootId: dbRootKindState.current,
     registerRoot: registerRootMock,
     resolveDbRootId: resolveDbRootIdMock,
@@ -543,6 +547,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       },
     ];
     fileSystemState.rootIdByPath = new Map<string, string>([['/workspace/root', 'root-id-1']]);
+    dbRootIdState.current = new Map();
     dbRootKindState.current = new Map();
     rootsReconciliationSettledState.current = true;
     fileTreeContextState.current = {
@@ -3091,6 +3096,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       [worktreeRoot.rootId, 'worktree'],
       [pathRoot.rootId, 'path'],
     ]);
+    dbRootIdState.current = new Map([
+      [worktreeRoot.rootId, 'db-worktree-root-id'],
+      [pathRoot.rootId, 'db-path-root-id'],
+    ]);
     const syncSpy = vi
       .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
       .mockResolvedValue(undefined);
@@ -3119,12 +3128,116 @@ describe('WorkspaceCollectionSyncProvider', () => {
       });
       expect(exclusionLogs).toHaveLength(1);
       expect(exclusionLogs[0]?.args).toContainEqual({ rootPath: worktreeRoot.path });
+      expect(
+        useBackgroundIndexingPreferencesStore.getState().worktreeRootIndexingByAdapterRootId
+      ).toEqual({
+        [worktreeRoot.rootId]: { dbRootId: 'db-worktree-root-id', indexed: false },
+      });
 
       window.dispatchEvent(new Event(FILE_EXPLORER_REFRESH_EVENT));
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
       expect(exclusionLogs).toHaveLength(1);
     } finally {
       removeListener();
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('indexes only the individually opted-in worktree root', async () => {
+    const worktreeRoot = {
+      kind: 'directory',
+      name: 'worktree',
+      path: '/managed/app/bright-fox',
+      platform: 'electron',
+      rootId: 'worktree-root-id',
+    };
+    const otherWorktreeRoot = {
+      ...worktreeRoot,
+      name: 'other-worktree',
+      path: '/managed/app/other',
+      rootId: 'other-worktree-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = worktreeRoot;
+    fileSystemState.rootDirectoryHandles = [worktreeRoot, otherWorktreeRoot];
+    fileSystemState.rootIdByPath = new Map([
+      [worktreeRoot.path, worktreeRoot.rootId],
+      [otherWorktreeRoot.path, otherWorktreeRoot.rootId],
+    ]);
+    dbRootKindState.current = new Map([
+      [worktreeRoot.rootId, 'worktree'],
+      [otherWorktreeRoot.rootId, 'worktree'],
+    ]);
+    dbRootIdState.current = new Map([
+      [worktreeRoot.rootId, 'db-worktree-root-id'],
+      [otherWorktreeRoot.rootId, 'db-other-worktree-root-id'],
+    ]);
+    useBackgroundIndexingPreferencesStore
+      .getState()
+      .setWorktreeRootIndexingEnabled('db-worktree-root-id', true);
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+      expect(syncSpy.mock.calls[0]?.[0].rootDirectoryHandle).toMatchObject({
+        path: worktreeRoot.path,
+        rootId: worktreeRoot.rootId,
+      });
+      expect(
+        useBackgroundIndexingPreferencesStore.getState().worktreeRootIndexingByAdapterRootId
+      ).toEqual({
+        [otherWorktreeRoot.rootId]: {
+          dbRootId: 'db-other-worktree-root-id',
+          indexed: false,
+        },
+        [worktreeRoot.rootId]: { dbRootId: 'db-worktree-root-id', indexed: true },
+      });
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('publishes a stable visible status when every mounted root is excluded', async () => {
+    const worktreeRoot = {
+      kind: 'directory',
+      name: 'worktree',
+      path: '/managed/app/bright-fox',
+      platform: 'electron',
+      rootId: 'worktree-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = worktreeRoot;
+    fileSystemState.rootDirectoryHandles = [worktreeRoot];
+    fileSystemState.rootIdByPath = new Map([[worktreeRoot.path, worktreeRoot.rootId]]);
+    dbRootKindState.current = new Map([[worktreeRoot.rootId, 'worktree']]);
+    dbRootIdState.current = new Map([[worktreeRoot.rootId, 'db-worktree-root-id']]);
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+          activeRootPath: worktreeRoot.path,
+          lastError:
+            'No mounted roots are currently indexed. Managed worktrees are excluded by default to avoid duplicate corpus indexing.',
+          state: 'waiting',
+        })
+      );
+      expect(syncSpy).not.toHaveBeenCalled();
+    } finally {
       syncSpy.mockRestore();
     }
   });

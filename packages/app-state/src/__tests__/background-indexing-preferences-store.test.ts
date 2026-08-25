@@ -48,6 +48,45 @@ describe('background-indexing-preferences-store', () => {
     expect(state.mode).toBe('root-folder-cache');
     expect(state.paused).toBe(false);
     expect(state.hasHydrated).toBe(false);
+    expect(state.worktreeRootIndexingByAdapterRootId).toEqual({});
+    expect(state.worktreeRootIndexingOptInById).toEqual({});
+  });
+
+  it('persists an indexing opt-in for only the selected worktree root', () => {
+    const store = useBackgroundIndexingPreferencesStore.getState();
+
+    store.setWorktreeRootIndexingEnabled('db-worktree-a', true);
+
+    expect(useBackgroundIndexingPreferencesStore.getState().worktreeRootIndexingOptInById).toEqual({
+      'db-worktree-a': true,
+    });
+
+    useBackgroundIndexingPreferencesStore
+      .getState()
+      .setWorktreeRootIndexingEnabled('db-worktree-a', false);
+
+    expect(useBackgroundIndexingPreferencesStore.getState().worktreeRootIndexingOptInById).toEqual(
+      {}
+    );
+  });
+
+  it('publishes mounted worktree indexing state without persisting it', () => {
+    const store = useBackgroundIndexingPreferencesStore.getState();
+
+    store.setWorktreeRootIndexingState([
+      { adapterRootId: 'adapter-a', dbRootId: 'db-a', indexed: false },
+    ]);
+
+    expect(
+      storeWithPersist.persist
+        ?.getOptions?.()
+        .partialize?.(useBackgroundIndexingPreferencesStore.getState())
+    ).not.toHaveProperty('worktreeRootIndexingByAdapterRootId');
+    expect(
+      useBackgroundIndexingPreferencesStore.getState().worktreeRootIndexingByAdapterRootId
+    ).toEqual({
+      'adapter-a': { dbRootId: 'db-a', indexed: false },
+    });
   });
 
   it('migrates pre-workspace-index preferences without overriding an explicit disabled state', () => {
@@ -60,7 +99,7 @@ describe('background-indexing-preferences-store', () => {
       throw new Error('persist options unavailable for background indexing preferences test');
     }
 
-    expect(options.version).toBe(4);
+    expect(options.version).toBe(5);
 
     const migrated = options.migrate(
       {
@@ -88,7 +127,7 @@ describe('background-indexing-preferences-store', () => {
       throw new Error('persist options unavailable for background indexing preferences test');
     }
 
-    expect(options.version).toBe(4);
+    expect(options.version).toBe(5);
 
     const migrated = options.migrate(
       {
