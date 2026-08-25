@@ -182,16 +182,11 @@ deadline. This keeps embedding claims, completion writes, and background
 indexing live under continuous foreground polling without turning the
 background lane into an equal-priority queue.
 
-Run-scoped assistant database operations enter this SAME scheduler as
-`foreground`; they do not own a second queue or fairness policy. The DB host
-classifies a non-transaction request timeout as transient saturation only when
-another request was pending at the timeout boundary. A lone timeout may be a
-wedged operation, and a transaction timeout terminates the host, so neither is
-retryable. Eligible idempotent run-critical operations may retry exactly once,
-with a warning plus durable run evidence; exhaustion preserves and surfaces the
-typed `DbHostRequestTimeoutError`. The retry is another foreground admission,
-so the 250 ms background starvation bound and required foreground/normal turn
-remain authoritative.
+Run-scoped assistant operations enter this SAME scheduler as `foreground`; they own no second policy.
+Transient saturation requires another pending request or one abandoned within its preceding request-timeout window.
+An abandonment surviving another full window marks the host wedged; transaction timeouts terminate the host.
+Neither is retryable. Eligible idempotent work may retry once with warning plus durable evidence; exhaustion surfaces the typed
+`DbHostRequestTimeoutError`. The retry is another foreground admission, so the 250 ms starvation bound and required foreground/normal turn remain authoritative.
 
 The windows are configurable through `backgroundStarvationMs` and
 `foregroundQuietMs` for deterministic tests and specialized hosts. The

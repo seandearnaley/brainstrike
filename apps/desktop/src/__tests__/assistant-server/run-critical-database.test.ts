@@ -1,3 +1,4 @@
+import { MASTRA_WORKFLOW_TABLE } from '@brainstrike/agent/pglite-mastra-memory';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createRunCriticalDatabase,
@@ -149,7 +150,7 @@ describe('run-critical database work', () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it('retries only workflow snapshot reads and emits canonical run evidence', async () => {
+  it('retries only workflow snapshot reads and survives an evidence sink failure', async () => {
     const timeout = new DbHostRequestTimeoutError({
       pendingCount: 3,
       requestKind: 'query',
@@ -157,7 +158,9 @@ describe('run-critical database work', () => {
       willTerminateHost: false,
     });
     const query = vi.fn().mockRejectedValueOnce(timeout).mockResolvedValueOnce({ rows: [] });
-    const eventSink = vi.fn();
+    const eventSink = vi.fn(() => {
+      throw new Error('evidence sink failed');
+    });
     const database = createRunCriticalDatabase(
       {
         exec: vi.fn(),
@@ -167,7 +170,7 @@ describe('run-critical database work', () => {
     );
 
     await expect(
-      database.query('SELECT snapshot FROM mastra_workflow_snapshot WHERE run_id = $1', [
+      database.query(`SELECT snapshot FROM ${MASTRA_WORKFLOW_TABLE} WHERE run_id = $1`, [
         'run-saturated',
       ])
     ).resolves.toEqual({ rows: [] });

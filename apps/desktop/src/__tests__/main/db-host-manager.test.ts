@@ -608,7 +608,8 @@ describe('DbHostManager', () => {
         'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
         ['set-timeout']
       );
-      void database.query('SELECT 1').catch(() => undefined);
+      const queuedQueryPromise = database.query('SELECT 1');
+      const queuedQueryError = queuedQueryPromise.catch((error: unknown) => error);
       const timeoutAssertion = expect(queryPromise).rejects.toThrow(
         'DB host request timed out: query'
       );
@@ -617,6 +618,10 @@ describe('DbHostManager', () => {
       await timeoutAssertion;
       await expect(queryPromise).rejects.toMatchObject({ hostSaturated: true, pendingCount: 2 });
       await expect(queryPromise).rejects.toBeInstanceOf(DbHostRequestTimeoutError);
+      await expect(queuedQueryError).resolves.toMatchObject({
+        hostSaturated: true,
+        pendingCount: 1,
+      });
 
       expect(loggerWarnMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -678,10 +683,12 @@ describe('DbHostManager', () => {
     }
   });
 
-  it('keeps the oldest abandoned request under an eviction burst so the head-of-line culprit still gets its late-completion log', async () => {
+  it('does not classify a host as transient after an abandoned request stays wedged for another timeout window', async () => {
     vi.useFakeTimers();
     try {
-      const { createDbHostManager } = await import('../../db-host-manager');
+      const { createDbHostManager, DbHostRequestTimeoutError } = await import(
+        '../../db-host-manager'
+      );
       const manager = createDbHostManager({
         entryPath: '/mock/db-host-entry.js',
         requestTimeoutMs: 5,
@@ -692,31 +699,24 @@ describe('DbHostManager', () => {
       });
       const database = await databasePromise;
 
-      // One wedged statement makes every request queued behind it time out
-      // too — far more than the abandoned-map capacity. The FIRST request is
-      // the one actually executing; its entry must survive the burst.
-      const promises = Array.from({ length: 70 }, (_, index) =>
-        database.query(`SELECT ${index}`, [])
-      );
-      for (const promise of promises) {
-        promise.catch(() => undefined);
-      }
-      const firstMessage = latestProcess().messages.at(-70) as PostedMessage;
+      const wedgedQuery = database.query('SELECT 1');
+      const wedgedError = wedgedQuery.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(5);
-      loggerWarnMock.mockClear();
+      await expect(wedgedError).resolves.toBeInstanceOf(DbHostRequestTimeoutError);
 
-      await vi.advanceTimersByTimeAsync(20);
-      latestProcess().reply(firstMessage, { rows: [] });
-      await flushMicrotasks();
-
-      expect(loggerWarnMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          elapsedMs: 25,
-          ok: true,
-          requestKind: 'query',
-        }),
-        'DB host request completed after timeout'
+      const queuedErrors = [database.query('SELECT 2'), database.query('SELECT 3')].map((query) =>
+        query.catch((error: unknown) => error)
       );
+      await vi.advanceTimersByTimeAsync(5);
+
+      await expect(queuedErrors[0]).resolves.toMatchObject({
+        hostSaturated: false,
+        pendingCount: 2,
+      });
+      await expect(queuedErrors[1]).resolves.toMatchObject({
+        hostSaturated: false,
+        pendingCount: 1,
+      });
     } finally {
       vi.useRealTimers();
     }

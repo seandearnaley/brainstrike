@@ -1,5 +1,11 @@
-import { type AssistantRunEvent, createAssistantRunEvent } from '@brainstrike/agent';
-import type { PgliteDatabase } from '@brainstrike/agent/pglite-mastra-memory';
+import {
+  MASTRA_WORKFLOW_TABLE,
+  type PgliteDatabase,
+} from '@brainstrike/agent/pglite-mastra-memory';
+import {
+  type AssistantRunEvent,
+  emitAssistantRunEventSafely,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { DbHostRequestTimeoutError } from '../db-host-manager';
 import { runDesktopScheduledDatabaseWork } from '../platform/desktop-database-work';
@@ -53,6 +59,7 @@ export function createRunCriticalDatabase(
   database: PgliteDatabase,
   evidence: RunCriticalDatabaseEvidenceOptions
 ): PgliteDatabase {
+  const transaction = database.transaction?.bind(database);
   const run = <T>(
     label: string,
     operation: () => Promise<T>,
@@ -61,8 +68,8 @@ export function createRunCriticalDatabase(
     runCriticalDatabaseOperation({
       label,
       onRetry: ({ error }) => {
-        evidence.eventSink?.(
-          createAssistantRunEvent({
+        emitAssistantRunEventSafely({
+          event: {
             detail: 'Retried once after the database host was saturated.',
             kind: 'run.database.retried',
             label: 'Run database operation retried',
@@ -73,10 +80,18 @@ export function createRunCriticalDatabase(
               requestKind: error.requestKind,
               timeoutMs: error.timeoutMs,
             },
-            runId: evidence.runId,
             status: 'info',
-          })
-        );
+          },
+          eventSink: evidence.eventSink,
+          onError: (sinkError) => {
+            logger.warn('Failed to emit run-critical database retry evidence', {
+              error: sinkError,
+              label,
+              runId: evidence.runId,
+            });
+          },
+          runId: evidence.runId,
+        });
       },
       operation,
       retry,
@@ -91,21 +106,19 @@ export function createRunCriticalDatabase(
         () => database.query(query, values),
         isWorkflowSnapshotRead(query) ? 'idempotent' : 'none'
       ),
-    ...(database.transaction
+    ...(transaction
       ? {
           transaction: <T>(operation: (tx: PgliteDatabase) => Promise<T>) =>
-            run(
-              'assistant-run-database-transaction',
-              () => database.transaction?.(operation) as Promise<T>,
-              'none'
-            ),
+            run('assistant-run-database-transaction', () => transaction(operation), 'none'),
         }
       : {}),
   };
 }
 
 function isWorkflowSnapshotRead(query: string): boolean {
-  return /^\s*select\b/i.test(query) && /\bmastra_workflow_snapshot\b/i.test(query);
+  return (
+    /^\s*select\b/i.test(query) && new RegExp(`\\b${MASTRA_WORKFLOW_TABLE}\\b`, 'i').test(query)
+  );
 }
 
 function runAttempt<T>(

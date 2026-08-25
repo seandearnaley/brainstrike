@@ -587,7 +587,7 @@ async function recordDesktopAssistantRunEvent(
   await runCriticalDatabaseOperation({
     label: 'assistant-run-event-write',
     onRetry: ({ error }) => {
-      metadata = {
+      metadata = sanitizeAssistantRunEventMetadata({
         ...metadata,
         databaseRetry: {
           attempt: 2,
@@ -596,7 +596,7 @@ async function recordDesktopAssistantRunEvent(
           requestKind: error.requestKind,
           timeoutMs: error.timeoutMs,
         },
-      };
+      });
     },
     operation: () =>
       database.query(
