@@ -529,7 +529,7 @@ properties above: dropping a watched job, reverting `!cancelled()` to
 `always()`, restoring the `|| true` suppression, or deleting the recovery job
 each make the contract fail.
 
-### Biome pinned at 2.5.8 — the 2.5.3/2.5.4 module-graph panic is fixed (2026-08-15, BST-1273)
+### Biome 2.5.8 cleared the 2.5.3/2.5.4 module-graph hold (2026-08-15, BST-1273)
 
 `@biomejs/biome` is pinned to exactly 2.5.8 (root + `apps/web`; the two must
 stay in lockstep). History: Biome 2.5.3/2.5.4 hit a module-graph panic
@@ -540,10 +540,13 @@ cross-module callback return types (upstream biomejs/biome#10963, same class as
 scheduling-dependent race (#10953). The fix is upstream commit `e62f6b6`
 (2026-07-16), released after 2.5.4.
 
-The 2.5.2 → 2.5.8 bump cleared the standing gate condition: repeated full
-`pnpm exec biome check .` runs over all 4376 files produced **zero** "Biome
-encountered an unexpected error" / panic output. Keep that verification when
-bumping again.
+The old hold required a release containing `e62f6b6` and a full
+`pnpm exec biome check .` with zero "Biome encountered an unexpected error" /
+panic output. The 2.5.2 → 2.5.8 bump satisfied both conditions: repeated full
+runs over all 4376 files produced zero panic output. No live release condition
+gates future Biome bumps. Keep the root and `apps/web` pins in lockstep and
+repeat the full panic-free check for every bump; those are verification
+guardrails, not a hold at 2.5.8.
 
 Two things the 2.5.3–2.5.8 window changed on this repo, both already absorbed:
 - **Formatter.** `it.each([...])('title', fn)` no longer hugs the callback when
