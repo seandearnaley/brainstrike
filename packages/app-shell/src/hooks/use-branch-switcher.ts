@@ -19,11 +19,13 @@
  * read, so an untracked-only tree lights the dot but never disables a row,
  * matching Task 1's header fix exactly.
  *
- * `undefined` = no interactive menu (web, no git bridge, no primary root, or a
- * failed repository/status read). A load failure is logged and leaves the
- * chip non-interactive — never rendered as an empty branch list, which would
- * read as "this repo has no branches". Only MUTATIONS (switch, create, fetch)
- * toast; a load failure has no user action to attribute the toast to.
+ * `undefined` = no interactive menu (web, no git bridge, no primary root, a
+ * primary root that is not a git repository (status probe only, no
+ * repository read), or a failed repository/status read). A load failure is
+ * logged and leaves the chip non-interactive — never rendered as an empty
+ * branch list, which would read as "this repo has no branches". Only
+ * MUTATIONS (switch, create, fetch) toast; a load failure has no user action
+ * to attribute the toast to.
  */
 import type { WorkspaceBarBranchMenu, WorkspaceBarCheckout } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
@@ -70,59 +72,79 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
     readonly repository: GitRepository;
   } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
-  // `checkout !== undefined` is the same "is a repository" signal
-  // `useThreadCheckoutStatus` derives from `isRepository` (BST-1452 M2): a
-  // non-git primary root resolves `checkout` to `undefined` there without
-  // logging, since "this folder isn't a repository" is not a failure. This
-  // hook's load effect must stay consistent with that — without the gate it
-  // re-ran `bridge.repository`/`bridge.status` on every invalidation nonce
-  // for a root that can never build a model, and warned about the entirely
-  // expected result. Read as a boolean (not `checkout` itself) so the effect
-  // below keys on the repository/non-repository transition, not on every new
-  // `checkout` object reference.
-  const hasCheckout = checkout !== undefined;
 
+  // Self-contained repository gate (BST-1452 M2 rework — a prior version
+  // gated this WHOLE effect on `useThreadCheckoutStatus`'s resolved
+  // `checkout`, which serialized first-open readiness from max(a, b) to
+  // a + b, since that hook's own `bridge.status` had to resolve before this
+  // hook's pair could even start). `bridge.status` now fires unconditionally
+  // — concurrent with `useThreadCheckoutStatus`'s independent status read,
+  // restoring max(a, b) — and `bridge.repository` is fetched only once THIS
+  // read confirms `isRepository`. A non-repository primary root is therefore
+  // not a failure: it is logged only when the status read itself fails or
+  // throws, and it never spawns a `bridge.repository` call.
   useEffect(() => {
-    if (!(bridge && dbRootId && hasCheckout)) {
+    if (!(bridge && dbRootId)) {
       return;
     }
     let cancelled = false;
-    // Both reads race in parallel; either failing fails the whole load — a
-    // repository without its status (or vice versa) cannot build a correct
-    // model, so there is no useful partial state to render.
-    Promise.all([bridge.repository(dbRootId), bridge.status(dbRootId)])
-      .then(([repositoryResult, statusResult]) => {
+    bridge
+      .status(dbRootId)
+      .then((statusResult) => {
         if (cancelled) {
           return;
         }
-        if (repositoryResult.ok && statusResult.ok) {
-          setLoaded({
+        if (!statusResult.ok) {
+          logger.warn('branch switcher could not read status', {
             dbRootId,
-            files: statusResult.value.files,
-            repository: repositoryResult.value,
+            error: statusResult.error,
           });
+          setLoaded(null);
           return;
         }
-        // Genuinely unexpected: `checkout` already confirmed this root is a
-        // repository, so a failed read here is not "not a repository" —
-        // it is a real read failure worth surfacing.
-        logger.warn('branch switcher could not read the repository or its status', {
-          dbRootId,
-          repositoryError: repositoryResult.ok ? null : repositoryResult.error,
-          statusError: statusResult.ok ? null : statusResult.error,
-        });
-        setLoaded(null);
+        if (!statusResult.value.isRepository) {
+          // Not a git repository — expected, not a failure. No warn, and no
+          // `bridge.repository` spawn: that read can never succeed here.
+          setLoaded(null);
+          return;
+        }
+        const { files } = statusResult.value;
+        bridge
+          .repository(dbRootId)
+          .then((repositoryResult) => {
+            if (cancelled) {
+              return;
+            }
+            if (repositoryResult.ok) {
+              setLoaded({ dbRootId, files, repository: repositoryResult.value });
+              return;
+            }
+            // Genuinely unexpected: status just confirmed this root IS a
+            // repository, so a failed repository read here is a real
+            // failure worth surfacing, not "not a repository".
+            logger.warn('branch switcher could not read the repository', {
+              dbRootId,
+              error: repositoryResult.error,
+            });
+            setLoaded(null);
+          })
+          .catch((error: unknown) => {
+            if (!cancelled) {
+              logger.warn('branch switcher repository read threw', { dbRootId, error });
+              setLoaded(null);
+            }
+          });
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          logger.warn('branch switcher repository/status read threw', { dbRootId, error });
+          logger.warn('branch switcher status read threw', { dbRootId, error });
           setLoaded(null);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [anyInvalidationNonce, bridge, dbRootId, hasCheckout, reloadNonce]);
+  }, [anyInvalidationNonce, bridge, dbRootId, reloadNonce]);
 
   const runMutation = useCallback(
     async (title: string, op: () => Promise<GitResult<unknown>>): Promise<void> => {

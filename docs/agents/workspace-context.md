@@ -1049,7 +1049,14 @@ additional explorer/status chrome):
     post-mutation reload nonce — NOT on the root's git-scope nonce. An external
     working-tree edit to a tracked file can therefore leave the switch gate's
     tracked-dirty read stale until the next metadata push or successful
-    mutation. There is no empty-list fallback: a failed menu repository/status
+    mutation. The load is self-contained (BST-1452 M2): it fires its own
+    `window.git.status` read unconditionally, concurrently with the
+    workspace-bar dot's independent status read, rather than waiting on that
+    other hook to resolve first. When that status read reports a non-repository
+    primary root, the switcher stops there — it performs the status probe
+    only, issues no `window.git.repository` read, and logs no warning, since
+    "this folder isn't a repository" is an expected outcome, not a failure.
+    There is no empty-list fallback: a failed menu repository/status
     read is logged and leaves the status chip non-interactive. The chip remains
     desktop-only and is absent for a non-repository root or a failed checkout-
     status read; that failure is logged and NEVER rendered as "clean". It is

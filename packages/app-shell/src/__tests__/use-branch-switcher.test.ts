@@ -71,13 +71,37 @@ const REPOSITORY = {
 // test below asserts against `statusSpy`'s `files`, not this flag, and one
 // test explicitly proves an untracked-inclusive `checkout.dirty` is ignored.
 const CLEAN = { ahead: null, behind: null, branch: 'main', dirty: false };
-const CLEAN_STATUS = { ahead: null, behind: null, branch: 'main', clean: true, files: [] };
+const CLEAN_STATUS = {
+  ahead: null,
+  behind: null,
+  branch: 'main',
+  clean: true,
+  files: [],
+  isRepository: true,
+  upstream: null,
+};
 const TRACKED_STATUS = {
   ahead: null,
   behind: null,
   branch: 'main',
   clean: false,
   files: [{ path: 'tracked.ts', staged: true, status: 'M', unstaged: false, untracked: false }],
+  isRepository: true,
+  upstream: null,
+};
+// The exact shape a genuinely non-git root's own status read returns
+// (`git-service.ts` 1381-1395): `isRepository: false`, always clean, no
+// files. `repository` fails alongside it in practice (`createRepositorySnapshot`
+// / `loadRepositoryInventory`), which is what made the pre-M2 code warn once
+// per invalidation — the regression these tests pin.
+const NON_REPO_STATUS = {
+  ahead: null,
+  behind: null,
+  branch: null,
+  clean: true,
+  files: [],
+  isRepository: false,
+  upstream: null,
 };
 
 describe('useBranchSwitcher', () => {
@@ -96,32 +120,68 @@ describe('useBranchSwitcher', () => {
     expect(result.current).toBeUndefined();
   });
 
-  it('never reads the repository or status for a non-repository root, and never warns, across nonce bumps', async () => {
-    // `checkout: undefined` with a `dbRootId` set is exactly what
-    // `useThreadCheckoutStatus` returns for a primary root that resolved but
-    // is not a git repository (BST-1452 M2) — the effect must not fetch or
-    // warn for it, on the initial render or on any later invalidation.
-    const { rerender } = renderHook(
-      ({ nonce: _nonce }) => useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' }),
-      { initialProps: { nonce: 0 } }
+  it('probes status but never reads the repository or warns for a non-repository root, across nonce bumps', async () => {
+    // The genuine non-git response shape (BST-1452 M2 rework): `status`
+    // resolves `isRepository: false` while `repository` fails alongside it in
+    // practice — exactly what made the pre-fix code warn once per
+    // invalidation. The self-contained gate must fire its OWN status probe
+    // unconditionally (restoring the concurrency with the dot's independent
+    // status read) but stop there: no `repository()` spawn, no warning, on
+    // the initial render or on any later invalidation.
+    statusSpy.mockResolvedValue({ ok: true, value: NON_REPO_STATUS });
+    repositorySpy.mockResolvedValue({ error: 'not a git repository', ok: false });
+    const { rerender, result } = renderHook(() =>
+      useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' })
     );
     await act(async () => {
       await Promise.resolve();
     });
     nonceHolder.value += 1;
-    rerender({ nonce: 1 });
+    rerender();
     await act(async () => {
       await Promise.resolve();
     });
     nonceHolder.value += 1;
-    rerender({ nonce: 2 });
+    rerender();
     await act(async () => {
       await Promise.resolve();
     });
 
+    expect(statusSpy).toHaveBeenCalledWith('r-1');
     expect(repositorySpy).not.toHaveBeenCalled();
-    expect(statusSpy).not.toHaveBeenCalled();
     expect(loggerMock.warn).not.toHaveBeenCalled();
+    // The user-visible outcome, not just the absence of I/O: the chip stays
+    // non-interactive for a non-repository root.
+    expect(result.current).toBeUndefined();
+  });
+
+  it('reads the repository once a later status probe reports the root as a repository', async () => {
+    // Guards against a latched implementation: the non-repository outcome
+    // above must not be sticky. When THIS hook's own status read later
+    // reports `isRepository: true` (e.g. `git init` ran in the folder, or a
+    // late-arriving invalidation refreshes stale state), the gate must
+    // release and spawn the deferred `repository()` read.
+    statusSpy.mockResolvedValue({ ok: true, value: NON_REPO_STATUS });
+    const { rerender } = renderHook(() =>
+      useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' })
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(repositorySpy).not.toHaveBeenCalled();
+
+    // Bumping the mocked nonce alone changes nothing until a render actually
+    // reads it — `rerender()` is what makes `anyInvalidationNonce` (an effect
+    // dependency) pick up the new value and re-run the effect, the same as a
+    // real live-refresh push driving a re-render via the real store.
+    statusSpy.mockResolvedValue({ ok: true, value: CLEAN_STATUS });
+    nonceHolder.value += 1;
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(repositorySpy).toHaveBeenCalledWith('r-1'));
   });
 
   it('builds rows from window.git.repository for the primary root', async () => {
