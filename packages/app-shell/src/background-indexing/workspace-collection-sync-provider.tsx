@@ -1,6 +1,7 @@
 import {
   defaultBackgroundIndexingEnabled,
   ensureBackgroundIndexingPreferencesHydrated,
+  isBackgroundIndexingRootKind,
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
@@ -1170,23 +1171,6 @@ interface ExcludedRootLogState {
   rootSetKey: string;
 }
 
-type PersistedBackgroundIndexingRootKind = Exclude<
-  Parameters<typeof defaultBackgroundIndexingEnabled>[0],
-  null
->;
-
-function isPersistedBackgroundIndexingRootKind(
-  value: string
-): value is PersistedBackgroundIndexingRootKind {
-  return (
-    value === 'fsa' ||
-    value === 'legacy' ||
-    value === 'path' ||
-    value === 'snapshot' ||
-    value === 'worktree'
-  );
-}
-
 function filterSyncTargetsByIndexingDefault(
   targets: readonly SyncLoopTarget[],
   dbRootKindByAdapterRootId: ReadonlyMap<string, string>,
@@ -1208,7 +1192,7 @@ function filterSyncTargetsByIndexingDefault(
       selectedTargets.push(target);
       continue;
     }
-    if (!isPersistedBackgroundIndexingRootKind(kind)) {
+    if (!isBackgroundIndexingRootKind(kind)) {
       throw new Error(`Unsupported persisted root kind: ${kind}`);
     }
     if (defaultBackgroundIndexingEnabled(kind)) {

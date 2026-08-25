@@ -7,7 +7,7 @@ import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 export type BackgroundIndexingMode = 'root-folder-cache';
 export type BackgroundIndexingRootKind = 'fsa' | 'legacy' | 'path' | 'snapshot' | 'worktree';
 
-function isBackgroundIndexingRootKind(value: unknown): value is BackgroundIndexingRootKind {
+export function isBackgroundIndexingRootKind(value: unknown): value is BackgroundIndexingRootKind {
   return (
     value === 'fsa' ||
     value === 'legacy' ||
