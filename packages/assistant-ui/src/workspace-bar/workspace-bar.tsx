@@ -48,19 +48,21 @@ export interface WorkspaceBarWorktreeSummary {
   readonly worktreeId: string;
 }
 
-export interface WorkspaceBarWorktreeOption {
+type WorkspaceBarWorktreeUsability =
+  | { readonly disabledReason: null; readonly usable: true }
+  | { readonly disabledReason: string; readonly usable: false };
+
+export type WorkspaceBarWorktreeOption = {
   readonly branch: string | null;
   readonly current: boolean;
-  readonly disabledReason: string | null;
   readonly externalTool: 'claude-code' | 'codex' | 'cursor' | null;
   readonly managed: boolean;
   readonly name: string;
   readonly path: string;
   readonly remedy: 'grant-access' | null;
   readonly repositoryName: string;
-  readonly usable: boolean;
   readonly worktreeId: string | null;
-}
+} & WorkspaceBarWorktreeUsability;
 
 export interface WorkspaceBarWorktreePicker {
   readonly error: string | null;
@@ -78,7 +80,7 @@ export interface WorkspaceBarCreateWorktreeRequest {
   readonly name: string;
 }
 
-interface WorkspaceBarBaseRefOption {
+export interface WorkspaceBarBaseRefOption {
   readonly label: string;
   readonly value: string;
 }

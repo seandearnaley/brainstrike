@@ -1,8 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { wasmLoader } from '@brainstrike/db';
+import type { DbHandle } from '@brainstrike/db/react';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   assertPersistableThreadMetadataForTest,
+  createPgliteAssistantThreadRepository,
   sanitizeThreadMetadataForTest,
 } from '../assistant-memory-repository';
+
+let pgliteDataDir: string | undefined;
+
+afterEach(async () => {
+  if (pgliteDataDir) {
+    await wasmLoader.closeCached(pgliteDataDir);
+    pgliteDataDir = undefined;
+  }
+});
 
 describe('forge metadata', () => {
   it('keeps a forge PR URL and a watch flag', () => {
@@ -32,6 +44,26 @@ describe('forge metadata', () => {
 });
 
 describe('checkout metadata', () => {
+  it('removes persisted worktree keys when handing a thread back to local', async () => {
+    pgliteDataDir = `memory://thread-metadata-local-handoff-${crypto.randomUUID()}`;
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await repository.updateThreadMetadata(thread.id, {
+      checkoutBranch: 'bs/bright-fox',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/repo/bright-fox',
+    });
+    await repository.updateThreadMetadata(thread.id, { checkoutMode: 'local' });
+
+    const [reloaded] = await repository.listThreads('workspace-a');
+    expect(reloaded?.metadata).toMatchObject({ checkoutMode: 'local' });
+    expect(reloaded?.metadata?.checkoutWorktreeId).toBeUndefined();
+    expect(reloaded?.metadata?.checkoutWorktreePath).toBeUndefined();
+  });
+
   it('keeps a complete worktree checkout through the sanitizer', () => {
     const metadata = sanitizeThreadMetadataForTest({
       checkoutBranch: 'feature/x',

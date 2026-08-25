@@ -1628,13 +1628,10 @@ function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined 
  * either is not "mostly right" — it is two contradictory statements about
  * where the thread works, and it is rejected rather than silently pruned.
  *
- * CAUTION for writers: `updateThreadMetadata` merges patches via JSONB `||`
- * and validates the PATCH, not the merged row. Switching a worktree thread
- * back to local by patching only `{ checkoutMode: 'local' }` leaves the old
- * worktree keys in the stored row, which this assert then rejects on every
- * read — bricking that thread's hydration. A worktree→local transition MUST
- * remove `checkoutWorktreeId`/`checkoutWorktreePath` in the same update
- * (the checkout-wiring layer's key-removal support exists for exactly this).
+ * `updateThreadMetadata` owns the one key-removal transition this shape needs:
+ * a `{ checkoutMode: 'local' }` patch removes both worktree keys in the same
+ * SQL update before merging the patch. Every other metadata patch keeps the
+ * repository's ordinary JSONB-merge semantics.
  */
 function assertCompleteCheckoutMetadata(metadata: {
   readonly checkoutBranch?: string | undefined;
@@ -3897,9 +3894,13 @@ export function createPgliteAssistantThreadRepository(
       assertPersistableThreadMetadata(metadata);
       const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
+      const currentMetadata =
+        metadata.checkoutMode === 'local'
+          ? "COALESCE(metadata, '{}'::jsonb) - 'checkoutWorktreeId' - 'checkoutWorktreePath'"
+          : "COALESCE(metadata, '{}'::jsonb)";
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}
-         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+         SET metadata = (${currentMetadata}) || $2::jsonb
          WHERE id = $1`,
         [threadId, JSON.stringify(normalized)]
       );

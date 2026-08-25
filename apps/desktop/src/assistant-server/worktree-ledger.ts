@@ -46,6 +46,7 @@ const COLUMNS = `
   run_id AS "runId",
   setup_status AS "setupStatus",
   setup_output AS "setupOutput",
+  setup_reason AS "setupReason",
   created_at AS "createdAt",
   archived_at AS "archivedAt",
   archive_snapshot_ref AS "archiveSnapshotRef"
@@ -127,6 +128,7 @@ function readRow(row: unknown): ManagedWorktreeRow {
     repoCommonDir: readRequiredString(record, 'repoCommonDir'),
     runId: readNullableString(record, 'runId'),
     setupOutput: readNullableString(record, 'setupOutput'),
+    setupReason: readNullableString(record, 'setupReason'),
     setupStatus: readSetupStatus(record),
     threadId: readNullableString(record, 'threadId'),
   };
@@ -202,8 +204,8 @@ export function createWorktreeLedger(
       const rows = await query(
         `INSERT INTO ${WORKTREE_LEDGER_TABLE}
            (id, repo_common_dir, path, branch, base_ref, created_by, thread_id, run_id,
-            setup_status, setup_output, created_at, archived_at, archive_snapshot_ref)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL)
+            setup_status, setup_output, setup_reason, created_at, archived_at, archive_snapshot_ref)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL, NULL)
          RETURNING ${COLUMNS}`,
         [
           row.id,
@@ -216,6 +218,7 @@ export function createWorktreeLedger(
           row.runId,
           row.setupStatus,
           row.setupOutput,
+          row.setupReason,
           new Date(row.createdAt),
         ]
       );
@@ -260,9 +263,10 @@ export function createWorktreeLedger(
     },
     async recordSetup(id, outcome) {
       const rows = await query(
-        `UPDATE ${WORKTREE_LEDGER_TABLE} SET setup_status = $2, setup_output = $3
+        `UPDATE ${WORKTREE_LEDGER_TABLE}
+            SET setup_status = $2, setup_output = $3, setup_reason = $4
           WHERE id = $1 RETURNING ${COLUMNS}`,
-        [id, outcome.status, outcome.output.length > 0 ? outcome.output : null]
+        [id, outcome.status, outcome.output.length > 0 ? outcome.output : null, outcome.reason]
       );
       return requireRow(rows, id);
     },

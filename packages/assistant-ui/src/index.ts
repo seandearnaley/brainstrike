@@ -91,6 +91,7 @@ export * from './tool-fallback';
 export { PrChip, type WorkspaceBarForge } from './workspace-bar/pr-chip';
 export {
   WorkspaceBar,
+  type WorkspaceBarBaseRefOption,
   type WorkspaceBarBranchMenu,
   type WorkspaceBarBranchRow,
   type WorkspaceBarCheckout,

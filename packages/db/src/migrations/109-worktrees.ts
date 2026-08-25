@@ -39,6 +39,7 @@ export const migration109Worktrees: Migration = {
       setup_status text NOT NULL DEFAULT 'none'
         CHECK (setup_status IN ('failed', 'none', 'skipped', 'succeeded')),
       setup_output text,
+      setup_reason text,
       created_at timestamptz NOT NULL DEFAULT NOW(),
       archived_at timestamptz,
       archive_snapshot_ref text,

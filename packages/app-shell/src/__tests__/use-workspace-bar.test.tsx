@@ -47,35 +47,47 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => cur
 // test is the production one.
 const showItemInFolder = vi.fn(async () => ({ ok: true }));
 
-const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, forgePrSpy, loggerMock, toastSpy } =
-  vi.hoisted(() => ({
-    branchSwitcherSpy: vi.fn(),
-    checkoutSpy: vi.fn(
-      (
-        _root: {
-          readonly adapterRootId: string | null;
-          readonly dbRootId: string;
-          readonly path: string;
-        } | null
-      ) => ({
-        ahead: 0,
-        behind: 0,
-        branch: 'main',
-        dirty: false,
-      })
-    ),
-    clipboardWriteText: vi.fn(),
-    forgePrSpy: vi.fn(),
-    loggerMock: {
-      debug: vi.fn(),
-      error: vi.fn(),
-      fatal: vi.fn(),
-      info: vi.fn(),
-      trace: vi.fn(),
-      warn: vi.fn(),
-    },
-    toastSpy: vi.fn(),
-  }));
+const {
+  branchSwitcherSpy,
+  checkoutSpy,
+  clipboardWriteText,
+  forgePrSpy,
+  loggerMock,
+  toastSpy,
+  worktreeArchiveSpy,
+  worktreeCreateSpy,
+  worktreeListSpy,
+} = vi.hoisted(() => ({
+  branchSwitcherSpy: vi.fn(),
+  checkoutSpy: vi.fn(
+    (
+      _root: {
+        readonly adapterRootId: string | null;
+        readonly dbRootId: string;
+        readonly path: string;
+      } | null
+    ) => ({
+      ahead: 0,
+      behind: 0,
+      branch: 'main',
+      dirty: false,
+    })
+  ),
+  clipboardWriteText: vi.fn(),
+  forgePrSpy: vi.fn(),
+  loggerMock: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  },
+  toastSpy: vi.fn(),
+  worktreeArchiveSpy: vi.fn(),
+  worktreeCreateSpy: vi.fn(),
+  worktreeListSpy: vi.fn(),
+}));
 
 vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
 vi.mock('../hooks/use-thread-forge-pr', () => ({ useThreadForgePr: forgePrSpy }));
@@ -221,6 +233,26 @@ function seedThread(metadata: Record<string, unknown>) {
   seedThreads([{ id: THREAD_ID, metadata }], THREAD_ID);
 }
 
+function installWorktreesBridge(): void {
+  (window as Window & { worktrees?: unknown }).worktrees = {
+    archive: worktreeArchiveSpy,
+    create: worktreeCreateSpy,
+    createBranchHere: vi.fn(),
+    getSettings: vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        isDefaultDirectory: true,
+        managedDirectory: '/managed',
+        setupCommand: null,
+      },
+    })),
+    list: worktreeListSpy,
+    listManagedPaths: vi.fn(),
+    restore: vi.fn(),
+    setSettings: vi.fn(),
+  };
+}
+
 /** Flush the microtask chain a queued metadata write runs on. */
 async function flush() {
   await act(async () => {
@@ -253,6 +285,7 @@ async function setup(metadata: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  Reflect.deleteProperty(window, 'worktrees');
   (window as Window & { platform?: unknown }).platform = {
     openExternal: vi.fn(async () => ({ ok: true })),
     openPath: vi.fn(async () => ({ ok: true })),
@@ -272,6 +305,10 @@ beforeEach(() => {
   forgePrSpy.mockReset();
   forgePrSpy.mockReturnValue({ diagnostic: null, refresh: vi.fn(), status: null });
   toastSpy.mockClear();
+  worktreeArchiveSpy.mockReset();
+  worktreeCreateSpy.mockReset();
+  worktreeListSpy.mockReset();
+  worktreeListSpy.mockResolvedValue({ ok: true, value: [] });
   loggerMock.debug.mockClear();
   loggerMock.error.mockClear();
   loggerMock.warn.mockClear();
@@ -284,10 +321,91 @@ beforeEach(() => {
 
 afterEach(() => {
   Reflect.deleteProperty(window, 'platform');
+  Reflect.deleteProperty(window, 'worktrees');
   vi.useRealTimers();
 });
 
 describe('useWorkspaceBar', () => {
+  it('wires worktree create, branch escape, and local handoff to their distinct owners', async () => {
+    installWorktreesBridge();
+    worktreeCreateSpy.mockResolvedValue({
+      ok: true,
+      value: {
+        setup: {
+          copiedPaths: [],
+          output: '',
+          reason: null,
+          skippedCopies: [],
+          status: 'none',
+          truncated: false,
+        },
+        worktree: {
+          archivedAt: null,
+          archiveSnapshotRef: null,
+          baseRef: 'main',
+          branch: 'bs/bright-fox',
+          createdAt: '2026-08-25T00:00:00.000Z',
+          createdBy: 'user',
+          id: 'w-1',
+          path: '/managed/brainstrike/bright-fox',
+          repoCommonDir: '/ws/brainstrike/.git',
+          runId: null,
+          setupOutput: null,
+          setupReason: null,
+          setupStatus: 'none',
+          threadId: THREAD_ID,
+        },
+      },
+    });
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.mode?.createDisabledReason).toBeNull());
+
+    await act(async () => {
+      await result.current.mode?.onCreate({
+        baseRef: 'main',
+        branch: { name: 'bs/bright-fox' },
+        name: 'bright-fox',
+      });
+    });
+
+    expect(worktreeCreateSpy).toHaveBeenCalledTimes(1);
+    expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
+      checkoutBranch: 'bs/bright-fox',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/brainstrike/bright-fox',
+    });
+    expect(worktreeArchiveSpy).not.toHaveBeenCalled();
+    expect(fs.addRootDirectory).not.toHaveBeenCalled();
+
+    const branchArgs = branchSwitcherSpy.mock.calls.at(-1)?.[0];
+    expect(branchArgs?.onSwitchInNewWorktree).toEqual(expect.any(Function));
+    worktreeCreateSpy.mockClear();
+    act(() => {
+      branchArgs?.onSwitchInNewWorktree?.('feature/alpha');
+    });
+    await waitFor(() => expect(worktreeCreateSpy).toHaveBeenCalledTimes(1));
+    expect(worktreeCreateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseRef: 'feature/alpha',
+        branch: { detached: true },
+        name: 'feature-alpha',
+      })
+    );
+    expect(worktreeArchiveSpy).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(result.current.mode?.onHandOffToLocal).toBeDefined());
+    const metadataWriteCount = updateThreadMetadata.mock.calls.length;
+    act(() => {
+      result.current.mode?.onHandOffToLocal?.();
+    });
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, { checkoutMode: 'local' })
+    );
+    expect(updateThreadMetadata).toHaveBeenCalledTimes(metadataWriteCount + 1);
+    expect(worktreeArchiveSpy).not.toHaveBeenCalled();
+  });
+
   it('omits `forge` entirely when there is no forge bridge', async () => {
     const { result } = await setup();
     await waitFor(() => expect(result.current.primaryRoot).toBeDefined());

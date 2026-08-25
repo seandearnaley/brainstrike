@@ -139,6 +139,7 @@ describe('assistant UI panel architecture', () => {
     expect(indexSource).toContain("from './workspace-bar/workspace-bar'");
     for (const exported of [
       'WorkspaceBar,',
+      'type WorkspaceBarBaseRefOption,',
       'type WorkspaceBarBranchMenu,',
       'type WorkspaceBarBranchRow,',
       'type WorkspaceBarCheckout,',

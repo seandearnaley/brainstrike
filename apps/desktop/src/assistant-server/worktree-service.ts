@@ -211,6 +211,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         repoCommonDir: context.commonDir,
         runId: params.runId ?? null,
         setupOutput: null,
+        setupReason: null,
         setupStatus: 'none',
         threadId: params.threadId ?? null,
       });
@@ -872,6 +873,8 @@ function inventoryListEntry(
     rootId:
       rootIdByPath.get(descriptor.path) ??
       (descriptor.containment === 'outside-roots' ? null : (descriptor.containment[0] ?? null)),
+    setupReason: row?.setupReason ?? null,
+    setupStatus: row?.setupStatus ?? 'none',
     trust: descriptor.trust,
     trustReason: descriptor.trustReason,
     usable: gate.usable,
@@ -897,6 +900,8 @@ function ghostListEntry(
     remedy: null,
     repositoryRoot: repositoryRootFromCommonDir(row.repoCommonDir),
     rootId: rootIdByPath.get(row.path) ?? null,
+    setupReason: row.setupReason,
+    setupStatus: row.setupStatus,
     trust: 'unvalidated',
     trustReason: 'missing on disk',
     usable: false,

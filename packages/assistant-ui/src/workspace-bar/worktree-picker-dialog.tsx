@@ -24,63 +24,66 @@ const PickerRow = ({
   readonly onGrantAccess: (() => void) | undefined;
   readonly onSelect: (option: WorkspaceBarWorktreeOption) => void;
   readonly option: WorkspaceBarWorktreeOption;
-}): ReactElement => (
-  <li
-    className="flex items-start gap-3 rounded-md border border-border/60 px-3 py-2"
-    data-testid={`worktree-picker-row-${option.name}`}
-  >
-    <div className="min-w-0 flex-1">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="truncate font-medium text-sm">{option.name}</span>
-        {option.managed ? (
-          <Badge data-testid={`worktree-picker-managed-${option.name}`} variant="secondary">
-            Managed
-          </Badge>
-        ) : null}
-        {option.externalTool ? (
-          <Badge data-testid={`worktree-picker-tool-${option.name}`} variant="outline">
-            {TOOL_LABELS[option.externalTool]}
-          </Badge>
-        ) : null}
-        {option.current ? <Badge variant="outline">Current</Badge> : null}
-      </div>
-      <p className="truncate font-mono text-[11px] text-muted-foreground">{option.path}</p>
-      <p className="text-[11px] text-muted-foreground">
-        {option.repositoryName} · {option.branch ?? 'Detached HEAD'}
-      </p>
-      {option.disabledReason ? (
-        <p
-          className="mt-1 text-[11px] text-amber-700 leading-snug dark:text-amber-300"
-          data-testid={`worktree-picker-reason-${option.name}`}
-        >
-          {option.disabledReason}
+}): ReactElement => {
+  const optionId = option.worktreeId ?? option.path;
+  return (
+    <li
+      className="flex items-start gap-3 rounded-md border border-border/60 px-3 py-2"
+      data-testid={`worktree-picker-row-${optionId}`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="truncate font-medium text-sm">{option.name}</span>
+          {option.managed ? (
+            <Badge data-testid={`worktree-picker-managed-${optionId}`} variant="secondary">
+              Managed
+            </Badge>
+          ) : null}
+          {option.externalTool ? (
+            <Badge data-testid={`worktree-picker-tool-${optionId}`} variant="outline">
+              {TOOL_LABELS[option.externalTool]}
+            </Badge>
+          ) : null}
+          {option.current ? <Badge variant="outline">Current</Badge> : null}
+        </div>
+        <p className="truncate font-mono text-[11px] text-muted-foreground">{option.path}</p>
+        <p className="text-[11px] text-muted-foreground">
+          {option.repositoryName} · {option.branch ?? 'Detached HEAD'}
         </p>
-      ) : null}
-    </div>
-    <div className="flex shrink-0 flex-col gap-1">
-      <Button
-        data-testid={`worktree-picker-select-${option.name}`}
-        disabled={!option.usable}
-        onClick={() => onSelect(option)}
-        size="sm"
-        type="button"
-      >
-        Use
-      </Button>
-      {option.remedy === 'grant-access' && onGrantAccess ? (
+        {option.disabledReason ? (
+          <p
+            className="mt-1 text-[11px] text-amber-700 leading-snug dark:text-amber-300"
+            data-testid={`worktree-picker-reason-${optionId}`}
+          >
+            {option.disabledReason}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 flex-col gap-1">
         <Button
-          data-testid={`worktree-picker-grant-${option.name}`}
-          onClick={onGrantAccess}
+          data-testid={`worktree-picker-select-${optionId}`}
+          disabled={!option.usable}
+          onClick={() => onSelect(option)}
           size="sm"
           type="button"
-          variant="outline"
         >
-          Grant access…
+          Use
         </Button>
-      ) : null}
-    </div>
-  </li>
-);
+        {option.remedy === 'grant-access' && onGrantAccess ? (
+          <Button
+            data-testid={`worktree-picker-grant-${optionId}`}
+            onClick={onGrantAccess}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Grant access…
+          </Button>
+        ) : null}
+      </div>
+    </li>
+  );
+};
 
 /**
  * Shows every supplied worktree, including unusable entries, so worktrees the

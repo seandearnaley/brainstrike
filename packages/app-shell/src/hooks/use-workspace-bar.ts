@@ -4,6 +4,7 @@ import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarCheckout,
   WorkspaceBarForge,
+  WorkspaceBarMode,
   WorkspaceBarProps,
   WorkspaceBarRecentRoot,
   WorkspaceBarReveal,
@@ -23,9 +24,9 @@ import {
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
-import { useBranchSwitcher } from './use-branch-switcher';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import { useWorkspaceBarForge } from './use-workspace-bar-forge';
+import { useWorkspaceBarMode } from './use-workspace-bar-mode';
 import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
 
 const logger = createLogger('WorkspaceBar');
@@ -212,6 +213,10 @@ function branchMenuEntry(
 
 function forgeEntry(forge: WorkspaceBarForge | undefined): { readonly forge?: WorkspaceBarForge } {
   return forge ? { forge } : {};
+}
+
+function modeEntry(mode: WorkspaceBarMode | undefined): { readonly mode?: WorkspaceBarMode } {
+  return mode ? { mode } : {};
 }
 
 /**
@@ -894,7 +899,16 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
       : null
   );
-  const branchSwitcher = useBranchSwitcher({ checkout, dbRootId: primaryRootId ?? null });
+  const { branchSwitcher, mode } = useWorkspaceBarMode({
+    assistantThreadRepository,
+    checkout,
+    memoryResourceId,
+    primaryRootId,
+    primaryRootPath,
+    selectedMemoryThreadId,
+    selectedThread,
+    updateThreadMetadata,
+  });
   const forge = useWorkspaceBarForge({
     assistantThreadRepository,
     checkout,
@@ -910,6 +924,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
     ...checkoutEntry(primaryRoot, checkout),
     ...forgeEntry(forge),
+    ...modeEntry(mode),
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,
