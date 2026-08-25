@@ -591,7 +591,9 @@ describe('DbHostManager', () => {
   it('logs request context when a query request times out', async () => {
     vi.useFakeTimers();
     try {
-      const { createDbHostManager } = await import('../../db-host-manager');
+      const { createDbHostManager, DbHostRequestTimeoutError } = await import(
+        '../../db-host-manager'
+      );
       const manager = createDbHostManager({
         entryPath: '/mock/db-host-entry.js',
         requestTimeoutMs: 5,
@@ -606,18 +608,21 @@ describe('DbHostManager', () => {
         'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
         ['set-timeout']
       );
+      void database.query('SELECT 1').catch(() => undefined);
       const timeoutAssertion = expect(queryPromise).rejects.toThrow(
         'DB host request timed out: query'
       );
 
       await vi.advanceTimersByTimeAsync(5);
       await timeoutAssertion;
+      await expect(queryPromise).rejects.toMatchObject({ hostSaturated: true, pendingCount: 2 });
+      await expect(queryPromise).rejects.toBeInstanceOf(DbHostRequestTimeoutError);
 
       expect(loggerWarnMock).toHaveBeenCalledWith(
         expect.objectContaining({
           elapsedMs: 5,
           paramsCount: 1,
-          pendingCount: 1,
+          pendingCount: 2,
           requestKind: 'query',
           sqlPreview: 'SELECT * FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NULL',
           timeoutMs: 5,

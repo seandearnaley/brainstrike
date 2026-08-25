@@ -18,6 +18,7 @@ import {
 import { AssistantRunErrorRepository } from '@brainstrike/db';
 import type { HookRunVerdict } from './hooks/run-verdict';
 import { desktopAssistantServerLogger as logger } from './logger';
+import { runCriticalDatabaseOperation } from './run-critical-database';
 
 /**
  * Minimal structural DB surface shared by every writer in this module (BST-972
@@ -581,10 +582,25 @@ async function recordDesktopAssistantRunEvent(
   getDatabase: RunPersistenceDatabaseProvider
 ): Promise<void> {
   const now = new Date();
-  const metadata = sanitizeAssistantRunEventMetadata(event.metadata);
+  let metadata = sanitizeAssistantRunEventMetadata(event.metadata);
   const database = await getDatabase();
-  await database.query(
-    `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
+  await runCriticalDatabaseOperation({
+    label: 'assistant-run-event-write',
+    onRetry: ({ error }) => {
+      metadata = {
+        ...metadata,
+        databaseRetry: {
+          attempt: 2,
+          pendingCount: error.pendingCount,
+          reason: 'host-saturated-timeout',
+          requestKind: error.requestKind,
+          timeoutMs: error.timeoutMs,
+        },
+      };
+    },
+    operation: () =>
+      database.query(
+        `INSERT INTO ${ASSISTANT_RUN_EVENTS_TABLE}
       (
         id,
         run_id,
@@ -628,21 +644,24 @@ async function recordDesktopAssistantRunEvent(
         duration_ms = EXCLUDED.duration_ms,
         occurred_at = EXCLUDED.occurred_at,
         updated_at = EXCLUDED.updated_at`,
-    [
-      event.id,
-      runId,
-      event.sequence ?? 0,
-      event.kind,
-      event.status,
-      event.label,
-      event.detail ?? null,
-      metadata ? JSON.stringify(metadata) : null,
-      event.durationMs ?? null,
-      new Date(event.timestamp),
-      now,
-      now,
-    ]
-  );
+        [
+          event.id,
+          runId,
+          event.sequence ?? 0,
+          event.kind,
+          event.status,
+          event.label,
+          event.detail ?? null,
+          metadata ? JSON.stringify(metadata) : null,
+          event.durationMs ?? null,
+          new Date(event.timestamp),
+          now,
+          now,
+        ]
+      ),
+    retry: 'idempotent',
+    runId,
+  });
   if (event.kind !== 'run.failed') {
     return;
   }

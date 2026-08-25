@@ -20,6 +20,7 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'memory.working.loaded',
   'memory.working.updated',
   'run.cancelled',
+  'run.database.retried',
   'run.failed',
   'run.finished',
   // A stalled ATTEMPT that the turn recovered from, and the continuation that

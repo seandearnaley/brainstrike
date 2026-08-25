@@ -25,6 +25,29 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_INITIALIZATION_TIMEOUT_MS = 90_000;
 const DEFAULT_CLOSE_TIMEOUT_MS = 2000;
 
+export class DbHostRequestTimeoutError extends Error {
+  readonly hostSaturated: boolean;
+  readonly pendingCount: number;
+  readonly requestKind: DbHostRequest['kind'];
+  readonly timeoutMs: number;
+  readonly willTerminateHost: boolean;
+
+  constructor(options: {
+    readonly pendingCount: number;
+    readonly requestKind: DbHostRequest['kind'];
+    readonly timeoutMs: number;
+    readonly willTerminateHost: boolean;
+  }) {
+    super(`DB host request timed out: ${options.requestKind}`);
+    this.name = 'DbHostRequestTimeoutError';
+    this.pendingCount = options.pendingCount;
+    this.requestKind = options.requestKind;
+    this.timeoutMs = options.timeoutMs;
+    this.willTerminateHost = options.willTerminateHost;
+    this.hostSaturated = options.pendingCount > 1 && !options.willTerminateHost;
+  }
+}
+
 function createLiveQueryDiagnostics(payload: {
   readonly mode: 'query' | 'incremental';
   readonly params?: readonly unknown[] | null;
@@ -505,7 +528,13 @@ class DefaultDbHostManager implements DbHostManager {
       const startedAt = Date.now();
       const timeoutDiagnostics = createRequestTimeoutDiagnostics(request);
       const timer = setTimeout(() => {
-        const error = new Error(`DB host request timed out: ${request.kind}`);
+        const willTerminateHost = requiresHostTerminationOnTimeout(request);
+        const error = new DbHostRequestTimeoutError({
+          pendingCount: this.#pending.size,
+          requestKind: request.kind,
+          timeoutMs,
+          willTerminateHost,
+        });
         logger.warn(
           {
             ...timeoutDiagnostics,
@@ -514,7 +543,7 @@ class DefaultDbHostManager implements DbHostManager {
             pendingCount: this.#pending.size,
             requestId: id,
             timeoutMs,
-            willTerminateHost: requiresHostTerminationOnTimeout(request),
+            willTerminateHost,
           },
           'DB host request timed out'
         );
@@ -525,7 +554,7 @@ class DefaultDbHostManager implements DbHostManager {
           timeoutMs,
         });
         reject(error);
-        if (requiresHostTerminationOnTimeout(request)) {
+        if (willTerminateHost) {
           this.#terminateHost(error);
         }
       }, timeoutMs);

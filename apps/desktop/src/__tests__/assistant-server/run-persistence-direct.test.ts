@@ -13,6 +13,8 @@ import {
   persistDesktopChildRunUsage,
   persistDesktopToolCallTelemetry,
 } from '../../assistant-server/run-persistence';
+import { DbHostRequestTimeoutError } from '../../db-host-manager';
+import { resetDesktopDatabaseWorkSchedulerForTests } from '../../platform/desktop-database-work';
 
 // File-local double — the pre-split suite shared one across every describe.
 const mockDesktopDatabase = {
@@ -20,6 +22,7 @@ const mockDesktopDatabase = {
 };
 
 beforeEach(() => {
+  resetDesktopDatabaseWorkSchedulerForTests();
   mockDesktopDatabase.query.mockReset();
   mockDesktopDatabase.query.mockResolvedValue({ rows: [] });
 });
@@ -71,6 +74,64 @@ describe('run-event persistence tap transience', () => {
       .flat();
     expect(persistedValues).not.toContain(1234);
     expect(persistedValues).toContain('run.finished');
+  });
+
+  it('upserts one event with retry evidence when the timed-out insert later completes', async () => {
+    const persistedEvents = new Map<string, string | null>();
+    const timeout = new DbHostRequestTimeoutError({
+      pendingCount: 2,
+      requestKind: 'query',
+      timeoutMs: 30_000,
+      willTerminateHost: false,
+    });
+    mockDesktopDatabase.query.mockImplementation(async (sql, params) => {
+      if (!sql.includes('INSERT INTO brainstrike_assistant_run_events')) {
+        return { rows: [] };
+      }
+      const eventId = params?.[0];
+      const metadata = params?.[7];
+      if (typeof eventId !== 'string') {
+        throw new Error('Expected a run-event id.');
+      }
+      persistedEvents.set(eventId, typeof metadata === 'string' ? metadata : null);
+      if (mockDesktopDatabase.query.mock.calls.length === 1) {
+        throw timeout;
+      }
+      return { rows: [] };
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield {
+        event: {
+          id: 'event-idempotent-retry',
+          kind: 'run.step.started',
+          label: 'Step started',
+          status: 'running',
+          timestamp: '2026-08-25T00:00:00.000Z',
+        },
+        type: 'run-event',
+      } as StreamChunk;
+    }
+
+    for await (const _chunk of observeDesktopAssistantRunEvents(
+      source(),
+      'run-idempotent-retry',
+      [],
+      async () => mockDesktopDatabase
+    )) {
+      // Drain the persistence tap so its ordered queue flushes.
+    }
+
+    expect(mockDesktopDatabase.query).toHaveBeenCalledTimes(2);
+    expect(mockDesktopDatabase.query.mock.calls[0]?.[1]?.[0]).toBe('event-idempotent-retry');
+    expect(mockDesktopDatabase.query.mock.calls[1]?.[1]?.[0]).toBe('event-idempotent-retry');
+    expect(persistedEvents.size).toBe(1);
+    expect(JSON.parse(persistedEvents.get('event-idempotent-retry') ?? '{}')).toMatchObject({
+      databaseRetry: {
+        attempt: 2,
+        reason: 'host-saturated-timeout',
+      },
+    });
   });
 });
 
