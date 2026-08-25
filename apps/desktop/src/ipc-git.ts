@@ -87,8 +87,7 @@ export function registerGitIpcHandlers(
   registry.registerInvoke(
     'git',
     DESKTOP_IPC_CHANNELS.git.createBranch,
-    (_event, rootId: unknown, params: { branch: string; startPoint?: string }) =>
-      handlers.createBranch(rootId, params)
+    (_event, rootId: unknown, params: { branch: string }) => handlers.createBranch(rootId, params)
   );
   registry.registerInvoke(
     'git',

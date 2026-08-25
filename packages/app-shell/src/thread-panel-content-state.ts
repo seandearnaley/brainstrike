@@ -12,7 +12,7 @@ import type {
  * threads" card whose remedy would not bring any of them back.
  */
 export function hasActiveThreadFilters(filters: ThreadFilters): boolean {
-  return filters.needsYou || filters.running || filters.unseen;
+  return filters.hasPr || filters.needsYou || filters.running || filters.unseen;
 }
 
 /**
@@ -34,12 +34,14 @@ export function hasActiveThreadFilters(filters: ThreadFilters): boolean {
  */
 export function filterThreadsByThreadFilters({
   filters,
+  hasPrThreadIds,
   needsYouThreadIds,
   runningThreadIds,
   threads,
   unseenThreadIds,
 }: {
   readonly filters: ThreadFilters;
+  readonly hasPrThreadIds: ReadonlySet<string>;
   readonly needsYouThreadIds: ReadonlySet<string>;
   readonly runningThreadIds: ReadonlySet<string>;
   readonly threads: readonly AssistantMemoryThread[];
@@ -50,6 +52,7 @@ export function filterThreadsByThreadFilters({
   }
   return threads.filter(
     (thread) =>
+      (filters.hasPr && hasPrThreadIds.has(thread.id)) ||
       (filters.running && runningThreadIds.has(thread.id)) ||
       (filters.needsYou && needsYouThreadIds.has(thread.id)) ||
       (filters.unseen && unseenThreadIds.has(thread.id))

@@ -59,23 +59,103 @@ test('git-inventory shutdown step runs before the database shutdown step', () =>
   );
 });
 
-test('the changes:invalidated broadcast is wired into the service construction (BST-1161)', () => {
+test("forge shutdown is its own step, before 'database', not nested inside 'git-inventory' (BST-1391)", () => {
+  // A prior revision nested forge teardown INSIDE the 'git-inventory' step,
+  // after `await gitInventoryService.stop()`. `stop()`'s final `await
+  // toDispose.disposeAll()` is unguarded, and `runShutdownStep` catches a
+  // rejection at the step boundary, so a throwing watcher disposer would
+  // silently skip forge teardown entirely — leaving `ipcMain` handlers
+  // registered and a live `forgeService` heading into 'database'. forge gets
+  // its own failure-isolated step for the same DB-availability reason as
+  // git-inventory (`getDatabase` -> `readForgePrCacheEntry`/
+  // `writeForgePrCacheEntry`), so it must run BEFORE 'database' too.
+  const gitInventoryStepIndex = requireIndexOf(
+    "runShutdownStep('git-inventory'",
+    "the 'git-inventory' runShutdownStep call"
+  );
+  const forgeStepIndex = requireIndexOf(
+    "runShutdownStep('forge'",
+    "the 'forge' runShutdownStep call"
+  );
+  const databaseStepIndex = requireIndexOf(
+    "runShutdownStep('database'",
+    "the 'database' runShutdownStep call"
+  );
+  const unregisterCallIndex = requireIndexOf(
+    'unregisterForgeIpc?.();',
+    'the unregisterForgeIpc() call inside forge teardown'
+  );
+
+  assert.ok(
+    gitInventoryStepIndex < forgeStepIndex,
+    "the 'forge' runShutdownStep call must come AFTER the 'git-inventory' step call site, " +
+      'proving it is a sibling step rather than nested inside it'
+  );
+  assert.ok(
+    forgeStepIndex < databaseStepIndex,
+    "the 'forge' shutdown step must run BEFORE 'database' — forge reads the DB " +
+      '(getDatabase -> readForgePrCacheEntry/writeForgePrCacheEntry), so it must be torn ' +
+      'down while the database is still available'
+  );
+  assert.ok(
+    forgeStepIndex < unregisterCallIndex && unregisterCallIndex < databaseStepIndex,
+    'unregisterForgeIpc() must be called from inside the forge step, between its ' +
+      "runShutdownStep('forge', ...) call and the 'database' step — a copy-paste that left " +
+      "it inside 'git-inventory' instead would still pass the ordering check above alone"
+  );
+});
+
+test('the changes:invalidated broadcast AND forge invalidation ride the same onInvalidate callback (BST-1161, BST-1391)', () => {
+  // BST-1391 W4 Task 3 replaced the literal `onInvalidate:
+  // broadcastChangesInvalidation` dep with a composed callback so the SAME
+  // git-metadata-watcher event also drives `forgeService.onRepositoryInvalidated`.
+  // Both calls must be asserted independently, and falsifiably: dropping
+  // EITHER one from the callback body must fail this test, because dropping
+  // `broadcastChangesInvalidation(event)` silently reverts the changes
+  // domain to manual-refresh-only, and dropping the forge call silently
+  // reverts forge PR awareness to window-focus-only polling.
   const constructIndex = requireIndexOf(
     'gitInventoryService = createGitInventoryService(',
     'the gitInventoryService construction site'
   );
   const onInvalidateIndex = requireIndexOf(
-    'onInvalidate: broadcastChangesInvalidation',
-    'the onInvalidate dep wiring the changes:invalidated broadcast'
+    'onInvalidate: (event) => {',
+    'the onInvalidate dep wiring the composed invalidation callback'
+  );
+  const broadcastCallIndex = requireIndexOf(
+    'broadcastChangesInvalidation(event);',
+    'the onInvalidate callback invoking broadcastChangesInvalidation with the watcher event'
+  );
+  const forgeInvalidateCallIndex = requireIndexOf(
+    'forgeService?.onRepositoryInvalidated(event.gitCommonDir);',
+    'the onInvalidate callback riding forgeService.onRepositoryInvalidated on the SAME callback'
   );
   requireIndexOf(
     'DESKTOP_IPC_CHANNELS.changes.invalidated',
     'the changes.invalidated channel send inside broadcastChangesInvalidation'
   );
+  // `run: execFileGitRunner,` (not the bare import) marks the end of this
+  // construction's `onInvalidate` property, bounding the window both calls
+  // must fall inside — proving they belong to the SAME callback body rather
+  // than merely appearing somewhere in the file.
+  const onInvalidatePropEndIndex = requireIndexOf(
+    'run: execFileGitRunner,',
+    "the gitInventoryService construction's run dep, closing the onInvalidate property"
+  );
+
   assert.ok(
     Math.abs(onInvalidateIndex - constructIndex) < 3000,
     'the onInvalidate dep must be part of the gitInventoryService construction — a service ' +
       'constructed without it silently reverts the changes domain to manual-refresh-only'
+  );
+  assert.ok(
+    onInvalidateIndex < broadcastCallIndex &&
+      broadcastCallIndex < forgeInvalidateCallIndex &&
+      forgeInvalidateCallIndex < onInvalidatePropEndIndex,
+    'broadcastChangesInvalidation(event) and forgeService.onRepositoryInvalidated(...) must ' +
+      'both sit INSIDE the same onInvalidate callback body, broadcast first — a rewrite that ' +
+      'splits them into separate wiring, reorders them, or drops one would still pass a ' +
+      'presence-only check'
   );
 });
 

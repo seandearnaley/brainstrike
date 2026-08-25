@@ -36,43 +36,33 @@ export interface WorkspaceBarCheckout {
   readonly dirty: boolean;
 }
 
-/** One local branch row, already gated by app-shell's `buildBranchSwitchModel`. */
 export interface WorkspaceBarBranchRow {
   readonly current: boolean;
-  /** Non-null exactly when `switchable` is false — never a silent disable. */
   readonly disabledReason: string | null;
   readonly name: string;
   readonly switchable: boolean;
-  /** Basename of the worktree holding this branch, or null when it is free. */
   readonly worktreeName: string | null;
 }
 
-/**
- * The interactive half of the Branch chip. Absent (web, no git bridge, not a
- * repository) => the chip stays the read-only image W1 shipped.
- *
- * `onSwitchInNewWorktree` is OPTIONAL on purpose: the escape from a dirty tree
- * only exists once the worktree capability does (a later layer). Without it a
- * dirty tree shows the complete honest state — the dirty reason on every row —
- * rather than an action that cannot work.
- */
+/** Store-free branch-menu behavior supplied by app-shell's desktop Git capability. */
 export interface WorkspaceBarBranchMenu {
-  readonly onCreateBranch: (name: string) => void;
-  /** Absent when the repository has no configured remote. */
-  readonly onFetch: (() => void) | undefined;
+  readonly defaultRemote: string | null;
+  /** Shared tracked-file switch gate; null for clean or untracked-only checkouts. */
+  readonly dirtyReason: string | null;
+  readonly loading: boolean;
+  readonly onCreateBranch: (branch: string) => Promise<boolean>;
+  readonly onFetch: (remote: string) => Promise<boolean>;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onOpenChanges: () => void;
   readonly onQueryChange: (query: string) => void;
-  readonly onSwitch: (branch: string) => void;
-  readonly onSwitchInNewWorktree?: ((branch: string) => void) | undefined;
-  /** True while a switch/create/fetch is in flight — the menu disables itself. */
-  readonly pending: boolean;
+  readonly onSwitchBranch: (branch: string) => Promise<boolean>;
   readonly query: string;
+  readonly remotes: readonly string[];
   readonly rows: readonly WorkspaceBarBranchRow[];
-  /** Non-null when NO row can be switched for a whole-repository reason. */
-  readonly scopeReason: string | null;
 }
 
 export interface WorkspaceBarProps {
-  /** Desktop only — makes the Branch chip an interactive switcher. */
+  /** Desktop only — absent keeps the checkout chip informational. */
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   /** Desktop only — read-only git state for the primary root; undefined hides the chip. */
   readonly checkout?: WorkspaceBarCheckout | undefined;
@@ -98,7 +88,7 @@ export interface WorkspaceBarProps {
 
 /**
  * The composer workspace bar: Folder chip (this thread's primary + secondary
- * folders, recents, Add folder…) and a read-only Branch chip (desktop). Always
+ * folders, recents, Add folder…) and a Branch chip (desktop). Always
  * rendered — its job is orientation, not disambiguation. Pure + prop-driven:
  * app-shell's useWorkspaceBar() supplies everything, so this package stays
  * store-free.
@@ -113,7 +103,7 @@ export const WorkspaceBar = ({
   // composer's screen-reader path.
   <div className="mx-3 flex flex-wrap items-center gap-1.5" data-testid="workspace-bar">
     <FolderChip {...folder} />
-    {checkout ? <BranchChip branchMenu={branchMenu} checkout={checkout} /> : null}
+    {checkout ? <BranchChip checkout={checkout} menu={branchMenu} /> : null}
   </div>
 );
 

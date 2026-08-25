@@ -2958,6 +2958,73 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     });
   });
 
+  it('sorts a forge pr.* row after every real stream row on the same run (BST-1391 M3)', async () => {
+    // Real PGlite, not `createMockDb()` (which just returns whatever `rows`
+    // array a test hard-codes — it never executes an `ORDER BY`). This pins
+    // the actual DB-level fact `use-forge-run-events.ts`'s
+    // `FORGE_OBSERVATION_SEQUENCE` (1_000_000_000, well under the `sequence
+    // integer` column's int4 ceiling) relies on: a large `sequence` sorts
+    // after the run's own small, monotonic stream-counter values under
+    // `ORDER BY sequence ASC, occurred_at ASC, id ASC`. The forge row's
+    // `occurred_at` is deliberately set BEFORE the run's own rows, to prove
+    // the ordering is driven by `sequence`, not `occurred_at`.
+    const dataDir = createPgliteTestDataDir('forge-observation-sequence-order');
+    const db = await wasmLoader.createPGlite(dataDir);
+    try {
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      const thread = await repository.createThread('workspace-a');
+      await repository.createThreadRun({
+        id: 'run-forge-order',
+        model: 'gpt-test',
+        provider: 'openai',
+        resourceId: 'workspace-a',
+        runtimeKind: 'hosted',
+        startedAt: new Date('2026-04-24T12:00:00Z'),
+        status: 'running',
+        threadId: thread.id,
+      });
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-run-started',
+        kind: 'run.started',
+        label: 'Assistant run started',
+        sequence: 1,
+        status: 'running',
+        timestamp: '2026-04-24T12:00:01.000Z',
+      } satisfies AssistantRunEvent);
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-run-finished',
+        kind: 'run.finished',
+        label: 'Assistant run finished',
+        sequence: 2,
+        status: 'completed',
+        timestamp: '2026-04-24T12:00:02.000Z',
+      } satisfies AssistantRunEvent);
+      // Mirrors `FORGE_OBSERVATION_SEQUENCE` from
+      // `packages/app-shell/src/hooks/use-forge-run-events.ts` — kept as a
+      // literal here rather than an import because assistant-data must not
+      // depend on app-shell (the dependency runs the other way).
+      const FORGE_OBSERVATION_SEQUENCE = 1_000_000_000;
+      await repository.appendThreadRunEvent('run-forge-order', {
+        id: 'event-pr-opened',
+        kind: 'pr.opened',
+        label: 'Opened pull request #1',
+        sequence: FORGE_OBSERVATION_SEQUENCE,
+        status: 'info',
+        timestamp: '2026-04-24T11:59:00.000Z',
+      } satisfies AssistantRunEvent);
+
+      const events = await repository.listThreadRunEvents(thread.id, 'workspace-a');
+
+      expect(events.map((event) => event.id)).toEqual([
+        'event-run-started',
+        'event-run-finished',
+        'event-pr-opened',
+      ]);
+    } finally {
+      await wasmLoader.closeCached(dataDir);
+    }
+  });
+
   it('completes assistant run records without mutating thread metadata', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);

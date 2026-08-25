@@ -518,16 +518,18 @@ paired tests in packages/agent and packages/app-shell.
 
 ## ASSISTANT RUN NOTIFICATIONS
 
-OS-level `Notification` API alerts for three run-lifecycle events — run
-finished, run failed (including watchdog stalls surfacing as `run.failed`),
-and tool approval required — fired only while the app is NOT the user's
+OS-level `Notification` API alerts for three run-lifecycle events plus two
+forge observations — run finished, run failed (including watchdog stalls
+surfacing as `run.failed`), tool approval required, pull request opened, and
+pull request checks finished — fired only while the app is NOT the user's
 active focus. One code path for Electron renderer AND web: the standard web
 `Notification` constructor, no Electron `Notification` module, no new IPC.
 
 Layers:
 1. **Preferences** (`packages/app-state/src/stores/notification-preferences-store.ts`) —
    persisted master toggle (`masterEnabled`, default OFF) + per-event toggles
-   (`events.{runFinished,runFailed,toolApprovalRequired}`, default ON).
+   (`events.{runFinished,runFailed,toolApprovalRequired,prOpened,prChecks}`,
+   default ON).
    PERSISTED via the same `createBrowserJsonStorage` pattern as sibling
    stores. Registered in the factory-reset pipeline: like
    `permission-policy-store`, `resetNotificationPreferencesStoreToDefaults`
@@ -548,10 +550,12 @@ Layers:
    `Notification` with privacy-safe copy. Coalescing key is `runId:kind` for
    run finished/failed and `runId:kind:toolCallId` for `toolApprovalRequired`,
    so a run that suspends for more than one distinct approval still alerts on
-   each. The input is a discriminated union carrying only `runId`/`kind`/an
-   optional `threadTitle` (plus a REQUIRED `toolCallId` on the approval
-   variant), never message content or tool args — and wires `onclick` to
-   `window.focus()`.
+   each. The input is a discriminated union: run events carry only
+   `runId`/`kind`/an optional `threadTitle` (plus a REQUIRED `toolCallId` on
+   the approval variant), while forge observations carry only
+   `observationKey`/`kind`/`prNumber`/an optional settled checks outcome and
+   thread title. Neither variant carries message content or tool args, and the
+   dispatcher wires `onclick` to `window.focus()`.
 3. **Settings UI** (`packages/settings-ui/src/settings/system/notification-settings-section.tsx`,
    registered via `createNotificationSettingsCategory()` from its own
    `notification-settings-category.tsx` — a non-component module, kept out of
@@ -588,12 +592,49 @@ Layers:
    embedding/llm hosts (`embedding-host-app.tsx`, `llm-host-app.tsx`) never
    import `AssistantUiPanel` at all, so they structurally can never notify —
    this hook only ever runs inside the visible assistant surface.
+6. **Forge trigger source** (`packages/app-shell/src/hooks/use-forge-run-events.ts`) —
+   `forge:prUpdated` pushes from the main-process ForgeService. Not a stream
+   scan: a forge observation never appears in the message stream. Coalesced on
+   `<repoCommonDir>\0<branch>\0<headSha>:<kind>` (the `\0` separator matches
+   `forge-service.ts`'s own `cacheKey` convention), gated per thread by
+   `metadata.forgePrWatch !== false`.
+   The branch lookup this trigger source matches pushes against
+   (`useThreadBranchByRootPath`, activated on demand — see that hook's doc)
+   starts EMPTY and only resolves asynchronously; a push that arrives before
+   the first resolution is BUFFERED (a ref queue, deduped by
+   `<observationKey>\0<transition>`) rather than treated as a non-match, and
+   drained once the lookup reports `loaded` — see `ForgeBranchLookup` and
+   `isLookupReady` in `use-forge-run-events.ts` (BST-1391 M2). This closes the
+   "the very first push is lost" gap; it does not add a live-refresh path for
+   an ALREADY-OPEN thread — see the reload-visibility note below.
+   RELOAD-VISIBILITY LIMITATION (BST-1391 M4): the appended `pr.*` row is
+   durable in `brainstrike_assistant_run_events` the moment
+   `appendThreadRunEvent` resolves, but the assistant-run-timeline UI renders
+   from assistant-ui DATA PARTS on the message stream, not from a live query
+   against that table — `listThreadRunEvents` is read ONLY at thread-history
+   HYDRATION time (`createAssistantThreadHistoryAdapter`, on thread
+   open/reload), which is what turns persisted run events into synthetic data
+   parts. No existing seam re-hydrates an already-open thread's timeline
+   mid-session. This is NOT the timeline lagging behind a live
+   `thread.metadata.forgePrUrl` — `useAssistantThreadStore` is
+   REFRESH-DRIVEN (`refreshResourceThreads`), not a live query, so
+   `forgePrUrl` does not update live either. The PR chip and thread-row pill
+   stay fresh through their OWN independent live sources instead:
+   `use-thread-forge-pr.ts` reads `window.forge` directly (the chip), and
+   `use-forge-pr-cache.ts` reads a PGlite live query over
+   `brainstrike_forge_prs` (the pill, Task 5) — neither reads
+   `thread.metadata` or `listThreadRunEvents`.
+   `pr.*` row therefore does not appear in an OPEN thread's timeline until
+   that thread is reopened or the app reloads. Inventing a live-refresh path
+   for this is future work, not this task's — see Task 7's CDT checklist for
+   how this is verified rather than assumed.
 
 When changing this flow, update this section and the paired tests
 (`packages/app-state/src/__tests__/notification-*.test.ts(x)`,
 `packages/assistant-ui/src/__tests__/run-lifecycle-notifications.test.ts`,
 `packages/assistant-ui/src/__tests__/run-lifecycle-notifications-hydration.test.tsx`,
-`packages/app-shell/src/__tests__/use-assistant-run-notifications.test.ts`).
+`packages/app-shell/src/__tests__/use-assistant-run-notifications.test.ts`,
+`packages/app-shell/src/__tests__/use-forge-run-events.test.ts`).
 
 ---
 
@@ -826,6 +867,11 @@ resolved in the other direction by deliberately dropping its FKs for migration 0
 Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which IS
 migration-backed (062, registered in both runners) *and* mirrored in the
 bootstrap SQL.
+
+`pr.opened` / `pr.checks` / `pr.merged` (BST-1391) are the only run-event
+kinds not produced by the agent stream. They are appended to the thread's MOST
+RECENT run because `run_id` is `NOT NULL`; a thread with no runs gets no
+timeline row, logged at `info`. This adds no writer and no schema change.
 
 The desktop MAIN process has FOUR writers against these relations, none of
 which creates them (all in `apps/desktop/src/assistant-server/run-persistence.ts`, all reached

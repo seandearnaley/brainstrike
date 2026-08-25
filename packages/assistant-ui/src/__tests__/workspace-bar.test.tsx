@@ -1,11 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  WorkspaceBar,
-  type WorkspaceBarBranchMenu,
-  type WorkspaceBarProps,
-} from '../workspace-bar/workspace-bar';
+import { WorkspaceBar, type WorkspaceBarProps } from '../workspace-bar/workspace-bar';
 
 function baseProps(overrides: Partial<WorkspaceBarProps> = {}): WorkspaceBarProps {
   return {
@@ -250,157 +246,109 @@ describe('WorkspaceBar', () => {
     expect(screen.getByTestId('workspace-bar-branch-chip')).toHaveTextContent('detached');
     expect(screen.getByTestId('workspace-bar-branch-chip')).toHaveAttribute('data-dirty', 'true');
   });
-});
 
-describe('BranchChip menu', () => {
-  const branchMenu = (overrides: Partial<WorkspaceBarBranchMenu> = {}): WorkspaceBarBranchMenu => ({
-    onCreateBranch: vi.fn(),
-    onFetch: vi.fn(),
-    onQueryChange: vi.fn(),
-    onSwitch: vi.fn(),
-    pending: false,
-    query: '',
-    rows: [
-      {
-        current: true,
-        disabledReason: 'Already checked out here.',
-        name: 'main',
-        switchable: false,
-        worktreeName: null,
-      },
-      {
-        current: false,
-        disabledReason: null,
-        name: 'feature/alpha',
-        switchable: true,
-        worktreeName: null,
-      },
-      {
-        current: false,
-        disabledReason: 'Checked out in worktree "beta-copy" — git allows one checkout per branch.',
-        name: 'feature/beta',
-        switchable: false,
-        worktreeName: 'beta-copy',
-      },
-    ],
-    scopeReason: null,
-    ...overrides,
-  });
-  const clean = { ahead: null, behind: null, branch: 'main', dirty: false };
-  const dirty = { ahead: null, behind: null, branch: 'main', dirty: true };
-
-  it('opens a menu from the chip and switches to a switchable branch', async () => {
+  it('searches branch rows, identifies the current branch, and exposes worktree reasons', async () => {
     const user = setup();
-    const menu = branchMenu();
-    render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-branch-row-feature/alpha'));
-    expect(menu.onSwitch).toHaveBeenCalledWith('feature/alpha');
-  });
-
-  it('disables an unswitchable row and states the reason IN the row', async () => {
-    const user = setup();
-    render(<WorkspaceBar {...baseProps()} branchMenu={branchMenu()} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    const beta = await screen.findByTestId('workspace-bar-branch-row-feature/beta');
-    expect(beta).toHaveAttribute('data-disabled');
-    expect(screen.getByTestId('workspace-bar-branch-reason-feature/beta')).toHaveTextContent(
-      'Checked out in worktree "beta-copy"'
-    );
-  });
-
-  it('offers "Switch in a new worktree" for a dirty tree ONLY when the capability is supplied', async () => {
-    const user = setup();
-    // Same dirty-disabled row for BOTH halves of this test — only the
-    // callback differs. If the positive half used the default fixture's
-    // `feature/alpha` (switchable: true), the worktree item would be absent
-    // from the negative half for the wrong reason (row.switchable) and the
-    // capability gate itself would go unfalsified.
-    const dirtyDisabledRows: WorkspaceBarBranchMenu['rows'] = [
-      {
-        current: false,
-        disabledReason: 'Working tree has uncommitted changes — commit or stash first.',
-        name: 'feature/alpha',
-        switchable: false,
-        worktreeName: null,
-      },
-    ];
-    const withCapability = branchMenu({
-      onSwitchInNewWorktree: vi.fn(),
-      rows: dirtyDisabledRows,
-    });
-    const { unmount } = render(
-      <WorkspaceBar {...baseProps()} branchMenu={withCapability} checkout={dirty} />
-    );
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-branch-worktree-feature/alpha'));
-    expect(withCapability.onSwitchInNewWorktree).toHaveBeenCalledWith('feature/alpha');
-    unmount();
-
+    const onQueryChange = vi.fn();
+    const onSwitchBranch = vi.fn(async () => true);
     render(
       <WorkspaceBar
-        {...baseProps()}
-        branchMenu={branchMenu({ rows: dirtyDisabledRows })}
-        checkout={dirty}
+        {...baseProps({
+          branchMenu: {
+            defaultRemote: 'origin',
+            dirtyReason: null,
+            loading: false,
+            onCreateBranch: vi.fn(async () => true),
+            onFetch: vi.fn(async () => true),
+            onOpenChange: vi.fn(),
+            onOpenChanges: vi.fn(),
+            onQueryChange,
+            onSwitchBranch,
+            query: '',
+            remotes: ['origin'],
+            rows: [
+              {
+                current: true,
+                disabledReason: 'Already checked out here.',
+                name: 'main',
+                switchable: false,
+                worktreeName: null,
+              },
+              {
+                current: false,
+                disabledReason:
+                  'Checked out in worktree "beta-copy" — git allows one checkout per branch.',
+                name: 'feature/beta',
+                switchable: false,
+                worktreeName: 'beta-copy',
+              },
+              {
+                current: false,
+                disabledReason: null,
+                name: 'feature/alpha',
+                switchable: true,
+                worktreeName: null,
+              },
+            ],
+          },
+          checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        })}
       />
     );
+
     await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    expect(screen.queryByTestId('workspace-bar-branch-worktree-feature/alpha')).toBeNull();
+    expect(await screen.findByTestId('workspace-bar-branch-row-main')).toHaveTextContent('Current');
+    const held = screen.getByTestId('workspace-bar-branch-row-feature/beta');
+    expect(held).toBeDisabled();
+    expect(held).toHaveTextContent('in worktree: beta-copy');
+    expect(screen.getByText(/git allows one checkout per branch/u)).toBeVisible();
+
+    await user.type(screen.getByTestId('workspace-bar-branch-search'), 'alpha');
+    expect(onQueryChange).toHaveBeenLastCalledWith('alpha');
+    await user.click(screen.getByTestId('workspace-bar-branch-row-feature/alpha'));
+    expect(onSwitchBranch).toHaveBeenCalledWith('feature/alpha');
   });
 
-  it('renders the scope reason instead of rows when the repository is out of scope', async () => {
+  it('explains dirty refusal and offers New branch, Fetch, and Open in Changes', async () => {
     const user = setup();
+    const onCreateBranch = vi.fn(async () => true);
+    const onFetch = vi.fn(async () => true);
+    const onOpenChanges = vi.fn();
     render(
       <WorkspaceBar
-        {...baseProps()}
-        branchMenu={branchMenu({ scopeReason: 'This folder is below the repository root.' })}
-        checkout={clean}
+        {...baseProps({
+          branchMenu: {
+            defaultRemote: 'origin',
+            dirtyReason:
+              'Working tree has uncommitted changes. Switching in a new worktree is unavailable until Worktree support lands.',
+            loading: false,
+            onCreateBranch,
+            onFetch,
+            onOpenChange: vi.fn(),
+            onOpenChanges,
+            onQueryChange: vi.fn(),
+            onSwitchBranch: vi.fn(async () => false),
+            query: '',
+            remotes: ['origin'],
+            rows: [],
+          },
+          checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+        })}
       />
     );
+
     await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    expect(await screen.findByTestId('workspace-bar-branch-scope-reason')).toHaveTextContent(
-      'This folder is below the repository root.'
+    expect(screen.getByTestId('workspace-bar-dirty-switch-reason')).toHaveTextContent(
+      'Switching in a new worktree is unavailable until Worktree support lands.'
     );
-    expect(screen.queryByTestId('workspace-bar-branch-row-feature/alpha')).toBeNull();
-  });
 
-  it('calls onQueryChange with the typed value from the filter input', async () => {
-    const user = setup();
-    const menu = branchMenu();
-    render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    await user.type(await screen.findByTestId('workspace-bar-branch-search'), 'a');
-    expect(menu.onQueryChange).toHaveBeenCalledWith('a');
-  });
+    await user.type(screen.getByTestId('workspace-bar-branch-new-name'), 'feature/new');
+    await user.click(screen.getByTestId('workspace-bar-create-branch'));
+    expect(onCreateBranch).toHaveBeenCalledWith('feature/new');
 
-  it('calls onFetch when the Fetch item is clicked', async () => {
-    const user = setup();
-    const menu = branchMenu();
-    render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-branch-fetch'));
-    expect(menu.onFetch).toHaveBeenCalledTimes(1);
-  });
-
-  it('creates a branch from the inline field', async () => {
-    const user = setup();
-    const menu = branchMenu();
-    render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    await user.type(await screen.findByTestId('workspace-bar-branch-new-name'), 'bs/bright-fox');
-    await user.click(screen.getByTestId('workspace-bar-branch-create'));
-    expect(menu.onCreateBranch).toHaveBeenCalledWith('bs/bright-fox');
-  });
-
-  it('stays a read-only image with no menu when branchMenu is absent', () => {
-    render(
-      <WorkspaceBar
-        {...baseProps()}
-        checkout={{ ahead: 2, behind: null, branch: 'main', dirty: false }}
-      />
-    );
-    const chip = screen.getByTestId('workspace-bar-branch-chip');
-    expect(chip).toHaveAttribute('role', 'img');
-    expect(chip).toHaveAccessibleName('On branch main · 2 ahead · clean');
+    await user.click(screen.getByTestId('workspace-bar-fetch-origin'));
+    expect(onFetch).toHaveBeenCalledWith('origin');
+    await user.click(screen.getByTestId('workspace-bar-open-changes'));
+    expect(onOpenChanges).toHaveBeenCalledTimes(1);
   });
 });

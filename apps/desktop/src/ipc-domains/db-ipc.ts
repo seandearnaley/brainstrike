@@ -944,6 +944,8 @@ export function registerDatabaseIpcHandlers(
             // No FK, so nothing cascades it — clear explicitly per the FACTORY
             // RESET CONTRACT so error history cannot survive a fresh start.
             await clearOptionalRelation(tx, 'brainstrike_diagnostic_events');
+            // Forge PR cache (migration 110, BST-1391): FK-less, main-written.
+            await clearOptionalRelation(tx, 'brainstrike_forge_prs');
             // Mind op-log (migration 079, BST-993): tombstones for data this
             // clear just destroyed must not survive onto the fresh database.
             await clearOptionalRelation(tx, 'brainstrike_mind_ops');

@@ -871,6 +871,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
       await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
       await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');
+      // Forge PR cache (migration 110, BST-1391): FK-less remote-branch
+      // topology, rebuilt on the next `gh` observation.
+      await clearRelationIfPresent(tx, 'brainstrike_forge_prs');
       // Mind op-log (migration 079): tombstones for data this reset just
       // destroyed must not survive onto the fresh database (BST-993).
       await clearRelationIfPresent(tx, 'brainstrike_mind_ops');
@@ -924,6 +927,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // token/cost history, task lists, edit-checkpoint before-content, and
     // branch topology must not survive a web factory reset.
     await clearRelationIfPresent(tx, 'brainstrike_assistant_run_usage');
+    // Forge PR cache (migration 110, BST-1391): FK-less, must not survive a
+    // web factory reset.
+    await clearRelationIfPresent(tx, 'brainstrike_forge_prs');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');

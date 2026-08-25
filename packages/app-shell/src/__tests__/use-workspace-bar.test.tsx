@@ -3,7 +3,6 @@ import type {
   AssistantThreadRepository,
 } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import type { WorkspaceBarBranchMenu } from '@brainstrike/assistant-ui';
 import type { ActionOutcome } from '@brainstrike/context-actions';
 import type { DbHandle } from '@brainstrike/db/react';
 import { revealLabel } from '@brainstrike/file-explorer-ui/context-actions';
@@ -47,37 +46,33 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => cur
 // test is the production one.
 const showItemInFolder = vi.fn(async () => ({ ok: true }));
 
-const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, loggerMock, toastSpy } = vi.hoisted(
-  () => ({
-    branchSwitcherSpy: vi.fn(),
-    checkoutSpy: vi.fn(
-      (
-        _root: {
-          readonly adapterRootId: string | null;
-          readonly dbRootId: string;
-          readonly path: string;
-        } | null
-      ) => ({
-        ahead: 0,
-        behind: 0,
-        branch: 'main',
-        dirty: false,
-      })
-    ),
-    clipboardWriteText: vi.fn(),
-    loggerMock: {
-      debug: vi.fn(),
-      error: vi.fn(),
-      fatal: vi.fn(),
-      info: vi.fn(),
-      trace: vi.fn(),
-      warn: vi.fn(),
-    },
-    toastSpy: vi.fn(),
-  })
-);
+const { checkoutSpy, clipboardWriteText, loggerMock, toastSpy } = vi.hoisted(() => ({
+  checkoutSpy: vi.fn(
+    (
+      _root: {
+        readonly adapterRootId: string | null;
+        readonly dbRootId: string;
+        readonly path: string;
+      } | null
+    ) => ({
+      ahead: 0,
+      behind: 0,
+      branch: 'main',
+      dirty: false,
+    })
+  ),
+  clipboardWriteText: vi.fn(),
+  loggerMock: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  },
+  toastSpy: vi.fn(),
+}));
 
-vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
 vi.mock('../hooks/use-thread-checkout-status', () => ({ useThreadCheckoutStatus: checkoutSpy }));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
@@ -93,17 +88,6 @@ vi.mock('@brainstrike/context-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/context-actions')>()),
   createClipboardService: () => ({ writeText: clipboardWriteText }),
 }));
-
-const branchMenu = {
-  onCreateBranch: vi.fn(),
-  onFetch: undefined,
-  onQueryChange: vi.fn(),
-  onSwitch: vi.fn(),
-  pending: false,
-  query: '',
-  rows: [],
-  scopeReason: null,
-} satisfies WorkspaceBarBranchMenu;
 
 const RESOURCE_ID = 'workspace-a';
 const THREAD_ID = 'thread-1';
@@ -273,8 +257,6 @@ beforeEach(() => {
   useChangesLiveRefreshStore.getState().reset();
   clipboardWriteText.mockReset();
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
-  branchSwitcherSpy.mockReset();
-  branchSwitcherSpy.mockReturnValue(branchMenu);
   checkoutSpy.mockClear();
   toastSpy.mockClear();
   loggerMock.debug.mockClear();
@@ -308,11 +290,6 @@ describe('useWorkspaceBar', () => {
       branch: 'main',
       dirty: false,
     });
-    expect(branchSwitcherSpy).toHaveBeenCalledWith({
-      checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
-      dbRootId: 'r-main-db',
-    });
-    expect(result.current.branchMenu).toBe(branchMenu);
     await waitFor(() =>
       expect(result.current.recentRoots).toEqual([{ displayName: 'alpha', path: '/ws/alpha' }])
     );
@@ -445,6 +422,33 @@ describe('useWorkspaceBar', () => {
       expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
         secondaryRootIds: ['r-docs'],
       })
+    );
+  });
+
+  it('refreshes the recents ledger after a same-session grant, without a remount', async () => {
+    const { result } = await setup();
+    await waitFor(() =>
+      expect(result.current.recentRoots).toEqual([{ displayName: 'alpha', path: '/ws/alpha' }])
+    );
+
+    // Models main appending the just-granted folder to `recentRootsList` the
+    // instant `addRoot()` resolves — the ledger the bar's snapshot must catch
+    // up to without a remount/reload.
+    fs.listRecentRoots.mockResolvedValueOnce([
+      { displayName: 'alpha', lastGrantedAt: 1, path: '/ws/alpha' },
+      { displayName: 'brainstrike', lastGrantedAt: 2, path: '/ws/brainstrike' },
+      { displayName: 'docs', lastGrantedAt: 3, path: '/ws/docs' },
+    ]);
+
+    await act(async () => {
+      result.current.onAddFolder();
+    });
+    await waitFor(() => expect(updateThreadMetadata).toHaveBeenCalled());
+
+    await waitFor(() =>
+      expect(result.current.recentRoots).toEqual(
+        expect.arrayContaining([{ displayName: 'docs', path: '/ws/docs' }])
+      )
     );
   });
 

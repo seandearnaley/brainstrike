@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { shouldNotify } from '../notifications/should-notify';
 
 const baseSettings = {
-  events: { runFailed: true, runFinished: true, toolApprovalRequired: true },
+  events: {
+    prChecks: true,
+    prOpened: true,
+    runFailed: true,
+    runFinished: true,
+    toolApprovalRequired: true,
+  },
   masterEnabled: true,
 };
 

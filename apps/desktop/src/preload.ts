@@ -122,6 +122,10 @@ const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
 const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
 const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
 const CHANGES_INVALIDATED_EVENT = 'changes:invalidated' as const;
+const FORGE_IDENTITY_CHANNEL = 'forge:identity' as const;
+const FORGE_PR_STATUS_CHANNEL = 'forge:prStatus' as const;
+const FORGE_REFRESH_CHANNEL = 'forge:refresh' as const;
+const FORGE_PR_UPDATED_EVENT = 'forge:prUpdated' as const;
 // Embedded browser pane (BST-1174).
 const BROWSER_CREATE_TAB_CHANNEL = 'browser:createTab' as const;
 const BROWSER_CLOSE_TAB_CHANNEL = 'browser:closeTab' as const;
@@ -1280,7 +1284,7 @@ if (shouldExposeBridge('git')) {
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
     commitFiles: (rootId: string, params: { commit: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
-    createBranch: (rootId: string, params: { branch: string; startPoint?: string }) =>
+    createBranch: (rootId: string, params: { branch: string }) =>
       ipcRenderer.invoke(GIT_CREATE_BRANCH_CHANNEL, rootId, params),
     diff: (rootId: string, params: GitDiffParams) =>
       ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params),
@@ -1355,6 +1359,35 @@ if (shouldExposeBridge('changes')) {
       ipcRenderer.invoke(CHANGES_RESOLVE_VIEW_CHANNEL, rootId, changeset),
     rewindPreview: (payload: { threadId: string } & ({ messageId: string } | { runId: string })) =>
       ipcRenderer.invoke(CHANGES_REWIND_PREVIEW_CHANNEL, payload),
+  });
+}
+
+// Forge (pull request) bridge (desktop-only, BST-1391): PR identity + status
+// for a workspace root, backed by the main-process ForgeService and the `gh`
+// CLI. Web never constructs this bridge (there is no preload), so
+// `window.forge` is simply absent there; consumers must capability-check
+// `window.forge` rather than `isElectron()`.
+if (shouldExposeBridge('forge')) {
+  contextBridge.exposeInMainWorld('forge', {
+    identity: (rootId: string) => ipcRenderer.invoke(FORGE_IDENTITY_CHANNEL, rootId),
+    // One-way main→renderer pushes (forge:prUpdated): a forge observation
+    // changed. Returns the unsubscribe function (changes.onInvalidated
+    // precedent).
+    onPrUpdated: (callback: (event: import('@brainstrike/types').ForgePrUpdatedEvent) => void) => {
+      const listener = (
+        _event: unknown,
+        payload: import('@brainstrike/types').ForgePrUpdatedEvent
+      ) => callback(payload);
+      ipcRenderer.on(FORGE_PR_UPDATED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(FORGE_PR_UPDATED_EVENT, listener);
+      };
+    },
+    prStatus: (rootId: string) => ipcRenderer.invoke(FORGE_PR_STATUS_CHANNEL, rootId),
+    refresh: (
+      rootId: string,
+      params: { readonly reason: import('@brainstrike/types').ForgeRefreshReason }
+    ) => ipcRenderer.invoke(FORGE_REFRESH_CHANNEL, rootId, params),
   });
 }
 

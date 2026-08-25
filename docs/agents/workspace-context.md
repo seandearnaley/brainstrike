@@ -1018,53 +1018,40 @@ additional explorer/status chrome):
     type error, and app-shell feeds it the platform-aware `revealLabel()`
     exported from `@brainstrike/file-explorer-ui/context-actions`.
   - Branch chip: `window.git.status` supplies the primary root's
-    branch/detached, ahead/behind, and dirty-dot state — no polling. The dot's
-    checkout-status read refetches on BOTH live-refresh signals: every accepted
-    `changes:invalidated` git-metadata push AND the primary root's own git-scope
-    nonce (`selectGitScopeRefreshNonce`), which is what carries WORKING-TREE
-    edits. Metadata pushes report topology only, so on that nonce alone the
-    dirty dot went stale the moment a file changed without a branch operation.
-    The interactive menu also reads `window.git.repository` and its own
-    `window.git.status`, then reuses the Git workbench's
+    branch/detached, ahead/behind, and dirty-dot state — no polling. Opening the
+    chip loads `window.git.repository` and reuses the Git workbench's
     `buildBranchSwitchModel`: local branches stay in repository recency order,
-    the current branch remains identified, and a branch held by another
-    worktree shows `Worktree: <name>` and an explicit disabled reason. The
-    shared switch gate derives dirty state only from tracked porcelain entries,
-    so an untracked-only checkout remains switchable while staged or modified
-    tracked files disable direct switching. The chip's dirty dot still reflects
-    all porcelain entries. A disabled dirty row offers a separate `Switch in a
-    new worktree` menu item only when `onSwitchInNewWorktree` is supplied; the
-    later W3 Mode-Chip/worktree-service layer will supply that optional
-    capability. Until then app-shell omits the callback, so the disabled reason
-    stands alone with no worktree action. Direct switching and branch creation
-    call the existing `switchBranch` / `createBranch` bridge paths without a
-    fresh client-side status pre-check; the bridge result is the source of truth,
-    and a returned or thrown mutation failure is logged and surfaced as a
-    destructive toast. Fetch is offered only for a discovered default remote
-    and names that remote explicitly. After a successful mutation, the hook
-    refreshes the git inventory and advances its own reload nonce so it re-reads
-    repository and status topology. Unlike the dot, the switcher's own
-    repository/status load is keyed only on `anyInvalidationNonce` plus that
-    post-mutation reload nonce — NOT on the root's git-scope nonce. An external
-    working-tree edit to a tracked file can therefore leave the switch gate's
-    tracked-dirty read stale until the next metadata push or successful
-    mutation. There is no empty-list fallback: a failed menu repository/status
-    read is logged and leaves the status chip non-interactive. The chip remains
-    desktop-only and is absent for a non-repository root or a failed checkout-
-    status read; that failure is logged and NEVER rendered as "clean". It is
-    withheld whenever `primaryRoot` is absent, so a branch never renders with
-    no folder beside it. Both live-refresh signals depend on the main-process
-    git inventory having ARMED a watcher for that root's repository, which only
-    happens inside an inventory build — so roots registered after app-ready are
-    nudged into discovery by `use-roots-reconciliation.ts` calling
-    `changes.inventory({ maxAgeMs: 0 })` once per registration (BST-1397; see
-    "Discovery refresh on root registration" in
-    `docs/agents/changeset-diff.md` § REFRESH SEAMS). The forced option is what
-    makes the nudge reliable: it guarantees a build that started after the
-    registration, so the TTL cache and in-flight coalescing cannot serve back a
-    snapshot that predates the new `roots` row. Without that nudge a mid-session
-    Add Folder / Recents root gets no metadata push at all and the chip only
-    updates on reload.
+    the current branch remains identified, and branches held by another
+    worktree render disabled with `in worktree: <name>`. Direct switch and new
+    branch both re-check clean status immediately before using the existing
+    `switchBranch` / `createBranch` bridge paths. The shared switch gate derives
+    dirty state from tracked porcelain entries, so an untracked-only checkout
+    remains switchable while staged or modified tracked files are refused
+    visibly because the new-worktree path remains unavailable until W3 lands.
+    The chip's dirty dot still reflects all porcelain entries. There is no
+    hidden fallback. Fetch names an explicit remote, Open in Changes targets the
+    same repository/worktree, and every bridge failure surfaces.
+    The chip text updates immediately after a successful switch or create while
+    the normal invalidation path catches up. It refetches status on
+    BOTH live-refresh signals: every accepted `changes:invalidated`
+    git-metadata push AND the primary root's own git-scope nonce
+    (`selectGitScopeRefreshNonce`), which is what carries WORKING-TREE edits.
+    Metadata pushes report topology only, so on that nonce alone the dirty dot
+    went stale the moment a file changed without a branch operation. Desktop-
+    only, and absent for a non-repository root or a failed status; a failure is
+    logged and NEVER rendered as "clean". It is withheld whenever `primaryRoot`
+    is absent, so a branch never renders with no folder beside it. Both signals
+    depend on the main-process git inventory having ARMED a watcher for that
+    root's repository, which only happens inside an inventory build — so roots
+    registered after app-ready are nudged into discovery by
+    `use-roots-reconciliation.ts` calling `changes.inventory({ maxAgeMs: 0 })`
+    once per registration (BST-1397; see "Discovery refresh on root
+    registration" in `docs/agents/changeset-diff.md` § REFRESH SEAMS). The
+    forced option is what makes the nudge reliable: it guarantees a build that
+    started after the registration, so the TTL cache and in-flight coalescing
+    cannot serve back a snapshot that predates the new `roots` row. Without
+    that nudge a mid-session Add Folder / Recents root gets no metadata push
+    at all and the chip only updates on reload.
 - DEFERRED (v1 ruling): a root-header right-click context action ("Set as
   main" / Disconnect / Copy path / Reveal) — root headers have no
   ContextTarget kind yet; it is a coherent follow-up surface.

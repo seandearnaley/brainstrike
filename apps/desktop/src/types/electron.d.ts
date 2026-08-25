@@ -28,7 +28,6 @@ import type {
   GitAheadBehind,
   GitCommitFile,
   GitCommitResult,
-  GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
   GitHistoryPage,
@@ -393,8 +392,8 @@ declare global {
       ) => Promise<GitResult<readonly GitCommitFile[]>>;
       createBranch: (
         rootId: string,
-        params: { branch: string; startPoint?: string }
-      ) => Promise<GitResult<GitCreateBranchResult>>;
+        params: { branch: string }
+      ) => Promise<GitResult<GitSwitchBranchResult>>;
       aheadBehind: (rootId: string) => Promise<GitResult<GitAheadBehind>>;
       fetch: (rootId: string, params: { remote: string }) => Promise<GitResult<GitPushPullResult>>;
       history: (

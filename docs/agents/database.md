@@ -524,6 +524,12 @@ are prohibited. Paired pins:
 reset-registry membership) plus the pinned counts in
 `packages/db/__tests__/reset-table-registry.test.tsx`.
 
+Migration 110 owns the FK-less `brainstrike_forge_prs` cache (BST-1391): one
+normalized GitHub pull-request observation per realpath'd git common directory
+and branch. Register it in both migration runners and every table-enumerating
+factory-reset path. It is not a thread-delete sidecar because pull requests
+outlive individual threads and are shared by threads on the same branch.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the
