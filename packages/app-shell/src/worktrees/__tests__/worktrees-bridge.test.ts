@@ -15,13 +15,14 @@ afterEach(() => {
 });
 
 describe('resolveWorktreesBridge', () => {
-  it('declares exactly the seven ops the preload exposes', () => {
+  it('declares exactly the eight ops the preload exposes', () => {
     expect([...WORKTREES_BRIDGE_REQUIRED_METHODS].sort()).toEqual([
       'archive',
       'create',
       'createBranchHere',
       'getSettings',
       'list',
+      'listManagedPaths',
       'restore',
       'setSettings',
     ]);

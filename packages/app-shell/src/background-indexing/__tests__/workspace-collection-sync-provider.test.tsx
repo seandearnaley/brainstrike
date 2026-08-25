@@ -1222,6 +1222,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       },
     ];
     fileSystemState.rootIdByPath = new Map([['/workspace/shared', 'root-b-id']]);
+    dbRootKindState.current = new Map([
+      ['root-a-id', 'path'],
+      ['root-b-id', 'path'],
+    ]);
     resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
       rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
     );
@@ -1398,6 +1402,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       ['/workspace/root-a', 'root-a-id'],
       ['/workspace/root-b', 'root-b-id'],
     ]);
+    dbRootKindState.current = new Map([
+      ['root-a-id', 'path'],
+      ['root-b-id', 'path'],
+    ]);
     resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
       rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
     );
@@ -1466,6 +1474,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     };
     fileSystemState.rootDirectoryHandle = rootA;
     fileSystemState.rootDirectoryHandles = [rootA, rootB];
+    dbRootKindState.current = new Map([
+      [rootA.rootId, 'path'],
+      [rootB.rootId, 'path'],
+    ]);
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
     const cancelSpy = vi
       .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
@@ -1520,6 +1532,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
         rootId: 'root-b-id',
       },
     ];
+    dbRootKindState.current = new Map([
+      ['root-a-id', 'path'],
+      ['root-b-id', 'path'],
+    ]);
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
 
     try {
@@ -2134,6 +2150,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     fileSystemState.rootIdByPath = new Map([
       ['/workspace/root-a', 'root-a-id'],
       ['/workspace/root-b', 'root-b-id'],
+    ]);
+    dbRootKindState.current = new Map([
+      ['root-a-id', 'path'],
+      ['root-b-id', 'path'],
     ]);
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
     const captured: LogRecord[] = [];
@@ -3166,6 +3186,135 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('defers a mid-session root until its path kind is published, then restarts and indexes it', async () => {
+    const existingRoot = {
+      kind: 'directory',
+      name: 'existing',
+      path: '/workspace/existing',
+      platform: 'electron',
+      rootId: 'existing-root-id',
+    };
+    const addedRoot = {
+      kind: 'directory',
+      name: 'added',
+      path: '/workspace/added',
+      platform: 'electron',
+      rootId: 'added-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = existingRoot;
+    fileSystemState.rootDirectoryHandles = [existingRoot];
+    fileSystemState.rootIdByPath = new Map([[existingRoot.path, existingRoot.rootId]]);
+    dbRootKindState.current = new Map([[existingRoot.rootId, 'path']]);
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+    const renderProvider = () => (
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    try {
+      const { rerender } = render(renderProvider());
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+      fileSystemState.rootDirectoryHandles = [existingRoot, addedRoot];
+      fileSystemState.rootIdByPath = new Map([
+        [existingRoot.path, existingRoot.rootId],
+        [addedRoot.path, addedRoot.rootId],
+      ]);
+      rerender(renderProvider());
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      expect(
+        syncSpy.mock.calls.some(([request]) => request.rootDirectoryHandle?.path === addedRoot.path)
+      ).toBe(false);
+
+      dbRootKindState.current = new Map([
+        [existingRoot.rootId, 'path'],
+        [addedRoot.rootId, 'path'],
+      ]);
+      rerender(renderProvider());
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(4));
+      expect(
+        syncSpy.mock.calls.filter(
+          ([request]) => request.rootDirectoryHandle?.path === addedRoot.path
+        )
+      ).toHaveLength(1);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('defers a mid-session worktree until its kind is published, then excludes it once', async () => {
+    const existingRoot = {
+      kind: 'directory',
+      name: 'existing',
+      path: '/workspace/existing',
+      platform: 'electron',
+      rootId: 'existing-root-id',
+    };
+    const addedRoot = {
+      kind: 'directory',
+      name: 'worktree',
+      path: '/managed/app/bright-fox',
+      platform: 'electron',
+      rootId: 'worktree-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = existingRoot;
+    fileSystemState.rootDirectoryHandles = [existingRoot];
+    fileSystemState.rootIdByPath = new Map([[existingRoot.path, existingRoot.rootId]]);
+    dbRootKindState.current = new Map([[existingRoot.rootId, 'path']]);
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+    setLogLevel(LogLevel.INFO);
+    const exclusionLogs: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceCollectionSyncProvider' &&
+        record.message === 'Excluded worktree root from background indexing by default'
+      ) {
+        exclusionLogs.push(record);
+      }
+    });
+    const renderProvider = () => (
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    try {
+      const { rerender } = render(renderProvider());
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+      fileSystemState.rootDirectoryHandles = [existingRoot, addedRoot];
+      fileSystemState.rootIdByPath = new Map([
+        [existingRoot.path, existingRoot.rootId],
+        [addedRoot.path, addedRoot.rootId],
+      ]);
+      rerender(renderProvider());
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+
+      dbRootKindState.current = new Map([
+        [existingRoot.rootId, 'path'],
+        [addedRoot.rootId, 'worktree'],
+      ]);
+      rerender(renderProvider());
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(3));
+      expect(
+        syncSpy.mock.calls.some(([request]) => request.rootDirectoryHandle?.path === addedRoot.path)
+      ).toBe(false);
+      expect(exclusionLogs).toHaveLength(1);
+      expect(exclusionLogs[0]?.args).toContainEqual({ rootPath: addedRoot.path });
+    } finally {
+      removeListener();
+      syncSpy.mockRestore();
+    }
+  });
+
   it('calls service.sync once per root, in order, sequentially, when two handles are active', async () => {
     const root1 = {
       kind: 'directory',
@@ -3345,6 +3494,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     fileSystemState.rootDirectoryHandle = unresolvedRoot;
     fileSystemState.rootDirectoryHandles = [unresolvedRoot];
     fileSystemState.rootIdByPath = new Map([[unresolvedRoot.path, unresolvedRoot.rootId]]);
+    dbRootKindState.current = new Map([[unresolvedRoot.rootId, 'path']]);
     resolveDbRootIdMock.mockResolvedValue(null);
     useWorkspaceCollectionSyncStatusStore.setState({
       activeRootPath: '/workspace/removed',

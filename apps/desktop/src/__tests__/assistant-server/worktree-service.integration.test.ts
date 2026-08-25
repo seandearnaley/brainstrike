@@ -122,6 +122,56 @@ describe('WorktreeService (real git + real PGlite)', () => {
     }
   });
 
+  it('lists active managed paths without consulting git inventory or workspace roots', async () => {
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    await ledger.insert({
+      archivedAt: null,
+      archiveSnapshotRef: null,
+      baseRef: 'main',
+      branch: 'bs/active',
+      createdAt: new Date().toISOString(),
+      createdBy: 'user',
+      id: '01993a12-0000-7000-8000-000000000011',
+      path: '/managed/active',
+      repoCommonDir: commonDir,
+      runId: null,
+      setupOutput: null,
+      setupStatus: 'none',
+      threadId: null,
+    });
+    await ledger.insert({
+      archivedAt: null,
+      archiveSnapshotRef: null,
+      baseRef: 'main',
+      branch: 'bs/archived',
+      createdAt: new Date().toISOString(),
+      createdBy: 'user',
+      id: '01993a12-0000-7000-8000-000000000012',
+      path: '/managed/archived',
+      repoCommonDir: commonDir,
+      runId: null,
+      setupOutput: null,
+      setupStatus: 'none',
+      threadId: null,
+    });
+    await ledger.markArchived(
+      '01993a12-0000-7000-8000-000000000012',
+      'refs/brainstrike/worktree-archive/archived'
+    );
+    const service = buildService({
+      resolveInventory: () => Promise.reject(new Error('inventory must not be read')),
+      resolveRootPaths: () => Promise.reject(new Error('roots must not be read')),
+    });
+
+    await expect(service.listManagedPaths()).resolves.toEqual({
+      ok: true,
+      value: [{ id: '01993a12-0000-7000-8000-000000000011', path: '/managed/active' }],
+    });
+  });
+
   it('creates a branch-on-create worktree on disk and records it in the ledger', async () => {
     const service = buildService();
     const created = await service.create({

@@ -7,6 +7,7 @@ const service = {
   createBranchHere: vi.fn(),
   isManagedWorktreePath: vi.fn(),
   list: vi.fn(),
+  listManagedPaths: vi.fn(),
   restore: vi.fn(),
 };
 
@@ -46,6 +47,19 @@ describe('worktrees IPC handlers', () => {
       error: 'The worktree service is not available in this session.',
       ok: false,
     });
+  });
+
+  it('routes the ledger-only managed-path listing through the service boundary', async () => {
+    service.listManagedPaths.mockResolvedValue({
+      ok: true,
+      value: [{ id: 'worktree-1', path: '/managed/worktree-1' }],
+    });
+
+    await expect(handlers().listManagedPaths()).resolves.toEqual({
+      ok: true,
+      value: [{ id: 'worktree-1', path: '/managed/worktree-1' }],
+    });
+    expect(service.listManagedPaths).toHaveBeenCalledWith();
   });
 
   it('rejects a malformed create payload at the boundary', async () => {

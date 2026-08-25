@@ -58,21 +58,26 @@ function refreshGitInventoryAfterRootRegistration(bridge: ChangesBridge | null):
 const warnedUnmappedRoots = new Set<string>();
 
 type DbRootIdMap = Map<string, string>;
-type DbRootKindMap = Map<string, string>;
 
 async function refreshManagedWorktreePaths(
   bridge: ReturnType<typeof resolveWorktreesBridge>,
-  ref: RefObject<ReadonlySet<string>>
+  knownRef: RefObject<boolean>,
+  managedWorktreeCapabilityRequired: boolean,
+  pathsRef: RefObject<ReadonlySet<string>>
 ): Promise<void> {
   if (!bridge) {
+    if (!managedWorktreeCapabilityRequired) {
+      // Web has no managed-worktree capability, so the empty set is
+      // authoritative. A missing/malformed desktop bridge stays unknown.
+      knownRef.current = true;
+    }
     return;
   }
   try {
-    const listed = await bridge.list();
+    const listed = await bridge.listManagedPaths();
     if (listed.ok) {
-      ref.current = new Set(
-        listed.value.filter((entry) => entry.managed).map((entry) => entry.path)
-      );
+      pathsRef.current = new Set(listed.value.map((entry) => entry.path));
+      knownRef.current = true;
       return;
     }
     logger.warn('could not list managed worktrees; keeping the previous set', {
@@ -142,8 +147,8 @@ interface PerformRootRegistrationArgs {
   adapter: FileSystemAdapter;
   db: DbHandle | null;
   dbRootIdMap: DbRootIdMap;
-  dbRootKindMap: DbRootKindMap;
   descriptor: RootDescriptor;
+  managedWorktreePathsKnownRef: RefObject<boolean>;
   managedWorktreePathsRef: RefObject<ReadonlySet<string>>;
   publishCanonicalKind: (adapterRootId: string, kind: string) => void;
   /** Publishes the canonical adapter-rootId → DB-rootId pair to reactive state. */
@@ -154,7 +159,6 @@ interface PerformRootRegistrationArgs {
 interface ApplyBootReconciliationResultArgs {
   adapterRoots: readonly RootDescriptor[];
   dbRootIdMapRef: RefObject<DbRootIdMap>;
-  dbRootKindMapRef: RefObject<DbRootKindMap>;
   publishCanonicalKind: (adapterRootId: string, kind: string) => void;
   publishCanonicalMapping: (adapterRootId: string, dbRootId: string) => void;
   result: Awaited<ReturnType<typeof reconcileRoots>>;
@@ -163,7 +167,6 @@ interface ApplyBootReconciliationResultArgs {
 function applyBootReconciliationResult({
   adapterRoots,
   dbRootIdMapRef,
-  dbRootKindMapRef,
   publishCanonicalKind,
   publishCanonicalMapping,
   result,
@@ -179,9 +182,6 @@ function applyBootReconciliationResult({
   }
   for (const [rootKey, dbRootId] of dbRootIdMap) {
     dbRootIdMapRef.current.set(rootKey, dbRootId);
-  }
-  for (const [adapterRootId, kind] of result.dbRootKindByAdapterRootId) {
-    dbRootKindMapRef.current.set(adapterRootId, kind);
   }
   let registeredAny = false;
   for (const descriptor of adapterRoots) {
@@ -208,7 +208,7 @@ async function performRootRegistration({
   db,
   descriptor,
   dbRootIdMap,
-  dbRootKindMap,
+  managedWorktreePathsKnownRef,
   managedWorktreePathsRef,
   publishCanonicalMapping,
   publishCanonicalKind,
@@ -245,10 +245,16 @@ async function performRootRegistration({
   }
   try {
     const platformKind = adapter.platform === 'electron' ? 'path' : 'fsa';
-    await refreshManagedWorktreePaths(worktreesBridge, managedWorktreePathsRef);
+    await refreshManagedWorktreePaths(
+      worktreesBridge,
+      managedWorktreePathsKnownRef,
+      adapter.platform === 'electron',
+      managedWorktreePathsRef
+    );
     const result = await reconcileRoots({
       adapterRoots: [descriptor],
       managedWorktreePaths: managedWorktreePathsRef.current,
+      managedWorktreePathsKnown: managedWorktreePathsKnownRef.current,
       platformKind,
       query: db.query,
     });
@@ -259,7 +265,6 @@ async function performRootRegistration({
       publishCanonicalMapping(descriptor.rootId, dbRootId);
       const kind = result.dbRootKindByAdapterRootId.get(descriptor.rootId);
       if (kind !== undefined) {
-        dbRootKindMap.set(descriptor.rootId, kind);
         publishCanonicalKind(descriptor.rootId, kind);
       }
       // The root is now in the `roots` table the inventory's loadRoots() reads.
@@ -293,6 +298,7 @@ export function useRootsReconciliation({
   const hasRunRef = useRef(false);
   // Resolved ONCE per hook instance: the bridge identity is an effect input.
   const worktreesBridge = useMemo(() => resolveWorktreesBridge(), []);
+  const managedWorktreePathsKnownRef = useRef(false);
   const managedWorktreePathsRef = useRef<ReadonlySet<string>>(new Set());
 
   // Reactive snapshot of the canonical adapter-rootId → DB-rootId mapping
@@ -328,7 +334,6 @@ export function useRootsReconciliation({
   // immediately. Legacy path keys are written only as a fallback for unstamped
   // handles; canonical callers pass adapter rootId.
   const dbRootIdMapRef = useRef<DbRootIdMap>(new Map());
-  const dbRootKindMapRef = useRef<DbRootKindMap>(new Map());
 
   // Tail of the serialized mid-session registration chain. Grown synchronously
   // inside registerRoot so resolveDbRootId can await every registration that
@@ -390,8 +395,11 @@ export function useRootsReconciliation({
       // replaced by one WITH restoreRoots, the boot reconcile still runs and
       // seeds dbRootIdMapRef.
       settledWithoutRestoreRef.current = true;
-      settling.resolve(new Map());
-      publishReconciliationSettled(true);
+      const settlingWithoutRestore = settling;
+      void Promise.resolve().then(() => {
+        settlingWithoutRestore.resolve(new Map());
+        publishReconciliationSettled(true);
+      });
       return;
     }
     if (settledWithoutRestoreRef.current) {
@@ -421,17 +429,22 @@ export function useRootsReconciliation({
     void adapter
       .restoreRoots()
       .then(async (adapterRoots) => {
-        await refreshManagedWorktreePaths(worktreesBridge, managedWorktreePathsRef);
+        await refreshManagedWorktreePaths(
+          worktreesBridge,
+          managedWorktreePathsKnownRef,
+          adapter.platform === 'electron',
+          managedWorktreePathsRef
+        );
         const result = await reconcileRoots({
           adapterRoots,
           managedWorktreePaths: managedWorktreePathsRef.current,
+          managedWorktreePathsKnown: managedWorktreePathsKnownRef.current,
           platformKind,
           query: db.query,
         });
         const { dbRootIdMap, registeredAny } = applyBootReconciliationResult({
           adapterRoots,
           dbRootIdMapRef,
-          dbRootKindMapRef,
           publishCanonicalKind,
           publishCanonicalMapping,
           result,
@@ -483,8 +496,8 @@ export function useRootsReconciliation({
           adapter: adapterRef.current,
           db: dbRef.current,
           dbRootIdMap: dbRootIdMapRef.current,
-          dbRootKindMap: dbRootKindMapRef.current,
           descriptor,
+          managedWorktreePathsKnownRef,
           managedWorktreePathsRef,
           publishCanonicalKind,
           publishCanonicalMapping,

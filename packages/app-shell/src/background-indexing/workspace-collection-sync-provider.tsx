@@ -1,7 +1,6 @@
 import {
   defaultBackgroundIndexingEnabled,
   ensureBackgroundIndexingPreferencesHydrated,
-  isBackgroundIndexingRootKind,
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
@@ -1189,12 +1188,15 @@ function filterSyncTargetsByIndexingDefault(
     }
     const kind = dbRootKindByAdapterRootId.get(rootId);
     if (kind === undefined) {
-      selectedTargets.push(target);
+      logger.debug('Deferring sync target with unknown root kind pending registration', {
+        rootId,
+        rootPath: target.handle.path,
+      });
       continue;
     }
-    if (!isBackgroundIndexingRootKind(kind)) {
-      throw new Error(`Unsupported persisted root kind: ${kind}`);
-    }
+    // This deliberately throws for a future/invalid persisted kind, even from
+    // an effect or event path: NO SILENT FALLBACKS forbids guessing whether an
+    // unrecognized root should be indexed.
     if (defaultBackgroundIndexingEnabled(kind)) {
       selectedTargets.push(target);
       continue;
@@ -1473,18 +1475,13 @@ export function WorkspaceCollectionSyncProvider({
     dbRootKindByAdapterRootId,
     rootsReconciliationSettled,
   } = useRootsReconciliation({ adapter: fileSystemAdapter, db });
-  // `triggerSync` is intentionally ref-backed like the mounted-root state
-  // above: kind reconciliation can settle after render, and the long-lived
-  // callback must read the latest snapshot without being recreated.
-  const dbRootKindByAdapterRootIdRef = useRef(dbRootKindByAdapterRootId);
+  // Unlike focus-only handle changes, a genuine kind-map change MUST recreate
+  // triggerSync so the owning effect restarts a pass that deferred an unknown
+  // root while its registration was in flight.
   const excludedRootLogStateRef = useRef<ExcludedRootLogState>({
     loggedRootPaths: new Set(),
     rootSetKey,
   });
-  useEffect(() => {
-    dbRootKindByAdapterRootIdRef.current = dbRootKindByAdapterRootId;
-  }, [dbRootKindByAdapterRootId]);
-
   // Mid-session root registration (phase 5): roots added via Add Folder get
   // their DB roots row at add time, so their imports write real root_id values
   // immediately instead of NULL-until-next-boot. registerRoot awaits the boot
@@ -2149,7 +2146,7 @@ export function WorkspaceCollectionSyncProvider({
           rootIdByPath,
           scope,
         }),
-        dbRootKindByAdapterRootIdRef.current,
+        dbRootKindByAdapterRootId,
         rootsReconciliationSettled
       );
       excludedRootLogStateRef.current = logExcludedRootsOncePerRootSet({
@@ -2373,6 +2370,7 @@ export function WorkspaceCollectionSyncProvider({
     // cancel this callback while an import is active.
     [
       backgroundDb,
+      dbRootKindByAdapterRootId,
       enabled,
       hasHydrated,
       indexingPolicyPreset,

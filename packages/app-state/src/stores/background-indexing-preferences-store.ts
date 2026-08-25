@@ -28,9 +28,7 @@ export function isBackgroundIndexingRootKind(value: unknown): value is Backgroun
  * workspace-collection-sync-provider.tsx` (the sync-target filter) for the one
  * call site that consumes this.
  */
-export function defaultBackgroundIndexingEnabled(
-  rootKind: BackgroundIndexingRootKind | null
-): boolean {
+export function defaultBackgroundIndexingEnabled(rootKind: string | null): boolean {
   if (rootKind !== null && !isBackgroundIndexingRootKind(rootKind)) {
     throw new Error(`Unsupported persisted root kind: ${String(rootKind)}`);
   }

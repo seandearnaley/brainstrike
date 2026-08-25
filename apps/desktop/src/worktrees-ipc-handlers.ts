@@ -12,6 +12,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type {
   GitResult,
+  ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeArchiveResult,
   WorktreeCreateParams,
@@ -29,6 +30,7 @@ export interface WorktreesIpcHandlers {
   readonly createBranchHere: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
   readonly getSettings: () => Promise<GitResult<WorktreeSettings>>;
   readonly list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
+  readonly listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
   readonly restore: (payload: unknown) => Promise<GitResult<WorktreeCreateResult>>;
   readonly setSettings: (payload: unknown) => Promise<GitResult<WorktreeSettings>>;
 }
@@ -139,6 +141,8 @@ export function createWorktreesIpcHandlers(
       }
     },
     list: async () => await withService('worktrees:list', (service) => service.list()),
+    listManagedPaths: async () =>
+      await withService('worktrees:listManagedPaths', (service) => service.listManagedPaths()),
     restore: async () => ({
       error: 'worktrees:restore is not implemented in this build.',
       ok: false,

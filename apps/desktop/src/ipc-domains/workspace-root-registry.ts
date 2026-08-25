@@ -430,7 +430,7 @@ export class WorkspaceRootRegistry {
     try {
       const db = await this.getRootsDatabase();
       const kindRows = await db.query<{ id: string; kind: string | null }>(
-        'SELECT id, kind FROM roots WHERE id = ANY($1)',
+        'SELECT id, kind FROM roots WHERE id = ANY($1::text[])',
         [entries.map((entry) => entry.rootId)]
       );
       for (const row of kindRows.rows) {

@@ -200,11 +200,6 @@ export async function listRecentRootEntries(
 }
 
 /**
- * Authorizes a path the app itself created under its managed worktree
- * directory. Injected rather than imported so this leaf module keeps its
- * zero-dependency shape and the DB-backed ledger stays in `WorktreeService`.
- */
-/**
  * Three-state result of the managed-worktree authorizer. Only 'authorized'
  * grants; 'managed-but-unauthorized' selects the worktree-specific error COPY
  * for candidates under the managed directory (it never authorizes), and
@@ -214,6 +209,11 @@ export type ManagedWorktreeAuthorization = 'authorized' | 'managed-but-unauthori
 
 const NEVER_GRANTED_MESSAGE = 'Folder was never granted in this app; use Add Folder to grant it.';
 
+/**
+ * Authorizes a path the app itself created under its managed worktree
+ * directory. Injected rather than imported so this leaf module keeps its
+ * zero-dependency shape and the DB-backed ledger stays in `WorktreeService`.
+ */
 export type ManagedWorktreeAuthorizer = (
   candidatePath: string
 ) => Promise<ManagedWorktreeAuthorization>;

@@ -8,6 +8,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type {
   GitResult,
+  ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeArchiveResult,
   WorktreeCreateParams,
@@ -17,6 +18,7 @@ import type {
 } from '@brainstrike/types';
 
 export type {
+  ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeArchiveResult,
   WorktreeCreateParams,
@@ -42,6 +44,7 @@ export interface WorktreesBridge {
   }) => Promise<GitResult<ManagedWorktreeRow>>;
   getSettings: () => Promise<GitResult<WorktreeSettings>>;
   list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
+  listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
   restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;
   setSettings: (params: {
     managedDirectory: string | null;
@@ -57,6 +60,7 @@ const WORKTREES_BRIDGE_REQUIRED_METHOD_SET = {
   createBranchHere: true,
   getSettings: true,
   list: true,
+  listManagedPaths: true,
   restore: true,
   setSettings: true,
 } as const satisfies Record<keyof WorktreesBridge, true>;

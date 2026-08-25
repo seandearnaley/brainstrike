@@ -3,11 +3,11 @@ import type {
   FileSystemAdapter,
   GitInventory,
   GitResult,
+  ManagedWorktreePathEntry,
   RootDescriptor,
-  WorktreeListEntry,
 } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Asserting through the MOCKED logger rather than a live listener: the real
 // logger writes the warnings these tests provoke to the console (noisy output
@@ -77,35 +77,23 @@ function makeDb(): { db: DbHandle; query: ReturnType<typeof vi.fn> } {
   return { db: { query } as unknown as DbHandle, query };
 }
 
-function managedWorktreeEntry(path: string): WorktreeListEntry {
+function managedWorktreeEntry(path: string): ManagedWorktreePathEntry {
   return {
-    branch: 'feature',
-    containment: 'outside-roots',
-    detached: false,
-    disabledReason: null,
-    externalTool: null,
     id: 'worktree-ledger-id',
-    lockedReason: null,
-    managed: true,
-    name: 'bright-fox',
     path,
-    provenance: 'both',
-    remedy: null,
-    repositoryRoot: '/workspace/repo',
-    rootId: null,
-    trust: 'validated',
-    trustReason: null,
-    usable: true,
   };
 }
 
-function installWorktreesBridgeWithList(list: WorktreesBridge['list']): () => void {
+function installWorktreesBridgeWithManagedPaths(
+  listManagedPaths: WorktreesBridge['listManagedPaths']
+): () => void {
   window.worktrees = {
     archive: vi.fn(),
     create: vi.fn(),
     createBranchHere: vi.fn(),
     getSettings: vi.fn(),
-    list,
+    list: vi.fn(),
+    listManagedPaths,
     restore: vi.fn(),
     setSettings: vi.fn(),
   } satisfies WorktreesBridge;
@@ -114,10 +102,10 @@ function installWorktreesBridgeWithList(list: WorktreesBridge['list']): () => vo
   };
 }
 
-function installWorktreesBridge(entries: readonly WorktreeListEntry[]): () => void {
-  return installWorktreesBridgeWithList(
+function installWorktreesBridge(entries: readonly ManagedWorktreePathEntry[]): () => void {
+  return installWorktreesBridgeWithManagedPaths(
     vi.fn(
-      async (): Promise<GitResult<readonly WorktreeListEntry[]>> => ({
+      async (): Promise<GitResult<readonly ManagedWorktreePathEntry[]>> => ({
         ok: true,
         value: entries,
       })
@@ -129,8 +117,13 @@ describe('useRootsReconciliation', () => {
   // The mock is module-scoped, so every suite shares one spy: without this a
   // "was logged" assertion could pass on a call an earlier test made.
   beforeEach(() => {
+    installWorktreesBridge([]);
     loggerMock.error.mockClear();
     loggerMock.warn.mockClear();
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'worktrees');
   });
 
   it('no-ops when the adapter lacks restoreRoots', async () => {
@@ -197,8 +190,8 @@ describe('useRootsReconciliation', () => {
   });
 
   it('keeps boot reconciliation running when the worktree list rejects', async () => {
-    const uninstall = installWorktreesBridgeWithList(
-      vi.fn(async (): Promise<GitResult<readonly WorktreeListEntry[]>> => {
+    const uninstall = installWorktreesBridgeWithManagedPaths(
+      vi.fn(async (): Promise<GitResult<readonly ManagedWorktreePathEntry[]>> => {
         throw new Error('worktree service unavailable');
       })
     );
@@ -209,16 +202,24 @@ describe('useRootsReconciliation', () => {
         ]
       );
       const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-      const { db } = makeDb();
+      const { db, query } = makeDb();
 
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
       await waitFor(() => {
-        expect(result.current.dbRootIdByAdapterRootId.get('root-1')).toBe('root-1');
+        expect(result.current.rootsReconciliationSettled).toBe(true);
       });
+      expect(result.current.dbRootIdByAdapterRootId.get('root-1')).toBeUndefined();
+      expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT INTO roots'))).toBe(
+        false
+      );
       expect(loggerMock.warn).toHaveBeenCalledWith(
         'could not list managed worktrees; keeping the previous set',
         expect.objectContaining({ error: expect.any(Error) })
+      );
+      expect(loggerMock.warn).toHaveBeenCalledWith(
+        'Deferring new root insert: managed worktree set is unknown',
+        { rootId: 'root-1' }
       );
     } finally {
       uninstall();
@@ -226,9 +227,9 @@ describe('useRootsReconciliation', () => {
   });
 
   it('keeps boot reconciliation running when the worktree list returns ok false', async () => {
-    const uninstall = installWorktreesBridgeWithList(
+    const uninstall = installWorktreesBridgeWithManagedPaths(
       vi.fn(
-        async (): Promise<GitResult<readonly WorktreeListEntry[]>> => ({
+        async (): Promise<GitResult<readonly ManagedWorktreePathEntry[]>> => ({
           error: 'worktree service unavailable',
           ok: false,
         })
@@ -241,17 +242,96 @@ describe('useRootsReconciliation', () => {
         ]
       );
       const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
-      const { db } = makeDb();
+      const { db, query } = makeDb();
 
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
       await waitFor(() => {
-        expect(result.current.dbRootIdByAdapterRootId.get('root-1')).toBe('root-1');
+        expect(result.current.rootsReconciliationSettled).toBe(true);
       });
+      expect(result.current.dbRootIdByAdapterRootId.get('root-1')).toBeUndefined();
+      expect(query.mock.calls.some(([sql]) => (sql as string).includes('INSERT INTO roots'))).toBe(
+        false
+      );
       expect(loggerMock.warn).toHaveBeenCalledWith(
         'could not list managed worktrees; keeping the previous set',
         { error: 'worktree service unavailable' }
       );
+      expect(loggerMock.warn).toHaveBeenCalledWith(
+        'Deferring new root insert: managed worktree set is unknown',
+        { rootId: 'root-1' }
+      );
+    } finally {
+      uninstall();
+    }
+  });
+
+  it('restores an existing row to live when the first managed-path listing fails', async () => {
+    const rootPath = '/workspace/root';
+    const uninstall = installWorktreesBridgeWithManagedPaths(
+      vi.fn(async (): Promise<GitResult<readonly ManagedWorktreePathEntry[]>> => {
+        throw new Error('worktree service unavailable');
+      })
+    );
+    try {
+      const restoreRoots = vi.fn(
+        async (): Promise<RootDescriptor[]> => [
+          grantedRootWithPath('root-1', 'workspace', rootPath),
+        ]
+      );
+      const query = vi.fn(async (sql: string) => {
+        if (sql.includes('SELECT id, kind, path, status FROM roots')) {
+          return {
+            rows: [{ id: 'db-root-1', kind: 'path', path: rootPath, status: 'disconnected' }],
+          };
+        }
+        return { rows: [] };
+      });
+      const db = { query } as unknown as DbHandle;
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await waitFor(() => {
+        expect(result.current.dbRootIdByAdapterRootId.get('root-1')).toBe('db-root-1');
+      });
+      expect(query).toHaveBeenCalledWith(
+        `UPDATE roots SET status = 'live', last_verified_at = NOW() WHERE id = $1`,
+        ['db-root-1']
+      );
+    } finally {
+      uninstall();
+    }
+  });
+
+  it('inserts a deferred root with the correct kind after managed-path listing recovers', async () => {
+    const rootPath = '/managed/app/bright-fox';
+    const listManagedPaths = vi
+      .fn<WorktreesBridge['listManagedPaths']>()
+      .mockRejectedValueOnce(new Error('worktree service unavailable'))
+      .mockResolvedValueOnce({ ok: true, value: [managedWorktreeEntry(rootPath)] });
+    const uninstall = installWorktreesBridgeWithManagedPaths(listManagedPaths);
+    try {
+      const descriptor = grantedRootWithPath('root-1', 'bright-fox', rootPath);
+      const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => [descriptor]);
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+      const { db, query } = makeDb();
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await waitFor(() => {
+        expect(result.current.rootsReconciliationSettled).toBe(true);
+      });
+      expect(result.current.dbRootIdByAdapterRootId.get(descriptor.rootId)).toBeUndefined();
+
+      await act(async () => {
+        await result.current.registerRoot(descriptor);
+      });
+
+      expect(result.current.dbRootIdByAdapterRootId.get(descriptor.rootId)).toBe(descriptor.rootId);
+      const insertCall = query.mock.calls.find(([sql]) =>
+        (sql as string).includes('INSERT INTO roots')
+      );
+      expect(insertCall?.[1]?.[1]).toBe('worktree');
     } finally {
       uninstall();
     }

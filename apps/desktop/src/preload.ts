@@ -127,6 +127,7 @@ const WORKTREES_CREATE_CHANNEL = 'worktrees:create' as const;
 const WORKTREES_CREATE_BRANCH_HERE_CHANNEL = 'worktrees:createBranchHere' as const;
 const WORKTREES_GET_SETTINGS_CHANNEL = 'worktrees:getSettings' as const;
 const WORKTREES_LIST_CHANNEL = 'worktrees:list' as const;
+const WORKTREES_MANAGED_PATHS_CHANNEL = 'worktrees:managedPaths' as const;
 const WORKTREES_RESTORE_CHANNEL = 'worktrees:restore' as const;
 const WORKTREES_SET_SETTINGS_CHANNEL = 'worktrees:setSettings' as const;
 const FORGE_IDENTITY_CHANNEL = 'forge:identity' as const;
@@ -1382,6 +1383,7 @@ if (shouldExposeBridge('worktrees')) {
       ipcRenderer.invoke(WORKTREES_CREATE_BRANCH_HERE_CHANNEL, params),
     getSettings: () => ipcRenderer.invoke(WORKTREES_GET_SETTINGS_CHANNEL),
     list: () => ipcRenderer.invoke(WORKTREES_LIST_CHANNEL),
+    listManagedPaths: () => ipcRenderer.invoke(WORKTREES_MANAGED_PATHS_CHANNEL),
     restore: (params: { worktreeId: string }) =>
       ipcRenderer.invoke(WORKTREES_RESTORE_CHANNEL, params),
     setSettings: (params: {

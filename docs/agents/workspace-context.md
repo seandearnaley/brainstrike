@@ -973,7 +973,11 @@ additional explorer/status chrome):
   per-row "Set as main" → `setMainRoot`.
 - **`roots.kind = 'worktree'` (BST-1390).** A root mounted for a BrainStrike-
   managed worktree carries its own kind, set at INSERT by `reconcileRoots` from
-  the `window.worktrees.list()` path set (filtered to `managed === true`).
+  the ledger-only `window.worktrees.listManagedPaths()` path set. This boot-
+  critical read never builds git inventory or resolves workspace-root joins.
+  Until the first successful desktop ledger read, reconciliation updates
+  existing rows but defers new inserts so a transient bridge failure cannot
+  durably misclassify a managed worktree as `path`.
   `kind` is never modified on an existing row, so a worktree root registered
   before W3 keeps its old kind — visible, not silently rewritten. The DB
   column has a real CHECK constraint (migration 039, widened by migration 111
@@ -985,7 +989,10 @@ additional explorer/status chrome):
   `workspace-collection-sync-provider.tsx`) until the hash-reuse cost is
   measured against the BST-393 benchmark; there is no per-root override
   mechanism yet, so this is currently unconditional, not a default a user can
-  flip — that is a known, deliberate gap, not a bug.
+  flip — that is a known, deliberate gap, not a bug. A mounted root with a
+  durable id but no published kind is deferred from the current sync pass;
+  publishing its reactive kind map restarts the pass, so mid-session Add Folder
+  cannot race the D8 exclusion.
 - **The second (and last) sanctioned picker-less mount.** `fs:addRootByPath`
   now accepts a path authorized by EITHER the recent-roots ledger (BST-1395)
   OR the managed-worktree authorizer (BST-1390): a live `brainstrike_worktrees`

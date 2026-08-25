@@ -21,6 +21,7 @@ import { createLogger } from '@brainstrike/logging';
 import type {
   GitInventory,
   GitResult,
+  ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeCreateParams,
   WorktreeCreateResult,
@@ -379,6 +380,18 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         return await listUnserialized();
       } catch (error) {
         logger.error('worktree list failed', { error });
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
+    async listManagedPaths(): Promise<GitResult<readonly ManagedWorktreePathEntry[]>> {
+      try {
+        const rows = await ledger.listActive();
+        return {
+          ok: true,
+          value: rows.map((row) => ({ id: row.id, path: row.path })),
+        };
+      } catch (error) {
+        logger.error('managed worktree path list failed', { error });
         return { error: toErrorMessage(error), ok: false };
       }
     },
