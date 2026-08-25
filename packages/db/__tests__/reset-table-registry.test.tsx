@@ -64,10 +64,10 @@ function createRecordingQueryMock(cleared: Set<string>): QueryMock {
 }
 
 describe('reset-table registry', () => {
-  it('holds 37 unique relations and never contradicts the exclusion ledger', () => {
+  it('holds 38 unique relations and never contradicts the exclusion ledger', () => {
     const tables = getResetTables();
-    expect(tables).toHaveLength(37);
-    expect(new Set(tables).size).toBe(37);
+    expect(tables).toHaveLength(38);
+    expect(new Set(tables).size).toBe(38);
     // The Mastra six are part of the set, sourced from the canonical exports.
     for (const table of getMastraResetTables()) {
       expect(tables).toContain(table);
@@ -79,8 +79,8 @@ describe('reset-table registry', () => {
     // relations, disjoint from both other ledgers, wiped by purgeTablesTx
     // on top of the clear set.
     expect(getFactoryResetOnlyTables()).toHaveLength(6);
-    expect(getFactoryResetTables()).toHaveLength(43);
-    expect(new Set(getFactoryResetTables()).size).toBe(43);
+    expect(getFactoryResetTables()).toHaveLength(44);
+    expect(new Set(getFactoryResetTables()).size).toBe(44);
   });
 
   // Control tests: an instrument that cannot fail is not evidence. Prove BOTH

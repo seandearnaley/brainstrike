@@ -650,14 +650,17 @@ describe('useAssistantThreadGroupsStore', () => {
     const store = useAssistantThreadGroupsStore.getState();
 
     expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      hasPr: false,
       needsYou: false,
       running: false,
       unseen: false,
     });
 
+    store.setThreadFilter('hasPr', true);
     store.setThreadFilter('running', true);
     store.setThreadFilter('unseen', true);
     expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      hasPr: true,
       needsYou: false,
       running: true,
       unseen: true,
@@ -669,6 +672,7 @@ describe('useAssistantThreadGroupsStore', () => {
     store.setThreadFilter('needsYou', true);
     useAssistantThreadGroupsStore.getState().clearThreadFilters();
     expect(useAssistantThreadGroupsStore.getState().threadFilters).toEqual({
+      hasPr: false,
       needsYou: false,
       running: false,
       unseen: false,
@@ -695,6 +699,11 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(state.folderSortBy).toBe('recency');
     expect(state.groupBy).toBe('custom-groups');
     expect(state.collapsedGroupIds).toEqual({});
-    expect(state.threadFilters).toEqual({ needsYou: false, running: false, unseen: false });
+    expect(state.threadFilters).toEqual({
+      hasPr: false,
+      needsYou: false,
+      running: false,
+      unseen: false,
+    });
   });
 });

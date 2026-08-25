@@ -15,7 +15,10 @@
  */
 
 import { getNotificationPermissionState } from '@brainstrike/app-state/notifications/notification-permission';
-import { createRunNotificationDispatcher } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
+import {
+  createRunNotificationDispatcher,
+  type ForgeNotificationEvent,
+} from '@brainstrike/app-state/notifications/run-notification-dispatcher';
 import type { AssistantNotificationFocusState } from '@brainstrike/app-state/notifications/should-notify';
 import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
 import type {
@@ -25,6 +28,7 @@ import type {
 import { useMemo, useRef } from 'react';
 
 export interface AssistantRunNotificationCallbacks {
+  readonly onForgeEvent: (event: ForgeNotificationEvent) => void;
   readonly onRunFailed: (event: AssistantRunEvent) => void;
   readonly onRunFinished: (event: AssistantRunEvent) => void;
   readonly onToolApprovalRequired: (request: AssistantToolApprovalRequest) => void;
@@ -56,6 +60,9 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
 
   return useMemo<AssistantRunNotificationCallbacks>(
     () => ({
+      onForgeEvent: (event) => {
+        dispatcherRef.current.dispatch(event);
+      },
       onRunFailed: (event) => {
         // Hosted turns carry a `runId`; web local-runtime events
         // (`createLocalRunEvent`) carry only a per-event `id`. The event `id`

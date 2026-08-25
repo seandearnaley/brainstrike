@@ -85,6 +85,10 @@ const BRAINSTRIKE_RESET_TABLES = [
   // Calibration evidence survives restart, but never a true fresh start.
   'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
+  // Forge PR cache (migration 110, BST-1391). FK-less, main-written, and it
+  // names remote repositories and branch topology — a "true fresh start" must
+  // not carry it forward. It rebuilds from `gh` on the next observation.
+  'brainstrike_forge_prs',
   // Sync-the-mind op-log seam (migration 079, BST-993). Clearing the mind
   // clears its op-log: pre-sync there is no peer the ops could replay to,
   // and a reset that kept tombstones for data it just destroyed would carry
@@ -169,7 +173,7 @@ export function getMastraResetTables(): readonly MastraResetTable[] {
   ];
 }
 
-/** The full 35-relation reset set (20 Brainstrike + 9 core + the Mastra six). */
+/** The full 38-relation reset set (23 Brainstrike + 9 core + the Mastra six). */
 export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }

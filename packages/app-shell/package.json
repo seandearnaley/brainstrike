@@ -87,6 +87,10 @@
       "types": "./dist/diagnostics/index.d.ts",
       "import": "./dist/diagnostics/index.js"
     },
+    "./forge/availability": {
+      "types": "./dist/forge/availability.d.ts",
+      "import": "./dist/forge/availability.js"
+    },
     "./git-panel": {
       "types": "./dist/git-panel/index.d.ts",
       "import": "./dist/git-panel/index.js"

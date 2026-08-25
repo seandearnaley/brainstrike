@@ -97,6 +97,7 @@ describe('useThreadBranchByRootPath gating', () => {
       expect(result.current.byRootPath.get('/work/a')).toEqual({
         branch: 'main',
         detached: false,
+        gitCommonDir: '/work/a/.git',
       });
     });
     expect(inventory).toHaveBeenCalledTimes(1);

@@ -136,6 +136,13 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'memory.semantic.completed',
     'memory.working.loaded',
     'memory.working.updated',
+    // BST-1391's forge PR events. `use-forge-run-events.ts` emits these with
+    // `status: 'info' | 'completed' | 'failed'` (see `describe()`), NEVER
+    // `'running'` — a PR observation is a standalone breadcrumb appended out
+    // of band from main, not a span with a start/stop pair to close out.
+    'pr.checks',
+    'pr.merged',
+    'pr.opened',
     'run.cancelled',
     'run.failed',
     'run.finished',

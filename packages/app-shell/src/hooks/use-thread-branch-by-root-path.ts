@@ -82,6 +82,7 @@ export interface ThreadBranchInfo {
   /** `null` on a detached HEAD — never a synthesized name. */
   readonly branch: string | null;
   readonly detached: boolean;
+  readonly gitCommonDir: string;
 }
 
 export interface ThreadBranchByRootPathState {
@@ -97,6 +98,16 @@ export interface ThreadBranchByRootPathState {
   readonly byRootIdAndPath: ReadonlyMap<string, ReadonlyMap<string, ThreadBranchInfo>>;
   /** Keyed by NORMALIZED worktree path (see {@link normalizeRootPathForLookup}). */
   readonly byRootPath: ReadonlyMap<string, ThreadBranchInfo>;
+  /**
+   * True once the underlying `useGitInventory()` has resolved at least once
+   * for the CURRENT `enabled` activation — i.e. `inventory !== null` there.
+   * `available` alone answers "is the bridge present", not "has the load for
+   * THIS activation settled yet"; a caller that needs to tell "still loading"
+   * apart from "resolved, no match" (BST-1391 M2 — a forge push that arrives
+   * before the first post-activation load resolves must be buffered, not
+   * dropped as a false non-match) reads this rather than re-deriving it.
+   */
+  readonly loaded: boolean;
 }
 
 /**
@@ -138,7 +149,11 @@ function projectBranches(inventory: GitInventory): {
         // worktree does not make its root's containment ambiguous either.
         continue;
       }
-      const info: ThreadBranchInfo = { branch: worktree.branch, detached: worktree.detached };
+      const info: ThreadBranchInfo = {
+        branch: worktree.branch,
+        detached: worktree.detached,
+        gitCommonDir: repository.identity.gitCommonDir,
+      };
       const normalizedPath = normalizeRootPathForLookup(worktree.path);
       byRootPath.set(normalizedPath, info);
       if (worktree.containment !== 'outside-roots') {
@@ -183,5 +198,8 @@ export function useThreadBranchByRootPath({
     return projectBranches(inventory);
   }, [inventory]);
 
-  return { available, byRootId, byRootIdAndPath, byRootPath };
+  return { available, byRootId, byRootIdAndPath, byRootPath, loaded: inventory !== null };
 }
+
+/** Exported for the projection test — the hook itself is the only production caller. */
+export { projectBranches as projectBranchesForTest };

@@ -46,6 +46,8 @@ describe('factory reset wires the notification preferences store', () => {
     const state = useNotificationPreferencesStore.getState();
     expect(state.masterEnabled).toBe(false);
     expect(state.events).toEqual({
+      prChecks: true,
+      prOpened: true,
       runFailed: true,
       runFinished: true,
       toolApprovalRequired: true,
