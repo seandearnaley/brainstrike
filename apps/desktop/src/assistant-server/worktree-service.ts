@@ -41,6 +41,7 @@ import {
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 import {
   captureArchiveSnapshot,
+  captureMissingArchiveSnapshot,
   inspectWorktreeSafety,
   type WorktreeSafetyReport,
 } from './worktree-archive';
@@ -60,6 +61,8 @@ export interface WorktreeSetupInput {
   readonly copyMaxBytes?: number;
   readonly settings: WorktreeSettings;
   readonly sourcePath: string;
+  /** Test seam; production allows a two-second SIGTERM grace period. */
+  readonly terminationGraceMs?: number;
   /** Test seam; production uses `WORKTREE_SETUP_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
   readonly worktree: ManagedWorktreeRow;
@@ -403,12 +406,61 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return null;
   }
 
+  async function archiveMissingWorktree(
+    row: ManagedWorktreeRow
+  ): Promise<GitResult<WorktreeArchiveResult>> {
+    const snapshot = await captureMissingArchiveSnapshot({
+      cwd: row.repoCommonDir,
+      run: deps.run,
+      worktree: row,
+    });
+    if (!snapshot.ok) {
+      return snapshot;
+    }
+    // The directory is already gone, so removal cannot run. Expire the stale
+    // administrative entry immediately before making the ledger archival
+    // durable; otherwise inventory would keep rediscovering a ghost path.
+    const pruneRun = await invokeGitHookFree(invokeIn(row.repoCommonDir), [
+      'worktree',
+      'prune',
+      '--expire',
+      'now',
+    ]);
+    if (pruneRun.exitCode !== 0) {
+      return { error: describeFailure(pruneRun), ok: false };
+    }
+    try {
+      const worktree = await ledger.markArchived(row.id, snapshot.value);
+      return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
+    } catch (error) {
+      logger.error('missing worktree was pruned but its archive ledger write failed', {
+        error,
+        snapshotRef: snapshot.value,
+        worktreeId: row.id,
+      });
+      return {
+        error: `The missing worktree registration was pruned, but its archive status could not be recorded: ${toErrorMessage(
+          error
+        )}; your snapshot is at ${snapshot.value}.`,
+        ok: false,
+      };
+    }
+  }
+
   async function archiveUnserialized(
     params: WorktreeArchiveParams
   ): Promise<GitResult<WorktreeArchiveResult>> {
     const row = await ledger.get(params.worktreeId);
     if (!row || row.archivedAt !== null) {
       return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
+    }
+    try {
+      await fsPromises.stat(row.path);
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+        throw error;
+      }
+      return await archiveMissingWorktree(row);
     }
     const safety = await inspectArchiveRow(row);
     if (!safety.ok) {
@@ -466,6 +518,8 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     row: ManagedWorktreeRow,
     snapshotRef: string
   ): Promise<GitResult<null>> {
+    // Git restore defaults to --no-overlay; that is load-bearing because paths
+    // absent from the captured tree must be deleted for archive round-trips.
     const replayRun = await invokeGitHookFree(invokeIn(row.path), [
       'restore',
       `--source=${snapshotRef}`,
@@ -605,6 +659,21 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         error: `The archive snapshot "${snapshotRef}" no longer exists in this repository, so this worktree cannot be restored.`,
         ok: false,
       };
+    }
+    const verifyParentRun = await invokeGitHookFree(repositoryInvoke, [
+      'rev-parse',
+      '--verify',
+      `${snapshotRef}^`,
+    ]);
+    if (verifyParentRun.exitCode === 128) {
+      return {
+        error:
+          'This worktree was archived while missing on disk — there is nothing to restore. Create a new worktree instead.',
+        ok: false,
+      };
+    }
+    if (verifyParentRun.exitCode !== 0) {
+      return { error: describeFailure(verifyParentRun), ok: false };
     }
     const targetAvailable = await assertRestoreTargetAvailable(row.path);
     if (!targetAvailable.ok) {

@@ -29,6 +29,17 @@ import {
 
 export type GitInvoke = (args: readonly string[], timeoutMs?: number) => Promise<GitCommandRun>;
 
+const ARCHIVE_GIT_IDENTITY_ENV = {
+  ['GIT_AUTHOR_EMAIL']: 'worktree-archive@brainstrike.local',
+  ['GIT_AUTHOR_NAME']: 'BrainStrike Worktree Archive',
+  ['GIT_COMMITTER_EMAIL']: 'worktree-archive@brainstrike.local',
+  ['GIT_COMMITTER_NAME']: 'BrainStrike Worktree Archive',
+} as const;
+
+// Git's fixed SHA-1 object id for an empty tree. `commit-tree` accepts this
+// canonical object even when the repository has never materialized it before.
+const EMPTY_TREE_OID = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
 export function archiveSnapshotRef(worktreeId: string): string {
   return `refs/brainstrike/worktree-archive/${worktreeId}`;
 }
@@ -158,7 +169,10 @@ export async function captureArchiveSnapshot(input: {
   const invokeWithIndex: GitInvoke = (args, timeoutMs = GIT_DEFAULT_TIMEOUT_MS) =>
     input.run({ args, cwd: input.cwd, env, timeoutMs });
   const invokeNoIndex: GitInvoke = (args, timeoutMs = GIT_DEFAULT_TIMEOUT_MS) =>
-    input.run({ args, cwd: input.cwd, timeoutMs });
+    // `commit-tree` consults Git identity even though this is an internal
+    // plumbing commit. Supply it only for this operation: never write identity
+    // into the user's repository or global config as an archive side effect.
+    input.run({ args, cwd: input.cwd, env: ARCHIVE_GIT_IDENTITY_ENV, timeoutMs });
   try {
     const headRun = await invokeGitHookFree(invokeNoIndex, [
       'rev-parse',
@@ -218,4 +232,36 @@ export async function captureArchiveSnapshot(input: {
   } finally {
     await fsPromises.rm(indexPath, { force: true });
   }
+}
+
+/**
+ * Record the honest "nothing was capturable" snapshot for a ledger row whose
+ * worktree directory vanished. The commit is deliberately parentless so
+ * restore can distinguish this state from an ordinary archive without relying
+ * on commit-message parsing.
+ */
+export async function captureMissingArchiveSnapshot(input: {
+  readonly cwd: string;
+  readonly run: GitCommandRunner;
+  readonly worktree: ManagedWorktreeRow;
+}): Promise<GitResult<string>> {
+  const invoke: GitInvoke = (args, timeoutMs = GIT_DEFAULT_TIMEOUT_MS) =>
+    input.run({ args, cwd: input.cwd, env: ARCHIVE_GIT_IDENTITY_ENV, timeoutMs });
+  const message = JSON.stringify({
+    branch: input.worktree.branch,
+    kind: 'worktree-archive',
+    message: 'worktree was missing on disk at archive time',
+    path: input.worktree.path,
+    worktreeId: input.worktree.id,
+  });
+  const commit = await invokeGitHookFree(invoke, ['commit-tree', EMPTY_TREE_OID, '-m', message]);
+  if (commit.exitCode !== 0) {
+    return { error: describeFailure(commit), ok: false };
+  }
+  const ref = archiveSnapshotRef(input.worktree.id);
+  const update = await invokeGitHookFree(invoke, ['update-ref', ref, commit.stdout.trim()]);
+  if (update.exitCode !== 0) {
+    return { error: describeFailure(update), ok: false };
+  }
+  return { ok: true, value: ref };
 }

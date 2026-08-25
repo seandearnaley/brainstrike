@@ -1,5 +1,5 @@
-import type { WorktreeSettings } from '@brainstrike/types';
-import { Badge, Button, Input, Label } from '@brainstrike/ui';
+import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
+import { Badge, Button, Checkbox, Input, Label } from '@brainstrike/ui';
 import { type ReactElement, useState } from 'react';
 
 export type WorktreeSettingsStatus =
@@ -11,7 +11,7 @@ export type WorktreeSettingsStatus =
 export interface WorktreeSettingsSectionProps {
   readonly onSave: (next: {
     readonly managedDirectory: string | null;
-    readonly setupCommand: readonly string[] | null;
+    readonly setupCommand: WorktreeSetupCommand;
   }) => Promise<void>;
   readonly settings: WorktreeSettings | null;
   readonly status: WorktreeSettingsStatus;
@@ -61,16 +61,19 @@ function WorktreeSettingsForm({
   readonly settings: WorktreeSettings;
 }): ReactElement {
   const [directory, setDirectory] = useState(settings.managedDirectory);
-  const [command, setCommand] = useState(() => (settings.setupCommand ?? []).join(' '));
+  const [command, setCommand] = useState(() =>
+    settings.setupCommand === 'disabled' ? '' : (settings.setupCommand ?? []).join(' ')
+  );
+  const [setupDisabled, setSetupDisabled] = useState(settings.setupCommand === 'disabled');
   const [commandError, setCommandError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const save = (next: {
     readonly managedDirectory: string | null;
-    readonly setupCommand: readonly string[] | null;
+    readonly setupCommand: WorktreeSetupCommand;
   }): void => {
-    if (/["']/u.test(command)) {
+    if (next.setupCommand !== 'disabled' && /["']/u.test(command)) {
       setSaveError(null);
       setCommandError(
         'Quoting is not supported. Each whitespace-separated token becomes one argument.'
@@ -118,6 +121,7 @@ function WorktreeSettingsForm({
         <Label htmlFor="worktree-setup-command">Setup command (optional)</Label>
         <Input
           data-testid="worktree-settings-setup-command"
+          disabled={setupDisabled}
           id="worktree-setup-command"
           onChange={(event) => {
             setCommand(event.target.value);
@@ -126,6 +130,17 @@ function WorktreeSettingsForm({
           placeholder="pnpm install --frozen-lockfile"
           value={command}
         />
+        <div className="flex items-start gap-2">
+          <Checkbox
+            checked={setupDisabled}
+            data-testid="worktree-settings-disable-setup"
+            id="worktree-disable-setup"
+            onCheckedChange={(checked) => setSetupDisabled(checked === true)}
+          />
+          <Label className="font-normal text-sm" htmlFor="worktree-disable-setup">
+            Disable setup entirely; do not fall back to the repository setup script.
+          </Label>
+        </div>
         {commandError ? (
           <p
             className="text-destructive text-sm"
@@ -139,7 +154,11 @@ function WorktreeSettingsForm({
           className="text-muted-foreground text-xs"
           data-testid="worktree-settings-setup-command-preview"
         >
-          {commandParts ? `Runs as: [${commandParts.join(', ')}]` : 'No setup command will run.'}
+          {setupDisabled
+            ? 'Setup is disabled.'
+            : commandParts
+              ? `Runs as: [${commandParts.join(', ')}]`
+              : 'Uses the repository setup script when present.'}
         </p>
         <p className="text-muted-foreground text-xs">
           Runs once in each new worktree with{' '}
@@ -159,7 +178,7 @@ function WorktreeSettingsForm({
           onClick={() =>
             save({
               managedDirectory: directory.trim().length > 0 ? directory.trim() : null,
-              setupCommand: commandParts,
+              setupCommand: setupDisabled ? 'disabled' : commandParts,
             })
           }
           type="button"
@@ -171,7 +190,10 @@ function WorktreeSettingsForm({
           disabled={saving || settings.isDefaultDirectory}
           onClick={() => {
             setDirectory('');
-            save({ managedDirectory: null, setupCommand: commandParts });
+            save({
+              managedDirectory: null,
+              setupCommand: setupDisabled ? 'disabled' : commandParts,
+            });
           }}
           type="button"
           variant="outline"

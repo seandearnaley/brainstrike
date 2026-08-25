@@ -400,8 +400,12 @@ explicitly opened as a workspace root. `createUnserialized` starts with
 After creation it is the sole caller of `runSetupSafely` → `deps.runSetup` →
 `runWorktreeSetup`. Repositories surfaced only through inventory/list discovery
 have no path to setup execution. This is the Conductor / Claude Code convention:
-`.brainstrike/worktree-setup.sh` and configured `setupCommand` argv are trusted
-only at the already-granted workspace-root boundary.
+`setupCommand` is tri-state: an argv array runs that explicit command, `null`
+falls back to `.brainstrike/worktree-setup.sh` when present, and `'disabled'`
+does not run or probe any setup command. Repository scripts and configured argv
+are trusted only at the already-granted workspace-root boundary. Per-repository
+consent/trust records before first execution of a repository script are filed
+as follow-up **BST-1455** and are not implemented yet.
 
 `.worktreeinclude` copies gitignored source files into the new worktree, one
 root-relative glob pattern per non-comment line. Absolute and `..`-escaping

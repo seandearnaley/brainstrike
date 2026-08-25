@@ -1388,7 +1388,7 @@ if (shouldExposeBridge('worktrees')) {
       ipcRenderer.invoke(WORKTREES_RESTORE_CHANNEL, params),
     setSettings: (params: {
       managedDirectory: string | null;
-      setupCommand: readonly string[] | null;
+      setupCommand: readonly string[] | null | 'disabled';
     }) => ipcRenderer.invoke(WORKTREES_SET_SETTINGS_CHANNEL, params),
   });
 }

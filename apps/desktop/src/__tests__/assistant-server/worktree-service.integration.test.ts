@@ -61,6 +61,72 @@ describe('WorktreeService (real git + real PGlite)', () => {
     workspace.cleanup();
   });
 
+  it('archives a vanished worktree with an empty parentless snapshot and prunes its registration', async () => {
+    const service = buildService();
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/vanished-archive' },
+      createdBy: 'user',
+      name: 'vanished-archive',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const worktreePath = created.value.worktree.path;
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain(worktreePath);
+    rmSync(worktreePath, { force: true, recursive: true });
+
+    const archived = await service.archive({ worktreeId: created.value.worktree.id });
+
+    expect(archived.ok).toBe(true);
+    if (!archived.ok) {
+      return;
+    }
+    expect(archived.value.worktree.archivedAt).not.toBeNull();
+    expect(archived.value.worktree.archiveSnapshotRef).toBe(archived.value.snapshotRef);
+    expect(
+      git(repo, ['rev-parse', '--verify', `${archived.value.snapshotRef}^{commit}`]).trim()
+    ).toMatch(/^[0-9a-f]{40}$/u);
+    expect(git(repo, ['ls-tree', '-r', '--name-only', archived.value.snapshotRef])).toBe('');
+    expect(() => git(repo, ['rev-parse', '--verify', `${archived.value.snapshotRef}^`])).toThrow();
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(worktreePath);
+  });
+
+  it('refuses to restore an archive captured after its worktree vanished', async () => {
+    const service = buildService();
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/vanished-restore' },
+      createdBy: 'user',
+      name: 'vanished-restore',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    rmSync(created.value.worktree.path, { force: true, recursive: true });
+    const archived = await service.archive({ worktreeId: created.value.worktree.id });
+    expect(archived.ok).toBe(true);
+    if (!archived.ok) {
+      return;
+    }
+
+    await expect(service.restore({ worktreeId: created.value.worktree.id })).resolves.toEqual({
+      error:
+        'This worktree was archived while missing on disk — there is nothing to restore. Create a new worktree instead.',
+      ok: false,
+    });
+    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
+      archivedAt: expect.any(String),
+      archiveSnapshotRef: archived.value.snapshotRef,
+    });
+    expect(existsSync(created.value.worktree.path)).toBe(false);
+  });
+
   it('lists active managed paths without consulting git inventory or workspace roots', async () => {
     const commonDir = realpathSync(
       git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()

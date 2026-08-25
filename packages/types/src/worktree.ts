@@ -92,6 +92,8 @@ export interface WorktreeListEntry {
 }
 
 /** Main-owned worktree settings (Settings → Workspace). */
+export type WorktreeSetupCommand = readonly string[] | null | 'disabled';
+
 export interface WorktreeSettings {
   /**
    * True when nothing has been persisted for `managedDirectory` — the user has
@@ -103,9 +105,10 @@ export interface WorktreeSettings {
   readonly managedDirectory: string;
   /**
    * argv for the per-worktree setup command. `null` ⇒ use the repository's
-   * `.brainstrike/worktree-setup.sh` when present.
+   * `.brainstrike/worktree-setup.sh` when present; `'disabled'` ⇒ never run a
+   * setup command or probe for the repository fallback.
    */
-  readonly setupCommand: readonly string[] | null;
+  readonly setupCommand: WorktreeSetupCommand;
 }
 
 /** `{ detached: true }` [D2] or the branch to create at `baseRef`. */

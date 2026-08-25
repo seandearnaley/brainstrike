@@ -48,7 +48,7 @@ export interface WorktreesBridge {
   restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;
   setSettings: (params: {
     managedDirectory: string | null;
-    setupCommand: readonly string[] | null;
+    setupCommand: WorktreeSettings['setupCommand'];
   }) => Promise<GitResult<WorktreeSettings>>;
 }
 

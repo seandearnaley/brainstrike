@@ -34,7 +34,10 @@ vi.mock('../../assistant-server/worktree-archive', async (importOriginal) => {
 });
 
 import type { GitCommandRunner } from '../../assistant-server/git-service';
-import { inspectWorktreeSafety } from '../../assistant-server/worktree-archive';
+import {
+  captureArchiveSnapshot,
+  inspectWorktreeSafety,
+} from '../../assistant-server/worktree-archive';
 import {
   createWorktreeLedger,
   type WorktreeLedgerDatabase,
@@ -69,6 +72,59 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
   });
 
   describe('WorktreeService.archive', () => {
+    it('captures an archive commit with no repository or global Git identity configured', async () => {
+      const service = buildService();
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: 'bs/no-git-identity' },
+        createdBy: 'user',
+        name: 'no-git-identity',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      git(repo, ['config', '--unset', 'user.email']);
+      git(repo, ['config', '--unset', 'user.name']);
+      const isolatedHome = workspace.freshTempDir('bst-no-git-identity-');
+      const keys = [
+        'GIT_AUTHOR_EMAIL',
+        'GIT_AUTHOR_NAME',
+        'GIT_COMMITTER_EMAIL',
+        'GIT_COMMITTER_NAME',
+        'HOME',
+      ] as const;
+      const original = new Map(keys.map((key) => [key, process.env[key]]));
+      try {
+        process.env['HOME'] = isolatedHome;
+        for (const key of keys.slice(0, 4)) {
+          Reflect.deleteProperty(process.env, key);
+        }
+        const snapshot = await captureArchiveSnapshot({
+          cwd: created.value.worktree.path,
+          run: execFileGitRunner,
+          worktree: created.value.worktree,
+        });
+
+        expect(snapshot.ok).toBe(true);
+        if (!snapshot.ok) {
+          return;
+        }
+        expect(git(repo, ['show', '-s', '--format=%an <%ae>', snapshot.value]).trim()).toBe(
+          'BrainStrike Worktree Archive <worktree-archive@brainstrike.local>'
+        );
+      } finally {
+        for (const [key, value] of original) {
+          if (value === undefined) {
+            Reflect.deleteProperty(process.env, key);
+          } else {
+            process.env[key] = value;
+          }
+        }
+      }
+    });
+
     it('reports ignored entries without treating them as dirty blockers', async () => {
       writeFileSync(path.join(repo, '.gitignore'), 'ignored.log\n');
       git(repo, ['add', '.gitignore']);

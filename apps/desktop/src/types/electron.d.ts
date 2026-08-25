@@ -687,7 +687,7 @@ declare global {
       restore: (params: { worktreeId: string }) => Promise<GitResult<WorktreeCreateResult>>;
       setSettings: (params: {
         managedDirectory: string | null;
-        setupCommand: readonly string[] | null;
+        setupCommand: readonly string[] | null | 'disabled';
       }) => Promise<GitResult<WorktreeSettings>>;
     };
   }

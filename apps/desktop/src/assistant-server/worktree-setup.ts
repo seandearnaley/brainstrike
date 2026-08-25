@@ -21,6 +21,7 @@ const logger = createLogger('WorktreeSetup');
 export const WORKTREE_SETUP_OUTPUT_CAP_BYTES = 16_384;
 export const WORKTREE_SETUP_COMBINED_OUTPUT_CAP_BYTES = WORKTREE_SETUP_OUTPUT_CAP_BYTES * 2;
 export const WORKTREE_SETUP_TIMEOUT_MS = 300_000;
+export const WORKTREE_SETUP_TERMINATION_GRACE_MS = 2000;
 export const WORKTREE_INCLUDE_MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const WORKTREE_INCLUDE_FILE = '.worktreeinclude';
 const REPOSITORY_SETUP_SCRIPT = path.join('.brainstrike', 'worktree-setup.sh');
@@ -261,8 +262,10 @@ async function copyIncludedFiles(
     throw error;
   }
 
-  const sourceRoot = await fsPromises.realpath(sourcePath);
-  const worktreeRoot = await fsPromises.realpath(worktreePath);
+  const [sourceRoot, worktreeRoot] = await Promise.all([
+    fsPromises.realpath(sourcePath),
+    fsPromises.realpath(worktreePath),
+  ]);
   const copied: string[] = [];
   const skippedCopies: WorktreeSetupSkippedCopy[] = [];
   const budget: CopyBudget = { copiedBytes: 0, exhausted: false, maxBytes: copyMaxBytes };
@@ -301,6 +304,9 @@ interface ResolvedCommand {
 }
 
 async function resolveSetupCommand(input: WorktreeSetupInput): Promise<ResolvedCommand | null> {
+  if (input.settings.setupCommand === 'disabled') {
+    return { argv: [], reason: 'Setup is disabled in Settings → Workspace.' };
+  }
   if (input.settings.setupCommand !== null) {
     if (input.settings.setupCommand.length === 0) {
       return { argv: [], reason: 'The configured setup command is empty.' };
@@ -389,6 +395,57 @@ function resolveTimeoutMs(input: WorktreeSetupInput): number {
   return timeoutMs;
 }
 
+function resolveTerminationGraceMs(input: WorktreeSetupInput): number {
+  const graceMs = input.terminationGraceMs ?? WORKTREE_SETUP_TERMINATION_GRACE_MS;
+  if (!Number.isSafeInteger(graceMs) || graceMs <= 0) {
+    throw new Error('Worktree setup termination grace must be a positive safe integer.');
+  }
+  return graceMs;
+}
+
+const isWindows = process.platform === 'win32';
+
+/**
+ * Signal the setup shell and every descendant. POSIX setup commands run in a
+ * dedicated process group so a daemon inheriting stdout/stderr cannot outlive
+ * the timeout and keep the service mutex pending forever.
+ */
+function signalProcessTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+  if (isWindows || typeof child.pid !== 'number') {
+    child.kill(signal);
+    return;
+  }
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // The group may have raced to completion. A direct signal still covers a
+    // surviving leader and keeps the timeout's termination attempt explicit.
+    child.kill(signal);
+  }
+}
+
+function setupCommandFailureReason(input: {
+  readonly code: number | null;
+  readonly error?: Error;
+  readonly signal: NodeJS.Signals | null;
+  readonly timedOut: boolean;
+  readonly timeoutMs: number;
+}): string {
+  if (input.timedOut) {
+    return `Setup command timed out after ${input.timeoutMs / 1000}s.`;
+  }
+  if (input.error) {
+    return `Setup command failed: ${input.error.message}`;
+  }
+  if (input.code !== null) {
+    return `Setup command exited with code ${input.code}.`;
+  }
+  if (input.signal !== null) {
+    return `Setup command was terminated by signal ${input.signal}.`;
+  }
+  return 'Setup command failed without an exit code or signal.';
+}
+
 async function executeSetupCommand(
   command: ResolvedCommand,
   input: WorktreeSetupInput,
@@ -417,31 +474,48 @@ async function executeSetupCommand(
     }),
   };
   const timeoutMs = resolveTimeoutMs(input);
+  const terminationGraceMs = resolveTerminationGraceMs(input);
 
   return await new Promise<WorktreeSetupOutcome>((resolve) => {
     const stdout: StreamCapture = { chunks: [], size: 0, truncated: false };
     const stderr: StreamCapture = { chunks: [], size: 0, truncated: false };
-    let spawnError: Error | null = null;
     let timedOut = false;
-    const child = spawn(file, args, { cwd: input.worktree.path, env });
-    child.stdout.on('data', (chunk: Buffer) => appendStreamChunk(stdout, chunk));
-    child.stderr.on('data', (chunk: Buffer) => appendStreamChunk(stderr, chunk));
-    child.once('error', (error: Error) => {
-      spawnError = error;
+    let settled = false;
+    let escalationTimer: ReturnType<typeof setTimeout> | undefined;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const child = spawn(file, args, {
+      cwd: input.worktree.path,
+      detached: !isWindows,
+      env,
     });
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-    }, timeoutMs);
-    child.once('close', (code, signal) => {
+    const onStdout = (chunk: Buffer): void => appendStreamChunk(stdout, chunk);
+    const onStderr = (chunk: Buffer): void => appendStreamChunk(stderr, chunk);
+    child.stdout.on('data', onStdout);
+    child.stderr.on('data', onStderr);
+
+    const settle = (code: number | null, signal: NodeJS.Signals | null, error?: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
       clearTimeout(timeout);
+      if (escalationTimer !== undefined) {
+        clearTimeout(escalationTimer);
+      }
+      if (deadlineTimer !== undefined) {
+        clearTimeout(deadlineTimer);
+      }
+      child.stdout.off('data', onStdout);
+      child.stderr.off('data', onStderr);
+      child.stdout.destroy();
+      child.stderr.destroy();
       const { output, truncated } = capture(
         Buffer.concat(stdout.chunks),
         Buffer.concat(stderr.chunks),
         skippedCopies,
         stdout.truncated || stderr.truncated
       );
-      if (!timedOut && spawnError === null && code === 0) {
+      if (!(timedOut || error) && code === 0) {
         resolve({
           copiedPaths,
           output,
@@ -452,19 +526,37 @@ async function executeSetupCommand(
         });
         return;
       }
-      let reason: string;
-      if (timedOut) {
-        reason = `Setup command timed out after ${timeoutMs / 1000}s.`;
-      } else if (spawnError !== null) {
-        reason = `Setup command failed: ${spawnError.message}`;
-      } else if (code !== null) {
-        reason = `Setup command exited with code ${code}.`;
-      } else if (signal === null) {
-        reason = 'Setup command failed without an exit code or signal.';
-      } else {
-        reason = `Setup command was terminated by signal ${signal}.`;
-      }
+      const reason = setupCommandFailureReason({
+        code,
+        ...(error ? { error } : {}),
+        signal,
+        timedOut,
+        timeoutMs,
+      });
       resolve({ copiedPaths, output, reason, skippedCopies, status: 'failed', truncated });
+    };
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      signalProcessTree(child, 'SIGTERM');
+      escalationTimer = setTimeout(() => {
+        signalProcessTree(child, 'SIGKILL');
+      }, terminationGraceMs);
+      escalationTimer.unref?.();
+      // `close` waits for inherited stdio fds. If a descendant escaped the
+      // group or the platform never reports close, sever the streams and settle
+      // with captured-so-far output shortly after SIGKILL escalation.
+      deadlineTimer = setTimeout(() => {
+        settle(null, null);
+      }, terminationGraceMs + 500);
+      deadlineTimer.unref?.();
+    }, timeoutMs);
+    timeout.unref?.();
+    child.once('error', (error: Error) => {
+      settle(null, null, error);
+    });
+    child.once('close', (code, signal) => {
+      settle(code, signal);
     });
   });
 }

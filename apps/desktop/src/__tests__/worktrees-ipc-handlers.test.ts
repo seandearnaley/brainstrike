@@ -210,10 +210,47 @@ describe('worktrees IPC handlers', () => {
 
     const result = await ipcHandlers.setSettings({ managedDirectory: null, setupCommand: [] });
     expect(result).toEqual({
-      error: 'worktrees:setSettings setupCommand must be a non-empty string array or null.',
+      error:
+        'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
       ok: false,
     });
     expect(writeSettings).not.toHaveBeenCalled();
+  });
+
+  it('rejects a string setup state other than disabled', async () => {
+    const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve({} as never),
+      resolveService: () => service as never,
+      writeSettings,
+    });
+
+    await expect(
+      ipcHandlers.setSettings({ managedDirectory: null, setupCommand: 'enabled' })
+    ).resolves.toEqual({
+      error:
+        'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
+      ok: false,
+    });
+    expect(writeSettings).not.toHaveBeenCalled();
+  });
+
+  it('round-trips the disabled setup state through the write boundary', async () => {
+    const next = { managedDirectory: null, setupCommand: 'disabled' as const };
+    const settings = {
+      isDefaultDirectory: true,
+      managedDirectory: '/home/test/.brainstrike/worktrees',
+      setupCommand: 'disabled' as const,
+    };
+    const writeSettings = vi.fn(() => Promise.resolve(settings));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve(settings),
+      resolveService: () => service as never,
+      writeSettings,
+    });
+
+    await expect(ipcHandlers.setSettings(next)).resolves.toEqual({ ok: true, value: settings });
+    expect(writeSettings).toHaveBeenCalledWith(next);
   });
 
   it('round-trips valid settings through the write boundary', async () => {

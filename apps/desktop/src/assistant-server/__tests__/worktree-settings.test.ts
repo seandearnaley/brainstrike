@@ -49,6 +49,26 @@ describe('worktree settings', () => {
     });
   });
 
+  it('round-trips the explicit disabled setup state', async () => {
+    const storage = new MemoryStorageAdapter();
+
+    await writeWorktreeSettings(
+      storage,
+      HOME_DIRECTORY,
+      {
+        managedDirectory: null,
+        setupCommand: 'disabled',
+      },
+      NO_MOUNTED_ROOTS
+    );
+
+    await expect(readWorktreeSettings(storage, HOME_DIRECTORY)).resolves.toEqual({
+      isDefaultDirectory: true,
+      managedDirectory: DEFAULT_MANAGED_DIRECTORY,
+      setupCommand: 'disabled',
+    });
+  });
+
   it('resets a custom managed directory to the default', async () => {
     const storage = new MemoryStorageAdapter();
     await writeWorktreeSettings(
@@ -124,17 +144,19 @@ describe('worktree settings', () => {
     );
   });
 
-  it.each([{ setupCommand: [] }, { setupCommand: [''] }, { setupCommand: ['pnpm', 42] }])(
-    'throws when persisted setupCommand is invalid: $setupCommand',
-    async (persisted) => {
-      const storage = new MemoryStorageAdapter();
-      await storage.setItem(WORKTREE_SETTINGS_STORAGE_KEY, JSON.stringify(persisted));
+  it.each([
+    { setupCommand: [] },
+    { setupCommand: [''] },
+    { setupCommand: ['pnpm', 42] },
+    { setupCommand: 'run-the-repository-script' },
+  ])('throws when persisted setupCommand is invalid: $setupCommand', async (persisted) => {
+    const storage = new MemoryStorageAdapter();
+    await storage.setItem(WORKTREE_SETTINGS_STORAGE_KEY, JSON.stringify(persisted));
 
-      await expect(readWorktreeSettings(storage, HOME_DIRECTORY)).rejects.toThrow(
-        'worktreeSettings setupCommand must be a non-empty string array.'
-      );
-    }
-  );
+    await expect(readWorktreeSettings(storage, HOME_DIRECTORY)).rejects.toThrow(
+      'worktreeSettings setupCommand must be a non-empty string array, "disabled", or null.'
+    );
+  });
 
   it('refuses to persist a relative managed directory', async () => {
     const storage = new MemoryStorageAdapter();

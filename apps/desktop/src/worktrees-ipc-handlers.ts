@@ -19,6 +19,7 @@ import type {
   WorktreeCreateResult,
   WorktreeListEntry,
   WorktreeSettings,
+  WorktreeSetupCommand,
 } from '@brainstrike/types';
 import type { WorktreeService } from './assistant-server/worktree-service';
 
@@ -40,7 +41,7 @@ export interface WorktreesIpcHandlersOptions {
   readonly resolveService: () => WorktreeService | null;
   readonly writeSettings: (next: {
     readonly managedDirectory: string | null;
-    readonly setupCommand: readonly string[] | null;
+    readonly setupCommand: WorktreeSetupCommand;
   }) => Promise<WorktreeSettings>;
 }
 
@@ -228,13 +229,15 @@ export function createWorktreesIpcHandlers(
       if (
         !(
           setupCommand === null ||
+          setupCommand === 'disabled' ||
           (Array.isArray(setupCommand) &&
             setupCommand.length > 0 &&
             setupCommand.every((part) => nonEmptyString(part)))
         )
       ) {
         return {
-          error: 'worktrees:setSettings setupCommand must be a non-empty string array or null.',
+          error:
+            'worktrees:setSettings setupCommand must be a non-empty string array, "disabled", or null.',
           ok: false,
         };
       }
@@ -243,7 +246,7 @@ export function createWorktreesIpcHandlers(
           ok: true,
           value: await options.writeSettings({
             managedDirectory: managedDirectory as string | null,
-            setupCommand: setupCommand as readonly string[] | null,
+            setupCommand: setupCommand as WorktreeSetupCommand,
           }),
         };
       } catch (error) {

@@ -239,6 +239,26 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     expect(outcome.output).not.toContain('script');
   });
 
+  it('skips setup without probing a present repository script when setup is disabled', async () => {
+    mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
+    writeFileSync(
+      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
+      '#!/bin/sh\necho must-not-run\n'
+    );
+    const input = baseInput();
+
+    const outcome = await runWorktreeSetup({
+      ...input,
+      settings: { ...input.settings, setupCommand: 'disabled' },
+    });
+
+    expect(outcome).toMatchObject({
+      output: '',
+      reason: 'Setup is disabled in Settings → Workspace.',
+      status: 'skipped',
+    });
+  });
+
   it('reports an empty configured setup command as skipped', async () => {
     const input = baseInput();
     const outcome = await runWorktreeSetup({
@@ -354,6 +374,72 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     expect(outcome.reason).toContain('timed out after 0.1s');
     expect(Date.now() - startedAt).toBeLessThan(2000);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'settles at the timeout and kills a grandchild that inherited the output pipes',
+    async () => {
+      const pidPath = path.join(tempRoot, 'grandchild.pid');
+      const input = baseInput();
+      const script = [
+        "const { spawn } = require('node:child_process');",
+        "const fs = require('node:fs');",
+        "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 30_000)'], { stdio: ['ignore', 'inherit', 'inherit'] });",
+        'fs.writeFileSync(process.argv[1], String(child.pid));',
+        'child.unref();',
+      ].join(' ');
+      const startedAt = Date.now();
+
+      const outcome = await runWorktreeSetup({
+        ...input,
+        settings: {
+          ...input.settings,
+          setupCommand: [process.execPath, '-e', script, pidPath],
+        },
+        terminationGraceMs: 100,
+        timeoutMs: 150,
+      });
+
+      const grandchildPid = Number.parseInt(readFileSync(pidPath, 'utf8'), 10);
+      expect(outcome.status).toBe('failed');
+      expect(outcome.reason).toBe('Setup command timed out after 0.15s.');
+      expect(Date.now() - startedAt).toBeLessThan(1500);
+      expect(() => process.kill(grandchildPid, 0)).toThrow(
+        expect.objectContaining({ code: 'ESRCH' })
+      );
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'escalates to SIGKILL when a setup command ignores SIGTERM',
+    async () => {
+      const pidPath = path.join(tempRoot, 'term-ignoring.pid');
+      const input = baseInput();
+      const startedAt = Date.now();
+
+      const outcome = await runWorktreeSetup({
+        ...input,
+        settings: {
+          ...input.settings,
+          setupCommand: [
+            '/bin/sh',
+            '-c',
+            'trap "" TERM; echo $$ > "$1"; while :; do sleep 30; done',
+            'setup-command',
+            pidPath,
+          ],
+        },
+        terminationGraceMs: 100,
+        timeoutMs: 150,
+      });
+
+      const commandPid = Number.parseInt(readFileSync(pidPath, 'utf8'), 10);
+      expect(outcome.status).toBe('failed');
+      expect(outcome.reason).toBe('Setup command timed out after 0.15s.');
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(200);
+      expect(Date.now() - startedAt).toBeLessThan(1500);
+      expect(() => process.kill(commandPid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
+    }
+  );
 
   it('refuses entries that would exceed the total copy budget after earlier copies', async () => {
     writeFileSync(path.join(repo, 'first.bin'), '12345678');

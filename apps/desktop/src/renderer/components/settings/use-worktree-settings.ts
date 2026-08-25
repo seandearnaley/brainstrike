@@ -1,12 +1,12 @@
 import { resolveWorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
 import type { WorktreeSettingsStatus } from '@brainstrike/settings-ui/settings/system/worktree-settings-section';
-import type { WorktreeSettings } from '@brainstrike/types';
+import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export interface UseWorktreeSettingsResult {
   readonly save: (next: {
     readonly managedDirectory: string | null;
-    readonly setupCommand: readonly string[] | null;
+    readonly setupCommand: WorktreeSetupCommand;
   }) => Promise<void>;
   readonly settings: WorktreeSettings | null;
   readonly status: WorktreeSettingsStatus;
@@ -61,7 +61,7 @@ export function useWorktreeSettings(): UseWorktreeSettingsResult {
   const save = useCallback(
     async (next: {
       readonly managedDirectory: string | null;
-      readonly setupCommand: readonly string[] | null;
+      readonly setupCommand: WorktreeSetupCommand;
     }): Promise<void> => {
       if (!bridge) {
         throw new Error('Worktrees are a desktop feature. This build has no worktree bridge.');
