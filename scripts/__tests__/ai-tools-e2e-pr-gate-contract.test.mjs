@@ -28,6 +28,7 @@ const DESKTOP_SMOKE_COMMAND = [
   'e2e/assistant-panel.desktop.test.ts',
   'e2e/background-indexing-pause.desktop.test.ts',
   'e2e/file-system.test.ts',
+  'e2e/forge-pr.desktop.test.ts',
   'e2e/git-panel.desktop.test.ts',
   'e2e/local-runtime-probe.desktop.test.ts',
   'e2e/secrets-settings.test.ts',

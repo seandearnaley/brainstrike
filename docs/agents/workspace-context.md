@@ -858,6 +858,16 @@ one" comment):
   drive hooks/model cwd. Surfaced visually, never described as the
   assistant's root.
 
+**Forge identity (BST-1391) follows MAIN, never FOCUSED.** The workspace
+bar's `PrChip` and the BranchChip's forge diagnostic both resolve their
+`gh`-backed pull-request status from the MAIN root's repository (the bar's
+`primaryRoot`, `activeRootIds[0]`) — the same root that drives hooks/model
+cwd. A FOCUSED selection must never drive which repository's remote gets
+parsed or which branch's PR gets fetched, for the identical reason it must
+never drive cwd: it flips on incidental clicks, and a forge lookup silently
+following it would attribute a PR to the wrong repository the instant the
+user clicks around the tree.
+
 **Request fields** (`packages/assistant-contract/src/runtime-data.ts`): the
 wrapper attaches `mainRootId` (= adapter `activeRootIds[0]`) and `mainRootPath`
 (the descriptor's absolute path) per request. They are an ORDERING HINT for the

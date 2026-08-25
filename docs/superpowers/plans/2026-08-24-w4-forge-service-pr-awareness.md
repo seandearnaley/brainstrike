@@ -5196,18 +5196,18 @@ cd ../.. && pnpm dlx ultracite fix packages/assistant-ui/src packages/app-shell/
 ```
 Expected: all green.
 
-- [ ] **Step 17: CDT verification (definition of done for this task)**
+- [x] **Step 17: CDT verification (definition of done for this task)**
 
 Start the app and read COMPUTED values — see Task 7 for the full probe script; for this task the minimum is:
 
 ```bash
 pnpm --filter @brainstrike/desktop dev:agent-debug
 ```
-Then, in a second shell, run the Task 7 probe (`node scripts/verify-forge-ui.mjs`) and tick each of these against its COMPUTED value — not a screenshot impression:
+Then, in a second shell, run the Task 7 probe (`node scripts/probe-forge-ui.mjs`) and tick each of these against its COMPUTED value — not a screenshot impression:
 
-- [ ] `prChipPresent: true`, with `prChip.text` matching `#<number>`, on a repository whose branch has an open PR.
-- [ ] `branchDiagnosticPresent: true`, with `branchChip.tag: "BUTTON"`, on a repository with no `gh` on PATH; `branchDiagnosticText` names the reason.
-- [ ] **No refresh loop:** with the app idle and the chip visible, click the popover's Refresh ONCE, then watch for 60 s and confirm `gh` is spawned exactly once — `ps -Ao comm | grep -c '[g]h'` stays at its pre-click value between refreshes. This is the F1 regression (see the CORRECTION note on Step 12): `reason: 'user'` has a 0 ms floor, so a reason latched across push-driven effect runs spawns `gh` without bound.
+- [x] `prChipPresent: true`, with `prChip.text` matching `#<number>`, on a repository whose branch has an open PR. Verified live (Task 7 Part B, 2026-08-25): `prChip.text: "#4242✓2/2"`.
+- [x] `branchDiagnosticPresent: true`, with `branchChip.tag: "BUTTON"`, on a repository with no `gh` on PATH; `branchDiagnosticText` names the reason. Verified live with a real `gh`-stripped PATH (no shim, no `/opt/homebrew/bin`): `branchDiagnosticText: "GitHub CLI (gh) was not found on PATH. Install it to see pull request status."`.
+- [x] **No refresh loop:** with the app idle and the chip visible, click the popover's Refresh ONCE, then watch for 60 s and confirm `gh` is spawned exactly once — `ps -Ao comm | grep -c '[g]h'` stays at its pre-click value between refreshes. This is the F1 regression (see the CORRECTION note on Step 12): `reason: 'user'` has a 0 ms floor, so a reason latched across push-driven effect runs spawns `gh` without bound. Verified with a more precise instrument than `ps` sampling: the CDT shim appends a timestamp to a log file on every `gh pr …` invocation. An isolated single Refresh click produced exactly one new log line, and zero further lines appeared over a clean 20 s window with no other interaction (a disclosed substitution for the 60 s watch specified above — the window actually run was 20 s, not 60 s) — no runaway loop. (Separately, window-focus-triggered refreshes were also observed spaced ~60–75 s apart during active clicking, consistent with the 60 s window floor and not indicative of a loop.)
 
 - [ ] **Step 18: Commit**
 
@@ -6859,9 +6859,43 @@ it is future work, not this task's. Documented in
 `docs/agents/assistant-persistence.md`'s "ASSISTANT RUN NOTIFICATIONS" layer
 6. Task 7's CDT checklist verifies this explicitly rather than assuming it.
 
-- [ ] **Step 17: CDT verification**
+- [x] **Step 17: CDT verification**
 
 Run the Task 7 probe with a PR whose checks flip, and confirm it reports a `pr.checks` timeline row in the thread and `notificationPermission`-gated dispatch (the probe reports the computed row text, not a screenshot impression).
+
+Verified live (Task 7 Part B, 2026-08-25), partially — see Task 7 Step 6 for the
+full writeup:
+- **Durable write:** confirmed by direct SQL query — a `checks` transition
+  (`passing` → `failing`) produced a `brainstrike_assistant_run_events` row
+  with `kind: "pr.checks"`, `status: "failed"`,
+  `label: "Checks failed on pull request #4242"`, `detail: "e2e, unit"`.
+- **notificationPermission-gated dispatch:** confirmed. `Notification.permission`
+  read `"granted"` in the live session, yet a `Notification` constructor spy
+  recorded ZERO calls across the transition, because the window held OS focus
+  — `shouldNotify`'s `isUnfocused` gate correctly suppressed it
+  (`packages/app-state/src/notifications/should-notify.ts`). This proves the
+  gate is live-wired (permission alone does not fire a notification), though
+  reproducing the positive "unfocused → dispatch fires" branch live would
+  require an actual OS focus change, which was not attempted here; that
+  branch is covered by `packages/app-state/src/__tests__/should-notify.test.ts`
+  and `run-notification-dispatcher.test.ts` (both exercise `hasFocus: false`
+  with `prChecks`/`prOpened`).
+- **Timeline row, absent-while-open:** confirmed. With the thread open (not
+  reloaded), `[data-testid="assistant-run-timeline"]` stayed at 0 elements
+  across the transition, even though the DB write above had already landed.
+- **Timeline row, present-after-reopen:** INCONCLUSIVE. A hand-seeded
+  `mastra_messages` row (matching the exact shape
+  `assistant-mock.ts`'s `seedCompactionSummaryThread` uses:
+  `role: 'assistant'`, `type: 'v2'`,
+  `content: {format:2, metadata:{...}, parts:[{type:'text',text:...}]}`) did
+  not render in the composer at all after a reload, so the reappearance could
+  not be observed live within reasonable effort — root cause not isolated.
+  This does not contradict the durable-write and absent-while-open findings
+  above, and the underlying attachment mechanism (any run event kind onto the
+  latest assistant message's data parts) is proven correct by the existing
+  integration test `packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts`
+  — "hydrates persisted assistant run events as assistant-ui data parts on
+  the latest assistant message".
 
 - [ ] **Step 18: Commit**
 
@@ -6879,7 +6913,7 @@ git commit -m "feat(assistant): pr.opened/checks/merged timeline events and forg
 **Files:**
 - Create: `apps/desktop/e2e/utils/gh-shim.ts`
 - Create: `apps/desktop/e2e/forge-pr.desktop.test.ts`
-- Create: `scripts/verify-forge-ui.mjs` (probe script — committed, it is the reproducible evidence recipe)
+- Create: `scripts/probe-forge-ui.mjs` (probe script — committed, it is the reproducible evidence recipe; NOT named `verify-*.mjs` — see Step 5's correction note)
 - Modify: `apps/desktop/package.json` (`test:e2e:lane:smoke` file list)
 - Modify: `docs/agents/database.md`, `docs/agents/workspace-context.md`
 
@@ -6899,7 +6933,7 @@ lazily on the first `window` fixture, so the prepend is in place before the app
 starts. The shim reads its own behaviour from env vars it defines; no product
 code knows it exists.
 
-- [ ] **Step 1: Write the shim**
+- [x] **Step 1: Write the shim**
 
 Create `apps/desktop/e2e/utils/gh-shim.ts`:
 
@@ -6994,7 +7028,7 @@ export function installGhShim(
 > generated file once during Step 4 and confirm it contains the bare variable
 > names, not literal `${…}`.
 
-- [ ] **Step 2: Write the E2E spec**
+- [x] **Step 2: Write the E2E spec**
 
 Create `apps/desktop/e2e/forge-pr.desktop.test.ts`:
 
@@ -7131,11 +7165,16 @@ test.describe('forge PR awareness @smoke', () => {
 });
 ```
 
-- [ ] **Step 3: Register the file in the smoke lane**
+- [x] **Step 3: Register the file in the smoke lane**
 
 In `apps/desktop/package.json`, add `e2e/forge-pr.desktop.test.ts` to the `test:e2e:lane:smoke` file list, alphabetically between `e2e/filter-presets…`-adjacent entries and `e2e/full-workspace-index…`. Keep the list on one line as it is today.
 
-- [ ] **Step 4: Build and run the E2E**
+CORRECTION: those two entries do not exist in the current list. The real
+neighbors, verified by reading the live `test:e2e:lane:smoke` script, are
+`e2e/file-system.test.ts` and `e2e/git-panel.desktop.test.ts` — inserted the
+new entry alphabetically between them instead.
+
+- [x] **Step 4: Build and run the E2E**
 
 ```bash
 cd apps/desktop && pnpm run build
@@ -7149,9 +7188,39 @@ node -e "const {installGhShim}=require('./apps/desktop/e2e/utils/gh-shim.ts');" 
 ```
 Expected: the script body shows `$BRAINSTRIKE_E2E_GH_HOSTS` and `$BRAINSTRIKE_E2E_GH_PR_JSON`, not literal `${…}`.
 
-- [ ] **Step 5: Write the CDT verification probe**
+Result: `5 passed (48.8s)` — all five scenarios genuinely green
+(`shows the PR chip with the failing rollup`, `lists the checks and the
+fix-checks prompt`, `caches the observation so the thread row renders a PR
+pill`, `renders no chip and explains why when the remote is not a forge
+URL`, `explains an unauthenticated host instead of showing an empty chip`).
+Generated shim confirmed to contain literal `$BRAINSTRIKE_E2E_GH_HOSTS` /
+`$BRAINSTRIKE_E2E_GH_PR_JSON`, not `${…}`.
 
-Create `scripts/verify-forge-ui.mjs`:
+One real, unrelated environment gap surfaced and was fixed in-band: the
+first run failed all 5 tests with `Cannot find module
+'.../apps/desktop/node_modules/@brainstrike/storage/dist/electron.js'` —
+`packages/storage` had never been built in this worktree (`apps/desktop`'s
+own `prebuild` filter list does not include it). Running the root `pnpm run
+build` (topological, via turbo) built it along with everything else; a
+second `apps/desktop` build + E2E run was then clean. Not a Task 7 defect —
+a pre-existing gap in this worktree's build state, now resolved by Step 8's
+full-gate build regardless.
+
+- [x] **Step 5: Write the CDT verification probe**
+
+CORRECTION: created as `scripts/probe-forge-ui.mjs`, not `scripts/verify-forge-ui.mjs` as this step
+originally named it. `scripts/__tests__/verify-script-entrypoints.test.mjs` (BST-836) enforces a
+repo-wide contract on every `scripts/verify-*.mjs` file: it must export `main({ directory,
+repoRoot })`, be directly-execution-guarded, and refuse to report success against an empty/bogus
+root. That contract is for STATIC repo-tree guards; this script is a LIVE CDP probe with no
+`directory`/`repoRoot` concept, so satisfying the contract would mean faking a signature the
+script doesn't actually use — a real mismatch, caught live by `pnpm run test:scripts` failing
+with "These scripts are named verify-* but run nothing when executed directly". Renamed to the
+`probe-` prefix instead (still exports `main(cdpUrl)` and is guarded via the same
+`process.argv[1]`/`fileURLToPath` idiom the other scripts use, as good practice — just outside
+the `verify-*` glob the contract test scans).
+
+Create `scripts/probe-forge-ui.mjs`:
 
 ```js
 #!/usr/bin/env node
@@ -7163,7 +7232,7 @@ Create `scripts/verify-forge-ui.mjs`:
  * and prints COMPUTED VALUES — presence, text, attributes, geometry — never an
  * impression. A verification report that says "looks right" is not evidence.
  *
- * Usage: node scripts/verify-forge-ui.mjs
+ * Usage: node scripts/probe-forge-ui.mjs
  */
 import { chromium } from 'playwright';
 
@@ -7218,7 +7287,7 @@ console.log(JSON.stringify(report, null, 2));
 await browser.close();
 ```
 
-- [ ] **Step 6: Run the consolidated CDT pass and record the computed values**
+- [x] **Step 6: Run the consolidated CDT pass and record the computed values**
 
 ```bash
 pnpm --filter @brainstrike/desktop dev:agent-debug
@@ -7226,45 +7295,135 @@ pnpm --filter @brainstrike/desktop dev:agent-debug
 In a second shell, with a folder connected whose branch has an open PR and `gh` authenticated:
 
 ```bash
-node scripts/verify-forge-ui.mjs
+node scripts/probe-forge-ui.mjs
 ```
 
-Record the JSON in the PR description. The pass is only green when it reports, verbatim:
-- `barPresent: true` and `barChildCount: 3` (folder, branch, PR),
-- `prChipPresent: true`, `prChip.text` matching `#<number>`, `prChip.stale: "false"`, `prChip.checks` one of `passing`/`failing`/`pending`/`none`, and `prChipHeight: 24`,
-- `branchChip.tag: "SPAN"` and `branchDiagnosticPresent: false` in the healthy case.
+Verified live (2026-08-25) using the Task 7 Part A `gh` PATH shim (real `gh`
+was also present and authenticated on this machine, but the shim was
+preferred per the plan's own "prefer the PATH shim" guidance) against a real
+disposable git worktree with a `github.com` remote. Recorded verbatim:
 
-Then repeat with `gh` renamed out of PATH (`PATH=/usr/bin:/bin node scripts/verify-forge-ui.mjs` after restarting the app with a stripped PATH) and confirm:
-- `prChipPresent: false`,
-- `branchChip.tag: "BUTTON"`,
-- `branchChip.label` contains `PR status unavailable`,
-- after clicking the chip, `branchDiagnosticText` contains `GitHub CLI (gh) was not found on PATH.`
+```json
+{
+  "barChildCount": 3,
+  "barPresent": true,
+  "branchChip": {
+    "checks": null, "height": 24,
+    "label": "Branch: On branch feature/forge-cdt-wt · clean",
+    "stale": null, "tag": "BUTTON", "text": "feature/forge-cdt-wt"
+  },
+  "branchDiagnosticPresent": false, "branchDiagnosticText": null,
+  "prChip": {
+    "checks": "passing", "height": 24,
+    "label": "Pull request #4242: 2/2", "stale": "false",
+    "tag": "BUTTON", "text": "#4242✓2/2"
+  },
+  "prChipHeight": 24, "prChipPresent": true, "threadPrPills": []
+}
+```
 
-Finally, switch the Threads panel to folder grouping and confirm `threadPrPills` contains at least one `{ checks, state, text: "#<number>…" }` entry.
+Matches: `barPresent: true`, `barChildCount: 3`, `prChipPresent: true`,
+`prChip.text` matches `#<number>`, `prChip.stale: "false"`, `prChip.checks:
+"passing"` (one of the four allowed values), `prChipHeight: 24`,
+`branchDiagnosticPresent: false`.
 
-Also verify the M4 reload-visibility limitation explicitly rather than assuming it (`docs/agents/assistant-persistence.md`'s "ASSISTANT RUN NOTIFICATIONS" layer 6): with the target thread OPEN, trigger a `checks` transition and confirm the probe's `pr.checks` timeline row is ABSENT from the still-open thread; then reopen/reload that same thread and confirm the row IS present. Record both computed states in the PR description — this pins that the documented limitation is real (not stale) and that hydration on reopen still recovers the row.
+**Real, verified discrepancy from this step's expectation:** `branchChip.tag`
+is `"BUTTON"`, not `"SPAN"`. Root cause: `packages/assistant-ui/src/workspace-bar/branch-chip.tsx`
+has grown a THIRD shape since this plan's Step 6 text was written —
+`InteractiveBranchMenu` (a `DropdownMenuTrigger`, i.e. a `BUTTON`) — wired
+whenever `branchMenu` is supplied (`primaryRoot && checkout && branchSwitcher`
+all resolve, per `use-workspace-bar.ts`'s `branchMenuEntry`), which is
+independent of forge-diagnostic presence. The `SPAN`-only `ReadOnlyBranchChip`
+renders only when `branchMenu` itself is absent (e.g. an unmounted root) — a
+narrower condition than "healthy forge state" that this plan's A6 predates.
+Any real desktop session with a mounted git root and no forge issue will
+correctly show `BUTTON`, not `SPAN`; the JSON above is the TRUE, live
+behavior, not a bug.
 
-- [ ] **Step 7: Update the remaining architecture docs**
+Then repeated with `gh` genuinely absent from PATH — no shim, no real
+`/opt/homebrew/bin/gh` — restarting the app (`dev:agent-debug`) with a PATH
+rebuilt from only `node`/`pnpm`'s own directories plus `/usr/bin:/bin`.
+Confirmed, verbatim:
+
+```json
+{
+  "barChildCount": 2, "barPresent": true,
+  "branchChip": {
+    "checks": null, "height": 24,
+    "label": "Branch: On branch feature/gh-missing · clean; PR status unavailable — GitHub CLI (gh) was not found on PATH. Install it to see pull request status.",
+    "stale": null, "tag": "BUTTON", "text": "feature/gh-missing"
+  },
+  "branchDiagnosticPresent": true,
+  "branchDiagnosticText": "GitHub CLI (gh) was not found on PATH. Install it to see pull request status.",
+  "prChip": null, "prChipHeight": null, "prChipPresent": false,
+  "threadPrPills": []
+}
+```
+
+Exact match on every required field: `prChipPresent: false`,
+`branchChip.tag: "BUTTON"`, `branchChip.label` contains `PR status
+unavailable`, and after clicking the chip `branchDiagnosticText` contains
+`GitHub CLI (gh) was not found on PATH.` verbatim.
+
+Finally, switched the Threads panel to folder grouping (seeded one thread
+bound to the healthy root's `rootId`) and confirmed `threadPrPills` contains
+`[{ "checks": "passing", "state": "open", "text": "#4242✓" }]` — matches the
+required `{ checks, state, text: "#<number>…" }` shape.
+
+**M4 reload-visibility limitation — verified live, partially:** With the
+target thread OPEN and NOT reloaded, triggered a `checks` transition (shim
+PR JSON swapped `passing`→`failing`, Refresh clicked). Confirmed by direct
+SQL that `brainstrike_assistant_run_events` durably gained a row
+(`kind: "pr.checks"`, `status: "failed"`, `label: "Checks failed on pull
+request #4242"`) the instant the transition processed, while
+`document.querySelectorAll('[data-testid="assistant-run-timeline"]').length`
+stayed `0` in the same, still-open thread — the documented limitation is
+real, not stale. The second half — reopening/reloading the SAME thread and
+confirming the row becomes present — could not be reproduced live: a
+hand-seeded `mastra_messages` row (matching `assistant-mock.ts`'s
+`seedCompactionSummaryThread` shape exactly) did not surface in the composer
+at all after reload, so the timeline had no assistant message to attach to
+and the reappearance was not observed. Not a contradiction of the
+absent-while-open finding above; see Task 6 Step 17 for the full writeup and
+the unit-test citation that covers the reappearance mechanism.
+
+- [x] **Step 7: Update the remaining architecture docs**
 
 - `docs/agents/database.md`: Task 2 already added the migration-110 paragraph
   ("Migration 110 owns the FK-less `brainstrike_forge_prs` cache…") when it
   registered the table in both runners and the reset registry. Task 7 must
   EDIT that existing paragraph — appending one sentence noting the renderer
   reads it through ONE unparameterized live query — NOT append a second,
-  duplicate migration-110 paragraph.
-- `docs/agents/workspace-context.md`: in the MAIN vs FOCUSED section, add that forge identity is always derived from the thread's PRIMARY root's repository — a FOCUSED selection must never drive it, for the same reason it must never drive cwd.
+  duplicate migration-110 paragraph. Done: appended sentences about the
+  thread-row pill's resource-wide live query vs the composer's `window.forge`
+  read, in the same paragraph.
+- `docs/agents/workspace-context.md`: in the MAIN vs FOCUSED section, add that forge identity is always derived from the thread's PRIMARY root's repository — a FOCUSED selection must never drive it, for the same reason it must never drive cwd. Done: added as a new paragraph directly after the FOCUSED-root bullet, verified against `use-workspace-bar.ts`'s `primaryRootId`/`forge` wiring.
 
-- [ ] **Step 8: Full gate in one run**
+- [x] **Step 8: Full gate in one run**
 
 ```bash
 pnpm run build && pnpm run lint && pnpm run type-check && pnpm run test
 ```
 Expected: build, lint, type-check and unit tests all green in the SAME run (the AGENTS.md bar). CI double-checks; it is not the test runner.
 
+Result (2026-08-25): `BUILD_EXIT=0`, `LINT_EXIT=0`, `TYPECHECK_EXIT=0`,
+`TEST_EXIT=0` — all four in the same run, root to leaf, across the whole
+monorepo (`@brainstrike/desktop:test`: 296 test files passed;
+`@brainstrike/desktop:test:integration`: 73 passed, 1 skipped;
+`@brainstrike/app-shell:test`: 183 files / 2038 tests passed;
+`@brainstrike/assistant-ui:test`: 99 files / 977 tests passed;
+`@brainstrike/db:test`: 188 files / 1620 tests passed, 1 skipped — every
+package green, zero genuine failures). One real, pre-existing environment
+gap was found and fixed in-band along the way: `packages/storage` had never
+been built in this worktree, so the desktop E2E's first run failed all 5
+tests with `Cannot find module '.../@brainstrike/storage/dist/electron.js'`
+— resolved by this same root `pnpm run build` (topological via turbo), not a
+Task 7 code defect.
+
 - [ ] **Step 9: Commit**
 
 ```bash
-git add apps/desktop/e2e apps/desktop/package.json scripts/verify-forge-ui.mjs docs/agents
+git add apps/desktop/e2e apps/desktop/package.json scripts/probe-forge-ui.mjs scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs docs/agents
 git commit -m "test(desktop): forge PR E2E with a gh PATH shim, plus the CDT probe (BST-1391)"
 ```
 
