@@ -205,6 +205,75 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
     ]);
   });
 
+  it('mounts restored roots before reading persisted kinds from the database', async () => {
+    await storage.setItem(
+      'rootsList',
+      JSON.stringify([{ addedAt: 1, path: '/ws/ordinary', rootId: 'root-ordinary' }])
+    );
+    const order: string[] = [];
+    let resolveKindQuery!: (value: { rows: unknown[] }) => void;
+    const kindQuery = new Promise<{ rows: unknown[] }>((resolve) => {
+      resolveKindQuery = resolve;
+    });
+    const dbQuery = createRegistryDatabaseQuery();
+    dbQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, kind FROM roots WHERE id = ANY')) {
+        order.push('kind-query');
+        return await kindQuery;
+      }
+      return { rows: [] };
+    });
+    const registry = createRegistry(
+      {
+        createSecureRoot: async (rootPath) => {
+          order.push(`mount:${rootPath}`);
+          return {
+            canonicalPath: rootPath,
+            close: vi.fn(),
+            listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
+            readFile: vi.fn(async () => ({
+              content: Buffer.from('inside'),
+              status: 'ok' as const,
+            })),
+          };
+        },
+        storage,
+      },
+      dbQuery
+    );
+
+    const restoring = registry.restoreRoots();
+    await vi.waitFor(() => expect(order).toContain('kind-query'));
+    expect(order).toEqual(['mount:/ws/ordinary', 'kind-query']);
+    resolveKindQuery({ rows: [{ id: 'root-ordinary', kind: 'path' }] });
+    await restoring;
+  });
+
+  it('fails open to recording Recents when the persisted-kind query throws', async () => {
+    await storage.setItem(
+      'rootsList',
+      JSON.stringify([{ addedAt: 1, path: '/ws/ordinary', rootId: 'root-ordinary' }])
+    );
+    const dbQuery = createRegistryDatabaseQuery();
+    dbQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, kind FROM roots WHERE id = ANY')) {
+        throw new Error('database unavailable');
+      }
+      return { rows: [] };
+    });
+    const registry = createRegistry({ storage }, dbQuery);
+
+    await registry.restoreRoots();
+
+    await expect(registry.listRecentRoots()).resolves.toEqual([
+      expect.objectContaining({ path: '/ws/ordinary' }),
+    ]);
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'Could not read persisted workspace root kinds; restoring Recents as before',
+      { error: expect.any(Error) }
+    );
+  });
+
   it('restoreRoots records an absent restored entry with its stored addedAt', async () => {
     const registry = createRegistry({ storage });
     await storage.setItem(

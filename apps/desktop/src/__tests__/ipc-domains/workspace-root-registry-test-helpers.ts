@@ -1,15 +1,17 @@
 import path from 'node:path';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { vi } from 'vitest';
+import { type Mock, vi } from 'vitest';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import {
   type SecureWorkspaceRoot,
   WorkspaceRootRegistry,
 } from '../../ipc-domains/workspace-root-registry';
 
-export function createRegistryDatabaseQuery(): ReturnType<typeof vi.fn> {
-  return vi.fn(async (..._args: readonly unknown[]) => ({ rows: [] }));
+export function createRegistryDatabaseQuery(): Mock<
+  (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>
+> {
+  return vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [] }));
 }
 
 export function createStorage(initial: Record<string, string> = {}): ElectronStorageAdapter {
@@ -47,7 +49,9 @@ export function secureRoot(canonicalPath: string): SecureWorkspaceRoot {
 
 export function createRegistry(
   overrides: Partial<ConstructorParameters<typeof WorkspaceRootRegistry>[0]> = {},
-  dbQuery: ReturnType<typeof vi.fn> = createRegistryDatabaseQuery()
+  dbQuery: Mock<
+    (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>
+  > = createRegistryDatabaseQuery()
 ): WorkspaceRootRegistry {
   const db = { query: dbQuery } as unknown as WorkspaceRootsQueryable;
   return new WorkspaceRootRegistry({

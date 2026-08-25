@@ -99,24 +99,30 @@ function managedWorktreeEntry(path: string): WorktreeListEntry {
   };
 }
 
-function installWorktreesBridge(entries: readonly WorktreeListEntry[]): () => void {
+function installWorktreesBridgeWithList(list: WorktreesBridge['list']): () => void {
   window.worktrees = {
     archive: vi.fn(),
     create: vi.fn(),
     createBranchHere: vi.fn(),
     getSettings: vi.fn(),
-    list: vi.fn(
-      async (): Promise<GitResult<readonly WorktreeListEntry[]>> => ({
-        ok: true,
-        value: entries,
-      })
-    ),
+    list,
     restore: vi.fn(),
     setSettings: vi.fn(),
   } satisfies WorktreesBridge;
   return () => {
     Reflect.deleteProperty(window, 'worktrees');
   };
+}
+
+function installWorktreesBridge(entries: readonly WorktreeListEntry[]): () => void {
+  return installWorktreesBridgeWithList(
+    vi.fn(
+      async (): Promise<GitResult<readonly WorktreeListEntry[]>> => ({
+        ok: true,
+        value: entries,
+      })
+    )
+  );
 }
 
 describe('useRootsReconciliation', () => {
@@ -185,6 +191,67 @@ describe('useRootsReconciliation', () => {
         (sql as string).includes('INSERT INTO roots')
       );
       expect(insertCall?.[1]?.[1]).toBe('worktree');
+    } finally {
+      uninstall();
+    }
+  });
+
+  it('keeps boot reconciliation running when the worktree list rejects', async () => {
+    const uninstall = installWorktreesBridgeWithList(
+      vi.fn(async (): Promise<GitResult<readonly WorktreeListEntry[]>> => {
+        throw new Error('worktree service unavailable');
+      })
+    );
+    try {
+      const restoreRoots = vi.fn(
+        async (): Promise<RootDescriptor[]> => [
+          grantedRootWithPath('root-1', 'workspace', '/workspace/root'),
+        ]
+      );
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+      const { db } = makeDb();
+
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await waitFor(() => {
+        expect(result.current.dbRootIdByAdapterRootId.get('root-1')).toBe('root-1');
+      });
+      expect(loggerMock.warn).toHaveBeenCalledWith(
+        'could not list managed worktrees; keeping the previous set',
+        expect.objectContaining({ error: expect.any(Error) })
+      );
+    } finally {
+      uninstall();
+    }
+  });
+
+  it('keeps boot reconciliation running when the worktree list returns ok false', async () => {
+    const uninstall = installWorktreesBridgeWithList(
+      vi.fn(
+        async (): Promise<GitResult<readonly WorktreeListEntry[]>> => ({
+          error: 'worktree service unavailable',
+          ok: false,
+        })
+      )
+    );
+    try {
+      const restoreRoots = vi.fn(
+        async (): Promise<RootDescriptor[]> => [
+          grantedRootWithPath('root-1', 'workspace', '/workspace/root'),
+        ]
+      );
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+      const { db } = makeDb();
+
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await waitFor(() => {
+        expect(result.current.dbRootIdByAdapterRootId.get('root-1')).toBe('root-1');
+      });
+      expect(loggerMock.warn).toHaveBeenCalledWith(
+        'could not list managed worktrees; keeping the previous set',
+        { error: 'worktree service unavailable' }
+      );
     } finally {
       uninstall();
     }
@@ -312,7 +379,10 @@ describe('useRootsReconciliation', () => {
     const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
     // Even when reconciliation fails, this must resolve (not hang)
-    const resolved = await result.current.resolveDbRootId('/some/path');
+    let resolved: string | null = null;
+    await act(async () => {
+      resolved = await result.current.resolveDbRootId('/some/path');
+    });
     expect(resolved).toBeNull();
   });
 
@@ -401,7 +471,11 @@ describe('useRootsReconciliation', () => {
       const { db } = makeDb();
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
-      await result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
+      await act(async () => {
+        await result.current.registerRoot(
+          grantedRootWithPath('root-new', 'docs', '/workspace/new')
+        );
+      });
 
       await expect(result.current.resolveDbRootId('/workspace/new')).resolves.toBe('root-new');
     });
@@ -439,10 +513,14 @@ describe('useRootsReconciliation', () => {
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
       const descriptor = grantedRootWithPath('root-new', 'docs', '/workspace/new');
 
-      await result.current.registerRoot(descriptor);
+      await act(async () => {
+        await result.current.registerRoot(descriptor);
+      });
       expect(countRootInserts(query)).toBe(1);
 
-      await result.current.registerRoot(descriptor);
+      await act(async () => {
+        await result.current.registerRoot(descriptor);
+      });
       expect(countRootInserts(query)).toBe(1);
     });
 
@@ -462,8 +540,10 @@ describe('useRootsReconciliation', () => {
         permissionState: 'unknown',
       };
 
-      await result.current.registerRoot(sessionOnly);
-      await result.current.registerRoot(deadHandle);
+      await act(async () => {
+        await result.current.registerRoot(sessionOnly);
+        await result.current.registerRoot(deadHandle);
+      });
 
       expect(countRootInserts(query)).toBe(0);
       await expect(result.current.resolveDbRootId('/workspace/session')).resolves.toBeNull();
@@ -484,7 +564,9 @@ describe('useRootsReconciliation', () => {
       const { db, query } = makeDbWithRootRow(rootPath, dbId);
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
-      await result.current.registerRoot(grantedRootWithPath('other-id', 'docs', rootPath));
+      await act(async () => {
+        await result.current.registerRoot(grantedRootWithPath('other-id', 'docs', rootPath));
+      });
 
       expect(countRootInserts(query)).toBe(0);
       await expect(result.current.resolveDbRootId(rootPath)).resolves.toBe(dbId);
@@ -499,9 +581,13 @@ describe('useRootsReconciliation', () => {
       const { db } = makeDb();
       const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
 
-      void result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
+      let resolved: string | null = null;
+      await act(async () => {
+        void result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
+        resolved = await result.current.resolveDbRootId('/workspace/new');
+      });
 
-      await expect(result.current.resolveDbRootId('/workspace/new')).resolves.toBe('root-new');
+      expect(resolved).toBe('root-new');
     });
 
     // Mirrors the boot no-op: on adapters without restoreRoots the registered

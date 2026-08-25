@@ -1160,21 +1160,83 @@ function buildSyncLoopTargets(args: {
   return buildFullSyncTargets(allHandles);
 }
 
+interface SyncTargetSelection {
+  excludedRootPaths: string[];
+  targets: SyncLoopTarget[];
+}
+
+interface ExcludedRootLogState {
+  loggedRootPaths: Set<string>;
+  rootSetKey: string;
+}
+
+type PersistedBackgroundIndexingRootKind = Exclude<
+  Parameters<typeof defaultBackgroundIndexingEnabled>[0],
+  null
+>;
+
+function isPersistedBackgroundIndexingRootKind(
+  value: string
+): value is PersistedBackgroundIndexingRootKind {
+  return (
+    value === 'fsa' ||
+    value === 'legacy' ||
+    value === 'path' ||
+    value === 'snapshot' ||
+    value === 'worktree'
+  );
+}
+
 function filterSyncTargetsByIndexingDefault(
   targets: readonly SyncLoopTarget[],
-  dbRootKindByAdapterRootId: ReadonlyMap<string, string>
-): SyncLoopTarget[] {
-  return targets.filter((target) => {
+  dbRootKindByAdapterRootId: ReadonlyMap<string, string>,
+  rootsReconciliationSettled: boolean
+): SyncTargetSelection {
+  if (!rootsReconciliationSettled) {
+    return { excludedRootPaths: [], targets: [] };
+  }
+  const excludedRootPaths: string[] = [];
+  const selectedTargets: SyncLoopTarget[] = [];
+  for (const target of targets) {
     const rootId = target.handle.rootId;
     if (!rootId) {
-      return true;
+      selectedTargets.push(target);
+      continue;
     }
     const kind = dbRootKindByAdapterRootId.get(rootId);
     if (kind === undefined) {
-      return true;
+      selectedTargets.push(target);
+      continue;
     }
-    return defaultBackgroundIndexingEnabled(kind);
-  });
+    if (!isPersistedBackgroundIndexingRootKind(kind)) {
+      throw new Error(`Unsupported persisted root kind: ${kind}`);
+    }
+    if (defaultBackgroundIndexingEnabled(kind)) {
+      selectedTargets.push(target);
+      continue;
+    }
+    excludedRootPaths.push(target.handle.path);
+  }
+  return { excludedRootPaths, targets: selectedTargets };
+}
+
+function logExcludedRootsOncePerRootSet(args: {
+  excludedRootPaths: readonly string[];
+  previous: ExcludedRootLogState;
+  rootSetKey: string;
+}): ExcludedRootLogState {
+  const next =
+    args.previous.rootSetKey === args.rootSetKey
+      ? args.previous
+      : { loggedRootPaths: new Set<string>(), rootSetKey: args.rootSetKey };
+  for (const rootPath of args.excludedRootPaths) {
+    if (next.loggedRootPaths.has(rootPath)) {
+      continue;
+    }
+    next.loggedRootPaths.add(rootPath);
+    logger.info('Excluded worktree root from background indexing by default', { rootPath });
+  }
+  return next;
 }
 
 function createWaitForBackgroundPermit(
@@ -1420,12 +1482,21 @@ export function WorkspaceCollectionSyncProvider({
   // Errors are logged and swallowed — must never block boot.
   // The returned callbacks are ref-stable: identity does not change when the
   // reconciliation map resolves, so the service useMemo is not reconstructed.
-  const { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId, dbRootKindByAdapterRootId } =
-    useRootsReconciliation({ adapter: fileSystemAdapter, db });
+  const {
+    registerRoot,
+    resolveDbRootId,
+    dbRootIdByAdapterRootId,
+    dbRootKindByAdapterRootId,
+    rootsReconciliationSettled,
+  } = useRootsReconciliation({ adapter: fileSystemAdapter, db });
   // `triggerSync` is intentionally ref-backed like the mounted-root state
   // above: kind reconciliation can settle after render, and the long-lived
   // callback must read the latest snapshot without being recreated.
   const dbRootKindByAdapterRootIdRef = useRef(dbRootKindByAdapterRootId);
+  const excludedRootLogStateRef = useRef<ExcludedRootLogState>({
+    loggedRootPaths: new Set(),
+    rootSetKey,
+  });
   useEffect(() => {
     dbRootKindByAdapterRootIdRef.current = dbRootKindByAdapterRootId;
   }, [dbRootKindByAdapterRootId]);
@@ -2087,15 +2158,22 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
 
-      const targets = filterSyncTargetsByIndexingDefault(
+      const selection = filterSyncTargetsByIndexingDefault(
         buildSyncLoopTargets({
           rootDirectoryHandle,
           rootDirectoryHandles,
           rootIdByPath,
           scope,
         }),
-        dbRootKindByAdapterRootIdRef.current
+        dbRootKindByAdapterRootIdRef.current,
+        rootsReconciliationSettled
       );
+      excludedRootLogStateRef.current = logExcludedRootsOncePerRootSet({
+        excludedRootPaths: selection.excludedRootPaths,
+        previous: excludedRootLogStateRef.current,
+        rootSetKey,
+      });
+      const { targets } = selection;
       const mountedHandles = getActiveRootHandles({
         rootDirectoryHandle,
         rootDirectoryHandles,
@@ -2306,6 +2384,9 @@ export function WorkspaceCollectionSyncProvider({
           }
         });
     },
+    // BST-1268: rootSetKey deliberately replaces the focused handle, handles
+    // array, and path map identities so focus-only changes cannot recreate and
+    // cancel this callback while an import is active.
     [
       backgroundDb,
       enabled,
@@ -2317,6 +2398,7 @@ export function WorkspaceCollectionSyncProvider({
       resetSyncStatus,
       resolveDbRootId,
       rootSetKey,
+      rootsReconciliationSettled,
       service,
       setSyncStatus,
       treeRestorationSettled,
@@ -2465,6 +2547,9 @@ export function WorkspaceCollectionSyncProvider({
       disposed = true;
       unsubscribe();
     };
+    // BST-1268: rootSetKey deliberately replaces the focused handle, handles
+    // array, and path map identities so focus-only changes do not recreate this
+    // coverage subscription or fire its immediate recovery audit.
   }, [
     backgroundDb,
     enabled,

@@ -371,7 +371,7 @@ export class WorkspaceRootRegistry {
       const retainedRootIds = this.mounts.sessionMountIds();
       const retainedCanonicalPaths = new Set<string>();
       const storedSurvivors: StoredWorkspaceRoot[] = [];
-      const kindByRootId = await this.loadPersistedRootKinds(entries);
+      const recentRootCandidates: StoredWorkspaceRoot[] = [];
 
       for (const entry of entries) {
         // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
@@ -395,10 +395,7 @@ export class WorkspaceRootRegistry {
         retainedCanonicalPaths.add(pathKey(canonicalPath));
         retainedRootIds.add(entry.rootId);
         storedSurvivors.push(entry);
-        // eslint-disable-next-line react-doctor/async-await-in-loop -- ledger appends are read-modify-write on one storage key; the surrounding loop is already serial by design.
-        if (kindByRootId.get(entry.rootId) !== 'worktree') {
-          await recordRecentRootIfNew(this.storage, entry.path, entry.addedAt);
-        }
+        recentRootCandidates.push(entry);
         descriptors.push(descriptorFor(entry, 'granted'));
       }
 
@@ -409,6 +406,14 @@ export class WorkspaceRootRegistry {
       }
       if (storedSurvivors.length !== entries.length) {
         await writeStoredRoots(this.storage, storedSurvivors);
+      }
+      const kindByRootId = await this.loadPersistedRootKinds(recentRootCandidates);
+      for (const entry of recentRootCandidates) {
+        if (kindByRootId.get(entry.rootId) === 'worktree') {
+          continue;
+        }
+        // eslint-disable-next-line react-doctor/async-await-in-loop -- ledger appends are read-modify-write on one storage key and must preserve restore order.
+        await recordRecentRootIfNew(this.storage, entry.path, entry.addedAt);
       }
       await this.convergeDatabase();
       return descriptors;

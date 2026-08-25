@@ -24,6 +24,10 @@ describe('migration 111: roots worktree kind', () => {
   it('accepts worktree and keeps unknown kinds rejected', async () => {
     const migration = migrations.find((candidate) => candidate.version === 111);
     expect(migration).toBeDefined();
+    await db.query(
+      `INSERT INTO roots (id, kind, display_name, path)
+       VALUES ('root-existing-path', 'path', 'existing path', '/workspace/existing')`
+    );
     await runner.runMigration(migration!);
 
     await expect(
@@ -38,6 +42,9 @@ describe('migration 111: roots worktree kind', () => {
          VALUES ('root-unknown', 'unknown', 'unknown', '/managed/unknown')`
       )
     ).rejects.toThrow(/check constraint/i);
+    await expect(
+      db.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM roots')
+    ).resolves.toMatchObject({ rows: [{ count: 2 }] });
   });
 });
 
@@ -60,5 +67,11 @@ describe('migration 111 in the drizzle runner', () => {
          VALUES ('root-worktree-drizzle', 'worktree', 'worktree', '/managed/worktree-drizzle')`
       )
     ).resolves.toBeDefined();
+    await expect(
+      db.query(
+        `INSERT INTO roots (id, kind, display_name, path)
+         VALUES ('root-unknown-drizzle', 'unknown', 'unknown', '/managed/unknown-drizzle')`
+      )
+    ).rejects.toThrow(/check constraint/i);
   });
 });

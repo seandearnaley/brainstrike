@@ -67,14 +67,20 @@ async function refreshManagedWorktreePaths(
   if (!bridge) {
     return;
   }
-  const listed = await bridge.list();
-  if (listed.ok) {
-    ref.current = new Set(listed.value.filter((entry) => entry.managed).map((entry) => entry.path));
-    return;
+  try {
+    const listed = await bridge.list();
+    if (listed.ok) {
+      ref.current = new Set(
+        listed.value.filter((entry) => entry.managed).map((entry) => entry.path)
+      );
+      return;
+    }
+    logger.warn('could not list managed worktrees; keeping the previous set', {
+      error: listed.error,
+    });
+  } catch (error) {
+    logger.warn('could not list managed worktrees; keeping the previous set', { error });
   }
-  logger.warn('could not list managed worktrees; keeping the previous set', {
-    error: listed.error,
-  });
 }
 
 interface SettlingMapPromise {
@@ -128,6 +134,8 @@ export interface UseRootsReconciliationResult {
    * mapped (logs a warning once per identity). ALWAYS settles — never hangs.
    */
   resolveDbRootId: (rootPath: string, adapterRootId?: string | null) => Promise<string | null>;
+  /** True once the boot reconciliation promise has settled, successfully or not. */
+  rootsReconciliationSettled: boolean;
 }
 
 interface PerformRootRegistrationArgs {
@@ -297,6 +305,7 @@ export function useRootsReconciliation({
   const [dbRootKindByAdapterRootId, setDbRootKindByAdapterRootId] = useState<
     ReadonlyMap<string, string>
   >(() => new Map());
+  const [rootsReconciliationSettled, setRootsReconciliationSettled] = useState(false);
 
   // The settling promise resolves with the path→dbRootId map on success, or an
   // empty map on the already-logged error path — it NEVER rejects or hangs.
@@ -358,6 +367,9 @@ export function useRootsReconciliation({
       return next;
     });
   }, []);
+  const publishReconciliationSettled = useCallback((settled: boolean): void => {
+    setRootsReconciliationSettled(settled);
+  }, []);
 
   useEffect(() => {
     if (hasRunRef.current) {
@@ -379,6 +391,7 @@ export function useRootsReconciliation({
       // seeds dbRootIdMapRef.
       settledWithoutRestoreRef.current = true;
       settling.resolve(new Map());
+      publishReconciliationSettled(true);
       return;
     }
     if (settledWithoutRestoreRef.current) {
@@ -390,6 +403,7 @@ export function useRootsReconciliation({
       settling = createSettlingMapPromise();
       settlingRef.current = settling;
       settledWithoutRestoreRef.current = false;
+      publishReconciliationSettled(false);
     }
     if (!db) {
       // Deliberately NOT settled: db is not ready YET and the effect re-runs
@@ -430,13 +444,22 @@ export function useRootsReconciliation({
           refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
         }
         resolve(dbRootIdMap);
+        publishReconciliationSettled(true);
       })
       .catch((err: unknown) => {
         logger.error('Root reconciliation failed', { error: err });
         // Resolve with an empty map so waiters never hang.
         resolve(new Map());
+        publishReconciliationSettled(true);
       });
-  }, [adapter, db, publishCanonicalKind, publishCanonicalMapping, worktreesBridge]);
+  }, [
+    adapter,
+    db,
+    publishCanonicalKind,
+    publishCanonicalMapping,
+    publishReconciliationSettled,
+    worktreesBridge,
+  ]);
 
   // Reads the settling ref at call time (the effect may have re-keyed it when
   // a restoreRoots-capable adapter replaced an incapable one). The null case
@@ -502,5 +525,6 @@ export function useRootsReconciliation({
     dbRootKindByAdapterRootId,
     registerRoot,
     resolveDbRootId,
+    rootsReconciliationSettled,
   };
 }

@@ -33,6 +33,12 @@ describe('background-indexing-preferences-store', () => {
     expect(defaultBackgroundIndexingEnabled(kind)).toBe(expected);
   });
 
+  it('rejects an unsupported persisted root kind instead of silently enabling indexing', () => {
+    expect(() => defaultBackgroundIndexingEnabled('typo' as never)).toThrow(
+      'Unsupported persisted root kind: typo'
+    );
+  });
+
   it('initializes with workspace indexing enabled and no managed collection', () => {
     const state = useBackgroundIndexingPreferencesStore.getState();
 

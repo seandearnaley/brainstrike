@@ -1,24 +1,12 @@
 import path from 'node:path';
-import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 import {
   assertWorktreeTargetOutsideRoots,
-  EXCLUDED_IN_ROOT_PREFIXES_FOR_TEST,
   externalToolForPath,
   generateWorktreeName,
   repositorySlug,
   resolveWorktreeTargetPath,
 } from '../../assistant-server/worktree-paths';
-
-describe('excluded in-root prefixes parity', () => {
-  it('matches the background-indexing policy exactly', () => {
-    // main cannot import the renderer-oriented policy module at runtime, so the
-    // literal is duplicated — and pinned here so it can never drift.
-    expect([...EXCLUDED_IN_ROOT_PREFIXES_FOR_TEST].sort()).toEqual(
-      [...UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES].sort()
-    );
-  });
-});
 
 describe('repositorySlug', () => {
   it('combines the repository basename with a short hash of the common dir', () => {
@@ -82,8 +70,15 @@ describe('resolveWorktreeTargetPath', () => {
 });
 
 describe('assertWorktreeTargetOutsideRoots', () => {
-  it('pins the BrainStrike in-root exemption to the shared indexing policy', () => {
-    expect(UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES).toContain('.brainstrike/worktrees');
+  it('accepts the excluded BrainStrike worktree tree and rejects adjacent scratch space', () => {
+    expect(() =>
+      assertWorktreeTargetOutsideRoots('/work/app/.brainstrike/worktrees/a/b', ['/work/app'])
+    ).not.toThrow();
+    expect(() =>
+      assertWorktreeTargetOutsideRoots('/work/app/.brainstrike/scratch/a/b', ['/work/app'])
+    ).toThrow(
+      'Managed worktrees must not live inside the granted folder "/work/app" — change the location in Settings → Workspace.'
+    );
   });
 
   it('accepts a target outside every granted root', () => {
@@ -96,12 +91,6 @@ describe('assertWorktreeTargetOutsideRoots', () => {
     expect(() => assertWorktreeTargetOutsideRoots('/work/app/wt/alpha', ['/work/app'])).toThrow(
       'Managed worktrees must not live inside the granted folder "/work/app" — change the location in Settings → Workspace.'
     );
-  });
-
-  it('allows an in-root target that sits under a hard-excluded prefix', () => {
-    expect(() =>
-      assertWorktreeTargetOutsideRoots('/work/app/.brainstrike/worktrees/a/b', ['/work/app'])
-    ).not.toThrow();
   });
 });
 

@@ -5,6 +5,17 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge';
 
 export type BackgroundIndexingMode = 'root-folder-cache';
+export type BackgroundIndexingRootKind = 'fsa' | 'legacy' | 'path' | 'snapshot' | 'worktree';
+
+function isBackgroundIndexingRootKind(value: unknown): value is BackgroundIndexingRootKind {
+  return (
+    value === 'fsa' ||
+    value === 'legacy' ||
+    value === 'path' ||
+    value === 'snapshot' ||
+    value === 'worktree'
+  );
+}
 
 /**
  * [D8] A `kind: 'worktree'` root defaults to indexing OFF until the hash-reuse
@@ -17,7 +28,12 @@ export type BackgroundIndexingMode = 'root-folder-cache';
  * workspace-collection-sync-provider.tsx` (the sync-target filter) for the one
  * call site that consumes this.
  */
-export function defaultBackgroundIndexingEnabled(rootKind: string | null): boolean {
+export function defaultBackgroundIndexingEnabled(
+  rootKind: BackgroundIndexingRootKind | null
+): boolean {
+  if (rootKind !== null && !isBackgroundIndexingRootKind(rootKind)) {
+    throw new Error(`Unsupported persisted root kind: ${String(rootKind)}`);
+  }
   return rootKind !== 'worktree';
 }
 

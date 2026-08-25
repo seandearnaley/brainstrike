@@ -1032,7 +1032,9 @@ additional explorer/status chrome):
     every authorizer error. A recents-ledger grant is re-recorded; a managed
     worktree grant is not recorded into Recents at grant time, and `restoreRoots`
     now batch-reads persisted root kinds and skips `kind='worktree'` entries on
-    relaunch (BST-1390 Task 10), so that suppression is durable. Thus **the BAR** cannot
+    relaunch (BST-1390 Task 10), so that suppression survives relaunch when the
+    kind query succeeds and the row exists; it deliberately fails open to ordinary
+    Recents behavior if the kind query throws or the root row was never written. Thus **the BAR** cannot
     mount an arbitrary path: a stray or stale path string is rejected. This is
     NOT a hardening boundary against a
     compromised renderer: main-process storage is itself renderer-writable

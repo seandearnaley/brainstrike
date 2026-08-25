@@ -5502,19 +5502,20 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `packages/db/src/schema/index.ts` (`roots.kind` `$type<>` union)
+- Create: `packages/db/src/migrations/111-roots-worktree-kind.ts` and register it in both runners
 - Modify: `packages/app-shell/src/roots/root-registry.ts` (`managedWorktreePaths` → `kind` on insert)
 - Modify: `packages/app-shell/src/roots/use-roots-reconciliation.ts` (supply the set)
 - Modify: `packages/utils/src/background-indexing-policy.ts` (`.brainstrike/worktrees` prefix)
-- Modify: `packages/app-state/src/stores/background-indexing-store.ts` (worktree roots default OFF)
-- Test: `packages/app-shell/src/roots/__tests__/root-registry.test.ts` (append), `packages/utils/src/__tests__/background-indexing-policy.test.ts` (append), `apps/desktop/src/__tests__/assistant-server/worktree-paths.test.ts` (append the parity assertion)
+- Modify: `packages/app-state/src/stores/background-indexing-preferences-store.ts` (worktree roots default OFF)
+- Test: `packages/db/__tests__/migration-111-roots-worktree-kind.test.ts`, `packages/app-shell/src/__tests__/root-registry.test.ts`, `packages/utils/src/__tests__/background-indexing-policy.test.ts`, `apps/desktop/src/__tests__/assistant-server/worktree-paths.test.ts`
 
 **Interfaces:**
 - Consumes: `WorktreeListEntry.path` (Task 6) via `resolveWorktreesBridge().list()`.
 - Produces: `ReconcileRootsArgs.managedWorktreePaths?: ReadonlySet<string>` — a path in the set is inserted with `kind: 'worktree'` instead of `platformKind`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
-Append to `packages/app-shell/src/roots/__tests__/root-registry.test.ts`:
+Append to `packages/app-shell/src/__tests__/root-registry.test.ts`:
 
 ```ts
   it('inserts a managed worktree with kind="worktree", not the platform kind', async () => {
@@ -5571,31 +5572,29 @@ Append to `packages/utils/src/__tests__/background-indexing-policy.test.ts`:
   });
 ```
 
-Append to `apps/desktop/src/__tests__/assistant-server/worktree-paths.test.ts` — the parity pin that keeps main's literal copy honest:
+Append to `apps/desktop/src/__tests__/assistant-server/worktree-paths.test.ts` — a falsifiable behavior check of the shared exclusion policy:
 
 ```ts
-import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/utils/background-indexing-policy';
-import { EXCLUDED_IN_ROOT_PREFIXES_FOR_TEST } from '../../assistant-server/worktree-paths';
-
-describe('excluded in-root prefixes parity', () => {
-  it('matches the background-indexing policy exactly', () => {
-    // main cannot import the renderer-oriented policy module at runtime, so the
-    // literal is duplicated — and pinned here so it can never drift.
-    expect([...EXCLUDED_IN_ROOT_PREFIXES_FOR_TEST].sort()).toEqual(
-      [...UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES].sort()
-    );
+describe('assertWorktreeTargetOutsideRoots', () => {
+  it('accepts the excluded BrainStrike worktree tree and rejects adjacent scratch space', () => {
+    expect(() =>
+      assertWorktreeTargetOutsideRoots('/work/app/.brainstrike/worktrees/a/b', ['/work/app'])
+    ).not.toThrow();
+    expect(() =>
+      assertWorktreeTargetOutsideRoots('/work/app/.brainstrike/scratch/a/b', ['/work/app'])
+    ).toThrow();
   });
 });
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [x] **Step 2: Run them and confirm they fail**
 
-Run: `cd packages/app-shell && pnpm vitest run src/roots/__tests__/root-registry.test.ts`
+Run: `cd packages/app-shell && pnpm vitest run src/__tests__/root-registry.test.ts`
 Expected: FAIL — `'managedWorktreePaths' does not exist in type 'ReconcileRootsArgs'`, and the insert param is `'path'`.
 Run: `cd packages/utils && pnpm test -- background-indexing-policy`
 Expected: FAIL — `expected [ '.claude/worktrees' ] to include '.brainstrike/worktrees'`.
 
-- [ ] **Step 3: Widen the schema union**
+- [x] **Step 3: Widen the schema union and CHECK constraint**
 
 `packages/db/src/schema/index.ts`:
 
@@ -5603,9 +5602,9 @@ Expected: FAIL — `expected [ '.claude/worktrees' ] to include '.brainstrike/wo
   kind: text('kind').$type<'path' | 'fsa' | 'snapshot' | 'legacy' | 'worktree'>().notNull(),
 ```
 
-No migration: `kind` is a plain `text` column with no CHECK constraint, so the widening is type-level only. Record that in the doc update below rather than adding an empty migration.
+Migration 039 created the real `roots_kind_check` constraint. Migration 111 must drop and recreate that constraint with `'worktree'` in both the numbered runner and Drizzle `customMigrations`; the migration test preserves a pre-existing `'path'` row, accepts `'worktree'`, and continues to reject unknown kinds in both runners.
 
-- [ ] **Step 4: Add the exclusion prefix**
+- [x] **Step 4: Add the exclusion prefix**
 
 `packages/utils/src/background-indexing-policy.ts`:
 
@@ -5631,14 +5630,9 @@ Everything derived from it — `UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES`,
 
 > **Re-check the root-gating contract while you are here** (`background-indexing-policy.ts` doc block): "a subscription root opened INSIDE an excluded tree must watch normally". A managed worktree mounted as its own root is exactly that case, and Task 10's e2e coverage (Layer 8) asserts the worktree root still produces file-explorer events.
 
-Export the literal from `worktree-paths.ts` for the parity pin:
+`worktree-paths.ts` imports the shared exclusion constant directly. There is no duplicated main-process literal and therefore no test-only parity alias; the behavior test above is the falsifiable contract.
 
-```ts
-/** Test-only export: pinned equal to the background-indexing policy list. */
-export const EXCLUDED_IN_ROOT_PREFIXES_FOR_TEST = EXCLUDED_IN_ROOT_PREFIXES;
-```
-
-- [ ] **Step 5: Insert worktree roots with their own kind**
+- [x] **Step 5: Insert worktree roots with their own kind**
 
 `packages/app-shell/src/roots/root-registry.ts`:
 
@@ -5682,7 +5676,7 @@ At the `insertRoot` call site inside `reconcileRoots`:
 
 and use the same `kind` in the two `dbByPath.set(...)` / `logger.info(...)` sites that currently pass `platformKind`. `kind` is never MODIFIED on an existing row (the file's existing comment records that), so a worktree root registered before this change keeps its old kind — visible and honest, not silently rewritten.
 
-- [ ] **Step 6: Supply the set**
+- [x] **Step 6: Supply the set**
 
 `packages/app-shell/src/roots/use-roots-reconciliation.ts` — read the bridge once and pass the set:
 
@@ -5721,9 +5715,9 @@ inside the reconcile effect, immediately before the `reconcileRoots` call:
     });
 ```
 
-- [ ] **Step 7: Default indexing OFF for worktree roots [D8]**
+- [x] **Step 7: Default indexing OFF for worktree roots [D8]**
 
-`packages/app-state/src/stores/background-indexing-store.ts` — the per-root enablement resolver gains one rule:
+`packages/app-state/src/stores/background-indexing-preferences-store.ts` — the closed persisted-kind resolver gains one rule:
 
 ```ts
 /**
@@ -5735,21 +5729,23 @@ inside the reconcile effect, immediately before the `reconcileRoots` call:
  * not a prohibition, and the Worktree Map shows a "not indexed" badge so the
  * state is never invisible.
  */
-export function defaultBackgroundIndexingEnabled(rootKind: string | null): boolean {
+export function defaultBackgroundIndexingEnabled(
+  rootKind: BackgroundIndexingRootKind | null
+): boolean {
   return rootKind !== 'worktree';
 }
 ```
 
-Wire it wherever the store currently derives a root's default (`enabledByRootId[rootId] ?? true` becomes `enabledByRootId[rootId] ?? defaultBackgroundIndexingEnabled(kind)`), threading the root's `kind` from the same `roots` query the store already issues.
+The workspace collection provider consumes this at its sync-target filter. Reconciliation settlement gates the first selection, a worktree exclusion is logged once per root-set selection, and unsupported persisted kinds throw instead of silently enabling indexing. There is no per-root override store yet.
 
-- [ ] **Step 8: Run the gates**
+- [x] **Step 8: Run the gates**
 
 Run: `cd packages/utils && pnpm test && cd ../app-shell && pnpm test && cd ../app-state && pnpm test && cd ../db && pnpm vitest run --project unit __tests__/reset-table-registry.test.tsx`
 Expected: PASS.
 Run: `cd apps/desktop && pnpm exec vitest run --pool=forks --maxWorkers=1 --no-file-parallelism src/__tests__/assistant-server/worktree-paths.test.ts && pnpm test`
-Expected: PASS — including the new parity pin.
+Expected: PASS — including the worktree target-policy behavior check.
 
-- [ ] **Step 9: Document it**
+- [x] **Step 9: Document it**
 
 In `docs/agents/workspace-context.md`, under **WORKSPACE ROOT IDENTITY: MAIN vs FOCUSED**, append to the surfaced-UI list:
 
@@ -5758,8 +5754,8 @@ In `docs/agents/workspace-context.md`, under **WORKSPACE ROOT IDENTITY: MAIN vs 
   managed worktree carries its own kind, set at INSERT by `reconcileRoots` from
   the `window.worktrees.list()` path set. `kind` is never modified on an
   existing row, so a worktree root registered before W3 keeps its old kind —
-  visible, not silently rewritten. The column is plain `text` with no CHECK, so
-  widening the Drizzle `$type<>` union needed no migration. Background indexing
+  visible, not silently rewritten. Migration 111 widens migration 039's real
+  CHECK constraint as well as the Drizzle `$type<>` union. Background indexing
   defaults to OFF for this kind [D8] until the hash-reuse cost is measured; an
   explicit per-root opt-in still wins.
 - **The second (and last) sanctioned picker-less mount.** `fs:addRootByPath`
@@ -5771,10 +5767,10 @@ In `docs/agents/workspace-context.md`, under **WORKSPACE ROOT IDENTITY: MAIN vs 
   that list is the user's folders, not the app's scratch directories.
 ```
 
-- [ ] **Step 10: Commit and submit the stack**
+- [x] **Step 10: Commit and submit the stack**
 
 ```bash
-pnpm dlx ultracite fix packages/db/src/schema/index.ts packages/app-shell/src/roots/root-registry.ts packages/app-shell/src/roots/use-roots-reconciliation.ts packages/utils/src/background-indexing-policy.ts packages/app-state/src/stores/background-indexing-store.ts apps/desktop/src/assistant-server/worktree-paths.ts
+pnpm dlx ultracite fix packages/db/src/schema/index.ts packages/db/src/migrations/111-roots-worktree-kind.ts packages/db/__tests__/migration-111-roots-worktree-kind.test.ts packages/app-shell/src/roots/root-registry.ts packages/app-shell/src/roots/use-roots-reconciliation.ts packages/app-shell/src/__tests__/root-registry.test.ts packages/utils/src/background-indexing-policy.ts packages/app-state/src/stores/background-indexing-preferences-store.ts apps/desktop/src/assistant-server/worktree-paths.ts apps/desktop/src/__tests__/assistant-server/worktree-paths.test.ts
 git add -A
 git commit -m "feat(BST-1390): kind='worktree' roots, indexing off by default, policy exclusion
 

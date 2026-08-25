@@ -16,7 +16,7 @@ import {
 } from './workspace-root-registry-test-helpers';
 
 describe('WorkspaceRootRegistry', () => {
-  let dbQuery: ReturnType<typeof vi.fn>;
+  let dbQuery: ReturnType<typeof createRegistryDatabaseQuery>;
   let storage: ElectronStorageAdapter;
 
   beforeEach(() => {

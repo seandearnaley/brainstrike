@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { EmbeddingSet } from '@brainstrike/db';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { FILE_EXPLORER_REFRESH_EVENT } from '@brainstrike/file-explorer-ui/shell';
 import type {
   WorkspaceIndexingQosInputs,
   WorkspaceIndexingQosPolicy,
@@ -72,6 +73,7 @@ const {
   enqueueBackfillMock,
   cancelBackfillMock,
   dbRootKindState,
+  rootsReconciliationSettledState,
   dbState,
   vectorQueueServiceState,
   fileSystemState,
@@ -277,6 +279,9 @@ const {
   // integration tests that assert the full sync runs.
   resolveDbRootIdMock: vi.fn(async (_rootPath: string): Promise<string | null> => 'db-root-id'),
   resolveWorkspaceIndexingQosPolicyMock: vi.fn(),
+  rootsReconciliationSettledState: {
+    current: true,
+  },
   runEnhancedImportMock: vi.fn(),
   updateMock: vi.fn(),
   validateApiKeyForSetMock: vi.fn(),
@@ -449,6 +454,7 @@ vi.mock('../../roots/use-roots-reconciliation', () => ({
     dbRootKindByAdapterRootId: dbRootKindState.current,
     registerRoot: registerRootMock,
     resolveDbRootId: resolveDbRootIdMock,
+    rootsReconciliationSettled: rootsReconciliationSettledState.current,
   }),
 }));
 
@@ -538,6 +544,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     ];
     fileSystemState.rootIdByPath = new Map<string, string>([['/workspace/root', 'root-id-1']]);
     dbRootKindState.current = new Map();
+    rootsReconciliationSettledState.current = true;
     fileTreeContextState.current = {
       isLoading: false,
       isRestorationSettled: true,
@@ -3067,6 +3074,16 @@ describe('WorkspaceCollectionSyncProvider', () => {
     const syncSpy = vi
       .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
       .mockResolvedValue(undefined);
+    setLogLevel(LogLevel.INFO);
+    const exclusionLogs: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (
+        record.scope === 'WorkspaceCollectionSyncProvider' &&
+        record.message === 'Excluded worktree root from background indexing by default'
+      ) {
+        exclusionLogs.push(record);
+      }
+    });
 
     try {
       render(
@@ -3074,6 +3091,70 @@ describe('WorkspaceCollectionSyncProvider', () => {
           <div data-testid="child" />
         </WorkspaceCollectionSyncProvider>
       );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+      expect(syncSpy.mock.calls[0]?.[0].rootDirectoryHandle).toMatchObject({
+        path: pathRoot.path,
+        rootId: pathRoot.rootId,
+      });
+      expect(exclusionLogs).toHaveLength(1);
+      expect(exclusionLogs[0]?.args).toContainEqual({ rootPath: worktreeRoot.path });
+
+      window.dispatchEvent(new Event(FILE_EXPLORER_REFRESH_EVENT));
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      expect(exclusionLogs).toHaveLength(1);
+    } finally {
+      removeListener();
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('defers all roots until asynchronously populated kinds settle, then indexes only a normal root', async () => {
+    const worktreeRoot = {
+      kind: 'directory',
+      name: 'worktree',
+      path: '/managed/app/bright-fox',
+      platform: 'electron',
+      rootId: 'worktree-root-id',
+    };
+    const pathRoot = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+      rootId: 'path-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = worktreeRoot;
+    fileSystemState.rootDirectoryHandles = [worktreeRoot, pathRoot];
+    fileSystemState.rootIdByPath = new Map([
+      [worktreeRoot.path, worktreeRoot.rootId],
+      [pathRoot.path, pathRoot.rootId],
+    ]);
+    dbRootKindState.current = new Map();
+    rootsReconciliationSettledState.current = false;
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      const renderProvider = () => (
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      const { rerender } = render(renderProvider());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(syncSpy).not.toHaveBeenCalled();
+
+      dbRootKindState.current = new Map([
+        [worktreeRoot.rootId, 'worktree'],
+        [pathRoot.rootId, 'path'],
+      ]);
+      rootsReconciliationSettledState.current = true;
+      rerender(renderProvider());
 
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
       expect(syncSpy.mock.calls[0]?.[0].rootDirectoryHandle).toMatchObject({
