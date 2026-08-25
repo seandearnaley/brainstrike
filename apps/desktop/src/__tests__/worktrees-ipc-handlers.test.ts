@@ -25,16 +25,15 @@ beforeEach(() => {
 });
 
 describe('worktrees IPC handlers', () => {
-  it.each([
-    ['archive', 'worktrees:archive'],
-    ['createBranchHere', 'worktrees:createBranchHere'],
-    ['restore', 'worktrees:restore'],
-  ] as const)('%s returns its typed not-implemented failure', async (method, channel) => {
-    expect(await handlers()[method]({})).toEqual({
-      error: `${channel} is not implemented in this build.`,
-      ok: false,
-    });
-  });
+  it.each([['restore', 'worktrees:restore']] as const)(
+    '%s returns its typed not-implemented failure',
+    async (method, channel) => {
+      expect(await handlers()[method]({})).toEqual({
+        error: `${channel} is not implemented in this build.`,
+        ok: false,
+      });
+    }
+  );
 
   it('reports an absent service as a typed failure, never an empty list', async () => {
     const withoutService = createWorktreesIpcHandlers({
@@ -96,6 +95,36 @@ describe('worktrees IPC handlers', () => {
     };
     await handlers().create(params);
     expect(service.create).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed archive payload at the boundary', async () => {
+    expect(await handlers().archive({ worktreeId: 42 })).toEqual({
+      error: 'worktrees:archive requires { worktreeId }.',
+      ok: false,
+    });
+    expect(service.archive).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated archive to the service', async () => {
+    service.archive.mockResolvedValue({ ok: true, value: { snapshotRef: 'ref', worktree: null } });
+    const params = { force: true, runId: 'run-1', worktreeId: 'wt-1' };
+    await handlers().archive(params);
+    expect(service.archive).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed createBranchHere payload at the boundary', async () => {
+    expect(await handlers().createBranchHere({ branch: 42, worktreeId: 'wt-1' })).toEqual({
+      error: 'worktrees:createBranchHere requires { branch, worktreeId }.',
+      ok: false,
+    });
+    expect(service.createBranchHere).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated createBranchHere to the service', async () => {
+    service.createBranchHere.mockResolvedValue({ ok: true, value: null });
+    const params = { branch: 'bs/attached', worktreeId: 'wt-1' };
+    await handlers().createBranchHere(params);
+    expect(service.createBranchHere).toHaveBeenCalledWith(params);
   });
 
   it('never lets a thrown service error cross the IPC boundary', async () => {

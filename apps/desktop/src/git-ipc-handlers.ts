@@ -145,12 +145,13 @@ export const execFileGitRunner: GitCommandRunner = ({
   args,
   binaryStdout,
   cwd,
+  env: envOverride,
   signal,
   timeoutMs,
 }) => {
   // Discourage interactive credential prompts that would hang a push/pull in a
   // headless main process; surface an auth error instead of blocking.
-  const env = createPinnedGitEnvironment(process.env);
+  const env = { ...createPinnedGitEnvironment(process.env), ...envOverride };
 
   if (binaryStdout) {
     return new Promise<GitCommandRun>((resolve) => {

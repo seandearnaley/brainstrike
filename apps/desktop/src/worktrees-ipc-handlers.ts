@@ -94,6 +94,43 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
   };
 }
 
+function validateArchive(payload: unknown): GitResult<{
+  readonly force?: boolean;
+  readonly runId?: string;
+  readonly worktreeId: string;
+}> {
+  if (!(isRecord(payload) && nonEmptyString(payload['worktreeId']))) {
+    return { error: 'worktrees:archive requires { worktreeId }.', ok: false };
+  }
+  if (payload['force'] !== undefined && typeof payload['force'] !== 'boolean') {
+    return { error: 'worktrees:archive force must be a boolean when present.', ok: false };
+  }
+  return {
+    ok: true,
+    value: {
+      worktreeId: payload['worktreeId'],
+      ...(typeof payload['force'] === 'boolean' ? { force: payload['force'] } : {}),
+      ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
+    },
+  };
+}
+
+function validateCreateBranchHere(payload: unknown): GitResult<{
+  readonly branch: string;
+  readonly worktreeId: string;
+}> {
+  if (
+    !(
+      isRecord(payload) &&
+      nonEmptyString(payload['branch']) &&
+      nonEmptyString(payload['worktreeId'])
+    )
+  ) {
+    return { error: 'worktrees:createBranchHere requires { branch, worktreeId }.', ok: false };
+  }
+  return { ok: true, value: { branch: payload['branch'], worktreeId: payload['worktreeId'] } };
+}
+
 export function createWorktreesIpcHandlers(
   options: WorktreesIpcHandlersOptions
 ): WorktreesIpcHandlers {
@@ -118,10 +155,13 @@ export function createWorktreesIpcHandlers(
   }
 
   return {
-    archive: async () => ({
-      error: 'worktrees:archive is not implemented in this build.',
-      ok: false,
-    }),
+    archive: async (payload) => {
+      const params = validateArchive(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:archive', (service) => service.archive(params.value));
+    },
     create: async (payload) => {
       const params = validateCreate(payload);
       if (!params.ok) {
@@ -129,10 +169,15 @@ export function createWorktreesIpcHandlers(
       }
       return await withService('worktrees:create', (service) => service.create(params.value));
     },
-    createBranchHere: async () => ({
-      error: 'worktrees:createBranchHere is not implemented in this build.',
-      ok: false,
-    }),
+    createBranchHere: async (payload) => {
+      const params = validateCreateBranchHere(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:createBranchHere', (service) =>
+        service.createBranchHere(params.value)
+      );
+    },
     getSettings: async () => {
       try {
         return { ok: true, value: await options.readSettings() };

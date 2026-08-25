@@ -3,17 +3,7 @@
  * add` actually runs and the ledger actually persists — a mocked runner would
  * prove only that the arguments were assembled.
  */
-import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
@@ -41,85 +31,34 @@ import {
   type WorktreeLedgerDatabase,
 } from '../../assistant-server/worktree-ledger';
 import { repositorySlug } from '../../assistant-server/worktree-paths';
-import { createWorktreeService } from '../../assistant-server/worktree-service';
-import { execFileGitRunner } from '../../git-ipc-handlers';
-
-const tempDirs: string[] = [];
-
-function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' });
-}
-
-function freshRepo(label: string): string {
-  const dir = mkdtempSync(path.join(tmpdir(), `bst-wt-${label}-`));
-  tempDirs.push(dir);
-  git(dir, ['init', '-b', 'main']);
-  git(dir, ['config', 'user.email', 'test@brainstrike.invalid']);
-  git(dir, ['config', 'user.name', 'BrainStrike Test']);
-  writeFileSync(path.join(dir, 'hello.ts'), 'export const value = 1;\n');
-  git(dir, ['add', '.']);
-  git(dir, ['commit', '-m', 'initial commit']);
-  return dir;
-}
-
-function freshManagedDir(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), 'bst-managed-'));
-  tempDirs.push(dir);
-  return dir;
-}
-
-function asLedgerDatabase(database: PGlite): WorktreeLedgerDatabase {
-  return {
-    async query(sql, params) {
-      const result = await database.query(sql, params);
-      return { rows: result.rows };
-    },
-  };
-}
+import type { createWorktreeService } from '../../assistant-server/worktree-service';
+import {
+  asLedgerDatabase,
+  buildTestService,
+  createTestWorkspace,
+  git,
+} from './worktree-service.shared';
 
 describe('WorktreeService (real git + real PGlite)', () => {
   let db: PGlite;
   let repo: string;
   let managedDirectory: string;
+  const workspace = createTestWorkspace();
 
   const buildService = (overrides: Partial<Parameters<typeof createWorktreeService>[0]> = {}) =>
-    createWorktreeService({
-      getDatabase: () => Promise.resolve(asLedgerDatabase(db)),
-      readSettings: () =>
-        Promise.resolve({ isDefaultDirectory: true, managedDirectory, setupCommand: null }),
-      resolveInventory: () => Promise.resolve({ errors: [], repositories: [] }),
-      resolveRootCwd: (rootId: string) =>
-        Promise.resolve(
-          rootId === 'r-1'
-            ? { ok: true as const, value: repo }
-            : { error: 'unknown root', ok: false as const }
-        ),
-      resolveRootPaths: () => Promise.resolve([{ id: 'r-1', path: repo }]),
-      run: execFileGitRunner,
-      runSetup: () =>
-        Promise.resolve({
-          copiedPaths: [],
-          output: '',
-          reason: null,
-          status: 'none' as const,
-          truncated: false,
-        }),
-      ...overrides,
-    });
+    buildTestService({ db, managedDirectory, repo }, overrides);
 
   beforeEach(async () => {
     loggerErrorSpy.mockClear();
     db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
     await runMigrations(db);
-    repo = freshRepo('repo');
-    managedDirectory = freshManagedDir();
+    repo = workspace.freshRepo('repo');
+    managedDirectory = workspace.freshManagedDir();
   });
 
   afterEach(async () => {
     await db.close();
-    for (const dir of tempDirs.splice(0)) {
-      rmSync(dir, { force: true, recursive: true });
-    }
+    workspace.cleanup();
   });
 
   it('lists active managed paths without consulting git inventory or workspace roots', async () => {
@@ -342,8 +281,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
   });
 
   it('removes a newly created managed directory after canonical path refusal', async () => {
-    const container = mkdtempSync(path.join(tmpdir(), 'bst-wt-canonical-refusal-'));
-    tempDirs.push(container);
+    const container = workspace.freshTempDir('bst-wt-canonical-refusal-');
     const canonicalRoot = path.join(container, 'canonical-root');
     const rootAlias = path.join(container, 'root-alias');
     const refusedManagedDirectory = path.join(canonicalRoot, 'managed-worktrees');
