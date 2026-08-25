@@ -33,6 +33,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 import {
+  __getPooledLifecycleForTest,
   __getPooledPidsForTest,
   countPooledLspServers,
   disposeLspServers,
@@ -124,7 +125,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       rootPath: repoRoot,
     });
 
-    expect(result.available).toBe(true);
+    expect(result.available, result.message ?? result.reason).toBe(true);
     expect(result.diagnostics ?? []).toEqual([]);
   }, 30_000);
 
@@ -235,9 +236,80 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       const disposed = await disposeLspServers();
       expect(disposed).toBeGreaterThanOrEqual(1);
       expect(countPooledLspServers()).toBe(0);
-      // Give the OS a beat to reap.
-      await new Promise((resolve) => setTimeout(resolve, 300));
       expect(isProcessAlive(pid)).toBe(false);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('does not treat a post-spawn child error as process exit', async () => {
+    const root = await makeRoot();
+    try {
+      const filePath = path.join(root, 'runtime-error.ts');
+      const content = 'export const value = 1;\n';
+      await fsPromises.writeFile(filePath, content, 'utf8');
+      await getEditDiagnostics({
+        absolutePath: filePath,
+        content,
+        rootId: 'runtime-error-root',
+        rootPath: root,
+      });
+      const pid = (await __getPooledPidsForTest())[0] ?? -1;
+      const lifecycle = await __getPooledLifecycleForTest('runtime-error-root');
+
+      lifecycle.emitChildError(new Error('synthetic post-spawn runtime error'));
+      await lifecycle.dispose();
+
+      expect(isProcessAlive(pid)).toBe(false);
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('shares child settlement across re-entrant dispose callers', async () => {
+    const root = await makeRoot();
+    try {
+      const filePath = path.join(root, 'reentrant-dispose.ts');
+      const content = 'export const value = 1;\n';
+      await fsPromises.writeFile(filePath, content, 'utf8');
+      await getEditDiagnostics({
+        absolutePath: filePath,
+        content,
+        rootId: 'reentrant-root',
+        rootPath: root,
+      });
+      const lifecycle = await __getPooledLifecycleForTest('reentrant-root');
+
+      const first = lifecycle.dispose();
+      const second = lifecycle.dispose();
+
+      expect(second).toBe(first);
+      await first;
+    } finally {
+      await fsPromises.rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it('surfaces a failed authoritative kill after attempting global disposal', async () => {
+    const root = await makeRoot();
+    try {
+      const filePath = path.join(root, 'kill-failure.ts');
+      const content = 'export const value = 1;\n';
+      await fsPromises.writeFile(filePath, content, 'utf8');
+      await getEditDiagnostics({
+        absolutePath: filePath,
+        content,
+        rootId: 'kill-failure-root',
+        rootPath: root,
+      });
+      const lifecycle = await __getPooledLifecycleForTest('kill-failure-root');
+      lifecycle.rejectNextKill();
+
+      try {
+        await expect(disposeLspServers()).rejects.toThrow(/failed to terminate LSP subprocess/i);
+      } finally {
+        await lifecycle.forceKill();
+      }
     } finally {
       await fsPromises.rm(root, { force: true, recursive: true });
     }
