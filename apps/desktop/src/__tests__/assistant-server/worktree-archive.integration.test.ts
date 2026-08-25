@@ -541,7 +541,7 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       const restored = await service.restore({ worktreeId: created.value.worktree.id });
 
       expect(restored).toEqual({
-        error: `"${branch}" has moved since this worktree was archived (now ${advancedTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename the branch, or restore detached.`,
+        error: `"${branch}" has moved since this worktree was archived (now ${advancedTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename or move the branch first.`,
         ok: false,
       });
       expect(git(repo, ['rev-parse', `refs/heads/${branch}`]).trim()).toBe(advancedTip);

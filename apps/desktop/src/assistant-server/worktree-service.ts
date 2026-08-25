@@ -54,7 +54,7 @@ import {
 
 const logger = createLogger('WorktreeService');
 
-/** What `runSetup` (Layer 5) needs; stubbed to a `'none'` outcome until then. */
+/** What `runSetup` needs to run `.worktreeinclude` copy + the setup command. */
 export interface WorktreeSetupInput {
   readonly settings: WorktreeSettings;
   readonly sourcePath: string;
@@ -567,7 +567,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     const expectedTip = expectedTipRun.stdout.trim();
     if (branchTip !== expectedTip) {
       return {
-        error: `"${row.branch}" has moved since this worktree was archived (now ${branchTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename the branch, or restore detached.`,
+        error: `"${row.branch}" has moved since this worktree was archived (now ${branchTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename or move the branch first.`,
         ok: false,
       };
     }

@@ -391,6 +391,28 @@ with `null` recomputed as the home-relative default on every read. The exact
 bridge set, IPC narrowing, preload parity, and settings persistence are pinned
 by the corresponding `worktrees-*` and preload-runtime contract tests.
 
+### MANAGED WORKTREE ARCHIVE SNAPSHOTS (BST-1390) — not shadow git
+
+Archiving a managed worktree captures its full tracked+untracked (non-ignored)
+state as a commit at `refs/brainstrike/worktree-archive/<worktreeId>` **in the
+worktree's own repository**, via a private `GIT_INDEX_FILE` → `add -A` →
+`write-tree` → `commit-tree` → `update-ref` (the same technique
+`snapshot-git.ts` uses). It deliberately does NOT go through `SnapshotService`:
+that engine is keyed per ROOT *and* per THREAD (`snapshotRefForThread`) with a
+closed `SnapshotKind` union that throws on an unknown kind, and a managed
+worktree outlives its thread. Living in the common dir is what lets the
+snapshot survive `git worktree remove`; `restore` replays it with
+`git worktree add … <ref>^` + `git restore --source=<ref>`.
+
+The snapshot is captured on EVERY archive, clean or not, and BEFORE the safety
+verdict is acted on. `archive` refuses a dirty or unpushed worktree unless
+`force`; the one blocker `force` never overrides is an active run in that
+worktree (`brainstrike_assistant_thread_runs.status = 'running'` for the owning
+thread). W3 deliberately does NOT take a `git worktree lock` for the duration
+of a run: a lock is globally visible and `git-workbench-header.tsx` disables any
+locked worktree, so it would disable every managed worktree in the Changes
+surface. Run-scoped locking is a W5 follow-up.
+
 ## REFRESH SEAMS
 
 **Git-metadata watcher** (`git-inventory-watcher.ts`): one filesystem
