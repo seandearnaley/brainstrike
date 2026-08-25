@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   createBranchSpy,
   fetchSpy,
+  loggerMock,
+  nonceHolder,
   refreshInventorySpy,
   repositorySpy,
   statusSpy,
@@ -12,6 +14,18 @@ const {
 } = vi.hoisted(() => ({
   createBranchSpy: vi.fn(),
   fetchSpy: vi.fn(),
+  loggerMock: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  },
+  // A mutable box, not a plain number: the mocked store selector below reads
+  // it fresh on every render, so tests can simulate live-refresh nonce bumps
+  // by mutating `.value` and forcing a rerender.
+  nonceHolder: { value: 0 },
   refreshInventorySpy: vi.fn(() => Promise.resolve()),
   repositorySpy: vi.fn(),
   statusSpy: vi.fn(),
@@ -33,7 +47,11 @@ vi.mock('../changes/use-git-inventory', () => ({
 }));
 vi.mock('../changes/changes-live-refresh-store', () => ({
   useChangesLiveRefreshStore: (selector: (state: { anyInvalidationNonce: number }) => unknown) =>
-    selector({ anyInvalidationNonce: 0 }),
+    selector({ anyInvalidationNonce: nonceHolder.value }),
+}));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => loggerMock,
 }));
 vi.mock('@brainstrike/ui', () => ({ toast: toastSpy }));
 
@@ -53,18 +71,43 @@ const REPOSITORY = {
 // test below asserts against `statusSpy`'s `files`, not this flag, and one
 // test explicitly proves an untracked-inclusive `checkout.dirty` is ignored.
 const CLEAN = { ahead: null, behind: null, branch: 'main', dirty: false };
-const CLEAN_STATUS = { ahead: null, behind: null, branch: 'main', clean: true, files: [] };
+const CLEAN_STATUS = {
+  ahead: null,
+  behind: null,
+  branch: 'main',
+  clean: true,
+  files: [],
+  isRepository: true,
+  upstream: null,
+};
 const TRACKED_STATUS = {
   ahead: null,
   behind: null,
   branch: 'main',
   clean: false,
   files: [{ path: 'tracked.ts', staged: true, status: 'M', unstaged: false, untracked: false }],
+  isRepository: true,
+  upstream: null,
+};
+// The exact shape a genuinely non-git root's own status read returns
+// (`git-service.ts` 1381-1395): `isRepository: false`, always clean, no
+// files. `repository` fails alongside it in practice (`createRepositorySnapshot`
+// / `loadRepositoryInventory`), which is what made the pre-M2 code warn once
+// per invalidation — the regression these tests pin.
+const NON_REPO_STATUS = {
+  ahead: null,
+  behind: null,
+  branch: null,
+  clean: true,
+  files: [],
+  isRepository: false,
+  upstream: null,
 };
 
 describe('useBranchSwitcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    nonceHolder.value = 0;
     repositorySpy.mockResolvedValue({ ok: true, value: REPOSITORY });
     statusSpy.mockResolvedValue({ ok: true, value: CLEAN_STATUS });
     switchBranchSpy.mockResolvedValue({ ok: true, value: { branch: 'feature/alpha' } });
@@ -75,6 +118,70 @@ describe('useBranchSwitcher', () => {
   it('returns undefined without a root or a checkout', () => {
     const { result } = renderHook(() => useBranchSwitcher({ checkout: undefined, dbRootId: null }));
     expect(result.current).toBeUndefined();
+  });
+
+  it('probes status but never reads the repository or warns for a non-repository root, across nonce bumps', async () => {
+    // The genuine non-git response shape (BST-1452 M2 rework): `status`
+    // resolves `isRepository: false` while `repository` fails alongside it in
+    // practice — exactly what made the pre-fix code warn once per
+    // invalidation. The self-contained gate must fire its OWN status probe
+    // unconditionally (restoring the concurrency with the dot's independent
+    // status read) but stop there: no `repository()` spawn, no warning, on
+    // the initial render or on any later invalidation.
+    statusSpy.mockResolvedValue({ ok: true, value: NON_REPO_STATUS });
+    repositorySpy.mockResolvedValue({ error: 'not a git repository', ok: false });
+    const { rerender, result } = renderHook(() =>
+      useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' })
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    nonceHolder.value += 1;
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    nonceHolder.value += 1;
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(statusSpy).toHaveBeenCalledWith('r-1');
+    expect(repositorySpy).not.toHaveBeenCalled();
+    expect(loggerMock.warn).not.toHaveBeenCalled();
+    // The user-visible outcome, not just the absence of I/O: the chip stays
+    // non-interactive for a non-repository root.
+    expect(result.current).toBeUndefined();
+  });
+
+  it('reads the repository once a later status probe reports the root as a repository', async () => {
+    // Guards against a latched implementation: the non-repository outcome
+    // above must not be sticky. When THIS hook's own status read later
+    // reports `isRepository: true` (e.g. `git init` ran in the folder, or a
+    // late-arriving invalidation refreshes stale state), the gate must
+    // release and spawn the deferred `repository()` read.
+    statusSpy.mockResolvedValue({ ok: true, value: NON_REPO_STATUS });
+    const { rerender } = renderHook(() =>
+      useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' })
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(repositorySpy).not.toHaveBeenCalled();
+
+    // Bumping the mocked nonce alone changes nothing until a render actually
+    // reads it — `rerender()` is what makes `anyInvalidationNonce` (an effect
+    // dependency) pick up the new value and re-run the effect, the same as a
+    // real live-refresh push driving a re-render via the real store.
+    statusSpy.mockResolvedValue({ ok: true, value: CLEAN_STATUS });
+    nonceHolder.value += 1;
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(repositorySpy).toHaveBeenCalledWith('r-1'));
   });
 
   it('builds rows from window.git.repository for the primary root', async () => {

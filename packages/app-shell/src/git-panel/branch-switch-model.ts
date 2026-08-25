@@ -82,23 +82,23 @@ export function buildBranchSwitchModel(input: {
 }): BranchSwitchModel {
   const scopeReason = input.scope === 'workspace' ? SUBFOLDER_SCOPE_REASON : null;
   const needle = input.query.trim().toLowerCase();
-  const rows = input.branches
+  const rows: BranchSwitchRow[] = [];
+  for (const branch of input.branches) {
     // The current branch always survives the filter: hiding "where you are"
     // makes the list read as if the checkout moved.
-    .filter(
-      (branch) => branch.current || needle === '' || branch.name.toLowerCase().includes(needle)
-    )
-    .map((branch) => {
-      const worktreeName =
-        branch.worktreePath && !branch.current ? worktreeBasename(branch.worktreePath) : null;
-      const disabledReason = resolveDisabledReason(branch, worktreeName, input.dirty, scopeReason);
-      return {
-        current: branch.current,
-        disabledReason,
-        name: branch.name,
-        switchable: disabledReason === null,
-        worktreeName,
-      };
+    if (!(branch.current || needle === '' || branch.name.toLowerCase().includes(needle))) {
+      continue;
+    }
+    const worktreeName =
+      branch.worktreePath && !branch.current ? worktreeBasename(branch.worktreePath) : null;
+    const disabledReason = resolveDisabledReason(branch, worktreeName, input.dirty, scopeReason);
+    rows.push({
+      current: branch.current,
+      disabledReason,
+      name: branch.name,
+      switchable: disabledReason === null,
+      worktreeName,
     });
+  }
   return { dirty: input.dirty, rows, scopeReason };
 }

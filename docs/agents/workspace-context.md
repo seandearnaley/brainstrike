@@ -1040,15 +1040,23 @@ additional explorer/status chrome):
     call the existing `switchBranch` / `createBranch` bridge paths without a
     fresh client-side status pre-check; the bridge result is the source of truth,
     and a returned or thrown mutation failure is logged and surfaced as a
-    destructive toast. Fetch is offered only for a discovered default remote
-    and names that remote explicitly. After a successful mutation, the hook
+    destructive toast. Fetch is offered only for a discovered default remote,
+    and the call names that remote explicitly rather than relying on git's
+    default. After a successful mutation, the hook
     refreshes the git inventory and advances its own reload nonce so it re-reads
     repository and status topology. Unlike the dot, the switcher's own
     repository/status load is keyed only on `anyInvalidationNonce` plus that
     post-mutation reload nonce — NOT on the root's git-scope nonce. An external
     working-tree edit to a tracked file can therefore leave the switch gate's
     tracked-dirty read stale until the next metadata push or successful
-    mutation. There is no empty-list fallback: a failed menu repository/status
+    mutation. The load is self-contained (BST-1452 M2): it fires its own
+    `window.git.status` read unconditionally, concurrently with the
+    workspace-bar dot's independent status read, rather than waiting on that
+    other hook to resolve first. When that status read reports a non-repository
+    primary root, the switcher stops there — it performs the status probe
+    only, issues no `window.git.repository` read, and logs no warning, since
+    "this folder isn't a repository" is an expected outcome, not a failure.
+    There is no empty-list fallback: a failed menu repository/status
     read is logged and leaves the status chip non-interactive. The chip remains
     desktop-only and is absent for a non-repository root or a failed checkout-
     status read; that failure is logged and NEVER rendered as "clean". It is
