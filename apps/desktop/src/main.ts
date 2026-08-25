@@ -1297,6 +1297,8 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
   chunkingHostManager,
   embeddingHostManager,
   getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
+  managedWorktreeAuthorizer: (candidate) =>
+    worktreeService ? worktreeService.isManagedWorktreePath(candidate) : Promise.resolve(false),
   onResetLocal: handleResetLocal,
   onRuntimeCorruption: recoverRuntimeDatabaseAndReload,
 });

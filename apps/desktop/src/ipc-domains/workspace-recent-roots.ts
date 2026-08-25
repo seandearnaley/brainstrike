@@ -200,29 +200,59 @@ export async function listRecentRootEntries(
 }
 
 /**
- * Turn a requested path into a mountable directory handle, or throw.
+ * Authorizes a path the app itself created under its managed worktree
+ * directory. Injected rather than imported so this leaf module keeps its
+ * zero-dependency shape and the DB-backed ledger stays in `WorktreeService`.
+ */
+export type ManagedWorktreeAuthorizer = (candidatePath: string) => Promise<boolean>;
+
+/**
+ * The TWO gates on the picker-less `addRootByPath`, in order:
  *
- * The ledger is what gates the picker-less `addRootByPath`: an unrecorded path
- * is rejected outright rather than quietly granted, so a stray or stale path
- * string cannot become workspace access, and every path it accepts was already
- * granted through the OS picker or a successful restore. It is a correctness
- * gate at the same trust level as `rootsList`, not a hardening boundary — see
- * the `StoredRecentRoot` doc comment.
+ * 1. the recent-roots ledger — every path in it was already granted through
+ *    the OS picker or a successful restore (BST-1395);
+ * 2. the managed-worktree authorizer (BST-1390, spec §6.2) — the app CREATED
+ *    the path, under its own managed directory, and its ledger row proves it.
+ *    This is the second and last sanctioned picker-less mount; it is
+ *    deliberately NOT a general "add root by path" door, and a managed worktree
+ *    is deliberately NOT written into the recents ledger (that list is the
+ *    user's folders, not the app's scratch directories).
+ *
+ * The ledger is checked FIRST so a broken authorizer can never take the
+ * recents path down with it. Neither gate is a hardening boundary against a
+ * compromised renderer — both are correctness gates at the same trust level as
+ * `rootsList`; see the `StoredRecentRoot` doc comment.
  */
 export async function resolveGrantedRootHandle(
   storage: ElectronStorageAdapter,
-  requestedPath: string
+  requestedPath: string,
+  isManagedWorktreePath?: ManagedWorktreeAuthorizer
 ): Promise<DirectoryHandle> {
   const normalized = normalizeRecentRootPath(requestedPath);
   const granted = (await readRecentRootsOrQuarantine(storage)).some((entry) =>
     recentPathsEqual(entry.path, normalized)
   );
   if (!granted) {
-    throw new AccessError(
-      'Folder was never granted in this app; use Add Folder to grant it.',
-      requestedPath,
-      'read'
-    );
+    let managed = false;
+    if (isManagedWorktreePath) {
+      try {
+        managed = await isManagedWorktreePath(normalized);
+      } catch (error) {
+        // A broken authorizer must not become an implicit grant, and must not
+        // be silent either.
+        logger.error('managed-worktree authorization check threw', { error, path: normalized });
+        managed = false;
+      }
+    }
+    if (!managed) {
+      throw new AccessError(
+        isManagedWorktreePath
+          ? 'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
+          : 'Folder was never granted in this app; use Add Folder to grant it.',
+        requestedPath,
+        'read'
+      );
+    }
   }
   return {
     kind: 'directory',

@@ -3,7 +3,10 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
-import { RECENT_ROOTS_LIMIT } from '../../ipc-domains/workspace-recent-roots';
+import {
+  RECENT_ROOTS_LIMIT,
+  resolveGrantedRootHandle,
+} from '../../ipc-domains/workspace-recent-roots';
 import {
   type SecureWorkspaceRoot,
   WorkspaceRootRegistry,
@@ -279,5 +282,55 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
       'Failed to record a recently granted workspace folder',
       expect.anything()
     );
+  });
+});
+
+describe('resolveGrantedRootHandle managed-worktree gate (BST-1390, spec §6.2)', () => {
+  it('accepts a path the managed-worktree authorizer claims, with an EMPTY recents ledger', async () => {
+    const empty = createStorage();
+    const handle = await resolveGrantedRootHandle(empty, '/managed/app/bright-fox', () =>
+      Promise.resolve(true)
+    );
+    expect(handle).toMatchObject({ kind: 'directory', path: '/managed/app/bright-fox' });
+  });
+
+  it('still accepts a recents-granted path when the authorizer says no', async () => {
+    const seeded = createStorage();
+    await seeded.setItem(
+      'recentRootsList',
+      JSON.stringify([{ lastGrantedAt: 1, path: '/ws/alpha' }])
+    );
+    await expect(
+      resolveGrantedRootHandle(seeded, '/ws/alpha', () => Promise.resolve(false))
+    ).resolves.toMatchObject({ path: '/ws/alpha' });
+  });
+
+  it('rejects a path NEITHER gate authorizes, and names both remedies', async () => {
+    const empty = createStorage();
+    await expect(
+      resolveGrantedRootHandle(empty, '/somewhere/else', () => Promise.resolve(false))
+    ).rejects.toThrow(
+      'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
+    );
+  });
+
+  it('rejects when NO authorizer is injected and the ledger has no entry (unchanged behavior)', async () => {
+    const empty = createStorage();
+    await expect(resolveGrantedRootHandle(empty, '/somewhere/else')).rejects.toThrow(
+      'Folder was never granted in this app'
+    );
+  });
+
+  it('checks the LEDGER first so a throwing authorizer cannot break the recents path', async () => {
+    const seeded = createStorage();
+    await seeded.setItem(
+      'recentRootsList',
+      JSON.stringify([{ lastGrantedAt: 1, path: '/ws/alpha' }])
+    );
+    await expect(
+      resolveGrantedRootHandle(seeded, '/ws/alpha', () => {
+        throw new Error('authorizer exploded');
+      })
+    ).resolves.toMatchObject({ path: '/ws/alpha' });
   });
 });

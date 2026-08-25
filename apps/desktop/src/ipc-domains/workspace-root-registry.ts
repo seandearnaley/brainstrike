@@ -19,6 +19,7 @@ import { isFileNotFoundError } from '../file-read-errors';
 import { projectReadDenialDiagnostic, projectReadDenialError } from './read-denial-diagnostic';
 import {
   listRecentRootEntries,
+  type ManagedWorktreeAuthorizer,
   recordRecentRoot,
   recordRecentRootIfNew,
   resolveGrantedRootHandle,
@@ -77,6 +78,7 @@ export class WorkspaceRootRegistry {
   private readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
   private readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
   private readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
+  private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
   private mutationTail: Promise<void> = Promise.resolve();
   private readonly pathExists: (rootPath: string) => Promise<boolean>;
@@ -156,12 +158,19 @@ export class WorkspaceRootRegistry {
   }
 
   /**
-   * Picker-less re-mount of a folder the user ALREADY granted; the recent-roots
-   * ledger is the only authorization (see resolveGrantedRootHandle). NOT
-   * wrapped in serializeMutation — it delegates to addRoot, which serializes.
+   * Picker-less re-mount. TWO authorizations, both main-side: the recent-roots
+   * ledger (a folder the user already granted) and the managed-worktree
+   * authorizer (a directory this app created — spec §6.2). NOT wrapped in
+   * serializeMutation — it delegates to addRoot, which serializes.
    */
   async addRootByPath(requestedPath: string): Promise<RootDescriptor> {
-    return this.addRoot(await resolveGrantedRootHandle(this.storage, requestedPath));
+    return this.addRoot(
+      await resolveGrantedRootHandle(
+        this.storage,
+        requestedPath,
+        this.managedWorktreeAuthorizer ?? undefined
+      )
+    );
   }
 
   dispose(): void {
@@ -172,6 +181,13 @@ export class WorkspaceRootRegistry {
     void this.mutationTail.finally(() => {
       this.mounts.closeAll();
     });
+  }
+
+  /** Paths of every currently mounted root — the settings containment check's input. */
+  listMountedRootPaths(): Promise<readonly string[]> {
+    return this.serializeMutation(async () =>
+      (await readStoredRootsOrQuarantine(this.storage)).map((entry) => entry.path)
+    );
   }
 
   /** Newest-first ledger of previously granted folders. */
@@ -394,6 +410,14 @@ export class WorkspaceRootRegistry {
       }
       await writeLastFolder(this.storage, mounted.presentationPath);
     });
+  }
+
+  /**
+   * Install the managed-worktree gate (spec §6.2). `null` removes it, which
+   * returns `addRootByPath` to recents-only.
+   */
+  setManagedWorktreeAuthorizer(authorizer: ManagedWorktreeAuthorizer | null): void {
+    this.managedWorktreeAuthorizer = authorizer;
   }
 
   private async cleanupRootResources(rootIds: readonly string[]): Promise<void> {
