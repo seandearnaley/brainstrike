@@ -162,8 +162,12 @@ function describeSetup(settings: SettingsState): string {
   if (settings.kind === 'error') {
     return `Setup details are unavailable: ${settings.message}`;
   }
-  return settings.value.setupCommand
-    ? `Setup command: ${settings.value.setupCommand.join(' ')}`
+  const { setupCommand } = settings.value;
+  if (setupCommand === 'disabled') {
+    return 'Setup: disabled in Settings — nothing runs after creation.';
+  }
+  return setupCommand
+    ? `Setup command: ${setupCommand.join(' ')}`
     : 'Setup: the repository’s .brainstrike/worktree-setup.sh, when it has one.';
 }
 
