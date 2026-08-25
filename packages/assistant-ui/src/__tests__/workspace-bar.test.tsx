@@ -1,6 +1,8 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { BranchChip } from '../workspace-bar/branch-chip';
+import type { WorkspaceBarForge } from '../workspace-bar/pr-chip';
 import {
   WorkspaceBar,
   type WorkspaceBarBranchMenu,
@@ -68,6 +70,62 @@ describe('WorkspaceBar', () => {
     expect(chip).toHaveTextContent('+2');
     expect(chip).toHaveAttribute('title', '/ws/brainstrike');
     expect(chip).toHaveAccessibleName('Folder: brainstrike, 2 more');
+  });
+
+  it('routes unavailable forge detail to BranchChip and mounts PrChip for a pull request', async () => {
+    const user = setup();
+    const forgeBase = {
+      onAskAgentToFixChecks: vi.fn(),
+      onCopyUrl: vi.fn(),
+      onOpenExternal: vi.fn(),
+      onRefresh: vi.fn(),
+      onWatchChange: vi.fn(),
+      watched: true,
+    };
+    const unavailable: WorkspaceBarForge = {
+      ...forgeBase,
+      status: {
+        failure: { detail: 'GitHub CLI authentication is required.', reason: 'gh-unauthenticated' },
+        kind: 'unavailable',
+      },
+    };
+    const { rerender } = render(
+      <WorkspaceBar
+        {...baseProps({ checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false } })}
+        forge={unavailable}
+      />
+    );
+
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    expect(await screen.findByTestId('workspace-bar-branch-forge-diagnostic')).toHaveTextContent(
+      'GitHub CLI authentication is required.'
+    );
+
+    const available: WorkspaceBarForge = {
+      ...forgeBase,
+      status: {
+        kind: 'pr',
+        observedAt: '2026-08-24T00:00:00.000Z',
+        pullRequest: {
+          checks: [],
+          checksRollup: 'none',
+          headSha: 'sha',
+          isDraft: false,
+          number: 2574,
+          reviewDecision: null,
+          state: 'open',
+          title: 'Workspace bar',
+          url: 'https://github.com/acme/widgets/pull/2574',
+        },
+      },
+    };
+    rerender(
+      <WorkspaceBar
+        {...baseProps({ checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false } })}
+        forge={available}
+      />
+    );
+    expect(screen.getByTestId('workspace-bar-pr-chip')).toHaveTextContent('#2574');
   });
 
   it('renders a "Choose a folder" CTA with zero roots and calls onAddFolder from the menu', async () => {
@@ -402,5 +460,65 @@ describe('BranchChip menu', () => {
     const chip = screen.getByTestId('workspace-bar-branch-chip');
     expect(chip).toHaveAttribute('role', 'img');
     expect(chip).toHaveAccessibleName('On branch main · 2 ahead · clean');
+  });
+});
+
+describe('BranchChip forge diagnostic', () => {
+  const checkout = { ahead: 0, behind: 0, branch: 'main', dirty: false };
+
+  it('becomes a trigger that states why there is no PR chip', async () => {
+    const user = userEvent.setup();
+    render(
+      <BranchChip
+        checkout={checkout}
+        forgeDiagnostic="GitHub CLI (gh) was not found on PATH. Install it to see pull request status."
+      />
+    );
+    const chip = screen.getByTestId('workspace-bar-branch-chip');
+    expect(chip.tagName).toBe('BUTTON');
+    expect(chip).toHaveAccessibleName(expect.stringContaining('PR status unavailable'));
+    await user.click(chip);
+    expect(await screen.findByTestId('workspace-bar-branch-forge-diagnostic')).toHaveTextContent(
+      'GitHub CLI (gh) was not found on PATH.'
+    );
+  });
+
+  it('merges the forge diagnostic into the existing branch switcher menu', async () => {
+    const user = setup();
+    const menu: WorkspaceBarBranchMenu = {
+      onCreateBranch: vi.fn(),
+      onFetch: vi.fn(),
+      onQueryChange: vi.fn(),
+      onSwitch: vi.fn(),
+      pending: false,
+      query: '',
+      rows: [
+        {
+          current: false,
+          disabledReason: null,
+          name: 'feature/alpha',
+          switchable: true,
+          worktreeName: null,
+        },
+      ],
+      scopeReason: null,
+    };
+    render(
+      <BranchChip
+        branchMenu={menu}
+        checkout={checkout}
+        forgeDiagnostic="GitHub CLI authentication is required."
+      />
+    );
+
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    const diagnostic = await screen.findByTestId('workspace-bar-branch-forge-diagnostic');
+    const openMenu = diagnostic.closest('[role="menu"]');
+    expect(openMenu).toBeInstanceOf(HTMLElement);
+    if (!(openMenu instanceof HTMLElement)) {
+      throw new Error('The forge diagnostic must render inside the open branch menu.');
+    }
+    expect(diagnostic).toHaveTextContent('GitHub CLI authentication is required.');
+    expect(within(openMenu).getByTestId('workspace-bar-branch-row-feature/alpha')).toBeVisible();
   });
 });

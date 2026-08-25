@@ -47,8 +47,8 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => cur
 // test is the production one.
 const showItemInFolder = vi.fn(async () => ({ ok: true }));
 
-const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, loggerMock, toastSpy } = vi.hoisted(
-  () => ({
+const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, forgePrSpy, loggerMock, toastSpy } =
+  vi.hoisted(() => ({
     branchSwitcherSpy: vi.fn(),
     checkoutSpy: vi.fn(
       (
@@ -65,6 +65,7 @@ const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, loggerMock, toastSpy
       })
     ),
     clipboardWriteText: vi.fn(),
+    forgePrSpy: vi.fn(),
     loggerMock: {
       debug: vi.fn(),
       error: vi.fn(),
@@ -74,10 +75,10 @@ const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, loggerMock, toastSpy
       warn: vi.fn(),
     },
     toastSpy: vi.fn(),
-  })
-);
+  }));
 
 vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
+vi.mock('../hooks/use-thread-forge-pr', () => ({ useThreadForgePr: forgePrSpy }));
 vi.mock('../hooks/use-thread-checkout-status', () => ({ useThreadCheckoutStatus: checkoutSpy }));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
@@ -276,6 +277,8 @@ beforeEach(() => {
   branchSwitcherSpy.mockReset();
   branchSwitcherSpy.mockReturnValue(branchMenu);
   checkoutSpy.mockClear();
+  forgePrSpy.mockReset();
+  forgePrSpy.mockReturnValue({ diagnostic: null, refresh: vi.fn(), status: null });
   toastSpy.mockClear();
   loggerMock.debug.mockClear();
   loggerMock.error.mockClear();
@@ -293,6 +296,43 @@ afterEach(() => {
 });
 
 describe('useWorkspaceBar', () => {
+  it('omits `forge` entirely when there is no forge bridge', async () => {
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.primaryRoot).toBeDefined());
+    expect(result.current.forge).toBeUndefined();
+  });
+
+  it("persists the selected thread's forge watch toggle", async () => {
+    forgePrSpy.mockReturnValue({
+      diagnostic: null,
+      refresh: vi.fn(),
+      status: {
+        kind: 'pr',
+        observedAt: '2026-08-24T00:00:00.000Z',
+        pullRequest: {
+          checks: [],
+          checksRollup: 'none',
+          headSha: 'sha',
+          isDraft: false,
+          number: 7,
+          reviewDecision: null,
+          state: 'open',
+          title: 'PR',
+          url: 'https://example.test/pull/7',
+        },
+      },
+    });
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.forge).toBeDefined());
+    expect(result.current.forge?.watched).toBe(true);
+
+    await act(async () => {
+      result.current.forge?.onWatchChange(false);
+    });
+
+    expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, { forgePrWatch: false });
+  });
+
   it('exposes the primary root, checkout, and recents minus the current roots', async () => {
     const { result } = await setup();
     await waitFor(() =>

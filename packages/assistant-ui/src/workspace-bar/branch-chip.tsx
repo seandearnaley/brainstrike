@@ -29,6 +29,13 @@ const countBadge = (count: number | null, glyph: string): string | null =>
 const CHIP_CLASSES =
   'inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground';
 
+function interactiveBranchName(summary: string, forgeDiagnostic?: string): string {
+  if (!forgeDiagnostic) {
+    return `Branch: ${summary}`;
+  }
+  return `Branch: ${summary}; PR status unavailable — ${forgeDiagnostic}`;
+}
+
 const BranchGlyphs = ({
   ahead,
   behind,
@@ -46,6 +53,18 @@ const BranchGlyphs = ({
     {ahead ? <span className="shrink-0 tabular-nums">{ahead}</span> : null}
     {behind ? <span className="shrink-0 tabular-nums">{behind}</span> : null}
     {checkout.dirty ? <span className="shrink-0 text-amber-600 dark:text-amber-400">●</span> : null}
+  </>
+);
+
+const ForgeDiagnosticSection = ({ reason }: { readonly reason: string }): ReactElement => (
+  <>
+    <DropdownMenuLabel>Pull request status unavailable</DropdownMenuLabel>
+    <div
+      className="px-2 pb-2 text-[11px] text-muted-foreground"
+      data-testid="workspace-bar-branch-forge-diagnostic"
+    >
+      {reason}
+    </div>
   </>
 );
 
@@ -107,16 +126,22 @@ const BranchMenuRow = ({
 };
 
 /**
- * Git state for the primary root. Without an interactive menu this preserves
- * W1's read-only labelled image; desktop callers can opt into the switcher by
- * supplying an already-gated branch menu model.
+ * Git state for the primary root. Without an interactive menu or forge
+ * diagnostic this preserves W1's read-only labelled image; desktop callers
+ * can opt into the switcher by supplying an already-gated branch menu model.
+ *
+ * A forge diagnostic joins the existing switcher menu when one is available.
+ * Without a branch menu, it gets a minimal diagnostic-only menu so the reason
+ * remains visible and keyboard-accessible. The reason is never tooltip-only.
  */
 export const BranchChip = ({
   branchMenu,
   checkout,
+  forgeDiagnostic,
 }: {
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   readonly checkout: WorkspaceBarCheckout;
+  readonly forgeDiagnostic?: string | undefined;
 }): ReactElement => {
   const [newBranchName, setNewBranchName] = useState('');
   const label = checkout.branch ?? 'detached';
@@ -131,7 +156,7 @@ export const BranchChip = ({
     .filter((part) => part !== null)
     .join(' · ');
 
-  if (!branchMenu) {
+  if (!(branchMenu || forgeDiagnostic)) {
     return (
       <span
         aria-label={summary}
@@ -143,6 +168,32 @@ export const BranchChip = ({
       >
         <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
       </span>
+    );
+  }
+
+  const interactiveName = interactiveBranchName(summary, forgeDiagnostic);
+
+  if (!branchMenu) {
+    if (!forgeDiagnostic) {
+      throw new Error('A diagnostic-only BranchChip requires a visible forge reason.');
+    }
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label={interactiveName}
+          className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
+          data-dirty={checkout.dirty ? 'true' : 'false'}
+          data-testid="workspace-bar-branch-chip"
+          title={interactiveName}
+          type="button"
+        >
+          <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
+          <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-80">
+          <ForgeDiagnosticSection reason={forgeDiagnostic} />
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   }
 
@@ -158,7 +209,7 @@ export const BranchChip = ({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={`Branch: ${summary}`}
+        aria-label={interactiveName}
         className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
         data-dirty={checkout.dirty ? 'true' : 'false'}
         data-testid="workspace-bar-branch-chip"
@@ -233,6 +284,12 @@ export const BranchChip = ({
               <RefreshCw aria-hidden="true" className="size-3.5" />
               Fetch
             </DropdownMenuItem>
+          </>
+        ) : null}
+        {forgeDiagnostic ? (
+          <>
+            <DropdownMenuSeparator />
+            <ForgeDiagnosticSection reason={forgeDiagnostic} />
           </>
         ) : null}
       </DropdownMenuContent>

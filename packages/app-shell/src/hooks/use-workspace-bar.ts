@@ -3,6 +3,7 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarCheckout,
+  WorkspaceBarForge,
   WorkspaceBarProps,
   WorkspaceBarRecentRoot,
   WorkspaceBarReveal,
@@ -16,6 +17,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import {
   type AssistantOperatingRootCandidate,
   resolveAssistantOperatingRootBinding,
@@ -25,6 +27,7 @@ import { resolvePlatformBridge } from '../platform-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useBranchSwitcher } from './use-branch-switcher';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
+import { useThreadForgePr } from './use-thread-forge-pr';
 
 const logger = createLogger('WorkspaceBar');
 // Same service `useCopyToClipboard` wraps, called directly: the bar needs the
@@ -211,6 +214,10 @@ function branchMenuEntry(
   return primaryRoot && checkout && branchMenu ? { branchMenu } : {};
 }
 
+function forgeEntry(forge: WorkspaceBarForge | undefined): { readonly forge?: WorkspaceBarForge } {
+  return forge ? { forge } : {};
+}
+
 /**
  * Logs ONCE per path when the thread's primary folder is not mounted in this
  * workspace (bound elsewhere, or unmounted since), so no descriptor supplies an
@@ -340,10 +347,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const fileSystem = useFileSystem();
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
-  const threadMetadataSecondaryRootIds = selectedMemoryThreadId
+  const selectedThread = selectedMemoryThreadId
     ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
-        ?.metadata?.secondaryRootIds
     : undefined;
+  const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
+  // Watching is opt-out. This matches useForgeRunEvents, so a thread created
+  // before the metadata field existed still receives forge observations.
+  const forgePrWatched = selectedThread?.metadata?.forgePrWatch !== false;
   const secondaryRootIdsKey = (threadMetadataSecondaryRootIds ?? EMPTY_SECONDARY_ROOT_IDS).join(
     SECONDARY_ID_SEPARATOR
   );
@@ -905,10 +915,142 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       : null
   );
   const branchSwitcher = useBranchSwitcher({ checkout, dbRootId: primaryRootId ?? null });
+  const forgePr = useThreadForgePr(primaryRootId ?? null);
+  const onOpenExternal = useCallback(
+    (url: string): void => {
+      if (!platform) {
+        logger.error('Open pull request requested without the platform capability', { url });
+        toast({
+          description: 'This platform cannot open the pull request URL.',
+          title: 'Open pull request failed',
+          variant: 'destructive',
+        });
+        return;
+      }
+      void platform
+        .openExternal(url)
+        .then((outcome) => {
+          if (outcome.ok) {
+            return;
+          }
+          const detail = outcome.error ?? 'The platform did not open the pull request URL.';
+          logger.error('Open pull request failed', { error: detail, url });
+          toast({
+            description: detail,
+            title: 'Open pull request failed',
+            variant: 'destructive',
+          });
+        })
+        .catch((error: unknown) => {
+          logger.error('Open pull request failed', { error, url });
+          toast({
+            description: describeFailure(error),
+            title: 'Open pull request failed',
+            variant: 'destructive',
+          });
+        });
+    },
+    [platform]
+  );
+  const onCopyUrl = onCopyPath;
+  const onForgeWatchChange = useCallback(
+    (watched: boolean): void => {
+      if (!(assistantThreadRepository && selectedMemoryThreadId)) {
+        logger.error('Cannot update PR watch state without an active thread');
+        toast({
+          description: 'Select a thread before changing pull request watch settings.',
+          title: 'PR watch setting was not updated',
+          variant: 'destructive',
+        });
+        return;
+      }
+      void updateThreadMetadata(
+        assistantThreadRepository,
+        memoryResourceId,
+        selectedMemoryThreadId,
+        { forgePrWatch: watched }
+      ).catch((error: unknown) => {
+        logger.error('Update PR watch state failed', { error, watched });
+        toast({
+          description: describeFailure(error),
+          title: 'PR watch setting was not updated',
+          variant: 'destructive',
+        });
+      });
+    },
+    [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId, updateThreadMetadata]
+  );
+  const askAgentToFixChecks = useMemo(() => {
+    const status = forgePr.status;
+    if (!(selectedMemoryThreadId && status)) {
+      return;
+    }
+    if (status.kind !== 'pr' && status.kind !== 'stale') {
+      return;
+    }
+    const { pullRequest } = status;
+    if (pullRequest === null) {
+      return;
+    }
+    const failing = pullRequest.checks
+      .filter(
+        (check) =>
+          check.conclusion === 'action_required' ||
+          check.conclusion === 'cancelled' ||
+          check.conclusion === 'failure' ||
+          check.conclusion === 'timed_out'
+      )
+      .map((check) => check.name);
+    return (): void => {
+      // Prompt insertion only — the user can inspect and edit it before send.
+      useAssistantComposerCommandStore.getState().enqueue({
+        mode: 'append',
+        text: `Pull request #${pullRequest.number} (${pullRequest.url}) has failing checks: ${failing.join(', ')}. Investigate why each one failed and propose a fix.`,
+        threadId: selectedMemoryThreadId,
+      });
+    };
+  }, [forgePr.status, selectedMemoryThreadId]);
+  const forge = useMemo<WorkspaceBarForge | undefined>(() => {
+    if (forgePr.status === null) {
+      return forgePr.diagnostic
+        ? {
+            onAskAgentToFixChecks: undefined,
+            onCopyUrl,
+            onOpenExternal,
+            onRefresh: forgePr.refresh,
+            onWatchChange: onForgeWatchChange,
+            status: {
+              failure: { detail: forgePr.diagnostic, reason: 'fetch-failed' },
+              kind: 'unavailable',
+            },
+            watched: forgePrWatched,
+          }
+        : undefined;
+    }
+    return {
+      onAskAgentToFixChecks: askAgentToFixChecks,
+      onCopyUrl,
+      onOpenExternal,
+      onRefresh: forgePr.refresh,
+      onWatchChange: onForgeWatchChange,
+      status: forgePr.status,
+      watched: forgePrWatched,
+    };
+  }, [
+    askAgentToFixChecks,
+    forgePr.diagnostic,
+    forgePr.refresh,
+    forgePr.status,
+    forgePrWatched,
+    onCopyUrl,
+    onForgeWatchChange,
+    onOpenExternal,
+  ]);
 
   return {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
     ...checkoutEntry(primaryRoot, checkout),
+    ...forgeEntry(forge),
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { BranchChip } from './branch-chip';
 import { FolderChip } from './folder-chip';
+import { PrChip, type WorkspaceBarForge } from './pr-chip';
 
 /** A folder mounted in this thread's workspace (primary or secondary). */
 export interface WorkspaceBarRoot {
@@ -76,6 +77,13 @@ export interface WorkspaceBarProps {
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   /** Desktop only — read-only git state for the primary root; undefined hides the chip. */
   readonly checkout?: WorkspaceBarCheckout | undefined;
+  /**
+   * Desktop only — forge PR state for the primary root's checkout. `undefined`
+   * means the platform has no forge bridge at all (web); a present value can
+   * still be `kind: 'unavailable'`, which renders no PR chip and puts the
+   * reason on the BranchChip instead.
+   */
+  readonly forge?: WorkspaceBarForge | undefined;
   readonly onAddFolder: () => void;
   /** Present only when the platform can re-mount a recent folder without a picker (desktop). */
   readonly onAddRecent?: ((path: string) => void) | undefined;
@@ -106,6 +114,7 @@ export interface WorkspaceBarProps {
 export const WorkspaceBar = ({
   branchMenu,
   checkout,
+  forge,
   ...folder
 }: WorkspaceBarProps): ReactElement => (
   // A plain container, not a labelled group: each chip carries its own
@@ -113,7 +122,16 @@ export const WorkspaceBar = ({
   // composer's screen-reader path.
   <div className="mx-3 flex flex-wrap items-center gap-1.5" data-testid="workspace-bar">
     <FolderChip {...folder} />
-    {checkout ? <BranchChip branchMenu={branchMenu} checkout={checkout} /> : null}
+    {checkout ? (
+      <BranchChip
+        branchMenu={branchMenu}
+        checkout={checkout}
+        {...(forge?.status.kind === 'unavailable'
+          ? { forgeDiagnostic: forge.status.failure.detail }
+          : {})}
+      />
+    ) : null}
+    {forge ? <PrChip forge={forge} /> : null}
   </div>
 );
 
