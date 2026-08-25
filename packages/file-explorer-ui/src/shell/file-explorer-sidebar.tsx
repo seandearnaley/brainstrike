@@ -915,12 +915,13 @@ const FileExplorerSidebar = memo(
     return (
       <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
         {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
-        {/* Watcher health must surface in the DEFAULT one-folder workspace
-            too, not only in forest sections (PR #1774 review). The chip
-            renders nothing while healthy, so this row is invisible on the
-            golden path. */}
+        {/* Per-root status must surface in the DEFAULT one-folder workspace
+            too, not only in forest sections. Both controls render nothing
+            when healthy/eligible, so this row stays invisible on the golden
+            path. */}
         {rootDirectoryHandle && (
-          <div className="flex items-center px-2">
+          <div className="flex items-center gap-1 px-2">
+            <WorktreeIndexingControl rootId={singleRootFolderId} />
             <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
           </div>
         )}

@@ -987,8 +987,9 @@ additional explorer/status chrome):
   `packages/app-state/src/stores/background-indexing-preferences-store.ts`,
   consumed by the one sync-target filter in
   `workspace-collection-sync-provider.tsx`) until the hash-reuse cost is
-  measured against the BST-393 benchmark. The Explorer root header and the
-  workspace-root status popover surface this as `Not indexed`, explain that
+  measured against the BST-393 benchmark. The Explorer root surfaces (forest
+  root headers and the single-root status row) and the workspace-root status
+  popover surface this as `Not indexed`, explain that
   managed worktrees are excluded by default to avoid duplicate corpus
   indexing, and offer a per-root opt-in. The durable DB root id keys that
   persisted preference; the adapter root id keys only the transient mounted-
