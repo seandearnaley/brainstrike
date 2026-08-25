@@ -21,9 +21,15 @@
  * `listThreadRunEvents` ONLY when a thread's history is loaded
  * (`createAssistantThreadHistoryAdapter`). Nothing re-hydrates an
  * ALREADY-OPEN thread mid-session, so a `pr.*` row appended while its thread
- * is open does not appear until that thread is reopened or the app reloads —
- * unlike `thread.metadata.forgePrUrl`, which the thread list's live query
- * does pick up (the PR chip/pill update without a reopen). See
+ * is open does not appear until that thread is reopened or the app reloads. This is NOT a case of the
+ * timeline lagging behind a live `forgePrUrl`: `useAssistantThreadStore` is
+ * REFRESH-DRIVEN (`refreshResourceThreads`), not a live query, so
+ * `forgePrUrl` does not update live either. The PR chip and thread-row
+ * pill stay fresh through their OWN independent live sources instead —
+ * `use-thread-forge-pr.ts` reads `window.forge` directly (the chip), and
+ * `use-forge-pr-cache.ts` reads a PGlite live query over
+ * `brainstrike_forge_prs` (the pill, Task 5) — neither reads
+ * `thread.metadata` or `listThreadRunEvents` at all. See
  * `docs/agents/assistant-persistence.md`'s "ASSISTANT RUN NOTIFICATIONS"
  * layer 6 for the full writeup. Not fixed here: inventing a live-refresh path
  * is future work, not this task's.
@@ -450,6 +456,19 @@ export function useForgeBranchLookupActivation(): boolean {
   return active;
 }
 
+/** `<repoCommonDir>\0<branch>` — the pending-buffer key. Deliberately coarser
+ * than `observationKey` (no headSha): the buffer holds at most one PENDING
+ * push per repo/branch, so a burst of pushes for the same branch (e.g. a
+ * flurry of force-pushes while the lookup is still loading) collapses to the
+ * latest one instead of growing without bound (BST-1391 fix-round finding —
+ * the reviewer's probe: 50 pushes while not-ready produced 50 buffered
+ * entries and, once drained, 50 notifications carrying superseded headShas).
+ * Only the LATEST push's state matters once the lookup is ready: an earlier
+ * pending push for the same branch is already stale by construction. */
+function pendingBufferKey(event: ForgePrUpdatedEvent): string {
+  return `${event.repoCommonDir}\0${event.branch}`;
+}
+
 export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
   const bridge = useMemo(() => resolveForgeBridge(), []);
   // The push handler must see the CURRENT threads/lookup without resubscribing
@@ -460,8 +479,11 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
   // Pushes `handleForgePrUpdated` returned `'buffered'` for — matched no
   // thread while the branch lookup was still loading. Retained rather than
   // dropped so the push that flips `useForgeBranchLookupActivation` active is
-  // not the one push guaranteed to be lost (BST-1391 M2).
-  const pendingRef = useRef<ForgePrUpdatedEvent[]>([]);
+  // not the one push guaranteed to be lost (BST-1391 M2). Keyed by
+  // `pendingBufferKey` (repo+branch, NOT headSha) and bounded to one entry
+  // per key — see that function's doc for why a headSha-keyed queue would
+  // grow unbounded across a burst of pushes for the same branch.
+  const pendingRef = useRef<Map<string, ForgePrUpdatedEvent>>(new Map());
   // Every `<observationKey>\0<transition>` already recorded, live OR drained.
   // Shared across both paths so a drain that fires more than once for the
   // same buffered push cannot double-append a timeline row — see
@@ -483,7 +505,15 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
         lastPersistedForgePrUrlRef.current
       );
       if (outcome === 'buffered') {
-        pendingRef.current = [...pendingRef.current, event];
+        const bufferKey = pendingBufferKey(event);
+        const replacing = pendingRef.current.has(bufferKey);
+        pendingRef.current.set(bufferKey, event);
+        logger.debug(
+          replacing
+            ? 'Forge push buffered, replacing an earlier pending push for this repo/branch'
+            : 'Forge push buffered pending the branch lookup',
+          { branch: event.branch, repoCommonDir: event.repoCommonDir }
+        );
       }
     });
   }, [bridge]);
@@ -495,11 +525,11 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
   // to retry buffered pushes against — see `isLookupReady`.
   const { branchLookup } = args;
   useEffect(() => {
-    if (pendingRef.current.length === 0 || !isLookupReady(branchLookup)) {
+    if (pendingRef.current.size === 0 || !isLookupReady(branchLookup)) {
       return;
     }
-    const draining = pendingRef.current;
-    pendingRef.current = [];
+    const draining = [...pendingRef.current.values()];
+    pendingRef.current = new Map();
     for (const event of draining) {
       // A re-buffer here would be a bug (this effect only runs once
       // `isLookupReady` is true), but `handleForgePrUpdated` returning

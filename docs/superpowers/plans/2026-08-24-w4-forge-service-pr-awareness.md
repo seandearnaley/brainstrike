@@ -6787,10 +6787,15 @@ message stream, and those are produced ONLY at thread-history hydration
 (`createAssistantThreadHistoryAdapter`, which runs on thread open/reload) —
 no existing seam re-hydrates an already-open thread's timeline mid-session.
 A `pr.*` row appended while its thread is open therefore will NOT appear
-until that thread is reopened or the app reloads. This is UNLIKE
-`thread.metadata.forgePrUrl`, which the thread list's live query already
-picks up — the PR chip/pill update live without a reopen; only the timeline
-row lags. Investigated and intentionally not fixed in-band: no cheap existing
+until that thread is reopened or the app reloads. This is NOT the timeline
+lagging behind a live `thread.metadata.forgePrUrl` — `useAssistantThreadStore`
+is REFRESH-DRIVEN (`refreshResourceThreads`), not a live query, so
+`forgePrUrl` does not update live either. The PR chip and thread-row pill stay
+fresh through their OWN independent live sources instead: `use-thread-forge-pr.ts`
+reads `window.forge` directly (the chip), and `use-forge-pr-cache.ts` reads a
+PGlite live query over `brainstrike_forge_prs` (the pill, Task 5) — neither
+reads `thread.metadata` or `listThreadRunEvents`. Investigated and
+intentionally not fixed in-band: no cheap existing
 hook re-hydrates one open thread's run events, and inventing new plumbing for
 it is future work, not this task's. Documented in
 `use-forge-run-events.ts`'s header and

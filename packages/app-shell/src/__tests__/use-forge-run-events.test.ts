@@ -332,6 +332,39 @@ describe('useForgeRunEvents', () => {
       );
     });
 
+    it('bounds the pending buffer to the LATEST push per repo/branch (inverted reviewer probe)', async () => {
+      const { push } = installBridge();
+      const { notifications, repository, view } = harness([thread()], NOT_READY_BRANCH_LOOKUP);
+
+      // 50 pushes for the SAME repo/branch while the lookup is still
+      // loading (e.g. a flurry of force-pushes) — each carries a distinct
+      // headSha, simulating the head genuinely moving each time. Before the
+      // bounded-buffer fix, an unbounded array retained all 50 and drained
+      // every one: 50 appends, 50 notifications, most with a superseded
+      // headSha the branch had already moved past.
+      for (let i = 0; i < 50; i += 1) {
+        push({
+          pullRequest: { ...pullRequest, headSha: `sha-${i}` },
+          transitions: ['checks'],
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(repository.appendThreadRunEvent).not.toHaveBeenCalled();
+      expect(notifications.onForgeEvent).not.toHaveBeenCalled();
+
+      act(() => {
+        view.rerender({ branchLookup });
+      });
+
+      // Exactly one append, one notify — the buffer held only the LATEST
+      // (sha-49) push once it became ready, not all 50.
+      await waitFor(() => expect(repository.appendThreadRunEvent).toHaveBeenCalledTimes(1));
+      expect(notifications.onForgeEvent).toHaveBeenCalledTimes(1);
+      expect(notifications.onForgeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ observationKey: expect.stringContaining('sha-49') })
+      );
+    });
+
     it('does not double-append a drained observation that arrives again afterward', async () => {
       const { push } = installBridge();
       const { repository, view } = harness([thread()], NOT_READY_BRANCH_LOOKUP);

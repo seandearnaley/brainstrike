@@ -615,8 +615,15 @@ Layers:
    HYDRATION time (`createAssistantThreadHistoryAdapter`, on thread
    open/reload), which is what turns persisted run events into synthetic data
    parts. No existing seam re-hydrates an already-open thread's timeline
-   mid-session (unlike `thread.metadata.forgePrUrl`, which the thread list's
-   live query DOES pick up, so the PR chip/pill update without a reopen). A
+   mid-session. This is NOT the timeline lagging behind a live
+   `thread.metadata.forgePrUrl` — `useAssistantThreadStore` is
+   REFRESH-DRIVEN (`refreshResourceThreads`), not a live query, so
+   `forgePrUrl` does not update live either. The PR chip and thread-row pill
+   stay fresh through their OWN independent live sources instead:
+   `use-thread-forge-pr.ts` reads `window.forge` directly (the chip), and
+   `use-forge-pr-cache.ts` reads a PGlite live query over
+   `brainstrike_forge_prs` (the pill, Task 5) — neither reads
+   `thread.metadata` or `listThreadRunEvents`.
    `pr.*` row therefore does not appear in an OPEN thread's timeline until
    that thread is reopened or the app reloads. Inventing a live-refresh path
    for this is future work, not this task's — see Task 7's CDT checklist for
