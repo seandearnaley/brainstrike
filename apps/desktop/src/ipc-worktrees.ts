@@ -10,33 +10,46 @@ import type { WorktreesIpcHandlers } from './worktrees-ipc-handlers';
 export function registerWorktreesIpcHandlers(handlers: WorktreesIpcHandlers): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'worktrees',
     DESKTOP_IPC_CHANNELS.worktrees.archive,
+    { roles: ['visible-ui'] },
     (_event, payload: unknown) => handlers.archive(payload)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'worktrees',
     DESKTOP_IPC_CHANNELS.worktrees.create,
+    { roles: ['visible-ui'] },
     (_event, payload: unknown) => handlers.create(payload)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'worktrees',
     DESKTOP_IPC_CHANNELS.worktrees.createBranchHere,
+    { roles: ['visible-ui'] },
     (_event, payload: unknown) => handlers.createBranchHere(payload)
   );
-  registry.registerInvoke('worktrees', DESKTOP_IPC_CHANNELS.worktrees.getSettings, () =>
-    handlers.getSettings()
+  registry.registerAuthorizedInvoke(
+    'worktrees',
+    DESKTOP_IPC_CHANNELS.worktrees.getSettings,
+    { roles: ['visible-ui'] },
+    () => handlers.getSettings()
   );
-  registry.registerInvoke('worktrees', DESKTOP_IPC_CHANNELS.worktrees.list, () => handlers.list());
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
+    'worktrees',
+    DESKTOP_IPC_CHANNELS.worktrees.list,
+    { roles: ['visible-ui'] },
+    () => handlers.list()
+  );
+  registry.registerAuthorizedInvoke(
     'worktrees',
     DESKTOP_IPC_CHANNELS.worktrees.restore,
+    { roles: ['visible-ui'] },
     (_event, payload: unknown) => handlers.restore(payload)
   );
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'worktrees',
     DESKTOP_IPC_CHANNELS.worktrees.setSettings,
+    { roles: ['visible-ui'] },
     (_event, payload: unknown) => handlers.setSettings(payload)
   );
 

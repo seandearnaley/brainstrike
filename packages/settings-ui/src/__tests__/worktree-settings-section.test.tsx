@@ -79,6 +79,35 @@ describe('WorktreeSettingsSection', () => {
     });
   });
 
+  it.each(['"', "'"])('rejects setup commands containing %s without saving', async (quote) => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(() => Promise.resolve());
+    render(
+      <WorktreeSettingsSection onSave={onSave} settings={SETTINGS} status={{ kind: 'ready' }} />
+    );
+    const command = screen.getByTestId('worktree-settings-setup-command');
+    await user.type(command, `sh -c ${quote}pnpm install${quote}`);
+    await user.click(screen.getByTestId('worktree-settings-save'));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Quoting is not supported. Each whitespace-separated token becomes one argument.'
+    );
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('shows the live whitespace-split argv preview', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorktreeSettingsSection onSave={vi.fn()} settings={SETTINGS} status={{ kind: 'ready' }} />
+    );
+    const command = screen.getByTestId('worktree-settings-setup-command');
+    await user.type(command, 'pnpm install --frozen-lockfile');
+
+    expect(screen.getByTestId('worktree-settings-setup-command-preview')).toHaveTextContent(
+      'Runs as: [pnpm, install, --frozen-lockfile]'
+    );
+  });
+
   it('resets to the default', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn(() => Promise.resolve());

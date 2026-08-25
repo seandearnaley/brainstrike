@@ -61,7 +61,8 @@ function WorktreeSettingsForm({
   readonly settings: WorktreeSettings;
 }): ReactElement {
   const [directory, setDirectory] = useState(settings.managedDirectory);
-  const [command, setCommand] = useState((settings.setupCommand ?? []).join(' '));
+  const [command, setCommand] = useState(() => (settings.setupCommand ?? []).join(' '));
+  const [commandError, setCommandError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -69,7 +70,15 @@ function WorktreeSettingsForm({
     readonly managedDirectory: string | null;
     readonly setupCommand: readonly string[] | null;
   }): void => {
+    if (/["']/u.test(command)) {
+      setSaveError(null);
+      setCommandError(
+        'Quoting is not supported. Each whitespace-separated token becomes one argument.'
+      );
+      return;
+    }
     setSaving(true);
+    setCommandError(null);
     setSaveError(null);
     onSave(next)
       .catch((error: unknown) => {
@@ -110,10 +119,28 @@ function WorktreeSettingsForm({
         <Input
           data-testid="worktree-settings-setup-command"
           id="worktree-setup-command"
-          onChange={(event) => setCommand(event.target.value)}
+          onChange={(event) => {
+            setCommand(event.target.value);
+            setCommandError(null);
+          }}
           placeholder="pnpm install --frozen-lockfile"
           value={command}
         />
+        {commandError ? (
+          <p
+            className="text-destructive text-sm"
+            data-testid="worktree-settings-setup-command-error"
+            role="alert"
+          >
+            {commandError}
+          </p>
+        ) : null}
+        <p
+          className="text-muted-foreground text-xs"
+          data-testid="worktree-settings-setup-command-preview"
+        >
+          {commandParts ? `Runs as: [${commandParts.join(', ')}]` : 'No setup command will run.'}
+        </p>
         <p className="text-muted-foreground text-xs">
           Runs once in each new worktree with{' '}
           <code>BRAINSTRIKE_WORKSPACE_NAME/PATH/ROOT_PATH/PORT</code> set. Leave empty to use the

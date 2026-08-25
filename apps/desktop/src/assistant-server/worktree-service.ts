@@ -112,8 +112,10 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     // Realpath both: the inventory keys repositories on the realpath'd common
     // dir, and a ledger row keyed on a symlinked path would never join.
-    const commonDir = await fsPromises.realpath(commonDirRun.stdout.trim());
-    const repositoryRoot = await fsPromises.realpath(topLevelRun.stdout.trim());
+    const [commonDir, repositoryRoot] = await Promise.all([
+      fsPromises.realpath(commonDirRun.stdout.trim()),
+      fsPromises.realpath(topLevelRun.stdout.trim()),
+    ]);
     return { ok: true, value: { commonDir, cwd: cwd.value, repositoryRoot } };
   }
 
@@ -150,15 +152,20 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       logger.warn('worktree create refused by path policy', { error, name });
       return { error: toErrorMessage(error), ok: false };
     }
-    await fsPromises.mkdir(settings.managedDirectory, { recursive: true });
+    const createdDirectory = await fsPromises.mkdir(settings.managedDirectory, {
+      recursive: true,
+    });
     const managedDirectory = await fsPromises.realpath(settings.managedDirectory);
     const target = resolveWorktreeTargetPath(managedDirectory, slug, name);
     const canonicalRootPaths = await Promise.all(
-      roots.map((root) => fsPromises.realpath(root.path))
+      roots.map((root) => fsPromises.realpath(root.path).catch(() => root.path))
     );
     try {
       assertWorktreeTargetOutsideRoots(target, canonicalRootPaths);
     } catch (error) {
+      if (createdDirectory !== undefined) {
+        await fsPromises.rm(createdDirectory, { recursive: true });
+      }
       logger.warn('worktree create refused by path policy', { error, name });
       return { error: toErrorMessage(error), ok: false };
     }
@@ -201,11 +208,39 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
             error: describeFailure(removeRun),
             target,
           });
+        } else if (branchName !== null) {
+          const deleteBranchRun = await invokeGitHookFree(invokeIn(context.cwd), [
+            'branch',
+            '-D',
+            '--',
+            branchName,
+          ]);
+          if (deleteBranchRun.exitCode !== 0) {
+            logger.error('could not delete branch after failed worktree ledger insert', {
+              branchName,
+              error: describeFailure(deleteBranchRun),
+              target,
+            });
+          }
         }
       } catch (cleanupError) {
         logger.error('worktree ledger insert cleanup threw', { cleanupError, target });
       }
       throw insertError;
+    }
+  }
+
+  async function runSetupSafely(input: WorktreeSetupInput): Promise<WorktreeSetupOutcome> {
+    try {
+      return await deps.runSetup(input);
+    } catch (error) {
+      return {
+        copiedPaths: [],
+        output: '',
+        reason: toErrorMessage(error),
+        status: 'failed',
+        truncated: false,
+      };
     }
   }
 
@@ -247,13 +282,22 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     const row = await insertCreatedWorktree(context.value, params, branchName, target);
     // Setup failure is VISIBLE and does NOT block using the worktree (§6.3):
     // the outcome rides back on the result and is persisted on the row.
-    const setup = await deps.runSetup({
+    const setup = await runSetupSafely({
       settings,
       sourcePath: context.value.repositoryRoot,
       worktree: row,
     });
-    const worktree = await ledger.recordSetup(row.id, setup);
-    return { ok: true, value: { setup, worktree } };
+    try {
+      const worktree = await ledger.recordSetup(row.id, setup);
+      return { ok: true, value: { setup, worktree } };
+    } catch (error) {
+      logger.error('could not record worktree setup outcome', {
+        error,
+        setupStatus: setup.status,
+        worktreeId: row.id,
+      });
+      return { ok: true, value: { setup, worktree: row } };
+    }
   }
 
   /**
