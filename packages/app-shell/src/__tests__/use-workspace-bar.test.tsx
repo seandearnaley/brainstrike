@@ -655,6 +655,7 @@ describe('useWorkspaceBar', () => {
 
     expect(result.current.primaryRoot).toBeUndefined();
     expect(result.current.checkout).toBeUndefined();
+    expect(result.current.branchMenu).toBeUndefined();
   });
 
   it('supplies the reveal action with the platform label, never a hardcoded OS name', async () => {

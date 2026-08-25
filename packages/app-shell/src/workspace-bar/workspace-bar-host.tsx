@@ -6,9 +6,10 @@ import { type UseWorkspaceBarArgs, useWorkspaceBar } from '../hooks/use-workspac
  * The app-shell side of the composer workspace bar: it owns `useWorkspaceBar`
  * and renders the store-free `<WorkspaceBar />` from @brainstrike/assistant-ui.
  *
- * It exists to BOUND a re-render. `useWorkspaceBar` holds two live-refresh
- * subscriptions (`anyInvalidationNonce` for the MAIN-root re-resolve, and the
- * branch chip's own git-scope nonce), so every git push and every working-tree
+ * It exists to BOUND a re-render. `useWorkspaceBar` holds three live-refresh
+ * subscriptions (`anyInvalidationNonce` for the MAIN-root re-resolve, the
+ * branch chip's own git-scope nonce, and the branch switcher's own
+ * repository/status reload), so every git push and every working-tree
  * batch re-renders whichever component calls it. Called in
  * `assistant-ui-panel-wrapper.tsx` — an ~1850-line component mounting the whole
  * assistant — that meant a `git commit` in another window re-rendered the

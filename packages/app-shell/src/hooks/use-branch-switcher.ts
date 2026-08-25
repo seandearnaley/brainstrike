@@ -20,9 +20,10 @@
  * matching Task 1's header fix exactly.
  *
  * `undefined` = no interactive menu (web, no git bridge, no primary root, or a
- * failed repository/status read). A failure is logged AND toasted — never
- * rendered as an empty branch list, which would read as "this repo has no
- * branches".
+ * failed repository/status read). A load failure is logged and leaves the
+ * chip non-interactive — never rendered as an empty branch list, which would
+ * read as "this repo has no branches". Only MUTATIONS (switch, create, fetch)
+ * toast; a load failure has no user action to attribute the toast to.
  */
 import type { WorkspaceBarBranchMenu, WorkspaceBarCheckout } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
@@ -69,9 +70,20 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
     readonly repository: GitRepository;
   } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  // `checkout !== undefined` is the same "is a repository" signal
+  // `useThreadCheckoutStatus` derives from `isRepository` (BST-1452 M2): a
+  // non-git primary root resolves `checkout` to `undefined` there without
+  // logging, since "this folder isn't a repository" is not a failure. This
+  // hook's load effect must stay consistent with that — without the gate it
+  // re-ran `bridge.repository`/`bridge.status` on every invalidation nonce
+  // for a root that can never build a model, and warned about the entirely
+  // expected result. Read as a boolean (not `checkout` itself) so the effect
+  // below keys on the repository/non-repository transition, not on every new
+  // `checkout` object reference.
+  const hasCheckout = checkout !== undefined;
 
   useEffect(() => {
-    if (!(bridge && dbRootId)) {
+    if (!(bridge && dbRootId && hasCheckout)) {
       return;
     }
     let cancelled = false;
@@ -91,6 +103,9 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
           });
           return;
         }
+        // Genuinely unexpected: `checkout` already confirmed this root is a
+        // repository, so a failed read here is not "not a repository" —
+        // it is a real read failure worth surfacing.
         logger.warn('branch switcher could not read the repository or its status', {
           dbRootId,
           repositoryError: repositoryResult.ok ? null : repositoryResult.error,
@@ -107,7 +122,7 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
     return () => {
       cancelled = true;
     };
-  }, [anyInvalidationNonce, bridge, dbRootId, reloadNonce]);
+  }, [anyInvalidationNonce, bridge, dbRootId, hasCheckout, reloadNonce]);
 
   const runMutation = useCallback(
     async (title: string, op: () => Promise<GitResult<unknown>>): Promise<void> => {

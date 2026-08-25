@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   createBranchSpy,
   fetchSpy,
+  loggerMock,
+  nonceHolder,
   refreshInventorySpy,
   repositorySpy,
   statusSpy,
@@ -12,6 +14,18 @@ const {
 } = vi.hoisted(() => ({
   createBranchSpy: vi.fn(),
   fetchSpy: vi.fn(),
+  loggerMock: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  },
+  // A mutable box, not a plain number: the mocked store selector below reads
+  // it fresh on every render, so tests can simulate live-refresh nonce bumps
+  // by mutating `.value` and forcing a rerender.
+  nonceHolder: { value: 0 },
   refreshInventorySpy: vi.fn(() => Promise.resolve()),
   repositorySpy: vi.fn(),
   statusSpy: vi.fn(),
@@ -33,7 +47,11 @@ vi.mock('../changes/use-git-inventory', () => ({
 }));
 vi.mock('../changes/changes-live-refresh-store', () => ({
   useChangesLiveRefreshStore: (selector: (state: { anyInvalidationNonce: number }) => unknown) =>
-    selector({ anyInvalidationNonce: 0 }),
+    selector({ anyInvalidationNonce: nonceHolder.value }),
+}));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => loggerMock,
 }));
 vi.mock('@brainstrike/ui', () => ({ toast: toastSpy }));
 
@@ -65,6 +83,7 @@ const TRACKED_STATUS = {
 describe('useBranchSwitcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    nonceHolder.value = 0;
     repositorySpy.mockResolvedValue({ ok: true, value: REPOSITORY });
     statusSpy.mockResolvedValue({ ok: true, value: CLEAN_STATUS });
     switchBranchSpy.mockResolvedValue({ ok: true, value: { branch: 'feature/alpha' } });
@@ -75,6 +94,34 @@ describe('useBranchSwitcher', () => {
   it('returns undefined without a root or a checkout', () => {
     const { result } = renderHook(() => useBranchSwitcher({ checkout: undefined, dbRootId: null }));
     expect(result.current).toBeUndefined();
+  });
+
+  it('never reads the repository or status for a non-repository root, and never warns, across nonce bumps', async () => {
+    // `checkout: undefined` with a `dbRootId` set is exactly what
+    // `useThreadCheckoutStatus` returns for a primary root that resolved but
+    // is not a git repository (BST-1452 M2) — the effect must not fetch or
+    // warn for it, on the initial render or on any later invalidation.
+    const { rerender } = renderHook(
+      ({ nonce: _nonce }) => useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' }),
+      { initialProps: { nonce: 0 } }
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    nonceHolder.value += 1;
+    rerender({ nonce: 1 });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    nonceHolder.value += 1;
+    rerender({ nonce: 2 });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(repositorySpy).not.toHaveBeenCalled();
+    expect(statusSpy).not.toHaveBeenCalled();
+    expect(loggerMock.warn).not.toHaveBeenCalled();
   });
 
   it('builds rows from window.git.repository for the primary root', async () => {

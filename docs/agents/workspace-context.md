@@ -1040,8 +1040,9 @@ additional explorer/status chrome):
     call the existing `switchBranch` / `createBranch` bridge paths without a
     fresh client-side status pre-check; the bridge result is the source of truth,
     and a returned or thrown mutation failure is logged and surfaced as a
-    destructive toast. Fetch is offered only for a discovered default remote
-    and names that remote explicitly. After a successful mutation, the hook
+    destructive toast. Fetch is offered only for a discovered default remote,
+    and the call names that remote explicitly rather than relying on git's
+    default. After a successful mutation, the hook
     refreshes the git inventory and advances its own reload nonce so it re-reads
     repository and status topology. Unlike the dot, the switcher's own
     repository/status load is keyed only on `anyInvalidationNonce` plus that
