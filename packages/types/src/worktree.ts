@@ -43,7 +43,7 @@ export interface ManagedWorktreeRow {
   readonly repoCommonDir: string;
   /** The run that created it, when `createdBy === 'agent'`. */
   readonly runId: string | null;
-  /** Bounded captured setup output (≤ 16 KiB), or null. */
+  /** Bounded captured setup report/output (≤ 32 KiB), or null. */
   readonly setupOutput: string | null;
   readonly setupStatus: ManagedWorktreeSetupStatus;
   /** Owning thread; null for a worktree that outlived (or never had) one. */
@@ -127,12 +127,22 @@ export interface WorktreeCreateParams {
 export interface WorktreeSetupOutcome {
   /** Root-relative paths copied because `.worktreeinclude` matched them. */
   readonly copiedPaths: readonly string[];
-  /** Captured stdout+stderr, bounded. Empty string when nothing ran. */
+  /** Bounded copy-refusal report followed by captured stdout+stderr. */
   readonly output: string;
   /** Why the status is what it is — non-null for `failed` and `skipped`. */
   readonly reason: string | null;
+  /** Resolved `.worktreeinclude` matches refused before copying, with specific reasons. */
+  readonly skippedCopies: readonly WorktreeSetupSkippedCopy[];
   readonly status: ManagedWorktreeSetupStatus;
   readonly truncated: boolean;
+}
+
+export interface WorktreeSetupSkippedCopy {
+  /** Resolved root-relative glob match that was refused. */
+  readonly path: string;
+  /** Original `.worktreeinclude` pattern that produced the match. */
+  readonly pattern: string;
+  readonly reason: string;
 }
 
 export interface WorktreeCreateResult {

@@ -391,6 +391,47 @@ with `null` recomputed as the home-relative default on every read. The exact
 bridge set, IPC narrowing, preload parity, and settings persistence are pinned
 by the corresponding `worktrees-*` and preload-runtime contract tests.
 
+### SETUP HOOKS / PER-WORKTREE SETUP — granted roots only
+
+Repository code runs only while creating a worktree FROM a repository the user
+explicitly opened as a workspace root. `createUnserialized` starts with
+`resolveRepositoryContext(params.rootId)`, which resolves that durable
+`roots.id` through `deps.resolveRootCwd(rootId)` before setup is reachable.
+After creation it is the sole caller of `runSetupSafely` → `deps.runSetup` →
+`runWorktreeSetup`. Repositories surfaced only through inventory/list discovery
+have no path to setup execution. This is the Conductor / Claude Code convention:
+`.brainstrike/worktree-setup.sh` and configured `setupCommand` argv are trusted
+only at the already-granted workspace-root boundary.
+
+`.worktreeinclude` copies gitignored source files into the new worktree, one
+root-relative glob pattern per non-comment line. Absolute and `..`-escaping
+patterns are rejected before filesystem access. Every resolved match is also
+`realpath`-checked against the source root, and each existing/write-side target
+parent is `realpath`-checked against the worktree root before copying with
+`dereference: false`; symlinks therefore cannot smuggle bytes from outside the
+repository or redirect a write outside the destination. An escaping,
+disappeared, or over-budget match is skipped individually and reported by
+pattern, path, and reason in `WorktreeSetupOutcome.skippedCopies` and the
+persisted bounded setup output. Per-entry and aggregate copies share the
+512 MiB `WORKTREE_INCLUDE_MAX_TOTAL_BYTES` ceiling.
+
+The command receives the Conductor-style environment from
+`worktreeSetupEnvironment`: `BRAINSTRIKE_ROOT_PATH`,
+`BRAINSTRIKE_WORKSPACE_NAME`, `BRAINSTRIKE_WORKSPACE_PATH`, and
+`BRAINSTRIKE_PORT`. The port is
+`3000 + (sha256(worktreePath).readUInt32BE(0) % 2000)`: deterministic for one
+worktree path and unlikely to collide, but NOT probed or verified free. It is a
+default the setup command may honor, never a free-port allocation.
+
+Execution is argv-based, not a shell command string. The repository script is
+spawned as `/bin/sh <absolute-script-path>`; configured argv is spawned
+directly. Neither path nor argv is interpolated into a command line. Stdout and
+stderr are consumed to completion while their retained bytes are bounded;
+overflow marks the outcome truncated and is discarded without killing the
+process. Timeout, spawn, signal, and non-zero-exit failures remain visible but
+non-blocking: the worktree is usable, and the bounded `WorktreeSetupOutcome` is
+returned and its status/output persisted on the ledger row rather than dropped.
+
 ### MANAGED WORKTREE ARCHIVE SNAPSHOTS (BST-1390) — not shadow git
 
 Archiving a managed worktree captures its full tracked+untracked (non-ignored)
@@ -401,8 +442,14 @@ worktree's own repository**, via a private `GIT_INDEX_FILE` → `add -A` →
 that engine is keyed per ROOT *and* per THREAD (`snapshotRefForThread`) with a
 closed `SnapshotKind` union that throws on an unknown kind, and a managed
 worktree outlives its thread. Living in the common dir is what lets the
-snapshot survive `git worktree remove`; `restore` replays it with
-`git worktree add … <ref>^` + `git restore --source=<ref>`.
+snapshot survive `git worktree remove`. Restore then chooses one explicit add
+path before `git restore --source=<ref>` replays the snapshot: a detached row
+uses `git worktree add --detach -- <path> <ref>^`; a missing branch is recreated
+with `git worktree add -b <branch> -- <path> <ref>^`; and an existing branch
+whose tip still equals `<ref>^` is checked out directly with
+`git worktree add -- <path> <branch>`. If an existing branch has moved since
+archive, restore refuses with an error naming its current and expected tips —
+it never silently rebases or overwrites the branch.
 
 The snapshot is captured on EVERY archive, clean or not, and BEFORE the safety
 verdict is acted on. `archive` refuses a dirty or unpushed worktree unless

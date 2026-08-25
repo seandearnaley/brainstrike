@@ -56,8 +56,12 @@ const logger = createLogger('WorktreeService');
 
 /** What `runSetup` needs to run `.worktreeinclude` copy + the setup command. */
 export interface WorktreeSetupInput {
+  /** Test seam; production uses `WORKTREE_INCLUDE_MAX_TOTAL_BYTES`. */
+  readonly copyMaxBytes?: number;
   readonly settings: WorktreeSettings;
   readonly sourcePath: string;
+  /** Test seam; production uses `WORKTREE_SETUP_TIMEOUT_MS`. */
+  readonly timeoutMs?: number;
   readonly worktree: ManagedWorktreeRow;
 }
 
@@ -251,6 +255,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         copiedPaths: [],
         output: '',
         reason: toErrorMessage(error),
+        skippedCopies: [],
         status: 'failed',
         truncated: false,
       };
@@ -507,6 +512,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       copiedPaths: [],
       output: '',
       reason: null,
+      skippedCopies: [],
       status: 'none',
       truncated: false,
     } as const;

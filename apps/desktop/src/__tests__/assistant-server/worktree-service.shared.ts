@@ -79,6 +79,7 @@ export function buildTestService(
         copiedPaths: [],
         output: '',
         reason: null,
+        skippedCopies: [],
         status: 'none' as const,
         truncated: false,
       }),

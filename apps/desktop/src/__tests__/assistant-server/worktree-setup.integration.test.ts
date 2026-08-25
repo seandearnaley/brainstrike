@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -6,6 +15,7 @@ import type { WorktreeSetupInput } from '../../assistant-server/worktree-service
 import {
   parseWorktreeInclude,
   runWorktreeSetup,
+  WORKTREE_SETUP_COMBINED_OUTPUT_CAP_BYTES,
   WORKTREE_SETUP_OUTPUT_CAP_BYTES,
   worktreeSetupEnvironment,
 } from '../../assistant-server/worktree-setup';
@@ -112,6 +122,7 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
       copiedPaths: [],
       output: '',
       reason: null,
+      skippedCopies: [],
       status: 'none',
       truncated: false,
     });
@@ -124,6 +135,73 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     expect(outcome.copiedPaths).toEqual(['.env']);
     expect(readFileSync(path.join(worktreePath, '.env'), 'utf8')).toBe('SECRET=1\n');
     expect(outcome.status).toBe('succeeded');
+  });
+
+  it('refuses a glob match that resolves outside the repository root', async () => {
+    const outside = path.join(tempRoot, 'outside-read');
+    mkdirSync(outside);
+    writeFileSync(path.join(outside, 'credentials'), 'host-secret\n');
+    symlinkSync(outside, path.join(repo, 'hostcfg'), 'dir');
+    writeFileSync(path.join(repo, '.worktreeinclude'), 'hostcfg/credentials\n');
+
+    const outcome = await runWorktreeSetup(baseInput());
+
+    expect(existsSync(path.join(worktreePath, 'hostcfg', 'credentials'))).toBe(false);
+    expect(outcome.skippedCopies).toEqual([
+      expect.objectContaining({
+        path: 'hostcfg/credentials',
+        pattern: 'hostcfg/credentials',
+        reason: expect.stringContaining('outside the repository root'),
+      }),
+    ]);
+    expect(outcome.output).toContain('hostcfg/credentials');
+    expect(outcome.status).toBe('succeeded');
+  });
+
+  it('refuses a copy whose existing target parent resolves outside the worktree', async () => {
+    const outside = path.join(tempRoot, 'outside-write');
+    mkdirSync(outside);
+    mkdirSync(path.join(repo, 'evil'));
+    writeFileSync(path.join(repo, 'evil', 'config.json'), '{"safe":true}\n');
+    writeFileSync(path.join(repo, '.worktreeinclude'), 'evil/config.json\n');
+    symlinkSync(outside, path.join(worktreePath, 'evil'), 'dir');
+
+    const outcome = await runWorktreeSetup(baseInput());
+
+    expect(existsSync(path.join(outside, 'config.json'))).toBe(false);
+    expect(outcome.skippedCopies).toEqual([
+      expect.objectContaining({
+        path: 'evil/config.json',
+        reason: expect.stringContaining('outside the worktree root'),
+      }),
+    ]);
+    expect(outcome.output).toContain('evil/config.json');
+    expect(outcome.status).toBe('succeeded');
+  });
+
+  it('copies normal nested matches through the containment checks', async () => {
+    mkdirSync(path.join(repo, 'config', 'nested'), { recursive: true });
+    writeFileSync(path.join(repo, 'config', 'nested', 'app.json'), '{"enabled":true}\n');
+    writeFileSync(path.join(repo, '.worktreeinclude'), 'config/nested/*.json\n');
+
+    const outcome = await runWorktreeSetup(baseInput());
+
+    expect(outcome.copiedPaths).toEqual(['config/nested/app.json']);
+    expect(readFileSync(path.join(worktreePath, 'config', 'nested', 'app.json'), 'utf8')).toBe(
+      '{"enabled":true}\n'
+    );
+    expect(outcome.skippedCopies).toEqual([]);
+  });
+
+  it('copies an in-tree symlink as a symlink instead of dereferencing it', async () => {
+    writeFileSync(path.join(repo, 'shared.env'), 'SHARED=1\n');
+    symlinkSync('shared.env', path.join(repo, '.env'));
+    writeFileSync(path.join(repo, '.worktreeinclude'), '.env\n');
+
+    const outcome = await runWorktreeSetup(baseInput());
+
+    expect(outcome.copiedPaths).toEqual(['.env']);
+    expect(lstatSync(path.join(worktreePath, '.env')).isSymbolicLink()).toBe(true);
   });
 
   it('runs .brainstrike/worktree-setup.sh with the BRAINSTRIKE_* env and captures its output', async () => {
@@ -161,6 +239,53 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     expect(outcome.output).not.toContain('script');
   });
 
+  it('reports an empty configured setup command as skipped', async () => {
+    const input = baseInput();
+    const outcome = await runWorktreeSetup({
+      ...input,
+      settings: { ...input.settings, setupCommand: [] },
+    });
+
+    expect(outcome.status).toBe('skipped');
+    expect(outcome.reason).toBe('The configured setup command is empty.');
+  });
+
+  it('surfaces a non-ENOENT error while reading .worktreeinclude', async () => {
+    mkdirSync(path.join(repo, '.worktreeinclude'));
+
+    const outcome = await runWorktreeSetup(baseInput());
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reason).toContain('EISDIR');
+  });
+
+  it('surfaces a non-ENOENT error while resolving the repository setup script', async () => {
+    writeFileSync(path.join(repo, '.brainstrike'), 'not a directory\n');
+
+    const outcome = await runWorktreeSetup(baseInput());
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reason).toContain('ENOTDIR');
+  });
+
+  // The repository-script refusal branch for win32 is intentionally untestable on macOS CI.
+
+  it('copies included files before the setup command runs', async () => {
+    mkdirSync(path.join(repo, 'config'));
+    writeFileSync(path.join(repo, 'config', 'setup-token'), 'copied-before-command\n');
+    writeFileSync(path.join(repo, '.worktreeinclude'), 'config/setup-token\n');
+    mkdirSync(path.join(repo, '.brainstrike'));
+    writeFileSync(
+      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
+      '#!/bin/sh\ncat config/setup-token\n'
+    );
+
+    const outcome = await runWorktreeSetup(baseInput());
+
+    expect(outcome.status).toBe('succeeded');
+    expect(outcome.output).toContain('copied-before-command');
+  });
+
   it('truncates oversized output and SAYS it truncated', async () => {
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
     writeFileSync(
@@ -172,5 +297,80 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     expect(Buffer.byteLength(outcome.output, 'utf8')).toBeLessThanOrEqual(
       WORKTREE_SETUP_OUTPUT_CAP_BYTES
     );
+  });
+
+  it('lets a command producing more than 128 KiB finish with truncated output', async () => {
+    const input = baseInput();
+    const outcome = await runWorktreeSetup({
+      ...input,
+      settings: {
+        ...input.settings,
+        setupCommand: [process.execPath, '-e', "process.stdout.write('x'.repeat(600_000))"],
+      },
+    });
+
+    expect(outcome.status).toBe('succeeded');
+    expect(outcome.truncated).toBe(true);
+    expect(Buffer.byteLength(outcome.output, 'utf8')).toBeLessThanOrEqual(
+      WORKTREE_SETUP_OUTPUT_CAP_BYTES
+    );
+  });
+
+  it('retains bounded stderr even when stdout exceeds its independent cap', async () => {
+    const input = baseInput();
+    const outcome = await runWorktreeSetup({
+      ...input,
+      settings: {
+        ...input.settings,
+        setupCommand: [
+          process.execPath,
+          '-e',
+          "process.stdout.write('o'.repeat(20_000)); process.stderr.write('stderr-tail')",
+        ],
+      },
+    });
+
+    expect(outcome.status).toBe('succeeded');
+    expect(outcome.truncated).toBe(true);
+    expect(outcome.output).toContain('stderr-tail');
+    expect(Buffer.byteLength(outcome.output, 'utf8')).toBeLessThanOrEqual(
+      WORKTREE_SETUP_COMBINED_OUTPUT_CAP_BYTES
+    );
+  });
+
+  it('kills a setup command after an injected short timeout', async () => {
+    const input = baseInput();
+    const startedAt = Date.now();
+    const outcome = await runWorktreeSetup({
+      ...input,
+      settings: {
+        ...input.settings,
+        setupCommand: [process.execPath, '-e', 'setTimeout(() => {}, 5_000)'],
+      },
+      timeoutMs: 100,
+    });
+
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reason).toContain('timed out after 0.1s');
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+  });
+
+  it('refuses entries that would exceed the total copy budget after earlier copies', async () => {
+    writeFileSync(path.join(repo, 'first.bin'), '12345678');
+    writeFileSync(path.join(repo, 'second.bin'), 'abcdefghijkl');
+    writeFileSync(path.join(repo, '.worktreeinclude'), 'first.bin\nsecond.bin\n');
+
+    const outcome = await runWorktreeSetup({ ...baseInput(), copyMaxBytes: 15 });
+
+    expect(readFileSync(path.join(worktreePath, 'first.bin'), 'utf8')).toBe('12345678');
+    expect(existsSync(path.join(worktreePath, 'second.bin'))).toBe(false);
+    expect(outcome.copiedPaths).toEqual(['first.bin']);
+    expect(outcome.skippedCopies).toEqual([
+      expect.objectContaining({
+        path: 'second.bin',
+        reason: expect.stringContaining('copy budget'),
+      }),
+    ]);
+    expect(outcome.status).toBe('succeeded');
   });
 });

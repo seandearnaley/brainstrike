@@ -111,6 +111,19 @@ describe('WorktreeService (real git + real PGlite)', () => {
     });
   });
 
+  it('keeps repository setup execution reachable only from granted-root creation', () => {
+    const source = readFileSync(
+      path.resolve(process.cwd(), 'src/assistant-server/worktree-service.ts'),
+      'utf8'
+    );
+
+    expect(source.match(/deps\.runSetup\(/gu)).toHaveLength(1);
+    expect(source.match(/runSetupSafely\(/gu)).toHaveLength(2);
+    expect(source).toMatch(
+      /async function createUnserialized[\s\S]*?resolveRepositoryContext\(params\.rootId\)[\s\S]*?runSetupSafely\(\{/u
+    );
+  });
+
   it('creates a branch-on-create worktree on disk and records it in the ledger', async () => {
     const service = buildService();
     const created = await service.create({
@@ -334,6 +347,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
       copiedPaths: [],
       output: '',
       reason: 'setup runner exploded',
+      skippedCopies: [],
       status: 'failed',
       truncated: false,
     });
@@ -362,6 +376,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
           copiedPaths: ['package.json'],
           output: 'setup complete',
           reason: null,
+          skippedCopies: [],
           status: 'succeeded' as const,
           truncated: false,
         }),
