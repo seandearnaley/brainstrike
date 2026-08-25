@@ -273,6 +273,13 @@ PR-specific column NULL, enforced by the migration's own CHECK constraint) —
 that is still cleared the same way as a PR row; there is no separate
 delete-vs-clear distinction for the two row shapes.
 
+BST-1391's two new notification-preference toggles (`prOpened`, `prChecks` on
+`notification-preferences.v1`) need no new reset wiring — they're additional
+keys inside the SAME persisted store
+`resetNotificationPreferencesStoreToDefaults` already resets from
+`clearBrowserStorage` (FACTORY RESET CONTRACT), covered by construction since
+`defaultEvents()` sets every key in `NOTIFICATION_EVENT_KINDS`.
+
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
 

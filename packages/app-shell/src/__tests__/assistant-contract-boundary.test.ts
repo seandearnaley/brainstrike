@@ -133,7 +133,11 @@ describe('app-shell assistant contract boundary', () => {
     // primary/secondary/recents resolution, the thread-metadata writes and the
     // checkout read all live in hooks/use-workspace-bar.ts and
     // hooks/use-thread-checkout-status.ts.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1865);
+    // BST-1391 mounts the out-of-band forge trigger source at this composition
+    // boundary, plus its deferred branch-lookup activation (BST-1116 W6
+    // finding 4 — must not run an eager repo/worktree scan on every mount);
+    // keep both inside this narrowly raised budget.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1890);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
