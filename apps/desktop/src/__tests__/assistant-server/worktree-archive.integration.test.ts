@@ -512,6 +512,149 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
   });
 
   describe('WorktreeService.restore', () => {
+    it('refuses to restore when the archived branch has moved', async () => {
+      const service = buildService();
+      const branch = 'bs/restore-moved';
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: branch },
+        createdBy: 'user',
+        name: 'restore-moved',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      const archived = await service.archive({ worktreeId: created.value.worktree.id });
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+      const expectedTip = git(repo, ['rev-parse', `${archived.value.snapshotRef}^`]).trim();
+      writeFileSync(path.join(repo, 'advanced.txt'), 'branch advanced after archive\n');
+      git(repo, ['add', 'advanced.txt']);
+      git(repo, ['commit', '-m', 'advance archived branch out of band']);
+      const advancedTip = git(repo, ['rev-parse', 'HEAD']).trim();
+      git(repo, ['update-ref', `refs/heads/${branch}`, advancedTip, expectedTip]);
+
+      const restored = await service.restore({ worktreeId: created.value.worktree.id });
+
+      expect(restored).toEqual({
+        error: `"${branch}" has moved since this worktree was archived (now ${advancedTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename the branch, or restore detached.`,
+        ok: false,
+      });
+      expect(git(repo, ['rev-parse', `refs/heads/${branch}`]).trim()).toBe(advancedTip);
+      expect(existsSync(created.value.worktree.path)).toBe(false);
+    });
+
+    it('restores an unchanged branch by checking it out without resetting it', async () => {
+      const branch = 'bs/restore-unchanged';
+      let worktreeAddArgs: readonly string[] | null = null;
+      const recordWorktreeAdd: GitCommandRunner = async (params) => {
+        const worktreeIndex = params.args.indexOf('worktree');
+        if (worktreeIndex >= 0 && params.args[worktreeIndex + 1] === 'add') {
+          worktreeAddArgs = params.args.slice(worktreeIndex);
+        }
+        return await execFileGitRunner(params);
+      };
+      const service = buildTestService({ db, managedDirectory, repo }, { run: recordWorktreeAdd });
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: branch },
+        createdBy: 'user',
+        name: 'restore-unchanged',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      const archived = await service.archive({ worktreeId: created.value.worktree.id });
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+      const branchTipBeforeRestore = git(repo, ['rev-parse', `refs/heads/${branch}`]).trim();
+
+      const restored = await service.restore({ worktreeId: created.value.worktree.id });
+
+      expect(restored.ok).toBe(true);
+      expect(worktreeAddArgs).toEqual([
+        'worktree',
+        'add',
+        '--',
+        created.value.worktree.path,
+        branch,
+      ]);
+      expect(git(repo, ['rev-parse', `refs/heads/${branch}`]).trim()).toBe(branchTipBeforeRestore);
+      expect(git(created.value.worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe(
+        branch
+      );
+    });
+
+    it('recreates a missing archived branch at the snapshot parent', async () => {
+      const service = buildService();
+      const branch = 'bs/restore-missing-branch';
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: branch },
+        createdBy: 'user',
+        name: 'restore-missing-branch',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      const archived = await service.archive({ worktreeId: created.value.worktree.id });
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+      const expectedTip = git(repo, ['rev-parse', `${archived.value.snapshotRef}^`]).trim();
+      git(repo, ['update-ref', '-d', `refs/heads/${branch}`]);
+
+      const restored = await service.restore({ worktreeId: created.value.worktree.id });
+
+      expect(restored.ok).toBe(true);
+      expect(git(repo, ['rev-parse', `refs/heads/${branch}`]).trim()).toBe(expectedTip);
+      expect(git(created.value.worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe(
+        branch
+      );
+    });
+
+    it('restores a detached worktree without attaching a branch', async () => {
+      const service = buildService();
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { detached: true },
+        createdBy: 'user',
+        name: 'restore-detached',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      const archived = await service.archive({ worktreeId: created.value.worktree.id });
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+
+      const restored = await service.restore({ worktreeId: created.value.worktree.id });
+
+      expect(restored.ok).toBe(true);
+      const symbolicHead = await execFileGitRunner({
+        args: ['symbolic-ref', '--quiet', 'HEAD'],
+        cwd: created.value.worktree.path,
+        timeoutMs: 5000,
+      });
+      expect(symbolicHead.exitCode).toBe(1);
+      expect(symbolicHead.stdout).toBe('');
+    });
+
     it('replays archived dirty content into the original worktree path', async () => {
       const service = buildService();
       const created = await service.create({
@@ -625,9 +768,10 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
 
     it('removes the recreated worktree when replaying the snapshot fails', async () => {
       const service = buildService();
+      const branch = 'bs/restore-compensation';
       const created = await service.create({
         baseRef: 'main',
-        branch: { name: 'bs/restore-compensation' },
+        branch: { name: branch },
         createdBy: 'user',
         name: 'restore-compensation',
         rootId: 'r-1',
@@ -645,6 +789,7 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       if (!archived.ok) {
         return;
       }
+      const branchTipBeforeRestore = git(repo, ['rev-parse', `refs/heads/${branch}`]).trim();
       const failSnapshotReplay: GitCommandRunner = async (params) => {
         if (
           params.args.includes('restore') &&
@@ -669,6 +814,7 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       expect(failed.ok).toBe(false);
       expect(failed.ok === false && failed.error).toContain('forced snapshot replay failure');
       expect(existsSync(created.value.worktree.path)).toBe(false);
+      expect(git(repo, ['rev-parse', `refs/heads/${branch}`]).trim()).toBe(branchTipBeforeRestore);
       const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
       await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
         archivedAt: expect.any(String),

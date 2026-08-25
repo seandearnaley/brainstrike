@@ -387,7 +387,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       const runningBlocker = safety.blockers.find((blocker) => blocker.length > 0);
       if (!runningBlocker) {
         throw new Error(
-          'threadIsRunning but inspectWorktreeSafety reported no blocker — invariant violated'
+          'Internal error: threadIsRunning but no blocker was reported — archive refused (fail-closed).'
         );
       }
       return runningBlocker;
@@ -529,6 +529,51 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
   }
 
+  async function resolveRestoreAddArgs(
+    row: ManagedWorktreeRow,
+    snapshotRef: string,
+    repositoryInvoke: ReturnType<typeof invokeIn>
+  ): Promise<GitResult<readonly string[]>> {
+    if (row.branch === null) {
+      return {
+        ok: true,
+        value: ['worktree', 'add', '--detach', '--', row.path, `${snapshotRef}^`],
+      };
+    }
+    const expectedTipRun = await invokeGitHookFree(repositoryInvoke, [
+      'rev-parse',
+      '--verify',
+      `${snapshotRef}^`,
+    ]);
+    if (expectedTipRun.exitCode !== 0) {
+      return { error: describeFailure(expectedTipRun), ok: false };
+    }
+    const branchTipRun = await invokeGitHookFree(repositoryInvoke, [
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      `refs/heads/${row.branch}`,
+    ]);
+    if (branchTipRun.exitCode === 1) {
+      return {
+        ok: true,
+        value: ['worktree', 'add', '-b', row.branch, '--', row.path, `${snapshotRef}^`],
+      };
+    }
+    if (branchTipRun.exitCode !== 0) {
+      return { error: describeFailure(branchTipRun), ok: false };
+    }
+    const branchTip = branchTipRun.stdout.trim();
+    const expectedTip = expectedTipRun.stdout.trim();
+    if (branchTip !== expectedTip) {
+      return {
+        error: `"${row.branch}" has moved since this worktree was archived (now ${branchTip.slice(0, 7)}, snapshot expects ${expectedTip.slice(0, 7)}) — rename the branch, or restore detached.`,
+        ok: false,
+      };
+    }
+    return { ok: true, value: ['worktree', 'add', '--', row.path, row.branch] };
+  }
+
   async function restoreUnserialized(params: {
     readonly worktreeId: string;
   }): Promise<GitResult<WorktreeCreateResult>> {
@@ -559,15 +604,12 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     if (!targetAvailable.ok) {
       return targetAvailable;
     }
+    const addArgs = await resolveRestoreAddArgs(row, snapshotRef, repositoryInvoke);
+    if (!addArgs.ok) {
+      return addArgs;
+    }
     await fsPromises.mkdir(path.dirname(row.path), { recursive: true });
-    const addRun = await invokeGitHookFree(repositoryInvoke, [
-      'worktree',
-      'add',
-      ...(row.branch === null ? ['--detach'] : ['-B', row.branch]),
-      '--',
-      row.path,
-      `${snapshotRef}^`,
-    ]);
+    const addRun = await invokeGitHookFree(repositoryInvoke, addArgs.value);
     if (addRun.exitCode !== 0) {
       return { error: describeFailure(addRun), ok: false };
     }
