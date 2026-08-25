@@ -144,6 +144,9 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'pr.merged',
     'pr.opened',
     'run.cancelled',
+    // BST-1345's saturation-retry breadcrumb: `run-critical-database.ts` emits
+    // it with `status: 'info'` (one retry notice), never `'running'`.
+    'run.database.retried',
     'run.failed',
     'run.finished',
     // BST-1409's recovery pair. Both are emitted `status: 'info'`, never
