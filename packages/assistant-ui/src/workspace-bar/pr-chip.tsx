@@ -32,7 +32,12 @@ export interface WorkspaceBarForge {
   readonly onCopyUrl: (url: string) => void;
   readonly onOpenExternal: (url: string) => void;
   readonly onRefresh: () => void;
-  readonly onWatchChange: (watched: boolean) => void;
+  /**
+   * `undefined` when there is no thread to persist the toggle against — the
+   * Watch item is hidden entirely rather than offered as an action that can
+   * only fail with a toast (BST-1391 fix round, L4).
+   */
+  readonly onWatchChange: ((watched: boolean) => void) | undefined;
   readonly status: ForgePrStatus;
   readonly watched: boolean;
 }
@@ -127,6 +132,7 @@ export const PrChip = ({ forge }: { readonly forge: WorkspaceBarForge }): ReactE
   }
   const { pullRequest } = status;
   const stale = status.kind === 'stale';
+  const { onWatchChange } = forge;
   const summary = summarize(pullRequest);
   const label = `Pull request #${pullRequest.number}: ${summary.text}${stale ? ' (last known — refresh failed)' : ''}`;
 
@@ -173,27 +179,37 @@ export const PrChip = ({ forge }: { readonly forge: WorkspaceBarForge }): ReactE
         <DropdownMenuSeparator />
         {pullRequest.checks.length > 0 ? (
           <div className="max-h-48 overflow-y-auto py-1">
-            {pullRequest.checks.map((check) => (
-              <div
-                className="flex items-center gap-2 px-2 py-0.5 text-[11px]"
-                data-testid={`workspace-bar-pr-check-${check.name}`}
-                key={check.name}
-              >
-                <span aria-hidden="true" className="w-3 shrink-0 text-center">
-                  {checkGlyph(check.conclusion)}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{check.name}</span>
-                {check.url ? (
-                  <button
-                    className="shrink-0 text-muted-foreground underline"
-                    onClick={() => forge.onOpenExternal(check.url as string)}
-                    type="button"
-                  >
-                    Open
-                  </button>
-                ) : null}
-              </div>
-            ))}
+            {pullRequest.checks.map((check, index) => {
+              const url = check.url;
+              // Duplicate check names are real (matrix jobs, cross-workflow
+              // same name), so the name alone cannot key this list below.
+              // These rows are stateless (no inputs, no internal state to
+              // mismatch across a reorder), so the index-as-key concern does
+              // not apply — the position prefix only disambiguates.
+              const rowKey = `${index}-${check.name}`;
+              return (
+                <div
+                  className="flex items-center gap-2 px-2 py-0.5 text-[11px]"
+                  data-testid={`workspace-bar-pr-check-${check.name}`}
+                  // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- stateless row; name alone collides on duplicate check names (matrix jobs), the position prefix only disambiguates
+                  key={rowKey}
+                >
+                  <span aria-hidden="true" className="w-3 shrink-0 text-center">
+                    {checkGlyph(check.conclusion)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{check.name}</span>
+                  {url ? (
+                    <button
+                      className="shrink-0 text-muted-foreground underline"
+                      onClick={() => forge.onOpenExternal(url)}
+                      type="button"
+                    >
+                      Open
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="px-2 py-1 text-[11px] text-muted-foreground">
@@ -219,17 +235,19 @@ export const PrChip = ({ forge }: { readonly forge: WorkspaceBarForge }): ReactE
           <RefreshCw aria-hidden="true" className="size-3.5" />
           Refresh
         </DropdownMenuItem>
-        <DropdownMenuItem
-          data-testid="workspace-bar-pr-watch"
-          onSelect={() => forge.onWatchChange(!forge.watched)}
-        >
-          {forge.watched ? (
-            <EyeOff aria-hidden="true" className="size-3.5" />
-          ) : (
-            <Eye aria-hidden="true" className="size-3.5" />
-          )}
-          {forge.watched ? 'Stop watching checks' : 'Watch checks'}
-        </DropdownMenuItem>
+        {onWatchChange ? (
+          <DropdownMenuItem
+            data-testid="workspace-bar-pr-watch"
+            onSelect={() => onWatchChange(!forge.watched)}
+          >
+            {forge.watched ? (
+              <EyeOff aria-hidden="true" className="size-3.5" />
+            ) : (
+              <Eye aria-hidden="true" className="size-3.5" />
+            )}
+            {forge.watched ? 'Stop watching checks' : 'Watch checks'}
+          </DropdownMenuItem>
+        ) : null}
         {pullRequest.checksRollup === 'failing' && forge.onAskAgentToFixChecks ? (
           <DropdownMenuItem
             data-testid="workspace-bar-pr-fix-checks"

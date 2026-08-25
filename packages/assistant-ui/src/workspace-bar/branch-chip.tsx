@@ -125,78 +125,78 @@ const BranchMenuRow = ({
   );
 };
 
-/**
- * Git state for the primary root. Without an interactive menu or forge
- * diagnostic this preserves W1's read-only labelled image; desktop callers
- * can opt into the switcher by supplying an already-gated branch menu model.
- *
- * A forge diagnostic joins the existing switcher menu when one is available.
- * Without a branch menu, it gets a minimal diagnostic-only menu so the reason
- * remains visible and keyboard-accessible. The reason is never tooltip-only.
- */
-export const BranchChip = ({
+interface BranchChipGlyphProps {
+  readonly ahead: string | null;
+  readonly behind: string | null;
+  readonly checkout: WorkspaceBarCheckout;
+  readonly label: string;
+}
+
+/** W1's read-only labelled image — no menu, no branchMenu, no forge diagnostic. */
+const ReadOnlyBranchChip = ({
+  ahead,
+  behind,
+  checkout,
+  label,
+  summary,
+}: BranchChipGlyphProps & { readonly summary: string }): ReactElement => (
+  <span
+    aria-label={summary}
+    className={CHIP_CLASSES}
+    data-dirty={checkout.dirty ? 'true' : 'false'}
+    data-testid="workspace-bar-branch-chip"
+    role="img"
+    title={summary}
+  >
+    <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
+  </span>
+);
+
+/** A minimal menu whose only content is the forge diagnostic — no branchMenu supplied. */
+const DiagnosticOnlyBranchChip = ({
+  ahead,
+  behind,
+  checkout,
+  forgeDiagnostic,
+  interactiveName,
+  label,
+}: BranchChipGlyphProps & {
+  readonly forgeDiagnostic: string;
+  readonly interactiveName: string;
+}): ReactElement => (
+  <DropdownMenu>
+    <DropdownMenuTrigger
+      aria-label={interactiveName}
+      className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
+      data-dirty={checkout.dirty ? 'true' : 'false'}
+      data-testid="workspace-bar-branch-chip"
+      title={interactiveName}
+      type="button"
+    >
+      <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
+      <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="start" className="w-80">
+      <ForgeDiagnosticSection reason={forgeDiagnostic} />
+    </DropdownMenuContent>
+  </DropdownMenu>
+);
+
+/** The full interactive switcher — a forge diagnostic joins it when one is available. */
+const InteractiveBranchMenu = ({
+  ahead,
+  behind,
   branchMenu,
   checkout,
   forgeDiagnostic,
-}: {
-  readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
-  readonly checkout: WorkspaceBarCheckout;
+  label,
+  summary,
+}: BranchChipGlyphProps & {
+  readonly branchMenu: WorkspaceBarBranchMenu;
   readonly forgeDiagnostic?: string | undefined;
+  readonly summary: string;
 }): ReactElement => {
   const [newBranchName, setNewBranchName] = useState('');
-  const label = checkout.branch ?? 'detached';
-  const ahead = countBadge(checkout.ahead, '↑');
-  const behind = countBadge(checkout.behind, '↓');
-  const summary = [
-    checkout.branch ? `On branch ${checkout.branch}` : 'Detached HEAD',
-    ahead ? `${checkout.ahead} ahead` : null,
-    behind ? `${checkout.behind} behind` : null,
-    checkout.dirty ? 'uncommitted changes' : 'clean',
-  ]
-    .filter((part) => part !== null)
-    .join(' · ');
-
-  if (!(branchMenu || forgeDiagnostic)) {
-    return (
-      <span
-        aria-label={summary}
-        className={CHIP_CLASSES}
-        data-dirty={checkout.dirty ? 'true' : 'false'}
-        data-testid="workspace-bar-branch-chip"
-        role="img"
-        title={summary}
-      >
-        <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
-      </span>
-    );
-  }
-
-  const interactiveName = interactiveBranchName(summary, forgeDiagnostic);
-
-  if (!branchMenu) {
-    if (!forgeDiagnostic) {
-      throw new Error('A diagnostic-only BranchChip requires a visible forge reason.');
-    }
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          aria-label={interactiveName}
-          className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
-          data-dirty={checkout.dirty ? 'true' : 'false'}
-          data-testid="workspace-bar-branch-chip"
-          title={interactiveName}
-          type="button"
-        >
-          <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
-          <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-80">
-          <ForgeDiagnosticSection reason={forgeDiagnostic} />
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  }
-
   const trimmedNewBranchName = newBranchName.trim();
   const createBranch = (): void => {
     if (branchMenu.pending || trimmedNewBranchName.length === 0) {
@@ -209,7 +209,7 @@ export const BranchChip = ({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={interactiveName}
+        aria-label={interactiveBranchName(summary, forgeDiagnostic)}
         className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
         data-dirty={checkout.dirty ? 'true' : 'false'}
         data-testid="workspace-bar-branch-chip"
@@ -294,6 +294,82 @@ export const BranchChip = ({
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+};
+
+/**
+ * Git state for the primary root. Without an interactive menu or forge
+ * diagnostic this preserves W1's read-only labelled image; desktop callers
+ * can opt into the switcher by supplying an already-gated branch menu model.
+ *
+ * A forge diagnostic joins the existing switcher menu when one is available.
+ * Without a branch menu, it gets a minimal diagnostic-only menu so the reason
+ * remains visible and keyboard-accessible. The reason is never tooltip-only.
+ *
+ * A thin dispatcher over three EXHAUSTIVE, mutually exclusive sub-components —
+ * checked directly on `branchMenu` and `forgeDiagnostic` (rather than a single
+ * up-front disjunction guard plus a nested `if (!forgeDiagnostic) throw` to
+ * recover the narrowing) so each branch's own truthy check is what narrows
+ * its variable, with nothing left unreachable to maintain. Split out of one
+ * function (BST-1391 fix round) once that restructuring pushed this
+ * component's own cognitive complexity past biome's cap.
+ */
+export const BranchChip = ({
+  branchMenu,
+  checkout,
+  forgeDiagnostic,
+}: {
+  readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
+  readonly checkout: WorkspaceBarCheckout;
+  readonly forgeDiagnostic?: string | undefined;
+}): ReactElement => {
+  const label = checkout.branch ?? 'detached';
+  const ahead = countBadge(checkout.ahead, '↑');
+  const behind = countBadge(checkout.behind, '↓');
+  const summary = [
+    checkout.branch ? `On branch ${checkout.branch}` : 'Detached HEAD',
+    ahead ? `${checkout.ahead} ahead` : null,
+    behind ? `${checkout.behind} behind` : null,
+    checkout.dirty ? 'uncommitted changes' : 'clean',
+  ]
+    .filter((part) => part !== null)
+    .join(' · ');
+
+  if (branchMenu) {
+    return (
+      <InteractiveBranchMenu
+        ahead={ahead}
+        behind={behind}
+        branchMenu={branchMenu}
+        checkout={checkout}
+        forgeDiagnostic={forgeDiagnostic}
+        label={label}
+        summary={summary}
+      />
+    );
+  }
+
+  if (forgeDiagnostic) {
+    return (
+      <DiagnosticOnlyBranchChip
+        ahead={ahead}
+        behind={behind}
+        checkout={checkout}
+        forgeDiagnostic={forgeDiagnostic}
+        interactiveName={interactiveBranchName(summary, forgeDiagnostic)}
+        label={label}
+      />
+    );
+  }
+
+  return (
+    <ReadOnlyBranchChip
+      ahead={ahead}
+      behind={behind}
+      checkout={checkout}
+      label={label}
+      summary={summary}
+    />
   );
 };
 

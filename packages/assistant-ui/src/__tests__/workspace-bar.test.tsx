@@ -128,6 +128,43 @@ describe('WorkspaceBar', () => {
     expect(screen.getByTestId('workspace-bar-pr-chip')).toHaveTextContent('#2574');
   });
 
+  // BST-1391 fix round (F2): a `stale` status with no last-known pull request
+  // used to fall through the old `kind === 'unavailable'` gate — PrChip
+  // renders nothing for it (same as `unavailable`), so the failure had
+  // nowhere left to surface. It must reach the BranchChip's diagnostic too.
+  it('routes a stale-with-null-pullRequest forge failure to BranchChip, same as unavailable', async () => {
+    const user = setup();
+    const staleWithNull: WorkspaceBarForge = {
+      onAskAgentToFixChecks: undefined,
+      onCopyUrl: vi.fn(),
+      onOpenExternal: vi.fn(),
+      onRefresh: vi.fn(),
+      onWatchChange: vi.fn(),
+      status: {
+        failure: {
+          detail: 'gh-unauthenticated: run `gh auth login`.',
+          reason: 'gh-unauthenticated',
+        },
+        kind: 'stale',
+        observedAt: '2026-08-24T00:00:00.000Z',
+        pullRequest: null,
+      },
+      watched: true,
+    };
+    render(
+      <WorkspaceBar
+        {...baseProps({ checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false } })}
+        forge={staleWithNull}
+      />
+    );
+    expect(screen.queryByTestId('workspace-bar-pr-chip')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    expect(await screen.findByTestId('workspace-bar-branch-forge-diagnostic')).toHaveTextContent(
+      'gh-unauthenticated: run `gh auth login`.'
+    );
+  });
+
   it('renders a "Choose a folder" CTA with zero roots and calls onAddFolder from the menu', async () => {
     const user = setup();
     const onAddFolder = vi.fn();

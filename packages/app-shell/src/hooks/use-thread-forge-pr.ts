@@ -1,12 +1,29 @@
 /**
  * Live forge PR status for the workspace bar's primary root.
  *
- * NO POLLING. Three triggers, matching the main-side floors:
- * - mount / root change / window focus → `refresh(rootId, { reason: 'window' })`
- *   (60 s floor in main — a rapid remount cannot storm gh);
+ * NO POLLING. Four triggers, matching the main-side floors:
+ * - mount / root change → `refresh(rootId, { reason: 'window' })` (60 s floor
+ *   in main — a rapid remount cannot storm gh);
+ * - window focus → `refresh(rootId, { reason: 'window' })` (same floor);
+ * - the popover's Refresh → `refresh(rootId, { reason: 'user' })` (no floor);
  * - `forge:prUpdated` push → a plain `prStatus` READ (main already refreshed,
- *   so asking it to fetch again would double every observation);
- * - the popover's Refresh → `refresh(rootId, { reason: 'user' })` (no floor).
+ *   so asking it to fetch again would double every observation).
+ *
+ * BST-1391 fix round (F1): which trigger fires is decided by comparing each
+ * nonce/root against the value it had the last time THIS effect actually ran
+ * — never by the cumulative "has this ever fired" test the first cut used
+ * (`pushNonce > 0 && userNonce === 0 && focusNonce === 0`). That cumulative
+ * test breaks the instant the user clicks Refresh once: `userNonce` never
+ * returns to 0, so every later run — a push, a focus, doesn't matter — takes
+ * the `else` branch and reads `userNonce > 0` as true, calling
+ * `refresh(reason:'user')` (a refresh with NO floor) on every subsequent
+ * push. In production a refresh's own PR-updated push feeds right back into
+ * `onPrUpdated`, so that is an unbounded gh-fetch loop, not just a wasted
+ * call. Comparing against the PREVIOUS value fixes this because only the one
+ * nonce that changed on THIS render can read as "changed" — every other
+ * trigger stays inert simply because it repeats. Root change is checked
+ * first and wins outright: it is a carry-in (same as mount), never a
+ * continuation of the PRIOR root's user/push trigger.
  *
  * Nothing fires while the document is hidden: the focus listener is the only
  * repeat trigger and a hidden window never focuses.
@@ -17,7 +34,7 @@
  */
 import { createLogger } from '@brainstrike/logging';
 import type { ForgePrStatus } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveForgeBridge } from '../forge/forge-bridge';
 
 const logger = createLogger('ThreadForgePr');
@@ -37,6 +54,24 @@ interface RootScopedStatus {
   readonly dbRootId: string;
   readonly diagnostic: string | null;
   readonly status: ForgePrStatus | null;
+}
+
+/**
+ * BST-1391 fix round (F2): a `stale` observation whose last-known
+ * `pullRequest` is `null` has nothing for the PR chip to render (see
+ * `PrChip`'s own guard), so the failure that produced it is the ONLY thing
+ * left to explain — same as `unavailable`. Without this, that failure was
+ * computed nowhere and the BranchChip had no diagnostic to show for a
+ * perfectly good gh-auth/network error.
+ */
+function forgePrDiagnosticOf(value: ForgePrStatus): string | null {
+  if (value.kind === 'unavailable') {
+    return value.failure.detail;
+  }
+  if (value.kind === 'stale' && value.pullRequest === null) {
+    return value.failure.detail;
+  }
+  return null;
 }
 
 export function useThreadForgePr(dbRootId: string | null): ThreadForgePrState {
@@ -73,16 +108,37 @@ export function useThreadForgePr(dbRootId: string | null): ThreadForgePrState {
     };
   }, [bridge]);
 
+  // The sentinel `undefined` never equals a real `dbRootId`, so the very
+  // first run (mount) reads as a root change — the carry-in case the module
+  // doc describes.
+  const prevDbRootIdRef = useRef<string | undefined>(undefined);
+  const prevPushNonceRef = useRef(pushNonce);
+  const prevUserNonceRef = useRef(userNonce);
+  const prevFocusNonceRef = useRef(focusNonce);
+
   useEffect(() => {
     if (!(bridge && dbRootId)) {
       return;
     }
+    const rootChanged = prevDbRootIdRef.current !== dbRootId;
+    const userChanged = !rootChanged && userNonce !== prevUserNonceRef.current;
+    const focusChanged = !(rootChanged || userChanged) && focusNonce !== prevFocusNonceRef.current;
+    const pushChanged =
+      !(rootChanged || userChanged || focusChanged) && pushNonce !== prevPushNonceRef.current;
+
+    prevDbRootIdRef.current = dbRootId;
+    prevPushNonceRef.current = pushNonce;
+    prevUserNonceRef.current = userNonce;
+    prevFocusNonceRef.current = focusNonce;
+
     let cancelled = false;
-    // A push means main ALREADY fetched: read, do not fetch again.
-    const call =
-      pushNonce > 0 && userNonce === 0 && focusNonce === 0
-        ? bridge.prStatus(dbRootId)
-        : bridge.refresh(dbRootId, { reason: userNonce > 0 ? 'user' : 'window' });
+    // A push means main ALREADY fetched: read, do not fetch again. Every
+    // other trigger (root change, focus, user) asks main for a fresh read at
+    // its own floor — 'user' only for the trigger that is actually a user
+    // click, 'window' for the carry-in/focus cases.
+    const call = pushChanged
+      ? bridge.prStatus(dbRootId)
+      : bridge.refresh(dbRootId, { reason: userChanged ? 'user' : 'window' });
     call
       .then((result) => {
         if (cancelled) {
@@ -93,11 +149,8 @@ export function useThreadForgePr(dbRootId: string | null): ThreadForgePrState {
           setResolved({ dbRootId, diagnostic: result.error, status: null });
           return;
         }
-        setResolved({
-          dbRootId,
-          diagnostic: result.value.kind === 'unavailable' ? result.value.failure.detail : null,
-          status: result.value,
-        });
+        const value = result.value;
+        setResolved({ dbRootId, diagnostic: forgePrDiagnosticOf(value), status: value });
       })
       .catch((error: unknown) => {
         if (cancelled) {

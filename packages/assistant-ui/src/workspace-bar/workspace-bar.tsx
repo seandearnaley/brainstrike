@@ -105,6 +105,31 @@ export interface WorkspaceBarProps {
 }
 
 /**
+ * The reason there is no PR chip, or `undefined` when `forge` has nothing to
+ * explain (no bridge, or a normal `pr`/`none`/`unknown` observation).
+ *
+ * BST-1391 fix round (F2): originally gated on `kind === 'unavailable'`
+ * alone, which dropped the diagnostic for a `stale` observation whose
+ * last-known `pullRequest` is `null` — `PrChip` renders nothing for that
+ * shape too (see its doc comment), so its failure had nowhere else to
+ * surface. Checked here, once, on the SAME two kinds `PrChip` treats as
+ * empty for that reason.
+ */
+function forgeDiagnosticOf(forge: WorkspaceBarForge | undefined): string | undefined {
+  if (!forge) {
+    return;
+  }
+  const { status } = forge;
+  if (status.kind === 'unavailable') {
+    return status.failure.detail;
+  }
+  if (status.kind === 'stale' && status.pullRequest === null) {
+    return status.failure.detail;
+  }
+  return;
+}
+
+/**
  * The composer workspace bar: Folder chip (this thread's primary + secondary
  * folders, recents, Add folder…) and a read-only Branch chip (desktop). Always
  * rendered — its job is orientation, not disambiguation. Pure + prop-driven:
@@ -116,23 +141,24 @@ export const WorkspaceBar = ({
   checkout,
   forge,
   ...folder
-}: WorkspaceBarProps): ReactElement => (
-  // A plain container, not a labelled group: each chip carries its own
-  // accessible name, and an extra grouping level would only add noise to the
-  // composer's screen-reader path.
-  <div className="mx-3 flex flex-wrap items-center gap-1.5" data-testid="workspace-bar">
-    <FolderChip {...folder} />
-    {checkout ? (
-      <BranchChip
-        branchMenu={branchMenu}
-        checkout={checkout}
-        {...(forge?.status.kind === 'unavailable'
-          ? { forgeDiagnostic: forge.status.failure.detail }
-          : {})}
-      />
-    ) : null}
-    {forge ? <PrChip forge={forge} /> : null}
-  </div>
-);
+}: WorkspaceBarProps): ReactElement => {
+  const forgeDiagnostic = forgeDiagnosticOf(forge);
+  return (
+    // A plain container, not a labelled group: each chip carries its own
+    // accessible name, and an extra grouping level would only add noise to
+    // the composer's screen-reader path.
+    <div className="mx-3 flex flex-wrap items-center gap-1.5" data-testid="workspace-bar">
+      <FolderChip {...folder} />
+      {checkout ? (
+        <BranchChip
+          branchMenu={branchMenu}
+          checkout={checkout}
+          {...(forgeDiagnostic === undefined ? {} : { forgeDiagnostic })}
+        />
+      ) : null}
+      {forge ? <PrChip forge={forge} /> : null}
+    </div>
+  );
+};
 
 WorkspaceBar.displayName = 'WorkspaceBar';

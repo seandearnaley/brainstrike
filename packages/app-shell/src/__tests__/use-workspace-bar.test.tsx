@@ -325,9 +325,12 @@ describe('useWorkspaceBar', () => {
     const { result } = await setup();
     await waitFor(() => expect(result.current.forge).toBeDefined());
     expect(result.current.forge?.watched).toBe(true);
-
+    const onWatchChange = result.current.forge?.onWatchChange;
+    if (!onWatchChange) {
+      throw new Error('a thread is selected, so the Watch toggle must be present');
+    }
     await act(async () => {
-      result.current.forge?.onWatchChange(false);
+      onWatchChange(false);
     });
 
     expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, { forgePrWatch: false });
@@ -860,6 +863,8 @@ describe('useWorkspaceBar', () => {
       variant: 'destructive',
     });
   });
+
+  // F4's onCopyUrl regression test lives in use-workspace-bar-forge.test.ts.
 
   it('surfaces a failed Add folder with the platform message, never a bare log', async () => {
     fs.addRootDirectory.mockRejectedValueOnce(new Error('The folder picker was unavailable.'));
