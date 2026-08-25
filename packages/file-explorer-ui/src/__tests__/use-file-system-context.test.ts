@@ -16,18 +16,18 @@ import {
 } from '../shell/file-explorer-refresh-event';
 import { RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 import { useFileSystemInstance as useFileSystem } from '../shell/use-file-system-context';
-import {
-  createDeletionTestWrapper,
-  createTokenCacheTestWrapper,
-  FileExplorerTestWrapper,
-} from './test-helpers';
+import { createDeletionTestWrapper, FileExplorerTestWrapper } from './test-helpers';
+import { createTokenCacheTestWrapper } from './token-cache-test-helpers';
 
-// Scoped to the M2 (BST-1446 H1) test below: real worker creation fails in
-// jsdom (no Worker global) and the worker-url resolver uses a Vite-only
-// `?worker&url` asset import, so TokenCacheProvider's `isOperational` would
-// never flip without these two mocks. Everything else (FileHasher,
-// TokenCacheStore, useTokenCache, the reducer/memo wiring under test) stays
-// real — only the two environment-incompatible boundary calls are stubbed.
+// File-wide (vi.mock is hoisted above these imports and applies to every
+// test in this file, not just the one below): only the M2 test currently
+// mounts a TokenCacheProvider, but any future test that does will also get
+// this stub pool + fake worker URL. Real worker creation fails in jsdom (no
+// Worker global) and the worker-url resolver uses a Vite-only `?worker&url`
+// asset import, so TokenCacheProvider's `isOperational` would never flip
+// without these two mocks. Everything else (FileHasher, TokenCacheStore,
+// useTokenCache, the reducer/memo wiring under test) stays real — only the
+// two environment-incompatible boundary calls are stubbed.
 vi.mock('@brainstrike/token-cache/cache-runtime', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/token-cache/cache-runtime')>();
   return {
@@ -674,15 +674,19 @@ describe('useFileSystem — return-object memo identity', () => {
     expect(result.current.fs).toBe(before);
   });
 
-  it('publishes a new object whose value reflects a genuine capability change (setAccessLoading)', () => {
+  it('publishes a new object whose value reflects a genuine data change (isAccessLoading)', () => {
     const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
 
     const before = result.current.fs;
     expect(before.isAccessLoading).toBe(false);
 
-    // setAccessLoading is one of the previously-omitted deps (coreApi.setAccessLoading);
-    // flipping it must both change the memo's identity and propagate the new value —
-    // proving the fix didn't over-stabilize the memo into ignoring real changes.
+    // Calling setAccessLoading(true) exercises coreApi.isAccessLoading — one
+    // of the FOUR ORIGINAL data deps already in the memo before this PR, not
+    // one of the newly-added entries (coreApi.setAccessLoading itself is a
+    // useCallback(..., []) in the core hook, so its identity never changes
+    // and adding it to deps is unobservable here). This is a "the fix didn't
+    // over-stabilize the memo into ignoring real changes" guard, not
+    // dedicated coverage for a previously-omitted dep.
     act(() => {
       result.current.fs.setAccessLoading(true);
     });

@@ -732,8 +732,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -772,8 +771,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -807,8 +805,7 @@ describe('useFileSystem', () => {
         // No addRoot
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -857,8 +854,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -910,8 +906,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn(),
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -980,8 +975,7 @@ describe('useFileSystem', () => {
         restoreRoots: vi.fn().mockResolvedValue([desc1, desc2]),
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       // folderAccessOrder has /folder/b first → /folder/b should be focused
       // getFolderAccessOrder is passed directly as a param (no module mock manipulation needed)
@@ -1033,8 +1027,7 @@ describe('useFileSystem', () => {
         restoreRoots: vi.fn().mockResolvedValue([grantedDesc, promptDesc]),
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1095,8 +1088,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1164,8 +1156,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descriptor.handle),
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1223,8 +1214,7 @@ describe('useFileSystem', () => {
         restoreRoots: restoreRootsFn,
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1264,8 +1254,7 @@ describe('useFileSystem', () => {
         // No restoreRoots
       };
 
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
 
       const { result } = renderHook(() => useFileSystem(makeFsParams()), { wrapper });
 
@@ -1326,8 +1315,7 @@ describe('useFileSystem', () => {
 
     function renderMultiRootHook(adapter: FileSystemAdapter) {
       const storageAdapter = createStorageAdapter('web');
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
       return renderHook(
         () =>
           useFileSystem({
@@ -1496,8 +1484,7 @@ describe('useFileSystem', () => {
         requestDirectoryAccess: vi.fn().mockResolvedValue(descA.handle),
       };
       const storageAdapter = createStorageAdapter('web');
-      const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(AdaptersProvider, { children, fileSystemAdapter: adapter, storageAdapter });
+      const wrapper = createAdaptersTestWrapper(adapter, storageAdapter);
       const hook = renderHook(
         () =>
           useFileSystem({

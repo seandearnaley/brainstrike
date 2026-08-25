@@ -353,30 +353,28 @@ export function useFileSystemInstance() {
   // outside React and dispatches brainstrike:inject-root-handle (it cannot reach
   // the React-only reducer). Route it through the same reducer path a real
   // set-root uses; mode 'add' appends an additional root instead (multi-root
-  // fixture harness — never persisted). Refs keep the listener subscribed ONCE —
-  // the handlers are recreated every render.
-  const setRootHandleRef = useRef(setRootHandle);
-  setRootHandleRef.current = setRootHandle;
-  const clearRootDirectoryRef = useRef(clearRootDirectory);
-  clearRootDirectoryRef.current = clearRootDirectory;
-  const addExternalRootHandleRef = useRef(coreApi.addExternalRootHandle);
-  addExternalRootHandleRef.current = coreApi.addExternalRootHandle;
+  // fixture harness — never persisted). clearRootDirectory / setRootHandle are
+  // useCallback-stabilized above and coreApi.addExternalRootHandle is stable
+  // from the core hook's own useCallback, so the effect can call them
+  // directly — no ref-mirroring needed to keep a single subscription; the
+  // listener only re-subscribes if one of these three genuinely changes
+  // identity (e.g. a db/capability swap), which is the desired behavior.
   useEffect(() => {
     const onInject = (event: Event): void => {
       const detail = (event as CustomEvent<InjectRootHandleDetail>).detail;
       if (!detail?.handle) {
-        clearRootDirectoryRef.current();
+        clearRootDirectory();
         return;
       }
       if (detail.mode === 'add') {
-        addExternalRootHandleRef.current(detail.handle);
+        coreApi.addExternalRootHandle(detail.handle);
         return;
       }
-      setRootHandleRef.current(detail.handle);
+      setRootHandle(detail.handle);
     };
     window.addEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
     return () => window.removeEventListener(INJECT_ROOT_HANDLE_EVENT, onInject);
-  }, []);
+  }, [clearRootDirectory, coreApi.addExternalRootHandle, setRootHandle]);
 
   // On auto-restore (desktop) the core hook restores a handle and sets
   // currentFolderId; rehydrate the restored folder's persisted selection/expansion

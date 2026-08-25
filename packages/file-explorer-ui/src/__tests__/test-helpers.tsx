@@ -4,7 +4,6 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
-import { TokenCacheProvider } from '../indexing/token-cache-context';
 import { FileExplorerProvider } from '../shell/file-explorer-provider';
 import { type DeleteRootData, RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 
@@ -72,23 +71,6 @@ export function createDeletionTestWrapper(
           children
         )}
       </FileExplorerTestWrapper>
-    );
-  };
-}
-
-/**
- * Factory for a FileExplorerTestWrapper nested inside a TokenCacheProvider
- * (db=null — in-memory store, no PGlite needed). Used by tests asserting
- * that a token-cache-driven re-render (e.g. worker warmup flipping
- * isOperational) does not itself change unrelated consumers' memoized
- * values.
- */
-export function createTokenCacheTestWrapper() {
-  return function TokenCacheTestWrapper({ children }: { children?: ReactNode }) {
-    return (
-      <TokenCacheProvider db={null}>
-        <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
-      </TokenCacheProvider>
     );
   };
 }
