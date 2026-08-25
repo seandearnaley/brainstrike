@@ -12,6 +12,7 @@ import type {
 import type { ChangesBridge } from '../changes/changes-bridge';
 import type { PlatformBridge } from '../platform-bridge';
 import type { UserCommandsBridge } from '../user-commands-bridge';
+import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 declare global {
   interface Window {
@@ -142,5 +143,13 @@ declare global {
      * until the resolver validates it.
      */
     userCommands?: Partial<UserCommandsBridge>;
+    /**
+     * Desktop-only managed-worktree bridge (BST-1390). Absent on web (no
+     * preload) — capability-check via `resolveWorktreesBridge()` rather than
+     * `isElectron()`. Derived from `WorktreesBridge` so this declaration cannot
+     * drift; `Partial` because a present-but-incomplete bridge is possible
+     * until the resolver validates it.
+     */
+    worktrees?: Partial<WorktreesBridge>;
   }
 }

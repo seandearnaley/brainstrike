@@ -283,13 +283,15 @@ unique repo, spawn `git worktree list --porcelain -z` hook-free
 = 5000` cache with dirty-flag invalidation and in-flight build coalescing.
 Never throws — every failure mode is a visible `errors` entry.
 
-`provenance` is typed as `'agent-reported' | 'both' | 'scanned'`, but
-**only `'scanned'` is ever produced** — grepping `git-inventory-*.ts`
-finds exactly two `provenance:` assignments, both the literal `'scanned'`.
-Nothing in the codebase constructs `'agent-reported'` or `'both'`. The
-design spec's "merge agent-reported workspaces from the journal"
-(GitInventoryService responsibility) is not implemented; do not assume
-provenance distinguishes agent-created worktrees today.
+`provenance` is typed as `'agent-reported' | 'both' | 'scanned'`. Until W3
+(BST-1390) only `'scanned'` was ever produced. `GitInventoryService` itself
+still produces only `'scanned'` — the MERGE happens one level up, in
+`worktree-service.ts`'s `list()`, which joins the inventory with the
+`brainstrike_worktrees` ledger: a scanned worktree with a ledger row becomes
+`'both'`, and a LIVE ledger row that is not on disk is reported as
+`'agent-reported'` with `trust: 'unvalidated'`, `trustReason: 'missing on
+disk'` — present, never dropped. Nothing downstream of the inventory may
+assume `'scanned'` is the only value it can see.
 
 ## TRUST RULE + BIDIRECTIONAL VALIDATION
 
@@ -375,6 +377,22 @@ end-to-end in BST-1161 (bridge, preload, IPC channel, handler,
 `git-history.ts` op) once its last renderer call site was gone —
 `structuredFileDiff`'s `commit` mode is the sole historical-diff path.
 
+## THE `worktrees` IPC DOMAIN
+
+`apps/desktop/src/ipc-worktrees.ts` registers the seven-method `worktrees`
+domain against the narrowing boundary in `worktrees-ipc-handlers.ts`; preload
+exposes the same exact method set as `window.worktrees`, and
+`packages/app-shell/src/worktrees/worktrees-bridge.ts` rejects a
+present-but-incomplete bridge wholesale. This layer implements `create`,
+`list`, `getSettings`, and `setSettings`. Until Layer 5 lands, `archive`,
+`createBranchHere`, and `restore` remain present but return explicit typed
+"not implemented in this build" failures; they never call nonexistent
+`WorktreeService` methods. Managed-directory settings persist through
+`assistant-server/worktree-settings.ts`, with `null` recomputed as the
+home-relative default on every read. The exact bridge set, IPC narrowing,
+preload parity, and settings persistence are pinned by the corresponding
+`worktrees-*` and preload-runtime contract tests.
+
 ## REFRESH SEAMS
 
 **Git-metadata watcher** (`git-inventory-watcher.ts`): one filesystem
@@ -432,7 +450,7 @@ option is not renderer/wire input. Generic Parcel/Electron watchers remain
 default-false and retain every `DEFAULT_IGNORE_PATTERNS` entry natively, so
 Notes Vault keeps its prior callback/load behavior. The Explorer opt-in keeps
 `.git`, `node_modules`, `.pnpm-store`, `.next`, `.turbo`, plus hard
-`.claude/worktrees` native-suppressed. Recursively broadening those
+`.claude/worktrees` and `.brainstrike/worktrees` native-suppressed. Recursively broadening those
 high-cardinality dependency/cache trees can exhaust native watcher resources;
 lossless support for a force-tracked file inside one requires a separate,
 bounded Git-aware tracked-path watcher architecture. This pipeline does not

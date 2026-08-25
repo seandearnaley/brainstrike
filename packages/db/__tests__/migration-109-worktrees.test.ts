@@ -1,3 +1,8 @@
+import {
+  type ManagedWorktreeCreator,
+  type ManagedWorktreeSetupStatus,
+  WORKTREE_LEDGER_TABLE,
+} from '@brainstrike/types';
 import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
@@ -11,6 +16,22 @@ import { createPGliteTestDataDir } from './test-data-dir';
 
 const TABLE = 'brainstrike_worktrees';
 const DRIZZLE_RUN_TIMEOUT_MS = 300_000;
+const ALL_CREATORS = ['agent', 'user'] as const satisfies readonly ManagedWorktreeCreator[];
+const ALL_SETUP_STATUSES = [
+  'failed',
+  'none',
+  'skipped',
+  'succeeded',
+] as const satisfies readonly ManagedWorktreeSetupStatus[];
+
+function assertUnionFullyEnumerated<Union>() {
+  return <Values extends readonly Union[]>(
+    _values: Values & (Exclude<Union, Values[number]> extends never ? unknown : never)
+  ): void => undefined;
+}
+
+assertUnionFullyEnumerated<ManagedWorktreeCreator>()(ALL_CREATORS);
+assertUnionFullyEnumerated<ManagedWorktreeSetupStatus>()(ALL_SETUP_STATUSES);
 
 interface CountRow {
   count: number | string;
@@ -22,6 +43,10 @@ async function countTable(db: Pick<PGlite, 'query'>): Promise<number> {
   );
   return Number(result.rows[0]?.count ?? 0);
 }
+
+it('keeps the TypeScript ledger table name tied to migration 109', () => {
+  expect(WORKTREE_LEDGER_TABLE).toBe('brainstrike_worktrees');
+});
 
 describe('migration 109: managed worktree ledger', () => {
   let db: PGlite;
@@ -84,6 +109,31 @@ describe('migration 109: managed worktree ledger', () => {
          VALUES ('w-4', '/repo/.git', '/wt/gamma', 'main', 'user', 'maybe')`
       )
     ).rejects.toThrow(/check constraint/i);
+  });
+
+  it('accepts every created_by and setup_status represented by the TypeScript unions', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.runMigration(getMigration109());
+
+    for (const creator of ALL_CREATORS) {
+      await db.query(
+        `INSERT INTO ${TABLE} (id, repo_common_dir, path, base_ref, created_by, setup_status)
+         VALUES ($1, '/repo/.git', $2, 'main', $3, 'none')`,
+        [`w-creator-${creator}`, `/wt/creator-${creator}`, creator]
+      );
+    }
+
+    for (const setupStatus of ALL_SETUP_STATUSES) {
+      await db.query(
+        `INSERT INTO ${TABLE} (id, repo_common_dir, path, base_ref, created_by, setup_status)
+         VALUES ($1, '/repo/.git', $2, 'main', 'user', $3)`,
+        [`w-setup-${setupStatus}`, `/wt/setup-${setupStatus}`, setupStatus]
+      );
+    }
+
+    const rows = await db.query<CountRow>(`SELECT COUNT(*)::int AS count FROM ${TABLE}`);
+    expect(Number(rows.rows[0]?.count ?? 0)).toBe(ALL_CREATORS.length + ALL_SETUP_STATUSES.length);
   });
 
   it('allows a NULL branch (a detached worktree) and a NULL thread', {

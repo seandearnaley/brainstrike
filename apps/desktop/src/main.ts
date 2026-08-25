@@ -43,6 +43,8 @@ import { createSnapshotService, type SnapshotService } from './assistant-server/
 import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
 import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-reaper';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
+import { createWorktreeService } from './assistant-server/worktree-service';
+import { readWorktreeSettings, writeWorktreeSettings } from './assistant-server/worktree-settings';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
@@ -143,6 +145,7 @@ import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
+import { registerWorktreesIpcHandlers } from './ipc-worktrees';
 import { LlmHostManager } from './llm-host-manager';
 import {
   cloneLoggingPreferences,
@@ -166,6 +169,8 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
+import { resolveRootCwd } from './workspace-root-cwd';
+import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
 const desktopEnvLoadResult = getDesktopEnvironmentBootstrapResult();
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
@@ -791,6 +796,7 @@ let unregisterFileExportsIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterChangesIpcHandlers: null | (() => void) = null;
+let unregisterWorktreesIpcHandlers: null | (() => void) = null;
 let unregisterBrowserIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
@@ -808,6 +814,7 @@ let unregisterForgeIpc: (() => void) | undefined;
 // Stopped as a graceful-shutdown step, before the `database` step, since its
 // `loadRoots` dependency reads from the DB.
 let gitInventoryService: GitInventoryService | null = null;
+let worktreeService: ReturnType<typeof createWorktreeService> | null = null;
 // BST-1164 (W7 T1): the ONE app-lifetime shadow-git SnapshotService.
 // Constructed inside `app.whenReady()` (never at module scope — the
 // gitInventoryService incident class: a module-scope construction would also
@@ -1362,6 +1369,19 @@ unregisterChangesIpcHandlers = registerChangesIpcHandlers(
     resolveSnapshotService: () => snapshotService,
   })
 );
+unregisterWorktreesIpcHandlers = registerWorktreesIpcHandlers(
+  createWorktreesIpcHandlers({
+    readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
+    resolveService: () => worktreeService,
+    // Apply BST-1342 containment at save time so the user learns immediately,
+    // rather than only when a worktree create later targets the saved path.
+    writeSettings: (next) =>
+      writeWorktreeSettings(storage, app.getPath('home'), next, async () => {
+        const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+        return roots.map((root) => root.path);
+      }),
+  })
+);
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
@@ -1588,6 +1608,34 @@ if (singleInstanceLockAcquired) {
           ),
       });
       gitInventoryService.start();
+      worktreeService = createWorktreeService({
+        getDatabase,
+        readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
+        resolveInventory: async () => {
+          if (!gitInventoryService) {
+            throw new Error('worktrees: gitInventoryService is not running');
+          }
+          const snapshot = await gitInventoryService.getSnapshot();
+          return { errors: snapshot.errors, repositories: snapshot.repositories };
+        },
+        resolveRootCwd: (rootId) =>
+          resolveRootCwd(createDatabaseRootResolver(getDatabase), rootId, 'worktrees', logger),
+        resolveRootPaths: async () => {
+          const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+          return roots.map((root) => ({ id: root.rootId, path: root.path }));
+        },
+        run: execFileGitRunner,
+        runSetup: () =>
+          // Layer 5 replaces this with the real `.worktreeinclude` + setup-command
+          // runner. Until then every create honestly reports "nothing ran".
+          Promise.resolve({
+            copiedPaths: [],
+            output: '',
+            reason: null,
+            status: 'none',
+            truncated: false,
+          }),
+      });
 
       // BST-1164 (W7 T1): shadow-git snapshot backbone. Constructed HERE,
       // inside app.whenReady() — `app.getPath('userData')` is the storage
@@ -2387,6 +2435,9 @@ app.on('will-quit', () => {
   }
   unregisterChangesIpcHandlers?.();
   unregisterChangesIpcHandlers = null;
+  unregisterWorktreesIpcHandlers?.();
+  unregisterWorktreesIpcHandlers = null;
+  worktreeService = null;
   unregisterBrowserIpcHandlers?.();
   unregisterBrowserIpcHandlers = null;
   if (unregisterHooksIpcHandlers) {

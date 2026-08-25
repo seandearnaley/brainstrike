@@ -1913,7 +1913,7 @@ export interface WorktreeListEntry {
   readonly repositoryRoot: string;
   /** The action that would make an unusable row usable, or null. */
   readonly remedy: 'grant-access' | null;
-  /** Durable `roots.id`, derived by path from the live `roots` table. */
+  /** Durable id of the first live workspace root containing this worktree. */
   readonly rootId: string | null;
   readonly trust: 'unvalidated' | 'validated';
   readonly trustReason: string | null;
@@ -2456,7 +2456,6 @@ gh stack add seandearnaley/bst-1390-w3-worktree-service
   ```ts
   export interface WorktreeServiceDeps {
     readonly getDatabase: () => Promise<WorktreeLedgerDatabase>;
-    readonly homeDirectory: string;
     readonly readSettings: () => Promise<WorktreeSettings>;
     readonly resolveInventory: () => Promise<GitInventory>;
     readonly resolveRootCwd: (rootId: string) => Promise<GitResult<string>>;
@@ -2479,6 +2478,7 @@ Create `apps/desktop/src/__tests__/assistant-server/worktree-paths.test.ts`:
 
 ```ts
 import path from 'node:path';
+import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 import {
   assertWorktreeTargetOutsideRoots,
@@ -2522,10 +2522,6 @@ describe('generateWorktreeName', () => {
 
   it('THROWS rather than inventing a colliding name when the space is exhausted', () => {
     // A silent numeric suffix would be a fallback; the caller must see this.
-    const everything = new Set<string>();
-    for (let index = 0; index < 100_000; index += 1) {
-      everything.add(`n${index}`);
-    }
     const alwaysTaken = { has: () => true, size: 100_000 } as unknown as ReadonlySet<string>;
     expect(() => generateWorktreeName(alwaysTaken)).toThrow(
       'Could not generate an unused worktree name after 64 attempts.'
@@ -2551,6 +2547,10 @@ describe('resolveWorktreeTargetPath', () => {
 });
 
 describe('assertWorktreeTargetOutsideRoots', () => {
+  it('pins the BrainStrike in-root exemption to the shared indexing policy', () => {
+    expect(UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES).toContain('.brainstrike/worktrees');
+  });
+
   it('accepts a target outside every granted root', () => {
     expect(() =>
       assertWorktreeTargetOutsideRoots('/home/me/.brainstrike/worktrees/a/b', ['/work/app'])
@@ -2596,24 +2596,21 @@ Expected: FAIL — `Failed to resolve import "../../assistant-server/worktree-pa
 /**
  * Pure path/name policy for managed worktrees (spec §6.1 [D3], §6.2).
  *
- * Deliberately dependency-free (node:crypto + node:path only) so the whole
- * policy — including the BST-1342 containment refusal — is unit-testable
- * without git, a database, or Electron.
+ * Deliberately free of git/database/Electron dependencies so the whole policy
+ * — including the BST-1342 containment refusal — is unit-testable.
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { WorktreeExternalTool } from '@brainstrike/types';
+import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/utils';
 
 /**
  * In-root locations that are HARD-EXCLUDED from indexing and watching, so a
- * worktree may legitimately live there. Mirrors
- * `UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES` in
- * `@brainstrike/utils/background-indexing-policy` — kept as a literal here
- * because desktop main must not pull that renderer-oriented module in, and
- * pinned equal to it by `worktree-paths.test.ts`'s companion assertion in
- * Layer 4.
+ * worktree may legitimately live there. Derived from the same shared policy
+ * the indexer, native watcher, and live-grep prefilter consume, so an exemption
+ * here cannot silently diverge from the exclusion floor.
  */
-const EXCLUDED_IN_ROOT_PREFIXES = ['.brainstrike/worktrees', '.claude/worktrees'] as const;
+const EXCLUDED_IN_ROOT_PREFIXES = UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES;
 
 const EXTERNAL_TOOL_DIRECTORIES: readonly (readonly [string, WorktreeExternalTool])[] = [
   ['.claude/worktrees', 'claude-code'],
@@ -2714,7 +2711,9 @@ export function assertWorktreeTargetOutsideRoots(
       continue;
     }
     const relative = normalize(target).slice(normalize(rootPath).length + 1);
-    if (EXCLUDED_IN_ROOT_PREFIXES.some((prefix) => relative.startsWith(`${prefix}/`))) {
+    if (EXCLUDED_IN_ROOT_PREFIXES.some(
+      (prefix) => relative === prefix || relative.startsWith(`${prefix}/`)
+    )) {
       continue;
     }
     throw new Error(
@@ -2742,7 +2741,7 @@ export function externalToolForPath(worktreePath: string): WorktreeExternalTool 
 - [ ] **Step 4: Run it and confirm it passes**
 
 Run: `cd apps/desktop && pnpm exec vitest run --pool=forks --maxWorkers=1 --no-file-parallelism src/__tests__/assistant-server/worktree-paths.test.ts`
-Expected: PASS — `14 passed`.
+Expected: PASS — `17 passed`.
 
 - [ ] **Step 5: Write the ledger**
 
@@ -2763,11 +2762,17 @@ Create `apps/desktop/src/assistant-server/worktree-ledger.ts`:
  * no in-repository locking here.
  */
 import {
+  type ManagedWorktreeCreator,
   type ManagedWorktreeRow,
   type ManagedWorktreeSetupStatus,
   WORKTREE_LEDGER_TABLE,
   type WorktreeSetupOutcome,
 } from '@brainstrike/types';
+
+const MANAGED_WORKTREE_CREATORS = ['agent', 'user'] as const satisfies readonly ManagedWorktreeCreator[];
+const MANAGED_WORKTREE_SETUP_STATUSES = [
+  'failed', 'none', 'skipped', 'succeeded',
+] as const satisfies readonly ManagedWorktreeSetupStatus[];
 
 /** Exactly the surface the SQL here needs — satisfied by db-main's handle and a bare PGlite. */
 export interface WorktreeLedgerDatabase {
@@ -2790,34 +2795,74 @@ const COLUMNS = `
   archive_snapshot_ref AS "archiveSnapshotRef"
 `;
 
-/** Postgres returns `timestamptz` as a Date through PGlite; the row type is ISO strings. */
-function toIso(value: unknown): string | null {
-  if (value === null || value === undefined) {
-    return null;
+function readRecord(row: unknown): Record<string, unknown> {
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) {
+    throw new Error('Malformed brainstrike_worktrees row: expected an object.');
   }
-  return value instanceof Date ? value.toISOString() : String(value);
+  return row as Record<string, unknown>;
+}
+
+function readRequiredString(record: Record<string, unknown>, column: string): string {
+  const value = record[column];
+  if (typeof value !== 'string') {
+    throw new Error(`Malformed brainstrike_worktrees row: ${column} must be a string.`);
+  }
+  return value;
+}
+
+function readNullableString(record: Record<string, unknown>, column: string): string | null {
+  const value = record[column];
+  if (value === null) return null;
+  if (typeof value !== 'string') {
+    throw new Error(`Malformed brainstrike_worktrees row: ${column} must be a string or null.`);
+  }
+  return value;
+}
+
+function readTimestamp(value: unknown, column: string): string {
+  if (value instanceof Date && !Number.isNaN(value.valueOf())) return value.toISOString();
+  if (typeof value === 'string') {
+    const timestamp = new Date(value);
+    if (!Number.isNaN(timestamp.valueOf())) return timestamp.toISOString();
+  }
+  throw new Error(`Malformed brainstrike_worktrees row: ${column} must be a timestamp.`);
+}
+
+function readNullableTimestamp(record: Record<string, unknown>, column: string): string | null {
+  const value = record[column];
+  return value === null ? null : readTimestamp(value, column);
+}
+
+function readCreatedBy(record: Record<string, unknown>): ManagedWorktreeCreator {
+  const value = record['createdBy'];
+  const creator = MANAGED_WORKTREE_CREATORS.find((candidate) => candidate === value);
+  if (!creator) throw new Error('Malformed brainstrike_worktrees row: createdBy is outside the closed set.');
+  return creator;
+}
+
+function readSetupStatus(record: Record<string, unknown>): ManagedWorktreeSetupStatus {
+  const value = record['setupStatus'];
+  const status = MANAGED_WORKTREE_SETUP_STATUSES.find((candidate) => candidate === value);
+  if (!status) throw new Error('Malformed brainstrike_worktrees row: setupStatus is outside the closed set.');
+  return status;
 }
 
 function readRow(row: unknown): ManagedWorktreeRow {
-  const record = row as Record<string, unknown>;
-  const createdAt = toIso(record['createdAt']);
-  if (typeof record['id'] !== 'string' || createdAt === null) {
-    throw new Error('Malformed brainstrike_worktrees row.');
-  }
+  const record = readRecord(row);
   return {
-    archiveSnapshotRef: (record['archiveSnapshotRef'] as string | null) ?? null,
-    archivedAt: toIso(record['archivedAt']),
-    baseRef: String(record['baseRef']),
-    branch: (record['branch'] as string | null) ?? null,
-    createdAt,
-    createdBy: record['createdBy'] as ManagedWorktreeRow['createdBy'],
-    id: record['id'],
-    path: String(record['path']),
-    repoCommonDir: String(record['repoCommonDir']),
-    runId: (record['runId'] as string | null) ?? null,
-    setupOutput: (record['setupOutput'] as string | null) ?? null,
-    setupStatus: record['setupStatus'] as ManagedWorktreeSetupStatus,
-    threadId: (record['threadId'] as string | null) ?? null,
+    archiveSnapshotRef: readNullableString(record, 'archiveSnapshotRef'),
+    archivedAt: readNullableTimestamp(record, 'archivedAt'),
+    baseRef: readRequiredString(record, 'baseRef'),
+    branch: readNullableString(record, 'branch'),
+    createdAt: readTimestamp(record['createdAt'], 'createdAt'),
+    createdBy: readCreatedBy(record),
+    id: readRequiredString(record, 'id'),
+    path: readRequiredString(record, 'path'),
+    repoCommonDir: readRequiredString(record, 'repoCommonDir'),
+    runId: readNullableString(record, 'runId'),
+    setupOutput: readNullableString(record, 'setupOutput'),
+    setupStatus: readSetupStatus(record),
+    threadId: readNullableString(record, 'threadId'),
   };
 }
 
@@ -2934,8 +2979,9 @@ export function createWorktreeLedger(
       return requireRow(rows, id);
     },
     async markRestored(id) {
-      // The snapshot ref is kept: it is the evidence of what was restored, and
-      // dropping it would make a second restore unverifiable.
+      // The archive-consistency CHECK requires both archive columns to return
+      // to NULL together. The historical ref survives in the repository's
+      // archive ref and Layer 5's durable timeline event, not this active row.
       const rows = await query(
         `UPDATE ${WORKTREE_LEDGER_TABLE} SET archived_at = NULL, archive_snapshot_ref = NULL
           WHERE id = $1 RETURNING ${COLUMNS}`,
@@ -2973,7 +3019,7 @@ Create `apps/desktop/src/__tests__/assistant-server/worktree-service.integration
  * prove only that the arguments were assembled.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -2984,6 +3030,7 @@ import { runMigrations } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFileGitRunner } from '../../git-ipc-handlers';
 import { createWorktreeService } from '../../assistant-server/worktree-service';
+import type { WorktreeLedgerDatabase } from '../../assistant-server/worktree-ledger';
 
 const tempDirs: string[] = [];
 
@@ -3009,6 +3056,15 @@ function freshManagedDir(): string {
   return dir;
 }
 
+function asLedgerDatabase(database: PGlite): WorktreeLedgerDatabase {
+  return {
+    async query(sql, params) {
+      const result = await database.query(sql, params);
+      return { rows: result.rows };
+    },
+  };
+}
+
 describe('WorktreeService (real git + real PGlite)', () => {
   let db: PGlite;
   let repo: string;
@@ -3016,8 +3072,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
 
   const buildService = (overrides: Partial<Parameters<typeof createWorktreeService>[0]> = {}) =>
     createWorktreeService({
-      getDatabase: () => Promise.resolve(db as unknown as { query: PGlite['query'] }),
-      homeDirectory: managedDirectory,
+      getDatabase: () => Promise.resolve(asLedgerDatabase(db)),
       readSettings: () =>
         Promise.resolve({ isDefaultDirectory: true, managedDirectory, setupCommand: null }),
       resolveInventory: () => Promise.resolve({ errors: [], repositories: [] }),
@@ -3062,6 +3117,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     expect(worktree.branch).toBe('bs/bright-fox');
     expect(worktree.createdBy).toBe('user');
     expect(worktree.threadId).toBe('t-1');
+    expect(worktree.id[14]).toBe('7');
     // The directory really exists and really is a linked worktree.
     expect(readFileSync(path.join(worktree.path, 'hello.ts'), 'utf8')).toContain('export const value');
     expect(git(worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('bs/bright-fox');
@@ -3107,13 +3163,15 @@ describe('WorktreeService (real git + real PGlite)', () => {
 
   it('refuses a directory name already taken by a live ledger row', async () => {
     const service = buildService();
-    await service.create({
+    const first = await service.create({
       baseRef: 'main',
       branch: { name: 'bs/one' },
       createdBy: 'user',
       name: 'same-name',
       rootId: 'r-1',
     });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
     const second = await service.create({
       baseRef: 'main',
       branch: { name: 'bs/two' },
@@ -3121,8 +3179,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
       name: 'same-name',
       rootId: 'r-1',
     });
-    expect(second.ok).toBe(false);
-    expect(second.ok === false && second.error).toContain('already exists');
+    expect(second).toEqual({
+      error: `A worktree at "${first.value.worktree.path}" already exists.`,
+      ok: false,
+    });
   });
 
   it('REFUSES a managed directory inside a granted root, naming the root', async () => {
@@ -3162,6 +3222,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     }
     await expect(service.isManagedWorktreePath(created.value.worktree.path)).resolves.toBe(true);
     await expect(service.isManagedWorktreePath(repo)).resolves.toBe(false);
+    mkdirSync(path.join(managedDirectory, 'not-a-row'), { recursive: true });
     await expect(
       service.isManagedWorktreePath(path.join(managedDirectory, 'not-a-row'))
     ).resolves.toBe(false);
@@ -3198,6 +3259,21 @@ describe('WorktreeService (real git + real PGlite)', () => {
 });
 ```
 
+Post-review additions to this same integration file are load-bearing:
+
+- Pre-insert the canonical target path, hide that row from the preflight read
+  once to model a concurrent/stale read, and prove an insert failure triggers
+  hook-free `git worktree remove --force` while re-surfacing the original DB
+  error; `git worktree list --porcelain` must not retain the target.
+- Drive `list()` with a hand-built `GitInventory` containing a ledger-backed
+  descriptor (`provenance: 'both'`), a scanned-only `.codex/worktrees` path, a
+  prunable descriptor, and a locked descriptor. Pin each usability branch and
+  assert `rootId` comes from the descriptor's first containing id when there is
+  no exact root-path match.
+- Read malformed ledger fixtures through `createWorktreeLedger` and assert
+  required text, nullable text, `createdBy`, and `setupStatus` values throw
+  instead of being coerced or cast.
+
 - [ ] **Step 7: Run it and confirm it fails**
 
 Run: `cd apps/desktop && pnpm exec vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism src/__tests__/assistant-server/worktree-service.integration.test.ts`
@@ -3225,7 +3301,6 @@ Create `apps/desktop/src/assistant-server/worktree-service.ts`:
  * NEVER throws across its own boundary: every failure is a typed
  * `GitResult<never>` (the `changes`/`git` domain convention).
  */
-import { randomUUID } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
@@ -3238,6 +3313,7 @@ import type {
   WorktreeListEntry,
   WorktreeSettings,
   WorktreeSetupOutcome,
+  WorktreeDescriptor,
 } from '@brainstrike/types';
 import type { GitCommandRunner } from './git-service';
 import {
@@ -3253,6 +3329,7 @@ import {
   repositorySlug,
   resolveWorktreeTargetPath,
 } from './worktree-paths';
+import { generateWorkspaceSnapshotId } from './snapshot-repository';
 
 const logger = createLogger('WorktreeService');
 
@@ -3265,7 +3342,6 @@ export interface WorktreeSetupInput {
 
 export interface WorktreeServiceDeps {
   readonly getDatabase: () => Promise<WorktreeLedgerDatabase>;
-  readonly homeDirectory: string;
   readonly readSettings: () => Promise<WorktreeSettings>;
   /** The cached inventory snapshot — the same one `window.changes.inventory()` serves. */
   readonly resolveInventory: () => Promise<GitInventory>;
@@ -3287,7 +3363,7 @@ function createMutex(): <T>(task: () => Promise<T>) => Promise<T> {
   return (task) => {
     const result = tail.then(task);
     tail = result.catch(() => undefined);
-    return result as ReturnType<typeof task>;
+    return result;
   };
 }
 
@@ -3322,11 +3398,80 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   async function assertBranchAvailable(cwd: string, branch: string): Promise<GitResult<null>> {
-    const exists = await invokeIn(cwd)(['show-ref', '--verify', '--hash', `refs/heads/${branch}`]);
+    const exists = await invokeGitHookFree(invokeIn(cwd), [
+      'show-ref', '--verify', '--hash', `refs/heads/${branch}`,
+    ]);
     if (exists.exitCode === 0) {
       return { error: `local branch "${branch}" already exists`, ok: false };
     }
     return { ok: true, value: null };
+  }
+
+  async function resolveCreateTarget(
+    settings: WorktreeSettings,
+    context: RepositoryContext,
+    name: string
+  ): Promise<GitResult<string>> {
+    await fsPromises.mkdir(settings.managedDirectory, { recursive: true });
+    const managedDirectory = await fsPromises.realpath(settings.managedDirectory);
+    const slug = repositorySlug(context.repositoryRoot, context.commonDir);
+    let target: string;
+    try {
+      target = resolveWorktreeTargetPath(managedDirectory, slug, name);
+    } catch (error) {
+      logger.warn('worktree create refused by path policy', { error, name });
+      return { error: toErrorMessage(error), ok: false };
+    }
+    const roots = await deps.resolveRootPaths();
+    const canonicalRootPaths = await Promise.all(
+      roots.map((root) => fsPromises.realpath(root.path))
+    );
+    try {
+      assertWorktreeTargetOutsideRoots(target, canonicalRootPaths);
+    } catch (error) {
+      logger.warn('worktree create refused by path policy', { error, name });
+      return { error: toErrorMessage(error), ok: false };
+    }
+    return { ok: true, value: target };
+  }
+
+  async function insertCreatedWorktree(
+    context: RepositoryContext,
+    params: WorktreeCreateParams,
+    branchName: string | null,
+    target: string
+  ): Promise<ManagedWorktreeRow> {
+    try {
+      return await ledger.insert({
+        archivedAt: null,
+        archiveSnapshotRef: null,
+        baseRef: params.baseRef,
+        branch: branchName,
+        createdAt: new Date().toISOString(),
+        createdBy: params.createdBy,
+        id: generateWorkspaceSnapshotId(),
+        path: target,
+        repoCommonDir: context.commonDir,
+        runId: params.runId ?? null,
+        setupOutput: null,
+        setupStatus: 'none',
+        threadId: params.threadId ?? null,
+      });
+    } catch (insertError) {
+      try {
+        const removeRun = await invokeGitHookFree(invokeIn(context.cwd), [
+          'worktree', 'remove', '--force', '--', target,
+        ]);
+        if (removeRun.exitCode !== 0) {
+          logger.error('could not compensate for failed worktree ledger insert', {
+            error: describeFailure(removeRun), target,
+          });
+        }
+      } catch (cleanupError) {
+        logger.error('worktree ledger insert cleanup threw', { cleanupError, target });
+      }
+      throw insertError;
+    }
   }
 
   async function createUnserialized(
@@ -3337,12 +3482,11 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       return context;
     }
     const settings = await deps.readSettings();
-    const slug = repositorySlug(context.value.repositoryRoot, context.value.commonDir);
-    const target = resolveWorktreeTargetPath(settings.managedDirectory, slug, params.name);
-    assertWorktreeTargetOutsideRoots(
-      target,
-      (await deps.resolveRootPaths()).map((root) => root.path)
-    );
+    const targetResult = await resolveCreateTarget(settings, context.value, params.name);
+    if (!targetResult.ok) {
+      return targetResult;
+    }
+    const target = targetResult.value;
     if (await ledger.getByPath(target)) {
       return { error: `A worktree at "${target}" already exists.`, ok: false };
     }
@@ -3365,21 +3509,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     if (addRun.exitCode !== 0) {
       return { error: describeFailure(addRun), ok: false };
     }
-    const row = await ledger.insert({
-      archiveSnapshotRef: null,
-      archivedAt: null,
-      baseRef: params.baseRef,
-      branch: branchName,
-      createdAt: new Date().toISOString(),
-      createdBy: params.createdBy,
-      id: randomUUID(),
-      path: await fsPromises.realpath(target),
-      repoCommonDir: context.value.commonDir,
-      runId: params.runId ?? null,
-      setupOutput: null,
-      setupStatus: 'none',
-      threadId: params.threadId ?? null,
-    });
+    const row = await insertCreatedWorktree(context.value, params, branchName, target);
     // Setup failure is VISIBLE and does NOT block using the worktree (§6.3):
     // the outcome rides back on the result and is persisted on the row.
     const setup = await deps.runSetup({
@@ -3412,29 +3542,9 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       for (const descriptor of repository.worktrees) {
         seenPaths.add(descriptor.path);
         const row = rowsByPath.get(descriptor.path) ?? null;
-        const gate = resolveUsability(descriptor, row);
-        entries.push({
-          branch: descriptor.branch,
-          containment: descriptor.containment,
-          detached: descriptor.detached,
-          disabledReason: gate.disabledReason,
-          externalTool: externalToolForPath(descriptor.path),
-          id: row?.id ?? null,
-          lockedReason: descriptor.lockedReason,
-          managed: row !== null,
-          name: descriptor.name,
-          path: descriptor.path,
-          // The FIRST producer of anything but 'scanned' (see
-          // docs/agents/changeset-diff.md): a scanned worktree that also has a
-          // ledger row is known from BOTH sides.
-          provenance: row ? 'both' : 'scanned',
-          remedy: gate.remedy,
-          repositoryRoot: repository.identity.repositoryRoot,
-          rootId: rootIdByPath.get(descriptor.path) ?? null,
-          trust: descriptor.trust,
-          trustReason: descriptor.trustReason,
-          usable: gate.usable,
-        });
+        entries.push(
+          inventoryListEntry(descriptor, row, repository.identity.repositoryRoot, rootIdByPath)
+        );
       }
     }
 
@@ -3442,25 +3552,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       if (seenPaths.has(row.path)) {
         continue;
       }
-      entries.push({
-        branch: row.branch,
-        containment: 'outside-roots',
-        detached: row.branch === null,
-        disabledReason: 'Worktree is missing on disk — restore it or archive it.',
-        externalTool: externalToolForPath(row.path),
-        id: row.id,
-        lockedReason: null,
-        managed: true,
-        name: path.basename(row.path),
-        path: row.path,
-        provenance: 'agent-reported',
-        remedy: null,
-        repositoryRoot: row.repoCommonDir,
-        rootId: rootIdByPath.get(row.path) ?? null,
-        trust: 'unvalidated',
-        trustReason: 'missing on disk',
-        usable: false,
-      });
+      entries.push(ghostListEntry(row, rootIdByPath));
     }
     return { ok: true, value: entries };
   }
@@ -3522,6 +3614,60 @@ interface UsabilityGate {
   readonly usable: boolean;
 }
 
+function inventoryListEntry(
+  descriptor: WorktreeDescriptor,
+  row: ManagedWorktreeRow | null,
+  repositoryRoot: string,
+  rootIdByPath: ReadonlyMap<string, string>
+): WorktreeListEntry {
+  const gate = resolveUsability(descriptor, row);
+  return {
+    branch: descriptor.branch,
+    containment: descriptor.containment,
+    detached: descriptor.detached,
+    disabledReason: gate.disabledReason,
+    externalTool: externalToolForPath(descriptor.path),
+    id: row?.id ?? null,
+    lockedReason: descriptor.lockedReason,
+    managed: row !== null,
+    name: descriptor.name,
+    path: descriptor.path,
+    provenance: row ? 'both' : 'scanned',
+    remedy: gate.remedy,
+    repositoryRoot,
+    rootId: rootIdByPath.get(descriptor.path) ??
+      (descriptor.containment === 'outside-roots' ? null : (descriptor.containment[0] ?? null)),
+    trust: descriptor.trust,
+    trustReason: descriptor.trustReason,
+    usable: gate.usable,
+  };
+}
+
+function ghostListEntry(
+  row: ManagedWorktreeRow,
+  rootIdByPath: ReadonlyMap<string, string>
+): WorktreeListEntry {
+  return {
+    branch: row.branch,
+    containment: 'outside-roots',
+    detached: row.branch === null,
+    disabledReason: 'Worktree is missing on disk — restore it or archive it.',
+    externalTool: externalToolForPath(row.path),
+    id: row.id,
+    lockedReason: null,
+    managed: true,
+    name: path.basename(row.path),
+    path: row.path,
+    provenance: 'agent-reported',
+    remedy: null,
+    repositoryRoot: repositoryRootFromCommonDir(row.repoCommonDir),
+    rootId: rootIdByPath.get(row.path) ?? null,
+    trust: 'unvalidated',
+    trustReason: 'missing on disk',
+    usable: false,
+  };
+}
+
 /**
  * Whether this worktree can be USED as a thread's checkout, and if not, why —
  * ordered most-specific-cause first. NO SILENT HIDING and NO SILENT DISABLE:
@@ -3535,13 +3681,7 @@ interface UsabilityGate {
  * `changes-context-actions.ts` still holds: no caller-supplied path).
  */
 function resolveUsability(
-  descriptor: {
-    readonly containment: readonly string[] | 'outside-roots';
-    readonly lockedReason: string | null;
-    readonly prunableReason: string | null;
-    readonly trust: 'unvalidated' | 'validated';
-    readonly trustReason: string | null;
-  },
+  descriptor: WorktreeDescriptor,
   row: ManagedWorktreeRow | null
 ): UsabilityGate {
   if (descriptor.prunableReason !== null) {
@@ -3572,6 +3712,11 @@ function resolveUsability(
     usable: false,
   };
 }
+
+/** Non-bare repositories use `<main-worktree>/.git`; bare common dirs stay as-is. */
+function repositoryRootFromCommonDir(repoCommonDir: string): string {
+  return path.basename(repoCommonDir) === '.git' ? path.dirname(repoCommonDir) : repoCommonDir;
+}
 ```
 
 - [ ] **Step 9: Export the helpers the service imports**
@@ -3586,7 +3731,8 @@ export function toErrorMessage(error: unknown): string { /* unchanged body */ }
 - [ ] **Step 10: Run the integration suite**
 
 Run: `cd apps/desktop && pnpm exec vitest run --config vitest.integration.config.mts --pool=forks --maxWorkers=1 --no-file-parallelism src/__tests__/assistant-server/worktree-service.integration.test.ts`
-Expected: PASS — `7 passed`.
+Expected: PASS — the full create/list regression set, including canonical-path,
+compensation, strict-ledger-read, UUIDv7, and inventory-join coverage.
 
 - [ ] **Step 11: Correct the provenance ruling in the contract doc**
 
@@ -4777,8 +4923,8 @@ Expected: FAIL — `Failed to resolve import "../settings/system/worktree-settin
 Create `packages/settings-ui/src/settings/system/worktree-settings-section.tsx`:
 
 ```tsx
-import { Badge, Button, Input, Label } from '@brainstrike/ui';
 import type { WorktreeSettings } from '@brainstrike/types';
+import { Badge, Button, Input, Label } from '@brainstrike/ui';
 import { type ReactElement, useState } from 'react';
 
 export type WorktreeSettingsStatus =
@@ -4810,11 +4956,6 @@ export function WorktreeSettingsSection({
   settings,
   status,
 }: WorktreeSettingsSectionProps): ReactElement {
-  const [directory, setDirectory] = useState(settings?.managedDirectory ?? '');
-  const [command, setCommand] = useState((settings?.setupCommand ?? []).join(' '));
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
   if (status.kind === 'unavailable') {
     return (
       <p className="text-muted-foreground text-sm" data-testid="worktree-settings-unavailable">
@@ -4833,6 +4974,21 @@ export function WorktreeSettingsSection({
       </p>
     );
   }
+
+  return <WorktreeSettingsForm onSave={onSave} settings={settings} />;
+}
+
+function WorktreeSettingsForm({
+  onSave,
+  settings,
+}: {
+  readonly onSave: WorktreeSettingsSectionProps['onSave'];
+  readonly settings: WorktreeSettings;
+}): ReactElement {
+  const [directory, setDirectory] = useState(settings.managedDirectory);
+  const [command, setCommand] = useState((settings.setupCommand ?? []).join(' '));
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const save = (next: {
     readonly managedDirectory: string | null;
@@ -4871,7 +5027,7 @@ export function WorktreeSettingsSection({
         <p className="text-muted-foreground text-xs">
           Worktrees BrainStrike creates live under this folder. It must sit outside every connected
           workspace folder — an in-folder location would be indexed and watched as part of that
-          folder, which is what caused the 2026-08-17 watcher saturation.
+          folder. Leave this field empty to use the default location.
         </p>
       </div>
       <div className="space-y-2">
@@ -4890,7 +5046,7 @@ export function WorktreeSettingsSection({
         </p>
       </div>
       {saveError ? (
-        <p className="text-destructive text-sm" data-testid="worktree-settings-error">
+        <p className="text-destructive text-sm" data-testid="worktree-settings-error" role="alert">
           {saveError}
         </p>
       ) : null}
@@ -4950,6 +5106,18 @@ export function createWorkspaceSettingsCategory(
   };
 }
 ```
+
+> **SUPERSEDED BY SHIPPED CODE (Task 8 fix round, 8e394b4c2).** The hook shipped as
+> `apps/desktop/src/renderer/components/settings/use-worktree-settings.ts` exporting
+> `useWorktreeSettings` returning `{ save, settings, status }`, with the bridge resolved via
+> `useMemo`, the initial status derived from bridge presence (unavailable on first paint for a
+> malformed preload), and — critically — a `.catch` on `getSettings()` (the sample below lacks
+> one, which leaves an unhandled rejection and a permanent spinner on a preload throw; do NOT
+> re-execute the sample as written). The category is registered after
+> `createWorkspaceInstructionsSettingsCategory()` to group the two Workspace categories.
+> The registration is pinned by `page-content.test.tsx` ("Workspace" nav → live unavailable copy)
+> and the hook by `use-worktree-settings.test.ts`. The sample below is retained for historical
+> context only.
 
 `apps/desktop/src/renderer/components/settings/page-content.tsx` — a small hook reads the bridge once and the category is registered after `createSearchIndexingSettingsCategory()`:
 

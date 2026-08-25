@@ -36,6 +36,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './types',
         './use-document-title',
         './user-commands-bridge',
+        './worktrees/availability',
       ].sort()
     );
   });

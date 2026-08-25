@@ -78,7 +78,7 @@ export interface WorktreeListEntry {
   /** The action that would make an unusable row usable, or null. */
   readonly remedy: 'grant-access' | null;
   readonly repositoryRoot: string;
-  /** Durable `roots.id`, derived by path from the live `roots` table. */
+  /** Durable id of the first live workspace root containing this worktree. */
   readonly rootId: string | null;
   readonly trust: 'unvalidated' | 'validated';
   readonly trustReason: string | null;
@@ -87,7 +87,11 @@ export interface WorktreeListEntry {
 
 /** Main-owned worktree settings (Settings → Workspace). */
 export interface WorktreeSettings {
-  /** True when `managedDirectory` is the built-in `~/.brainstrike/worktrees`. */
+  /**
+   * True when nothing has been persisted for `managedDirectory` — the user has
+   * never chosen a custom directory. NOT a path-equality check: explicitly
+   * saving a path equal to the default still counts as a custom selection.
+   */
   readonly isDefaultDirectory: boolean;
   /** Absolute base directory for managed worktrees [D3]. */
   readonly managedDirectory: string;

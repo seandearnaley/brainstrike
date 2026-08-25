@@ -367,7 +367,7 @@ describe('startParcelWatch', () => {
     expect(fake.lastSubscribeArgs.dir).toBeUndefined();
   });
 
-  it('drops .claude/worktrees events at the default guard while delivering siblings (BST-1342)', async () => {
+  it('drops managed-worktree events at the default guard while delivering siblings (BST-1342/BST-1390)', async () => {
     // The 2026-08-17 run-5189 failure: worktree churn flooded FSEvents, each
     // overflow invalidated the root, and the rescan storm saturated the DB
     // host. Worktree copies are already excluded from indexing by
@@ -384,11 +384,16 @@ describe('startParcelWatch', () => {
     await mkdir(worktreeSrc, { recursive: true });
     const worktreeFile = join(worktreeSrc, 'copy.ts');
     await writeFile(worktreeFile, 'x');
+    const brainstrikeWorktreeSrc = join(root, '.brainstrike', 'worktrees', 'managed-1', 'src');
+    await mkdir(brainstrikeWorktreeSrc, { recursive: true });
+    const brainstrikeWorktreeFile = join(brainstrikeWorktreeSrc, 'copy.ts');
+    await writeFile(brainstrikeWorktreeFile, 'x');
     const siblingFile = join(root, 'kept.ts');
     await writeFile(siblingFile, 'y');
 
     fake.emit([
       { path: worktreeFile, type: 'create' },
+      { path: brainstrikeWorktreeFile, type: 'create' },
       { path: siblingFile, type: 'create' },
     ]);
     await waitForBatch(batches);

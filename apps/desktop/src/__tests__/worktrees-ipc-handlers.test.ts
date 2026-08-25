@@ -1,0 +1,196 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createWorktreesIpcHandlers } from '../worktrees-ipc-handlers';
+
+const service = {
+  archive: vi.fn(),
+  create: vi.fn(),
+  createBranchHere: vi.fn(),
+  isManagedWorktreePath: vi.fn(),
+  list: vi.fn(),
+  restore: vi.fn(),
+};
+
+function handlers() {
+  return createWorktreesIpcHandlers({
+    readSettings: () =>
+      Promise.resolve({ isDefaultDirectory: true, managedDirectory: '/m', setupCommand: null }),
+    resolveService: () => service as never,
+    writeSettings: (next: unknown) => Promise.resolve(next as never),
+  });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe('worktrees IPC handlers', () => {
+  it.each([
+    ['archive', 'worktrees:archive'],
+    ['createBranchHere', 'worktrees:createBranchHere'],
+    ['restore', 'worktrees:restore'],
+  ] as const)('%s returns its typed not-implemented failure', async (method, channel) => {
+    expect(await handlers()[method]({})).toEqual({
+      error: `${channel} is not implemented in this build.`,
+      ok: false,
+    });
+  });
+
+  it('reports an absent service as a typed failure, never an empty list', async () => {
+    const withoutService = createWorktreesIpcHandlers({
+      readSettings: () =>
+        Promise.resolve({ isDefaultDirectory: true, managedDirectory: '/m', setupCommand: null }),
+      resolveService: () => null,
+      writeSettings: (next: unknown) => Promise.resolve(next as never),
+    });
+    expect(await withoutService.list()).toEqual({
+      error: 'The worktree service is not available in this session.',
+      ok: false,
+    });
+  });
+
+  it('rejects a malformed create payload at the boundary', async () => {
+    expect(await handlers().create({ name: 42 })).toEqual({
+      error: 'worktrees:create requires { rootId, baseRef, name, branch, createdBy }.',
+      ok: false,
+    });
+    expect(service.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a create whose branch request is neither detached nor named', async () => {
+    expect(
+      await handlers().create({
+        baseRef: 'main',
+        branch: {},
+        createdBy: 'user',
+        name: 'a',
+        rootId: 'r',
+      })
+    ).toEqual({
+      error: 'worktrees:create branch must be { detached: true } or { name: string }.',
+      ok: false,
+    });
+  });
+
+  it('forwards a validated create to the service', async () => {
+    service.create.mockResolvedValue({ ok: true, value: { setup: null, worktree: null } });
+    const params = {
+      baseRef: 'main',
+      branch: { name: 'bs/x' },
+      createdBy: 'user',
+      name: 'x',
+      rootId: 'r',
+    };
+    await handlers().create(params);
+    expect(service.create).toHaveBeenCalledWith(params);
+  });
+
+  it('never lets a thrown service error cross the IPC boundary', async () => {
+    service.list.mockRejectedValue(new Error('boom'));
+    expect(await handlers().list()).toEqual({ error: 'boom', ok: false });
+  });
+
+  it('returns settings from the read boundary', async () => {
+    const settings = {
+      isDefaultDirectory: false,
+      managedDirectory: '/worktrees',
+      setupCommand: null,
+    };
+    const readSettings = vi.fn(() => Promise.resolve(settings));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings,
+      resolveService: () => service as never,
+      writeSettings: (next: unknown) => Promise.resolve(next as never),
+    });
+
+    await expect(ipcHandlers.getSettings()).resolves.toEqual({ ok: true, value: settings });
+  });
+
+  it('returns a typed failure when reading settings throws', async () => {
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.reject(new Error('settings read failed')),
+      resolveService: () => service as never,
+      writeSettings: (next: unknown) => Promise.resolve(next as never),
+    });
+
+    await expect(ipcHandlers.getSettings()).resolves.toEqual({
+      error: 'settings read failed',
+      ok: false,
+    });
+  });
+
+  it('rejects a non-object settings payload', async () => {
+    const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve({} as never),
+      resolveService: () => service as never,
+      writeSettings,
+    });
+
+    await expect(ipcHandlers.setSettings(null)).resolves.toEqual({
+      error: 'worktrees:setSettings requires an object payload.',
+      ok: false,
+    });
+    expect(writeSettings).not.toHaveBeenCalled();
+  });
+
+  it('rejects a relative managed directory', async () => {
+    const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve({} as never),
+      resolveService: () => service as never,
+      writeSettings,
+    });
+
+    const result = await ipcHandlers.setSettings({
+      managedDirectory: 'relative/dir',
+      setupCommand: null,
+    });
+    expect(result).toEqual({
+      error: 'worktrees:setSettings managedDirectory must be an absolute path or null.',
+      ok: false,
+    });
+    expect(writeSettings).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty setup command', async () => {
+    const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve({} as never),
+      resolveService: () => service as never,
+      writeSettings,
+    });
+
+    const result = await ipcHandlers.setSettings({ managedDirectory: null, setupCommand: [] });
+    expect(result).toEqual({
+      error: 'worktrees:setSettings setupCommand must be a non-empty string array or null.',
+      ok: false,
+    });
+    expect(writeSettings).not.toHaveBeenCalled();
+  });
+
+  it('round-trips valid settings through the write boundary', async () => {
+    const next = { managedDirectory: '/Volumes/worktrees', setupCommand: ['pnpm', 'install'] };
+    const settings = { ...next, isDefaultDirectory: false };
+    const writeSettings = vi.fn(() => Promise.resolve(settings));
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve(settings),
+      resolveService: () => service as never,
+      writeSettings,
+    });
+
+    await expect(ipcHandlers.setSettings(next)).resolves.toEqual({ ok: true, value: settings });
+    expect(writeSettings).toHaveBeenCalledWith(next);
+  });
+
+  it('returns a typed failure when writing settings throws', async () => {
+    const ipcHandlers = createWorktreesIpcHandlers({
+      readSettings: () => Promise.resolve({} as never),
+      resolveService: () => service as never,
+      writeSettings: () => Promise.reject(new Error('managed directory refused')),
+    });
+
+    await expect(
+      ipcHandlers.setSettings({ managedDirectory: '/work/project/worktrees', setupCommand: null })
+    ).resolves.toEqual({ error: 'managed directory refused', ok: false });
+  });
+});

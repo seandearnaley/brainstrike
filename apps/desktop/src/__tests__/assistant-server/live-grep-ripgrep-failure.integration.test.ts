@@ -218,6 +218,7 @@ describe('runLiveGrep — BST-1246 ripgrep failure handling', () => {
       expect(livePassArgs).toContain(`--glob=!**/${segment}/`);
     }
     expect(livePassArgs).toContain('--glob=!.claude/worktrees/**');
+    expect(livePassArgs).toContain('--glob=!.brainstrike/worktrees/**');
 
     const probeArgsFile = path.join(argsDir, 'probe.txt');
     await withFakeRipgrep(recordArgsScript(probeArgsFile), async () => {
