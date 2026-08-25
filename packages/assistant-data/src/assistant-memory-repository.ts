@@ -1627,6 +1627,14 @@ function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined 
  * with no id has no durable identity to resolve. A LOCAL checkout carrying
  * either is not "mostly right" — it is two contradictory statements about
  * where the thread works, and it is rejected rather than silently pruned.
+ *
+ * CAUTION for writers: `updateThreadMetadata` merges patches via JSONB `||`
+ * and validates the PATCH, not the merged row. Switching a worktree thread
+ * back to local by patching only `{ checkoutMode: 'local' }` leaves the old
+ * worktree keys in the stored row, which this assert then rejects on every
+ * read — bricking that thread's hydration. A worktree→local transition MUST
+ * remove `checkoutWorktreeId`/`checkoutWorktreePath` in the same update
+ * (the checkout-wiring layer's key-removal support exists for exactly this).
  */
 function assertCompleteCheckoutMetadata(metadata: {
   readonly checkoutBranch?: string | undefined;
