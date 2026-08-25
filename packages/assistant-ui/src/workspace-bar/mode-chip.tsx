@@ -72,7 +72,12 @@ const WorktreeActions = ({
       <DropdownMenuItem
         data-testid="workspace-bar-mode-create-branch-here"
         disabled={mode.pending}
-        onSelect={() => mode.onCreateBranchHere?.(`${mode.defaultBranchPrefix}${worktree.name}`)}
+        onSelect={() => {
+          void mode
+            .onCreateBranchHere?.(`${mode.defaultBranchPrefix}${worktree.name}`)
+            // The app-shell handler owns the visible failure toast.
+            .catch(() => undefined);
+        }}
       >
         <GitBranchPlus aria-hidden="true" className="size-3.5" />
         Create branch here
@@ -217,7 +222,13 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
             className="items-start"
             data-testid="workspace-bar-mode-new-worktree"
             disabled={mode.pending || mode.createDisabledReason !== null}
-            onSelect={() => setCreateOpen(true)}
+            onSelect={() => {
+              void mode
+                .onOpenCreateSheet()
+                .then(() => setCreateOpen(true))
+                // The app-shell handler owns the visible failure toast.
+                .catch(() => undefined);
+            }}
           >
             <Plus aria-hidden="true" className="size-3.5" />
             <span className="min-w-0 flex-1">

@@ -98,8 +98,10 @@ export interface WorkspaceBarMode {
   readonly managedParentPath: string;
   readonly onArchive: (() => void) | undefined;
   readonly onCreate: (request: WorkspaceBarCreateWorktreeRequest) => Promise<void>;
-  readonly onCreateBranchHere: ((branch: string) => void) | undefined;
+  readonly onCreateBranchHere: ((branch: string) => Promise<void>) | undefined;
   readonly onHandOffToLocal: (() => void) | undefined;
+  /** Refreshes main-owned create defaults; rejection keeps the sheet closed. */
+  readonly onOpenCreateSheet: () => Promise<void>;
   /** Asks the caller to open the controlled "Use an existing worktree…" picker. */
   readonly onOpenPicker: () => void;
   readonly onReveal: (() => void) | undefined;

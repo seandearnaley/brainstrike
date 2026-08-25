@@ -238,6 +238,13 @@ function installWorktreesBridge(): void {
     archive: worktreeArchiveSpy,
     create: worktreeCreateSpy,
     createBranchHere: vi.fn(),
+    createContext: vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        managedParentPath: '/managed/brainstrike-slug',
+        suggestedName: 'bright-fox',
+      },
+    })),
     getSettings: vi.fn(async () => ({
       ok: true as const,
       value: {

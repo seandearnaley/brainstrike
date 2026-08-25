@@ -239,6 +239,48 @@ describe('WorktreeService (real git + real PGlite)', () => {
     }
   });
 
+  it('resolves the create parent and suggests a name outside the live ledger set', async () => {
+    const service = buildService();
+    const first = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/bright-fox' },
+      createdBy: 'user',
+      name: 'bright-fox',
+      rootId: 'r-1',
+    });
+    const second = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/quiet-otter' },
+      createdBy: 'user',
+      name: 'quiet-otter',
+      rootId: 'r-1',
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!(first.ok && second.ok)) {
+      return;
+    }
+
+    const context = await service.createContext({ rootId: 'r-1' });
+
+    expect(context.ok).toBe(true);
+    if (!context.ok) {
+      return;
+    }
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    const expectedParent = path.join(
+      managedDirectory,
+      repositorySlug(realpathSync(repo), commonDir)
+    );
+    expect(context.value.managedParentPath).toBe(expectedParent);
+    expect(realpathSync(context.value.managedParentPath)).toBe(
+      realpathSync(path.dirname(first.value.worktree.path))
+    );
+    expect(context.value.suggestedName).not.toBe('bright-fox');
+    expect(context.value.suggestedName).not.toBe('quiet-otter');
+  });
+
   it('refuses a branch name that already exists rather than reusing it', async () => {
     const service = buildService();
     await service.create({

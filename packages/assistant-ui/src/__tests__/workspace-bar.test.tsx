@@ -428,7 +428,11 @@ describe('BranchChip menu', () => {
       <WorkspaceBar {...baseProps()} branchMenu={withCapability} checkout={dirty} />
     );
     await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-branch-worktree-feature/alpha'));
+    const worktreeAction = await screen.findByTestId('workspace-bar-branch-worktree-feature/alpha');
+    expect(worktreeAction).toHaveTextContent(
+      "Switch in a new worktree (detached at this branch's tip)"
+    );
+    await user.click(worktreeAction);
     expect(withCapability.onSwitchInNewWorktree).toHaveBeenCalledWith('feature/alpha');
     unmount();
 

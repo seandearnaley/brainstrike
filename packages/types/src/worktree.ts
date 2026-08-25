@@ -115,6 +115,15 @@ export interface WorktreeSettings {
   readonly setupCommand: WorktreeSetupCommand;
 }
 
+/**
+ * Live parent-path + suggested-name preview for the create sheet, resolved
+ * server-side so the renderer never recomputes the slug or word lists.
+ */
+export interface WorktreeCreateContext {
+  readonly managedParentPath: string;
+  readonly suggestedName: string;
+}
+
 /** `{ detached: true }` [D2] or the branch to create at `baseRef`. */
 export type WorktreeBranchRequest = { readonly detached: true } | { readonly name: string };
 

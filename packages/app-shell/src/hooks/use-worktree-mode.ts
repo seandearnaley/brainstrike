@@ -13,7 +13,12 @@ import type {
 } from '@brainstrike/assistant-ui';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import type { WorktreeCreateResult, WorktreeListEntry, WorktreeSettings } from '@brainstrike/types';
+import type {
+  WorktreeCreateContext,
+  WorktreeCreateResult,
+  WorktreeListEntry,
+  WorktreeSettings,
+} from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
@@ -128,12 +133,24 @@ function toOption(entry: WorktreeListEntry, currentId: string | null): Workspace
   } as const;
   if (entry.usable) {
     if (entry.disabledReason !== null) {
-      throw new Error(`Usable worktree "${entry.path}" unexpectedly has a disabled reason.`);
+      const detail = `Usable worktree "${entry.path}" unexpectedly has a disabled reason.`;
+      logger.error('Ledger contract violation', { detail });
+      return {
+        ...common,
+        disabledReason: `Ledger contract violation: ${detail}`,
+        usable: false,
+      };
     }
     return { ...common, disabledReason: null, usable: true };
   }
   if (!entry.disabledReason) {
-    throw new Error(`Unusable worktree "${entry.path}" is missing its disabled reason.`);
+    const detail = `Unusable worktree "${entry.path}" is missing its disabled reason.`;
+    logger.error('Ledger contract violation', { detail });
+    return {
+      ...common,
+      disabledReason: `Ledger contract violation: ${detail}`,
+      usable: false,
+    };
   }
   return { ...common, disabledReason: entry.disabledReason, usable: false };
 }
@@ -178,6 +195,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const [listing, setListing] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [createSheetContext, setCreateSheetContext] = useState<WorktreeCreateContext | null>(null);
 
   useEffect(() => {
     if (!bridge) {
@@ -366,6 +384,33 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       });
   }, [args.onHandOffToLocal]);
 
+  const onCreateBranchHere = useCallback(
+    async (branch: string): Promise<void> => {
+      if (!(bridge && currentEntry?.id && currentEntry.managed && currentEntry.detached)) {
+        throw new Error('A managed detached worktree is required to create a branch here.');
+      }
+      setPending(true);
+      try {
+        const result = await bridge.createBranchHere({ branch, worktreeId: currentEntry.id });
+        if (!result.ok) {
+          throw new Error(result.error);
+        }
+        await refreshList();
+        toast({
+          description: `Branch ${branch} is now checked out in ${currentEntry.name}.`,
+          title: 'Branch created',
+        });
+      } catch (error) {
+        const message = errorMessage(error);
+        toastFailure('Branch creation failed', message);
+        throw error instanceof Error ? error : new Error(message);
+      } finally {
+        setPending(false);
+      }
+    },
+    [bridge, currentEntry, refreshList]
+  );
+
   const onGrantAccess = useCallback((): void => {
     void addRootDirectory()
       .then(() => refreshList())
@@ -374,12 +419,38 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       });
   }, [addRootDirectory, refreshList]);
 
+  const onOpenCreateSheet = useCallback(async (): Promise<void> => {
+    if (!(bridge && args.primaryRootId)) {
+      throw new Error('Worktrees are not available here.');
+    }
+    let result: Awaited<ReturnType<WorktreesBridge['createContext']>>;
+    try {
+      result = await bridge.createContext({ rootId: args.primaryRootId });
+    } catch (error) {
+      const message = errorMessage(error);
+      toastFailure('Could not prepare worktree creation', message);
+      throw error instanceof Error ? error : new Error(message);
+    }
+    if (!result.ok) {
+      rejectWithToast('Could not prepare worktree creation', result.error);
+    }
+    setCreateSheetContext(result.value);
+  }, [args.primaryRootId, bridge]);
+
+  const managedParentPath =
+    createSheetContext?.managedParentPath ??
+    (settings.kind === 'ready' ? settings.value.managedDirectory : '');
+  const defaultName = createSheetContext?.suggestedName ?? currentEntry?.name ?? '';
+  const createBranchHereHandler =
+    currentEntry?.id && currentEntry.managed && currentEntry.detached
+      ? onCreateBranchHere
+      : undefined;
+
   return useMemo(() => {
     if (!(bridge && args.primaryRootId)) {
       return;
     }
     const disabled = createDisabledReason(args.hasSentFirstRequest, settings);
-    const managedParentPath = settings.kind === 'ready' ? settings.value.managedDirectory : '';
     if (!args.isRepository) {
       return {
         baseRefs: BASE_REFS,
@@ -393,6 +464,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         onCreate: () => Promise.reject(new Error('Not a git repository')),
         onCreateBranchHere: undefined,
         onHandOffToLocal: undefined,
+        onOpenCreateSheet: () => Promise.resolve(),
         onOpenPicker: () => undefined,
         onReveal: undefined,
         pending: false,
@@ -409,19 +481,19 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         worktree: null,
       };
     }
-    const name = currentEntry?.name ?? '';
     return {
       baseRefs: BASE_REFS,
       createDisabledReason: disabled,
       defaultBranchPrefix: 'bs/',
-      defaultName: name,
+      defaultName,
       disabledReason: null,
       localPath: args.primaryRootPath,
       managedParentPath,
       onArchive: currentWorktreeId ? onArchive : undefined,
       onCreate,
-      onCreateBranchHere: undefined,
+      onCreateBranchHere: createBranchHereHandler,
       onHandOffToLocal: currentWorktreeId ? onHandOffToLocal : undefined,
+      onOpenCreateSheet,
       onOpenPicker: () => onPickerOpenChange(true),
       onReveal:
         platform && currentEntry
@@ -459,15 +531,19 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     args.primaryRootId,
     args.primaryRootPath,
     bridge,
+    createBranchHereHandler,
     currentEntry,
     currentWorktreeId,
+    defaultName,
     entries,
     listError,
     listing,
+    managedParentPath,
     onArchive,
     onCreate,
     onGrantAccess,
     onHandOffToLocal,
+    onOpenCreateSheet,
     onPickerOpenChange,
     onSelectExisting,
     pending,

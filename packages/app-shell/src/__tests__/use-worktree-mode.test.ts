@@ -1,3 +1,4 @@
+import type { WorktreeListEntry } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -5,17 +6,23 @@ const {
   addRootByPathSpy,
   addRootDirectorySpy,
   archiveSpy,
+  createBranchHereSpy,
+  createContextSpy,
   createSpy,
   getSettingsSpy,
   listSpy,
+  loggerErrorSpy,
   toastSpy,
 } = vi.hoisted(() => ({
   addRootByPathSpy: vi.fn(),
   addRootDirectorySpy: vi.fn(),
   archiveSpy: vi.fn(),
+  createBranchHereSpy: vi.fn(),
+  createContextSpy: vi.fn(),
   createSpy: vi.fn(),
   getSettingsSpy: vi.fn(),
   listSpy: vi.fn(),
+  loggerErrorSpy: vi.fn(),
   toastSpy: vi.fn(),
 }));
 
@@ -23,12 +30,24 @@ vi.mock('../worktrees/worktrees-bridge', () => ({
   resolveWorktreesBridge: () => ({
     archive: archiveSpy,
     create: createSpy,
-    createBranchHere: vi.fn(),
+    createBranchHere: createBranchHereSpy,
+    createContext: createContextSpy,
     getSettings: getSettingsSpy,
     list: listSpy,
     listManagedPaths: vi.fn(),
     restore: vi.fn(),
     setSettings: vi.fn(),
+  }),
+}));
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({
+    debug: vi.fn(),
+    error: loggerErrorSpy,
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
   }),
 }));
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -73,6 +92,11 @@ describe('useWorktreeMode', () => {
       },
     });
     listSpy.mockResolvedValue({ ok: true, value: [] });
+    createBranchHereSpy.mockResolvedValue({ ok: true, value: null });
+    createContextSpy.mockResolvedValue({
+      ok: true,
+      value: { managedParentPath: '/managed/app-slug', suggestedName: 'bright-fox' },
+    });
     createSpy.mockResolvedValue({
       ok: true,
       value: {
@@ -213,6 +237,52 @@ describe('useWorktreeMode', () => {
     expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run-9' }));
   });
 
+  it('refreshes server-resolved create context on every sheet open', async () => {
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
+
+    await act(async () => {
+      await result.current?.onOpenCreateSheet();
+    });
+    expect(createContextSpy).toHaveBeenCalledWith({ rootId: 'r-1' });
+    expect(result.current).toMatchObject({
+      defaultName: 'bright-fox',
+      managedParentPath: '/managed/app-slug',
+    });
+
+    createContextSpy.mockResolvedValueOnce({
+      ok: true,
+      value: { managedParentPath: '/managed/app-slug', suggestedName: 'quiet-otter' },
+    });
+    await act(async () => {
+      await result.current?.onOpenCreateSheet();
+    });
+    expect(createContextSpy).toHaveBeenCalledTimes(2);
+    expect(result.current?.defaultName).toBe('quiet-otter');
+  });
+
+  it('rejects a create-context failure, toasts it, and keeps the last good context', async () => {
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await act(async () => {
+      await result.current?.onOpenCreateSheet();
+    });
+    createContextSpy.mockResolvedValueOnce({ error: 'inventory unavailable', ok: false });
+
+    await act(async () => {
+      await expect(result.current?.onOpenCreateSheet()).rejects.toThrow('inventory unavailable');
+    });
+
+    expect(result.current).toMatchObject({
+      defaultName: 'bright-fox',
+      managedParentPath: '/managed/app-slug',
+    });
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'inventory unavailable',
+      title: 'Could not prepare worktree creation',
+      variant: 'destructive',
+    });
+  });
+
   it('builds picker options from list(), preserving every disabled reason', async () => {
     listSpy.mockResolvedValue({
       ok: true,
@@ -294,6 +364,161 @@ describe('useWorktreeMode', () => {
       })
     );
   });
+
+  it('wires createBranchHere only for the current managed detached worktree', async () => {
+    const detached: WorktreeListEntry = {
+      branch: null,
+      containment: ['r-1'],
+      detached: true,
+      disabledReason: null,
+      externalTool: null,
+      id: 'w-1',
+      lockedReason: null,
+      managed: true,
+      name: 'bright-fox',
+      path: '/managed/app/bright-fox',
+      provenance: 'both',
+      remedy: null,
+      repositoryRoot: '/work/app',
+      rootId: 'r-1',
+      setupReason: null,
+      setupStatus: 'none',
+      trust: 'validated',
+      trustReason: null,
+      usable: true,
+    };
+    listSpy.mockResolvedValue({ ok: true, value: [detached] });
+    const { result, rerender } = renderHook(
+      ({ entry }) => {
+        listSpy.mockResolvedValue({ ok: true, value: [entry] });
+        return useWorktreeMode({
+          ...ARGS,
+          checkout: { mode: 'worktree', worktreeId: 'w-1' },
+        });
+      },
+      { initialProps: { entry: detached } }
+    );
+    act(() => result.current?.onOpenPicker());
+    await waitFor(() => expect(result.current?.onCreateBranchHere).toEqual(expect.any(Function)));
+
+    await act(async () => {
+      await result.current?.onCreateBranchHere?.('bs/bright-fox');
+    });
+
+    expect(createBranchHereSpy).toHaveBeenCalledWith({
+      branch: 'bs/bright-fox',
+      worktreeId: 'w-1',
+    });
+    expect(listSpy).toHaveBeenCalledTimes(2);
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Branch bs/bright-fox is now checked out in bright-fox.',
+      title: 'Branch created',
+    });
+
+    rerender({ entry: { ...detached, detached: false } });
+    act(() => result.current?.onOpenPicker());
+    await waitFor(() => expect(result.current?.onCreateBranchHere).toBeUndefined());
+
+    rerender({ entry: { ...detached, managed: false } });
+    act(() => result.current?.onOpenPicker());
+    await waitFor(() => expect(result.current?.onCreateBranchHere).toBeUndefined());
+  });
+
+  it('rejects and toasts when createBranchHere fails', async () => {
+    listSpy.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          branch: null,
+          containment: ['r-1'],
+          detached: true,
+          disabledReason: null,
+          externalTool: null,
+          id: 'w-1',
+          lockedReason: null,
+          managed: true,
+          name: 'bright-fox',
+          path: '/managed/app/bright-fox',
+          provenance: 'both',
+          remedy: null,
+          repositoryRoot: '/work/app',
+          rootId: 'r-1',
+          setupReason: null,
+          setupStatus: 'none',
+          trust: 'validated',
+          trustReason: null,
+          usable: true,
+        },
+      ],
+    });
+    createBranchHereSpy.mockResolvedValue({ error: 'branch already exists', ok: false });
+    const { result } = renderHook(() =>
+      useWorktreeMode({ ...ARGS, checkout: { mode: 'worktree', worktreeId: 'w-1' } })
+    );
+    act(() => result.current?.onOpenPicker());
+    await waitFor(() => expect(result.current?.onCreateBranchHere).toEqual(expect.any(Function)));
+
+    await act(async () => {
+      await expect(result.current?.onCreateBranchHere?.('bs/bright-fox')).rejects.toThrow(
+        'branch already exists'
+      );
+    });
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'branch already exists',
+      title: 'Branch creation failed',
+      variant: 'destructive',
+    });
+  });
+
+  it.each([
+    [
+      { disabledReason: 'should not be set', usable: true },
+      'Usable worktree "/managed/app/broken" unexpectedly has a disabled reason.',
+    ],
+    [
+      { disabledReason: null, usable: false },
+      'Unusable worktree "/managed/app/broken" is missing its disabled reason.',
+    ],
+  ] as const)(
+    'surfaces ledger contract violations as unusable options',
+    async (violation, detail) => {
+      listSpy.mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            branch: null,
+            containment: ['r-1'],
+            detached: true,
+            externalTool: null,
+            id: 'w-broken',
+            lockedReason: null,
+            managed: true,
+            name: 'broken',
+            path: '/managed/app/broken',
+            provenance: 'both',
+            remedy: null,
+            repositoryRoot: '/work/app',
+            rootId: 'r-1',
+            setupReason: null,
+            setupStatus: 'none',
+            trust: 'validated',
+            trustReason: null,
+            ...violation,
+          },
+        ],
+      });
+      const { result } = renderHook(() => useWorktreeMode(ARGS));
+      act(() => result.current?.onOpenPicker());
+
+      await waitFor(() =>
+        expect(result.current?.picker.options[0]).toMatchObject({
+          disabledReason: `Ledger contract violation: ${detail}`,
+          usable: false,
+        })
+      );
+      expect(loggerErrorSpy).toHaveBeenCalledWith('Ledger contract violation', { detail });
+    }
+  );
 
   it('routes Grant access through the OS picker, never a caller-supplied path', async () => {
     const { result } = renderHook(() => useWorktreeMode(ARGS));

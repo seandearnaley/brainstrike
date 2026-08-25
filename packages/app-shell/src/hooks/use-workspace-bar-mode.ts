@@ -12,6 +12,7 @@ import type {
   WorkspaceBarCheckout,
   WorkspaceBarMode,
 } from '@brainstrike/assistant-ui';
+import { toast } from '@brainstrike/ui';
 import { useCallback } from 'react';
 import { useBranchSwitcher } from './use-branch-switcher';
 import { useWorktreeMode } from './use-worktree-mode';
@@ -86,6 +87,8 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
       assistantThreadRepository,
       memoryResourceId,
       selectedMemoryThreadId,
+      // checkoutBranch/worktree fields intentionally remain stale-but-legal;
+      // Task 17 must decide whether and how thread-checkout cleanup strips them.
       { checkoutMode: 'local' }
     );
   }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId, updateThreadMetadata]);
@@ -106,18 +109,29 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
   });
   const onSwitchInNewWorktree = useCallback(
     (branch: string): void => {
-      void mode?.onCreate({
-        baseRef: branch,
-        branch: { detached: true },
-        name: branchToName(branch),
-      });
+      if (!mode) {
+        return;
+      }
+      void mode
+        .onCreate({
+          baseRef: branch,
+          branch: { detached: true },
+          name: branchToName(branch),
+        })
+        .catch((error: unknown) => {
+          toast({
+            description: error instanceof Error ? error.message : String(error),
+            title: 'Switch in a new worktree failed',
+            variant: 'destructive',
+          });
+        });
     },
     [mode]
   );
   const branchSwitcher = useBranchSwitcher({
     checkout,
     dbRootId: primaryRootId ?? null,
-    ...(mode ? { onSwitchInNewWorktree } : {}),
+    ...(mode && mode.createDisabledReason === null ? { onSwitchInNewWorktree } : {}),
   });
   return { branchSwitcher, mode };
 }

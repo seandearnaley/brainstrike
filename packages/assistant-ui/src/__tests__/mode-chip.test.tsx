@@ -31,6 +31,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   onCreate: vi.fn(() => Promise.resolve()),
   onCreateBranchHere: undefined,
   onHandOffToLocal: undefined,
+  onOpenCreateSheet: vi.fn(() => Promise.resolve()),
   onOpenPicker: vi.fn(),
   onReveal: vi.fn(),
   pending: false,
@@ -60,7 +61,7 @@ const worktree = {
 
 const interactiveWorktreeMode = () => {
   const onArchive = vi.fn<() => void>();
-  const onCreateBranchHere = vi.fn<(branch: string) => void>();
+  const onCreateBranchHere = vi.fn<(branch: string) => Promise<void>>(() => Promise.resolve());
   const onHandOffToLocal = vi.fn<() => void>();
   const onOpenPicker = vi.fn<() => void>();
   const onReveal = vi.fn<() => void>();
@@ -144,6 +145,55 @@ describe('ModeChip', () => {
     expect(screen.getByTestId('worktree-create-setup-note')).toHaveTextContent(
       'including gitignored ones'
     );
+  });
+
+  it('awaits fresh create context before mounting the sheet with its live defaults', async () => {
+    const user = setup();
+    let resolveContext = (): void => undefined;
+    const contextReady = new Promise<void>((resolve) => {
+      resolveContext = resolve;
+    });
+    const onOpenCreateSheet = vi.fn(() => contextReady);
+    const initial = mode({
+      defaultName: 'stale-current-worktree-name',
+      managedParentPath: '/managed',
+      onOpenCreateSheet,
+    });
+    const { rerender } = render(<WorkspaceBar {...baseBarProps} mode={initial} />);
+    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    expect(screen.queryByTestId('worktree-create-dialog')).toBeNull();
+
+    rerender(
+      <WorkspaceBar
+        {...baseBarProps}
+        mode={{
+          ...initial,
+          defaultName: 'quiet-otter',
+          managedParentPath: '/managed/app-slug',
+        }}
+      />
+    );
+    resolveContext();
+
+    expect(await screen.findByTestId('worktree-create-name')).toHaveValue('quiet-otter');
+    expect(screen.getByTestId('worktree-create-name')).not.toHaveValue(
+      'stale-current-worktree-name'
+    );
+    expect(screen.getByTestId('worktree-create-location')).toHaveTextContent(
+      '/managed/app-slug/quiet-otter'
+    );
+    expect(onOpenCreateSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the create sheet closed when refreshing create context rejects', async () => {
+    const user = setup();
+    const onOpenCreateSheet = vi.fn(() => Promise.reject(new Error('inventory unavailable')));
+    render(<WorkspaceBar {...baseBarProps} mode={mode({ onOpenCreateSheet })} />);
+    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    expect(onOpenCreateSheet).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('worktree-create-dialog')).toBeNull();
   });
 
   it('updates the location preview when the folder name changes', async () => {

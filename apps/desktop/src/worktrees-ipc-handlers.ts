@@ -15,6 +15,7 @@ import type {
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeArchiveResult,
+  WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
   WorktreeListEntry,
@@ -29,6 +30,7 @@ export interface WorktreesIpcHandlers {
   readonly archive: (payload: unknown) => Promise<GitResult<WorktreeArchiveResult>>;
   readonly create: (payload: unknown) => Promise<GitResult<WorktreeCreateResult>>;
   readonly createBranchHere: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
+  readonly createContext: (payload: unknown) => Promise<GitResult<WorktreeCreateContext>>;
   readonly getSettings: () => Promise<GitResult<WorktreeSettings>>;
   readonly list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
   readonly listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
@@ -136,6 +138,15 @@ function validateCreateBranchHere(payload: unknown): GitResult<{
   return { ok: true, value: { branch: payload['branch'], worktreeId: payload['worktreeId'] } };
 }
 
+function validateCreateContext(payload: unknown): GitResult<{
+  readonly rootId: string;
+}> {
+  if (!(isRecord(payload) && nonEmptyString(payload['rootId']))) {
+    return { error: 'worktrees:createContext requires { rootId }.', ok: false };
+  }
+  return { ok: true, value: { rootId: payload['rootId'] } };
+}
+
 function validateRestore(payload: unknown): GitResult<{
   readonly worktreeId: string;
 }> {
@@ -190,6 +201,15 @@ export function createWorktreesIpcHandlers(
       }
       return await withService('worktrees:createBranchHere', (service) =>
         service.createBranchHere(params.value)
+      );
+    },
+    createContext: async (payload) => {
+      const params = validateCreateContext(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:createContext', (service) =>
+        service.createContext(params.value)
       );
     },
     getSettings: async () => {
