@@ -44,15 +44,21 @@ Automatic thread titles use Mastra Memory's top-level `generateTitle: true`
 option and `Agent.generateTitleFromUserMessage`. At the terminal Mastra finish,
 the stream adapter starts that canonical title request with the active agent
 model before yielding the UI finish, then keeps the per-run Mastra instance
-alive until the detached request settles. The main response therefore is not
-held up by title latency, and generation remains independent of Observational
-Memory, its token threshold, and whether OM is thread- or resource-scoped. The
-generated title is persisted through `PgliteMemoryStore.saveThread`; that
-transactional boundary may replace only an empty/default/system-owned title and stamps
-`titleSource: 'om'`, while the manual rename path clears the marker and always
-wins even if generation was already in flight. Title generation deliberately
-does not delay the main assistant response, so provider `message-finish` is not
-a reliable primary title-refresh signal. App-shell live-subscribes to the local
+alive for one bounded 30-second title lifecycle. The title model receives the
+active request's provider options and output-token cap; OpenRouter retries one
+text-empty result on that same model, never a fallback provider. Expiry aborts
+the underlying model call and marks the transactional PGlite save for rollback,
+rather than merely detaching either operation. Provider, invalid-output,
+configuration, persistence-read, and persistence-write failures are logged with
+stage-specific privacy-safe metadata while the successful main response remains
+intact. Generation remains independent of Observational Memory, its token
+threshold, and whether OM is thread- or resource-scoped. The generated title is
+persisted through `PgliteMemoryStore.saveThread`; that transactional boundary
+may replace only an empty/default/system-owned title and stamps `titleSource:
+'om'`, while the manual rename path clears the marker and always wins even if
+generation was already in flight. Title generation deliberately does not delay
+the main assistant response, so provider `message-finish` is not a reliable
+primary title-refresh signal. App-shell live-subscribes to the local
 `mastra_threads` id/title projection and re-lists the loaded resource only when
 that stable projection changes. This makes background titles visible in thread
 rows and tabs without a timer or an API round trip. The existing
@@ -890,6 +896,12 @@ handle (BST-972 A1/A2) — and all gated on `if (runId)`):
 | `recordDesktopAssistantHookRunOutcome` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | THROWS (deliberate) |
 | `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
 | `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | `to_regclass` probe → `runsTableMissing: true`, no-op |
+
+Run-critical desktop reads and event writes use the existing foreground `DatabaseWorkScheduler`
+lane. A run-scoped `mastra_workflow_snapshot` SELECT and same-id event upsert may retry once for
+typed, non-terminating host saturation. Snapshot retries emit `run.database.retried`; event retries
+stamp sanitized `metadata.databaseRetry`. Serial host ordering plus same-id upsert prevents duplication
+after late completion. Retries are logged; arbitrary, wedged, terminating, and exhausted failures remain typed.
 
 **`duration_ms` is an INTEGER column, and durations are rounded at the
 PRODUCER.** The guard wrapper measures tool execution with `performance.now()`,

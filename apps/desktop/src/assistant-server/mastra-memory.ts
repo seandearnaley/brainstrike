@@ -31,6 +31,7 @@ import type { DesktopMemoryFeature } from '@brainstrike/assistant-service/types'
 import { getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { resolveProviderApiKey } from './provider-credentials';
+import { createRunCriticalDatabase } from './run-critical-database';
 
 export type DesktopMastraMemoryResult =
   import('@brainstrike/agent/pglite-mastra-memory').PgliteMastraMemoryResult;
@@ -217,7 +218,7 @@ async function createDesktopMastraMemoryFromCacheState({
     semanticRecallEmbeddingTarget,
   });
   if (runId) {
-    const database = await getDatabase();
+    const database = createRunCriticalDatabase(await getDatabase(), { eventSink, runId });
     // Run-scoped memory instances intentionally bypass the shared cache so the
     // per-run event sink cannot leak observability events across concurrent runs.
     return createPgliteMastraMemory({

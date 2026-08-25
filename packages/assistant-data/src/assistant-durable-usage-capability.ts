@@ -1,3 +1,5 @@
+import { getAssistantBridge } from '@brainstrike/assistant-contract';
+
 /**
  * Single capability probe for "durable assistant usage is recorded here".
  *
@@ -20,8 +22,7 @@ export function hasDurableAssistantUsageCapability(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
-  const bridge = (window as unknown as { assistant?: { getUrl?: unknown; url?: unknown } })
-    .assistant;
+  const bridge = getAssistantBridge();
   // Gate on the SHAPE of the capability, not a truthy proxy: a non-empty string
   // `url` or a callable `getUrl`. A truthy-but-wrong value (e.g. `url: {}`) would
   // otherwise pass here and throw downstream when the URL is actually used.

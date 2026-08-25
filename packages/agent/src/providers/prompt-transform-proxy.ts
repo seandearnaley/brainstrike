@@ -20,7 +20,7 @@
 
 export interface PromptMessageLike {
   content?: unknown;
-  providerOptions?: Record<string, Record<string, unknown>>;
+  providerOptions?: ModelProviderOptions;
   role?: unknown;
 }
 
@@ -28,10 +28,20 @@ export interface PromptParamsLike {
   prompt?: readonly PromptMessageLike[];
 }
 
+export type ModelProviderOptions = Record<string, Record<string, unknown>>;
+
+export interface ModelCallParamsLike extends PromptParamsLike {
+  abortSignal?: AbortSignal;
+  maxOutputTokens?: number;
+  providerOptions?: ModelProviderOptions;
+}
+
 /** Pure, non-mutating rewrite of one request's prompt. */
 export type PromptTransform = (params: PromptParamsLike) => PromptParamsLike;
 
-type ModelCallMethod = (params: PromptParamsLike) => unknown;
+export type ModelCallTransform = (params: ModelCallParamsLike) => ModelCallParamsLike;
+
+type ModelCallMethod = (params: ModelCallParamsLike) => unknown;
 
 const WRAPPED_CALL_METHODS = new Set(['doGenerate', 'doStream']);
 
@@ -44,6 +54,14 @@ export function wrapModelWithPromptTransform<M extends object>(
   model: M,
   transform: PromptTransform
 ): M {
+  return wrapModelWithCallTransform(model, (params) => transform(params));
+}
+
+/** Wrap every AI SDK generation call while preserving every other model capability. */
+export function wrapModelWithCallTransform<M extends object>(
+  model: M,
+  transform: ModelCallTransform
+): M {
   return new Proxy(model, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver) as unknown;
@@ -52,7 +70,7 @@ export function wrapModelWithPromptTransform<M extends object>(
           return value;
         }
         const method = value as ModelCallMethod;
-        return (params: PromptParamsLike) => method.call(target, transform(params));
+        return (params: ModelCallParamsLike) => method.call(target, transform(params));
       }
       if (typeof value === 'function') {
         return (value as (...args: unknown[]) => unknown).bind(target);

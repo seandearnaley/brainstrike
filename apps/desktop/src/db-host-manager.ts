@@ -25,6 +25,37 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_INITIALIZATION_TIMEOUT_MS = 90_000;
 const DEFAULT_CLOSE_TIMEOUT_MS = 2000;
 
+export class DbHostRequestTimeoutError extends Error {
+  readonly hasStaleAbandonedRequest: boolean;
+  readonly hostSaturated: boolean;
+  readonly pendingCount: number;
+  readonly recentAbandonedCount: number;
+  readonly requestKind: DbHostRequest['kind'];
+  readonly timeoutMs: number;
+  readonly willTerminateHost: boolean;
+
+  constructor(options: {
+    readonly hasStaleAbandonedRequest?: boolean;
+    readonly pendingCount: number;
+    readonly recentAbandonedCount?: number;
+    readonly requestKind: DbHostRequest['kind'];
+    readonly timeoutMs: number;
+    readonly willTerminateHost: boolean;
+  }) {
+    super(`DB host request timed out: ${options.requestKind}`);
+    this.name = 'DbHostRequestTimeoutError';
+    this.hasStaleAbandonedRequest = options.hasStaleAbandonedRequest ?? false;
+    this.pendingCount = options.pendingCount;
+    this.recentAbandonedCount = options.recentAbandonedCount ?? 0;
+    this.requestKind = options.requestKind;
+    this.timeoutMs = options.timeoutMs;
+    this.willTerminateHost = options.willTerminateHost;
+    this.hostSaturated =
+      !(options.willTerminateHost || this.hasStaleAbandonedRequest) &&
+      (options.pendingCount > 1 || this.recentAbandonedCount > 0);
+  }
+}
+
 function createLiveQueryDiagnostics(payload: {
   readonly mode: 'query' | 'incremental';
   readonly params?: readonly unknown[] | null;
@@ -369,6 +400,7 @@ class RemoteLiveQuery<TRecord = unknown> implements RemoteDbLiveQuery<TRecord> {
 interface AbandonedRequest {
   readonly requestKind: string;
   readonly startedAt: number;
+  readonly timedOutAt: number;
   readonly timeoutMs: number;
 }
 
@@ -505,16 +537,26 @@ class DefaultDbHostManager implements DbHostManager {
       const startedAt = Date.now();
       const timeoutDiagnostics = createRequestTimeoutDiagnostics(request);
       const timer = setTimeout(() => {
-        const error = new Error(`DB host request timed out: ${request.kind}`);
+        const timedOutAt = Date.now();
+        const willTerminateHost = requiresHostTerminationOnTimeout(request);
+        const abandonedState = this.#getAbandonedRequestState(timedOutAt);
+        const error = new DbHostRequestTimeoutError({
+          ...abandonedState,
+          pendingCount: this.#pending.size,
+          requestKind: request.kind,
+          timeoutMs,
+          willTerminateHost,
+        });
         logger.warn(
           {
             ...timeoutDiagnostics,
             elapsedMs: Math.max(0, Date.now() - startedAt),
+            ...abandonedState,
             pendingByKind: this.#getPendingRequestCountsByKind(),
             pendingCount: this.#pending.size,
             requestId: id,
             timeoutMs,
-            willTerminateHost: requiresHostTerminationOnTimeout(request),
+            willTerminateHost,
           },
           'DB host request timed out'
         );
@@ -522,10 +564,11 @@ class DefaultDbHostManager implements DbHostManager {
         this.#recordAbandonedRequest(id, {
           requestKind: request.kind,
           startedAt,
+          timedOutAt,
           timeoutMs,
         });
         reject(error);
-        if (requiresHostTerminationOnTimeout(request)) {
+        if (willTerminateHost) {
           this.#terminateHost(error);
         }
       }, timeoutMs);
@@ -547,6 +590,22 @@ class DefaultDbHostManager implements DbHostManager {
       counts[pending.requestKind] = (counts[pending.requestKind] ?? 0) + 1;
     }
     return counts;
+  }
+
+  #getAbandonedRequestState(now: number): {
+    readonly hasStaleAbandonedRequest: boolean;
+    readonly recentAbandonedCount: number;
+  } {
+    let hasStaleAbandonedRequest = false;
+    let recentAbandonedCount = 0;
+    for (const request of this.#abandoned.values()) {
+      if (now - request.timedOutAt < request.timeoutMs) {
+        recentAbandonedCount += 1;
+      } else {
+        hasStaleAbandonedRequest = true;
+      }
+    }
+    return { hasStaleAbandonedRequest, recentAbandonedCount };
   }
 
   #getRequestTimeoutMs(request: DbHostRequest): number {
@@ -837,8 +896,10 @@ class DefaultDbHostManager implements DbHostManager {
           'DB host request completed after timeout'
         );
       }
+      this.#clearStaleAbandonedRequests(Date.now());
       return;
     }
+    this.#clearStaleAbandonedRequests(Date.now());
     this.#pending.delete(message.id);
     clearTimeout(pending.timer);
     if (message.ok) {
@@ -846,6 +907,14 @@ class DefaultDbHostManager implements DbHostManager {
       return;
     }
     pending.reject(toError(message.error));
+  }
+
+  #clearStaleAbandonedRequests(now: number): void {
+    for (const [id, request] of this.#abandoned) {
+      if (now - request.timedOutAt >= request.timeoutMs) {
+        this.#abandoned.delete(id);
+      }
+    }
   }
 
   #rejectAll(error: Error): void {

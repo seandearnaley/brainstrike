@@ -13,17 +13,36 @@ import {
   hasRegisteredSuspendResumeUi,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { createLogger } from '@brainstrike/logging';
+import { createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import { Button, Checkbox } from '@brainstrike/ui';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
-import { createContext, type ReactNode, use, useCallback, useId, useMemo, useState } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  use,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
+import { rememberUnreadablePauseLogIdentity } from './unreadable-pause-log-cache';
 
 const logger = createLogger('AssistantToolSuspendNotice');
 
 const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
+const SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT = 4000;
+
+function serializeSuspendPayloadDiagnostic(suspendPayload: unknown): string {
+  const serialized =
+    JSON.stringify(redactSensitiveLogValue(suspendPayload), null, 2) ?? 'undefined';
+  return serialized.length > SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT
+    ? `${serialized.slice(0, SUSPEND_PAYLOAD_DIAGNOSTIC_CHAR_LIMIT)}\n… (truncated)`
+    : serialized;
+}
 
 /**
  * Callback that clears the persisted plan-mode toggle. Provided by the
@@ -57,6 +76,97 @@ interface AssistantToolSuspendNoticeProps {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function readSubmitPlanPayload(value: unknown): SubmitPlanPayload | null | undefined {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { overview, risks, steps, title, verification } = value;
+  if (typeof overview !== 'string' || typeof title !== 'string' || !Array.isArray(steps)) {
+    return null;
+  }
+
+  const parsedSteps: SubmitPlanPayload['steps'] = [];
+  for (const step of steps) {
+    if (!isRecord(step) || typeof step['title'] !== 'string') {
+      return null;
+    }
+    parsedSteps.push({
+      ...(typeof step['detail'] === 'string' ? { detail: step['detail'] } : {}),
+      title: step['title'],
+    });
+  }
+
+  return {
+    overview,
+    ...(typeof risks === 'string' ? { risks } : {}),
+    steps: parsedSteps,
+    title,
+    ...(typeof verification === 'string' ? { verification } : {}),
+  };
+}
+
+function readAskUserOptions(options: unknown): AskUserOption[] | null | undefined {
+  if (options === undefined) {
+    return;
+  }
+  if (!Array.isArray(options)) {
+    return null;
+  }
+  const parsedOptions: AskUserOption[] = [];
+  for (const option of options) {
+    if (!isRecord(option) || typeof option['label'] !== 'string') {
+      return null;
+    }
+    parsedOptions.push({
+      ...(typeof option['description'] === 'string' ? { description: option['description'] } : {}),
+      label: option['label'],
+    });
+  }
+  return parsedOptions;
+}
+
+function readAskUserPayload(value: unknown): AskUserPayload | null | undefined {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (!isRecord(value)) {
+    return null;
+  }
+  const { options, question, selectionMode } = value;
+  if (typeof question !== 'string') {
+    return null;
+  }
+  const parsedOptions = readAskUserOptions(options);
+  if (parsedOptions === null) {
+    return null;
+  }
+  if (
+    selectionMode !== undefined &&
+    selectionMode !== 'single_select' &&
+    selectionMode !== 'multi_select'
+  ) {
+    return null;
+  }
+  if (selectionMode !== undefined && (!parsedOptions || parsedOptions.length === 0)) {
+    return null;
+  }
+
+  return {
+    ...(parsedOptions ? { options: parsedOptions } : {}),
+    question,
+    ...(selectionMode === 'single_select' || selectionMode === 'multi_select'
+      ? { selectionMode }
+      : {}),
+  };
+}
+
+function readAskUserQuestion(value: unknown): string | null {
+  return isRecord(value) && typeof value['question'] === 'string' ? value['question'] : null;
 }
 
 function isAssistantToolSuspendRequest(value: unknown): value is AssistantToolSuspendRequest {
@@ -275,13 +385,59 @@ function NoticeShell({
   );
 }
 
+function UnreadableSuspendPayloadNotice({
+  children,
+  detail,
+  request,
+  testId,
+  title,
+}: {
+  children?: ReactNode;
+  detail: string;
+  request: AssistantToolSuspendRequest;
+  testId: string;
+  title: string;
+}) {
+  const pauseKey = `${request.runId}:${request.toolCallId}:${request.toolName}`;
+  const payloadDetail = useMemo(
+    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
+    [request.suspendPayload]
+  );
+  useEffect(() => {
+    if (!rememberUnreadablePauseLogIdentity(pauseKey)) {
+      return;
+    }
+    logger.warn('Unreadable tool suspension payload', {
+      runId: request.runId,
+      suspendPayload: payloadDetail,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+    });
+  }, [pauseKey, payloadDetail, request.runId, request.toolCallId, request.toolName]);
+
+  return (
+    <NoticeShell
+      icon={<TriangleAlert className="size-4" />}
+      role="alert"
+      testId={testId}
+      title={title}
+      tone="failed"
+    >
+      <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
+      <p className="mt-1 text-muted-foreground text-xs">{detail}</p>
+      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+        {payloadDetail}
+      </pre>
+      {children}
+    </NoticeShell>
+  );
+}
+
 function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const { submit, locked } = useSuspendResume(request);
   const exitPlanMode = usePlanModeExit();
   const [feedback, setFeedback] = useState('');
-  const plan = isRecord(request.suspendPayload)
-    ? (request.suspendPayload as unknown as SubmitPlanPayload)
-    : null;
+  const plan = readSubmitPlanPayload(request.suspendPayload);
 
   const approve = useCallback(() => {
     // Exit plan mode BEFORE composing the resume request so the rebuilt server
@@ -293,6 +449,29 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
       'Approved the plan.'
     );
   }, [exitPlanMode, feedback, submit]);
+
+  if (plan === null) {
+    return (
+      <UnreadableSuspendPayloadNotice
+        detail="The suspended request contains unreadable plan terms, so it cannot be approved. You can safely reject it so the assistant can revise."
+        request={request}
+        testId="assistant-submit-plan-payload-unreadable"
+        title="Plan details could not be read"
+      >
+        <div className="mt-2">
+          <Button
+            disabled={locked}
+            onClick={() => submit({ action: 'rejected' }, 'Rejected the unreadable plan.')}
+            size="sm"
+            variant="outline"
+          >
+            <X className="size-3.5" />
+            Reject
+          </Button>
+        </div>
+      </UnreadableSuspendPayloadNotice>
+    );
+  }
 
   return (
     <NoticeShell
@@ -381,9 +560,8 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
   );
   const [freeText, setFreeText] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const payload = isRecord(request.suspendPayload)
-    ? (request.suspendPayload as unknown as AskUserPayload)
-    : null;
+  const payload = readAskUserPayload(request.suspendPayload);
+  const readableQuestion = payload === null ? readAskUserQuestion(request.suspendPayload) : null;
   const options: AskUserOption[] = payload?.options ?? [];
   const isMultiSelect = payload?.selectionMode === 'multi_select';
 
@@ -398,6 +576,45 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
       return next;
     });
   }, []);
+
+  if (payload === null) {
+    return (
+      <UnreadableSuspendPayloadNotice
+        detail={
+          readableQuestion
+            ? 'The question is readable, but its choice controls are not. Answer in your own words or stop the run.'
+            : 'The suspended request contains malformed question details, so it cannot be answered here.'
+        }
+        request={request}
+        testId="assistant-ask-user-payload-unreadable"
+        title="Question details could not be read"
+      >
+        {readableQuestion ? (
+          <div className="mt-2 space-y-2">
+            <p className="text-foreground/90 text-xs">{readableQuestion}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                aria-label="Answer in your own words"
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+                disabled={locked}
+                onChange={(event) => setFreeText(event.target.value)}
+                placeholder="Type your answer…"
+                value={freeText}
+              />
+              <Button
+                disabled={locked || freeText.trim().length === 0}
+                onClick={() => submitAnswer(freeText.trim(), `Answered: ${freeText.trim()}`)}
+                size="sm"
+                variant="default"
+              >
+                Send answer
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </UnreadableSuspendPayloadNotice>
+    );
+  }
 
   return (
     <NoticeShell
@@ -492,7 +709,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
 function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRequest }) {
   const [dismissed, setDismissed] = useState(false);
   const detail = useMemo(
-    () => JSON.stringify(request.suspendPayload, null, 2),
+    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
     [request.suspendPayload]
   );
   if (dismissed) {
@@ -562,6 +779,10 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
   // point: every named domain must be individually acknowledged.
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const domains = narrowNetworkSuspendPayload(request.suspendPayload);
+  const payloadDetail = useMemo(
+    () => serializeSuspendPayloadDiagnostic(request.suspendPayload),
+    [request.suspendPayload]
+  );
 
   const deny = useCallback(() => {
     submit({ action: 'deny' } satisfies { action: 'deny' }, "You didn't allow internet access.");
@@ -595,7 +816,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
           The request didn't say which domains it needs, so it can't be allowed.
         </p>
         <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
-          {JSON.stringify(request.suspendPayload, null, 2)}
+          {payloadDetail}
         </pre>
         <div className="mt-2">
           <Button autoFocus disabled={locked} onClick={deny} size="sm" variant="default">

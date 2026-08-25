@@ -37,6 +37,7 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'pr.merged',
   'pr.opened',
   'run.cancelled',
+  'run.database.retried',
   'run.failed',
   'run.finished',
   // A stalled ATTEMPT that the turn recovered from, and the continuation that

@@ -24,6 +24,7 @@ import {
   type AssistantUiThreadHistoryAdapter,
   CHILD_RUN_USAGE_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
+  getAssistantBridge,
   type LocalLlmBackendFactory,
   type OpenRouterModelMetadataLookup,
   SHELL_OUTPUT_DATA_NAME,
@@ -1386,10 +1387,10 @@ const ChatThreadUI = ({
 // Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 /** Initial API URL for the data stream runtime (hosted providers). */
 function resolveInitialAssistantApi(): string {
-  if (typeof window === 'undefined') {
-    return '/api/assistant';
-  }
-  return window.assistant?.url ? `${window.assistant.url}/assistant` : '/api/assistant';
+  const bridge = getAssistantBridge();
+  return typeof bridge?.url === 'string' && bridge.url
+    ? `${bridge.url}/assistant`
+    : '/api/assistant';
 }
 
 export const AssistantUiPanel = ({

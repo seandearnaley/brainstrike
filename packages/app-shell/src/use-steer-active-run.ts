@@ -1,3 +1,4 @@
+import { getAssistantBridge } from '@brainstrike/assistant-contract';
 import { useCallback } from 'react';
 import {
   resolveAssistantAuthHeaders,
@@ -22,10 +23,7 @@ import {
  * silently cannot stop the run; review P2, BST-588).
  */
 export function hasDesktopAssistantBridge(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    Boolean((window as unknown as { assistant?: unknown }).assistant)
-  );
+  return Boolean(getAssistantBridge());
 }
 
 export function useSteerActiveRun(

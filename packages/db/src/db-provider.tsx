@@ -991,15 +991,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, []);
 
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {
-    const w = typeof window === 'undefined' ? null : window;
-    if (!(useElectronIPC && w?.electronAPI?.db)) {
+    if (!(useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db)) {
       return false;
     }
-    if (typeof w.electronAPI.db.resetLocal !== 'function') {
+    const electronDb = window.electronAPI.db;
+    if (typeof electronDb.resetLocal !== 'function') {
       throw new Error('Electron database reset bridge is unavailable.');
     }
 
-    const res = await w.electronAPI.db.resetLocal();
+    const res = await electronDb.resetLocal();
     if (!res?.success) {
       throw new Error(res?.message ?? 'Electron database reset failed.');
     }
@@ -1113,23 +1113,24 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   ]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
-    const w = typeof window === 'undefined' ? null : window;
-    if (w?.electronAPI?.db?.query) {
-      try {
-        await w.electronAPI.db.query('DELETE FROM job_queue');
-      } catch (err) {
-        logger.warn('Electron query to clear job_queue failed:', err);
-      }
-      try {
-        await w.electronAPI.db.query('DELETE FROM collection_indexing_stats');
-      } catch (err) {
-        logger.warn('Electron query to clear collection_indexing_stats failed:', err);
-      }
-      try {
-        await w.electronAPI.db.query('DELETE FROM embedding_sets');
-      } catch (err) {
-        logger.warn('Electron query to clear embedding_sets failed:', err);
-      }
+    if (typeof window === 'undefined' || !window.electronAPI?.db?.query) {
+      return;
+    }
+    const electronDb = window.electronAPI.db;
+    try {
+      await electronDb.query('DELETE FROM job_queue');
+    } catch (err) {
+      logger.warn('Electron query to clear job_queue failed:', err);
+    }
+    try {
+      await electronDb.query('DELETE FROM collection_indexing_stats');
+    } catch (err) {
+      logger.warn('Electron query to clear collection_indexing_stats failed:', err);
+    }
+    try {
+      await electronDb.query('DELETE FROM embedding_sets');
+    } catch (err) {
+      logger.warn('Electron query to clear embedding_sets failed:', err);
     }
   }, []);
 
@@ -1159,12 +1160,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       chunkRepository,
       clearAllData,
       clearQueuesAndEmbeddingSets: async () => {
-        if (useElectronIPC) {
-          const w = typeof window === 'undefined' ? null : window;
-          if (w?.electronAPI?.db?.query) {
-            await purgeQueuesAndSetsElectron();
-            return;
-          }
+        if (useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db?.query) {
+          await purgeQueuesAndSetsElectron();
+          return;
         }
         const conn = connectionRef.current;
         if (conn?.kind !== 'direct') {
