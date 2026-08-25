@@ -70,8 +70,8 @@ async function openComposer(page: Page, repoPath: string): Promise<void> {
   await expect(page.getByTestId('workspace-bar')).toBeVisible({ timeout: 30_000 });
 }
 
-test.describe('forge PR awareness @smoke', () => {
-  test('shows the PR chip with the failing rollup for the checked-out branch', async ({
+test.describe('forge PR awareness', () => {
+  test('@smoke shows the PR chip with the failing rollup for the checked-out branch', async ({
     window,
   }) => {
     await openComposer(window, repoWithGitHubRemote('open-pr'));
@@ -80,6 +80,18 @@ test.describe('forge PR awareness @smoke', () => {
     await expect(chip).toHaveText(/#2574/u);
     await expect(chip).toHaveAttribute('data-checks', 'failing');
     await expect(chip).toHaveAttribute('data-stale', 'false');
+
+    // Closes the wrong-repo blind spot (review comment 3847752901's fix,
+    // asserted end-to-end): gh must be pinned to the RESOLVED remote and the
+    // ACTUAL checked-out branch, never a default repo/branch gh would guess.
+    const prInvocation = shim
+      .readInvocations()
+      .find((argv) => argv[0] === 'pr' && argv[1] === 'list');
+    expect(prInvocation).toBeDefined();
+    const repoIndex = prInvocation?.indexOf('--repo') ?? -1;
+    const headIndex = prInvocation?.indexOf('--head') ?? -1;
+    expect(prInvocation?.[repoIndex + 1]).toBe('github.com/acme/widgets');
+    expect(prInvocation?.[headIndex + 1]).toBe('feature/forge');
   });
 
   test('lists the checks and the fix-checks prompt in the popover', async ({ window }) => {
@@ -90,7 +102,13 @@ test.describe('forge PR awareness @smoke', () => {
     await expect(window.getByTestId('workspace-bar-pr-fix-checks')).toBeVisible();
   });
 
-  test('caches the observation so the thread row renders a PR pill', async ({ window }) => {
+  // Named for what it actually checks: a DB-row assertion, not the thread-row
+  // pill (`thread-pr-pill` only renders in folder grouping — a distinct sort
+  // mode the threads panel isn't in here — so proving the pill itself would
+  // need a heavier fixture: a second root/thread plus switching the panel's
+  // sort to 'folder'. That belongs in threads-panel-folders.desktop.test.ts,
+  // not this file.)
+  test('persists the observed PR as a brainstrike_forge_prs row', async ({ window }) => {
     await openComposer(window, repoWithGitHubRemote('pill'));
     await expect(window.getByTestId('workspace-bar-pr-chip')).toBeVisible({ timeout: 30_000 });
     const cached = await window.evaluate(async () => {
@@ -124,7 +142,9 @@ test.describe('forge PR awareness @smoke', () => {
     );
   });
 
-  test('explains an unauthenticated host instead of showing an empty chip', async ({ window }) => {
+  test('@smoke explains an unauthenticated host instead of showing an empty chip', async ({
+    window,
+  }) => {
     const repoPath = createFreshRepo({
       label: 'enterprise',
       prefix: 'bst-forge-',

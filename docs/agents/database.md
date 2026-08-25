@@ -529,7 +529,7 @@ normalized GitHub pull-request observation per realpath'd git common directory
 and branch. Register it in both migration runners and every table-enumerating
 factory-reset path. It is not a thread-delete sidecar because pull requests
 outlive individual threads and are shared by threads on the same branch. The
-thread-row PR pill reads it through ONE resource-wide, unparameterized PGlite
+thread-row PR pill reads it through ONE list-wide, unparameterized PGlite
 live query (`use-forge-pr-cache.ts`) rather than a per-thread lookup, so it
 renders instantly on boot and offline; the composer's live status instead
 reads the capability-gated `window.forge` bridge, which is the only surface

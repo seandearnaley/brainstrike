@@ -5207,7 +5207,7 @@ Then, in a second shell, run the Task 7 probe (`node scripts/probe-forge-ui.mjs`
 
 - [x] `prChipPresent: true`, with `prChip.text` matching `#<number>`, on a repository whose branch has an open PR. Verified live (Task 7 Part B, 2026-08-25): `prChip.text: "#4242✓2/2"`.
 - [x] `branchDiagnosticPresent: true`, with `branchChip.tag: "BUTTON"`, on a repository with no `gh` on PATH; `branchDiagnosticText` names the reason. Verified live with a real `gh`-stripped PATH (no shim, no `/opt/homebrew/bin`): `branchDiagnosticText: "GitHub CLI (gh) was not found on PATH. Install it to see pull request status."`.
-- [x] **No refresh loop:** with the app idle and the chip visible, click the popover's Refresh ONCE, then watch for 60 s and confirm `gh` is spawned exactly once — `ps -Ao comm | grep -c '[g]h'` stays at its pre-click value between refreshes. This is the F1 regression (see the CORRECTION note on Step 12): `reason: 'user'` has a 0 ms floor, so a reason latched across push-driven effect runs spawns `gh` without bound. Verified with a more precise instrument than `ps` sampling: the CDT shim appends a timestamp to a log file on every `gh pr …` invocation. An isolated single Refresh click produced exactly one new log line, and zero further lines appeared over a clean 20 s window with no other interaction — no runaway loop. (Separately, window-focus-triggered refreshes were also observed spaced ~60–75 s apart during active clicking, consistent with the 60 s window floor and not indicative of a loop.)
+- [x] **No refresh loop:** with the app idle and the chip visible, click the popover's Refresh ONCE, then watch for 60 s and confirm `gh` is spawned exactly once — `ps -Ao comm | grep -c '[g]h'` stays at its pre-click value between refreshes. This is the F1 regression (see the CORRECTION note on Step 12): `reason: 'user'` has a 0 ms floor, so a reason latched across push-driven effect runs spawns `gh` without bound. Verified with a more precise instrument than `ps` sampling: the CDT shim appends a timestamp to a log file on every `gh pr …` invocation. An isolated single Refresh click produced exactly one new log line, and zero further lines appeared over a clean 20 s window with no other interaction (a disclosed substitution for the 60 s watch specified above — the window actually run was 20 s, not 60 s) — no runaway loop. (Separately, window-focus-triggered refreshes were also observed spaced ~60–75 s apart during active clicking, consistent with the 60 s window floor and not indicative of a loop.)
 
 - [ ] **Step 18: Commit**
 
@@ -6893,7 +6893,7 @@ full writeup:
   This does not contradict the durable-write and absent-while-open findings
   above, and the underlying attachment mechanism (any run event kind onto the
   latest assistant message's data parts) is proven correct by the existing
-  unit test `packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts`
+  integration test `packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts`
   — "hydrates persisted assistant run events as assistant-ui data parts on
   the latest assistant message".
 
