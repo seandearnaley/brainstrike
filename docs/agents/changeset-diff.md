@@ -283,13 +283,15 @@ unique repo, spawn `git worktree list --porcelain -z` hook-free
 = 5000` cache with dirty-flag invalidation and in-flight build coalescing.
 Never throws — every failure mode is a visible `errors` entry.
 
-`provenance` is typed as `'agent-reported' | 'both' | 'scanned'`, but
-**only `'scanned'` is ever produced** — grepping `git-inventory-*.ts`
-finds exactly two `provenance:` assignments, both the literal `'scanned'`.
-Nothing in the codebase constructs `'agent-reported'` or `'both'`. The
-design spec's "merge agent-reported workspaces from the journal"
-(GitInventoryService responsibility) is not implemented; do not assume
-provenance distinguishes agent-created worktrees today.
+`provenance` is typed as `'agent-reported' | 'both' | 'scanned'`. Until W3
+(BST-1390) only `'scanned'` was ever produced. `GitInventoryService` itself
+still produces only `'scanned'` — the MERGE happens one level up, in
+`worktree-service.ts`'s `list()`, which joins the inventory with the
+`brainstrike_worktrees` ledger: a scanned worktree with a ledger row becomes
+`'both'`, and a LIVE ledger row that is not on disk is reported as
+`'agent-reported'` with `trust: 'unvalidated'`, `trustReason: 'missing on
+disk'` — present, never dropped. Nothing downstream of the inventory may
+assume `'scanned'` is the only value it can see.
 
 ## TRUST RULE + BIDIRECTIONAL VALIDATION
 
