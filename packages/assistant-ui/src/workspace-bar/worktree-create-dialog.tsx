@@ -177,8 +177,8 @@ export function WorktreeCreateDialog({
               {mode.setupSummary}
             </p>
             <p className="text-muted-foreground text-xs" data-testid="worktree-create-setup-note">
-              A setup command from this repository or your Settings runs after creation, and files
-              listed in .worktreeinclude — including gitignored ones — are copied in.
+              If this repository or your Settings define a setup command, it runs after creation;
+              files listed in .worktreeinclude — including gitignored ones — are copied in.
             </p>
           </div>
           {mode.pending ? (
