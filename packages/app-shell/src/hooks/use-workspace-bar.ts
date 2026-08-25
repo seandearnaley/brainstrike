@@ -1,6 +1,8 @@
 import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type {
+  WorkspaceBarBranchMenu,
+  WorkspaceBarCheckout,
   WorkspaceBarProps,
   WorkspaceBarRecentRoot,
   WorkspaceBarReveal,
@@ -21,6 +23,7 @@ import {
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
+import { useBranchSwitcher } from './use-branch-switcher';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 
 const logger = createLogger('WorkspaceBar');
@@ -176,6 +179,36 @@ function writeStartingPoint(
         threadId: live.threadId,
       }
     : live;
+}
+
+/**
+ * Gated on `primaryRoot`, not just on `checkout`: the branch chip describes
+ * the primary folder, so it must never outlive the row it describes — a
+ * resolved id whose `operatingRoot` has not landed yet would otherwise render
+ * a branch with no folder beside it. Returns a ready-to-spread partial (see
+ * `branchMenuEntry` below for why) rather than a plain conditional value.
+ */
+function checkoutEntry(
+  primaryRoot: WorkspaceBarRoot | undefined,
+  checkout: WorkspaceBarCheckout | undefined
+): { readonly checkout?: WorkspaceBarCheckout } {
+  return primaryRoot && checkout ? { checkout } : {};
+}
+
+/**
+ * Gated on the same `primaryRoot && checkout` pair as the chip itself: an
+ * interactive menu for a chip that is not rendered is unreachable state.
+ * Returns a ready-to-spread partial so the call site in `useWorkspaceBar`
+ * carries no conditional of its own — the gate's branches are pulled out
+ * entirely rather than merely relocated, keeping that hook's
+ * cognitive-complexity budget untouched by this wiring.
+ */
+function branchMenuEntry(
+  primaryRoot: WorkspaceBarRoot | undefined,
+  checkout: WorkspaceBarCheckout | undefined,
+  branchMenu: WorkspaceBarBranchMenu | undefined
+): { readonly branchMenu?: WorkspaceBarBranchMenu } {
+  return primaryRoot && checkout && branchMenu ? { branchMenu } : {};
 }
 
 /**
@@ -849,13 +882,11 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
       : null
   );
+  const branchSwitcher = useBranchSwitcher({ checkout, dbRootId: primaryRootId ?? null });
 
   return {
-    // Gated on `primaryRoot`, not just on `checkout`: the branch chip describes
-    // the primary folder, so it must never outlive the row it describes — a
-    // resolved id whose `operatingRoot` has not landed yet would otherwise
-    // render a branch with no folder beside it.
-    ...(primaryRoot && checkout ? { checkout } : {}),
+    ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
+    ...checkoutEntry(primaryRoot, checkout),
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,
