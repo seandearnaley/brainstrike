@@ -36,7 +36,7 @@ export function archiveSnapshotRef(worktreeId: string): string {
 export interface WorktreeSafetyReport {
   readonly blockers: readonly string[];
   readonly dirty: boolean;
-  readonly ignoredFileCount: number;
+  readonly ignoredEntryCount: number;
   readonly threadIsRunning: boolean;
   readonly unpushedCommits: number;
 }
@@ -121,7 +121,7 @@ export async function inspectWorktreeSafety(input: {
     return { error: describeFailure(statusRun), ok: false };
   }
   const statusEntries = statusRun.stdout.split('\n').filter((entry) => entry.length > 0);
-  const ignoredFileCount = statusEntries.filter((entry) => entry.startsWith('!! ')).length;
+  const ignoredEntryCount = statusEntries.filter((entry) => entry.startsWith('!! ')).length;
   const dirty = statusEntries.some((entry) => !entry.startsWith('!! '));
   if (dirty) {
     blockers.push(
@@ -140,7 +140,7 @@ export async function inspectWorktreeSafety(input: {
     value: {
       blockers,
       dirty,
-      ignoredFileCount,
+      ignoredEntryCount,
       threadIsRunning: input.threadIsRunning,
       unpushedCommits: unpushed.value.count,
     },

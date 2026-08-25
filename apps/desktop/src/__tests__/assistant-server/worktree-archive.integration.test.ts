@@ -2,7 +2,7 @@
  * Real git + real PGlite coverage for managed-worktree archive snapshots and
  * detached-worktree branch attachment.
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
 import type { GitInventory } from '@brainstrike/types';
@@ -33,6 +33,7 @@ vi.mock('../../assistant-server/worktree-archive', async (importOriginal) => {
   };
 });
 
+import type { GitCommandRunner } from '../../assistant-server/git-service';
 import { inspectWorktreeSafety } from '../../assistant-server/worktree-archive';
 import {
   createWorktreeLedger,
@@ -97,7 +98,7 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       if (!report.ok) {
         return;
       }
-      expect(report.value.ignoredFileCount).toBe(1);
+      expect(report.value.ignoredEntryCount).toBe(1);
       expect(report.value.dirty).toBe(false);
       expect(report.value.blockers).toEqual([]);
     });
@@ -261,6 +262,45 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
       }
       expect(git(repo, ['ls-tree', '-r', '--name-only', archived.value.snapshotRef])).not.toContain(
         'hello.ts'
+      );
+    });
+
+    it('preserves out-of-cone tracked files in a sparse-checkout archive snapshot', async () => {
+      mkdirSync(path.join(repo, 'included'), { recursive: true });
+      mkdirSync(path.join(repo, 'excluded'), { recursive: true });
+      writeFileSync(path.join(repo, 'included', 'keep.ts'), 'export const keep = true;\n');
+      writeFileSync(
+        path.join(repo, 'excluded', 'out-of-cone.ts'),
+        'export const outside = true;\n'
+      );
+      git(repo, ['add', '-A']);
+      git(repo, ['commit', '-m', 'add sparse-checkout fixtures']);
+      const service = buildService();
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: 'bs/sparse-archive' },
+        createdBy: 'user',
+        name: 'sparse-archive',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      const worktreePath = created.value.worktree.path;
+      git(worktreePath, ['sparse-checkout', 'init', '--cone']);
+      git(worktreePath, ['sparse-checkout', 'set', 'included']);
+      expect(existsSync(path.join(worktreePath, 'excluded', 'out-of-cone.ts'))).toBe(false);
+      expect(git(worktreePath, ['status', '--porcelain'])).toBe('');
+
+      const archived = await service.archive({ worktreeId: created.value.worktree.id });
+
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+      expect(git(repo, ['ls-tree', '-r', '--name-only', archived.value.snapshotRef])).toContain(
+        'excluded/out-of-cone.ts'
       );
     });
 
@@ -468,6 +508,172 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
         [created.value.worktree.id]
       );
       expect(row.rows[0]?.archived_at).toBeNull();
+    });
+  });
+
+  describe('WorktreeService.restore', () => {
+    it('replays archived dirty content into the original worktree path', async () => {
+      const service = buildService();
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: 'bs/restore-dirty' },
+        createdBy: 'user',
+        name: 'restore-dirty',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      const dirtyPath = path.join(created.value.worktree.path, 'dirty.txt');
+      writeFileSync(dirtyPath, 'dirty content restored exactly\n');
+      const archived = await service.archive({
+        force: true,
+        worktreeId: created.value.worktree.id,
+      });
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+
+      const restored = await service.restore({ worktreeId: created.value.worktree.id });
+
+      expect(restored.ok).toBe(true);
+      if (!restored.ok) {
+        return;
+      }
+      expect(existsSync(created.value.worktree.path)).toBe(true);
+      expect(readFileSync(dirtyPath, 'utf8')).toBe('dirty content restored exactly\n');
+      expect(restored.value.worktree.archivedAt).toBeNull();
+      expect(git(repo, ['rev-parse', '--verify', archived.value.snapshotRef]).trim()).toMatch(
+        /^[0-9a-f]{40}$/u
+      );
+    });
+
+    it('refuses a worktree that was never archived', async () => {
+      const service = buildService();
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: 'bs/restore-active' },
+        createdBy: 'user',
+        name: 'restore-active',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+
+      await expect(service.restore({ worktreeId: created.value.worktree.id })).resolves.toEqual({
+        error: 'That worktree is not archived — there is nothing to restore.',
+        ok: false,
+      });
+    });
+
+    it('refuses when the archive snapshot ref no longer exists', async () => {
+      const service = buildService();
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: 'bs/restore-missing-snapshot' },
+        createdBy: 'user',
+        name: 'restore-missing-snapshot',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      const archived = await service.archive({ worktreeId: created.value.worktree.id });
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+      git(repo, ['update-ref', '-d', archived.value.snapshotRef]);
+
+      const refused = await service.restore({ worktreeId: created.value.worktree.id });
+
+      expect(refused.ok).toBe(false);
+      expect(refused.ok === false && refused.error).toContain('snapshot');
+    });
+
+    it('refuses when the original worktree path is occupied', async () => {
+      const service = buildService();
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: 'bs/restore-occupied' },
+        createdBy: 'user',
+        name: 'restore-occupied',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      const archived = await service.archive({ worktreeId: created.value.worktree.id });
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+      mkdirSync(created.value.worktree.path, { recursive: true });
+      writeFileSync(path.join(created.value.worktree.path, 'occupied.txt'), 'occupied\n');
+
+      const refused = await service.restore({ worktreeId: created.value.worktree.id });
+
+      expect(refused.ok).toBe(false);
+      expect(refused.ok === false && refused.error).toContain(created.value.worktree.path);
+    });
+
+    it('removes the recreated worktree when replaying the snapshot fails', async () => {
+      const service = buildService();
+      const created = await service.create({
+        baseRef: 'main',
+        branch: { name: 'bs/restore-compensation' },
+        createdBy: 'user',
+        name: 'restore-compensation',
+        rootId: 'r-1',
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) {
+        return;
+      }
+      writeFileSync(path.join(created.value.worktree.path, 'dirty.txt'), 'must survive retry\n');
+      const archived = await service.archive({
+        force: true,
+        worktreeId: created.value.worktree.id,
+      });
+      expect(archived.ok).toBe(true);
+      if (!archived.ok) {
+        return;
+      }
+      const failSnapshotReplay: GitCommandRunner = async (params) => {
+        if (
+          params.args.includes('restore') &&
+          params.args.includes(`--source=${archived.value.snapshotRef}`)
+        ) {
+          return {
+            exitCode: 128,
+            stderr: 'forced snapshot replay failure',
+            stdout: '',
+            timedOut: false,
+          };
+        }
+        return await execFileGitRunner(params);
+      };
+      const restoreService = buildTestService(
+        { db, managedDirectory, repo },
+        { run: failSnapshotReplay }
+      );
+
+      const failed = await restoreService.restore({ worktreeId: created.value.worktree.id });
+
+      expect(failed.ok).toBe(false);
+      expect(failed.ok === false && failed.error).toContain('forced snapshot replay failure');
+      expect(existsSync(created.value.worktree.path)).toBe(false);
+      const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+      await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
+        archivedAt: expect.any(String),
+        archiveSnapshotRef: archived.value.snapshotRef,
+      });
     });
   });
 

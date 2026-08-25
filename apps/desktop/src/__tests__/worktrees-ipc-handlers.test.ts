@@ -25,16 +25,6 @@ beforeEach(() => {
 });
 
 describe('worktrees IPC handlers', () => {
-  it.each([['restore', 'worktrees:restore']] as const)(
-    '%s returns its typed not-implemented failure',
-    async (method, channel) => {
-      expect(await handlers()[method]({})).toEqual({
-        error: `${channel} is not implemented in this build.`,
-        ok: false,
-      });
-    }
-  );
-
   it('reports an absent service as a typed failure, never an empty list', async () => {
     const withoutService = createWorktreesIpcHandlers({
       readSettings: () =>
@@ -125,6 +115,21 @@ describe('worktrees IPC handlers', () => {
     const params = { branch: 'bs/attached', worktreeId: 'wt-1' };
     await handlers().createBranchHere(params);
     expect(service.createBranchHere).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed restore payload at the boundary', async () => {
+    expect(await handlers().restore({ worktreeId: 42 })).toEqual({
+      error: 'worktrees:restore requires { worktreeId }.',
+      ok: false,
+    });
+    expect(service.restore).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated restore to the service', async () => {
+    service.restore.mockResolvedValue({ ok: true, value: { setup: null, worktree: null } });
+    const params = { worktreeId: 'wt-1' };
+    await handlers().restore(params);
+    expect(service.restore).toHaveBeenCalledWith(params);
   });
 
   it('never lets a thrown service error cross the IPC boundary', async () => {

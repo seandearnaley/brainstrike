@@ -135,6 +135,15 @@ function validateCreateBranchHere(payload: unknown): GitResult<{
   return { ok: true, value: { branch: payload['branch'], worktreeId: payload['worktreeId'] } };
 }
 
+function validateRestore(payload: unknown): GitResult<{
+  readonly worktreeId: string;
+}> {
+  if (!(isRecord(payload) && nonEmptyString(payload['worktreeId']))) {
+    return { error: 'worktrees:restore requires { worktreeId }.', ok: false };
+  }
+  return { ok: true, value: { worktreeId: payload['worktreeId'] } };
+}
+
 export function createWorktreesIpcHandlers(
   options: WorktreesIpcHandlersOptions
 ): WorktreesIpcHandlers {
@@ -192,10 +201,13 @@ export function createWorktreesIpcHandlers(
     list: async () => await withService('worktrees:list', (service) => service.list()),
     listManagedPaths: async () =>
       await withService('worktrees:listManagedPaths', (service) => service.listManagedPaths()),
-    restore: async () => ({
-      error: 'worktrees:restore is not implemented in this build.',
-      ok: false,
-    }),
+    restore: async (payload) => {
+      const params = validateRestore(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:restore', (service) => service.restore(params.value));
+    },
     setSettings: async (payload) => {
       if (!isRecord(payload)) {
         return { error: 'worktrees:setSettings requires an object payload.', ok: false };

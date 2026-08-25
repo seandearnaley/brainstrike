@@ -383,15 +383,13 @@ end-to-end in BST-1161 (bridge, preload, IPC channel, handler,
 domain against the narrowing boundary in `worktrees-ipc-handlers.ts`; preload
 exposes the same exact method set as `window.worktrees`, and
 `packages/app-shell/src/worktrees/worktrees-bridge.ts` rejects a
-present-but-incomplete bridge wholesale. This layer implements `create`,
-`list`, `getSettings`, and `setSettings`. Until Layer 5 lands, `archive`,
-`createBranchHere`, and `restore` remain present but return explicit typed
-"not implemented in this build" failures; they never call nonexistent
-`WorktreeService` methods. Managed-directory settings persist through
-`assistant-server/worktree-settings.ts`, with `null` recomputed as the
-home-relative default on every read. The exact bridge set, IPC narrowing,
-preload parity, and settings persistence are pinned by the corresponding
-`worktrees-*` and preload-runtime contract tests.
+present-but-incomplete bridge wholesale. All seven methods (`create`, `list`,
+`getSettings`, `setSettings`, `archive`, `createBranchHere`, and `restore`) are
+implemented and the lifecycle mutations call real `WorktreeService` methods.
+Managed-directory settings persist through `assistant-server/worktree-settings.ts`,
+with `null` recomputed as the home-relative default on every read. The exact
+bridge set, IPC narrowing, preload parity, and settings persistence are pinned
+by the corresponding `worktrees-*` and preload-runtime contract tests.
 
 ## REFRESH SEAMS
 
