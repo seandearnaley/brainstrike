@@ -3,12 +3,12 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarCheckout,
+  WorkspaceBarForge,
   WorkspaceBarProps,
   WorkspaceBarRecentRoot,
   WorkspaceBarReveal,
   WorkspaceBarRoot,
 } from '@brainstrike/assistant-ui';
-import { createClipboardService } from '@brainstrike/context-actions';
 import type { DbHandle } from '@brainstrike/db/react';
 import { revealLabel } from '@brainstrike/file-explorer-ui/context-actions';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
@@ -25,11 +25,10 @@ import { resolvePlatformBridge } from '../platform-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useBranchSwitcher } from './use-branch-switcher';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
+import { useWorkspaceBarForge } from './use-workspace-bar-forge';
+import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
 
 const logger = createLogger('WorkspaceBar');
-// Same service `useCopyToClipboard` wraps, called directly: the bar needs the
-// outcome (to surface a failure), not the hook's transient render state.
-const clipboard = createClipboardService();
 
 interface WorkspaceBarRootDescriptor {
   readonly displayName: string;
@@ -211,6 +210,10 @@ function branchMenuEntry(
   return primaryRoot && checkout && branchMenu ? { branchMenu } : {};
 }
 
+function forgeEntry(forge: WorkspaceBarForge | undefined): { readonly forge?: WorkspaceBarForge } {
+  return forge ? { forge } : {};
+}
+
 /**
  * Logs ONCE per path when the thread's primary folder is not mounted in this
  * workspace (bound elsewhere, or unmounted since), so no descriptor supplies an
@@ -340,10 +343,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const fileSystem = useFileSystem();
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
-  const threadMetadataSecondaryRootIds = selectedMemoryThreadId
+  const selectedThread = selectedMemoryThreadId
     ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
-        ?.metadata?.secondaryRootIds
     : undefined;
+  const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
+  // Watching is opt-out. This matches useForgeRunEvents, so a thread created
+  // before the metadata field existed still receives forge observations.
+  const forgePrWatched = selectedThread?.metadata?.forgePrWatch !== false;
   const secondaryRootIdsKey = (threadMetadataSecondaryRootIds ?? EMPTY_SECONDARY_ROOT_IDS).join(
     SECONDARY_ID_SEPARATOR
   );
@@ -873,24 +879,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       },
     };
   }, [platform]);
-  // Routed through the shared clipboard service (never raw navigator): a
-  // present-but-broken Electron bridge is surfaced, not silently bypassed —
-  // and its failure is rendered, not swallowed.
   const onCopyPath = useCallback((path: string) => {
-    void clipboard
-      .writeText(path)
-      .then((outcome) => {
-        if (outcome.ok) {
-          return;
-        }
-        logger.error('Copy path failed', { error: outcome.error, path });
-        toast({ description: outcome.error, title: 'Copy path failed', variant: 'destructive' });
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.error('Copy path threw', { error: message, path });
-        toast({ description: message, title: 'Copy path failed', variant: 'destructive' });
-      });
+    copyWorkspaceBarValue(path, 'path');
   }, []);
 
   const primaryRootPath = primaryRoot?.path;
@@ -905,10 +895,21 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       : null
   );
   const branchSwitcher = useBranchSwitcher({ checkout, dbRootId: primaryRootId ?? null });
+  const forge = useWorkspaceBarForge({
+    assistantThreadRepository,
+    checkout,
+    forgePrWatched,
+    memoryResourceId,
+    platform,
+    primaryRootId: primaryRootId ?? null,
+    selectedMemoryThreadId,
+    updateThreadMetadata,
+  });
 
   return {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
     ...checkoutEntry(primaryRoot, checkout),
+    ...forgeEntry(forge),
     onAddFolder,
     ...(addRootDirectoryByPath ? { onAddRecent } : {}),
     onCopyPath,

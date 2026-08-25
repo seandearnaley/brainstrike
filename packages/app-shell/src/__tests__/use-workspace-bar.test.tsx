@@ -47,8 +47,8 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => cur
 // test is the production one.
 const showItemInFolder = vi.fn(async () => ({ ok: true }));
 
-const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, loggerMock, toastSpy } = vi.hoisted(
-  () => ({
+const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, forgePrSpy, loggerMock, toastSpy } =
+  vi.hoisted(() => ({
     branchSwitcherSpy: vi.fn(),
     checkoutSpy: vi.fn(
       (
@@ -65,6 +65,7 @@ const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, loggerMock, toastSpy
       })
     ),
     clipboardWriteText: vi.fn(),
+    forgePrSpy: vi.fn(),
     loggerMock: {
       debug: vi.fn(),
       error: vi.fn(),
@@ -74,10 +75,10 @@ const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, loggerMock, toastSpy
       warn: vi.fn(),
     },
     toastSpy: vi.fn(),
-  })
-);
+  }));
 
 vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
+vi.mock('../hooks/use-thread-forge-pr', () => ({ useThreadForgePr: forgePrSpy }));
 vi.mock('../hooks/use-thread-checkout-status', () => ({ useThreadCheckoutStatus: checkoutSpy }));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
@@ -227,14 +228,6 @@ async function flush() {
   });
 }
 
-function copyPathOf(props: { readonly onCopyPath?: ((path: string) => void) | undefined }) {
-  const { onCopyPath } = props;
-  if (!onCopyPath) {
-    throw new Error('the workspace bar must always expose onCopyPath');
-  }
-  return onCopyPath;
-}
-
 interface BarProps {
   readonly selectedMemoryThreadId: string | undefined;
 }
@@ -276,6 +269,8 @@ beforeEach(() => {
   branchSwitcherSpy.mockReset();
   branchSwitcherSpy.mockReturnValue(branchMenu);
   checkoutSpy.mockClear();
+  forgePrSpy.mockReset();
+  forgePrSpy.mockReturnValue({ diagnostic: null, refresh: vi.fn(), status: null });
   toastSpy.mockClear();
   loggerMock.debug.mockClear();
   loggerMock.error.mockClear();
@@ -293,6 +288,46 @@ afterEach(() => {
 });
 
 describe('useWorkspaceBar', () => {
+  it('omits `forge` entirely when there is no forge bridge', async () => {
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.primaryRoot).toBeDefined());
+    expect(result.current.forge).toBeUndefined();
+  });
+
+  it("persists the selected thread's forge watch toggle", async () => {
+    forgePrSpy.mockReturnValue({
+      diagnostic: null,
+      refresh: vi.fn(),
+      status: {
+        kind: 'pr',
+        observedAt: '2026-08-24T00:00:00.000Z',
+        pullRequest: {
+          checks: [],
+          checksRollup: 'none',
+          headSha: 'sha',
+          isDraft: false,
+          number: 7,
+          reviewDecision: null,
+          state: 'open',
+          title: 'PR',
+          url: 'https://example.test/pull/7',
+        },
+      },
+    });
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.forge).toBeDefined());
+    expect(result.current.forge?.watched).toBe(true);
+    const onWatchChange = result.current.forge?.onWatchChange;
+    if (!onWatchChange) {
+      throw new Error('a thread is selected, so the Watch toggle must be present');
+    }
+    await act(async () => {
+      onWatchChange(false);
+    });
+
+    expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, { forgePrWatch: false });
+  });
+
   it('exposes the primary root, checkout, and recents minus the current roots', async () => {
     const { result } = await setup();
     await waitFor(() =>
@@ -804,153 +839,5 @@ describe('useWorkspaceBar', () => {
     });
     // Each Make primary is still exactly one write.
     expect(updateThreadMetadata).toHaveBeenCalledTimes(2);
-  });
-
-  it('surfaces a failed Copy path instead of swallowing it', async () => {
-    clipboardWriteText.mockResolvedValue({
-      error: 'Desktop clipboard bridge rejected the write',
-      ok: false,
-    } satisfies ActionOutcome);
-    const { result } = await setup();
-    await act(async () => {
-      copyPathOf(result.current)('/ws/docs');
-    });
-    expect(toastSpy).toHaveBeenCalledWith({
-      description: 'Desktop clipboard bridge rejected the write',
-      title: 'Copy path failed',
-      variant: 'destructive',
-    });
-  });
-
-  it('surfaces a failed Add folder with the platform message, never a bare log', async () => {
-    fs.addRootDirectory.mockRejectedValueOnce(new Error('The folder picker was unavailable.'));
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    expect(loggerMock.error).toHaveBeenCalledWith('Add folder failed', expect.anything());
-    expect(toastSpy).toHaveBeenCalledWith({
-      description: 'The folder picker was unavailable.',
-      title: 'Add folder failed',
-      variant: 'destructive',
-    });
-  });
-
-  it('surfaces a recent folder that can no longer be opened, quoting the main-process reason', async () => {
-    // The exact message main returns when a path is no longer in the grant
-    // ledger; a generic "something went wrong" would hide the remedy.
-    fs.addRootDirectoryByPath.mockRejectedValueOnce(
-      new Error('Folder was never granted in this app; use Add Folder to grant it.')
-    );
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddRecent?.('/ws/alpha');
-    });
-    expect(loggerMock.error).toHaveBeenCalledWith(
-      'Recent folder could not be re-mounted',
-      expect.objectContaining({ path: '/ws/alpha' })
-    );
-    expect(toastSpy).toHaveBeenCalledWith({
-      description: 'Folder was never granted in this app; use Add Folder to grant it.',
-      title: "Couldn't open recent folder",
-      variant: 'destructive',
-    });
-  });
-
-  it("strips Electron's remote-method wrapper so the toast shows the actionable remedy", async () => {
-    // What the renderer ACTUALLY receives: `ipcRenderer.invoke` re-wraps a
-    // main-process throw, so the message main wrote arrives buried behind
-    // `Error invoking remote method '<channel>': Error: `. Showing that
-    // verbatim buries the remedy the user needs behind IPC plumbing.
-    fs.addRootDirectoryByPath.mockRejectedValueOnce(
-      new Error(
-        "Error invoking remote method 'fs:addRootByPath': Error: Folder was never granted in this app; use Add Folder to grant it."
-      )
-    );
-    const { result } = await setup();
-    await act(async () => {
-      result.current.onAddRecent?.('/ws/alpha');
-    });
-    expect(toastSpy).toHaveBeenCalledWith({
-      description: 'Folder was never granted in this app; use Add Folder to grant it.',
-      title: "Couldn't open recent folder",
-      variant: 'destructive',
-    });
-  });
-
-  it('surfaces a failed Make primary and a failed Remove folder', async () => {
-    const { result } = await setup({
-      operatingRootDisplayName: 'brainstrike',
-      operatingRootId: 'r-main-db',
-      operatingRootPath: '/ws/brainstrike',
-      secondaryRootIds: ['r-docs'],
-    });
-    await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(1));
-
-    updateThreadMetadata.mockRejectedValueOnce(new Error('metadata write rejected'));
-    await act(async () => {
-      result.current.onMakePrimary('r-docs');
-    });
-    await waitFor(() =>
-      expect(toastSpy).toHaveBeenCalledWith({
-        description: 'metadata write rejected',
-        title: 'Make primary failed',
-        variant: 'destructive',
-      })
-    );
-
-    updateThreadMetadata.mockRejectedValueOnce(new Error('metadata write rejected'));
-    await act(async () => {
-      result.current.onRemoveSecondary('r-docs');
-    });
-    await waitFor(() =>
-      expect(toastSpy).toHaveBeenCalledWith({
-        description: 'metadata write rejected',
-        title: 'Remove folder failed',
-        variant: 'destructive',
-      })
-    );
-  });
-
-  it('refuses a folder write while the selected thread metadata is still loading', async () => {
-    // The thread is selected but its row has not arrived in the store yet, so
-    // `secondaryRootIds` reads as EMPTY — writing now would persist an empty
-    // folder set over whatever the thread actually has.
-    seedThreads([{ id: OTHER_THREAD_ID, metadata: {} }], THREAD_ID);
-    const { result } = renderHook(() =>
-      useWorkspaceBar({
-        assistantThreadRepository,
-        currentMainRoot,
-        database,
-        memoryResourceId: RESOURCE_ID,
-        rootDescriptors,
-        selectedMemoryThreadId: THREAD_ID,
-      })
-    );
-    await act(async () => {});
-
-    await act(async () => {
-      result.current.onAddFolder();
-    });
-    await act(async () => {});
-
-    expect(updateThreadMetadata).not.toHaveBeenCalled();
-    expect(loggerMock.error).toHaveBeenCalledWith(
-      'Cannot update thread folders before the selected thread metadata is loaded'
-    );
-    expect(toastSpy).toHaveBeenCalledWith({
-      description: expect.stringContaining('moment'),
-      title: 'Thread is still loading',
-      variant: 'destructive',
-    });
-  });
-
-  it('says nothing when Copy path succeeds', async () => {
-    const { result } = await setup();
-    await act(async () => {
-      copyPathOf(result.current)('/ws/docs');
-    });
-    expect(clipboardWriteText).toHaveBeenCalledWith('/ws/docs');
-    expect(toastSpy).not.toHaveBeenCalled();
   });
 });

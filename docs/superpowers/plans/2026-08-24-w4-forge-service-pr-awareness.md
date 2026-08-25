@@ -5006,11 +5006,64 @@ export function useThreadForgePr(dbRootId: string | null): ThreadForgePrState {
 }
 ```
 
-> The push branch's `pushNonce > 0 && userNonce === 0 && focusNonce === 0` guard is
-> deliberately simple: once the user has ever refreshed manually or focused the
-> window, subsequent effect runs use `refresh`, whose main-side floor makes the
-> extra call free. The distinction that matters is "a push must not itself
-> trigger a fetch", and that holds in every ordering.
+> **CORRECTION (2026-08-25) — the code block above is the ORIGINAL draft and it
+> contains a live feedback loop. Do not implement it as written.** The shipped
+> implementation in `packages/app-shell/src/hooks/use-thread-forge-pr.ts`
+> (BST-1391 Task 4, PR #2646, fix F1) supersedes it; read that file, not this
+> block.
+>
+> The original note claimed the latched-nonce branch was harmless because "the
+> main-side floor makes the extra call free". **That is false for
+> `reason: 'user'`, which has a 0 ms floor — no floor at all**
+> (`FORGE_REFRESH_MIN_INTERVAL_MS.user === 0`, Task 2). The loop:
+>
+> 1. `userNonce` LATCHES: once the user refreshes once, `userNonce > 0` forever,
+>    so the branch selection picks `refresh(rootId, { reason: 'user' })` on
+>    EVERY subsequent effect run — including runs the user did not cause.
+> 2. The effect depends on `pushNonce`, which every `forge:prUpdated` bumps.
+> 3. `refresh` fetches; `fetchAndStore` calls `onPrUpdated`; main broadcasts
+>    `forge:prUpdated`; `pushNonce` bumps; the effect re-runs — and, because the
+>    reason is still the latched `'user'`, fetches again with nothing capping it.
+>
+> An unbounded `gh` spawn loop, from one click. The 60 s `'window'` floor would
+> have damped it; the 0 ms `'user'` floor cannot. The defect is not the branch
+> condition — it is deriving the reason from ACCUMULATED HISTORY (monotonic
+> nonces that never reset) instead of from the trigger that caused THIS run.
+>
+> Two invariants any implementation must satisfy, and which the original block
+> satisfied only until the first manual refresh:
+>
+> - **A push maps to a READ (`prStatus`), never a fetch (`refresh`).** Main has
+>   already fetched by the time it pushes, so asking it to fetch again both
+>   doubles every observation and closes the loop above.
+> - **The reason is a property of the current trigger, not of the session.** The
+>   shipped fix EDGE-DETECTS: each nonce (and the root id) is compared against
+>   the value it held the last time this effect actually ran, so only the nonce
+>   that changed on THIS render reads as the trigger, and every other trigger
+>   stays inert because it merely repeats. `'user'` is therefore chosen only for
+>   the run a user click actually caused; a push-caused run can never inherit it.
+>   Root change is checked first, so a newly selected root is never treated as a
+>   continuation of the prior root's user/push trigger.
+>
+> The Step 10 test list below predates this finding and does not cover the loop.
+> The shipped `use-thread-forge-pr.test.ts` does, and the coverage was
+> FALSIFIED rather than assumed: reverting the hook to its pre-fix version and
+> re-running the suite fails exactly these three, and they pass on the fix —
+>
+> - *"does not loop: a push after a user refresh reads the cache instead of
+>   refreshing again"* — old code never calls `prStatus` (0 vs 1): the push
+>   re-entered `refresh` and closed the loop.
+> - *"a focus after a user refresh uses reason "window" — the floor applies
+>   again"* — old code sends
+>   `reason: 'user'`, i.e. the latched reason, so the 60 s floor never applies.
+> - *"a root change is its own trigger: refresh(reason: "window"), never a
+>   carried-over reason"* — old code carries the PRIOR root's
+>   `'user'` reason into the new root's first read.
+>
+> (A fourth, *"a stale observation with no last-known pull request still carries
+> the diagnostic"*, covers the separate F2 fix.) When editing this hook, revert-
+> and-run is the check that matters: all three failures are invisible to a suite
+> run only against the fixed code.
 
 - [ ] **Step 13: Run it to verify it passes**
 
@@ -5150,7 +5203,11 @@ Start the app and read COMPUTED values — see Task 7 for the full probe script;
 ```bash
 pnpm --filter @brainstrike/desktop dev:agent-debug
 ```
-Then, in a second shell, run the Task 7 probe and confirm it reports `prChipPresent: true` with a `#<number>` label on a repository whose branch has an open PR, and `branchDiagnosticPresent: true` on a repository with no `gh` on PATH.
+Then, in a second shell, run the Task 7 probe (`node scripts/verify-forge-ui.mjs`) and tick each of these against its COMPUTED value — not a screenshot impression:
+
+- [ ] `prChipPresent: true`, with `prChip.text` matching `#<number>`, on a repository whose branch has an open PR.
+- [ ] `branchDiagnosticPresent: true`, with `branchChip.tag: "BUTTON"`, on a repository with no `gh` on PATH; `branchDiagnosticText` names the reason.
+- [ ] **No refresh loop:** with the app idle and the chip visible, click the popover's Refresh ONCE, then watch for 60 s and confirm `gh` is spawned exactly once — `ps -Ao comm | grep -c '[g]h'` stays at its pre-click value between refreshes. This is the F1 regression (see the CORRECTION note on Step 12): `reason: 'user'` has a 0 ms floor, so a reason latched across push-driven effect runs spawns `gh` without bound.
 
 - [ ] **Step 18: Commit**
 
