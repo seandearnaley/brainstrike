@@ -36,7 +36,44 @@ export interface WorkspaceBarCheckout {
   readonly dirty: boolean;
 }
 
+/** One local branch row, already gated by app-shell's `buildBranchSwitchModel`. */
+export interface WorkspaceBarBranchRow {
+  readonly current: boolean;
+  /** Non-null exactly when `switchable` is false — never a silent disable. */
+  readonly disabledReason: string | null;
+  readonly name: string;
+  readonly switchable: boolean;
+  /** Basename of the worktree holding this branch, or null when it is free. */
+  readonly worktreeName: string | null;
+}
+
+/**
+ * The interactive half of the Branch chip. Absent (web, no git bridge, not a
+ * repository) => the chip stays the read-only image W1 shipped.
+ *
+ * `onSwitchInNewWorktree` is OPTIONAL on purpose: the escape from a dirty tree
+ * only exists once the worktree capability does (a later layer). Without it a
+ * dirty tree shows the complete honest state — the dirty reason on every row —
+ * rather than an action that cannot work.
+ */
+export interface WorkspaceBarBranchMenu {
+  readonly onCreateBranch: (name: string) => void;
+  /** Absent when the repository has no configured remote. */
+  readonly onFetch: (() => void) | undefined;
+  readonly onQueryChange: (query: string) => void;
+  readonly onSwitch: (branch: string) => void;
+  readonly onSwitchInNewWorktree?: ((branch: string) => void) | undefined;
+  /** True while a switch/create/fetch is in flight — the menu disables itself. */
+  readonly pending: boolean;
+  readonly query: string;
+  readonly rows: readonly WorkspaceBarBranchRow[];
+  /** Non-null when NO row can be switched for a whole-repository reason. */
+  readonly scopeReason: string | null;
+}
+
 export interface WorkspaceBarProps {
+  /** Desktop only — makes the Branch chip an interactive switcher. */
+  readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   /** Desktop only — read-only git state for the primary root; undefined hides the chip. */
   readonly checkout?: WorkspaceBarCheckout | undefined;
   readonly onAddFolder: () => void;
@@ -66,13 +103,17 @@ export interface WorkspaceBarProps {
  * app-shell's useWorkspaceBar() supplies everything, so this package stays
  * store-free.
  */
-export const WorkspaceBar = ({ checkout, ...folder }: WorkspaceBarProps): ReactElement => (
+export const WorkspaceBar = ({
+  branchMenu,
+  checkout,
+  ...folder
+}: WorkspaceBarProps): ReactElement => (
   // A plain container, not a labelled group: each chip carries its own
   // accessible name, and an extra grouping level would only add noise to the
   // composer's screen-reader path.
   <div className="mx-3 flex flex-wrap items-center gap-1.5" data-testid="workspace-bar">
     <FolderChip {...folder} />
-    {checkout ? <BranchChip checkout={checkout} /> : null}
+    {checkout ? <BranchChip branchMenu={branchMenu} checkout={checkout} /> : null}
   </div>
 );
 

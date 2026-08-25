@@ -111,6 +111,7 @@ const GIT_HISTORY_CHANNEL = 'git:history' as const;
 const GIT_PUSH_CHANNEL = 'git:push' as const;
 const GIT_PULL_CHANNEL = 'git:pull' as const;
 const GIT_REPOSITORY_CHANNEL = 'git:repository' as const;
+const GIT_CREATE_BRANCH_CHANNEL = 'git:createBranch' as const;
 const GIT_SWITCH_BRANCH_CHANNEL = 'git:switchBranch' as const;
 const GIT_STRUCTURED_FILE_DIFF_CHANNEL = 'git:structuredFileDiff' as const;
 const CHANGES_RESOLVE_VIEW_CHANNEL = 'changes:resolveView' as const;
@@ -1283,6 +1284,8 @@ if (shouldExposeBridge('git')) {
       ipcRenderer.invoke(GIT_COMMIT_CHANNEL, rootId, params),
     commitFiles: (rootId: string, params: { commit: string }) =>
       ipcRenderer.invoke(GIT_COMMIT_FILES_CHANNEL, rootId, params),
+    createBranch: (rootId: string, params: { branch: string; startPoint?: string }) =>
+      ipcRenderer.invoke(GIT_CREATE_BRANCH_CHANNEL, rootId, params),
     diff: (rootId: string, params: GitDiffParams) =>
       ipcRenderer.invoke(GIT_DIFF_CHANNEL, rootId, params),
     fetch: (rootId: string, params: { remote: string }) =>

@@ -119,6 +119,10 @@ export interface GitSwitchBranchResult {
   readonly branch: string;
 }
 
+export interface GitCreateBranchResult {
+  readonly branch: string;
+}
+
 /**
  * The three facts a forge lookup needs from a repository, read in one git
  * round trip (see `createGitService().forgeRepositoryContext`).

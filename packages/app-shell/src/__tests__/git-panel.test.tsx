@@ -218,6 +218,9 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
     ),
     commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
     commitFiles: vi.fn(async () => ok([])),
+    createBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
+      ok({ branch: params.branch })
+    ),
     diff: vi.fn(async () =>
       ok({ path: 'staged.ts', staged: true, truncated: false, unifiedDiff: '' })
     ),
@@ -1102,6 +1105,9 @@ describe('GitPanel', () => {
           worktrees: [],
         })
       ),
+      // `deriveBranchSwitchDirty` (branch-switch-model) reads `files`, not
+      // `clean` — an empty list is what actually makes every row switchable.
+      status: vi.fn(async () => ok(makeStatus({ clean: true, files: [] }))),
     });
     render(<GitPanel />);
 
@@ -1155,7 +1161,9 @@ describe('GitPanel', () => {
           })
         )
       ),
-      status: vi.fn(async () => ok(makeStatus({ branch }))),
+      // Same fixture note as above: `files: []` is what makes the switch
+      // menu item enabled, not `clean: true` on its own.
+      status: vi.fn(async () => ok(makeStatus({ branch, clean: true, files: [] }))),
       switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) => {
         branch = params.branch;
         return ok({ branch });
@@ -1212,16 +1220,22 @@ describe('GitPanel', () => {
         ok(
           makeStatus({
             branch,
-            clean: branch !== 'main',
+            // Clean regardless of branch: this test exercises diff-clearing
+            // on switch, not the dirty gate. A TRACKED change would disable
+            // the switch menu item entirely (see branch-switch-model /
+            // deriveBranchSwitchDirty), so the selected diff here is an
+            // UNTRACKED file — a real, reachable state: browsing an
+            // untracked file's diff never blocks switching branches.
+            clean: true,
             files:
               branch === 'main'
                 ? [
                     {
-                      path: 'staged.ts',
-                      staged: true,
-                      status: 'M',
+                      path: 'untracked.ts',
+                      staged: false,
+                      status: '?',
                       unstaged: false,
-                      untracked: false,
+                      untracked: true,
                     },
                   ]
                 : [],
@@ -1235,7 +1249,7 @@ describe('GitPanel', () => {
     });
     render(<GitPanel />);
 
-    await user.click(await screen.findByRole('button', { name: 'staged.ts' }));
+    await user.click(await screen.findByRole('button', { name: 'untracked.ts' }));
     expect(await screen.findByTestId('diff-view-stub')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Current branch main' }));
@@ -1649,7 +1663,11 @@ describe('GitPanel', () => {
     expect(screen.getByRole('button', { name: 'Pull from upstream' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Push to upstream' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Current branch main' }));
-    expect(screen.getByText('Open the repository root to switch branches.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This folder is below the repository root — open the repository root to switch branches.'
+      )
+    ).toBeInTheDocument();
   });
 
   it('renders the not-a-repository empty state', async () => {

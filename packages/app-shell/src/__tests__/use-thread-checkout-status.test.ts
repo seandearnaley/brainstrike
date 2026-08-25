@@ -36,6 +36,7 @@ beforeEach(() => {
     aheadBehind: vi.fn(),
     commit: vi.fn(),
     commitFiles: vi.fn(),
+    createBranch: vi.fn(),
     diff: vi.fn(),
     fetch: vi.fn(),
     history: vi.fn(),
