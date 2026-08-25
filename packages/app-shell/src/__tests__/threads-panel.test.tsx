@@ -19,6 +19,7 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
+import type { ThreadBranchInfo } from '../hooks/use-thread-branch-by-root-path';
 import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
@@ -1666,6 +1667,75 @@ describe('thread row PR pill', () => {
     );
 
     expect(screen.getByTestId('thread-pr-pill')).toHaveAttribute('data-state', 'merged');
+  });
+
+  describe('provider badge — the wideOnly "protected slot" it can inherit', () => {
+    const branchInfo: ThreadBranchInfo = {
+      branch: 'main',
+      detached: false,
+      gitCommonDir: '/repos/widgets/.git',
+    };
+    const threadWithProvider: AssistantMemoryThread = {
+      ...thread,
+      latestRun: {
+        completedAt: new Date('2026-08-24T00:05:00Z'),
+        createdAt: new Date('2026-08-24T00:00:00Z'),
+        error: null,
+        id: 'run-1',
+        model: 'claude-sonnet-5',
+        provider: 'openrouter',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        runtimeKind: 'hosted',
+        startedAt: new Date('2026-08-24T00:00:00Z'),
+        status: 'completed',
+        threadId: thread.id,
+        turnMessageId: null,
+        updatedAt: new Date('2026-08-24T00:05:00Z'),
+      },
+    };
+
+    function providerBadgeClassName(): string {
+      return screen.getByText('OpenRouter').className;
+    }
+
+    // (a) No branch and no PR: provider is the row's first badge, so it takes
+    // over the "always visible in the narrow band" slot instead of also
+    // hiding until 560px.
+    it('does not wide-gate the provider badge when nothing protected renders', () => {
+      render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={threadWithProvider} />);
+
+      const className = providerBadgeClassName();
+      expect(className).toContain('inline-flex');
+      expect(className).not.toContain('hidden');
+      expect(className).not.toContain('@[560px]/threads:inline-flex');
+    });
+
+    // (b) Branch present: branch occupies the protected slot, so provider
+    // reverts to hiding until 560px, same as model/reasoning/max-output.
+    it('wide-gates the provider badge once a branch renders, and keeps the branch visible', () => {
+      render(
+        <ThreadMetadataBadgesForTest branch={branchInfo} pr={null} thread={threadWithProvider} />
+      );
+
+      const providerClassName = providerBadgeClassName();
+      expect(providerClassName).toContain('hidden');
+      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
+
+      const branchClassName = screen.getByText('main').className;
+      expect(branchClassName).toContain('inline-flex');
+      expect(branchClassName).not.toContain('hidden');
+    });
+
+    // (c) PR present (no branch): the PR pill alone is enough to occupy the
+    // protected slot too.
+    it('wide-gates the provider badge once a PR pill renders', () => {
+      render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={threadWithProvider} />);
+
+      const providerClassName = providerBadgeClassName();
+      expect(providerClassName).toContain('hidden');
+      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
+      expect(screen.getByTestId('thread-pr-pill')).toBeVisible();
+    });
   });
 });
 

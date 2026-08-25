@@ -1303,6 +1303,11 @@ function ThreadMetadataBadges({
   if (!(branch || pr || providerLabel || modelLabel || reasoningLabel || maxOutputLabel)) {
     return null;
   }
+  // Whether a badge the narrow band unconditionally protects (branch or PR)
+  // is actually rendering. When neither is present, the provider badge takes
+  // over that protected slot instead of also hiding until 560px — see the
+  // `wideOnly` note on ThreadBadge.
+  const protectedBadgePresent = Boolean(branch || pr);
   return (
     <div
       className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden"
@@ -1331,7 +1336,9 @@ function ThreadMetadataBadges({
           </span>
         </span>
       ) : null}
-      {providerLabel ? <ThreadBadge wideOnly>{providerLabel}</ThreadBadge> : null}
+      {providerLabel ? (
+        <ThreadBadge wideOnly={protectedBadgePresent}>{providerLabel}</ThreadBadge>
+      ) : null}
       {modelLabel ? <ThreadBadge wideOnly>{modelLabel}</ThreadBadge> : null}
       {reasoningLabel ? <ThreadBadge wideOnly>{reasoningLabel}</ThreadBadge> : null}
       {maxOutputLabel ? <ThreadBadge wideOnly>{maxOutputLabel}</ThreadBadge> : null}
@@ -1362,6 +1369,15 @@ function ThreadBadge({
    * eating into the title's `min-w-0` truncation for rows that have nothing
    * to do with a PR at all. A class the badge carries itself is correct
    * regardless of what else in the row rendered.
+   *
+   * SPARINGLY conditional: only the provider badge ever passes a computed
+   * value here (`protectedBadgePresent` — whether branch or PR rendered).
+   * When neither did, provider is the row's first badge and takes over the
+   * "always visible in the narrow band" slot branch/PR would otherwise hold
+   * — exactly the pre-PR-pill `nth-child(n+2)` behavior, where badge #1 was
+   * always shown regardless of what it was. Model/reasoning/max-output stay
+   * unconditionally `wideOnly`: they are never the row's first badge, so
+   * there is no protected slot for them to inherit.
    */
   readonly wideOnly?: boolean;
 }): ReactElement {
