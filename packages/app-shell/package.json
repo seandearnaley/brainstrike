@@ -79,10 +79,6 @@
       "types": "./dist/changes/availability.d.ts",
       "import": "./dist/changes/availability.js"
     },
-    "./worktrees/availability": {
-      "types": "./dist/worktrees/availability.d.ts",
-      "import": "./dist/worktrees/availability.js"
-    },
     "./cost-tracking-settings": {
       "types": "./dist/cost-tracking/index.d.ts",
       "import": "./dist/cost-tracking/index.js"
@@ -114,6 +110,10 @@
     "./user-commands-bridge": {
       "types": "./dist/user-commands-bridge.d.ts",
       "import": "./dist/user-commands-bridge.js"
+    },
+    "./worktrees/availability": {
+      "types": "./dist/worktrees/availability.d.ts",
+      "import": "./dist/worktrees/availability.js"
     },
     "./notes-page-content": {
       "types": "./dist/notes-page-content.d.ts",

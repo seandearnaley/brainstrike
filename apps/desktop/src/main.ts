@@ -1373,7 +1373,13 @@ unregisterWorktreesIpcHandlers = registerWorktreesIpcHandlers(
   createWorktreesIpcHandlers({
     readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
     resolveService: () => worktreeService,
-    writeSettings: (next) => writeWorktreeSettings(storage, app.getPath('home'), next),
+    // Apply BST-1342 containment at save time so the user learns immediately,
+    // rather than only when a worktree create later targets the saved path.
+    writeSettings: (next) =>
+      writeWorktreeSettings(storage, app.getPath('home'), next, async () => {
+        const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+        return roots.map((root) => root.path);
+      }),
   })
 );
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();

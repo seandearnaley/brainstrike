@@ -193,6 +193,10 @@ fresh start:
   `apps/desktop/src/notes-vault-ipc-handlers.ts`) — the notes-vault sibling of
   `rootsList`: granted vault folders, re-opened without a picker. Same
   reasoning, same wipe.
+- `worktreeSettings` (`WORKTREE_SETTINGS_STORAGE_KEY`,
+  `apps/desktop/src/assistant-server/worktree-settings.ts`) — the user-chosen
+  managed-worktree directory path plus the setup command executed on worktree
+  creation. Reset must not leave either a stale custom directory or command.
 - `lastFolderPath` — presentation-only.
 
 That coverage is pinned by

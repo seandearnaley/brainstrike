@@ -8,6 +8,7 @@
  * `app.whenReady()`. Absence is reported as a visible typed failure, never as
  * an empty worktree list — an empty list is a real, different fact.
  */
+import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type {
   GitResult,
@@ -148,7 +149,12 @@ export function createWorktreesIpcHandlers(
       }
       const managedDirectory = payload['managedDirectory'];
       const setupCommand = payload['setupCommand'];
-      if (!(managedDirectory === null || nonEmptyString(managedDirectory))) {
+      if (
+        !(
+          managedDirectory === null ||
+          (nonEmptyString(managedDirectory) && path.isAbsolute(managedDirectory))
+        )
+      ) {
         return {
           error: 'worktrees:setSettings managedDirectory must be an absolute path or null.',
           ok: false,
@@ -157,7 +163,9 @@ export function createWorktreesIpcHandlers(
       if (
         !(
           setupCommand === null ||
-          (Array.isArray(setupCommand) && setupCommand.every((part) => nonEmptyString(part)))
+          (Array.isArray(setupCommand) &&
+            setupCommand.length > 0 &&
+            setupCommand.every((part) => nonEmptyString(part)))
         )
       ) {
         return {

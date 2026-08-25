@@ -1,10 +1,16 @@
 import path from 'node:path';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { describe, expect, it } from 'vitest';
-import { readWorktreeSettings, writeWorktreeSettings } from '../worktree-settings';
+import {
+  defaultManagedWorktreeDirectory,
+  readWorktreeSettings,
+  WORKTREE_SETTINGS_STORAGE_KEY,
+  writeWorktreeSettings,
+} from '../worktree-settings';
 
 const HOME_DIRECTORY = '/Users/tester';
 const DEFAULT_MANAGED_DIRECTORY = path.join(HOME_DIRECTORY, '.brainstrike', 'worktrees');
+const NO_MOUNTED_ROOTS = () => Promise.resolve([]);
 
 describe('worktree settings', () => {
   it('defaults the managed directory when nothing is persisted', async () => {
@@ -17,14 +23,24 @@ describe('worktree settings', () => {
     });
   });
 
+  it('exports the stable storage key and default directory helper', () => {
+    expect(WORKTREE_SETTINGS_STORAGE_KEY).toBe('worktreeSettings');
+    expect(defaultManagedWorktreeDirectory(HOME_DIRECTORY)).toBe(DEFAULT_MANAGED_DIRECTORY);
+  });
+
   it('persists and reads a custom managed directory', async () => {
     const storage = new MemoryStorageAdapter();
     const customDirectory = '/Volumes/worktrees';
 
-    await writeWorktreeSettings(storage, HOME_DIRECTORY, {
-      managedDirectory: customDirectory,
-      setupCommand: ['pnpm', 'install'],
-    });
+    await writeWorktreeSettings(
+      storage,
+      HOME_DIRECTORY,
+      {
+        managedDirectory: customDirectory,
+        setupCommand: ['pnpm', 'install'],
+      },
+      NO_MOUNTED_ROOTS
+    );
 
     await expect(readWorktreeSettings(storage, HOME_DIRECTORY)).resolves.toEqual({
       isDefaultDirectory: false,
@@ -35,20 +51,114 @@ describe('worktree settings', () => {
 
   it('resets a custom managed directory to the default', async () => {
     const storage = new MemoryStorageAdapter();
-    await writeWorktreeSettings(storage, HOME_DIRECTORY, {
-      managedDirectory: '/Volumes/worktrees',
-      setupCommand: null,
-    });
+    await writeWorktreeSettings(
+      storage,
+      HOME_DIRECTORY,
+      {
+        managedDirectory: '/Volumes/worktrees',
+        setupCommand: null,
+      },
+      NO_MOUNTED_ROOTS
+    );
 
     await expect(
-      writeWorktreeSettings(storage, HOME_DIRECTORY, {
-        managedDirectory: null,
-        setupCommand: null,
-      })
+      writeWorktreeSettings(
+        storage,
+        HOME_DIRECTORY,
+        {
+          managedDirectory: null,
+          setupCommand: null,
+        },
+        NO_MOUNTED_ROOTS
+      )
     ).resolves.toEqual({
       isDefaultDirectory: true,
       managedDirectory: DEFAULT_MANAGED_DIRECTORY,
       setupCommand: null,
     });
+  });
+
+  it('treats an explicitly stored default path as a custom selection', async () => {
+    const storage = new MemoryStorageAdapter();
+
+    await expect(
+      writeWorktreeSettings(
+        storage,
+        HOME_DIRECTORY,
+        {
+          managedDirectory: DEFAULT_MANAGED_DIRECTORY,
+          setupCommand: null,
+        },
+        NO_MOUNTED_ROOTS
+      )
+    ).resolves.toMatchObject({ isDefaultDirectory: false });
+  });
+
+  it('throws when persisted settings are not valid JSON', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.setItem(WORKTREE_SETTINGS_STORAGE_KEY, '{');
+
+    await expect(readWorktreeSettings(storage, HOME_DIRECTORY)).rejects.toThrow(
+      'worktreeSettings is not valid JSON.'
+    );
+  });
+
+  it('throws when persisted settings are not an object', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.setItem(WORKTREE_SETTINGS_STORAGE_KEY, '[]');
+
+    await expect(readWorktreeSettings(storage, HOME_DIRECTORY)).rejects.toThrow(
+      'worktreeSettings is not an object.'
+    );
+  });
+
+  it('throws when the persisted managed directory is relative', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.setItem(
+      WORKTREE_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ managedDirectory: 'relative/worktrees', setupCommand: null })
+    );
+
+    await expect(readWorktreeSettings(storage, HOME_DIRECTORY)).rejects.toThrow(
+      'worktreeSettings managedDirectory must be an absolute path.'
+    );
+  });
+
+  it.each([{ setupCommand: [] }, { setupCommand: [''] }, { setupCommand: ['pnpm', 42] }])(
+    'throws when persisted setupCommand is invalid: $setupCommand',
+    async (persisted) => {
+      const storage = new MemoryStorageAdapter();
+      await storage.setItem(WORKTREE_SETTINGS_STORAGE_KEY, JSON.stringify(persisted));
+
+      await expect(readWorktreeSettings(storage, HOME_DIRECTORY)).rejects.toThrow(
+        'worktreeSettings setupCommand must be a non-empty string array.'
+      );
+    }
+  );
+
+  it('refuses to persist a relative managed directory', async () => {
+    const storage = new MemoryStorageAdapter();
+
+    await expect(
+      writeWorktreeSettings(
+        storage,
+        HOME_DIRECTORY,
+        { managedDirectory: 'relative/worktrees', setupCommand: null },
+        NO_MOUNTED_ROOTS
+      )
+    ).rejects.toThrow('worktreeSettings managedDirectory must be an absolute path.');
+  });
+
+  it('refuses to persist a managed directory inside a mounted root', async () => {
+    const storage = new MemoryStorageAdapter();
+
+    await expect(
+      writeWorktreeSettings(
+        storage,
+        HOME_DIRECTORY,
+        { managedDirectory: '/work/project/worktrees', setupCommand: null },
+        () => Promise.resolve(['/work/project'])
+      )
+    ).rejects.toThrow('Managed worktrees must not live inside the granted folder "/work/project"');
   });
 });
