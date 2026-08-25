@@ -50,12 +50,17 @@ describe('WorktreeSettingsSection', () => {
     );
 
     rerender(
-      <WorktreeSettingsSection onSave={vi.fn()} settings={SETTINGS} status={{ kind: 'ready' }} />
+      <WorktreeSettingsSection
+        onSave={vi.fn()}
+        settings={{ ...SETTINGS, setupCommand: ['pnpm', 'install'] }}
+        status={{ kind: 'ready' }}
+      />
     );
 
     expect(screen.getByTestId('worktree-settings-directory')).toHaveValue(
       '/home/me/.brainstrike/worktrees'
     );
+    expect(screen.getByTestId('worktree-settings-setup-command')).toHaveValue('pnpm install');
   });
 
   it('saves an explicit directory', async () => {

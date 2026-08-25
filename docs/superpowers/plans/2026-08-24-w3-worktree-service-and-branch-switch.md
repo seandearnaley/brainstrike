@@ -5107,6 +5107,18 @@ export function createWorkspaceSettingsCategory(
 }
 ```
 
+> **SUPERSEDED BY SHIPPED CODE (Task 8 fix round, 8e394b4c2).** The hook shipped as
+> `apps/desktop/src/renderer/components/settings/use-worktree-settings.ts` exporting
+> `useWorktreeSettings` returning `{ save, settings, status }`, with the bridge resolved via
+> `useMemo`, the initial status derived from bridge presence (unavailable on first paint for a
+> malformed preload), and — critically — a `.catch` on `getSettings()` (the sample below lacks
+> one, which leaves an unhandled rejection and a permanent spinner on a preload throw; do NOT
+> re-execute the sample as written). The category is registered after
+> `createWorkspaceInstructionsSettingsCategory()` to group the two Workspace categories.
+> The registration is pinned by `page-content.test.tsx` ("Workspace" nav → live unavailable copy)
+> and the hook by `use-worktree-settings.test.ts`. The sample below is retained for historical
+> context only.
+
 `apps/desktop/src/renderer/components/settings/page-content.tsx` — a small hook reads the bridge once and the category is registered after `createSearchIndexingSettingsCategory()`:
 
 ```tsx
