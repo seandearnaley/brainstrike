@@ -11,9 +11,13 @@ import type { RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AdaptersProvider, type AdaptersProviderProps } from '../adapters-context.js';
+import { AdaptersProvider } from '../adapters-context.js';
 import { useFileSystem } from '../use-file-system.js';
-import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers.js';
+import {
+  AdaptersTestWrapper,
+  createAdaptersTestWrapper,
+  MockFileSystemAdapter,
+} from './test-helpers.js';
 
 // Mock the useFileExplorerStore
 const mockSetCurrentFolderId = vi.fn();
@@ -1656,18 +1660,12 @@ describe('useFileSystem', () => {
 
     function wrapperFor(adapter: FileSystemAdapter) {
       const storageAdapter = createStorageAdapter('web');
-      return ({ children }: { children: ReactNode }) =>
-        // No-JSX file: createElement's typed overload requires `props` to satisfy
-        // AdaptersProviderProps in full (children included) regardless of the
-        // trailing children arg — JSX bypasses this via compiler-special-casing,
-        // which isn't available in a .ts file. The cast mirrors exactly what the
-        // JSX transform does at runtime (merge children into props), so children
-        // still nests through the third argument instead of an explicit prop.
-        createElement(
-          AdaptersProvider,
-          { fileSystemAdapter: adapter, storageAdapter } as AdaptersProviderProps,
-          children
-        );
+      // Delegates to the .tsx factory (real JSX, optional children — see its
+      // doc comment) instead of createElement here: this .ts file can't use
+      // JSX, and createElement's typed overload requires `props` to satisfy
+      // AdaptersProviderProps in full (children included) regardless of a
+      // trailing children argument.
+      return createAdaptersTestWrapper(adapter, storageAdapter);
     }
 
     it('registers the root on a successful picker-less add', async () => {

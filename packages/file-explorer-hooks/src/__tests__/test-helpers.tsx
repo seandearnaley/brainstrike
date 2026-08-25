@@ -1,4 +1,5 @@
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { StorageAdapter } from '@brainstrike/storage';
 import { createStorageAdapter } from '@brainstrike/storage';
 import type { IFileNode } from '@brainstrike/types';
 import type { ReactNode } from 'react';
@@ -120,6 +121,31 @@ export function AdaptersTestWrapper({ children }: { children: ReactNode }) {
       {children}
     </AdaptersProvider>
   );
+}
+
+/**
+ * Factory for a per-test AdaptersProvider wrapper around a caller-supplied
+ * adapter (e.g. a case-specific capability stub for addRootByPath /
+ * listRecentRoots). `children` is optional here — matching AdaptersTestWrapper
+ * above — purely so this reads the same as its sibling; RTL's `wrapper` prop
+ * always supplies children at runtime. Living in this .tsx file (real JSX)
+ * means children genuinely nests through the component tree instead of an
+ * explicit prop, with no createElement typed-overload workaround needed —
+ * unlike a .ts (non-JSX) call site, which would otherwise have to either pass
+ * `children` as an explicit prop (flagged by react-doctor/no-children-prop) or
+ * cast around AdaptersProviderProps' required `children` field.
+ */
+export function createAdaptersTestWrapper(
+  fileSystemAdapter: FileSystemAdapter,
+  storageAdapter: StorageAdapter
+) {
+  return function AdaptersTestWrapperWithAdapter({ children }: { children?: ReactNode }) {
+    return (
+      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+        {children}
+      </AdaptersProvider>
+    );
+  };
 }
 
 // Export the mock adapter for test manipulation

@@ -123,8 +123,14 @@ export function useFileSystemInstance() {
   const setActiveRoots = useFileExplorerStoreSelector((s) => s.setActiveRoots);
   // Token cache seam: the core hook does not own the token cache, so the
   // disconnect wrapper below clears the removed root's cached token counts via
-  // the (optional) TokenCacheProvider context.
+  // the (optional) TokenCacheProvider context. Narrowed to the inner store
+  // (not the whole context object): the context value's own memo chains to
+  // countTextTokens/isReady/etc, which change on every file token-count —
+  // depending on the whole object would churn removeRootDirectory (and thus
+  // the outer return-object memo) on every count. The store reference itself
+  // is stable per TokenCacheProvider instance (only changes when `db` does).
   const tokenCacheContext = useOptionalTokenCacheContext();
+  const tokenCacheStore = tokenCacheContext?.store ?? null;
   // Cascade-delete seam (Phase 6): app-shell injects the DB deletion; the
   // disconnect wrapper aborts (with a toast) when deletion is requested but
   // fails or no provider is mounted — never a silent no-op.
@@ -218,8 +224,6 @@ export function useFileSystemInstance() {
     waitForHydration,
   });
 
-  const isFileSystemAccessSupported = coreApi.isFileSystemAccessSupported;
-
   const selectRootDirectory = useCallback(async (): Promise<DirectoryHandle | null> => {
     const handle = await selectDirectoryWithErrorMapping(
       coreApi.isFileSystemAccessSupported,
@@ -295,15 +299,15 @@ export function useFileSystemInstance() {
         return;
       }
       // Token cache: best-effort — a failure must not block the disconnect.
-      if (tokenCacheContext) {
+      if (tokenCacheStore) {
         try {
-          await tokenCacheContext.store.clearFolder(rootId);
+          await tokenCacheStore.clearFolder(rootId);
         } catch (error) {
           logger.warn('removeRootDirectory: token cache clearFolder failed', { error, rootId });
         }
       }
     },
-    [deleteRootData, showToast, coreApi.removeRootDirectory, tokenCacheContext]
+    [deleteRootData, showToast, coreApi.removeRootDirectory, tokenCacheStore]
   );
 
   /**
@@ -655,7 +659,7 @@ export function useFileSystemInstance() {
       addRootDirectoryByPath: coreApi.addRootDirectoryByPath,
       clearRootDirectory,
       isAccessLoading: coreApi.isAccessLoading,
-      isFileSystemAccessSupported,
+      isFileSystemAccessSupported: coreApi.isFileSystemAccessSupported,
       /** Desktop-only companion to addRootDirectoryByPath; see its note. */
       listRecentRoots: coreApi.listRecentRoots,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */

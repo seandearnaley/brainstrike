@@ -4,7 +4,9 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
+import { TokenCacheProvider } from '../indexing/token-cache-context';
 import { FileExplorerProvider } from '../shell/file-explorer-provider';
+import { type DeleteRootData, RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 
 // Create default mock adapters for tests
 const defaultTestFileSystemAdapter = new MockFileSystemAdapter();
@@ -40,4 +42,53 @@ export function FileExplorerTestWrapper({
       </TooltipProvider>
     </ActionRegistryProvider>
   );
+}
+
+/**
+ * Factory for a FileExplorerTestWrapper that optionally nests a
+ * RootDataDeletionProvider, reading `deleteRootData` fresh on every render
+ * via `getDeleteRootData` (a plain closure getter, not a React value) —
+ * this lets a test swap the callback between renders (e.g. to prove a
+ * consumer's memoization picks up the new identity instead of a stale
+ * closure) without needing the wrapper component itself to accept props
+ * from `rerender`, which RTL's `renderHook` does not thread through.
+ * `children` stays optional (matching FileExplorerTestWrapper above) purely
+ * for its own sake — real JSX here needs no createElement workaround either
+ * way.
+ */
+export function createDeletionTestWrapper(
+  storageAdapter: MemoryStorageAdapter,
+  getDeleteRootData: () => DeleteRootData | undefined
+) {
+  return function DeletionTestWrapper({ children }: { children?: ReactNode }) {
+    const deleteRootData = getDeleteRootData();
+    return (
+      <FileExplorerTestWrapper mockStorageAdapter={storageAdapter}>
+        {deleteRootData ? (
+          <RootDataDeletionProvider deleteRootData={deleteRootData}>
+            {children}
+          </RootDataDeletionProvider>
+        ) : (
+          children
+        )}
+      </FileExplorerTestWrapper>
+    );
+  };
+}
+
+/**
+ * Factory for a FileExplorerTestWrapper nested inside a TokenCacheProvider
+ * (db=null — in-memory store, no PGlite needed). Used by tests asserting
+ * that a token-cache-driven re-render (e.g. worker warmup flipping
+ * isOperational) does not itself change unrelated consumers' memoized
+ * values.
+ */
+export function createTokenCacheTestWrapper() {
+  return function TokenCacheTestWrapper({ children }: { children?: ReactNode }) {
+    return (
+      <TokenCacheProvider db={null}>
+        <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+      </TokenCacheProvider>
+    );
+  };
 }
