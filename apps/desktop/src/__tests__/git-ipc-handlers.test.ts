@@ -31,11 +31,11 @@ beforeEach(() => {
 });
 
 describe('execFileGitRunner', () => {
-  it('merges a per-command env override over the pinned git environment', async () => {
+  it('keeps unpinned command env while pinned safety keys win over overrides', async () => {
     await execFileGitRunner({
       args: ['status'],
       cwd: '/worktree',
-      env: { GIT_INDEX_FILE: '/tmp/private.index' },
+      env: { GIT_INDEX_FILE: '/tmp/private.index', GIT_TERMINAL_PROMPT: '1' },
       timeoutMs: 5000,
     });
 
@@ -43,6 +43,7 @@ describe('execFileGitRunner', () => {
     const options = execFileMock.mock.calls[0]?.[2];
     expect(options?.['env']).toMatchObject({
       GIT_INDEX_FILE: '/tmp/private.index',
+      GIT_TERMINAL_PROMPT: '0',
       LC_ALL: 'C',
     });
   });

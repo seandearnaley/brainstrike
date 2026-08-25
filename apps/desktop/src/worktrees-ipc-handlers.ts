@@ -88,6 +88,8 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
       createdBy: payload['createdBy'],
       name: payload['name'],
       rootId: payload['rootId'],
+      // Schema-stability field: forwarded now but intentionally inert until
+      // the worktree timeline lands in Task 18.
       ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
       ...(nonEmptyString(payload['threadId']) ? { threadId: payload['threadId'] } : {}),
     },
@@ -110,6 +112,8 @@ function validateArchive(payload: unknown): GitResult<{
     value: {
       worktreeId: payload['worktreeId'],
       ...(typeof payload['force'] === 'boolean' ? { force: payload['force'] } : {}),
+      // Schema-stability field: forwarded now but intentionally inert until
+      // the worktree timeline lands in Task 18.
       ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
     },
   };

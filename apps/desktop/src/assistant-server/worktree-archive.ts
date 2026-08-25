@@ -36,7 +36,66 @@ export function archiveSnapshotRef(worktreeId: string): string {
 export interface WorktreeSafetyReport {
   readonly blockers: readonly string[];
   readonly dirty: boolean;
+  readonly ignoredFileCount: number;
+  readonly threadIsRunning: boolean;
   readonly unpushedCommits: number;
+}
+
+interface UnpushedSafety {
+  readonly blocker: string | null;
+  readonly count: number;
+}
+
+async function inspectUnpushedSafety(input: {
+  readonly baseRef: string;
+  readonly invoke: GitInvoke;
+}): Promise<GitResult<UnpushedSafety>> {
+  const baseRefRun = await invokeGitHookFree(input.invoke, [
+    'rev-parse',
+    '--verify',
+    '--quiet',
+    `${input.baseRef}^{commit}`,
+  ]);
+  if (baseRefRun.exitCode === 1) {
+    return {
+      ok: true,
+      value: {
+        blocker: `this worktree's base ref \`${input.baseRef}\` no longer exists, so unpushed commits cannot be assessed`,
+        count: 0,
+      },
+    };
+  }
+  if (baseRefRun.exitCode !== 0) {
+    return { error: describeFailure(baseRefRun), ok: false };
+  }
+  const unpushedRun = await invokeGitHookFree(input.invoke, [
+    'rev-list',
+    '--count',
+    `${input.baseRef}..HEAD`,
+    '--not',
+    '--remotes',
+  ]);
+  if (unpushedRun.exitCode !== 0) {
+    return { error: describeFailure(unpushedRun), ok: false };
+  }
+  const count = Number.parseInt(unpushedRun.stdout.trim(), 10);
+  if (!Number.isFinite(count)) {
+    return { error: `git rev-list returned "${unpushedRun.stdout.trim()}"`, ok: false };
+  }
+  if (count === 0) {
+    return { ok: true, value: { blocker: null, count } };
+  }
+  return {
+    ok: true,
+    value: {
+      blocker: `This worktree has ${count} commit${count === 1 ? '' : 's'} that ${
+        count === 1 ? 'is' : 'are'
+      } not on any remote. Archive anyway to keep a restorable snapshot, or push ${
+        count === 1 ? 'it' : 'them'
+      } first.`,
+      count,
+    },
+  };
 }
 
 export async function inspectWorktreeSafety(input: {
@@ -54,42 +113,38 @@ export async function inspectWorktreeSafety(input: {
   }
   const statusRun = await invokeGitHookFree(input.invoke, [
     'status',
-    '--porcelain=v2',
+    '--porcelain',
     '--untracked-files=all',
+    '--ignored=matching',
   ]);
   if (statusRun.exitCode !== 0) {
     return { error: describeFailure(statusRun), ok: false };
   }
-  const dirty = statusRun.stdout.trim().length > 0;
+  const statusEntries = statusRun.stdout.split('\n').filter((entry) => entry.length > 0);
+  const ignoredFileCount = statusEntries.filter((entry) => entry.startsWith('!! ')).length;
+  const dirty = statusEntries.some((entry) => !entry.startsWith('!! '));
   if (dirty) {
     blockers.push(
       'This worktree has uncommitted changes. Archive anyway to keep a restorable snapshot, or commit them first.'
     );
   }
-  const unpushedRun = await invokeGitHookFree(input.invoke, [
-    'rev-list',
-    '--count',
-    `${input.baseRef}..HEAD`,
-    '--not',
-    '--remotes',
-  ]);
-  if (unpushedRun.exitCode !== 0) {
-    return { error: describeFailure(unpushedRun), ok: false };
+  const unpushed = await inspectUnpushedSafety(input);
+  if (!unpushed.ok) {
+    return unpushed;
   }
-  const unpushedCommits = Number.parseInt(unpushedRun.stdout.trim(), 10);
-  if (!Number.isFinite(unpushedCommits)) {
-    return { error: `git rev-list returned "${unpushedRun.stdout.trim()}"`, ok: false };
+  if (unpushed.value.blocker !== null) {
+    blockers.push(unpushed.value.blocker);
   }
-  if (unpushedCommits > 0) {
-    blockers.push(
-      `This worktree has ${unpushedCommits} commit${unpushedCommits === 1 ? '' : 's'} that ${
-        unpushedCommits === 1 ? 'is' : 'are'
-      } not on any remote. Archive anyway to keep a restorable snapshot, or push ${
-        unpushedCommits === 1 ? 'it' : 'them'
-      } first.`
-    );
-  }
-  return { ok: true, value: { blockers, dirty, unpushedCommits } };
+  return {
+    ok: true,
+    value: {
+      blockers,
+      dirty,
+      ignoredFileCount,
+      threadIsRunning: input.threadIsRunning,
+      unpushedCommits: unpushed.value.count,
+    },
+  };
 }
 
 export async function captureArchiveSnapshot(input: {
@@ -105,11 +160,24 @@ export async function captureArchiveSnapshot(input: {
   const invokeNoIndex: GitInvoke = (args, timeoutMs = GIT_DEFAULT_TIMEOUT_MS) =>
     input.run({ args, cwd: input.cwd, timeoutMs });
   try {
+    const headRun = await invokeGitHookFree(invokeNoIndex, [
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      'HEAD',
+    ]);
+    if (headRun.exitCode !== 0 && headRun.exitCode !== 1) {
+      return { error: describeFailure(headRun), ok: false };
+    }
     // `read-tree HEAD` seeds the temp index so `add -A` records DELETIONS too;
-    // an empty index would make every deleted file look untouched.
-    const seed = await invokeGitHookFree(invokeWithIndex, ['read-tree', 'HEAD']);
-    if (seed.exitCode !== 0 && !seed.stderr.includes('unknown revision')) {
-      return { error: describeFailure(seed), ok: false };
+    // an empty index would make every deleted file look untouched. Exit 1 from
+    // the quiet verification is Git's explicit unborn-HEAD result; only that
+    // case starts from an empty index.
+    if (headRun.exitCode === 0) {
+      const seed = await invokeGitHookFree(invokeWithIndex, ['read-tree', 'HEAD']);
+      if (seed.exitCode !== 0) {
+        return { error: describeFailure(seed), ok: false };
+      }
     }
     const add = await invokeGitHookFree(invokeWithIndex, ['add', '-A']);
     if (add.exitCode !== 0) {
@@ -120,7 +188,6 @@ export async function captureArchiveSnapshot(input: {
       return { error: describeFailure(writeTree), ok: false };
     }
     const treeOid = writeTree.stdout.trim();
-    const headRun = await invokeGitHookFree(invokeNoIndex, ['rev-parse', '--verify', 'HEAD']);
     const parentArgs = headRun.exitCode === 0 ? ['-p', headRun.stdout.trim()] : [];
     const message = JSON.stringify({
       branch: input.worktree.branch,

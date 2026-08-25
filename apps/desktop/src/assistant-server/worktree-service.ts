@@ -396,20 +396,40 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     if (!snapshot.ok) {
       return snapshot;
     }
-    const running = safety.value.blockers.find((blocker) => blocker.startsWith('A run is active'));
-    if (running) {
+    if (safety.value.threadIsRunning) {
       // The ONE blocker `force` never overrides.
-      return { error: running, ok: false };
+      const [first] = safety.value.blockers;
+      return {
+        error: first ?? 'A run is active in this worktree.',
+        ok: false,
+      };
     }
     if (!params.force && safety.value.blockers.length > 0) {
-      return { error: safety.value.blockers[0] as string, ok: false };
+      const [first] = safety.value.blockers;
+      if (first) {
+        return { error: first, ok: false };
+      }
     }
     const removed = await removeArchivedWorktree(row, params.force === true);
     if (!removed.ok) {
       return removed;
     }
-    const worktree = await ledger.markArchived(row.id, snapshot.value);
-    return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
+    try {
+      const worktree = await ledger.markArchived(row.id, snapshot.value);
+      return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
+    } catch (error) {
+      logger.error('worktree was removed but its archive ledger write failed', {
+        error,
+        snapshotRef: snapshot.value,
+        worktreeId: row.id,
+      });
+      return {
+        error: `The worktree was removed, but its archive status could not be recorded: ${toErrorMessage(
+          error
+        )}; your snapshot is at ${snapshot.value}.`,
+        ok: false,
+      };
+    }
   }
 
   return {
@@ -453,6 +473,21 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
             return { error: `Managed worktree "${params.worktreeId}" is not active.`, ok: false };
           }
           const invoke = invokeIn(row.path);
+          const attachedBranchRun = await invokeGitHookFree(invoke, [
+            'symbolic-ref',
+            '--quiet',
+            '--short',
+            'HEAD',
+          ]);
+          if (attachedBranchRun.exitCode === 0) {
+            return {
+              error: `Managed worktree "${row.id}" is attached to branch "${attachedBranchRun.stdout.trim()}"; createBranchHere requires a detached worktree.`,
+              ok: false,
+            };
+          }
+          if (attachedBranchRun.exitCode !== 1) {
+            return { error: describeFailure(attachedBranchRun), ok: false };
+          }
           const exists = await invoke([
             'show-ref',
             '--verify',
