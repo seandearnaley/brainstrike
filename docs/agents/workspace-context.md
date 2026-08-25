@@ -1005,7 +1005,11 @@ additional explorer/status chrome):
     the server-owned managed-worktree authorizer (BST-1390, spec §6.2), which
     requires realpath containment plus a live ledger row and fails closed on
     every authorizer error. A recents-ledger grant is re-recorded; a managed
-    worktree grant is deliberately NOT added to Recents. Thus **the BAR** cannot
+    worktree grant is not recorded into Recents at grant time — but the mount is
+    persisted in `rootsList` and `restoreRoots` currently records every persisted
+    entry into recents on relaunch, so the suppression is only durable once the
+    `roots.kind='worktree'` marker lands (BST-1390 Task 10 obligation, tracked in
+    the epic ledger). Thus **the BAR** cannot
     mount an arbitrary path: a stray or stale path string is rejected. This is
     NOT a hardening boundary against a
     compromised renderer: main-process storage is itself renderer-writable

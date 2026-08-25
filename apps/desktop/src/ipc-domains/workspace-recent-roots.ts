@@ -204,7 +204,15 @@ export async function listRecentRootEntries(
  * directory. Injected rather than imported so this leaf module keeps its
  * zero-dependency shape and the DB-backed ledger stays in `WorktreeService`.
  */
+/**
+ * Three-state result of the managed-worktree authorizer. Only 'authorized'
+ * grants; 'managed-but-unauthorized' selects the worktree-specific error COPY
+ * for candidates under the managed directory (it never authorizes), and
+ * 'unmanaged' keeps the ordinary never-granted message.
+ */
 export type ManagedWorktreeAuthorization = 'authorized' | 'managed-but-unauthorized' | 'unmanaged';
+
+const NEVER_GRANTED_MESSAGE = 'Folder was never granted in this app; use Add Folder to grant it.';
 
 export type ManagedWorktreeAuthorizer = (
   candidatePath: string
@@ -224,8 +232,11 @@ export interface GrantedRootHandle {
  *    the path, under its own managed directory, and its ledger row proves it.
  *    This is the second and last sanctioned picker-less mount; it is
  *    deliberately NOT a general "add root by path" door, and a managed worktree
- *    is deliberately NOT written into the recents ledger (that list is the
- *    user's folders, not the app's scratch directories).
+ *    is NOT recorded into the recents ledger at grant time (that list is the
+ *    user's folders, not the app's scratch directories). KNOWN GAP: the mount
+ *    is still persisted in `rootsList`, and `restoreRoots` records every
+ *    persisted entry into recents on the next launch — closing that requires
+ *    the durable `roots.kind='worktree'` marker (BST-1390 Task 10 obligation).
  *
  * The ledger is checked FIRST so a broken authorizer can never take the
  * recents path down with it. Neither gate is a hardening boundary against a
@@ -251,11 +262,7 @@ export async function resolveGrantedRootHandle(
     return { grantSource: 'recents', handle };
   }
   if (!isManagedWorktreePath) {
-    throw new AccessError(
-      'Folder was never granted in this app; use Add Folder to grant it.',
-      requestedPath,
-      'read'
-    );
+    throw new AccessError(NEVER_GRANTED_MESSAGE, requestedPath, 'read');
   }
 
   let authorization: ManagedWorktreeAuthorization;
@@ -265,11 +272,7 @@ export async function resolveGrantedRootHandle(
     // A broken authorizer must not become an implicit grant, and must not be
     // silent either.
     logger.error('managed-worktree authorization check threw', { error, path: normalized });
-    throw new AccessError(
-      'Folder was never granted in this app; use Add Folder to grant it.',
-      requestedPath,
-      'read'
-    );
+    throw new AccessError(NEVER_GRANTED_MESSAGE, requestedPath, 'read');
   }
   if (authorization === 'authorized') {
     return { grantSource: 'managed-worktree', handle };
@@ -277,7 +280,7 @@ export async function resolveGrantedRootHandle(
   throw new AccessError(
     authorization === 'managed-but-unauthorized'
       ? 'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
-      : 'Folder was never granted in this app; use Add Folder to grant it.',
+      : NEVER_GRANTED_MESSAGE,
     requestedPath,
     'read'
   );

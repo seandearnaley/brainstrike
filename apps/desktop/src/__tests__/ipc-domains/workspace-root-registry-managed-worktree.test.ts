@@ -1,11 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { loggerMock } from './workspace-root-registry-logger-test-helper';
+import { describe, expect, it, vi } from 'vitest';
 import { createRegistry } from './workspace-root-registry-test-helpers';
 
-// Split out of workspace-root-registry.test.ts (BST-1390, spec §6.2): that
-// file is already at the react-doctor/Biome line cap, and these tests cover a
-// distinct concern — the managed-worktree authorizer wiring — rather than
-// growing the existing file further.
+// Split out of workspace-root-registry.test.ts (BST-1390, spec §6.2): the
+// managed-worktree authorizer wiring is a distinct concern from the general
+// registry behavior, so it lives in its own file (the sibling suite also sits
+// near the Biome line cap).
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const { loggerMock: sharedLoggerMock } = await import(
@@ -18,10 +17,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 describe('WorkspaceRootRegistry managed-worktree authorizer (BST-1390, spec §6.2)', () => {
-  beforeEach(() => {
-    loggerMock.info.mockClear();
-  });
-
   it('routes addRootByPath through the installed managed-worktree authorizer', async () => {
     const registry = createRegistry();
     const authorizer = vi.fn(() => Promise.resolve('authorized' as const));

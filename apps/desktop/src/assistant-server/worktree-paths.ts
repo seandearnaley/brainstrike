@@ -83,7 +83,11 @@ function normalize(candidate: string): string {
   return path.normalize(candidate).replaceAll('\\', '/').replace(/\/+$/, '');
 }
 
-/** True when `candidate` IS `container` or sits below it. */
+/**
+ * True when `candidate` IS `container` or sits below it. NOTE: the sibling
+ * `isWithinRoot(root, target)` in `workspace-path.ts` takes its arguments in
+ * the OPPOSITE order — check which one you are calling.
+ */
 export function isPathWithin(candidate: string, container: string): boolean {
   const normalizedCandidate = normalize(candidate);
   const normalizedContainer = normalize(container);
