@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { useGitInventoryMock } = vi.hoisted(() => ({ useGitInventoryMock: vi.fn() }));
 vi.mock('../changes/use-git-inventory', () => ({ useGitInventory: useGitInventoryMock }));
 
-import { useThreadBranchByRootPath } from '../hooks/use-thread-branch-by-root-path';
+import {
+  projectBranchesForTest,
+  useThreadBranchByRootPath,
+} from '../hooks/use-thread-branch-by-root-path';
 
 type Worktree = GitInventory['repositories'][number]['worktrees'][number];
 
@@ -87,8 +90,16 @@ describe('useThreadBranchByRootPath', () => {
     const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
 
     expect(result.current.available).toBe(true);
-    expect(result.current.byRootPath.get('/work/a')).toEqual({ branch: 'main', detached: false });
-    expect(result.current.byRootPath.get('/work/a-wt')).toEqual({ branch: null, detached: true });
+    expect(result.current.byRootPath.get('/work/a')).toEqual({
+      branch: 'main',
+      detached: false,
+      gitCommonDir: '/work/a/.git',
+    });
+    expect(result.current.byRootPath.get('/work/a-wt')).toEqual({
+      branch: null,
+      detached: true,
+      gitCommonDir: '/work/a/.git',
+    });
     expect(result.current.byRootPath.size).toBe(2);
   });
 
@@ -167,10 +178,18 @@ describe('useThreadBranchByRootPath', () => {
     const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
 
     expect(result.current.byRootPath.has('/work/bare.git')).toBe(false);
-    expect(result.current.byRootPath.get('/work/b')).toEqual({ branch: 'dev', detached: false });
+    expect(result.current.byRootPath.get('/work/b')).toEqual({
+      branch: 'dev',
+      detached: false,
+      gitCommonDir: '/work/bare.git',
+    });
     // ...and being skipped, it does not make its root's containment ambiguous:
     // the one worktree that DOES have a branch still answers for `root-a`.
-    expect(result.current.byRootId.get('root-a')).toEqual({ branch: 'dev', detached: false });
+    expect(result.current.byRootId.get('root-a')).toEqual({
+      branch: 'dev',
+      detached: false,
+      gitCommonDir: '/work/bare.git',
+    });
   });
 
   // Exact-path matching only: a root that merely CONTAINS worktrees has no
@@ -199,6 +218,7 @@ describe('useThreadBranchByRootPath', () => {
     expect(result.current.byRootId.get('root-symlinked')).toEqual({
       branch: 'main',
       detached: false,
+      gitCommonDir: '/private/var/folders/tmp/repo/.git',
     });
   });
 
@@ -231,6 +251,7 @@ describe('useThreadBranchByRootPath', () => {
     expect(result.current.byRootPath.get('/elsewhere')).toEqual({
       branch: 'main',
       detached: false,
+      gitCommonDir: '/elsewhere/.git',
     });
   });
 
@@ -251,5 +272,30 @@ describe('useThreadBranchByRootPath', () => {
     const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: true }));
 
     expect(result.current.byRootId.size).toBe(0);
+  });
+});
+
+describe('ThreadBranchInfo repository identity', () => {
+  it('projects the repository common directory with the branch', () => {
+    const inventory: GitInventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: {
+            gitCommonDir: '/repos/widgets/.git',
+            repositoryRoot: '/repos/widgets',
+          },
+          worktrees: [worktree('/repos/widgets', 'main', false, ['root-1'])],
+        },
+      ],
+    };
+
+    const projected = projectBranchesForTest(inventory);
+
+    expect(projected.byRootId.get('root-1')).toEqual({
+      branch: 'main',
+      detached: false,
+      gitCommonDir: '/repos/widgets/.git',
+    });
   });
 });

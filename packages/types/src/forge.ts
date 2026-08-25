@@ -151,6 +151,88 @@ export interface ForgePrCacheEntry {
   readonly url: string;
 }
 
+/**
+ * The `(repoCommonDir, branch)` composite key `brainstrike_forge_prs` is
+ * keyed by, encoded as one string so it can be a `Map`/`Set` key on both
+ * sides of the main/renderer bridge.
+ *
+ * NUL-separated rather than joined with a printable delimiter: neither a
+ * filesystem path nor a git branch name can contain a NUL byte, so the
+ * encoding is unambiguous — a `/`, `:`, or other printable separator could
+ * collide with a path or branch that happens to contain it. Main
+ * (`forge-service.ts`, `forge-pr-cache.ts`) and the renderer
+ * (`use-forge-pr-cache.ts`, `thread-forge-pr-resolution.ts`) both key their
+ * lookups through this one function so the two sides of the bridge can never
+ * drift onto different encodings of the same identity.
+ */
+export function forgePrCacheKey(repoCommonDir: string, branch: string): string {
+  return `${repoCommonDir}\0${branch}`;
+}
+
+/**
+ * Every conclusion a normalized, CACHED `ForgeCheck` can carry — i.e. the
+ * `ForgeCheckConclusion` union restated as a runtime set so a cached row can
+ * be validated against it. This is deliberately distinct from
+ * `readForgeChecks` above: that function parses RAW `gh --json
+ * statusCheckRollup` nodes (CheckRun/StatusContext shapes, GraphQL-cased
+ * conclusions); `readChecks` below parses the ALREADY-NORMALIZED
+ * `ForgeCheck[]` a cache row's `checks_json` column stores, which
+ * `readForgeChecks` + `rollupForgeChecks` produced when the row was written.
+ */
+export const FORGE_CHECK_CONCLUSIONS: ReadonlySet<string> = new Set<ForgeCheckConclusion>([
+  'action_required',
+  'cancelled',
+  'failure',
+  'neutral',
+  'pending',
+  'skipped',
+  'success',
+  'timed_out',
+]);
+
+/**
+ * Read a cache row's `checks_json` column back into `ForgeCheck[]`.
+ *
+ * `checks_json` round-trips the normalized `ForgeCheck[]` written by
+ * `writeForgePrCacheEntry`. PGlite may hand a `jsonb` column back as a parsed
+ * value OR as its JSON text depending on the transport in play (direct
+ * handle vs. db-host client, and main vs. renderer); both are faithful
+ * encodings of the SAME value, so this accepts either.
+ *
+ * THROWS on anything it cannot interpret, rather than coercing or dropping
+ * the malformed entry: a cache row this code cannot fully understand must not
+ * be rendered as a PR with an incomplete or wrong checks list — that would be
+ * the "12/12 green" lie `readForgeChecks`'s own doc warns about, just
+ * reached from the cache instead of a live `gh` call. The caller (both
+ * `readForgePrCacheEntry` on main and `projectForgePrRows` on the renderer)
+ * fails the WHOLE row/projection on this throw rather than rendering a
+ * partial answer.
+ */
+export function readChecks(value: unknown): readonly ForgeCheck[] {
+  const source = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
+  if (!Array.isArray(source)) {
+    throw new Error('Cached forge checks are unreadable: the value is not an array.');
+  }
+  return source.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`Cached forge check ${index} is not an object.`);
+    }
+    const conclusion = entry['conclusion'];
+    const name = entry['name'];
+    const url = entry['url'];
+    if (typeof conclusion !== 'string' || !FORGE_CHECK_CONCLUSIONS.has(conclusion)) {
+      throw new Error(`Cached forge check ${index} has an unrecognized conclusion.`);
+    }
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      throw new Error(`Cached forge check ${index} has no name.`);
+    }
+    if (!(url === null || typeof url === 'string')) {
+      throw new Error(`Cached forge check ${index} has an unreadable URL.`);
+    }
+    return { conclusion: conclusion as ForgeCheckConclusion, name, url };
+  });
+}
+
 const SUPPORTED_PROTOCOLS = new Set(['git+ssh:', 'git:', 'http:', 'https:', 'ssh:']);
 // `host:path` with no scheme — git's scp-like syntax. A Windows drive letter
 // (`C:\repos\x`) is excluded by requiring at least two host characters and a

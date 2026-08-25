@@ -35,7 +35,7 @@ import type {
   ForgeUnavailable,
   GitForgeRepositoryContext,
 } from '@brainstrike/types';
-import { parseForgeRemote } from '@brainstrike/types';
+import { forgePrCacheKey, parseForgeRemote } from '@brainstrike/types';
 import {
   detectGhCli,
   type ForgeCommandRunner,
@@ -93,8 +93,6 @@ interface Observation {
   readonly headSha: string;
   readonly state: ForgePullRequest['state'];
 }
-
-const cacheKey = (repoCommonDir: string, branch: string): string => `${repoCommonDir}\0${branch}`;
 
 function unavailable(failure: ForgeUnavailable): ForgePrStatus {
   return { failure, kind: 'unavailable' };
@@ -369,7 +367,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
     target: ResolvedTarget,
     overrideFailure?: ForgeUnavailable
   ): Promise<ForgePrStatus> {
-    const key = cacheKey(target.repoCommonDir, target.branch);
+    const key = forgePrCacheKey(target.repoCommonDir, target.branch);
     const failure = overrideFailure ?? lastFailureByKey.get(key) ?? null;
     let cached: Awaited<ReturnType<typeof readForgePrCacheEntry>> = null;
     try {
@@ -544,7 +542,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
    * cannot race with itself.
    */
   function fetchAndStore(target: ResolvedTarget): Promise<ForgePrStatus> {
-    const key = cacheKey(target.repoCommonDir, target.branch);
+    const key = forgePrCacheKey(target.repoCommonDir, target.branch);
     const existing = inFlightFetchByKey.get(key);
     if (existing) {
       return existing;
@@ -582,7 +580,7 @@ export function createForgeService(options: ForgeServiceOptions): ForgeService {
       // transient probe failure.
       return { ok: true, value: await readCached(target, ghFailure) };
     }
-    const key = cacheKey(target.repoCommonDir, target.branch);
+    const key = forgePrCacheKey(target.repoCommonDir, target.branch);
     const lastFetchAt = lastFetchAtByKey.get(key);
     const floor = FORGE_REFRESH_MIN_INTERVAL_MS[reason];
     if (lastFetchAt !== undefined && now() - lastFetchAt < floor) {

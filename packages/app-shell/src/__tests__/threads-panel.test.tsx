@@ -5,6 +5,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -18,10 +19,11 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
+import type { ThreadBranchInfo } from '../hooks/use-thread-branch-by-root-path';
 import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
-import { ThreadsPanel } from '../threads-panel';
+import { ThreadMetadataBadgesForTest, ThreadsPanel } from '../threads-panel';
 
 const virtualizerState = vi.hoisted(() => ({
   estimatedSizes: [] as number[],
@@ -76,6 +78,8 @@ const {
     awaitingApprovalRows: [] as Record<string, unknown>[],
     database: undefined as unknown,
     deleteFailureThreadId: null as string | null,
+    forgePrError: null as Error | null,
+    forgePrRows: [] as Record<string, unknown>[],
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
     initializing: false,
     metadataFailureMessage: 'Metadata update failed in PGlite.',
@@ -253,9 +257,9 @@ vi.mock('@brainstrike/db/react', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
-  // Routed BY cacheKey, never by call order: the panel now runs two live
-  // projections with identical row shapes ({ threadId }), so an order-based
-  // double would happily feed the running spinners the approval rows.
+  // Routed BY cacheKey, never by call order: the panel runs distinct live
+  // projections, including two with identical row shapes ({ threadId}), so an
+  // order-based double would happily feed the running spinners approval rows.
   usePGliteLiveQuery: (options: { readonly cacheKey: string; readonly enabled: boolean }) => {
     if (options.cacheKey.startsWith('["threads-awaiting-approval"')) {
       return {
@@ -263,6 +267,14 @@ vi.mock('@brainstrike/db/react', () => ({
         loading: false,
         refresh: vi.fn(),
         rows: options.enabled ? dbMocks.awaitingApprovalRows : [],
+      };
+    }
+    if (options.cacheKey.startsWith('["forge-pr-cache"')) {
+      return {
+        error: dbMocks.forgePrError,
+        loading: false,
+        refresh: vi.fn(),
+        rows: options.enabled ? dbMocks.forgePrRows : [],
       };
     }
     if (!options.cacheKey.startsWith('["active-assistant-thread-ids"')) {
@@ -298,7 +310,10 @@ vi.mock('../changes/use-git-inventory', () => ({
               errors: [],
               repositories: [
                 {
-                  identity: { commonDir: '/tmp/workspace-a/.git', root: '/tmp/workspace-a' },
+                  identity: {
+                    gitCommonDir: '/tmp/workspace-a/.git',
+                    repositoryRoot: '/tmp/workspace-a',
+                  },
                   worktrees: gitMocks.worktrees.map(({ containment, ...worktree }) => ({
                     ...worktree,
                     containment: containment ?? 'outside-roots',
@@ -366,6 +381,8 @@ beforeEach(() => {
   dbMocks.activeRunSweepError = null;
   dbMocks.awaitingApprovalError = null;
   dbMocks.awaitingApprovalRows = [];
+  dbMocks.forgePrError = null;
+  dbMocks.forgePrRows = [];
   dbMocks.rootsQueryError = null;
   gitMocks.available = true;
   gitMocks.deferredLoads = [];
@@ -1611,6 +1628,117 @@ describe('ThreadsPanel', () => {
   });
 });
 
+describe('thread row PR pill', () => {
+  const thread: AssistantMemoryThread = {
+    createdAt: new Date('2026-08-24T00:00:00Z'),
+    id: 'thread-pr-pill',
+    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+    title: 'PR pill thread',
+    updatedAt: new Date('2026-08-24T01:00:00Z'),
+  };
+  const pr: ForgePrCacheEntry = {
+    branch: 'main',
+    checksRollup: 'failing',
+    isDraft: false,
+    number: 2574,
+    repoCommonDir: '/repos/widgets/.git',
+    state: 'open',
+    url: 'https://github.test/acme/widgets/pull/2574',
+  };
+
+  it('renders the PR number and open failing state', () => {
+    render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={thread} />);
+
+    const pill = screen.getByTestId('thread-pr-pill');
+    expect(pill).toHaveTextContent('#2574');
+    expect(pill).toHaveAttribute('data-checks', 'failing');
+    expect(pill).toHaveAttribute('data-state', 'open');
+  });
+
+  it('renders no PR pill when there is no cached PR', () => {
+    render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={thread} />);
+
+    expect(screen.queryByTestId('thread-pr-pill')).toBeNull();
+  });
+
+  it('marks merged PRs for faded row styling', () => {
+    render(
+      <ThreadMetadataBadgesForTest branch={null} pr={{ ...pr, state: 'merged' }} thread={thread} />
+    );
+
+    expect(screen.getByTestId('thread-pr-pill')).toHaveAttribute('data-state', 'merged');
+  });
+
+  describe('provider badge — the wideOnly "protected slot" it can inherit', () => {
+    const branchInfo: ThreadBranchInfo = {
+      branch: 'main',
+      detached: false,
+      gitCommonDir: '/repos/widgets/.git',
+    };
+    const threadWithProvider: AssistantMemoryThread = {
+      ...thread,
+      latestRun: {
+        completedAt: new Date('2026-08-24T00:05:00Z'),
+        createdAt: new Date('2026-08-24T00:00:00Z'),
+        error: null,
+        id: 'run-1',
+        model: 'claude-sonnet-5',
+        provider: 'openrouter',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        runtimeKind: 'hosted',
+        startedAt: new Date('2026-08-24T00:00:00Z'),
+        status: 'completed',
+        threadId: thread.id,
+        turnMessageId: null,
+        updatedAt: new Date('2026-08-24T00:05:00Z'),
+      },
+    };
+
+    function providerBadgeClassName(): string {
+      return screen.getByText('OpenRouter').className;
+    }
+
+    // (a) No branch and no PR: provider is the row's first badge, so it takes
+    // over the "always visible in the narrow band" slot instead of also
+    // hiding until 560px.
+    it('does not wide-gate the provider badge when nothing protected renders', () => {
+      render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={threadWithProvider} />);
+
+      const className = providerBadgeClassName();
+      expect(className).toContain('inline-flex');
+      expect(className).not.toContain('hidden');
+      expect(className).not.toContain('@[560px]/threads:inline-flex');
+    });
+
+    // (b) Branch present: branch occupies the protected slot, so provider
+    // reverts to hiding until 560px, same as model/reasoning/max-output.
+    it('wide-gates the provider badge once a branch renders, and keeps the branch visible', () => {
+      render(
+        <ThreadMetadataBadgesForTest branch={branchInfo} pr={null} thread={threadWithProvider} />
+      );
+
+      const providerClassName = providerBadgeClassName();
+      expect(providerClassName).toContain('hidden');
+      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
+
+      const branchClassName = screen.getByText('main').className;
+      expect(branchClassName).toContain('inline-flex');
+      expect(branchClassName).not.toContain('hidden');
+    });
+
+    // (c) PR present (no branch): the PR pill alone is enough to occupy the
+    // protected slot too.
+    it('wide-gates the provider badge once a PR pill renders', () => {
+      render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={threadWithProvider} />);
+
+      const providerClassName = providerBadgeClassName();
+      expect(providerClassName).toContain('hidden');
+      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
+      expect(screen.getByTestId('thread-pr-pill')).toBeVisible();
+    });
+  });
+});
+
 describe('ThreadsPanel groups', () => {
   function seedGroup(id: string, name: string, rank: string): void {
     groupRows.push({
@@ -2207,9 +2335,10 @@ describe('ThreadsPanel folders', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    // The three boxes are ONE labelled group, not three loose checkboxes that
-    // happen to sit under a heading: a screen reader announces "Show only" when
-    // focus enters, which is the only thing that says these narrow the list.
+    // The three boxes are ONE labelled group, not loose checkboxes that happen
+    // to sit under a heading: a screen reader announces "Show only" when focus
+    // enters, which is the only thing that says these narrow the list. "Has PR"
+    // is not among them outside folder grouping — see the dedicated test below.
     const showOnly = await screen.findByRole('group', { name: 'Show only' });
     expect(within(showOnly).getAllByRole('checkbox')).toHaveLength(3);
     fireEvent.click(within(showOnly).getByRole('checkbox', { name: 'Running' }));
@@ -2365,9 +2494,22 @@ describe('ThreadsPanel folders', () => {
       lookupThreadBranch(legacyThread, {
         byRootId: new Map(),
         byRootIdAndPath: new Map(),
-        byRootPath: new Map([['/tmp/workspace-a', { branch: 'legacy-branch', detached: false }]]),
+        byRootPath: new Map([
+          [
+            '/tmp/workspace-a',
+            {
+              branch: 'legacy-branch',
+              detached: false,
+              gitCommonDir: '/tmp/workspace-a/.git',
+            },
+          ],
+        ]),
       })
-    ).toEqual({ branch: 'legacy-branch', detached: false });
+    ).toEqual({
+      branch: 'legacy-branch',
+      detached: false,
+      gitCommonDir: '/tmp/workspace-a/.git',
+    });
   });
 
   it('does not borrow a same-path replacement root branch when the durable root id differs', async () => {
@@ -2676,5 +2818,160 @@ describe('ThreadsPanel folders', () => {
     expect(await screen.findByRole('menuitem', { name: 'Rename…' })).toBeVisible();
     expect(screen.queryByRole('menuitem', { name: 'Move to Research' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Remove from Group' })).not.toBeInTheDocument();
+  });
+
+  // "Has PR" can only ever match while folder grouping is active AND the
+  // branch-lookup bridge is present — offering it elsewhere would be a filter
+  // that can only ever answer "nothing".
+  it('offers "Has PR" only once folder grouping is active', async () => {
+    bindThreadToRoot('thread-a');
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    let showOnly = await screen.findByRole('group', { name: 'Show only' });
+    expect(within(showOnly).queryByRole('checkbox', { name: 'Has PR' })).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('radio', { name: 'Folder' }));
+    await screen.findAllByTestId('thread-folder-count');
+
+    showOnly = screen.getByRole('group', { name: 'Show only' });
+    expect(within(showOnly).getByRole('checkbox', { name: 'Has PR' })).toBeInTheDocument();
+  });
+
+  // Web omits the branch-lookup bridge entirely (the omit-don't-stub
+  // constraint) rather than fabricating one, so the option stays hidden even
+  // inside folder grouping when that bridge is absent.
+  it('omits "Has PR" in folder grouping when the branch-lookup bridge is unavailable', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.available = false;
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    const showOnly = screen.getByRole('group', { name: 'Show only' });
+    expect(within(showOnly).queryByRole('checkbox', { name: 'Has PR' })).not.toBeInTheDocument();
+  });
+
+  // A "Has PR" ticked while folder grouping (and the branch lookup) was
+  // available must not strand the list at zero rows once the user leaves that
+  // mode — the checkbox that would undo it has just disappeared too.
+  it('does not strand the list when leaving folder grouping with "Has PR" still ticked', async () => {
+    bindThreadToRoot('thread-a');
+    gitMocks.worktrees = [
+      { branch: 'main', containment: ['root-1'], detached: false, path: '/tmp/workspace-a/' },
+    ];
+    dbMocks.forgePrRows = [
+      {
+        branch: 'main',
+        checksJson: [],
+        isDraft: false,
+        number: 2574,
+        repoCommonDir: '/tmp/workspace-a/.git',
+        state: 'open',
+        url: 'https://github.test/acme/widgets/pull/2574',
+      },
+    ];
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Show only' })).getByRole('checkbox', {
+        name: 'Has PR',
+      })
+    );
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+    });
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom groups' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+  });
+
+  describe('thread row PR pill — live query route', () => {
+    function seedMatchingPrRow(): void {
+      gitMocks.worktrees = [
+        { branch: 'main', containment: ['root-1'], detached: false, path: '/tmp/workspace-a/' },
+      ];
+      dbMocks.forgePrRows = [
+        {
+          branch: 'main',
+          checksJson: [{ conclusion: 'success', name: 'unit', url: null }],
+          isDraft: false,
+          number: 2574,
+          repoCommonDir: '/tmp/workspace-a/.git',
+          state: 'open',
+          url: 'https://github.test/acme/widgets/pull/2574',
+        },
+      ];
+    }
+
+    // Proves the whole chain end-to-end: a row seeded through the live-query
+    // route (not `ThreadMetadataBadgesForTest` directly) joins on the
+    // `gitCommonDir` the git inventory mock reports for the bound root, and
+    // renders a real `thread-pr-pill` inside the actual thread row.
+    it('renders a thread-pr-pill inside a real thread row', async () => {
+      bindThreadToRoot('thread-a');
+      seedMatchingPrRow();
+      renderThreadsPanel();
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+      });
+
+      await enterFolderGrouping();
+
+      const pill = within(rowFor('First thread')).getByTestId('thread-pr-pill');
+      expect(pill).toHaveTextContent('#2574');
+      expect(within(rowFor('Second thread')).queryByTestId('thread-pr-pill')).toBeNull();
+    });
+
+    it('narrows the list to threads with a cached PR through the "Has PR" filter', async () => {
+      bindThreadToRoot('thread-a');
+      seedMatchingPrRow();
+      renderThreadsPanel();
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+      });
+
+      await enterFolderGrouping();
+      fireEvent.click(
+        within(screen.getByRole('group', { name: 'Show only' })).getByRole('checkbox', {
+          name: 'Has PR',
+        })
+      );
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+      });
+      expect(screen.getByText('First thread')).toBeVisible();
+    });
+
+    // The F1 fix: a malformed cache row fails the whole projection, and the
+    // failure must be visible, not indistinguishable from "no PRs cached".
+    it('renders the projection-failure banner when the forge PR cache query errors', async () => {
+      bindThreadToRoot('thread-a');
+      dbMocks.forgePrError = new Error('checks_json is unreadable');
+      renderThreadsPanel();
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+      });
+
+      await enterFolderGrouping();
+
+      expect(await screen.findByTestId('thread-pr-status-error')).toHaveTextContent(
+        'Pull request status unavailable: checks_json is unreadable'
+      );
+    });
   });
 });

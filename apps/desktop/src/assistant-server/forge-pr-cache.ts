@@ -8,9 +8,11 @@
  * `checks_json` round-trips the normalized `ForgeCheck[]`. PGlite may hand a
  * `jsonb` column back as a parsed value OR as its JSON text depending on the
  * transport in play (direct handle vs. db-host client); both are faithful
- * encodings of the SAME value, so `readChecks` accepts either. An unreadable
- * payload THROWS — a cache row we cannot interpret must not be rendered as a
- * PR with no checks.
+ * encodings of the SAME value, so `readChecks` (shared with the renderer's
+ * `use-forge-pr-cache.ts` via `@brainstrike/types`, so main and renderer can
+ * never validate a cached checks list differently) accepts either. An
+ * unreadable payload THROWS — a cache row we cannot interpret must not be
+ * rendered as a PR with no checks.
  *
  * ROW SHAPE (BST-1391 round 2, review comment 3847743481): a row is EITHER a
  * PR observation (every PR-specific column populated) OR an observed-absence
@@ -34,8 +36,8 @@
  * valid cache key. Nulls are ONLY legitimate on a `none` row, handled before
  * any of these readers run.
  */
-import type { ForgeCheck, ForgeCheckConclusion, ForgePullRequest } from '@brainstrike/types';
-import { rollupForgeChecks } from '@brainstrike/types';
+import type { ForgePullRequest } from '@brainstrike/types';
+import { readChecks, rollupForgeChecks } from '@brainstrike/types';
 
 export const FORGE_PR_CACHE_TABLE = 'brainstrike_forge_prs';
 
@@ -78,42 +80,6 @@ const UPSERT_SQL = `
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-const FORGE_CHECK_CONCLUSIONS: ReadonlySet<string> = new Set<ForgeCheckConclusion>([
-  'action_required',
-  'cancelled',
-  'failure',
-  'neutral',
-  'pending',
-  'skipped',
-  'success',
-  'timed_out',
-]);
-
-function readChecks(value: unknown): readonly ForgeCheck[] {
-  const source = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
-  if (!Array.isArray(source)) {
-    throw new Error('Cached forge checks are unreadable: the value is not an array.');
-  }
-  return source.map((entry, index) => {
-    if (!isRecord(entry)) {
-      throw new Error(`Cached forge check ${index} is not an object.`);
-    }
-    const conclusion = entry['conclusion'];
-    const name = entry['name'];
-    const url = entry['url'];
-    if (typeof conclusion !== 'string' || !FORGE_CHECK_CONCLUSIONS.has(conclusion)) {
-      throw new Error(`Cached forge check ${index} has an unrecognized conclusion.`);
-    }
-    if (typeof name !== 'string' || name.trim().length === 0) {
-      throw new Error(`Cached forge check ${index} has no name.`);
-    }
-    if (!(url === null || typeof url === 'string')) {
-      throw new Error(`Cached forge check ${index} has an unreadable URL.`);
-    }
-    return { conclusion: conclusion as ForgeCheckConclusion, name, url };
-  });
 }
 
 function readState(value: unknown): ForgePullRequest['state'] {
@@ -162,6 +128,19 @@ function readText(value: unknown, label: string): string {
   return value;
 }
 
+/**
+ * `typeof value === 'number' && Number.isInteger(value)` — never `Number(value)`.
+ * PGlite's client hands back a `number` for an `int4` column, so a value that
+ * arrives as anything else (a numeric string, `NaN`, a float) is corruption,
+ * not a legitimate PR number that merely needs coercing into shape.
+ */
+function readNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return value;
+  }
+  throw new Error(`Cached forge PR has a non-integer number "${String(value)}".`);
+}
+
 export async function readForgePrCacheEntry(
   db: ForgeCacheDatabase,
   repoCommonDir: string,
@@ -181,10 +160,7 @@ export async function readForgePrCacheEntry(
     return { observedAt, pullRequest: null };
   }
   const checks = readChecks(row['checksJson']);
-  const number = Number(row['number']);
-  if (!Number.isInteger(number)) {
-    throw new Error('Cached forge PR has a non-integer number.');
-  }
+  const number = readNumber(row['number']);
   return {
     observedAt,
     pullRequest: {
