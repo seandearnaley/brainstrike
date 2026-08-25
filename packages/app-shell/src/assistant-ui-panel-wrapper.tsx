@@ -141,10 +141,12 @@ import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
+import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
@@ -164,6 +166,7 @@ export interface AssistantUiPanelWrapperProps {
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
 }
 const assistantUsageWriteBackLogger = createLogger('AssistantUsageWriteBack');
+const EMPTY_MEMORY_THREADS = [] as const;
 
 declare global {
   interface Window {
@@ -785,6 +788,9 @@ export function AssistantUiPanelWrapper({
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
   const memoryResourceId = resolveAssistantMemoryResourceId(memoryResourceIdOverride);
+  const memoryThreads = useAssistantThreadStore(
+    (state) => state.threadsByResourceId[memoryResourceId] ?? EMPTY_MEMORY_THREADS
+  );
   const selectedMemoryThreadId = memoryThreadId ?? selectedThreadByResourceId[memoryResourceId];
   const resourceThreadsReady = loadStateByResourceId[memoryResourceId]?.status === 'ready';
   const refreshThreadsAfterRun = useAssistantThreadTitleSync({
@@ -1692,7 +1698,43 @@ export function AssistantUiPanelWrapper({
   // required) — see docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS". Only ever fires
   // for the Mastra-loop transport; the settings/permission/focus gates live
   // entirely inside the hook.
-  const { onRunFailed, onRunFinished, onToolApprovalRequired } = useAssistantRunNotifications();
+  const notificationCallbacks = useAssistantRunNotifications();
+  const { onRunFailed, onRunFinished, onToolApprovalRequired } = notificationCallbacks;
+  // Deferred activation (BST-1116 W6 finding 4) — see `useForgeBranchLookupActivation`'s doc.
+  const forgeBranchLookupEnabled = useForgeBranchLookupActivation();
+  const {
+    available: forgeBranchLookupAvailable,
+    byRootId,
+    byRootIdAndPath,
+    byRootPath,
+    loaded: forgeBranchLookupLoaded,
+  } = useThreadBranchByRootPath({
+    enabled: forgeBranchLookupEnabled,
+  });
+  // `available`/`loaded` are threaded through (BST-1391 M2), not discarded:
+  // `useForgeRunEvents` needs them to tell "still loading" apart from "no
+  // match" so a push that races the lookup's first load gets buffered
+  // instead of silently dropped — see `ForgeBranchLookup`'s doc.
+  const forgeBranchLookup = useMemo(
+    () => ({
+      available: forgeBranchLookupAvailable,
+      byRootId,
+      byRootIdAndPath,
+      byRootPath,
+      loaded: forgeBranchLookupLoaded,
+    }),
+    [forgeBranchLookupAvailable, byRootId, byRootIdAndPath, byRootPath, forgeBranchLookupLoaded]
+  );
+
+  // Forge observations arrive out of band from main, so they need their own
+  // trigger source alongside the stream-scanning one — same decision layer.
+  useForgeRunEvents({
+    assistantThreadRepository,
+    branchLookup: forgeBranchLookup,
+    memoryResourceId,
+    notifications: notificationCallbacks,
+    threads: memoryThreads,
+  });
 
   // Edit checkpoint (undo of agent file edits) context for the mutation tool
   // cards. Null on web / when no thread is selected (capability gating).

@@ -83,9 +83,23 @@ export const ASSISTANT_THREAD_COLOR_IDS = [
 export type AssistantThreadIconId = (typeof ASSISTANT_THREAD_ICON_IDS)[number];
 export type AssistantThreadColorId = (typeof ASSISTANT_THREAD_COLOR_IDS)[number];
 
+// biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
   readonly color?: AssistantThreadColorId;
   readonly icon?: AssistantThreadIconId;
+  /**
+   * The pull request this thread is driving, kept so "jump to the PR" works
+   * offline and after `gh` is uninstalled. Display + navigation only: the
+   * AUTHORITY for PR state is `brainstrike_forge_prs`, refreshed from gh.
+   */
+  readonly forgePrUrl?: string;
+  /**
+   * Whether check-transition notifications fire for this thread's PR
+   * (spec §4.4's Watch toggle). ABSENT means watching: the user opted into
+   * notifications globally, and a thread that has never touched the toggle
+   * should not be quieter than one that has. Only an explicit `false` mutes.
+   */
+  readonly forgePrWatch?: boolean;
   readonly model?: string;
   readonly modelSettings?: Record<string, unknown>;
   /** Human-readable label retained for a stable historical thread scope chip. */
@@ -1322,6 +1336,8 @@ const ASSISTANT_THREAD_ICON_ID_SET = new Set<string>(ASSISTANT_THREAD_ICON_IDS);
 const ASSISTANT_THREAD_COLOR_ID_SET = new Set<string>(ASSISTANT_THREAD_COLOR_IDS);
 const ASSISTANT_THREAD_METADATA_KEYS = new Set<string>([
   'color',
+  'forgePrUrl',
+  'forgePrWatch',
   'icon',
   'model',
   'modelSettings',
@@ -1491,6 +1507,10 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
 function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
@@ -1579,6 +1599,8 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   const metadata: MutableAssistantThreadMetadata = {};
   const icon = optionalThreadIconId(value['icon']);
   const color = optionalThreadColorId(value['color']);
+  const forgePrUrl = optionalString(value['forgePrUrl']);
+  const forgePrWatch = optionalBoolean(value['forgePrWatch']);
   const provider = optionalString(value['provider']);
   const model = optionalString(value['model']);
   const modelSettings = optionalRecord(value['modelSettings']);
@@ -1611,6 +1633,12 @@ function sanitizeThreadMetadata(value: unknown): AssistantThreadMetadata | undef
   }
   if (color) {
     metadata.color = color;
+  }
+  if (forgePrUrl) {
+    metadata.forgePrUrl = forgePrUrl;
+  }
+  if (forgePrWatch !== undefined) {
+    metadata.forgePrWatch = forgePrWatch;
   }
   if (provider) {
     metadata.provider = provider;
@@ -1658,6 +1686,10 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   if (metadata.color !== undefined && !ASSISTANT_THREAD_COLOR_ID_SET.has(metadata.color)) {
     throw new Error('Invalid assistant thread metadata color.');
   }
+  assertOptionalThreadMetadataString(metadata.forgePrUrl, 'forge pull request URL');
+  if (metadata.forgePrWatch !== undefined && typeof metadata.forgePrWatch !== 'boolean') {
+    throw new Error('Invalid assistant thread metadata forge watch flag.');
+  }
   assertCompleteOperatingRootMetadata(metadata);
   assertOptionalThreadMetadataString(metadata.provider, 'provider');
   assertOptionalThreadMetadataString(metadata.model, 'model');
@@ -1675,6 +1707,16 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   if (metadata.providerOptions !== undefined && !optionalRecord(metadata.providerOptions)) {
     throw new Error('Invalid assistant thread metadata provider options.');
   }
+}
+
+/** Test-only seam for the sanitizer — see thread-metadata.test.ts. */
+export function sanitizeThreadMetadataForTest(value: unknown): AssistantThreadMetadata | undefined {
+  return sanitizeThreadMetadata(value);
+}
+
+/** Test-only seam for the persistence assertion — see thread-metadata.test.ts. */
+export function assertPersistableThreadMetadataForTest(metadata: AssistantThreadMetadata): void {
+  assertPersistableThreadMetadata(metadata);
 }
 
 /**

@@ -19,6 +19,23 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'memory.semantic.started',
   'memory.working.loaded',
   'memory.working.updated',
+  // Forge (pull request) observations (BST-1391, W4). These are the ONLY run
+  // events not produced by the agent stream: the main-process ForgeService
+  // observes them out of band and the renderer appends them to the thread's
+  // MOST RECENT run — the run whose push produced the pull request.
+  //
+  // `run_id` is NOT NULL with an FK to the renderer-bootstrapped thread-runs
+  // table, so a thread with no runs gets no row: there is no turn to attach
+  // the observation to, and `appendThreadRunEvent`'s INSERT … SELECT no-ops.
+  // The chip and the thread pill still show the PR — only the timeline row is
+  // absent, and the writer logs that it was.
+  //
+  // Deliberately three kinds rather than one `pr.updated`: the timeline reads
+  // as a history ("Opened #2574", "Checks failed", "Merged"), and the
+  // notification gate is per-kind.
+  'pr.checks',
+  'pr.merged',
+  'pr.opened',
   'run.cancelled',
   'run.failed',
   'run.finished',
