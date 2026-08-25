@@ -49,6 +49,7 @@ const THREAD_FILTER_OPTIONS: readonly {
   { label: 'Running', value: 'running' },
   { label: 'Needs you', value: 'needsYou' },
   { label: 'Unseen', value: 'unseen' },
+  { label: 'Has PR', value: 'hasPr' },
 ];
 
 /**

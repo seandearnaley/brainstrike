@@ -5,6 +5,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -21,7 +22,7 @@ import {
 import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
-import { ThreadsPanel } from '../threads-panel';
+import { ThreadMetadataBadgesForTest, ThreadsPanel } from '../threads-panel';
 
 const virtualizerState = vi.hoisted(() => ({
   estimatedSizes: [] as number[],
@@ -76,6 +77,8 @@ const {
     awaitingApprovalRows: [] as Record<string, unknown>[],
     database: undefined as unknown,
     deleteFailureThreadId: null as string | null,
+    forgePrError: null as Error | null,
+    forgePrRows: [] as Record<string, unknown>[],
     initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
     initializing: false,
     metadataFailureMessage: 'Metadata update failed in PGlite.',
@@ -253,9 +256,9 @@ vi.mock('@brainstrike/db/react', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
-  // Routed BY cacheKey, never by call order: the panel now runs two live
-  // projections with identical row shapes ({ threadId }), so an order-based
-  // double would happily feed the running spinners the approval rows.
+  // Routed BY cacheKey, never by call order: the panel runs distinct live
+  // projections, including two with identical row shapes ({ threadId}), so an
+  // order-based double would happily feed the running spinners approval rows.
   usePGliteLiveQuery: (options: { readonly cacheKey: string; readonly enabled: boolean }) => {
     if (options.cacheKey.startsWith('["threads-awaiting-approval"')) {
       return {
@@ -263,6 +266,14 @@ vi.mock('@brainstrike/db/react', () => ({
         loading: false,
         refresh: vi.fn(),
         rows: options.enabled ? dbMocks.awaitingApprovalRows : [],
+      };
+    }
+    if (options.cacheKey.startsWith('["forge-pr-cache"')) {
+      return {
+        error: dbMocks.forgePrError,
+        loading: false,
+        refresh: vi.fn(),
+        rows: options.enabled ? dbMocks.forgePrRows : [],
       };
     }
     if (!options.cacheKey.startsWith('["active-assistant-thread-ids"')) {
@@ -298,7 +309,10 @@ vi.mock('../changes/use-git-inventory', () => ({
               errors: [],
               repositories: [
                 {
-                  identity: { commonDir: '/tmp/workspace-a/.git', root: '/tmp/workspace-a' },
+                  identity: {
+                    gitCommonDir: '/tmp/workspace-a/.git',
+                    repositoryRoot: '/tmp/workspace-a',
+                  },
                   worktrees: gitMocks.worktrees.map(({ containment, ...worktree }) => ({
                     ...worktree,
                     containment: containment ?? 'outside-roots',
@@ -366,6 +380,8 @@ beforeEach(() => {
   dbMocks.activeRunSweepError = null;
   dbMocks.awaitingApprovalError = null;
   dbMocks.awaitingApprovalRows = [];
+  dbMocks.forgePrError = null;
+  dbMocks.forgePrRows = [];
   dbMocks.rootsQueryError = null;
   gitMocks.available = true;
   gitMocks.deferredLoads = [];
@@ -1611,6 +1627,48 @@ describe('ThreadsPanel', () => {
   });
 });
 
+describe('thread row PR pill', () => {
+  const thread: AssistantMemoryThread = {
+    createdAt: new Date('2026-08-24T00:00:00Z'),
+    id: 'thread-pr-pill',
+    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+    title: 'PR pill thread',
+    updatedAt: new Date('2026-08-24T01:00:00Z'),
+  };
+  const pr: ForgePrCacheEntry = {
+    branch: 'main',
+    checksRollup: 'failing',
+    isDraft: false,
+    number: 2574,
+    repoCommonDir: '/repos/widgets/.git',
+    state: 'open',
+    url: 'https://github.test/acme/widgets/pull/2574',
+  };
+
+  it('renders the PR number and open failing state', () => {
+    render(<ThreadMetadataBadgesForTest branch={null} pr={pr} thread={thread} />);
+
+    const pill = screen.getByTestId('thread-pr-pill');
+    expect(pill).toHaveTextContent('#2574');
+    expect(pill).toHaveAttribute('data-checks', 'failing');
+    expect(pill).toHaveAttribute('data-state', 'open');
+  });
+
+  it('renders no PR pill when there is no cached PR', () => {
+    render(<ThreadMetadataBadgesForTest branch={null} pr={null} thread={thread} />);
+
+    expect(screen.queryByTestId('thread-pr-pill')).toBeNull();
+  });
+
+  it('marks merged PRs for faded row styling', () => {
+    render(
+      <ThreadMetadataBadgesForTest branch={null} pr={{ ...pr, state: 'merged' }} thread={thread} />
+    );
+
+    expect(screen.getByTestId('thread-pr-pill')).toHaveAttribute('data-state', 'merged');
+  });
+});
+
 describe('ThreadsPanel groups', () => {
   function seedGroup(id: string, name: string, rank: string): void {
     groupRows.push({
@@ -2207,11 +2265,11 @@ describe('ThreadsPanel folders', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    // The three boxes are ONE labelled group, not three loose checkboxes that
+    // The four boxes are ONE labelled group, not four loose checkboxes that
     // happen to sit under a heading: a screen reader announces "Show only" when
     // focus enters, which is the only thing that says these narrow the list.
     const showOnly = await screen.findByRole('group', { name: 'Show only' });
-    expect(within(showOnly).getAllByRole('checkbox')).toHaveLength(3);
+    expect(within(showOnly).getAllByRole('checkbox')).toHaveLength(4);
     fireEvent.click(within(showOnly).getByRole('checkbox', { name: 'Running' }));
 
     await waitFor(() => {
@@ -2365,9 +2423,22 @@ describe('ThreadsPanel folders', () => {
       lookupThreadBranch(legacyThread, {
         byRootId: new Map(),
         byRootIdAndPath: new Map(),
-        byRootPath: new Map([['/tmp/workspace-a', { branch: 'legacy-branch', detached: false }]]),
+        byRootPath: new Map([
+          [
+            '/tmp/workspace-a',
+            {
+              branch: 'legacy-branch',
+              detached: false,
+              gitCommonDir: '/tmp/workspace-a/.git',
+            },
+          ],
+        ]),
       })
-    ).toEqual({ branch: 'legacy-branch', detached: false });
+    ).toEqual({
+      branch: 'legacy-branch',
+      detached: false,
+      gitCommonDir: '/tmp/workspace-a/.git',
+    });
   });
 
   it('does not borrow a same-path replacement root branch when the durable root id differs', async () => {

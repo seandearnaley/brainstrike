@@ -82,6 +82,7 @@ export interface ThreadBranchInfo {
   /** `null` on a detached HEAD — never a synthesized name. */
   readonly branch: string | null;
   readonly detached: boolean;
+  readonly gitCommonDir: string;
 }
 
 export interface ThreadBranchByRootPathState {
@@ -138,7 +139,11 @@ function projectBranches(inventory: GitInventory): {
         // worktree does not make its root's containment ambiguous either.
         continue;
       }
-      const info: ThreadBranchInfo = { branch: worktree.branch, detached: worktree.detached };
+      const info: ThreadBranchInfo = {
+        branch: worktree.branch,
+        detached: worktree.detached,
+        gitCommonDir: repository.identity.gitCommonDir,
+      };
       const normalizedPath = normalizeRootPathForLookup(worktree.path);
       byRootPath.set(normalizedPath, info);
       if (worktree.containment !== 'outside-roots') {
@@ -185,3 +190,6 @@ export function useThreadBranchByRootPath({
 
   return { available, byRootId, byRootIdAndPath, byRootPath };
 }
+
+/** Exported for the projection test — the hook itself is the only production caller. */
+export { projectBranches as projectBranchesForTest };

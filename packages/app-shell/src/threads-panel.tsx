@@ -42,6 +42,7 @@ import {
 } from '@brainstrike/db/react';
 import { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type { QueueAdapter } from '@brainstrike/queue';
+import type { ForgePrCacheEntry } from '@brainstrike/types';
 import {
   ActionContextMenu,
   Button,
@@ -68,6 +69,7 @@ import {
   FolderMinus,
   FolderPlus,
   GitBranch,
+  GitPullRequest,
   ListChecks,
   MessageSquare,
   MoreHorizontal,
@@ -93,6 +95,7 @@ import {
   THREAD_CONTROL_TITLE_CLASS_NAME,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
+import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
@@ -100,6 +103,7 @@ import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approva
 import { useMarkActiveThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
+import { lookupThreadForgePr } from './thread-forge-pr-resolution';
 import {
   filterThreadsByThreadFilters,
   hasActiveThreadFilters,
@@ -252,6 +256,7 @@ function ThreadRows({
   branchLookup,
   failedUnseenThreadIds,
   folderMode,
+  forgePrLookup,
   membershipByThreadId,
   moveTargets,
   needsYouThreadIds,
@@ -275,6 +280,7 @@ function ThreadRows({
    * and the group-membership actions with it.
    */
   readonly folderMode: boolean;
+  readonly forgePrLookup: ForgePrCacheLookup;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
   readonly needsYouThreadIds: ReadonlySet<string>;
@@ -391,6 +397,7 @@ function ThreadRows({
             onSavingThreadIdChange={setSavingThreadId}
             onSelectThread={onSelectThread}
             onUpdateThreadMetadata={onUpdateThreadMetadata}
+            pr={lookupThreadForgePr(thread, branchLookup, forgePrLookup)}
             renameError={renameError}
             rowGroupId={folderMode ? null : (membershipByThreadId.get(thread.id) ?? null)}
             savingMetadataThreadId={savingMetadataThreadId}
@@ -520,6 +527,7 @@ function ThreadRowItem({
   onSavingThreadIdChange,
   onSelectThread,
   onUpdateThreadMetadata,
+  pr,
   renameError,
   rowGroupId,
   savingMetadataThreadId,
@@ -558,6 +566,7 @@ function ThreadRowItem({
     threadId: string,
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
+  readonly pr: ForgePrCacheEntry | null;
   readonly renameError: string | null;
   readonly rowGroupId: string | null;
   readonly savingMetadataThreadId: string | null;
@@ -774,6 +783,7 @@ function ThreadRowItem({
               onSelectThread={onSelectThread}
               onUpdateThreadMetadata={onUpdateThreadMetadata}
               pendingDelete={isConfirmingDelete}
+              pr={pr}
               selected={isSelected}
               status={status}
               thread={thread}
@@ -887,6 +897,7 @@ function ThreadRowDisplay({
   onSelectThread,
   onUpdateThreadMetadata,
   pendingDelete,
+  pr,
   selected,
   status,
   thread,
@@ -912,6 +923,7 @@ function ThreadRowDisplay({
     metadata: AssistantThreadMetadata
   ) => Promise<void>;
   readonly pendingDelete: boolean;
+  readonly pr: ForgePrCacheEntry | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -942,7 +954,7 @@ function ThreadRowDisplay({
               className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} min-w-0 items-center gap-1.5`}
             >
               <div className={THREAD_CONTROL_TITLE_CLASS_NAME}>{thread.title}</div>
-              <ThreadMetadataBadges branch={branch} thread={thread} />
+              <ThreadMetadataBadges branch={branch} pr={pr} thread={thread} />
             </div>
           </div>
         </button>
@@ -1266,30 +1278,58 @@ function ThreadDetail({
   );
 }
 
+const PR_ROLLUP_GLYPH: Readonly<Record<ForgePrCacheEntry['checksRollup'], string>> = {
+  failing: '✗',
+  none: '·',
+  passing: '✓',
+  pending: '◐',
+};
+
 function ThreadMetadataBadges({
   branch,
+  pr,
   thread,
 }: {
   /** Only ever set in folder grouping, and only on desktop. */
   readonly branch: ThreadBranchInfo | null;
+  /** Only ever set in folder grouping, and only when the cache has a row. */
+  readonly pr: ForgePrCacheEntry | null;
   readonly thread: AssistantMemoryThread;
 }): ReactElement | null {
   const providerLabel = getProviderLabel(thread.latestRun?.provider);
   const modelLabel = getThreadModelLabel(thread);
   const reasoningLabel = getReasoningLabel(thread);
   const maxOutputLabel = getMaxOutputLabel(thread);
-  if (!(branch || providerLabel || modelLabel || reasoningLabel || maxOutputLabel)) {
+  if (!(branch || pr || providerLabel || modelLabel || reasoningLabel || maxOutputLabel)) {
     return null;
   }
   return (
     <div
-      className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden [&>span:nth-child(n+2)]:@[560px]/threads:inline-flex [&>span:nth-child(n+2)]:hidden"
+      className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden [&>span:nth-child(n+3)]:@[560px]/threads:inline-flex [&>span:nth-child(n+3)]:hidden"
       data-testid="thread-metadata-badges"
     >
-      {/* First, so the branch is the badge that survives the narrow-panel
-          container query — in folder grouping it is the row's most local fact. */}
+      {/* Branch first, then PR: in folder grouping these two are the row's most
+          local facts, and they are the badges the narrow-panel container query
+          protects. */}
       {branch ? (
         <ThreadBadge icon={GitBranch}>{branch.detached ? 'detached' : branch.branch}</ThreadBadge>
+      ) : null}
+      {pr ? (
+        <span
+          className={`inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] leading-4 ${
+            pr.state === 'open' ? 'text-muted-foreground' : 'text-muted-foreground/60'
+          }`}
+          data-checks={pr.checksRollup}
+          data-state={pr.state}
+          data-testid="thread-pr-pill"
+          title={`Pull request #${pr.number} (${pr.state})`}
+        >
+          <GitPullRequest aria-hidden="true" className="size-2.5" />
+          {`#${pr.number}`}
+          <span aria-hidden="true">
+            {pr.isDraft && pr.state === 'open' ? '◌' : PR_ROLLUP_GLYPH[pr.checksRollup]}
+          </span>
+        </span>
       ) : null}
       {providerLabel ? <ThreadBadge>{providerLabel}</ThreadBadge> : null}
       {modelLabel ? <ThreadBadge>{modelLabel}</ThreadBadge> : null}
@@ -1298,6 +1338,9 @@ function ThreadMetadataBadges({
     </div>
   );
 }
+
+/** Exported for the panel unit lane; production renders it through ThreadRowItem. */
+export { ThreadMetadataBadges as ThreadMetadataBadgesForTest };
 
 function ThreadBadge({
   children,
@@ -2153,6 +2196,7 @@ function ThreadPanelTree({
   activeThreadIds,
   branchLookup,
   failedUnseenThreadIds,
+  forgePrLookup,
   groupHandlers,
   membershipByThreadId,
   moveTargets,
@@ -2175,6 +2219,7 @@ function ThreadPanelTree({
   readonly activeThreadIds: ReadonlySet<string>;
   readonly branchLookup: ThreadBranchLookup;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
+  readonly forgePrLookup: ForgePrCacheLookup;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
@@ -2249,6 +2294,7 @@ function ThreadPanelTree({
       branchLookup,
       failedUnseenThreadIds,
       folderMode,
+      forgePrLookup,
       membershipByThreadId,
       // A folder is not a custom group, so folder mode offers no "Move to …"
       // row action: the binding is the thread's own, re-bound from the
@@ -2269,6 +2315,7 @@ function ThreadPanelTree({
       branchLookup,
       failedUnseenThreadIds,
       folderMode,
+      forgePrLookup,
       membershipByThreadId,
       moveTargets,
       needsYouThreadIds,
@@ -2430,6 +2477,7 @@ function ThreadsPanelContent({
   databaseStartupLoading,
   failedUnseenThreadIds,
   folderGrouping,
+  forgePrLookup,
   groupHandlers,
   loadState,
   membershipByThreadId,
@@ -2458,6 +2506,7 @@ function ThreadsPanelContent({
   readonly databaseStartupLoading: boolean;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
   readonly folderGrouping: ThreadPanelFolderGroupingState | null;
+  readonly forgePrLookup: ForgePrCacheLookup;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly loadState: ThreadPanelLoadState | null;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
@@ -2511,6 +2560,7 @@ function ThreadsPanelContent({
       activeThreadIds={activeThreadIds}
       branchLookup={branchLookup}
       failedUnseenThreadIds={failedUnseenThreadIds}
+      forgePrLookup={forgePrLookup}
       groupHandlers={groupHandlers}
       membershipByThreadId={membershipByThreadId}
       moveTargets={moveTargets}
@@ -2821,6 +2871,12 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     () => ({ byRootId, byRootIdAndPath, byRootPath }),
     [byRootId, byRootIdAndPath, byRootPath]
   );
+  // Gated on folder grouping exactly like the branch chips: the pill only
+  // exists there, and an ungated live query would subscribe every panel mount.
+  const { byRepoBranch: forgePrLookup } = useForgePrCache({
+    database,
+    enabled: folderGrouping,
+  });
 
   // Folder sections mint persisted collapse keys; this is the symmetric prune
   // to the one `deleteGroup` does for group keys. The RESOLVED folder rows are
@@ -2840,10 +2896,22 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   }, [folderRowsByRootId, folderRowsResolved, pruneFolderCollapseIds]);
 
   const threadFiltersActive = hasActiveThreadFilters(threadFilters);
+  // "Has PR" is a projection over the same lookup the pill renders from, so a
+  // filtered row and its pill can never disagree.
+  const hasPrThreadIds = useMemo(
+    () =>
+      new Set(
+        threads
+          .filter((thread) => lookupThreadForgePr(thread, branchLookup, forgePrLookup) !== null)
+          .map((thread) => thread.id)
+      ),
+    [branchLookup, forgePrLookup, threads]
+  );
   const filteredThreads = useMemo(
     () =>
       filterThreadsByThreadFilters({
         filters: threadFilters,
+        hasPrThreadIds,
         needsYouThreadIds: threadsAwaitingApproval.threadIds,
         runningThreadIds: activeThreads.threadIds,
         threads,
@@ -2851,6 +2919,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
       }),
     [
       activeThreads.threadIds,
+      hasPrThreadIds,
       threadFilters,
       threads,
       threadsAwaitingApproval.threadIds,
@@ -3252,6 +3321,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           databaseStartupLoading={databaseStartupLoading}
           failedUnseenThreadIds={unseenThreadIds.failedUnseen}
           folderGrouping={folderGroupingState}
+          forgePrLookup={forgePrLookup}
           groupHandlers={{
             collapsedGroupIds,
             onDeleteGroup: handleDeleteGroup,
