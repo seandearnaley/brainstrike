@@ -1,4 +1,9 @@
-import type { AssistantMemoryThread, AssistantThreadRepository } from '@brainstrike/assistant-data';
+import {
+  type AssistantMemoryThread,
+  type AssistantThreadRepository,
+  resetAssistantThreadStore,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
 import type { ForgePrUpdatedEvent } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -58,6 +63,12 @@ const pullRequest = {
 
 function installBridge() {
   const listeners: ((event: ForgePrUpdatedEvent) => void)[] = [];
+  // Auto-increments unless a test explicitly overrides `generation` in a
+  // `push()` call — most tests don't care about ordering and would
+  // otherwise all collide on the same generation, which the hook's
+  // out-of-order guard (BST-1391 fix-round 3) would reject as stale after
+  // the first delivery.
+  let nextGeneration = 1;
   const bridge = {
     identity: vi.fn(),
     onPrUpdated: vi.fn((callback: (event: ForgePrUpdatedEvent) => void) => {
@@ -71,11 +82,13 @@ function installBridge() {
   };
   Object.defineProperty(window, 'forge', { configurable: true, value: bridge, writable: true });
   const push = (event: Partial<ForgePrUpdatedEvent>): void => {
+    const generation = event.generation ?? nextGeneration;
+    nextGeneration = generation + 1;
     act(() => {
       for (const listener of listeners) {
         listener({
           branch: 'feature/bar',
-          generation: 1,
+          generation,
           pullRequest,
           repoCommonDir: COMMON_DIR,
           transitions: ['opened'],
@@ -86,6 +99,8 @@ function installBridge() {
   };
   return { bridge, push };
 }
+
+const RESOURCE_ID = 'resource-1';
 
 function harness(
   threads: readonly AssistantMemoryThread[] = [thread()],
@@ -101,16 +116,28 @@ function harness(
     onRunFinished: vi.fn(),
     onToolApprovalRequired: vi.fn(),
   };
+  // Seeds the REAL `useAssistantThreadStore` (the same module-singleton
+  // `persistForgePrUrl` now writes through, BST-1391 fix-round 3) and reads
+  // `threads` back from it reactively, mirroring exactly how
+  // `assistant-ui-panel-wrapper.tsx` derives `memoryThreads`. A static
+  // closure array here would never reflect a write this hook itself just
+  // issued, defeating the point of testing the store-routed guard.
+  useAssistantThreadStore.setState({
+    threadsByResourceId: { [RESOURCE_ID]: [...threads] },
+  });
   const view = renderHook(
-    (props: { branchLookup: ForgeBranchLookup }) =>
+    (props: { branchLookup: ForgeBranchLookup }) => {
+      const liveThreads = useAssistantThreadStore(
+        (state) => state.threadsByResourceId[RESOURCE_ID] ?? threads
+      );
       useForgeRunEvents({
         assistantThreadRepository: repository,
         branchLookup: props.branchLookup,
-        memoryResourceId: 'resource-1',
+        memoryResourceId: RESOURCE_ID,
         notifications,
-        selectedMemoryThreadId: 'thread-1',
-        threads,
-      }),
+        threads: liveThreads,
+      });
+    },
     { initialProps: { branchLookup: initialBranchLookup } }
   );
   return { notifications, repository, view };
@@ -119,6 +146,10 @@ function harness(
 afterEach(() => {
   Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'forge');
   vi.restoreAllMocks();
+  // `persistForgePrUrl` now writes through the REAL, module-singleton
+  // `useAssistantThreadStore` (BST-1391 fix-round 3) — reset it so one
+  // test's write can never leak into the next.
+  resetAssistantThreadStore();
 });
 
 describe('useForgeRunEvents', () => {
@@ -298,6 +329,37 @@ describe('useForgeRunEvents', () => {
     push({ transitions: ['opened'] });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(repository.appendThreadRunEvent).not.toHaveBeenCalled();
+  });
+
+  describe('generation guard (BST-1391 fix-round 3)', () => {
+    it('drops an out-of-order (stale) delivery, appending nothing for it', async () => {
+      const { push } = installBridge();
+      const { repository } = harness();
+
+      // Establishes generation 5 as "last seen" via a normal, processed push.
+      push({ generation: 5, transitions: ['opened'] });
+      await waitFor(() => expect(repository.appendThreadRunEvent).toHaveBeenCalledTimes(1));
+
+      // A delivery whose generation does not exceed the last one seen is
+      // stale/out-of-order per `ForgePrUpdatedEvent.generation`'s documented
+      // contract ("consumers drop stale deliveries") — it must be dropped
+      // outright, not processed.
+      push({ generation: 3, transitions: ['checks'] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(repository.appendThreadRunEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops a duplicate delivery at the SAME generation as the last one seen', async () => {
+      const { push } = installBridge();
+      const { repository } = harness();
+
+      push({ generation: 5, transitions: ['opened'] });
+      await waitFor(() => expect(repository.appendThreadRunEvent).toHaveBeenCalledTimes(1));
+
+      push({ generation: 5, transitions: ['checks'] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(repository.appendThreadRunEvent).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('branch-lookup readiness (BST-1391 M2)', () => {

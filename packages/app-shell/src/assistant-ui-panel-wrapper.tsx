@@ -1733,7 +1733,6 @@ export function AssistantUiPanelWrapper({
     branchLookup: forgeBranchLookup,
     memoryResourceId,
     notifications: notificationCallbacks,
-    selectedMemoryThreadId,
     threads: memoryThreads,
   });
 

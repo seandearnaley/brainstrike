@@ -35,7 +35,11 @@
  * is future work, not this task's.
  */
 import type { ForgeNotificationEvent } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
-import type { AssistantMemoryThread, AssistantThreadRepository } from '@brainstrike/assistant-data';
+import {
+  type AssistantMemoryThread,
+  type AssistantThreadRepository,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import type { ForgePrTransition, ForgePrUpdatedEvent, ForgePullRequest } from '@brainstrike/types';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -78,7 +82,6 @@ export interface UseForgeRunEventsArgs {
   readonly branchLookup: ForgeBranchLookup;
   readonly memoryResourceId: string;
   readonly notifications: AssistantRunNotificationCallbacks;
-  readonly selectedMemoryThreadId: string | undefined;
   readonly threads: readonly AssistantMemoryThread[];
 }
 
@@ -217,41 +220,52 @@ function appendTimelineRow(input: {
 }
 
 /**
- * Writes `thread.metadata.forgePrUrl`. Two BST-1391 L6 corrections over the
- * original:
+ * Writes `thread.metadata.forgePrUrl` through the CANONICAL store writer
+ * (`useAssistantThreadStore.getState().updateThreadMetadata`) — the same
+ * path `use-workspace-bar.ts:554`, `use-assistant-thread-root-binding.ts:103`,
+ * and `threads-panel.tsx:3115` use — instead of a raw
+ * `repository.updateThreadMetadata` call (BST-1391 fix-round 3):
  *
  * 1. `updateThreadMetadata` MERGES server-side
  *    (`SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb` —
  *    `assistant-memory-repository.ts`), so this writes ONLY the forge key.
- *    Spreading `thread.metadata` back would re-persist that possibly-stale
- *    prop snapshot over every OTHER key, silently reverting any of them that
- *    changed elsewhere since this thread list was last refreshed.
- * 2. The "already up to date" check compares against the URL THIS hook last
- *    WROTE for the thread (`lastPersisted`), not `thread.metadata.forgePrUrl`
- *    — that prop is whatever the caller's live query last delivered, which
- *    will not have caught up with a write this same render pass just issued.
- *    Comparing against the stale prop re-issues an identical write on every
- *    subsequent `checks` transition for the same PR until the query refetch
- *    lands. `lastPersisted` is a plain ref map — no eviction, matching the
- *    dispatcher's own `dispatchedKeys` precedent
- *    (`run-notification-dispatcher.ts`).
+ *    Spreading `thread.metadata` back would re-persist a possibly-stale
+ *    snapshot over every OTHER key.
+ * 2. The store writer ALSO merges the write into
+ *    `useAssistantThreadStore`'s `threadsByResourceId` (see its
+ *    implementation in `assistant-thread-store.ts`), which is the SAME
+ *    in-memory list this hook reads as `args.threads`
+ *    (`memoryThreads` in the wrapper) and the same list the offline
+ *    "jump to PR" affordance reads. A raw repository call bypassed that
+ *    store entirely, so `thread.metadata.forgePrUrl` never caught up within
+ *    a session — the guard below always compared against a snapshot from
+ *    before this hook's own first write. Routing through the store closes
+ *    that loop: the NEXT push sees the write reflected in `args.threads`.
+ *
+ * No separate "last written" ref (an earlier round used one to paper over
+ * exactly the staleness (2) now fixes at the source): once the store merge
+ * makes `thread.metadata.forgePrUrl` catch up across pushes, comparing
+ * against it directly is sufficient. The one gap this accepts: two
+ * transitions for the SAME thread inside a SINGLE push (e.g.
+ * `['opened','checks']` sharing one `pullRequest`) can each pass the guard
+ * before the first write's store `set()` lands, issuing one redundant —
+ * but idempotent, same-value — write. Not worth a ref to close.
  */
 function persistForgePrUrl(
   repository: AssistantThreadRepository | null,
+  resourceId: string,
   thread: AssistantMemoryThread,
-  pullRequest: ForgePullRequest,
-  lastPersisted: Map<string, string>
+  pullRequest: ForgePullRequest
 ): void {
   if (!repository) {
     return;
   }
-  const previouslyWritten = lastPersisted.get(thread.id) ?? thread.metadata?.forgePrUrl;
-  if (previouslyWritten === pullRequest.url) {
+  if (thread.metadata?.forgePrUrl === pullRequest.url) {
     return;
   }
-  lastPersisted.set(thread.id, pullRequest.url);
-  repository
-    .updateThreadMetadata(thread.id, { forgePrUrl: pullRequest.url })
+  useAssistantThreadStore
+    .getState()
+    .updateThreadMetadata(repository, resourceId, thread.id, { forgePrUrl: pullRequest.url })
     .catch((error: unknown) => {
       logger.error('Failed to persist the thread forge PR URL', {
         error,
@@ -262,17 +276,17 @@ function persistForgePrUrl(
 
 function recordTransition(input: {
   readonly event: ForgePrUpdatedEvent;
-  readonly lastPersistedForgePrUrl: Map<string, string>;
   readonly matching: readonly AssistantMemoryThread[];
   readonly pullRequest: ForgePullRequest;
   readonly repository: AssistantThreadRepository | null;
+  readonly resourceId: string;
   readonly transition: ForgePrTransition;
 }): void {
-  const { event, lastPersistedForgePrUrl, matching, pullRequest, repository, transition } = input;
+  const { event, matching, pullRequest, repository, resourceId, transition } = input;
   const copy = describe(transition, pullRequest);
   for (const thread of matching) {
     appendTimelineRow({ copy, event, pullRequest, repository, thread, transition });
-    persistForgePrUrl(repository, thread, pullRequest, lastPersistedForgePrUrl);
+    persistForgePrUrl(repository, resourceId, thread, pullRequest);
   }
 }
 
@@ -343,10 +357,10 @@ type ForgePushOutcome = 'buffered' | 'ignored' | 'processed';
 function handleForgePrUpdated(
   event: ForgePrUpdatedEvent,
   args: UseForgeRunEventsArgs,
-  processedTransitionKeys: Set<string>,
-  lastPersistedForgePrUrl: Map<string, string>
+  processedTransitionKeys: Set<string>
 ): ForgePushOutcome {
-  const { assistantThreadRepository, branchLookup, notifications, threads } = args;
+  const { assistantThreadRepository, branchLookup, memoryResourceId, notifications, threads } =
+    args;
   const { pullRequest, transitions } = event;
   if (transitions.length === 0 || pullRequest === null) {
     return 'ignored';
@@ -385,10 +399,10 @@ function handleForgePrUpdated(
     processedTransitionKeys.add(transitionKey);
     recordTransition({
       event,
-      lastPersistedForgePrUrl,
       matching,
       pullRequest,
       repository: assistantThreadRepository,
+      resourceId: memoryResourceId,
       transition,
     });
     const notification = buildForgeNotification({
@@ -471,10 +485,26 @@ function pendingBufferKey(event: ForgePrUpdatedEvent): string {
 
 export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
   const bridge = useMemo(() => resolveForgeBridge(), []);
-  // The push handler must see the CURRENT threads/lookup without resubscribing
-  // on every thread-store tick — a resubscribe would drop pushes in flight.
+  const { assistantThreadRepository, branchLookup, memoryResourceId, notifications, threads } =
+    args;
+  // The push handler must see the CURRENT threads/lookup without
+  // resubscribing to the bridge on every thread-store tick — a resubscribe
+  // would drop pushes in flight — which is why a ref is used at all. Render
+  // must stay pure (react-doctor/no-ref-current-in-render, BST-1391
+  // fix-round 3), so the WRITE itself happens in the effect below, deferred
+  // to after commit, keyed on the individual fields this hook reads (not
+  // `args` itself, a fresh object every render that would make the
+  // dependency array a no-op).
   const latest = useRef(args);
-  latest.current = args;
+  useEffect(() => {
+    latest.current = {
+      assistantThreadRepository,
+      branchLookup,
+      memoryResourceId,
+      notifications,
+      threads,
+    };
+  }, [assistantThreadRepository, branchLookup, memoryResourceId, notifications, threads]);
 
   // Pushes `handleForgePrUpdated` returned `'buffered'` for — matched no
   // thread while the branch lookup was still loading. Retained rather than
@@ -489,20 +519,32 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
   // same buffered push cannot double-append a timeline row — see
   // `handleForgePrUpdated`'s dedupe check.
   const processedTransitionKeysRef = useRef<Set<string>>(new Set());
-  // The last `forgePrUrl` this hook itself wrote per thread id — see
-  // `persistForgePrUrl`'s doc (BST-1391 L6).
-  const lastPersistedForgePrUrlRef = useRef<Map<string, string>>(new Map());
+  // `ForgePrUpdatedEvent.generation` is documented as a monotonic
+  // per-main-process counter whose "consumers drop stale deliveries"
+  // (`packages/types/src/forge.ts`). This hook performs durable writes (a
+  // timeline row, `forgePrUrl`), so a re-ordered or duplicated IPC delivery
+  // must not resurrect an already-superseded observation — honored here by
+  // dropping any push whose generation does not strictly advance past the
+  // last one this hook instance has seen.
+  const lastSeenGenerationRef = useRef(0);
 
   useEffect(() => {
     if (!bridge) {
       return;
     }
     return bridge.onPrUpdated((event: ForgePrUpdatedEvent) => {
+      if (event.generation <= lastSeenGenerationRef.current) {
+        logger.debug('Dropping an out-of-order or duplicate forge push', {
+          generation: event.generation,
+          lastSeenGeneration: lastSeenGenerationRef.current,
+        });
+        return;
+      }
+      lastSeenGenerationRef.current = event.generation;
       const outcome = handleForgePrUpdated(
         event,
         latest.current,
-        processedTransitionKeysRef.current,
-        lastPersistedForgePrUrlRef.current
+        processedTransitionKeysRef.current
       );
       if (outcome === 'buffered') {
         const bufferKey = pendingBufferKey(event);
@@ -523,7 +565,6 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
   // every time `useThreadBranchByRootPath` resolves a load), not on a timer
   // or the thread list, so this fires exactly when there is new information
   // to retry buffered pushes against — see `isLookupReady`.
-  const { branchLookup } = args;
   useEffect(() => {
     if (pendingRef.current.size === 0 || !isLookupReady(branchLookup)) {
       return;
@@ -535,12 +576,7 @@ export function useForgeRunEvents(args: UseForgeRunEventsArgs): void {
       // `isLookupReady` is true), but `handleForgePrUpdated` returning
       // `'buffered'` again is handled the same as any other outcome: the
       // event is simply not re-queued, so a stuck lookup cannot loop.
-      handleForgePrUpdated(
-        event,
-        latest.current,
-        processedTransitionKeysRef.current,
-        lastPersistedForgePrUrlRef.current
-      );
+      handleForgePrUpdated(event, latest.current, processedTransitionKeysRef.current);
     }
   }, [branchLookup]);
 }
