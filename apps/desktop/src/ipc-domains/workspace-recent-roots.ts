@@ -233,10 +233,11 @@ export interface GrantedRootHandle {
  *    This is the second and last sanctioned picker-less mount; it is
  *    deliberately NOT a general "add root by path" door, and a managed worktree
  *    is NOT recorded into the recents ledger at grant time (that list is the
- *    user's folders, not the app's scratch directories). KNOWN GAP: the mount
- *    is still persisted in `rootsList`, and `restoreRoots` records every
- *    persisted entry into recents on the next launch — closing that requires
- *    the durable `roots.kind='worktree'` marker (BST-1390 Task 10 obligation).
+ *    user's folders, not the app's scratch directories). CLOSED (BST-1390
+ *    Task 10): the mount remains persisted in `rootsList`, but `restoreRoots`
+ *    batch-reads each persisted root's DB kind and skips recents recording for
+ *    `kind='worktree'`; an unavailable kind query is warned and preserves the
+ *    prior fail-open recents behavior without blocking root restoration.
  *
  * The ledger is checked FIRST so a broken authorizer can never take the
  * recents path down with it. Neither gate is a hardening boundary against a

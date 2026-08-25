@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   type BackgroundIndexingPreferencesStore,
+  defaultBackgroundIndexingEnabled,
   ensureBackgroundIndexingPreferencesHydrated,
   useBackgroundIndexingPreferencesStore,
 } from '../stores/background-indexing-preferences-store';
@@ -21,6 +22,15 @@ describe('background-indexing-preferences-store', () => {
       'electronAPI'
     );
     __resetBackgroundIndexingPreferencesStoreForTests();
+  });
+
+  it.each([
+    ['worktree', false],
+    ['path', true],
+    ['fsa', true],
+    [null, true],
+  ] as const)('defaults background indexing for root kind %s to %s', (kind, expected) => {
+    expect(defaultBackgroundIndexingEnabled(kind)).toBe(expected);
   });
 
   it('initializes with workspace indexing enabled and no managed collection', () => {

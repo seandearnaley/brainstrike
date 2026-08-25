@@ -151,4 +151,16 @@ describe('ipc-handlers filesystem composition', () => {
     ).resolves.toBe(true);
     expect(fileSystem.exists).toHaveBeenCalledWith(path.resolve('/users/test/docs'));
   });
+
+  it('threads the managed-worktree authorizer through the filesystem composition root', async () => {
+    const managedWorktreeAuthorizer = vi.fn(async () => 'authorized' as const);
+    registerIpcHandlers(fileSystem, storage, () => null, {
+      isSyntheticFileSystemPath: () => true,
+      managedWorktreeAuthorizer,
+    });
+
+    await handlers.get('fs:addRootByPath')?.({} as IpcMainInvokeEvent, '/managed/app/bright-fox');
+
+    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
+  });
 });

@@ -4,6 +4,7 @@ import type {
   GitInventory,
   GitResult,
   RootDescriptor,
+  WorktreeListEntry,
 } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,6 +28,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
 
 import { CHANGES_BRIDGE_REQUIRED_METHODS, type ChangesBridge } from '../changes/changes-bridge';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
+import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 // Helper to build a RootDescriptor whose handle.path is `path`
 function grantedRootWithPath(rootId: string, name: string, path: string): RootDescriptor {
@@ -75,6 +77,48 @@ function makeDb(): { db: DbHandle; query: ReturnType<typeof vi.fn> } {
   return { db: { query } as unknown as DbHandle, query };
 }
 
+function managedWorktreeEntry(path: string): WorktreeListEntry {
+  return {
+    branch: 'feature',
+    containment: 'outside-roots',
+    detached: false,
+    disabledReason: null,
+    externalTool: null,
+    id: 'worktree-ledger-id',
+    lockedReason: null,
+    managed: true,
+    name: 'bright-fox',
+    path,
+    provenance: 'both',
+    remedy: null,
+    repositoryRoot: '/workspace/repo',
+    rootId: null,
+    trust: 'validated',
+    trustReason: null,
+    usable: true,
+  };
+}
+
+function installWorktreesBridge(entries: readonly WorktreeListEntry[]): () => void {
+  window.worktrees = {
+    archive: vi.fn(),
+    create: vi.fn(),
+    createBranchHere: vi.fn(),
+    getSettings: vi.fn(),
+    list: vi.fn(
+      async (): Promise<GitResult<readonly WorktreeListEntry[]>> => ({
+        ok: true,
+        value: entries,
+      })
+    ),
+    restore: vi.fn(),
+    setSettings: vi.fn(),
+  } satisfies WorktreesBridge;
+  return () => {
+    Reflect.deleteProperty(window, 'worktrees');
+  };
+}
+
 describe('useRootsReconciliation', () => {
   // The mock is module-scoped, so every suite shares one spy: without this a
   // "was logged" assertion could pass on a call an earlier test made.
@@ -118,6 +162,32 @@ describe('useRootsReconciliation', () => {
         true
       );
     });
+  });
+
+  it('tags a managed worktree listed by the bridge during boot reconciliation', async () => {
+    const worktreePath = '/managed/app/bright-fox';
+    const uninstall = installWorktreesBridge([managedWorktreeEntry(worktreePath)]);
+    try {
+      const restoreRoots = vi.fn(
+        async (): Promise<RootDescriptor[]> => [
+          grantedRootWithPath('worktree-root', 'bright-fox', worktreePath),
+        ]
+      );
+      const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+      const { db, query } = makeDb();
+
+      const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+      await waitFor(() => {
+        expect(result.current.dbRootKindByAdapterRootId.get('worktree-root')).toBe('worktree');
+      });
+      const insertCall = query.mock.calls.find(([sql]) =>
+        (sql as string).includes('INSERT INTO roots')
+      );
+      expect(insertCall?.[1]?.[1]).toBe('worktree');
+    } finally {
+      uninstall();
+    }
   });
 
   it('runs exactly once even when rerendered with a new adapter identity', async () => {
@@ -334,6 +404,31 @@ describe('useRootsReconciliation', () => {
       await result.current.registerRoot(grantedRootWithPath('root-new', 'docs', '/workspace/new'));
 
       await expect(result.current.resolveDbRootId('/workspace/new')).resolves.toBe('root-new');
+    });
+
+    it('tags a managed worktree listed by the bridge during mid-session registration', async () => {
+      const worktreePath = '/managed/app/bright-fox';
+      const uninstall = installWorktreesBridge([managedWorktreeEntry(worktreePath)]);
+      try {
+        const restoreRoots = vi.fn(async (): Promise<RootDescriptor[]> => []);
+        const adapter = makeAdapter({ platform: 'electron' as const, restoreRoots });
+        const { db, query } = makeDb();
+        const { result } = renderHook(() => useRootsReconciliation({ adapter, db }));
+
+        await act(async () => {
+          await result.current.registerRoot(
+            grantedRootWithPath('worktree-root', 'bright-fox', worktreePath)
+          );
+        });
+
+        const insertCall = query.mock.calls.find(([sql]) =>
+          (sql as string).includes('INSERT INTO roots')
+        );
+        expect(insertCall?.[1]?.[1]).toBe('worktree');
+        expect(result.current.dbRootKindByAdapterRootId.get('worktree-root')).toBe('worktree');
+      } finally {
+        uninstall();
+      }
     });
 
     // (b) exactly one INSERT for a new path — including a repeated call

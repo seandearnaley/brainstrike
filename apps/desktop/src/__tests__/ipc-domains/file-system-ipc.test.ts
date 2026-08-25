@@ -452,7 +452,10 @@ describe('file system IPC domain', () => {
       expect.objectContaining({ permissionState: 'unknown', rootId: 'root-offline' }),
     ]);
     expect(await storage.getItem('rootsList')).toBe(JSON.stringify([available, unavailable]));
-    expect(rootsDbQuery.mock.calls[0]?.[1]).toEqual([['/users/test/workspace']]);
+    const convergenceCall = rootsDbQuery.mock.calls.find(([sql]) =>
+      String(sql).includes("SET status = 'disconnected'")
+    );
+    expect(convergenceCall?.[1]).toEqual([['/users/test/workspace']]);
   });
 
   it('treats lastFolderPath only as a preference for an already-mounted persisted root', async () => {

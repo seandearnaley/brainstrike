@@ -1,4 +1,5 @@
 import {
+  defaultBackgroundIndexingEnabled,
   ensureBackgroundIndexingPreferencesHydrated,
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
@@ -1159,6 +1160,23 @@ function buildSyncLoopTargets(args: {
   return buildFullSyncTargets(allHandles);
 }
 
+function filterSyncTargetsByIndexingDefault(
+  targets: readonly SyncLoopTarget[],
+  dbRootKindByAdapterRootId: ReadonlyMap<string, string>
+): SyncLoopTarget[] {
+  return targets.filter((target) => {
+    const rootId = target.handle.rootId;
+    if (!rootId) {
+      return true;
+    }
+    const kind = dbRootKindByAdapterRootId.get(rootId);
+    if (kind === undefined) {
+      return true;
+    }
+    return defaultBackgroundIndexingEnabled(kind);
+  });
+}
+
 function createWaitForBackgroundPermit(
   db: DbHandle
 ): (options: { readonly label: string }) => Promise<void> {
@@ -1402,10 +1420,15 @@ export function WorkspaceCollectionSyncProvider({
   // Errors are logged and swallowed — must never block boot.
   // The returned callbacks are ref-stable: identity does not change when the
   // reconciliation map resolves, so the service useMemo is not reconstructed.
-  const { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId } = useRootsReconciliation({
-    adapter: fileSystemAdapter,
-    db,
-  });
+  const { registerRoot, resolveDbRootId, dbRootIdByAdapterRootId, dbRootKindByAdapterRootId } =
+    useRootsReconciliation({ adapter: fileSystemAdapter, db });
+  // `triggerSync` is intentionally ref-backed like the mounted-root state
+  // above: kind reconciliation can settle after render, and the long-lived
+  // callback must read the latest snapshot without being recreated.
+  const dbRootKindByAdapterRootIdRef = useRef(dbRootKindByAdapterRootId);
+  useEffect(() => {
+    dbRootKindByAdapterRootIdRef.current = dbRootKindByAdapterRootId;
+  }, [dbRootKindByAdapterRootId]);
 
   // Mid-session root registration (phase 5): roots added via Add Folder get
   // their DB roots row at add time, so their imports write real root_id values
@@ -2064,12 +2087,15 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
 
-      const targets = buildSyncLoopTargets({
-        rootDirectoryHandle,
-        rootDirectoryHandles,
-        rootIdByPath,
-        scope,
-      });
+      const targets = filterSyncTargetsByIndexingDefault(
+        buildSyncLoopTargets({
+          rootDirectoryHandle,
+          rootDirectoryHandles,
+          rootIdByPath,
+          scope,
+        }),
+        dbRootKindByAdapterRootIdRef.current
+      );
       const mountedHandles = getActiveRootHandles({
         rootDirectoryHandle,
         rootDirectoryHandles,
@@ -2290,7 +2316,6 @@ export function WorkspaceCollectionSyncProvider({
       reportAsyncError,
       resetSyncStatus,
       resolveDbRootId,
-      // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not recreate this callback (BST-1268); the live values are read through render-synced refs.
       rootSetKey,
       service,
       setSyncStatus,
@@ -2447,7 +2472,6 @@ export function WorkspaceCollectionSyncProvider({
     indexingPolicyPreset,
     managedCollectionId,
     resolveDbRootId,
-    // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not re-run the audit (BST-1268); live values are read through render-synced refs.
     rootSetKey,
     setSyncStatus,
   ]);

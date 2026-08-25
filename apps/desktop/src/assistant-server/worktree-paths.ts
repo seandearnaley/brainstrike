@@ -16,6 +16,8 @@ import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/uti
  * here cannot silently diverge from the exclusion floor.
  */
 const EXCLUDED_IN_ROOT_PREFIXES = UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES;
+/** Test-only export: pinned equal to the background-indexing policy list. */
+export const EXCLUDED_IN_ROOT_PREFIXES_FOR_TEST = EXCLUDED_IN_ROOT_PREFIXES;
 
 const EXTERNAL_TOOL_DIRECTORIES: readonly (readonly [string, WorktreeExternalTool])[] = [
   ['.claude/worktrees', 'claude-code'],

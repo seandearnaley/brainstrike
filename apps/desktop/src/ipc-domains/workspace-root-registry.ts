@@ -371,6 +371,7 @@ export class WorkspaceRootRegistry {
       const retainedRootIds = this.mounts.sessionMountIds();
       const retainedCanonicalPaths = new Set<string>();
       const storedSurvivors: StoredWorkspaceRoot[] = [];
+      const kindByRootId = await this.loadPersistedRootKinds(entries);
 
       for (const entry of entries) {
         // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
@@ -395,7 +396,9 @@ export class WorkspaceRootRegistry {
         retainedRootIds.add(entry.rootId);
         storedSurvivors.push(entry);
         // eslint-disable-next-line react-doctor/async-await-in-loop -- ledger appends are read-modify-write on one storage key; the surrounding loop is already serial by design.
-        await recordRecentRootIfNew(this.storage, entry.path, entry.addedAt);
+        if (kindByRootId.get(entry.rootId) !== 'worktree') {
+          await recordRecentRootIfNew(this.storage, entry.path, entry.addedAt);
+        }
         descriptors.push(descriptorFor(entry, 'granted'));
       }
 
@@ -410,6 +413,30 @@ export class WorkspaceRootRegistry {
       await this.convergeDatabase();
       return descriptors;
     });
+  }
+
+  private async loadPersistedRootKinds(
+    entries: readonly StoredWorkspaceRoot[]
+  ): Promise<ReadonlyMap<string, string | null>> {
+    const kindByRootId = new Map<string, string | null>();
+    if (entries.length === 0) {
+      return kindByRootId;
+    }
+    try {
+      const db = await this.getRootsDatabase();
+      const kindRows = await db.query<{ id: string; kind: string | null }>(
+        'SELECT id, kind FROM roots WHERE id = ANY($1)',
+        [entries.map((entry) => entry.rootId)]
+      );
+      for (const row of kindRows.rows) {
+        kindByRootId.set(row.id, row.kind);
+      }
+    } catch (error) {
+      logger.warn('Could not read persisted workspace root kinds; restoring Recents as before', {
+        error,
+      });
+    }
+    return kindByRootId;
   }
 
   setLastFolder(folderPath: string): Promise<void> {

@@ -71,6 +71,7 @@ const {
   completeEmbeddingChunkBatchMock,
   enqueueBackfillMock,
   cancelBackfillMock,
+  dbRootKindState,
   dbState,
   vectorQueueServiceState,
   fileSystemState,
@@ -133,6 +134,9 @@ const {
       }),
     })
   ),
+  dbRootKindState: {
+    current: new Map<string, string>(),
+  },
   dbState: {
     current: {
       exec: vi.fn(async () => undefined),
@@ -442,6 +446,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 vi.mock('../../roots/use-roots-reconciliation', () => ({
   useRootsReconciliation: () => ({
     dbRootIdByAdapterRootId: new Map<string, string>(),
+    dbRootKindByAdapterRootId: dbRootKindState.current,
     registerRoot: registerRootMock,
     resolveDbRootId: resolveDbRootIdMock,
   }),
@@ -532,6 +537,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       },
     ];
     fileSystemState.rootIdByPath = new Map<string, string>([['/workspace/root', 'root-id-1']]);
+    dbRootKindState.current = new Map();
     fileTreeContextState.current = {
       isLoading: false,
       isRestorationSettled: true,
@@ -3032,6 +3038,52 @@ describe('WorkspaceCollectionSyncProvider', () => {
   });
 
   // ─── Task 6: sequential per-root sync passes ───────────────────────────────
+
+  it('does not sync a mounted root whose persisted kind is worktree', async () => {
+    const worktreeRoot = {
+      kind: 'directory',
+      name: 'worktree',
+      path: '/managed/app/bright-fox',
+      platform: 'electron',
+      rootId: 'worktree-root-id',
+    };
+    const pathRoot = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+      rootId: 'path-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = worktreeRoot;
+    fileSystemState.rootDirectoryHandles = [worktreeRoot, pathRoot];
+    fileSystemState.rootIdByPath = new Map([
+      [worktreeRoot.path, worktreeRoot.rootId],
+      [pathRoot.path, pathRoot.rootId],
+    ]);
+    dbRootKindState.current = new Map([
+      [worktreeRoot.rootId, 'worktree'],
+      [pathRoot.rootId, 'path'],
+    ]);
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockResolvedValue(undefined);
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+      expect(syncSpy.mock.calls[0]?.[0].rootDirectoryHandle).toMatchObject({
+        path: pathRoot.path,
+        rootId: pathRoot.rootId,
+      });
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
 
   it('calls service.sync once per root, in order, sequentially, when two handles are active', async () => {
     const root1 = {

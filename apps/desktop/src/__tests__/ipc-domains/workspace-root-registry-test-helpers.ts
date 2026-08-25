@@ -8,7 +8,9 @@ import {
   WorkspaceRootRegistry,
 } from '../../ipc-domains/workspace-root-registry';
 
-export const registryDatabaseQuery = vi.fn(async (..._args: readonly unknown[]) => ({ rows: [] }));
+export function createRegistryDatabaseQuery(): ReturnType<typeof vi.fn> {
+  return vi.fn(async (..._args: readonly unknown[]) => ({ rows: [] }));
+}
 
 export function createStorage(initial: Record<string, string> = {}): ElectronStorageAdapter {
   const values = new Map(Object.entries(initial));
@@ -44,9 +46,10 @@ export function secureRoot(canonicalPath: string): SecureWorkspaceRoot {
 }
 
 export function createRegistry(
-  overrides: Partial<ConstructorParameters<typeof WorkspaceRootRegistry>[0]> = {}
+  overrides: Partial<ConstructorParameters<typeof WorkspaceRootRegistry>[0]> = {},
+  dbQuery: ReturnType<typeof vi.fn> = createRegistryDatabaseQuery()
 ): WorkspaceRootRegistry {
-  const db = { query: registryDatabaseQuery } as unknown as WorkspaceRootsQueryable;
+  const db = { query: dbQuery } as unknown as WorkspaceRootsQueryable;
   return new WorkspaceRootRegistry({
     createSecureRoot: async (rootPath) => secureRoot(rootPath),
     disposeCommandSessionsForRoot: vi.fn(async () => 0),

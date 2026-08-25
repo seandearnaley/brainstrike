@@ -3,11 +3,22 @@ import { UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES } from '@brainstrike/uti
 import { describe, expect, it } from 'vitest';
 import {
   assertWorktreeTargetOutsideRoots,
+  EXCLUDED_IN_ROOT_PREFIXES_FOR_TEST,
   externalToolForPath,
   generateWorktreeName,
   repositorySlug,
   resolveWorktreeTargetPath,
 } from '../../assistant-server/worktree-paths';
+
+describe('excluded in-root prefixes parity', () => {
+  it('matches the background-indexing policy exactly', () => {
+    // main cannot import the renderer-oriented policy module at runtime, so the
+    // literal is duplicated — and pinned here so it can never drift.
+    expect([...EXCLUDED_IN_ROOT_PREFIXES_FOR_TEST].sort()).toEqual(
+      [...UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES].sort()
+    );
+  });
+});
 
 describe('repositorySlug', () => {
   it('combines the repository basename with a short hash of the common dir', () => {

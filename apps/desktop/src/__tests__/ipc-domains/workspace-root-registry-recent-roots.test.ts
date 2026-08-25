@@ -6,7 +6,12 @@ import {
   resolveGrantedRootHandle,
 } from '../../ipc-domains/workspace-recent-roots';
 import { loggerMock } from './workspace-root-registry-logger-test-helper';
-import { createRegistry, createStorage, rootHandle } from './workspace-root-registry-test-helpers';
+import {
+  createRegistry,
+  createRegistryDatabaseQuery,
+  createStorage,
+  rootHandle,
+} from './workspace-root-registry-test-helpers';
 
 // Quarantine and write-failure paths log deliberately. Capturing the logger
 // keeps the suite's output pristine AND makes "it was reported" an assertion
@@ -147,6 +152,57 @@ describe('WorkspaceRootRegistry recent-roots ledger + addRootByPath', () => {
       path: '/managed/app/bright-fox',
       rootId: expect.any(String),
     });
+  });
+
+  it('keeps a persisted managed worktree out of Recents after relaunch restore', async () => {
+    const firstRegistry = createRegistry({ storage });
+    firstRegistry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
+    await firstRegistry.addRootByPath('/managed/app/bright-fox');
+    const storedRoots = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as Array<{
+      rootId: string;
+    }>;
+    const worktreeRootId = storedRoots[0]?.rootId;
+    expect(worktreeRootId).toBeDefined();
+    await expect(firstRegistry.listRecentRoots()).resolves.toEqual([]);
+
+    const dbQuery = createRegistryDatabaseQuery();
+    dbQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, kind FROM roots WHERE id = ANY')) {
+        return { rows: [{ id: worktreeRootId, kind: 'worktree' }] };
+      }
+      return { rows: [] };
+    });
+    const relaunchedRegistry = createRegistry({ storage }, dbQuery);
+
+    await relaunchedRegistry.restoreRoots();
+
+    await expect(relaunchedRegistry.listRecentRoots()).resolves.toEqual([]);
+  });
+
+  it('still records an ordinary persisted root in Recents after relaunch restore', async () => {
+    const firstRegistry = createRegistry({ storage });
+    await firstRegistry.addRoot(rootHandle('/ws/ordinary'));
+    const storedRoots = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as Array<{
+      rootId: string;
+    }>;
+    const ordinaryRootId = storedRoots[0]?.rootId;
+    expect(ordinaryRootId).toBeDefined();
+    await storage.removeItem('recentRootsList');
+
+    const dbQuery = createRegistryDatabaseQuery();
+    dbQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, kind FROM roots WHERE id = ANY')) {
+        return { rows: [{ id: ordinaryRootId, kind: 'path' }] };
+      }
+      return { rows: [] };
+    });
+    const relaunchedRegistry = createRegistry({ storage }, dbQuery);
+
+    await relaunchedRegistry.restoreRoots();
+
+    await expect(relaunchedRegistry.listRecentRoots()).resolves.toEqual([
+      expect.objectContaining({ path: '/ws/ordinary' }),
+    ]);
   });
 
   it('restoreRoots records an absent restored entry with its stored addedAt', async () => {
