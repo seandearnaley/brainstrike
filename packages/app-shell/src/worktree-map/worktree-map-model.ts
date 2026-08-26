@@ -132,7 +132,13 @@ export function formatWorktreeActivity(at: Date, now: Date): string {
   if (Math.abs(elapsed) > RELATIVE_LIMIT_MS) {
     return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(at);
   }
-  if (elapsed < MINUTE_MS) {
+  // `elapsed < MINUTE_MS` alone is also true for any FUTURE timestamp (clock
+  // skew, or a store that has not settled yet): a negative `elapsed` up to a
+  // week ahead would otherwise render "just now" for something that hasn't
+  // happened. Require non-negative so a future stamp instead falls through to
+  // the relative-format branches below, which render "in N minutes/hours/days"
+  // via `Intl.RelativeTimeFormat`'s own sign handling.
+  if (elapsed >= 0 && elapsed < MINUTE_MS) {
     return 'just now';
   }
   const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -166,6 +172,26 @@ function lastActivityLabelFor(
 }
 
 /**
+ * `true` when `candidate` should occupy the worktree slot instead of
+ * `existing`. Most-recently-updated wins; an exact `updatedAt` tie (same
+ * millisecond) falls back to `id` ordering so the pick never depends on
+ * `threads` array order — the store makes no ordering guarantee, and two
+ * threads racing to claim one worktree is a real, user-visible scenario, not
+ * a hypothetical.
+ */
+function isMorePreferredThread(
+  candidate: AssistantMemoryThread,
+  existing: AssistantMemoryThread
+): boolean {
+  const candidateTime = candidate.updatedAt.getTime();
+  const existingTime = existing.updatedAt.getTime();
+  if (candidateTime !== existingTime) {
+    return candidateTime > existingTime;
+  }
+  return candidate.id < existing.id;
+}
+
+/**
  * Threads keyed by the worktree they are checked out into. A thread contributes
  * only when it is IN worktree mode: `checkoutWorktreeId` survives a hand-off to
  * Local in some legacy rows, and reading it without the mode check would show a
@@ -184,7 +210,10 @@ function indexThreadsByWorktreeId(
     if (typeof worktreeId !== 'string' || worktreeId.length === 0) {
       continue;
     }
-    byWorktreeId.set(worktreeId, thread);
+    const existing = byWorktreeId.get(worktreeId);
+    if (!existing || isMorePreferredThread(thread, existing)) {
+      byWorktreeId.set(worktreeId, thread);
+    }
   }
   return byWorktreeId;
 }

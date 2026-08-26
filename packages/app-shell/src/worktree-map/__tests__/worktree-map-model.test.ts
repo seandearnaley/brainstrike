@@ -167,6 +167,59 @@ describe('buildWorktreeMap', () => {
     expect(model[0]?.cards[0]?.thread).toBeNull();
   });
 
+  it('picks the most-recently-updated thread when two threads claim one worktree, regardless of array order', () => {
+    const older = thread({
+      id: 'thread-old',
+      metadata: { checkoutMode: 'worktree', checkoutWorktreeId: 'wt-1' },
+      title: 'Older',
+      updatedAt: new Date('2026-08-26T09:00:00.000Z'),
+    });
+    const newer = thread({
+      id: 'thread-new',
+      metadata: { checkoutMode: 'worktree', checkoutWorktreeId: 'wt-1' },
+      title: 'Newer',
+      updatedAt: new Date('2026-08-26T10:00:00.000Z'),
+    });
+    const buildFor = (threads: readonly AssistantMemoryThread[]) =>
+      buildWorktreeMap({
+        entries: [entry({ id: 'wt-1', managed: true, path: '/wt', primary: false })],
+        indexingOptInByRootId: {},
+        now: NOW,
+        prCache: new Map(),
+        runningThreadIds: new Set(),
+        threads,
+      });
+
+    expect(buildFor([older, newer])[0]?.cards[0]?.thread?.threadId).toBe('thread-new');
+    expect(buildFor([newer, older])[0]?.cards[0]?.thread?.threadId).toBe('thread-new');
+  });
+
+  it('breaks an exact updatedAt tie by thread id, independent of array order', () => {
+    const sameInstant = new Date('2026-08-26T10:00:00.000Z');
+    const a = thread({
+      id: 'thread-a',
+      metadata: { checkoutMode: 'worktree', checkoutWorktreeId: 'wt-1' },
+      updatedAt: sameInstant,
+    });
+    const b = thread({
+      id: 'thread-b',
+      metadata: { checkoutMode: 'worktree', checkoutWorktreeId: 'wt-1' },
+      updatedAt: sameInstant,
+    });
+    const buildFor = (threads: readonly AssistantMemoryThread[]) =>
+      buildWorktreeMap({
+        entries: [entry({ id: 'wt-1', managed: true, path: '/wt', primary: false })],
+        indexingOptInByRootId: {},
+        now: NOW,
+        prCache: new Map(),
+        runningThreadIds: new Set(),
+        threads,
+      });
+
+    expect(buildFor([a, b])[0]?.cards[0]?.thread?.threadId).toBe('thread-a');
+    expect(buildFor([b, a])[0]?.cards[0]?.thread?.threadId).toBe('thread-a');
+  });
+
   it('falls back to the ledger creation stamp, and renders nothing when neither fact exists', () => {
     const model = buildWorktreeMap({
       entries: [
@@ -285,5 +338,12 @@ describe('formatWorktreeActivity', () => {
 
   it('never renders "Invalid Date" for an unreadable input', () => {
     expect(formatWorktreeActivity(new Date(Number.NaN), NOW)).toBe('at an unreadable time');
+  });
+
+  it('never renders "just now" for a future timestamp (clock skew), even within a minute', () => {
+    // 30s ahead of NOW would satisfy `elapsed < MINUTE_MS` if `elapsed` were
+    // allowed to go negative — it must fall through to the relative branches
+    // instead, which render future tense via Intl's own sign handling.
+    expect(formatWorktreeActivity(new Date('2026-08-26T12:00:30.000Z'), NOW)).toBe('in 1 minute');
   });
 });
