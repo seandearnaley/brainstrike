@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWorktreesIpcHandlers } from '../worktrees-ipc-handlers';
 
 const service = {
+  adopt: vi.fn(),
   archive: vi.fn(),
   checkoutStatus: vi.fn(),
   create: vi.fn(),
@@ -51,6 +52,74 @@ describe('worktrees IPC handlers', () => {
       value: [{ id: 'worktree-1', path: '/managed/worktree-1' }],
     });
     expect(service.listManagedPaths).toHaveBeenCalledWith();
+  });
+
+  it('rejects a malformed adopt payload at the boundary', async () => {
+    expect(await handlers().adopt({ createdBy: 'user', path: 'relative/wt' })).toEqual({
+      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+  });
+
+  // validateAdopt's refusal condition is `!(structurally valid) || (createdBy invalid)` — the
+  // `||`'s short-circuit means `payload['createdBy']` is read ONLY once the structural checks
+  // (isRecord, non-empty path, absolute path) already passed. A payload that fails the
+  // structural checks — including one that isn't a record at all, like `null` or an array —
+  // must never reach that createdBy read, or `payload['createdBy']` would throw for `null`
+  // instead of returning the stated refusal.
+  it.each([
+    ['null', null],
+    ['an array', ['not', 'a', 'record']],
+    ['a string', 'not-a-record'],
+  ] as const)(
+    'rejects a non-record adopt payload (%s) without evaluating createdBy',
+    async (_label, payload) => {
+      await expect(handlers().adopt(payload)).resolves.toEqual({
+        error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+        ok: false,
+      });
+      expect(service.adopt).not.toHaveBeenCalled();
+    }
+  );
+
+  it('rejects a structurally valid adopt payload with an invalid createdBy', async () => {
+    expect(await handlers().adopt({ createdBy: 'robot', path: '/repo/wt' })).toEqual({
+      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+
+    expect(await handlers().adopt({ path: '/repo/wt' })).toEqual({
+      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated adopt to the service, with runId and threadId when supplied', async () => {
+    service.adopt.mockResolvedValue({ ok: true, value: {} });
+    const params = { createdBy: 'user', path: '/repo/wt', runId: 'run-1', threadId: 'thread-1' };
+
+    await handlers().adopt(params);
+
+    expect(service.adopt).toHaveBeenCalledWith(params);
+  });
+
+  // Task 12's run attribution depends on runId reaching the service only when the renderer
+  // actually supplied one — an `undefined`-valued key would satisfy a loose `toEqual`, but the
+  // ledger write shape and any downstream `Object.hasOwn`/spread check needs the key GENUINELY
+  // absent, not present-with-undefined.
+  it('omits runId and threadId from the forwarded params when the renderer did not supply them', async () => {
+    service.adopt.mockResolvedValue({ ok: true, value: {} });
+
+    await handlers().adopt({ createdBy: 'user', path: '/repo/wt' });
+
+    expect(service.adopt).toHaveBeenCalledTimes(1);
+    const forwarded = service.adopt.mock.calls[0]?.[0];
+    expect(forwarded).toStrictEqual({ createdBy: 'user', path: '/repo/wt' });
+    expect(forwarded).not.toHaveProperty('runId');
+    expect(forwarded).not.toHaveProperty('threadId');
   });
 
   it('rejects a malformed create payload at the boundary', async () => {

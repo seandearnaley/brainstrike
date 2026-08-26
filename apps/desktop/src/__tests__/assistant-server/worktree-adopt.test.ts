@@ -240,4 +240,26 @@ describe('readCheckoutStatus', () => {
     expect(result.ok === false && result.error).toContain('not visible in the workspace inventory');
     expect(run).not.toHaveBeenCalled();
   });
+
+  // NO-SILENT-FALLBACKS: a failed `git status` read STATES itself and must
+  // never coerce to a default "clean" value — a status the caller never
+  // actually read is not the same fact as a checkout with nothing to commit.
+  it('states a failed git status instead of coercing it to clean', async () => {
+    const { deps, run } = makeDeps({});
+    run
+      .mockResolvedValueOnce({ exitCode: 1, stderr: '', stdout: '', timedOut: false })
+      .mockResolvedValueOnce({
+        exitCode: 128,
+        stderr: 'fatal: not a git repository (or any of the parent directories): .git',
+        stdout: '',
+        timedOut: false,
+      });
+
+    const result = await readCheckoutStatus(deps, { path: '/repo/wt' });
+
+    expect(result).toEqual({
+      error: 'fatal: not a git repository (or any of the parent directories): .git',
+      ok: false,
+    });
+  });
 });
