@@ -25,6 +25,7 @@ import type {
   ManagedWorktreeRow,
   WorktreeAdoptParams,
   WorktreeArchiveResult,
+  WorktreeCheckoutStatus,
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
@@ -40,7 +41,12 @@ import {
   toErrorMessage,
 } from './git-service';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
-import { adoptWorktree, ghostListEntry, inventoryListEntry } from './worktree-adopt';
+import {
+  adoptWorktree,
+  ghostListEntry,
+  inventoryListEntry,
+  readCheckoutStatus,
+} from './worktree-adopt';
 import {
   captureArchiveSnapshot,
   captureMissingArchiveSnapshot,
@@ -754,6 +760,25 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return { error: toErrorMessage(error), ok: false };
         }
       });
+    },
+    async checkoutStatus(params: {
+      readonly path: string;
+    }): Promise<GitResult<WorktreeCheckoutStatus>> {
+      try {
+        return await readCheckoutStatus(
+          {
+            ledger,
+            readSettings: deps.readSettings,
+            resolveInventory: deps.resolveInventory,
+            resolveRootPaths: deps.resolveRootPaths,
+            run: deps.run,
+          },
+          params
+        );
+      } catch (error) {
+        logger.error('worktree checkout status failed', { error, path: params.path });
+        return { error: toErrorMessage(error), ok: false };
+      }
     },
     /** Create a managed worktree, record it, and run its setup. */
     async create(params: WorktreeCreateParams): Promise<GitResult<WorktreeCreateResult>> {

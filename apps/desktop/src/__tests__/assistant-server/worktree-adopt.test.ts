@@ -1,6 +1,10 @@
 import type { GitInventory, ManagedWorktreeRow, WorktreeSettings } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { adoptWorktree } from '../../assistant-server/worktree-adopt';
+import {
+  adoptWorktree,
+  readCheckoutStatus,
+  type WorktreeAdoptDeps,
+} from '../../assistant-server/worktree-adopt';
 
 const SETTINGS: WorktreeSettings = {
   isDefaultDirectory: true,
@@ -41,7 +45,7 @@ function makeDeps(overrides: {
 }) {
   const insert = vi.fn(async (row: ManagedWorktreeRow) => row);
   const getByPath = vi.fn(overrides.getByPath ?? (() => Promise.resolve(null)));
-  const run = vi.fn(async () => ({
+  const run = vi.fn<WorktreeAdoptDeps['run']>(async () => ({
     exitCode: 0,
     stderr: '',
     stdout: 'deadbeef\n',
@@ -189,5 +193,51 @@ describe('adoptWorktree', () => {
       ok: false,
     });
     expect(insert).not.toHaveBeenCalled();
+  });
+});
+
+describe('readCheckoutStatus', () => {
+  it('parses ahead/behind and cleanliness from one porcelain-v2 read', async () => {
+    const { deps, run } = makeDeps({});
+    run
+      .mockResolvedValueOnce({ exitCode: 1, stderr: '', stdout: '', timedOut: false })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stderr: '',
+        stdout: [
+          '# branch.head feature',
+          '# branch.upstream origin/feature',
+          '# branch.ab +2 -1',
+          '',
+        ].join('\0'),
+        timedOut: false,
+      });
+
+    const result = await readCheckoutStatus(deps, { path: '/repo/wt' });
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        ahead: 2,
+        behind: 1,
+        clean: true,
+        path: '/repo/wt',
+        upstream: 'origin/feature',
+      },
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+    const statusCall = run.mock.calls[1]?.[0];
+    expect(statusCall).toMatchObject({ cwd: '/repo/wt' });
+    expect(statusCall?.args.slice(-4)).toEqual(['status', '--porcelain=v2', '--branch', '-z']);
+  });
+
+  it('refuses a path the inventory does not report', async () => {
+    const { deps, run } = makeDeps({});
+
+    const result = await readCheckoutStatus(deps, { path: '/etc' });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('not visible in the workspace inventory');
+    expect(run).not.toHaveBeenCalled();
   });
 });

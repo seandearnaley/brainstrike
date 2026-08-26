@@ -16,6 +16,7 @@ import type {
   ManagedWorktreeRow,
   WorktreeAdoptParams,
   WorktreeArchiveResult,
+  WorktreeCheckoutStatus,
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
@@ -30,6 +31,7 @@ const logger = createLogger('WorktreesIpc');
 export interface WorktreesIpcHandlers {
   readonly adopt: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
   readonly archive: (payload: unknown) => Promise<GitResult<WorktreeArchiveResult>>;
+  readonly checkoutStatus: (payload: unknown) => Promise<GitResult<WorktreeCheckoutStatus>>;
   readonly create: (payload: unknown) => Promise<GitResult<WorktreeCreateResult>>;
   readonly createBranchHere: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
   readonly createContext: (payload: unknown) => Promise<GitResult<WorktreeCreateContext>>;
@@ -84,6 +86,13 @@ function validateAdopt(payload: unknown): GitResult<WorktreeAdoptParams> {
       ...(nonEmptyString(threadId) ? { threadId } : {}),
     },
   };
+}
+
+function validateCheckoutStatus(payload: unknown): GitResult<{ readonly path: string }> {
+  if (!(isRecord(payload) && nonEmptyString(payload['path']) && path.isAbsolute(payload['path']))) {
+    return { error: 'worktrees:checkoutStatus requires { path: <absolute path> }.', ok: false };
+  }
+  return { ok: true, value: { path: payload['path'] } };
 }
 
 function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
@@ -222,6 +231,15 @@ export function createWorktreesIpcHandlers(
         return params;
       }
       return await withService('worktrees:archive', (service) => service.archive(params.value));
+    },
+    checkoutStatus: async (payload) => {
+      const params = validateCheckoutStatus(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:checkoutStatus', (service) =>
+        service.checkoutStatus(params.value)
+      );
     },
     create: async (payload) => {
       const params = validateCreate(payload);

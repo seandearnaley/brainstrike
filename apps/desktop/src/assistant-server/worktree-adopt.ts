@@ -21,11 +21,17 @@ import type {
   GitResult,
   ManagedWorktreeRow,
   WorktreeAdoptParams,
+  WorktreeCheckoutStatus,
   WorktreeDescriptor,
   WorktreeListEntry,
   WorktreeSettings,
 } from '@brainstrike/types';
-import { describeFailure, type GitCommandRunner, invokeGitHookFree } from './git-service';
+import {
+  describeFailure,
+  type GitCommandRunner,
+  invokeGitHookFree,
+  parsePorcelainV2Z,
+} from './git-service';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 import type { WorktreeLedger } from './worktree-ledger';
 import { externalToolForPath } from './worktree-paths';
@@ -173,6 +179,45 @@ export async function adoptWorktree(
   };
   await deps.ledger.insert(row);
   return { ok: true, value: row };
+}
+
+/**
+ * The working-tree + upstream state of ONE checkout. The path must be a
+ * worktree the live inventory reports — the same authority `adoptWorktree`
+ * uses — so a caller-supplied path can never make git run somewhere arbitrary.
+ *
+ * Parsing reuses the production `parsePorcelainV2Z`; a second parser for the
+ * same format would be a second source of truth for what "clean" means.
+ */
+export async function readCheckoutStatus(
+  deps: WorktreeAdoptDeps,
+  params: { readonly path: string }
+): Promise<GitResult<WorktreeCheckoutStatus>> {
+  const inventory = await deps.resolveInventory();
+  if (!locate(inventory, params.path)) {
+    return {
+      error: `The path "${params.path}" is not visible in the workspace inventory, so its status cannot be read.`,
+      ok: false,
+    };
+  }
+  const statusRun = await invokeGitHookFree(
+    (args, timeoutMs = GIT_DEFAULT_TIMEOUT_MS) => deps.run({ args, cwd: params.path, timeoutMs }),
+    ['status', '--porcelain=v2', '--branch', '-z']
+  );
+  if (statusRun.exitCode !== 0) {
+    return { error: describeFailure(statusRun), ok: false };
+  }
+  const parsed = parsePorcelainV2Z(statusRun.stdout);
+  return {
+    ok: true,
+    value: {
+      ahead: parsed.ahead,
+      behind: parsed.behind,
+      clean: parsed.clean,
+      path: params.path,
+      upstream: parsed.upstream,
+    },
+  };
 }
 
 /**

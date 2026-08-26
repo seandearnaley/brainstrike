@@ -3,6 +3,7 @@ import { createWorktreesIpcHandlers } from '../worktrees-ipc-handlers';
 
 const service = {
   archive: vi.fn(),
+  checkoutStatus: vi.fn(),
   create: vi.fn(),
   createBranchHere: vi.fn(),
   createContext: vi.fn(),
@@ -101,6 +102,24 @@ describe('worktrees IPC handlers', () => {
     const params = { force: true, runId: 'run-1', worktreeId: 'wt-1' };
     await handlers().archive(params);
     expect(service.archive).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed checkout-status payload at the boundary', async () => {
+    expect(await handlers().checkoutStatus({ path: 'relative/worktree' })).toEqual({
+      error: 'worktrees:checkoutStatus requires { path: <absolute path> }.',
+      ok: false,
+    });
+    expect(service.checkoutStatus).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated checkout-status read to the service', async () => {
+    service.checkoutStatus.mockResolvedValue({
+      ok: true,
+      value: { ahead: 0, behind: 0, clean: true, path: '/repo/wt', upstream: 'origin/feature' },
+    });
+    const params = { path: '/repo/wt' };
+    await handlers().checkoutStatus(params);
+    expect(service.checkoutStatus).toHaveBeenCalledWith(params);
   });
 
   it('rejects a malformed createBranchHere payload at the boundary', async () => {

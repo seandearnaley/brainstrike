@@ -37,6 +37,7 @@ vi.mock('../worktrees/worktrees-bridge', () => ({
   resolveWorktreesBridge: () => ({
     adopt: adoptSpy,
     archive: archiveSpy,
+    checkoutStatus: vi.fn(),
     create: createSpy,
     createBranchHere: createBranchHereSpy,
     createContext: createContextSpy,
