@@ -2981,12 +2981,37 @@ vi.mock('../../stores/worktree-checkout-intent-store', () => ({
 // test can prove WHICH one ran.
 const createThreadMock = vi.fn();
 const selectThreadMock = vi.fn();
-vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => null }));
+// (corrected at execution: the surface code below derives `repository` from
+// `database` via `createPgliteAssistantThreadRepository` — `createThread`
+// takes `(repository, resourceId, title?)`, never a bare `resourceId`, and
+// this plan's original surface code called it with one argument, which does
+// not compile (`tsc`: "Expected 2-3 arguments, but got 1") — a real defect,
+// not a test-fixture one. `mockDatabase` is a controllable sentinel so one
+// test can prove the new guard fires when it's null, and
+// `createPgliteAssistantThreadRepositoryMock` returns a DISTINCT sentinel so
+// `createThread`'s call assertion stays falsifiable for BOTH arguments.
+// `vi.hoisted` — not a plain top-level `const` — because these are
+// referenced from a `vi.mock` factory declared further down, and only
+// `vi.hoisted`-declared bindings are guaranteed initialized before a hoisted
+// `vi.mock` factory can run.)
+const { SENTINEL_DATABASE, SENTINEL_REPOSITORY, createPgliteAssistantThreadRepositoryMock } =
+  vi.hoisted(() => {
+    const sentinelDatabase = { kind: 'sentinel-database' } as const;
+    const sentinelRepository = { kind: 'sentinel-repository' } as const;
+    return {
+      createPgliteAssistantThreadRepositoryMock: vi.fn(() => sentinelRepository),
+      SENTINEL_DATABASE: sentinelDatabase,
+      SENTINEL_REPOSITORY: sentinelRepository,
+    };
+  });
+let mockDatabase: unknown = SENTINEL_DATABASE;
+vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => mockDatabase }));
 vi.mock('../../use-active-assistant-thread-ids', () => ({
   useActiveAssistantThreadIds: () => ({ error: null, loading: false, threadIds: new Set() }),
 }));
 vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/assistant-data')>()),
+  createPgliteAssistantThreadRepository: createPgliteAssistantThreadRepositoryMock,
   useAssistantThreadStore: (
     selector: (state: {
       createThread: typeof createThreadMock;
@@ -3075,6 +3100,7 @@ describe('WorktreeMapSurface', () => {
       addRootDirectoryByPathMock,
       adoptMock,
       archiveMock,
+      createPgliteAssistantThreadRepositoryMock,
       createThreadMock,
       openExternalMock,
       publishMock,
@@ -3084,6 +3110,8 @@ describe('WorktreeMapSurface', () => {
     ]) {
       mock.mockReset();
     }
+    createPgliteAssistantThreadRepositoryMock.mockReturnValue(SENTINEL_REPOSITORY);
+    mockDatabase = SENTINEL_DATABASE;
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
     adoptMock.mockResolvedValue({ ok: true, value: {} });
     archiveMock.mockResolvedValue({ ok: true, value: {} });
@@ -3176,7 +3204,11 @@ describe('WorktreeMapSurface', () => {
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
     expect(createThreadMock).toHaveBeenCalledTimes(1);
-    expect(createThreadMock).toHaveBeenCalledWith('brainstrike:workspace');
+    // (corrected at execution: falsifiable for BOTH arguments —
+    // `SENTINEL_REPOSITORY` proves the real repository derived from
+    // `database` is what's threaded through, not `expect.anything()`
+    // standing in for an unverified first argument.)
+    expect(createThreadMock).toHaveBeenCalledWith(SENTINEL_REPOSITORY, 'brainstrike:workspace');
     expect(selectThreadMock).toHaveBeenCalledTimes(1);
     expect(selectThreadMock).toHaveBeenCalledWith('brainstrike:workspace', 'thread-9');
     expect(publishMock).toHaveBeenCalledTimes(1);
@@ -3189,6 +3221,23 @@ describe('WorktreeMapSurface', () => {
     // Falsifier: the Map must not reach for any other seam to do this.
     expect(setIndexingMock).not.toHaveBeenCalled();
     expect(showItemInFolderMock).not.toHaveBeenCalled();
+  });
+
+  it('states a loud error and never calls createThread when the workspace database is not ready', async () => {
+    // (corrected at execution: onNewThread's repository guard, added beside
+    // the existing !worktreeId guard, must fail LOUD — a stated actionError,
+    // never a silent return — and createThread must never be reached.)
+    mockDatabase = null;
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await screen.findByText(
+      'Starting a new thread is unavailable until the workspace database is ready.'
+    );
+    expect(createThreadMock).not.toHaveBeenCalled();
+    expect(selectThreadMock).not.toHaveBeenCalled();
+    expect(publishMock).not.toHaveBeenCalled();
   });
 
   it('publishes no intent and states the failure when thread creation fails', async () => {
@@ -3227,6 +3276,21 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('adds the checkout as a workspace root through the by-path seam', async () => {
+    // (corrected at execution: the shared `card()` fixture's default is
+    // `rootId: 'root-1'` — already a mounted root, so the card correctly
+    // never offers "Add as root" for it (`entry.rootId === null` gates the
+    // item below). This is the one test that exercises the unmounted case;
+    // every other test keeps the shared default. Same class of defect, same
+    // treatment, as Task 4's `primary: true` fixture default.)
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [card({ entry: { ...card().entry, rootId: null } })],
+        },
+      ],
+    });
     render(<WorktreeMapSurface />);
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
@@ -3545,7 +3609,18 @@ Create `packages/app-shell/src/worktree-map/worktree-map-surface.tsx` — the ze
  * indexing setter, the platform bridge — so the Map owns no state of its own.
  */
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
-import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+// (corrected at execution: `createThread` takes `(repository: AssistantThreadRepository,
+// resourceId: string, title?: string)`, never a bare `resourceId` — the
+// original single-argument call below did not compile. `repository` is
+// derived from `database` exactly as `use-global-command-handlers.ts:29-32`
+// already does for the identical problem, via the real import path
+// `createPgliteAssistantThreadRepository` from `@brainstrike/assistant-data`.)
+import {
+  type AssistantThreadRepository,
+  createPgliteAssistantThreadRepository,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
@@ -3577,6 +3652,10 @@ export function WorktreeMapSurface(): ReactElement {
     (state) => state.setWorktreeRootIndexingEnabled
   );
   const publishIntent = useWorktreeCheckoutIntentStore((state) => state.publish);
+  const repository = useMemo<AssistantThreadRepository | null>(
+    () => (database ? createPgliteAssistantThreadRepository(database) : null),
+    [database]
+  );
   const platform = useMemo(() => resolvePlatformBridge(), []);
   const worktrees = useMemo(() => resolveWorktreesBridge(), []);
   // Desktop-only, `undefined` on web (`use-workspace-bar.ts:918` is the precedent).
@@ -3602,8 +3681,19 @@ export function WorktreeMapSurface(): ReactElement {
         setActionError(`"${card.entry.name}" is not a managed worktree yet.`);
         return;
       }
+      if (!repository) {
+        // (corrected at execution) Unlike the worktreeId guard above, "New
+        // thread here" is NOT disabled while the database is still
+        // resolving — this is a real, reachable, user-visible state (not
+        // just a wiring bug), so it gets its own stated reason rather than a
+        // silent no-op.
+        setActionError(
+          'Starting a new thread is unavailable until the workspace database is ready.'
+        );
+        return;
+      }
       setActionError(null);
-      void createThread(resourceId)
+      void createThread(repository, resourceId)
         .then((thread) => {
           selectThread(resourceId, thread.id);
           publishIntent({
@@ -3618,7 +3708,7 @@ export function WorktreeMapSurface(): ReactElement {
           setActionError(errorMessage(caught));
         });
     },
-    [createThread, publishIntent, resourceId, selectThread]
+    [createThread, publishIntent, repository, resourceId, selectThread]
   );
 
   const onAddAsRoot = useCallback(
