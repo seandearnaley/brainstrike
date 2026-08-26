@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWorktreesIpcHandlers } from '../worktrees-ipc-handlers';
 
 const service = {
+  adopt: vi.fn(),
   archive: vi.fn(),
+  checkoutStatus: vi.fn(),
   create: vi.fn(),
   createBranchHere: vi.fn(),
   createContext: vi.fn(),
@@ -50,6 +52,102 @@ describe('worktrees IPC handlers', () => {
       value: [{ id: 'worktree-1', path: '/managed/worktree-1' }],
     });
     expect(service.listManagedPaths).toHaveBeenCalledWith();
+  });
+
+  it('rejects a malformed adopt payload at the boundary', async () => {
+    expect(await handlers().adopt({ createdBy: 'user', path: 'relative/wt' })).toEqual({
+      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+  });
+
+  // validateAdopt's refusal condition is `!(structurally valid) || (createdBy invalid)` — the
+  // `||`'s short-circuit means `payload['createdBy']` is read ONLY once the structural checks
+  // (isRecord, non-empty path, absolute path) already passed. A payload that fails the
+  // structural checks — including one that isn't a record at all, like `null` or an array —
+  // must never reach that createdBy read, or `payload['createdBy']` would throw for `null`
+  // instead of returning the stated refusal.
+  it.each([
+    ['null', null],
+    ['an array', ['not', 'a', 'record']],
+    ['a string', 'not-a-record'],
+  ] as const)(
+    'rejects a non-record adopt payload (%s) without evaluating createdBy',
+    async (_label, payload) => {
+      await expect(handlers().adopt(payload)).resolves.toEqual({
+        error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+        ok: false,
+      });
+      expect(service.adopt).not.toHaveBeenCalled();
+    }
+  );
+
+  it('rejects a structurally valid adopt payload with an invalid createdBy', async () => {
+    expect(await handlers().adopt({ createdBy: 'robot', path: '/repo/wt' })).toEqual({
+      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+
+    expect(await handlers().adopt({ path: '/repo/wt' })).toEqual({
+      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated adopt to the service, with runId and threadId when supplied', async () => {
+    service.adopt.mockResolvedValue({ ok: true, value: {} });
+    const params = { createdBy: 'user', path: '/repo/wt', runId: 'run-1', threadId: 'thread-1' };
+
+    await handlers().adopt(params);
+
+    expect(service.adopt).toHaveBeenCalledWith(params);
+  });
+
+  // Task 12's run attribution depends on runId reaching the service only when the renderer
+  // actually supplied one — an `undefined`-valued key would satisfy a loose `toEqual`, but the
+  // ledger write shape and any downstream `Object.hasOwn`/spread check needs the key GENUINELY
+  // absent, not present-with-undefined.
+  it('omits runId and threadId from the forwarded params when the renderer did not supply them', async () => {
+    service.adopt.mockResolvedValue({ ok: true, value: {} });
+
+    await handlers().adopt({ createdBy: 'user', path: '/repo/wt' });
+
+    expect(service.adopt).toHaveBeenCalledTimes(1);
+    const forwarded = service.adopt.mock.calls[0]?.[0];
+    expect(forwarded).toStrictEqual({ createdBy: 'user', path: '/repo/wt' });
+    expect(forwarded).not.toHaveProperty('runId');
+    expect(forwarded).not.toHaveProperty('threadId');
+  });
+
+  // Contract: absent runId/threadId is fine (prior test); present+valid
+  // passes through (prior test); present+MALFORMED must be REJECTED loudly,
+  // never silently dropped to absent — an unknown-typed IPC boundary must
+  // not coerce a caller's malformed input into a different, unstated
+  // request (adopting with no run attribution when one was actually asked
+  // for).
+  it.each([
+    ['a number', { createdBy: 'user', path: '/repo/wt', runId: 42 }],
+    ['an empty string', { createdBy: 'user', path: '/repo/wt', runId: '' }],
+  ] as const)('rejects a present but malformed runId (%s)', async (_label, payload) => {
+    expect(await handlers().adopt(payload)).toEqual({
+      error: 'worktrees:adopt runId must be a non-empty string when present.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a number', { createdBy: 'user', path: '/repo/wt', threadId: 42 }],
+    ['an empty string', { createdBy: 'user', path: '/repo/wt', threadId: '' }],
+  ] as const)('rejects a present but malformed threadId (%s)', async (_label, payload) => {
+    expect(await handlers().adopt(payload)).toEqual({
+      error: 'worktrees:adopt threadId must be a non-empty string when present.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed create payload at the boundary', async () => {
@@ -101,6 +199,24 @@ describe('worktrees IPC handlers', () => {
     const params = { force: true, runId: 'run-1', worktreeId: 'wt-1' };
     await handlers().archive(params);
     expect(service.archive).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed checkout-status payload at the boundary', async () => {
+    expect(await handlers().checkoutStatus({ path: 'relative/worktree' })).toEqual({
+      error: 'worktrees:checkoutStatus requires { path: <absolute path> }.',
+      ok: false,
+    });
+    expect(service.checkoutStatus).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated checkout-status read to the service', async () => {
+    service.checkoutStatus.mockResolvedValue({
+      ok: true,
+      value: { ahead: 0, behind: 0, clean: true, path: '/repo/wt', upstream: 'origin/feature' },
+    });
+    const params = { path: '/repo/wt' };
+    await handlers().checkoutStatus(params);
+    expect(service.checkoutStatus).toHaveBeenCalledWith(params);
   });
 
   it('rejects a malformed createBranchHere payload at the boundary', async () => {

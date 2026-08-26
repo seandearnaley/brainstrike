@@ -443,26 +443,28 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
 
   const onSelectExisting = useCallback(
     (option: WorkspaceBarWorktreeOption): void => {
-      const { worktreeId } = option;
-      if (!worktreeId) {
-        throw new Error(
-          'Unreachable worktree picker state: a usable worktree must have a managed ledger id.'
-        );
-      }
       setPending(true);
       void Promise.resolve(addRootDirectoryByPath?.(option.path))
         .then((mounted) => {
           if (!mounted) {
             throw new Error(`The worktree at ${option.path} could not be mounted.`);
           }
-          return args.onSelectWorktree({
-            branch: option.branch,
-            path: option.path,
-            worktreeId,
-          });
+          if (!option.worktreeId) {
+            // Unreachable in practice: `resolveUsability` never marks a row
+            // without a ledger id `usable`, so the picker never renders it
+            // selectable. Adoption lives on the Worktree Map's card action
+            // (Task 6) and the `worktrees:adopt` agent tool (Task 10) —
+            // never here. Thrown, not silently skipped, if that ever changes.
+            throw new Error(`The worktree at ${option.path} is not yet managed.`);
+          }
+          return option.worktreeId;
         })
-        .then(() => {
+        .then((worktreeId) =>
+          args.onSelectWorktree({ branch: option.branch, path: option.path, worktreeId })
+        )
+        .then(async () => {
           setPickerOpen(false);
+          await refreshList();
         })
         .catch((error: unknown) => {
           const message = errorMessage(error);
@@ -473,7 +475,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           setPending(false);
         });
     },
-    [addRootDirectoryByPath, args.onSelectWorktree]
+    [addRootDirectoryByPath, args.onSelectWorktree, refreshList]
   );
 
   const onArchive = useCallback((): void => {

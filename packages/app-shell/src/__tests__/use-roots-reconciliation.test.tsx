@@ -88,7 +88,9 @@ function installWorktreesBridgeWithManagedPaths(
   listManagedPaths: WorktreesBridge['listManagedPaths']
 ): () => void {
   window.worktrees = {
+    adopt: vi.fn(),
     archive: vi.fn(),
+    checkoutStatus: vi.fn(),
     create: vi.fn(),
     createBranchHere: vi.fn(),
     createContext: vi.fn(),

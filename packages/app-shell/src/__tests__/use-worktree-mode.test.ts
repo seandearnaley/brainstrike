@@ -8,6 +8,7 @@ type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
 const {
   addRootByPathSpy,
   addRootDirectorySpy,
+  adoptSpy,
   archiveSpy,
   createBranchHereSpy,
   createContextSpy,
@@ -15,10 +16,12 @@ const {
   getSettingsSpy,
   listSpy,
   loggerErrorSpy,
+  restoreSpy,
   toastSpy,
 } = vi.hoisted(() => ({
   addRootByPathSpy: vi.fn(),
   addRootDirectorySpy: vi.fn(),
+  adoptSpy: vi.fn(),
   archiveSpy: vi.fn(),
   createBranchHereSpy: vi.fn(),
   createContextSpy: vi.fn(),
@@ -26,19 +29,22 @@ const {
   getSettingsSpy: vi.fn(),
   listSpy: vi.fn(),
   loggerErrorSpy: vi.fn(),
+  restoreSpy: vi.fn(),
   toastSpy: vi.fn(),
 }));
 
 vi.mock('../worktrees/worktrees-bridge', () => ({
   resolveWorktreesBridge: () => ({
+    adopt: adoptSpy,
     archive: archiveSpy,
+    checkoutStatus: vi.fn(),
     create: createSpy,
     createBranchHere: createBranchHereSpy,
     createContext: createContextSpy,
     getSettings: getSettingsSpy,
     list: listSpy,
     listManagedPaths: vi.fn(),
-    restore: vi.fn(),
+    restore: restoreSpy,
     setSettings: vi.fn(),
   }),
 }));
@@ -89,6 +95,34 @@ const CREATE_REQUEST = {
   branch: { name: 'bs/bright-fox' },
   name: 'bright-fox',
 } as const;
+
+function entry(overrides: Partial<WorktreeListEntry> = {}): WorktreeListEntry {
+  return {
+    branch: 'main',
+    containment: ['r-1'],
+    createdAt: null,
+    detached: false,
+    disabledReason: null,
+    externalTool: null,
+    id: 'w-1',
+    lockedReason: null,
+    managed: true,
+    name: 'bright-fox',
+    path: '/managed/app/bright-fox',
+    primary: false,
+    provenance: 'both',
+    remedy: null,
+    repoCommonDir: '/repo/.git',
+    repositoryRoot: '/work/app',
+    rootId: 'r-1',
+    setupReason: null,
+    setupStatus: 'none',
+    trust: 'validated',
+    trustReason: null,
+    usable: true,
+    ...overrides,
+  };
+}
 
 describe('useWorktreeMode', () => {
   beforeEach(() => {
@@ -438,6 +472,7 @@ describe('useWorktreeMode', () => {
         {
           branch: null,
           containment: 'outside-roots',
+          createdAt: null,
           detached: true,
           disabledReason:
             "This worktree isn't inside any workspace folder yet — grant access to use it here.",
@@ -447,8 +482,10 @@ describe('useWorktreeMode', () => {
           managed: false,
           name: 'codex-one',
           path: '/Users/me/.codex/worktrees/codex-one',
+          primary: false,
           provenance: 'scanned',
           remedy: 'grant-access',
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: null,
           setupReason: null,
@@ -472,6 +509,32 @@ describe('useWorktreeMode', () => {
     });
   });
 
+  it('renders the primary checkout as a disabled picker row with its stated reason', async () => {
+    listSpy.mockResolvedValue({
+      ok: true,
+      value: [
+        entry({
+          disabledReason:
+            "This is the repository's primary checkout — use Hand off to Local instead.",
+          id: null,
+          name: 'brainstrike',
+          path: '/repo',
+          primary: true,
+          usable: false,
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
+
+    const [option] = result.current?.picker.options ?? [];
+    expect(option?.usable).toBe(false);
+    expect(option?.disabledReason).toBe(
+      "This is the repository's primary checkout — use Hand off to Local instead."
+    );
+  });
+
   it('uses persisted setup status and reason for the selected worktree summary', async () => {
     listSpy.mockResolvedValue({
       ok: true,
@@ -479,6 +542,7 @@ describe('useWorktreeMode', () => {
         {
           branch: 'bs/bright-fox',
           containment: ['r-1'],
+          createdAt: null,
           detached: false,
           disabledReason: null,
           externalTool: null,
@@ -487,8 +551,10 @@ describe('useWorktreeMode', () => {
           managed: true,
           name: 'bright-fox',
           path: '/managed/app/bright-fox',
+          primary: false,
           provenance: 'both',
           remedy: null,
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: 'r-1',
           setupReason: 'Setup command exited with code 3.',
@@ -521,6 +587,7 @@ describe('useWorktreeMode', () => {
         {
           branch: 'bs/bright-fox',
           containment: ['r-1'],
+          createdAt: null,
           detached: false,
           disabledReason: null,
           externalTool: null,
@@ -529,8 +596,10 @@ describe('useWorktreeMode', () => {
           managed: true,
           name: 'bright-fox',
           path: '/managed/app/bright-fox',
+          primary: false,
           provenance: 'both',
           remedy: null,
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: 'r-1',
           setupReason: null,
@@ -555,6 +624,7 @@ describe('useWorktreeMode', () => {
         {
           branch: 'bs/bright-fox',
           containment: ['r-1'],
+          createdAt: null,
           detached: false,
           disabledReason: null,
           externalTool: null,
@@ -563,8 +633,10 @@ describe('useWorktreeMode', () => {
           managed: true,
           name: 'bright-fox',
           path: '/managed/app/bright-fox',
+          primary: false,
           provenance: 'both',
           remedy: null,
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: 'r-1',
           setupReason: null,
@@ -620,6 +692,7 @@ describe('useWorktreeMode', () => {
     const detached: WorktreeListEntry = {
       branch: null,
       containment: ['r-1'],
+      createdAt: null,
       detached: true,
       disabledReason: null,
       externalTool: null,
@@ -628,8 +701,10 @@ describe('useWorktreeMode', () => {
       managed: true,
       name: 'bright-fox',
       path: '/managed/app/bright-fox',
+      primary: false,
       provenance: 'both',
       remedy: null,
+      repoCommonDir: '/repo/.git',
       repositoryRoot: '/work/app',
       rootId: 'r-1',
       setupReason: null,
@@ -684,6 +759,7 @@ describe('useWorktreeMode', () => {
         {
           branch: null,
           containment: ['r-1'],
+          createdAt: null,
           detached: true,
           disabledReason: null,
           externalTool: null,
@@ -692,8 +768,10 @@ describe('useWorktreeMode', () => {
           managed: true,
           name: 'bright-fox',
           path: '/managed/app/bright-fox',
+          primary: false,
           provenance: 'both',
           remedy: null,
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: 'r-1',
           setupReason: null,
@@ -739,6 +817,7 @@ describe('useWorktreeMode', () => {
           {
             branch: null,
             containment: ['r-1'],
+            createdAt: null,
             detached: true,
             externalTool: null,
             id: 'w-broken',
@@ -746,8 +825,10 @@ describe('useWorktreeMode', () => {
             managed: true,
             name: 'broken',
             path: '/managed/app/broken',
+            primary: false,
             provenance: 'both',
             remedy: null,
+            repoCommonDir: '/repo/.git',
             repositoryRoot: '/work/app',
             rootId: 'r-1',
             setupReason: null,
@@ -782,6 +863,37 @@ describe('useWorktreeMode', () => {
     });
     expect(addRootDirectorySpy).toHaveBeenCalledWith();
     expect(addRootByPathSpy).not.toHaveBeenCalled();
+  });
+
+  // Selecting an unmanaged row is unreachable through the real picker
+  // (`resolveUsability` never marks a row without a ledger id `usable`, and
+  // the picker UI disables every unusable option), but `onSelect` itself
+  // takes whatever option it is given — this pins the defensive refusal
+  // rather than a silent adopt-on-select, now that adoption lives on the
+  // Worktree Map's card action (Task 6) and the agent tool (Task 10), not
+  // here. A directly-constructed unmanaged option (bypassing the picker's
+  // own disabling) still refuses loudly instead of quietly binding a
+  // nonexistent worktree id.
+  it('refuses to bind an unmanaged option instead of silently adopting it', async () => {
+    listSpy.mockResolvedValue({
+      ok: true,
+      value: [entry({ id: null, managed: false, name: 'x', path: '/repo/.claude/worktrees/x' })],
+    });
+
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
+    act(() => {
+      result.current?.picker.onSelect(result.current.picker.options[0] as never);
+    });
+
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'The worktree at /repo/.claude/worktrees/x is not yet managed.',
+      title: 'Could not use that worktree',
+      variant: 'destructive',
+    });
+    expect(onSelectWorktree).not.toHaveBeenCalled();
+    expect(adoptSpy).not.toHaveBeenCalled();
   });
 
   it('surfaces a list failure on the picker instead of an empty list', async () => {

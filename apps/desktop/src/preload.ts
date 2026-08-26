@@ -5,6 +5,7 @@ type EmbeddingTelemetrySnapshot =
   import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
 type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
 type Changeset = import('@brainstrike/types').Changeset;
+type WorktreeAdoptParams = import('@brainstrike/types').WorktreeAdoptParams;
 type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update' as const;
@@ -122,7 +123,9 @@ const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
 const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
 const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
 const CHANGES_INVALIDATED_EVENT = 'changes:invalidated' as const;
+const WORKTREES_ADOPT_CHANNEL = 'worktrees:adopt' as const;
 const WORKTREES_ARCHIVE_CHANNEL = 'worktrees:archive' as const;
+const WORKTREES_CHECKOUT_STATUS_CHANNEL = 'worktrees:checkoutStatus' as const;
 const WORKTREES_CREATE_CHANNEL = 'worktrees:create' as const;
 const WORKTREES_CREATE_BRANCH_HERE_CHANNEL = 'worktrees:createBranchHere' as const;
 const WORKTREES_CREATE_CONTEXT_CHANNEL = 'worktrees:createContext' as const;
@@ -1377,8 +1380,11 @@ if (shouldExposeBridge('changes')) {
 // consumers capability-check it rather than `isElectron()`.
 if (shouldExposeBridge('worktrees')) {
   contextBridge.exposeInMainWorld('worktrees', {
+    adopt: (params: WorktreeAdoptParams) => ipcRenderer.invoke(WORKTREES_ADOPT_CHANNEL, params),
     archive: (params: { force?: boolean; runId?: string; worktreeId: string }) =>
       ipcRenderer.invoke(WORKTREES_ARCHIVE_CHANNEL, params),
+    checkoutStatus: (params: { path: string }) =>
+      ipcRenderer.invoke(WORKTREES_CHECKOUT_STATUS_CHANNEL, params),
     create: (params: unknown) => ipcRenderer.invoke(WORKTREES_CREATE_CHANNEL, params),
     createBranchHere: (params: { branch: string; worktreeId: string }) =>
       ipcRenderer.invoke(WORKTREES_CREATE_BRANCH_HERE_CHANNEL, params),

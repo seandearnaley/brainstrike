@@ -14,7 +14,9 @@ import type {
   GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
+  WorktreeAdoptParams,
   WorktreeArchiveResult,
+  WorktreeCheckoutStatus,
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
@@ -27,7 +29,9 @@ import type { WorktreeService } from './assistant-server/worktree-service';
 const logger = createLogger('WorktreesIpc');
 
 export interface WorktreesIpcHandlers {
+  readonly adopt: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
   readonly archive: (payload: unknown) => Promise<GitResult<WorktreeArchiveResult>>;
+  readonly checkoutStatus: (payload: unknown) => Promise<GitResult<WorktreeCheckoutStatus>>;
   readonly create: (payload: unknown) => Promise<GitResult<WorktreeCreateResult>>;
   readonly createBranchHere: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
   readonly createContext: (payload: unknown) => Promise<GitResult<WorktreeCreateContext>>;
@@ -55,6 +59,54 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function validateAdopt(payload: unknown): GitResult<WorktreeAdoptParams> {
+  if (
+    !(
+      isRecord(payload) &&
+      nonEmptyString(payload['path']) &&
+      path.isAbsolute(payload['path'] as string)
+    ) ||
+    (payload['createdBy'] !== 'agent' && payload['createdBy'] !== 'user')
+  ) {
+    return {
+      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      ok: false,
+    };
+  }
+  const runId = payload['runId'];
+  const threadId = payload['threadId'];
+  // An unknown-typed IPC boundary: a PRESENT runId/threadId that is not a
+  // non-empty string is rejected, never silently coerced to absent. Silently
+  // dropping a malformed runId would still adopt the worktree, just without
+  // the run attribution the caller asked for — a different outcome than the
+  // one requested, produced without saying so.
+  if (runId !== undefined && !nonEmptyString(runId)) {
+    return { error: 'worktrees:adopt runId must be a non-empty string when present.', ok: false };
+  }
+  if (threadId !== undefined && !nonEmptyString(threadId)) {
+    return {
+      error: 'worktrees:adopt threadId must be a non-empty string when present.',
+      ok: false,
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      createdBy: payload['createdBy'],
+      path: payload['path'] as string,
+      ...(nonEmptyString(runId) ? { runId } : {}),
+      ...(nonEmptyString(threadId) ? { threadId } : {}),
+    },
+  };
+}
+
+function validateCheckoutStatus(payload: unknown): GitResult<{ readonly path: string }> {
+  if (!(isRecord(payload) && nonEmptyString(payload['path']) && path.isAbsolute(payload['path']))) {
+    return { error: 'worktrees:checkoutStatus requires { path: <absolute path> }.', ok: false };
+  }
+  return { ok: true, value: { path: payload['path'] } };
 }
 
 function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
@@ -180,12 +232,28 @@ export function createWorktreesIpcHandlers(
   }
 
   return {
+    adopt: async (payload) => {
+      const params = validateAdopt(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:adopt', (service) => service.adopt(params.value));
+    },
     archive: async (payload) => {
       const params = validateArchive(payload);
       if (!params.ok) {
         return params;
       }
       return await withService('worktrees:archive', (service) => service.archive(params.value));
+    },
+    checkoutStatus: async (payload) => {
+      const params = validateCheckoutStatus(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:checkoutStatus', (service) =>
+        service.checkoutStatus(params.value)
+      );
     },
     create: async (payload) => {
       const params = validateCreate(payload);

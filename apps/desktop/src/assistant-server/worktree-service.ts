@@ -23,11 +23,12 @@ import type {
   GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
+  WorktreeAdoptParams,
   WorktreeArchiveResult,
+  WorktreeCheckoutStatus,
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
-  WorktreeDescriptor,
   WorktreeListEntry,
   WorktreeSettings,
   WorktreeSetupOutcome,
@@ -41,6 +42,12 @@ import {
 } from './git-service';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 import {
+  adoptWorktree,
+  ghostListEntry,
+  inventoryListEntry,
+  readCheckoutStatus,
+} from './worktree-adopt';
+import {
   captureArchiveSnapshot,
   captureMissingArchiveSnapshot,
   inspectWorktreeSafety,
@@ -49,12 +56,12 @@ import {
 import { createWorktreeLedger, type WorktreeLedgerDatabase } from './worktree-ledger';
 import {
   assertWorktreeTargetOutsideRoots,
-  externalToolForPath,
   generateWorktreeName,
   repositorySlug,
   resolveWorktreeTargetPath,
 } from './worktree-paths';
 import {
+  emitWorktreeAdoptedEvent,
   emitWorktreeArchivedEvent,
   emitWorktreeCreateEvents,
   type WorktreeRunEventDeps,
@@ -352,7 +359,13 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         seenPaths.add(descriptor.path);
         const row = rowsByPath.get(descriptor.path) ?? null;
         entries.push(
-          inventoryListEntry(descriptor, row, repository.identity.repositoryRoot, rootIdByPath)
+          inventoryListEntry(
+            descriptor,
+            row,
+            repository.identity.repositoryRoot,
+            repository.identity.gitCommonDir,
+            rootIdByPath
+          )
         );
       }
     }
@@ -708,6 +721,29 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   return {
+    async adopt(params: WorktreeAdoptParams): Promise<GitResult<ManagedWorktreeRow>> {
+      return await serialize(async () => {
+        try {
+          const adopted = await adoptWorktree(
+            {
+              ledger,
+              readSettings: deps.readSettings,
+              resolveInventory: deps.resolveInventory,
+              resolveRootPaths: deps.resolveRootPaths,
+              run: deps.run,
+            },
+            params
+          );
+          if (adopted.ok) {
+            await emitWorktreeAdoptedEvent(deps, params.runId ?? null, adopted.value);
+          }
+          return adopted;
+        } catch (error) {
+          logger.error('worktree adopt failed', { error, path: params.path });
+          return { error: toErrorMessage(error), ok: false };
+        }
+      });
+    },
     /**
      * Snapshot, then remove. ORDER IS THE CONTRACT: the snapshot is captured
      * BEFORE the safety verdict is acted on and before `git worktree remove`
@@ -724,6 +760,25 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return { error: toErrorMessage(error), ok: false };
         }
       });
+    },
+    async checkoutStatus(params: {
+      readonly path: string;
+    }): Promise<GitResult<WorktreeCheckoutStatus>> {
+      try {
+        return await readCheckoutStatus(
+          {
+            ledger,
+            readSettings: deps.readSettings,
+            resolveInventory: deps.resolveInventory,
+            resolveRootPaths: deps.resolveRootPaths,
+            run: deps.run,
+          },
+          params
+        );
+      } catch (error) {
+        logger.error('worktree checkout status failed', { error, path: params.path });
+        return { error: toErrorMessage(error), ok: false };
+      }
     },
     /** Create a managed worktree, record it, and run its setup. */
     async create(params: WorktreeCreateParams): Promise<GitResult<WorktreeCreateResult>> {
@@ -891,134 +946,3 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 }
 
 export type WorktreeService = ReturnType<typeof createWorktreeService>;
-
-interface UsabilityGate {
-  readonly disabledReason: string | null;
-  readonly remedy: 'grant-access' | null;
-  readonly usable: boolean;
-}
-
-function inventoryListEntry(
-  descriptor: WorktreeDescriptor,
-  row: ManagedWorktreeRow | null,
-  repositoryRoot: string,
-  rootIdByPath: ReadonlyMap<string, string>
-): WorktreeListEntry {
-  const gate = resolveUsability(descriptor, row);
-  return {
-    branch: descriptor.branch,
-    containment: descriptor.containment,
-    detached: descriptor.detached,
-    disabledReason: gate.disabledReason,
-    externalTool: externalToolForPath(descriptor.path),
-    id: row?.id ?? null,
-    lockedReason: descriptor.lockedReason,
-    managed: row !== null,
-    name: descriptor.name,
-    path: descriptor.path,
-    // The FIRST producer of anything but 'scanned' (see
-    // docs/agents/changeset-diff.md): a scanned worktree that also has a
-    // ledger row is known from BOTH sides.
-    provenance: row ? 'both' : 'scanned',
-    remedy: gate.remedy,
-    repositoryRoot,
-    rootId:
-      rootIdByPath.get(descriptor.path) ??
-      (descriptor.containment === 'outside-roots' ? null : (descriptor.containment[0] ?? null)),
-    setupReason: row?.setupReason ?? null,
-    setupStatus: row?.setupStatus ?? 'none',
-    trust: descriptor.trust,
-    trustReason: descriptor.trustReason,
-    usable: gate.usable,
-  };
-}
-
-function ghostListEntry(
-  row: ManagedWorktreeRow,
-  rootIdByPath: ReadonlyMap<string, string>
-): WorktreeListEntry {
-  return {
-    branch: row.branch,
-    containment: 'outside-roots',
-    detached: row.branch === null,
-    disabledReason: 'Worktree is missing on disk — restore it or archive it.',
-    externalTool: externalToolForPath(row.path),
-    id: row.id,
-    lockedReason: null,
-    managed: true,
-    name: path.basename(row.path),
-    path: row.path,
-    provenance: 'agent-reported',
-    remedy: null,
-    repositoryRoot: repositoryRootFromCommonDir(row.repoCommonDir),
-    rootId: rootIdByPath.get(row.path) ?? null,
-    setupReason: row.setupReason,
-    setupStatus: row.setupStatus,
-    trust: 'unvalidated',
-    trustReason: 'missing on disk',
-    usable: false,
-  };
-}
-
-/**
- * Whether this worktree can be USED as a thread's checkout, and if not, why —
- * ordered most-specific-cause first. NO SILENT HIDING and NO SILENT DISABLE:
- * an unusable row is still returned, still carries its reason, and names the
- * remedy when one exists.
- *
- * An in-root worktree with no ledger row is unusable because BrainStrike did
- * not create it, independently of the trust, lock, and prune gates above.
- *
- * `outside-roots` is NOT terminal: a managed worktree is authorized by the
- * ledger, and any other outside-roots worktree becomes usable once the user
- * grants it through the OS picker — which is what `remedy: 'grant-access'`
- * tells the UI to offer (the picker-only ruling in
- * `changes-context-actions.ts` still holds: no caller-supplied path).
- */
-function resolveUsability(
-  descriptor: WorktreeDescriptor,
-  row: ManagedWorktreeRow | null
-): UsabilityGate {
-  if (descriptor.prunableReason !== null) {
-    return {
-      disabledReason: `Worktree is prunable: ${descriptor.prunableReason}`,
-      remedy: null,
-      usable: false,
-    };
-  }
-  if (descriptor.trust === 'unvalidated') {
-    return {
-      disabledReason:
-        descriptor.trustReason ?? 'This worktree could not be verified against its own .git.',
-      remedy: null,
-      usable: false,
-    };
-  }
-  if (descriptor.lockedReason !== null) {
-    return { disabledReason: `Locked: ${descriptor.lockedReason}`, remedy: null, usable: false };
-  }
-  if (row === null && descriptor.containment !== 'outside-roots') {
-    return {
-      disabledReason: 'Created outside BrainStrike — adopting it is coming with the Worktree Map.',
-      remedy: null,
-      usable: false,
-    };
-  }
-  // `row !== null` alone is correct here: the branch above already ruled
-  // out `row === null && containment !== 'outside-roots'`, so reaching
-  // this line with containment !== 'outside-roots' implies row !== null.
-  if (row !== null) {
-    return { disabledReason: null, remedy: null, usable: true };
-  }
-  return {
-    disabledReason:
-      "This worktree isn't inside any workspace folder yet — grant access to use it here.",
-    remedy: 'grant-access',
-    usable: false,
-  };
-}
-
-/** Non-bare repositories use `<main-worktree>/.git`; bare common dirs stay as-is. */
-function repositoryRootFromCommonDir(repoCommonDir: string): string {
-  return path.basename(repoCommonDir) === '.git' ? path.dirname(repoCommonDir) : repoCommonDir;
-}

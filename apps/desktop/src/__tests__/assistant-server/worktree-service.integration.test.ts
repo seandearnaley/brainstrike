@@ -725,6 +725,219 @@ describe('WorktreeService (real git + real PGlite)', () => {
     });
   });
 
+  it('marks the repository main worktree as the primary and refuses it as a checkout target', async () => {
+    const created = await buildService().create({
+      baseRef: 'main',
+      branch: { name: 'bs/primary-gate' },
+      createdBy: 'user',
+      name: 'primary-gate',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const inventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: created.value.worktree.repoCommonDir, repositoryRoot: repo },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'main',
+              containment: ['r-1'],
+              current: false,
+              detached: false,
+              head: '0123456789012345678901234567890123456789',
+              lockedReason: null,
+              name: 'repo',
+              path: repo,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+            {
+              bare: false,
+              branch: 'bs/primary-gate',
+              containment: ['r-1'],
+              current: false,
+              detached: false,
+              head: '0123456789012345678901234567890123456789',
+              lockedReason: null,
+              name: 'primary-gate',
+              path: created.value.worktree.path,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    } satisfies GitInventory;
+
+    const listed = await buildService({
+      resolveInventory: () => Promise.resolve(inventory),
+    }).list();
+
+    expect(listed.ok).toBe(true);
+    const entries = listed.ok ? listed.value : [];
+    const primary = entries.find((entry) => entry.path === repo);
+    expect(primary?.primary).toBe(true);
+    expect(primary?.usable).toBe(false);
+    expect(primary?.disabledReason).toBe(
+      "This is the repository's primary checkout — use Hand off to Local instead."
+    );
+    // The primary worktree has no ledger row of its own (BrainStrike did not
+    // create it) — a purely scanned entry carries no creation stamp.
+    expect(primary?.createdAt).toBeNull();
+    expect(entries.find((entry) => entry.path === created.value.worktree.path)?.primary).toBe(
+      false
+    );
+  });
+
+  it('carries the repository common dir and the ledger creation stamp onto every entry', async () => {
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    const created = await buildService().create({
+      baseRef: 'main',
+      branch: { name: 'bs/carries-stamp' },
+      createdBy: 'user',
+      name: 'carries-stamp',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    await ledger.insert({
+      archivedAt: null,
+      archiveSnapshotRef: null,
+      baseRef: 'main',
+      branch: 'bs/ghost-stamp',
+      createdAt: '2026-08-25T00:00:00.000Z',
+      createdBy: 'user',
+      id: '01993a12-0000-7000-8000-000000000021',
+      path: '/gone',
+      repoCommonDir: '/elsewhere/.git',
+      runId: null,
+      setupOutput: null,
+      setupReason: null,
+      setupStatus: 'none',
+      threadId: null,
+    });
+    const inventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: created.value.worktree.repoCommonDir, repositoryRoot: repo },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'bs/carries-stamp',
+              containment: ['r-1'],
+              current: false,
+              detached: false,
+              head: '0123456789012345678901234567890123456789',
+              lockedReason: null,
+              name: 'carries-stamp',
+              path: created.value.worktree.path,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    } satisfies GitInventory;
+
+    const listed = await buildService({
+      resolveInventory: () => Promise.resolve(inventory),
+    }).list();
+
+    expect(listed.ok).toBe(true);
+    const entries = listed.ok ? listed.value : [];
+    const scanned = entries.find((entry) => entry.path === created.value.worktree.path);
+    expect(scanned?.repoCommonDir).toBe(commonDir);
+    expect(scanned?.createdAt).toBe(created.value.worktree.createdAt);
+    const ghost = entries.find((entry) => entry.path === '/gone');
+    // The ghost row keeps the LEDGER's own common dir — the inventory has no
+    // descriptor for it, so there is nothing else that could be honest here.
+    expect(ghost?.repoCommonDir).toBe('/elsewhere/.git');
+    expect(ghost?.primary).toBe(false);
+  });
+
+  // `brainstrike_worktrees.path` is globally UNIQUE with no partial index
+  // (migration 109) — an archived row at a path that gets recreated
+  // externally must be refused, not fall through into a raw constraint
+  // violation on insert. Real git + real PGlite: the archived row's path is
+  // genuinely gone from disk (service.archive() ran `git worktree remove`),
+  // then a real `git worktree add` recreates a DIFFERENT worktree at that
+  // SAME path, so the inventory reports it again while the ledger still
+  // holds the archived row.
+  it('refuses to adopt an externally recreated worktree at an archived path', async () => {
+    const service = buildService();
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/archived-path-reuse' },
+      createdBy: 'user',
+      name: 'archived-path-reuse',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const worktreePath = created.value.worktree.path;
+    const archived = await service.archive({ worktreeId: created.value.worktree.id });
+    expect(archived.ok).toBe(true);
+    expect(existsSync(worktreePath)).toBe(false);
+
+    git(repo, ['worktree', 'add', '-b', 'bs/archived-path-reuse-external', worktreePath]);
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    const inventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: commonDir, repositoryRoot: repo },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'bs/archived-path-reuse-external',
+              containment: ['r-1'],
+              current: false,
+              detached: false,
+              head: '0123456789012345678901234567890123456789',
+              lockedReason: null,
+              name: 'archived-path-reuse',
+              path: worktreePath,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    } satisfies GitInventory;
+
+    const adopted = await buildService({
+      resolveInventory: () => Promise.resolve(inventory),
+    }).adopt({ createdBy: 'user', path: worktreePath });
+
+    expect(adopted).toEqual({
+      error: `BrainStrike archived a worktree at "${worktreePath}" — restore that one instead of adopting a new checkout at the same path.`,
+      ok: false,
+    });
+  });
+
   it.each([
     ['baseRef', null],
     ['repoCommonDir', 42],

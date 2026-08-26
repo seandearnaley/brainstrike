@@ -60,6 +60,25 @@ async function emit(
   }
 }
 
+/** `worktree.created` for a worktree BrainStrike did not create but now manages. */
+export async function emitWorktreeAdoptedEvent(
+  deps: WorktreeRunEventDeps,
+  runId: string | null | undefined,
+  worktree: ManagedWorktreeRow
+): Promise<void> {
+  await emit(deps, runId, 'worktree.created', () => ({
+    detail: worktree.branch ?? 'detached HEAD',
+    label: `Adopted worktree ${path.basename(worktree.path)}`,
+    metadata: {
+      branch: worktree.branch,
+      path: worktree.path,
+      via: 'adopt',
+      worktreeId: worktree.id,
+    },
+    status: 'info',
+  }));
+}
+
 /** `worktree.created`, plus `worktree.setup` when setup ran (status !== 'none'). */
 export async function emitWorktreeCreateEvents(
   deps: WorktreeRunEventDeps,
@@ -70,7 +89,12 @@ export async function emitWorktreeCreateEvents(
   await emit(deps, runId, 'worktree.created', () => ({
     detail: worktree.branch ?? 'detached HEAD',
     label: `Created worktree ${path.basename(worktree.path)}`,
-    metadata: { branch: worktree.branch, path: worktree.path, worktreeId: worktree.id },
+    metadata: {
+      branch: worktree.branch,
+      path: worktree.path,
+      via: 'app',
+      worktreeId: worktree.id,
+    },
     status: 'info',
   }));
   if (setup.status === 'none') {
