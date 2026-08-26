@@ -1630,12 +1630,14 @@ function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined 
  * `checkoutWorktreeId` is the AUTHORITY in worktree mode (exactly like
  * `operatingRootId` is for the folder binding), `checkoutWorktreePath` is the
  * display hint the chip's tooltip renders, and `checkoutLocalRootId` is the
- * durable root a later hand-off restores. A worktree checkout needs all three:
+ * durable root a later hand-off restores. New worktree writes need all three:
  * an id with no path renders a chip with nothing to show, a path with no id has
- * no durable identity to resolve, and a missing Local root forces hand-off to
- * guess from secondary-folder position. A LOCAL checkout carrying any of those
- * keys is not "mostly right" — it is two contradictory statements about where
- * the thread works, and it is rejected rather than silently pruned.
+ * no durable identity to resolve, and a missing Local root would lose the
+ * durable hand-off target. Reads tolerate only that last omission for legacy
+ * rows, allowing the explicit warn/toast hand-off path to retain the current
+ * primary folder. A LOCAL checkout carrying any of those keys is not "mostly
+ * right" — it is two contradictory statements about where the thread works,
+ * and it is rejected rather than silently pruned.
  *
  * `updateThreadMetadata` owns the key-removal transitions this shape needs.
  * Every checkout-mode patch removes the per-checkout branch before merging, so
@@ -1644,13 +1646,18 @@ function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined 
  * root in the same SQL update. Every non-checkout metadata patch keeps the
  * repository's ordinary JSONB-merge semantics.
  */
-function assertCompleteCheckoutMetadata(metadata: {
+interface CheckoutMetadataShape {
   readonly checkoutBranch?: string | undefined;
   readonly checkoutLocalRootId?: string | undefined;
   readonly checkoutMode?: 'local' | 'worktree' | undefined;
   readonly checkoutWorktreeId?: string | undefined;
   readonly checkoutWorktreePath?: string | undefined;
-}): void {
+}
+
+function assertCompleteCheckoutMetadata(
+  metadata: CheckoutMetadataShape,
+  requireLocalRootId: boolean
+): void {
   const hasAnyCheckoutMetadata = Boolean(
     metadata.checkoutBranch ||
       metadata.checkoutLocalRootId ||
@@ -1666,11 +1673,8 @@ function assertCompleteCheckoutMetadata(metadata: {
   }
   if (metadata.checkoutMode === 'worktree') {
     if (
-      !(
-        metadata.checkoutLocalRootId &&
-        metadata.checkoutWorktreeId &&
-        metadata.checkoutWorktreePath
-      )
+      !(metadata.checkoutWorktreeId && metadata.checkoutWorktreePath) ||
+      (requireLocalRootId && !metadata.checkoutLocalRootId)
     ) {
       throw new Error('Assistant thread checkout metadata is incomplete.');
     }
@@ -1683,6 +1687,14 @@ function assertCompleteCheckoutMetadata(metadata: {
   ) {
     throw new Error('Assistant thread checkout metadata is inconsistent.');
   }
+}
+
+function assertCompleteCheckoutMetadataForRead(metadata: CheckoutMetadataShape): void {
+  assertCompleteCheckoutMetadata(metadata, false);
+}
+
+function assertCompleteCheckoutMetadataForWrite(metadata: CheckoutMetadataShape): void {
+  assertCompleteCheckoutMetadata(metadata, true);
 }
 
 function sanitizeCheckoutMetadata(
@@ -1707,7 +1719,7 @@ function sanitizeCheckoutMetadata(
     ...(checkoutWorktreeId ? { checkoutWorktreeId } : {}),
     ...(checkoutWorktreePath ? { checkoutWorktreePath } : {}),
   };
-  assertCompleteCheckoutMetadata(checkoutMetadata);
+  assertCompleteCheckoutMetadataForRead(checkoutMetadata);
   return checkoutMetadata;
 }
 
@@ -1807,7 +1819,7 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
     throw new Error('Invalid assistant thread metadata color.');
   }
   optionalCheckoutMode(metadata.checkoutMode);
-  assertCompleteCheckoutMetadata(metadata);
+  assertCompleteCheckoutMetadataForWrite(metadata);
   assertOptionalThreadMetadataString(metadata.checkoutBranch, 'checkout branch');
   assertOptionalThreadMetadataString(metadata.checkoutLocalRootId, 'checkout local root id');
   assertOptionalThreadMetadataString(metadata.checkoutWorktreeId, 'checkout worktree id');

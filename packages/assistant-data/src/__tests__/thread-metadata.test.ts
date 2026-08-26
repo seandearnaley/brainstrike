@@ -103,9 +103,24 @@ describe('checkout metadata', () => {
     ).toThrow('Assistant thread checkout metadata is inconsistent.');
   });
 
-  it('throws on a worktree checkout missing its durable Local root id', () => {
+  it('loads a legacy worktree checkout with no durable Local root id', () => {
+    const metadata = sanitizeThreadMetadataForTest({
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: '0198f6a0-0000-7000-8000-000000000001',
+      checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',
+    });
+
+    expect(metadata).toEqual({
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: '0198f6a0-0000-7000-8000-000000000001',
+      checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',
+    });
+    expect(metadata?.checkoutLocalRootId).toBeUndefined();
+  });
+
+  it('rejects persistence of a worktree checkout missing its durable Local root id', () => {
     expect(() =>
-      sanitizeThreadMetadataForTest({
+      assertPersistableThreadMetadataForTest({
         checkoutMode: 'worktree',
         checkoutWorktreeId: '0198f6a0-0000-7000-8000-000000000001',
         checkoutWorktreePath: '/repos/acme/.brainstrike/worktrees/feature-x',

@@ -1043,7 +1043,9 @@ additional explorer/status chrome):
     when it has a complete roots row; a disconnected tracked root is logged and
     refused, while legacy partial state with no tracked Local root clears checkout
     mode, warns/toasts that the folder did not follow, and keeps its current
-    primary. Every checkout-mode transition atomically strips `checkoutBranch`;
+    primary. The repository read sanitizer preserves that legacy worktree shape
+    without weakening the complete-metadata requirement for new writes. Every
+    checkout-mode transition atomically strips `checkoutBranch`;
     the Local transition also removes both worktree keys and
     `checkoutLocalRootId`, so no stale checkout authority survives the hand-off.
   - Recents come from main's `recentRootsList` ledger

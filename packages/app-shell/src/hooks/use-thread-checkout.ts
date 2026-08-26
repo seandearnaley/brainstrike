@@ -81,7 +81,7 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
         // only a transition from Local establishes a new one.
         const checkoutLocalRootId = current.checkoutLocalRootId ?? current.primaryRootId;
         if (!checkoutLocalRootId) {
-          logger.error('Select worktree: current primary root is unknown or has no path', {
+          logger.error('Select worktree: current primary root id is unknown', {
             primaryRootId: current.primaryRootId,
             worktreeId: worktree.worktreeId,
           });
@@ -97,10 +97,13 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
             current.primaryRoot.rootId !== current.primaryRootId ||
             !currentPrimaryPath)
         ) {
-          logger.error('Select worktree: current primary root is unknown or has no path', {
-            primaryRootId: current.primaryRootId,
-            worktreeId: worktree.worktreeId,
-          });
+          logger.error(
+            'Select worktree: current primary root record is missing, stale, or has no path',
+            {
+              primaryRootId: current.primaryRootId,
+              worktreeId: worktree.worktreeId,
+            }
+          );
           throw new Error(
             'Could not switch worktrees: the current primary folder is no longer available.'
           );

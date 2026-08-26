@@ -1,4 +1,3 @@
-// biome-ignore-all lint/style/noExcessiveLinesPerFile: BST-1390 requires both queue-tail regressions in this established hook harness.
 import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,
