@@ -6,7 +6,8 @@ import type {
   WorkspaceBarMode,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { useBranchSwitcher } from './use-branch-switcher';
 import type { ThreadCheckoutState } from './use-thread-checkout';
 import { useWorktreeMode } from './use-worktree-mode';
@@ -49,6 +50,37 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     selectedThread,
     worktreeCheckout,
   } = args;
+  // Apply a Worktree Map intent to the SELECTED thread, once. `consume` clears
+  // the entry, so a re-render cannot re-apply it; a failure surfaces through
+  // the same toast path the chip uses and the intent is not retried.
+  const pendingIntent = useWorktreeCheckoutIntentStore((state) => state.pending);
+  const consumeIntent = useWorktreeCheckoutIntentStore((state) => state.consume);
+  const applyingRef = useRef(false);
+  useEffect(() => {
+    const threadId = selectedThread?.id;
+    if (!threadId || pendingIntent?.threadId !== threadId || applyingRef.current) {
+      return;
+    }
+    const intent = consumeIntent(threadId);
+    if (!intent) {
+      return;
+    }
+    applyingRef.current = true;
+    const applied = intent.worktreeId
+      ? onSelectWorktree({
+          branch: intent.branch,
+          path: intent.path,
+          worktreeId: intent.worktreeId,
+        })
+      : onHandOffToLocal();
+    void applied
+      .catch((error: unknown) => {
+        logger.error('worktree map checkout intent failed', { error, threadId });
+      })
+      .finally(() => {
+        applyingRef.current = false;
+      });
+  }, [consumeIntent, onHandOffToLocal, onSelectWorktree, pendingIntent, selectedThread?.id]);
   // `latestRun` is populated from the durable run ledger after the first request.
   // A known id with no row is still hydrating, not evidence that no request was sent.
   const firstRequestState =
