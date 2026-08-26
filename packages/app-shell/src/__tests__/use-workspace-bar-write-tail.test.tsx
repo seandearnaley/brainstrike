@@ -248,7 +248,9 @@ function seedThread(metadata: Record<string, unknown>) {
 
 function installWorktreesBridge(): void {
   (window as Window & { worktrees?: unknown }).worktrees = {
+    adopt: vi.fn(),
     archive: worktreeArchiveSpy,
+    checkoutStatus: vi.fn(),
     create: worktreeCreateSpy,
     createBranchHere: vi.fn(),
     createContext: vi.fn(async () => ({

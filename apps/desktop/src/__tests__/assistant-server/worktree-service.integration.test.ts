@@ -790,6 +790,9 @@ describe('WorktreeService (real git + real PGlite)', () => {
     expect(primary?.disabledReason).toBe(
       "This is the repository's primary checkout — use Hand off to Local instead."
     );
+    // The primary worktree has no ledger row of its own (BrainStrike did not
+    // create it) — a purely scanned entry carries no creation stamp.
+    expect(primary?.createdAt).toBeNull();
     expect(entries.find((entry) => entry.path === created.value.worktree.path)?.primary).toBe(
       false
     );

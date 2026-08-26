@@ -8,6 +8,7 @@ type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
 const {
   addRootByPathSpy,
   addRootDirectorySpy,
+  adoptSpy,
   archiveSpy,
   createBranchHereSpy,
   createContextSpy,
@@ -15,10 +16,12 @@ const {
   getSettingsSpy,
   listSpy,
   loggerErrorSpy,
+  restoreSpy,
   toastSpy,
 } = vi.hoisted(() => ({
   addRootByPathSpy: vi.fn(),
   addRootDirectorySpy: vi.fn(),
+  adoptSpy: vi.fn(),
   archiveSpy: vi.fn(),
   createBranchHereSpy: vi.fn(),
   createContextSpy: vi.fn(),
@@ -26,12 +29,13 @@ const {
   getSettingsSpy: vi.fn(),
   listSpy: vi.fn(),
   loggerErrorSpy: vi.fn(),
+  restoreSpy: vi.fn(),
   toastSpy: vi.fn(),
 }));
-const listMock = listSpy;
 
 vi.mock('../worktrees/worktrees-bridge', () => ({
   resolveWorktreesBridge: () => ({
+    adopt: adoptSpy,
     archive: archiveSpy,
     create: createSpy,
     createBranchHere: createBranchHereSpy,
@@ -39,7 +43,7 @@ vi.mock('../worktrees/worktrees-bridge', () => ({
     getSettings: getSettingsSpy,
     list: listSpy,
     listManagedPaths: vi.fn(),
-    restore: vi.fn(),
+    restore: restoreSpy,
     setSettings: vi.fn(),
   }),
 }));
@@ -77,7 +81,6 @@ const ARGS = {
   primaryRootPath: '/work/app',
   runId: null,
 };
-const args = ARGS;
 
 const WORKTREE_CHECKOUT = {
   branch: 'bs/bright-fox',
@@ -506,7 +509,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('renders the primary checkout as a disabled picker row with its stated reason', async () => {
-    listMock.mockResolvedValue({
+    listSpy.mockResolvedValue({
       ok: true,
       value: [
         entry({
@@ -521,7 +524,7 @@ describe('useWorktreeMode', () => {
       ],
     });
 
-    const { result } = renderHook(() => useWorktreeMode(args));
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
     await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
 
     const [option] = result.current?.picker.options ?? [];
@@ -859,6 +862,72 @@ describe('useWorktreeMode', () => {
     });
     expect(addRootDirectorySpy).toHaveBeenCalledWith();
     expect(addRootByPathSpy).not.toHaveBeenCalled();
+  });
+
+  it('adopts an unmanaged worktree before binding the thread, and binds the returned id', async () => {
+    adoptSpy.mockResolvedValue({
+      ok: true,
+      value: { id: 'adopted-1', path: '/repo/.claude/worktrees/x' },
+    });
+    listSpy.mockResolvedValue({
+      ok: true,
+      value: [
+        entry({
+          branch: 'feature',
+          id: null,
+          managed: false,
+          name: 'x',
+          path: '/repo/.claude/worktrees/x',
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
+    act(() => {
+      result.current?.picker.onSelect(result.current.picker.options[0] as never);
+    });
+
+    await waitFor(() => expect(adoptSpy).toHaveBeenCalledTimes(1));
+    expect(adoptSpy).toHaveBeenCalledWith({
+      createdBy: 'user',
+      path: '/repo/.claude/worktrees/x',
+    });
+    expect(onSelectWorktree).toHaveBeenCalledTimes(1);
+    expect(onSelectWorktree).toHaveBeenCalledWith({
+      branch: 'feature',
+      path: '/repo/.claude/worktrees/x',
+      worktreeId: 'adopted-1',
+    });
+    // Falsifier: binding must not have gone through any sibling bridge call.
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(archiveSpy).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an adoption refusal verbatim and never binds the thread', async () => {
+    adoptSpy.mockResolvedValue({
+      error: 'Grant access to its folder first, then adopt it.',
+      ok: false,
+    });
+    listSpy.mockResolvedValue({
+      ok: true,
+      value: [entry({ id: null, managed: false, name: 'x', path: '/tmp/x' })],
+    });
+
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
+    act(() => {
+      result.current?.picker.onSelect(result.current.picker.options[0] as never);
+    });
+
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Grant access to its folder first, then adopt it.',
+      title: 'Could not use that worktree',
+      variant: 'destructive',
+    });
+    expect(onSelectWorktree).not.toHaveBeenCalled();
   });
 
   it('surfaces a list failure on the picker instead of an empty list', async () => {

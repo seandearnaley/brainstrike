@@ -23,11 +23,11 @@ import type {
   GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
+  WorktreeAdoptParams,
   WorktreeArchiveResult,
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
-  WorktreeDescriptor,
   WorktreeListEntry,
   WorktreeSettings,
   WorktreeSetupOutcome,
@@ -40,6 +40,7 @@ import {
   toErrorMessage,
 } from './git-service';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
+import { adoptWorktree, ghostListEntry, inventoryListEntry } from './worktree-adopt';
 import {
   captureArchiveSnapshot,
   captureMissingArchiveSnapshot,
@@ -49,12 +50,12 @@ import {
 import { createWorktreeLedger, type WorktreeLedgerDatabase } from './worktree-ledger';
 import {
   assertWorktreeTargetOutsideRoots,
-  externalToolForPath,
   generateWorktreeName,
   repositorySlug,
   resolveWorktreeTargetPath,
 } from './worktree-paths';
 import {
+  emitWorktreeAdoptedEvent,
   emitWorktreeArchivedEvent,
   emitWorktreeCreateEvents,
   type WorktreeRunEventDeps,
@@ -714,6 +715,29 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   return {
+    async adopt(params: WorktreeAdoptParams): Promise<GitResult<ManagedWorktreeRow>> {
+      return await serialize(async () => {
+        try {
+          const adopted = await adoptWorktree(
+            {
+              ledger,
+              readSettings: deps.readSettings,
+              resolveInventory: deps.resolveInventory,
+              resolveRootPaths: deps.resolveRootPaths,
+              run: deps.run,
+            },
+            params
+          );
+          if (adopted.ok) {
+            await emitWorktreeAdoptedEvent(deps, params.runId ?? null, adopted.value);
+          }
+          return adopted;
+        } catch (error) {
+          logger.error('worktree adopt failed', { error, path: params.path });
+          return { error: toErrorMessage(error), ok: false };
+        }
+      });
+    },
     /**
      * Snapshot, then remove. ORDER IS THE CONTRACT: the snapshot is captured
      * BEFORE the safety verdict is acted on and before `git worktree remove`
@@ -897,155 +921,3 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 }
 
 export type WorktreeService = ReturnType<typeof createWorktreeService>;
-
-/**
- * The primary checkout is enumerated by `git worktree list` like any other
- * worktree, but it is NOT a worktree-mode target: a thread that operates in
- * the user's own clone is in Local mode. Selecting it would write
- * `checkoutMode: 'worktree'` pointing at the primary, which the hand-off path
- * would then refuse to leave. Stated, never hidden (spec §13).
- */
-const PRIMARY_CHECKOUT_GATE: UsabilityGate = {
-  disabledReason: "This is the repository's primary checkout — use Hand off to Local instead.",
-  remedy: null,
-  usable: false,
-};
-
-interface UsabilityGate {
-  readonly disabledReason: string | null;
-  readonly remedy: 'grant-access' | null;
-  readonly usable: boolean;
-}
-
-function inventoryListEntry(
-  descriptor: WorktreeDescriptor,
-  row: ManagedWorktreeRow | null,
-  repositoryRoot: string,
-  repoCommonDir: string,
-  rootIdByPath: ReadonlyMap<string, string>
-): WorktreeListEntry {
-  const primary = descriptor.path === repositoryRoot;
-  const gate = primary ? PRIMARY_CHECKOUT_GATE : resolveUsability(descriptor, row);
-  return {
-    branch: descriptor.branch,
-    containment: descriptor.containment,
-    createdAt: row?.createdAt ?? null,
-    detached: descriptor.detached,
-    disabledReason: gate.disabledReason,
-    externalTool: externalToolForPath(descriptor.path),
-    id: row?.id ?? null,
-    lockedReason: descriptor.lockedReason,
-    managed: row !== null,
-    name: descriptor.name,
-    path: descriptor.path,
-    primary,
-    // The FIRST producer of anything but 'scanned' (see
-    // docs/agents/changeset-diff.md): a scanned worktree that also has a
-    // ledger row is known from BOTH sides.
-    provenance: row ? 'both' : 'scanned',
-    remedy: gate.remedy,
-    repoCommonDir,
-    repositoryRoot,
-    rootId:
-      rootIdByPath.get(descriptor.path) ??
-      (descriptor.containment === 'outside-roots' ? null : (descriptor.containment[0] ?? null)),
-    setupReason: row?.setupReason ?? null,
-    setupStatus: row?.setupStatus ?? 'none',
-    trust: descriptor.trust,
-    trustReason: descriptor.trustReason,
-    usable: gate.usable,
-  };
-}
-
-function ghostListEntry(
-  row: ManagedWorktreeRow,
-  rootIdByPath: ReadonlyMap<string, string>
-): WorktreeListEntry {
-  return {
-    branch: row.branch,
-    containment: 'outside-roots',
-    createdAt: row.createdAt,
-    detached: row.branch === null,
-    disabledReason: 'Worktree is missing on disk — restore it or archive it.',
-    externalTool: externalToolForPath(row.path),
-    id: row.id,
-    lockedReason: null,
-    managed: true,
-    name: path.basename(row.path),
-    path: row.path,
-    primary: false,
-    provenance: 'agent-reported',
-    remedy: null,
-    repoCommonDir: row.repoCommonDir,
-    repositoryRoot: repositoryRootFromCommonDir(row.repoCommonDir),
-    rootId: rootIdByPath.get(row.path) ?? null,
-    setupReason: row.setupReason,
-    setupStatus: row.setupStatus,
-    trust: 'unvalidated',
-    trustReason: 'missing on disk',
-    usable: false,
-  };
-}
-
-/**
- * Whether this worktree can be USED as a thread's checkout, and if not, why —
- * ordered most-specific-cause first. NO SILENT HIDING and NO SILENT DISABLE:
- * an unusable row is still returned, still carries its reason, and names the
- * remedy when one exists.
- *
- * An in-root worktree with no ledger row is unusable because BrainStrike did
- * not create it, independently of the trust, lock, and prune gates above.
- *
- * `outside-roots` is NOT terminal: a managed worktree is authorized by the
- * ledger, and any other outside-roots worktree becomes usable once the user
- * grants it through the OS picker — which is what `remedy: 'grant-access'`
- * tells the UI to offer (the picker-only ruling in
- * `changes-context-actions.ts` still holds: no caller-supplied path).
- */
-function resolveUsability(
-  descriptor: WorktreeDescriptor,
-  row: ManagedWorktreeRow | null
-): UsabilityGate {
-  if (descriptor.prunableReason !== null) {
-    return {
-      disabledReason: `Worktree is prunable: ${descriptor.prunableReason}`,
-      remedy: null,
-      usable: false,
-    };
-  }
-  if (descriptor.trust === 'unvalidated') {
-    return {
-      disabledReason:
-        descriptor.trustReason ?? 'This worktree could not be verified against its own .git.',
-      remedy: null,
-      usable: false,
-    };
-  }
-  if (descriptor.lockedReason !== null) {
-    return { disabledReason: `Locked: ${descriptor.lockedReason}`, remedy: null, usable: false };
-  }
-  if (row === null && descriptor.containment !== 'outside-roots') {
-    return {
-      disabledReason: 'Created outside BrainStrike — adopting it is coming with the Worktree Map.',
-      remedy: null,
-      usable: false,
-    };
-  }
-  // `row !== null` alone is correct here: the branch above already ruled
-  // out `row === null && containment !== 'outside-roots'`, so reaching
-  // this line with containment !== 'outside-roots' implies row !== null.
-  if (row !== null) {
-    return { disabledReason: null, remedy: null, usable: true };
-  }
-  return {
-    disabledReason:
-      "This worktree isn't inside any workspace folder yet — grant access to use it here.",
-    remedy: 'grant-access',
-    usable: false,
-  };
-}
-
-/** Non-bare repositories use `<main-worktree>/.git`; bare common dirs stay as-is. */
-function repositoryRootFromCommonDir(repoCommonDir: string): string {
-  return path.basename(repoCommonDir) === '.git' ? path.dirname(repoCommonDir) : repoCommonDir;
-}

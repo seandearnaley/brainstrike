@@ -240,6 +240,7 @@ function seedThread(metadata: Record<string, unknown>) {
 
 function installWorktreesBridge(): void {
   (window as Window & { worktrees?: unknown }).worktrees = {
+    ...{ adopt: vi.fn(), checkoutStatus: vi.fn() }, // no test here asserts on these
     archive: worktreeArchiveSpy,
     create: worktreeCreateSpy,
     createBranchHere: vi.fn(),

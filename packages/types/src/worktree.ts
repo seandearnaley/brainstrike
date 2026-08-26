@@ -156,6 +156,36 @@ export interface WorktreeCreateParams {
   readonly threadId?: string;
 }
 
+/**
+ * Record an EXISTING on-disk worktree in the ledger (spec §10 "Add as root" /
+ * the Mode-chip picker's adoption path). Adoption is what gives an externally
+ * created worktree — Claude Code's, Codex's, Cursor's, or one the agent made
+ * in a shell — the durable id a thread checkout binds to.
+ */
+export interface WorktreeAdoptParams {
+  readonly createdBy: ManagedWorktreeCreator;
+  /** Absolute path of the worktree, as the inventory reports it (realpath'd). */
+  readonly path: string;
+  /** Present ⇒ a durable timeline row is written for this operation. */
+  readonly runId?: string;
+  readonly threadId?: string;
+}
+
+/**
+ * One checkout's working-tree and upstream state, read on demand (spec §10's
+ * dirty / ahead-behind glyphs). Deliberately NOT part of `WorktreeListEntry`:
+ * `list()` is called on every picker open and every Map refresh, and folding N
+ * `git status` subprocesses into it would make an orientation surface expensive.
+ */
+export interface WorktreeCheckoutStatus {
+  /** Commits ahead of upstream, or null when the branch has no upstream. */
+  readonly ahead: number | null;
+  readonly behind: number | null;
+  readonly clean: boolean;
+  readonly path: string;
+  readonly upstream: string | null;
+}
+
 export interface WorktreeSetupOutcome {
   /** Root-relative paths copied because `.worktreeinclude` matched them. */
   readonly copiedPaths: readonly string[];

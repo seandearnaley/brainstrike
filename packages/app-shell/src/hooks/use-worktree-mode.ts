@@ -443,26 +443,32 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
 
   const onSelectExisting = useCallback(
     (option: WorkspaceBarWorktreeOption): void => {
-      const { worktreeId } = option;
-      if (!worktreeId) {
-        throw new Error(
-          'Unreachable worktree picker state: a usable worktree must have a managed ledger id.'
-        );
+      if (!bridge) {
+        return;
       }
       setPending(true);
       void Promise.resolve(addRootDirectoryByPath?.(option.path))
-        .then((mounted) => {
+        .then(async (mounted) => {
           if (!mounted) {
             throw new Error(`The worktree at ${option.path} could not be mounted.`);
           }
-          return args.onSelectWorktree({
-            branch: option.branch,
-            path: option.path,
-            worktreeId,
-          });
+          if (option.worktreeId) {
+            return option.worktreeId;
+          }
+          // Not managed yet: adopt it so the thread checkout has a durable id
+          // to bind to. A refusal surfaces verbatim — never a silent skip.
+          const adopted = await bridge.adopt({ createdBy: 'user', path: option.path });
+          if (!adopted.ok) {
+            throw new Error(adopted.error);
+          }
+          return adopted.value.id;
         })
-        .then(() => {
+        .then((worktreeId) =>
+          args.onSelectWorktree({ branch: option.branch, path: option.path, worktreeId })
+        )
+        .then(async () => {
           setPickerOpen(false);
+          await refreshList();
         })
         .catch((error: unknown) => {
           const message = errorMessage(error);
@@ -473,7 +479,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           setPending(false);
         });
     },
-    [addRootDirectoryByPath, args.onSelectWorktree]
+    [addRootDirectoryByPath, args.onSelectWorktree, bridge, refreshList]
   );
 
   const onArchive = useCallback((): void => {

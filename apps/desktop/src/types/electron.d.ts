@@ -43,7 +43,9 @@ import type {
   ManagedWorktreeRow,
   StructuredFileDiff,
   StructuredFileDiffParams,
+  WorktreeAdoptParams,
   WorktreeArchiveResult,
+  WorktreeCheckoutStatus,
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
@@ -672,11 +674,13 @@ declare global {
      * disables worktree mode at runtime.
      */
     worktrees?: {
+      adopt: (params: WorktreeAdoptParams) => Promise<GitResult<ManagedWorktreeRow>>;
       archive: (params: {
         force?: boolean;
         runId?: string;
         worktreeId: string;
       }) => Promise<GitResult<WorktreeArchiveResult>>;
+      checkoutStatus: (params: { path: string }) => Promise<GitResult<WorktreeCheckoutStatus>>;
       create: (params: WorktreeCreateParams) => Promise<GitResult<WorktreeCreateResult>>;
       createBranchHere: (params: {
         branch: string;

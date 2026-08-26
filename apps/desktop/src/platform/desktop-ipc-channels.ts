@@ -263,7 +263,9 @@ export const DESKTOP_IPC_CHANNELS = {
     write: 'vector-preferences:write',
   },
   worktrees: {
+    adopt: 'worktrees:adopt',
     archive: 'worktrees:archive',
+    checkoutStatus: 'worktrees:checkoutStatus',
     create: 'worktrees:create',
     createBranchHere: 'worktrees:createBranchHere',
     createContext: 'worktrees:createContext',

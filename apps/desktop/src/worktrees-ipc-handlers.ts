@@ -14,6 +14,7 @@ import type {
   GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
+  WorktreeAdoptParams,
   WorktreeArchiveResult,
   WorktreeCreateContext,
   WorktreeCreateParams,
@@ -27,6 +28,7 @@ import type { WorktreeService } from './assistant-server/worktree-service';
 const logger = createLogger('WorktreesIpc');
 
 export interface WorktreesIpcHandlers {
+  readonly adopt: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
   readonly archive: (payload: unknown) => Promise<GitResult<WorktreeArchiveResult>>;
   readonly create: (payload: unknown) => Promise<GitResult<WorktreeCreateResult>>;
   readonly createBranchHere: (payload: unknown) => Promise<GitResult<ManagedWorktreeRow>>;
@@ -55,6 +57,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function validateAdopt(payload: unknown): GitResult<WorktreeAdoptParams> {
+  if (
+    !(
+      isRecord(payload) &&
+      nonEmptyString(payload['path']) &&
+      path.isAbsolute(payload['path'] as string)
+    ) ||
+    (payload['createdBy'] !== 'agent' && payload['createdBy'] !== 'user')
+  ) {
+    return {
+      error: 'worktrees:adopt requires { path: <absolute path>, createdBy: "agent" | "user" }.',
+      ok: false,
+    };
+  }
+  const runId = payload['runId'];
+  const threadId = payload['threadId'];
+  return {
+    ok: true,
+    value: {
+      createdBy: payload['createdBy'],
+      path: payload['path'] as string,
+      ...(nonEmptyString(runId) ? { runId } : {}),
+      ...(nonEmptyString(threadId) ? { threadId } : {}),
+    },
+  };
 }
 
 function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
@@ -180,6 +209,13 @@ export function createWorktreesIpcHandlers(
   }
 
   return {
+    adopt: async (payload) => {
+      const params = validateAdopt(payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:adopt', (service) => service.adopt(params.value));
+    },
     archive: async (payload) => {
       const params = validateArchive(payload);
       if (!params.ok) {
