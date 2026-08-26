@@ -264,6 +264,17 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     [refreshList]
   );
 
+  // Eager, once per bridge: without this, `entries` starts empty and stays
+  // empty until the user opens the picker or runs a create/archive/branch
+  // mutation. A thread that reloads already bound to a worktree would then
+  // show "Local" indefinitely — `currentEntry` can never match anything in
+  // an empty list — even though its checkout metadata was persisted
+  // correctly. The list is read-only and cheap, so loading it on mount is
+  // the same eager pattern `settings` already uses just above.
+  useEffect(() => {
+    void refreshList();
+  }, [refreshList]);
+
   const currentWorktreeId = args.checkout.mode === 'worktree' ? args.checkout.worktreeId : null;
   const currentEntry = useMemo(
     () => entries.find((entry) => entry.id !== null && entry.id === currentWorktreeId) ?? null,

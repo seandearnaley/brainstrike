@@ -403,6 +403,45 @@ describe('useWorktreeMode', () => {
     );
   });
 
+  it('shows the current worktree on initial mount, without the picker ever being opened (BST-1390)', async () => {
+    // A thread that reloads already bound to a worktree must resolve
+    // `worktree` from `list()` on its own — nothing in a real reload opens
+    // the picker or runs a create/archive/branch mutation first.
+    listSpy.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          branch: 'bs/bright-fox',
+          containment: ['r-1'],
+          detached: false,
+          disabledReason: null,
+          externalTool: null,
+          id: 'w-1',
+          lockedReason: null,
+          managed: true,
+          name: 'bright-fox',
+          path: '/managed/app/bright-fox',
+          provenance: 'both',
+          remedy: null,
+          repositoryRoot: '/work/app',
+          rootId: 'r-1',
+          setupReason: null,
+          setupStatus: 'none',
+          trust: 'validated',
+          trustReason: null,
+          usable: true,
+        },
+      ],
+    });
+    const { result } = renderHook(() =>
+      useWorktreeMode({ ...ARGS, checkout: { mode: 'worktree', worktreeId: 'w-1' } })
+    );
+    await waitFor(() =>
+      expect(result.current?.worktree).toMatchObject({ name: 'bright-fox', worktreeId: 'w-1' })
+    );
+    expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('wires createBranchHere only for the current managed detached worktree', async () => {
     const detached: WorktreeListEntry = {
       branch: null,
@@ -447,7 +486,9 @@ describe('useWorktreeMode', () => {
       branch: 'bs/bright-fox',
       worktreeId: 'w-1',
     });
-    expect(listSpy).toHaveBeenCalledTimes(2);
+    // Mount (eager, so a reload sees its worktree without opening the picker)
+    // + onOpenPicker + the post-createBranchHere refresh.
+    expect(listSpy).toHaveBeenCalledTimes(3);
     expect(toastSpy).toHaveBeenCalledWith({
       description: 'Branch bs/bright-fox is now checked out in bright-fox.',
       title: 'Branch created',
