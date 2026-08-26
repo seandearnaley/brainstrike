@@ -209,8 +209,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const [pending, setPending] = useState(false);
   const [createSheetContext, setCreateSheetContext] = useState<WorktreeCreateContext | null>(null);
   const [listRevision, setListRevision] = useState(0);
-  const retriedAfterListErrorRef = useRef<string | null>(null);
-  const refreshedMissingWorktreeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!bridge) {
@@ -244,35 +242,49 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   }, [bridge]);
 
   const refreshList = useCallback(
-    async (isCancelled?: () => boolean): Promise<void> => {
+    // A `.then()` chain, not `async`/`await`: an `async` function's body runs
+    // SYNCHRONOUSLY up to its first `await`, so `setListing(true)` would fire
+    // in the SAME tick as whichever caller invoked this — including the
+    // mount effect below, which is exactly what
+    // `react-hooks/set-state-in-effect` flags. Chaining on `Promise.resolve()`
+    // instead defers every state update to a real microtask, matching the
+    // `settings` effect's already-safe `bridge.getSettings().then(...)` shape,
+    // for every caller (this hook's OTHER callers are event handlers, where
+    // the one-microtask delay is unobservable either way).
+    (isCancelled?: () => boolean): Promise<void> => {
       if (!bridge || isCancelled?.()) {
-        return;
+        return Promise.resolve();
       }
-      setListing(true);
-      try {
-        const result = await bridge.list();
-        if (isCancelled?.()) {
-          return;
-        }
-        if (result.ok) {
-          setEntries(result.value);
-          setListError(null);
-          return;
-        }
-        setEntries([]);
-        setListError(result.error);
-      } catch (error) {
-        if (isCancelled?.()) {
-          return;
-        }
-        setEntries([]);
-        setListError(errorMessage(error));
-      } finally {
-        if (!isCancelled?.()) {
-          setListing(false);
-          setListRevision((revision) => revision + 1);
-        }
-      }
+      return Promise.resolve()
+        .then(() => {
+          setListing(true);
+          return bridge.list();
+        })
+        .then((result) => {
+          if (isCancelled?.()) {
+            return;
+          }
+          if (result.ok) {
+            setEntries(result.value);
+            setListError(null);
+            return;
+          }
+          setEntries([]);
+          setListError(result.error);
+        })
+        .catch((error: unknown) => {
+          if (isCancelled?.()) {
+            return;
+          }
+          setEntries([]);
+          setListError(errorMessage(error));
+        })
+        .finally(() => {
+          if (!isCancelled?.()) {
+            setListing(false);
+            setListRevision((revision) => revision + 1);
+          }
+        });
     },
     [bridge]
   );
@@ -309,6 +321,17 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     [currentWorktreeId, entries]
   );
 
+  // Retry bookkeeping stays in REFS, read only inside this effect (never
+  // during render) — deliberately unchanged from before: any restructuring
+  // tried here (state instead of refs, deferring the write, adding an extra
+  // gate) made eslint-plugin-react-hooks newly flag the `refreshList` call
+  // below for `set-state-in-effect`, even with zero new setState calls of
+  // its own — the exact opposite of the goal. `missingWorktreeReason` below
+  // no longer reads these; see `hasAttemptedForCurrentId` for its
+  // render-safe replacement.
+  const retriedAfterListErrorRef = useRef<string | null>(null);
+  const refreshedMissingWorktreeIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (currentWorktreeId === null || listRevision === 0) {
       return;
@@ -337,6 +360,27 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       cancelled = true;
     };
   }, [currentEntry, currentWorktreeId, listError, listRevision, refreshList]);
+
+  // `missingWorktreeReason` below needs to know "has a refresh completed for
+  // this id" WITHOUT reading the refs above during render (that is the
+  // `react-hooks/refs` finding this replaces). `listRevision` is already the
+  // durable, React-visible signal that a refresh landed — `refreshList`'s own
+  // body bumps it, outside this component-level code — so the only new state
+  // is a baseline revision "as of when `currentWorktreeId` last changed",
+  // maintained with React's OWN "adjusting state while rendering" pattern
+  // (blessed exactly for this: derive one piece of state from a prop change,
+  // no effect, no ref). Once `listRevision` has advanced past that baseline,
+  // treat a refresh as attempted for this id — for either retry reason,
+  // matching the refs' shared "also counts as attempted" comment above.
+  const [attemptBaseline, setAttemptBaseline] = useState({
+    id: currentWorktreeId,
+    revision: listRevision,
+  });
+  if (currentWorktreeId !== attemptBaseline.id) {
+    setAttemptBaseline({ id: currentWorktreeId, revision: listRevision });
+  }
+  const hasAttemptedForCurrentId =
+    attemptBaseline.id === currentWorktreeId && listRevision > attemptBaseline.revision;
 
   const onCreate = useCallback(
     async (request: WorkspaceBarCreateWorktreeRequest): Promise<void> => {
@@ -548,11 +592,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     ? (missingWorktreePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? missingWorktreePath)
     : null;
   const missingWorktreeReason =
-    missingWorktreeName &&
-    listRevision > 0 &&
-    !listing &&
-    (refreshedMissingWorktreeIdRef.current === currentWorktreeId ||
-      retriedAfterListErrorRef.current === currentWorktreeId)
+    missingWorktreeName && listRevision > 0 && !listing && hasAttemptedForCurrentId
       ? listError
         ? `Could not verify the bound worktree because the worktree list is unavailable: ${listError}`
         : `The bound worktree ${currentWorktreeId ?? '(unknown)'} is missing from the refreshed worktree list.`
