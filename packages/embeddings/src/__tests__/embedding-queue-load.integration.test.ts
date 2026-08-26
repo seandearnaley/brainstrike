@@ -2,7 +2,7 @@ import type { IDatabase } from '@brainstrike/db';
 import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
 import { buildEmbeddingJobInputHashes } from '@brainstrike/indexing-contract';
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index.js';
 import type {
   EmbeddingConfig,
@@ -322,6 +322,39 @@ async function seedEmbeddingJobs(db: PGlite, scenario: string): Promise<void> {
   }
 }
 
+// BST-1221: every scenario used to allocate (and close) its own memory://
+// PGlite. Closing a PGlite does NOT tear the WASM instance down synchronously —
+// finalization is GC-driven and lands during the NEXT scenario's WASM
+// instantiation + load churn. On the PKU-enabled Linux x64 CI runners that
+// interleaved teardown/instantiation window is where V8's ThreadIsolation
+// jit-page bookkeeping fatal (`jit_page_->allocations_.erase(addr) == 1`)
+// repeatedly killed this file's fork. One shared instance, allocated lazily on
+// first use and closed once in afterAll, keeps the whole file at a single WASM
+// instantiate/teardown cycle. Scenario state stays disjoint via
+// scenario-prefixed row ids and dedupe keys, and the queue assertions below
+// scope their SQL to the scenario's dedupe-key prefix.
+let sharedLoadDb: PGlite | undefined;
+
+async function acquireSharedLoadDb(): Promise<PGlite> {
+  if (!sharedLoadDb) {
+    const db = await wasmLoader.createPGlite('memory://embedding-queue-load');
+    try {
+      await migrate(db);
+    } catch (error) {
+      // A failed migration must not leak this instance: `sharedLoadDb` is
+      // still unset, so `afterAll` has nothing to close, and PGlite's own
+      // teardown is GC-driven finalization that lands during the NEXT test
+      // file's WASM instantiation — exactly the interleaved-teardown fatal
+      // this shared-instance pattern exists to eliminate. Close it here and
+      // rethrow the migrate error UNCHANGED; never swallow it.
+      await db.close();
+      throw error;
+    }
+    sharedLoadDb = db;
+  }
+  return sharedLoadDb;
+}
+
 async function runLoadScenario(params: {
   readonly adaptive: boolean;
   readonly concurrency: number;
@@ -334,12 +367,11 @@ async function runLoadScenario(params: {
     );
   }
   const workerLoopRendezvous = new WorkerLoopRendezvous(params.concurrency);
-  const db = await wasmLoader.createPGlite(`memory://${params.scenario}`);
+  const db = await acquireSharedLoadDb();
   let restoreQueueSpies: (() => void) | undefined;
   let stopWorker: (() => Promise<void>) | undefined;
 
   try {
-    await migrate(db);
     await seedEmbeddingJobs(db, params.scenario);
 
     const service = new LoadTestEmbeddingService(
@@ -435,11 +467,15 @@ async function runLoadScenario(params: {
     });
     stopWorker = () => controller.stop();
 
+    // The trailing '-' keeps prefixes disjoint on the shared queue: without it
+    // 'chunk-load-c1' would also match every 'chunk-load-c16' row.
+    const scenarioDedupePrefix = `chunk-${params.scenario}-%`;
     await waitFor(async () => {
       const result = await db.query<{ count: number }>(
         `SELECT COUNT(*)::int AS count
            FROM job_queue
-          WHERE queue = 'embeddings' AND state = 'succeeded'`
+          WHERE queue = 'embeddings' AND state = 'succeeded' AND dedupe_key LIKE $1`,
+        [scenarioDedupePrefix]
       );
       return result.rows[0]?.count === JOB_COUNT;
     }, SCENARIO_COMPLETION_TIMEOUT_MS);
@@ -449,7 +485,8 @@ async function runLoadScenario(params: {
          MAX(attempts)::int AS max_attempts,
          SUM(attempts)::int AS total_attempts
        FROM job_queue
-       WHERE queue = 'embeddings'`
+       WHERE queue = 'embeddings' AND dedupe_key LIKE $1`,
+      [scenarioDedupePrefix]
     );
     expect(attempts.rows[0]?.total_attempts).toBe(JOB_COUNT);
     // Every claimed job must leave through one of the spied successful exits.
@@ -478,13 +515,20 @@ async function runLoadScenario(params: {
       await stopWorker();
     }
     restoreQueueSpies?.();
-    await db.close();
   }
 }
 
 describe.sequential('embedding queue load matrix', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  afterAll(async () => {
+    const db = sharedLoadDb;
+    sharedLoadDb = undefined;
+    if (db) {
+      await db.close();
+    }
   });
 
   it('rejects invalid concurrency before allocating PGlite', async () => {
