@@ -3343,6 +3343,14 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       checkoutWorktreeId: 'w-1',
       checkoutWorktreePath: '/managed/repo/bright-fox',
     });
+
+    await repository.updateThreadMetadata(thread.id, { checkoutMode: 'local' });
+
+    const [local] = await repository.listThreads('r');
+    expect(local?.metadata).toMatchObject({ checkoutMode: 'local' });
+    expect(local?.metadata?.checkoutBranch).toBeUndefined();
+    expect(local?.metadata?.checkoutWorktreeId).toBeUndefined();
+    expect(local?.metadata?.checkoutWorktreePath).toBeUndefined();
   });
 
   it('persists a local checkout with no worktree keys', async () => {

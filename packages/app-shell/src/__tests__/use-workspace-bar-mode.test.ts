@@ -60,14 +60,13 @@ const thread = {
 function renderComposition() {
   return renderHook(() =>
     useWorkspaceBarMode({
-      assistantThreadRepository: {} as never,
       checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
-      memoryResourceId: 'workspace-1',
+      onHandOffToLocal: vi.fn(),
+      onSelectWorktree: vi.fn(),
       primaryRootId: 'r-1',
       primaryRootPath: '/work/app',
-      selectedMemoryThreadId: 'thread-1',
       selectedThread: thread,
-      updateThreadMetadata: vi.fn(),
+      worktreeCheckout: { mode: 'local', worktreeId: null, worktreePath: null },
     })
   );
 }

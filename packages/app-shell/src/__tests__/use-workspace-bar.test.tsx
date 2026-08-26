@@ -127,6 +127,7 @@ const OTHER_THREAD_ID = 'thread-2';
 // spaces share only the path, and everything downstream of this hook
 // (window.git.status, secondaryRootIds) speaks the DB space.
 const ROOT_ID_BY_PATH: Readonly<Record<string, string>> = {
+  '/managed/brainstrike/bright-fox': 'r-worktree-db',
   '/ws/alpha': 'r-alpha-db',
   '/ws/brainstrike': 'r-main-db',
   '/ws/docs': 'r-docs',
@@ -137,6 +138,10 @@ const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: strin
   'r-docs': { displayName: 'docs', path: '/ws/docs' },
   'r-main-db': { displayName: 'brainstrike', path: '/ws/brainstrike' },
   'r-site': { displayName: 'site', path: '/ws/site' },
+  'r-worktree-db': {
+    displayName: 'bright-fox',
+    path: '/managed/brainstrike/bright-fox',
+  },
 };
 // How many times the live-root probe for a path must MISS before the row
 // appears — models roots reconciliation writing the row after the add resolves.
@@ -381,6 +386,10 @@ describe('useWorkspaceBar', () => {
       checkoutMode: 'worktree',
       checkoutWorktreeId: 'w-1',
       checkoutWorktreePath: '/managed/brainstrike/bright-fox',
+      operatingRootDisplayName: 'bright-fox',
+      operatingRootId: 'r-worktree-db',
+      operatingRootPath: '/managed/brainstrike/bright-fox',
+      secondaryRootIds: ['r-main-db'],
     });
     expect(worktreeArchiveSpy).not.toHaveBeenCalled();
     expect(fs.addRootDirectory).not.toHaveBeenCalled();
@@ -407,7 +416,13 @@ describe('useWorkspaceBar', () => {
       result.current.mode?.onHandOffToLocal?.();
     });
     await waitFor(() =>
-      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, { checkoutMode: 'local' })
+      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
+        checkoutMode: 'local',
+        operatingRootDisplayName: 'brainstrike',
+        operatingRootId: 'r-main-db',
+        operatingRootPath: '/ws/brainstrike',
+        secondaryRootIds: [],
+      })
     );
     expect(updateThreadMetadata).toHaveBeenCalledTimes(metadataWriteCount + 1);
     expect(worktreeArchiveSpy).not.toHaveBeenCalled();

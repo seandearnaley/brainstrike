@@ -1,12 +1,5 @@
-/**
- * Workspace-bar composition for the thread checkout mode. The present task
- * owns these metadata writes until the dedicated thread-checkout hook lands.
- */
-import type {
-  AssistantMemoryThread,
-  AssistantThreadMetadata,
-  AssistantThreadRepository,
-} from '@brainstrike/assistant-data';
+/** Workspace-bar composition for the thread checkout mode. */
+import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarCheckout,
@@ -15,24 +8,21 @@ import type {
 import { toast } from '@brainstrike/ui';
 import { useCallback } from 'react';
 import { useBranchSwitcher } from './use-branch-switcher';
+import type { ThreadCheckoutState } from './use-thread-checkout';
 import { useWorktreeMode } from './use-worktree-mode';
 
-type UpdateThreadMetadata = (
-  repository: AssistantThreadRepository,
-  resourceId: string,
-  threadId: string,
-  metadata: AssistantThreadMetadata
-) => Promise<void>;
-
 export interface UseWorkspaceBarModeArgs {
-  readonly assistantThreadRepository: AssistantThreadRepository | null;
   readonly checkout: WorkspaceBarCheckout | undefined;
-  readonly memoryResourceId: string;
+  readonly onHandOffToLocal: () => Promise<void>;
+  readonly onSelectWorktree: (worktree: {
+    readonly branch: string | null;
+    readonly path: string;
+    readonly worktreeId: string;
+  }) => Promise<void>;
   readonly primaryRootId: string | undefined;
   readonly primaryRootPath: string | undefined;
-  readonly selectedMemoryThreadId: string | undefined;
   readonly selectedThread: AssistantMemoryThread | undefined;
-  readonly updateThreadMetadata: UpdateThreadMetadata;
+  readonly worktreeCheckout: ThreadCheckoutState;
 }
 
 export interface WorkspaceBarModeComposition {
@@ -47,51 +37,14 @@ function branchToName(branch: string): string {
 
 export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBarModeComposition {
   const {
-    assistantThreadRepository,
     checkout,
-    memoryResourceId,
+    onHandOffToLocal,
+    onSelectWorktree,
     primaryRootId,
     primaryRootPath,
-    selectedMemoryThreadId,
     selectedThread,
-    updateThreadMetadata,
+    worktreeCheckout,
   } = args;
-  const worktreeCheckout = {
-    mode: selectedThread?.metadata?.checkoutMode ?? 'local',
-    worktreeId: selectedThread?.metadata?.checkoutWorktreeId ?? null,
-  };
-  const onSelectWorktree = useCallback(
-    async (worktree: { branch: string | null; path: string; worktreeId: string }) => {
-      if (!(assistantThreadRepository && selectedMemoryThreadId)) {
-        throw new Error('Cannot switch checkout without an active thread.');
-      }
-      await updateThreadMetadata(
-        assistantThreadRepository,
-        memoryResourceId,
-        selectedMemoryThreadId,
-        {
-          checkoutMode: 'worktree',
-          checkoutWorktreeId: worktree.worktreeId,
-          checkoutWorktreePath: worktree.path,
-          ...(worktree.branch ? { checkoutBranch: worktree.branch } : {}),
-        }
-      );
-    },
-    [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId, updateThreadMetadata]
-  );
-  const onHandOffToLocal = useCallback(async () => {
-    if (!(assistantThreadRepository && selectedMemoryThreadId)) {
-      throw new Error('Cannot hand off to local without an active thread.');
-    }
-    await updateThreadMetadata(
-      assistantThreadRepository,
-      memoryResourceId,
-      selectedMemoryThreadId,
-      // checkoutBranch/worktree fields intentionally remain stale-but-legal;
-      // Task 17 must decide whether and how thread-checkout cleanup strips them.
-      { checkoutMode: 'local' }
-    );
-  }, [assistantThreadRepository, memoryResourceId, selectedMemoryThreadId, updateThreadMetadata]);
   // `latestRun` is populated from the durable run ledger after the first request.
   const hasSentFirstRequest = selectedThread?.latestRun !== undefined;
   const activeRunId =

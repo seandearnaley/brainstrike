@@ -1629,9 +1629,10 @@ function optionalCheckoutMode(value: unknown): 'local' | 'worktree' | undefined 
  * where the thread works, and it is rejected rather than silently pruned.
  *
  * `updateThreadMetadata` owns the one key-removal transition this shape needs:
- * a `{ checkoutMode: 'local' }` patch removes both worktree keys in the same
- * SQL update before merging the patch. Every other metadata patch keeps the
- * repository's ordinary JSONB-merge semantics.
+ * a `{ checkoutMode: 'local' }` patch removes the branch and both worktree keys
+ * in the same SQL update before merging the patch. A thread handed back to
+ * Local must not keep displaying a stale worktree branch. Every other metadata
+ * patch keeps the repository's ordinary JSONB-merge semantics.
  */
 function assertCompleteCheckoutMetadata(metadata: {
   readonly checkoutBranch?: string | undefined;
@@ -3896,7 +3897,7 @@ export function createPgliteAssistantThreadRepository(
       await initialize();
       const currentMetadata =
         metadata.checkoutMode === 'local'
-          ? "COALESCE(metadata, '{}'::jsonb) - 'checkoutWorktreeId' - 'checkoutWorktreePath'"
+          ? "COALESCE(metadata, '{}'::jsonb) - 'checkoutBranch' - 'checkoutWorktreeId' - 'checkoutWorktreePath'"
           : "COALESCE(metadata, '{}'::jsonb)";
       await database.query(
         `UPDATE ${MASTRA_MEMORY_TABLES.threads}

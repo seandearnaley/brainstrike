@@ -60,6 +60,7 @@ describe('checkout metadata', () => {
 
     const [reloaded] = await repository.listThreads('workspace-a');
     expect(reloaded?.metadata).toMatchObject({ checkoutMode: 'local' });
+    expect(reloaded?.metadata?.checkoutBranch).toBeUndefined();
     expect(reloaded?.metadata?.checkoutWorktreeId).toBeUndefined();
     expect(reloaded?.metadata?.checkoutWorktreePath).toBeUndefined();
   });

@@ -1030,6 +1030,19 @@ additional explorer/status chrome):
     silent no-op: it logs and raises a "Folder added, but not attached to this
     thread" toast. The canonical fix — an awaitable "root registered" seam on
     `roots/use-roots-reconciliation.ts` — is a recorded follow-up.
+  - Mode-chip checkout metadata is owned by `use-thread-checkout.ts`. Selecting
+    a worktree first resolves its mounted path to a durable live `roots.id`, then
+    uses the workspace bar's serialized folder-write queue to persist the
+    `checkout*` fields, full `operatingRoot*` triple, and secondary-root demotion
+    in ONE metadata write. The queue tail carries resolved primary and secondary
+    root objects as well as ids, so an overlapping hand-off can promote the
+    remembered Local root without using stale render state or writing an
+    incomplete binding. A reconciliation failure rejects before enqueueing.
+    Hand-off promotes the first secondary when it has a complete roots row; a
+    missing remembered row is logged and refused, while a thread with no
+    secondary still clears checkout mode and keeps its current primary. The
+    repository's atomic Local transition removes `checkoutBranch` together with
+    both worktree keys, so the Local chip cannot retain a stale worktree branch.
   - Recents come from main's `recentRootsList` ledger
     (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
     `fs:listRecentRoots`), minus folders already mounted in this workspace.
