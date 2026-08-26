@@ -122,6 +122,34 @@ describe('worktrees IPC handlers', () => {
     expect(forwarded).not.toHaveProperty('threadId');
   });
 
+  // Contract: absent runId/threadId is fine (prior test); present+valid
+  // passes through (prior test); present+MALFORMED must be REJECTED loudly,
+  // never silently dropped to absent — an unknown-typed IPC boundary must
+  // not coerce a caller's malformed input into a different, unstated
+  // request (adopting with no run attribution when one was actually asked
+  // for).
+  it.each([
+    ['a number', { createdBy: 'user', path: '/repo/wt', runId: 42 }],
+    ['an empty string', { createdBy: 'user', path: '/repo/wt', runId: '' }],
+  ] as const)('rejects a present but malformed runId (%s)', async (_label, payload) => {
+    expect(await handlers().adopt(payload)).toEqual({
+      error: 'worktrees:adopt runId must be a non-empty string when present.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a number', { createdBy: 'user', path: '/repo/wt', threadId: 42 }],
+    ['an empty string', { createdBy: 'user', path: '/repo/wt', threadId: '' }],
+  ] as const)('rejects a present but malformed threadId (%s)', async (_label, payload) => {
+    expect(await handlers().adopt(payload)).toEqual({
+      error: 'worktrees:adopt threadId must be a non-empty string when present.',
+      ok: false,
+    });
+    expect(service.adopt).not.toHaveBeenCalled();
+  });
+
   it('rejects a malformed create payload at the boundary', async () => {
     expect(await handlers().create({ name: 42 })).toEqual({
       error: 'worktrees:create requires { rootId, baseRef, name, branch, createdBy }.',

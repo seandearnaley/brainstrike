@@ -77,6 +77,20 @@ function validateAdopt(payload: unknown): GitResult<WorktreeAdoptParams> {
   }
   const runId = payload['runId'];
   const threadId = payload['threadId'];
+  // An unknown-typed IPC boundary: a PRESENT runId/threadId that is not a
+  // non-empty string is rejected, never silently coerced to absent. Silently
+  // dropping a malformed runId would still adopt the worktree, just without
+  // the run attribution the caller asked for — a different outcome than the
+  // one requested, produced without saying so.
+  if (runId !== undefined && !nonEmptyString(runId)) {
+    return { error: 'worktrees:adopt runId must be a non-empty string when present.', ok: false };
+  }
+  if (threadId !== undefined && !nonEmptyString(threadId)) {
+    return {
+      error: 'worktrees:adopt threadId must be a non-empty string when present.',
+      ok: false,
+    };
+  }
   return {
     ok: true,
     value: {
