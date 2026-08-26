@@ -2,6 +2,7 @@
  * Managed-worktree lifecycle breadcrumbs through the production main-process
  * writer against real PGlite and real git worktrees (BST-1390).
  */
+import { rmSync } from 'node:fs';
 import { MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
@@ -134,6 +135,41 @@ describe('worktree run events (real PGlite)', () => {
     });
   });
 
+  it('does not fail worktree creation when event payload construction throws', async () => {
+    await seedRunRow(db, { runId: 'run-payload', threadId: 't-payload' });
+    const service = buildService({
+      recordRunEvent: (runId, event) =>
+        recordDesktopAssistantRunEvent(runId, event, () => Promise.resolve(db)),
+      runSetup: () =>
+        Promise.resolve({
+          get copiedPaths(): readonly string[] {
+            throw new Error('payload construction failed');
+          },
+          output: '',
+          reason: null,
+          skippedCopies: [],
+          status: 'succeeded' as const,
+          truncated: false,
+        }),
+    });
+
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/payload-guard' },
+      createdBy: 'user',
+      name: 'payload-guard',
+      rootId: 'r-1',
+      runId: 'run-payload',
+      threadId: 't-payload',
+    });
+
+    expect(created.ok).toBe(true);
+    const rows = await db.query<{ kind: string }>(
+      "SELECT kind FROM brainstrike_assistant_run_events WHERE run_id = 'run-payload' ORDER BY kind"
+    );
+    expect(rows.rows.map((row) => row.kind)).toEqual(['worktree.created']);
+  });
+
   it('writes worktree.archived with the snapshot ref', async () => {
     await seedRunRow(db, { runId: 'run-3', threadId: 't-3' });
     const service = buildService({
@@ -149,6 +185,7 @@ describe('worktree run events (real PGlite)', () => {
       runId: 'run-3',
       threadId: 't-3',
     });
+    expect(created.ok).toBe(true);
     if (!created.ok) {
       return;
     }
@@ -167,5 +204,44 @@ describe('worktree run events (real PGlite)', () => {
       "SELECT detail FROM brainstrike_assistant_run_events WHERE kind = 'worktree.archived'"
     );
     expect(rows.rows[0]?.detail).toContain('refs/brainstrike/worktree-archive/');
+  });
+
+  it('writes worktree.archived when the worktree vanishes during an active run', async () => {
+    await seedRunRow(db, { runId: 'run-vanished', threadId: 't-vanished' });
+    const service = buildService({
+      recordRunEvent: (runId, event) =>
+        recordDesktopAssistantRunEvent(runId, event, () => Promise.resolve(db)),
+    });
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/vanished-event' },
+      createdBy: 'user',
+      name: 'vanished-event',
+      rootId: 'r-1',
+      runId: 'run-vanished',
+      threadId: 't-vanished',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    rmSync(created.value.worktree.path, { force: true, recursive: true });
+
+    const archived = await service.archive({
+      runId: 'run-vanished',
+      worktreeId: created.value.worktree.id,
+    });
+
+    expect(archived.ok).toBe(true);
+    const rows = await db.query<{ detail: string; kind: string; label: string }>(
+      "SELECT kind, label, detail FROM brainstrike_assistant_run_events WHERE run_id = 'run-vanished' AND kind = 'worktree.archived'"
+    );
+    expect(rows.rows).toEqual([
+      {
+        detail: `Snapshot refs/brainstrike/worktree-archive/${created.value.worktree.id}`,
+        kind: 'worktree.archived',
+        label: 'Archived worktree vanished-event',
+      },
+    ]);
   });
 });

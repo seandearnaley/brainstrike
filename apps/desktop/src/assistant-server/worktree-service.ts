@@ -416,7 +416,8 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   async function archiveMissingWorktree(
-    row: ManagedWorktreeRow
+    row: ManagedWorktreeRow,
+    runId: string | undefined
   ): Promise<GitResult<WorktreeArchiveResult>> {
     const snapshot = await captureMissingArchiveSnapshot({
       cwd: row.repoCommonDir,
@@ -440,6 +441,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     try {
       const worktree = await ledger.markArchived(row.id, snapshot.value);
+      await emitWorktreeArchivedEvent(deps, runId, row, snapshot.value);
       return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
     } catch (error) {
       logger.error('missing worktree was pruned but its archive ledger write failed', {
@@ -469,7 +471,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
         throw error;
       }
-      return await archiveMissingWorktree(row);
+      return await archiveMissingWorktree(row, params.runId);
     }
     const safety = await inspectArchiveRow(row);
     if (!safety.ok) {

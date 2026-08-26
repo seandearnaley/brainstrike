@@ -378,7 +378,16 @@ describe('useThreadCheckout', () => {
         secondaryRoots: [],
         threadId: 't-1',
       })
-    ).toThrow('Could not switch worktrees: the current primary folder is no longer available.');
+    ).toThrow(
+      "You're already in this worktree and no Local folder is recorded — add a folder first."
+    );
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      "You're already in this worktree and no Local folder is recorded — add a folder first.",
+      {
+        primaryRootId: 'r-worktree',
+        worktreeId: 'w-1',
+      }
+    );
   });
 
   it('fails visibly when the worktree root never reconciled', async () => {

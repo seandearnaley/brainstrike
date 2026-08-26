@@ -85,10 +85,18 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
         // off without ever recording a real Local root (leaving `primaryRootId`
         // still pointing at the worktree), followed by re-selecting that SAME
         // worktree. Recording it as "the Local root to return to" would make a
-        // later hand-off return to the worktree itself. Refuse it here and let
-        // the existing no-tracked-root guard below treat it the same as never
-        // having recorded one.
-        const checkoutLocalRootId = rawLocalRootId === rootId ? undefined : rawLocalRootId;
+        // later hand-off return to the worktree itself. Refuse it explicitly so
+        // the user sees how to recover instead of the generic missing-root copy.
+        if (rawLocalRootId === rootId) {
+          const message =
+            "You're already in this worktree and no Local folder is recorded — add a folder first.";
+          logger.error(message, {
+            primaryRootId: current.primaryRootId,
+            worktreeId: worktree.worktreeId,
+          });
+          throw new Error(message);
+        }
+        const checkoutLocalRootId = rawLocalRootId;
         if (!checkoutLocalRootId) {
           logger.error('Select worktree: current primary root id is unknown', {
             primaryRootId: current.primaryRootId,

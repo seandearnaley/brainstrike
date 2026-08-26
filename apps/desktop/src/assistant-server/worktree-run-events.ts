@@ -27,6 +27,13 @@ export interface WorktreeRunEventDeps {
 
 type WorktreeEventKind = 'worktree.archived' | 'worktree.created' | 'worktree.setup';
 
+interface WorktreeEventPayload {
+  readonly detail?: string;
+  readonly label: string;
+  readonly metadata: AssistantRunEventMetadata;
+  readonly status: 'failed' | 'info';
+}
+
 /**
  * A durable timeline row for an operation that happened INSIDE a run. With no
  * `runId` nothing is written — the same `if (runId)` gate every other
@@ -37,23 +44,19 @@ type WorktreeEventKind = 'worktree.archived' | 'worktree.created' | 'worktree.se
 async function emit(
   deps: WorktreeRunEventDeps,
   runId: string | null | undefined,
-  event: {
-    readonly detail?: string;
-    readonly kind: WorktreeEventKind;
-    readonly label: string;
-    readonly metadata: AssistantRunEventMetadata;
-    readonly status: 'failed' | 'info';
-  }
+  kind: WorktreeEventKind,
+  buildPayload: () => WorktreeEventPayload
 ): Promise<void> {
   if (!runId) {
     return;
   }
   try {
+    const event = { ...buildPayload(), kind };
     await deps.recordRunEvent(runId, createAssistantRunEvent({ ...event, runId }));
   } catch (error) {
     // A timeline row must never fail the operation it describes — but the
     // failure stays observable.
-    logger.error('failed to record a worktree run event', { error, kind: event.kind, runId });
+    logger.error('failed to record a worktree run event', { error, kind, runId });
   }
 }
 
@@ -64,19 +67,17 @@ export async function emitWorktreeCreateEvents(
   worktree: ManagedWorktreeRow,
   setup: WorktreeSetupOutcome
 ): Promise<void> {
-  await emit(deps, runId, {
+  await emit(deps, runId, 'worktree.created', () => ({
     detail: worktree.branch ?? 'detached HEAD',
-    kind: 'worktree.created',
     label: `Created worktree ${path.basename(worktree.path)}`,
     metadata: { branch: worktree.branch, path: worktree.path, worktreeId: worktree.id },
     status: 'info',
-  });
+  }));
   if (setup.status === 'none') {
     return;
   }
-  await emit(deps, runId, {
+  await emit(deps, runId, 'worktree.setup', () => ({
     ...(setup.reason ? { detail: setup.reason } : {}),
-    kind: 'worktree.setup',
     label: `Worktree setup ${setup.status}`,
     metadata: {
       copiedPaths: [...setup.copiedPaths],
@@ -85,7 +86,7 @@ export async function emitWorktreeCreateEvents(
       worktreeId: worktree.id,
     },
     status: setup.status === 'failed' ? 'failed' : 'info',
-  });
+  }));
 }
 
 export async function emitWorktreeArchivedEvent(
@@ -94,11 +95,10 @@ export async function emitWorktreeArchivedEvent(
   worktree: { readonly id: string; readonly path: string },
   snapshotRef: string
 ): Promise<void> {
-  await emit(deps, runId, {
+  await emit(deps, runId, 'worktree.archived', () => ({
     detail: `Snapshot ${snapshotRef}`,
-    kind: 'worktree.archived',
     label: `Archived worktree ${path.basename(worktree.path)}`,
     metadata: { path: worktree.path, snapshotRef, worktreeId: worktree.id },
     status: 'info',
-  });
+  }));
 }
