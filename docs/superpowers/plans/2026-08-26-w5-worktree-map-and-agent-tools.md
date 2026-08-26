@@ -65,13 +65,13 @@ Every task's requirements implicitly include this section.
 
 | # | Ambiguity | Resolution used by this plan |
 | --- | --- | --- |
-| A1 | §10 wants the Map's lane to start with the **Primary checkout** card, but `WorktreeListEntry` has no way to say which row is the primary — and `list()` DOES return it, because `git worktree list --porcelain` enumerates the main worktree alongside the linked ones. | **`WorktreeListEntry.primary: boolean`** (Task 1), computed as `descriptor.path === repository.identity.repositoryRoot`. It also closes a defect that is **latent today and becomes reachable in Task 2**: the Mode chip's picker already LISTS the primary checkout, but selecting it is currently inert because a scanned row has `id: null` and W3's `onSelectExisting` refuses a row with no `worktreeId`. Task 2 removes exactly that refusal (it adopts unmanaged rows instead), so from Task 2 onward selecting the primary would mint a ledger row for the user's own clone and write `checkoutMode: 'worktree'` pointing at it — a checkout hand-off could not leave. Task 1 therefore lands the gate BEFORE Task 2 opens the path: the primary row is `usable: false` with the reason "This is the repository's primary checkout — use Hand off to Local instead." |
+| A1 | §10 wants the Map's lane to start with the **Primary checkout** card, but `WorktreeListEntry` has no way to say which row is the primary — and `list()` DOES return it, because `git worktree list --porcelain` enumerates the main worktree alongside the linked ones. | **`WorktreeListEntry.primary: boolean`** (Task 1), computed as `descriptor.path === repository.identity.repositoryRoot`. **Corrected at Task 2/3 execution:** this table originally worried that Task 2 would "open a path" where selecting the primary in the picker could adopt it, and framed Task 1's primary gate as landing BEFORE that path opened. A Task 2 review round found the opposite — `resolveUsability` marks EVERY row without a ledger id `usable: false` (primary or not), and `worktree-picker-dialog.tsx` disables the option's button whenever `!usable`, so `onSelectExisting` could never fire for ANY unmanaged row through a real click, primary included. Task 2's picker-side adopt call was therefore dead code from the moment it landed and was removed (`fix(BST-1392): remove the unreachable picker adoption branch`); adoption now surfaces only on the Worktree Map's card action (Task 6) and the `worktrees:adopt` agent tool (Task 10), never the picker. Task 1's primary gate is still exactly right, just for a narrower, sturdier reason than originally argued: it gives the primary its OWN stated reason ("This is the repository's primary checkout — use Hand off to Local instead.") instead of the generic unmanaged-row message, so the Mode chip is honest about WHY, and `adoptWorktree` (Task 2) independently refuses `descriptor.path === repositoryRoot` too — the primary can never be adopted through any surface, including a future direct agent-tool call that bypasses UI disabling entirely, by construction rather than by picker-disabling alone. |
 | A2 | §10 wants a **PR pill** on each card, but the landed PR cache is keyed `(repo_common_dir, branch)` and `WorktreeListEntry` exposes only `repositoryRoot`. | **`WorktreeListEntry.repoCommonDir: string`** (Task 1), taken from `repository.identity.gitCommonDir` for scanned rows and `row.repoCommonDir` for ghost rows. The Map then joins the ALREADY-LANDED `useForgePrCache` map with `forgePrCacheKey(repoCommonDir, branch)` — the same key and the same `rollupForgeChecks` the thread pill uses, so the two surfaces cannot disagree. No new forge query, no new forge IPC. |
 | A3 | §10 wants **dirty/unpushed glyphs** per card. Running the archive-safety probe for every worktree on every list would put N git subprocesses behind a surface that refreshes on every `changes:invalidated`. | A separate, **lazy, per-card** `worktrees:checkoutStatus` op (Task 3) returning `{ ahead, behind, clean, path, upstream }` from ONE `git status --porcelain=v2 --branch -z`, parsed by the already-exported `parsePorcelainV2Z`. The Map requests it per visible card with bounded concurrency, and re-requests only when the invalidation nonce for that repository changes. `list()` stays cheap. Until a card's status resolves it renders "checking…", never a clean glyph. |
 | A4 | §6.4 wants a timeline event *"Agent created worktree X (via shell)"*, which reads like a new run-event kind. | **No new kind.** The correlator emits the existing `worktree.created` with `metadata.via: 'shell'` (the ledger-backed create emits `via: 'app'`, the agent tool `via: 'tool'`, adoption `via: 'adopt'`). A new kind would need a pairing-contract row and a second label vocabulary for the same fact. The pairing contract is therefore untouched, and `docs/agents/assistant-persistence.md` records the `via` vocabulary. |
 | A5 | §6.4 says the **inventory watcher's `worktrees/<name>` lifecycle events are correlated to the active run**. | **Deliberately not implemented from the watcher.** `GitInventoryInvalidation` carries `{ gitCommonDir, repositoryRoot }` only: no worktree path, no create-vs-remove discrimination (a bare `worktrees/<name>` appearing and disappearing collapse to the same string), and a 300–2000 ms debounce coalesces N operations into one signal. Correlating that to a run would be a temporal guess. The **shell tool's own result** is the strong signal and is what this plan uses; the watcher keeps doing its existing job (refreshing the Map). Recorded in `docs/agents/assistant-persistence.md`. |
 | A6 | §6.4 names **three** agent tools (`createWorktree`, `listWorktrees`, `archiveWorktree`), all "execute-risk → permission engine". | **Two ids.** `brainstrike.listWorktrees` is `category: 'analysis'`, `riskCategory: 'read'`, no approval — a run orienting itself must be able to list worktrees in plan mode, and classifying a read as execute would make that impossible. `brainstrike.manageWorktree` is an `action` discriminated union (`create` \| `archive`), `riskCategory: 'execute'`, `requiresApproval: true` — the mutations reach the permission engine exactly as §6.4 requires. This is the settled `manageCanvas` shape (strict provider envelope delegating to a discriminated union) and costs two prompt-budget slots instead of three. **This is a DELIBERATE, coordinator-ACCEPTED deviation from the literal text of §6.4 (2026-08-26) — do not relitigate:** §6.4's protective intent is that MUTATIONS gate through the permission engine, which `manageWorktree` preserves in full, while classifying a read-only listing as execute-risk would block plan-mode orientation for no protective gain whatsoever. |
-| A7 | §10's **"Add as root"** and the Mode chip's live toast ("Adopting one is coming with the Worktree Map") imply an adoption path, but `useThreadCheckout.selectWorktree` requires a ledger `worktreeId`, so an externally created worktree cannot be checked out even when it is perfectly usable. | **`worktrees:adopt`** (Task 2) inserts a ledger row for an existing on-disk worktree. It REFUSES a path that is outside every granted root AND outside the managed directory, because `resolveUsability` treats "has a ledger row" as authorization — adopting an unreachable path would make an ungrantable row read `usable: true`. `base_ref` is recorded as the worktree's HEAD sha at adoption time, and the migration doc comment already says `base_ref` means "the ref unpushed work is measured against"; "since adoption" is the honest reading for a worktree the app did not create. |
+| A7 | §10's **"Add as root"** implies an adoption path, and the Mode chip's picker states the reason "Created outside BrainStrike — adopting it is coming with the Worktree Map." next to a disabled unmanaged row — **corrected at Task 2/3 execution: this is a static label, never a "live toast"** (the row's select button is disabled whenever `!usable`, which is true for every unmanaged row including the primary, so nothing ever fires a toast for clicking one — the original A7 wording conflated this string with `onSelectExisting`'s now-removed placeholder-toast copy, which likewise never fired for the same reason). Either way, `useThreadCheckout.selectWorktree` requires a ledger `worktreeId`, so an externally created worktree cannot be checked out even when it is perfectly usable. | **`worktrees:adopt`** (Task 2) inserts a ledger row for an existing on-disk worktree. It REFUSES a path that is outside every granted root AND outside the managed directory, because `resolveUsability` treats "has a ledger row" as authorization — adopting an unreachable path would make an ungrantable row read `usable: true` — and it independently refuses the repository's own primary checkout too (see A1's correction). `base_ref` is recorded as the worktree's HEAD sha at adoption time, and the migration doc comment already says `base_ref` means "the ref unpushed work is measured against"; "since adoption" is the honest reading for a worktree the app did not create. **The service/bridge method landed in Task 2, but no UI called it until Task 6**: the picker's own call turned out to be unreachable (A1) and was removed, so the Worktree Map's card `onAdopt` action is the FIRST real caller, with the agent tool (Task 10) the second. The picker's stated reason is accurate today but becomes forward-looking-copy-that-should-now-be-true once Task 6 ships the Map — revisiting that string is out of scope here and left for whoever lands Task 6. |
 | A8 | §8's `ForgeRefreshReason` union is `'invalidation' \| 'user' \| 'window'`, and the IPC validator's `satisfies Record<ForgeRefreshReason, true>` means adding a member automatically makes it renderer-supplied. | The union splits: `ForgeRendererRefreshReason = 'invalidation' \| 'user' \| 'window'` (what the bridge accepts) and `ForgeRefreshReason = ForgeRendererRefreshReason \| 'shell'` (what the service accepts). `'shell'` has a 0 ms floor and is reachable ONLY from main's correlator; a renderer that sends it gets the existing stated refusal. |
 | A9 | §10's **"New thread here"** must create a thread AND bind its checkout, but the checkout writer (`useThreadCheckout`) is mounted in the composer's `useWorkspaceBar`, in a different component tree from the Map. | A one-shot **checkout-intent store** (`packages/app-shell/src/stores/worktree-checkout-intent-store.ts`): the Map publishes `{ branch, path, threadId, worktreeId }`, `useWorkspaceBarMode` consumes it exactly once for the matching selected thread and calls the SAME `onSelectWorktree`. This is the `changes-navigation-store` idiom (cross-surface intent, not a second writer). Consumption is idempotent and the entry is cleared before the async write starts, so a re-render cannot double-write. |
 | A10 | §10's **"last activity"**. Nothing in the inventory or the ledger records worktree activity, and a per-card `git log -1` is another N subprocesses. | Last activity = the owning thread's `updatedAt` when a thread occupies the worktree, else the ledger `createdAt` (labelled "Created"), else **nothing rendered**. Both facts are already in hand (the thread store and the new `WorktreeListEntry.createdAt`); nothing is invented and no git call is added. |
@@ -165,7 +165,7 @@ Every task's requirements implicitly include this section.
 | `apps/desktop/src/worktrees-ipc-handlers.ts`, `ipc-worktrees.ts`, `platform/desktop-ipc-channels.ts`, `preload.ts` | Two new channels + handlers. |
 | `packages/app-shell/src/worktrees/worktrees-bridge.ts` | 9 → 11 exact-set methods. |
 | `apps/desktop/src/__tests__/preload-runtime-contract.test.ts` | Channel-literal + bridge key-set parity. |
-| `packages/app-shell/src/hooks/use-worktree-mode.ts` | Picker adoption path replaces the "coming with the Worktree Map" toast. |
+| `packages/app-shell/src/hooks/use-worktree-mode.ts` | Picker adoption path added in Task 2, then removed as unreachable (A1/A7) — the placeholder toast becomes a defensive refusal instead. Adoption's real home is Task 6's Map card `Adopt` action. |
 | `packages/app-shell/src/hooks/use-workspace-bar-mode.ts` | Mount the checkout-intent consumer. |
 | `packages/file-explorer-ui/src/shell/workspace-app.ts` | `WORKTREE_MAP_APP_ID`. |
 | `packages/app-shell/src/build-workspace-apps.tsx` | Register the Map tab. |
@@ -3006,9 +3006,10 @@ vi.mock('../../platform-bridge', () => ({
   }),
 }));
 
+const adoptMock = vi.fn();
 const archiveMock = vi.fn();
 vi.mock('../../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({ archive: archiveMock }),
+  resolveWorktreesBridge: () => ({ adopt: adoptMock, archive: archiveMock }),
 }));
 
 const addRootDirectoryByPathMock = vi.fn();
@@ -3061,6 +3062,7 @@ describe('WorktreeMapSurface', () => {
   beforeEach(() => {
     for (const mock of [
       addRootDirectoryByPathMock,
+      adoptMock,
       archiveMock,
       createThreadMock,
       openExternalMock,
@@ -3072,6 +3074,7 @@ describe('WorktreeMapSurface', () => {
       mock.mockReset();
     }
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
+    adoptMock.mockResolvedValue({ ok: true, value: {} });
     archiveMock.mockResolvedValue({ ok: true, value: {} });
     createThreadMock.mockResolvedValue({ id: 'thread-9' });
     useWorktreeMapMock.mockReset().mockReturnValue(BASE_STATE);
@@ -3225,6 +3228,68 @@ describe('WorktreeMapSurface', () => {
     expect(setIndexingMock).not.toHaveBeenCalled();
   });
 
+  // An unmanaged card offers Adopt as its own ENABLED action (never a
+  // disabled "coming soon" stub — A1/A7), and this is the FIRST real UI
+  // caller of `worktrees.adopt`: Task 2 shipped the bridge method, but the
+  // Mode chip picker's own planned call was unreachable and removed.
+  it('adopts through the worktrees bridge with the card path, refreshes on success', async () => {
+    const refreshMock = vi.fn();
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      refresh: refreshMock,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [
+            card({
+              disabledReason: 'Created outside BrainStrike — adopting it is coming with the Worktree Map.',
+              entry: { ...card().entry, id: null, managed: false, usable: false },
+              provenanceLabel: 'External',
+            }),
+          ],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /adopt/iu }));
+
+    expect(adoptMock).toHaveBeenCalledTimes(1);
+    expect(adoptMock).toHaveBeenCalledWith({ createdBy: 'user', path: '/wt' });
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+    // Falsifier: adopting never archives or adds a root.
+    expect(archiveMock).not.toHaveBeenCalled();
+    expect(addRootDirectoryByPathMock).not.toHaveBeenCalled();
+  });
+
+  it('states an adoption refusal verbatim and does not refresh', async () => {
+    const refreshMock = vi.fn();
+    adoptMock.mockResolvedValue({
+      error: 'The worktree at "/wt" is outside every open folder. Grant access to its folder first, then adopt it.',
+      ok: false,
+    });
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      refresh: refreshMock,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [card({ entry: { ...card().entry, id: null, managed: false, usable: false } })],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /adopt/iu }));
+
+    await screen.findByText(
+      'Could not adopt "bright-fox": The worktree at "/wt" is outside every open folder. Grant access to its folder first, then adopt it.'
+    );
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
   // TRIPWIRE (coordinator ruling, 2026-08-26). W3's A6 ruling deferred the
   // terminal-session seam to W6 and recorded "absent, not stubbed"; W5's Map
   // is exactly where a well-meaning edit would reintroduce it, because spec
@@ -3268,6 +3333,8 @@ export interface WorktreeMapCardProps {
   /** Present only for the card holding the SELECTED thread's checkout [A11]. */
   readonly onHandOffToLocal?: (() => void) | undefined;
   readonly onAddAsRoot: (card: WorktreeMapCardModel) => void;
+  /** Present on every card; enabled only for `!entry.managed` (spec §10 "Add as root" / A7). */
+  readonly onAdopt: (card: WorktreeMapCardModel) => void;
   readonly onArchive: (card: WorktreeMapCardModel) => void;
   readonly onNewThread: (card: WorktreeMapCardModel) => void;
   readonly onOpenPullRequest: (url: string) => void;
@@ -3313,6 +3380,7 @@ function StatusGlyphs({ status }: { readonly status: WorktreeCheckoutStatusState
 export function WorktreeMapCard({
   card,
   onAddAsRoot,
+  onAdopt,
   onArchive,
   onHandOffToLocal,
   onNewThread,
@@ -3418,6 +3486,18 @@ export function WorktreeMapCard({
             {entry.rootId === null ? (
               <DropdownMenuItem onSelect={() => onAddAsRoot(card)}>Add as root</DropdownMenuItem>
             ) : null}
+            {/*
+              An unmanaged card is not "refused" — Adopt is its own ENABLED
+              action (spec §10 "Add as root" / A7), the only surface that ever
+              calls `worktrees.adopt` for real: the Mode chip's picker never
+              could (every unmanaged row is `usable: false`, so its select
+              button stays disabled — see A1's correction). New thread here /
+              Archive… stay disabled until this card is adopted; nothing here
+              is silently skipped.
+            */}
+            {entry.managed ? null : (
+              <DropdownMenuItem onSelect={() => onAdopt(card)}>Adopt</DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => onReveal(entry.path)}>Reveal</DropdownMenuItem>
             {entry.managed ? (
               <DropdownMenuItem onSelect={() => onArchive(card)}>Archive…</DropdownMenuItem>
@@ -3495,7 +3575,7 @@ export function WorktreeMapSurface(): ReactElement {
     resourceId,
     schemaReady: Object.hasOwn(threadsByResourceId, resourceId),
   });
-  const { error, loading, repositories, statusByPath } = useWorktreeMap({
+  const { error, loading, refresh, repositories, statusByPath } = useWorktreeMap({
     database,
     resourceId,
     runningThreadIds,
@@ -3577,6 +3657,35 @@ export function WorktreeMapSurface(): ReactElement {
     [worktrees]
   );
 
+  // The FIRST real caller of `worktrees.adopt` (Task 2 shipped the service
+  // and bridge method, but the picker's own call turned out unreachable and
+  // was removed — A1/A7). `WorktreeAdoptParams` takes `createdBy` + `path`
+  // only, never `branch` — match that real shipped shape, not a guess at it.
+  const onAdopt = useCallback(
+    (card: WorktreeMapCardModel) => {
+      if (!worktrees) {
+        setActionError('Adopting a worktree is unavailable in this build.');
+        return;
+      }
+      setActionError(null);
+      worktrees
+        .adopt({ createdBy: 'user', path: card.entry.path })
+        .then((result) => {
+          // GitResult refusal: state it verbatim (`use-worktree-mode.ts:373-374`).
+          if (!result.ok) {
+            setActionError(`Could not adopt "${card.entry.name}": ${result.error}`);
+            return;
+          }
+          void refresh();
+        })
+        .catch((caught: unknown) => {
+          logger.error('worktree map could not adopt', { error: caught, path: card.entry.path });
+          setActionError(errorMessage(caught));
+        });
+    },
+    [refresh, worktrees]
+  );
+
   if (loading && repositories.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
@@ -3603,6 +3712,7 @@ export function WorktreeMapSurface(): ReactElement {
                 card={card}
                 key={card.entry.path}
                 onAddAsRoot={onAddAsRoot}
+                onAdopt={onAdopt}
                 onArchive={onArchive}
                 onNewThread={onNewThread}
                 onOpenPullRequest={(url) => {
@@ -3624,7 +3734,7 @@ export function WorktreeMapSurface(): ReactElement {
 }
 ```
 
-> **Three wiring notes.** **(a)** Reveal and Open-PR go through `resolvePlatformBridge()` — the capability-resolved app-shell bridge, resolved once with `useMemo` and `null` on web — never `window.platform` / `window.electronAPI` directly and never a bare `<a href>`. That is the idiom `use-worktree-mode.ts` already uses for `showItemInFolder`, and it is what makes the Map degrade by omission on web instead of throwing. **(b)** `onAddAsRoot` / `onArchive` are fully inlined above — `useFileSystem().addRootDirectoryByPath(path)` (desktop-only, `undefined` on web; `use-workspace-bar.ts:918-942` is the precedent) and `worktrees.archive({ worktreeId })` respectively, each stating a `GitResult` refusal verbatim in `actionError` the way `use-worktree-mode.ts` does. The Step-4 suite pins both seams (`archive` called with the card's `worktreeId`; `addRootDirectoryByPath` called with the card's path), so a stub cannot survive review. **(c)** `min-w-0` on the `<section>` is load-bearing: without it a flex child refuses to shrink and the LANE's `overflow-x-auto` never engages, pushing the page body into a horizontal scroll instead.
+> **Four wiring notes.** **(a)** Reveal and Open-PR go through `resolvePlatformBridge()` — the capability-resolved app-shell bridge, resolved once with `useMemo` and `null` on web — never `window.platform` / `window.electronAPI` directly and never a bare `<a href>`. That is the idiom `use-worktree-mode.ts` already uses for `showItemInFolder`, and it is what makes the Map degrade by omission on web instead of throwing. **(b)** `onAddAsRoot` / `onArchive` are fully inlined above — `useFileSystem().addRootDirectoryByPath(path)` (desktop-only, `undefined` on web; `use-workspace-bar.ts:918-942` is the precedent) and `worktrees.archive({ worktreeId })` respectively, each stating a `GitResult` refusal verbatim in `actionError` the way `use-worktree-mode.ts` does. The Step-4 suite pins both seams (`archive` called with the card's `worktreeId`; `addRootDirectoryByPath` called with the card's path), so a stub cannot survive review. **(c)** `onAdopt` calls `worktrees.adopt({ createdBy: 'user', path: card.entry.path })` — the REAL shipped `WorktreeAdoptParams` shape (`createdBy` + `path` only; there is no `branch` field), same `GitResult`-refusal-verbatim handling, then `void refresh()` on success so the card's `managed`/`usable` flip without waiting for the next `changes:invalidated` tick. This is the FIRST real UI caller of `worktrees.adopt` — Task 2 shipped the service/bridge method, but the Mode chip's picker call it originally planned turned out unreachable and was removed (A1/A7); the Step-4 suite pins this seam too (`adopt` called with the card's path; refusal stated verbatim). **(d)** `min-w-0` on the `<section>` is load-bearing: without it a flex child refuses to shrink and the LANE's `overflow-x-auto` never engages, pushing the page body into a horizontal scroll instead.
 
 `index.ts`:
 
@@ -5745,7 +5855,7 @@ Follow `apps/desktop/e2e/worktree-mode.desktop.test.ts` verbatim for the fixture
 
 1. **The tab exists and lists every checkout.** Seed a repo that has a primary checkout plus an external `.claude/worktrees/x` worktree (`freshRepoWithExternalWorktree`). Open the "+" menu, click `Worktrees`, and assert `page.getByTestId('worktree-map-card')` has count 2, that the first card contains the repository name and the text `Primary checkout`, and that the second contains `Claude Code`.
 2. **The primary checkout is refused as a checkout target.** Assert the primary card's `worktree-map-new-thread` button is `disabled` and its `title` is exactly `"This is the repository's primary checkout — use Hand off to Local instead."`.
-3. **Adoption from the Map binds a thread.** Click `New thread here` on the external worktree card; assert the composer's `workspace-bar-mode-chip` ends up containing the worktree's directory name (timeout 90 s — adoption mounts a root and reconciles `roots`), and that `worktrees:adopt` produced exactly one live `brainstrike_worktrees` row for that path via the `window.electronAPI.db.query` bridge.
+3. **Adoption from the Map binds a thread.** **Corrected at Task 3/6 execution** — the external card's `New thread here` is DISABLED until adopted (`disabled={!entry.usable}`; an unmanaged row is never `usable`), so this case drives the actions menu's `Adopt` item, not `New thread here`, first. Open the external worktree card's actions menu (`worktree-map-card-actions`) and click `Adopt`; assert `worktrees:adopt` produced exactly one live `brainstrike_worktrees` row for that path via the `window.electronAPI.db.query` bridge, and that the card's `New thread here` button becomes enabled once the invalidation-driven refresh lands. THEN click `New thread here` on that now-adopted card and assert the composer's `workspace-bar-mode-chip` ends up containing the worktree's directory name (timeout 90 s — mounting the root and reconciling `roots` is the slow part, not the adopt call itself).
 4. **The agent tool creates a worktree with agent provenance.** Drive `setupAssistantMock` with a scripted `brainstrike.manageWorktree` `create` call, approve the permission prompt, and assert (a) the Map gains a card for the new branch after the invalidation lands, and (b) `SELECT created_by, run_id FROM brainstrike_worktrees WHERE path = $1` returns `('agent', <non-null>)`.
 5. **Shell correlation adopts what the agent's shell made.** Script an `executeCommand` call whose command is a real `git worktree add`; after the tool completes, assert a `brainstrike_worktrees` row exists for the new path with `created_by = 'agent'` and a non-null `run_id`, and that a `brainstrike_assistant_run_events` row exists with `kind = 'worktree.created'` and `metadata->>'via' = 'shell'`.
 
@@ -5817,8 +5927,13 @@ joins on, so the Map's PR pill and the thread list's PR pill cannot disagree.
 a path that is outside every granted root AND outside the managed directory:
 `resolveUsability` treats "has a ledger row" as authorization, so an
 unreachable adopted row would read `usable: true` while every operation on it
-failed. `base_ref` is the worktree's HEAD at adoption time — "unpushed" for an
-adopted worktree means "committed here since BrainStrike started managing it".
+failed. It also refuses the repository's own primary checkout, mirroring the
+picker's primary gate. `base_ref` is the worktree's HEAD at adoption time —
+"unpushed" for an adopted worktree means "committed here since BrainStrike
+started managing it". The Mode chip's picker never calls it — every unmanaged
+row is `usable: false`, so its select button is always disabled, which makes
+adopting through the picker structurally unreachable. The Worktree Map card's
+`Adopt` action is the only UI caller; the agent tool is the only other one.
 
 `worktrees.checkoutStatus` is a LAZY, per-checkout `git status --porcelain=v2
 --branch -z` parsed by the production `parsePorcelainV2Z`. It is deliberately
@@ -5969,7 +6084,7 @@ Then verify each PR's base: PR 1 targets `integration/workspace-checkout-awarene
 
 **4. Line-cap audit.** `worktree-service.ts` (1011), `assistant-tools.ts` (1004) and `use-workspace-bar.ts` (1031) all start at or over the ceiling. This plan adds no behavior to any of them: adoption/status/reconcile live in `worktree-adopt.ts`, the tool registrations in `worktree-tools.ts`, and the checkout-intent consumer in the 88-line `use-workspace-bar-mode.ts`. Every task that touches one runs `pnpm dlx ultracite check` on it explicitly, with the split — never a `biome.json` override — named as the remedy.
 
-**5. Falsifiability audit.** The wiring tests that could pass on a swapped implementation are guarded: Task 2's adoption test asserts `create`/`restore`/`archive` were NOT called; Task 5's load test asserts `adopt`/`archive` were not called; Task 10's executor tests assert the two sibling capability methods were not called; Task 12's correlator tests assert each signal drives ONE of the two effects and not the other. Task 13 case 5 asserts `metadata->>'via' = 'shell'` specifically, which is the assertion a watcher-based implementation would fail. Task 6's "Open in Terminal" tripwire asserts BOTH the text and the `menuitem` role are absent, because a disabled stub would satisfy a naive enabled-only query while being exactly what the ruling forbids.
+**5. Falsifiability audit.** The wiring tests that could pass on a swapped implementation are guarded: Task 6's Map-card adoption test asserts `archive`/`addRootDirectoryByPath` were NOT called when `Adopt` runs (**corrected at Task 2/3 execution** — Task 2's own picker-level adoption test made this same assertion, but the picker adoption branch it pinned turned out unreachable and was removed; the falsifier moved to Task 6, the surface that actually calls `worktrees.adopt` now); Task 5's load test asserts `adopt`/`archive` were not called; Task 10's executor tests assert the two sibling capability methods were not called; Task 12's correlator tests assert each signal drives ONE of the two effects and not the other. Task 13 case 5 asserts `metadata->>'via' = 'shell'` specifically, which is the assertion a watcher-based implementation would fail. Task 6's "Open in Terminal" tripwire asserts BOTH the text and the `menuitem` role are absent, because a disabled stub would satisfy a naive enabled-only query while being exactly what the ruling forbids.
 
 **6. Coordinator rulings folded in (2026-08-26).** Four, each landed in the section that governs it rather than in a preamble a reviewer can skip: **(1)** BST-1392 confirmed against Linear — the Linear line now carries the verified title and Backlog state and drops the "inferred" hedge. **(2)** The A6 two-tool split is recorded IN the A6 row as a deliberate, accepted spec deviation with the "mutations gate, reads don't" rationale and a do-not-relitigate marker, and echoed in the §6.4 spec-coverage row. **(3)** "Open in Terminal" stays absent, with W6 named as owner in three places (Scope boundaries, Task 6's new deliberate-omissions table, the out-of-scope table) and enforced by a Task 6 tripwire that states its own deletion condition. **(4)** Durable-keyed indexing reuse is accepted; unifying it with BST-1453's adapter-keyed control moved to a new **Follow-ups this plan surfaces** section, not into any task.
 
