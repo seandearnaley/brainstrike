@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   defaultManagedWorktreeDirectory,
   readWorktreeSettings,
@@ -11,6 +11,13 @@ import {
 const HOME_DIRECTORY = '/Users/tester';
 const DEFAULT_MANAGED_DIRECTORY = path.join(HOME_DIRECTORY, '.brainstrike', 'worktrees');
 const NO_MOUNTED_ROOTS = () => Promise.resolve([]);
+const ORIGINAL_ARGV = [...process.argv];
+
+afterEach(() => {
+  process.argv = [...ORIGINAL_ARGV];
+  vi.unstubAllEnvs();
+  vi.resetModules();
+});
 
 describe('worktree settings', () => {
   it('defaults the managed directory when nothing is persisted', async () => {
@@ -26,6 +33,30 @@ describe('worktree settings', () => {
   it('exports the stable storage key and default directory helper', () => {
     expect(WORKTREE_SETTINGS_STORAGE_KEY).toBe('worktreeSettings');
     expect(defaultManagedWorktreeDirectory(HOME_DIRECTORY)).toBe(DEFAULT_MANAGED_DIRECTORY);
+  });
+
+  it('uses an absolute managed-directory override in desktop E2E test mode', async () => {
+    process.argv = ORIGINAL_ARGV.filter((argument) => argument !== '--test-mode');
+    vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
+    vi.stubEnv('BRAINSTRIKE_E2E_WORKTREE_DIR', '/tmp/brainstrike-e2e-worktrees');
+    vi.resetModules();
+    const { defaultManagedWorktreeDirectory: readDefaultDirectory } = await import(
+      '../worktree-settings'
+    );
+
+    expect(readDefaultDirectory(HOME_DIRECTORY)).toBe('/tmp/brainstrike-e2e-worktrees');
+  });
+
+  it('ignores the managed-directory override outside desktop E2E test mode', async () => {
+    process.argv = ORIGINAL_ARGV.filter((argument) => argument !== '--test-mode');
+    vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
+    vi.stubEnv('BRAINSTRIKE_E2E_WORKTREE_DIR', '/tmp/brainstrike-e2e-worktrees');
+    vi.resetModules();
+    const { defaultManagedWorktreeDirectory: readDefaultDirectory } = await import(
+      '../worktree-settings'
+    );
+
+    expect(readDefaultDirectory(HOME_DIRECTORY)).toBe(DEFAULT_MANAGED_DIRECTORY);
   });
 
   it('persists and reads a custom managed directory', async () => {
