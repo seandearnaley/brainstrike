@@ -110,6 +110,7 @@ import { migration108OpenRouterGlm53 } from './108-openrouter-glm-5-3.js';
 import { migration109Worktrees } from './109-worktrees.js';
 import { migration110ForgePrCache } from './110-forge-pr-cache.js';
 import { migration111RootsWorktreeKind } from './111-roots-worktree-kind.js';
+import { migration112WorktreeSetupReason } from './112-worktree-setup-reason.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -226,6 +227,7 @@ export const migrations: Migration[] = [
   migration109Worktrees,
   migration110ForgePrCache,
   migration111RootsWorktreeKind,
+  migration112WorktreeSetupReason,
 ];
 
 // Export base migrations (without chunks table) for test environments

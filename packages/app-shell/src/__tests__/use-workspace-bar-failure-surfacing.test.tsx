@@ -24,7 +24,8 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
-import { useWorkspaceBar } from '../hooks/use-workspace-bar';
+import type { ThreadCheckoutFolders } from '../hooks/use-thread-folders-write';
+import { deriveMakePrimary, useWorkspaceBar } from '../hooks/use-workspace-bar';
 
 // `fs` is only dereferenced when the mocked useFileSystem() is CALLED (render
 // time), so vitest's vi.mock hoisting above these imports is safe.
@@ -147,8 +148,16 @@ const liveRootMisses = new Map<string, number>();
 // final lookup is in flight (the window a retry-loop-only cancellation check
 // cannot see).
 let liveRootGate: { promise: Promise<void>; release: () => void } | null = null;
+let secondaryRootsError: Error | null = null;
+let secondaryRootsGate: { promise: Promise<void>; release: () => void } | null = null;
 const query = vi.fn(async (sql: string, params?: unknown[]) => {
   if (sql.includes('FROM roots') && sql.includes('= ANY')) {
+    if (secondaryRootsGate) {
+      await secondaryRootsGate.promise;
+    }
+    if (secondaryRootsError) {
+      throw secondaryRootsError;
+    }
     const ids = (params?.[0] ?? []) as readonly string[];
     return {
       rows: ids.flatMap((id) => {
@@ -198,6 +207,19 @@ const rootDescriptors = {
   'adapter-main': { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'adapter-main' },
 };
 
+const MAKE_PRIMARY_FOLDERS = {
+  checkoutLocalRootId: undefined,
+  checkoutMode: 'local',
+  metadataPending: false,
+  primaryRoot: { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'r-main-db' },
+  primaryRootId: 'r-main-db',
+  secondaryRootIds: ['r-docs'],
+  secondaryRoots: [{ displayName: 'docs', path: '/ws/docs', rootId: 'r-docs' }],
+  secondaryRootsError: false,
+  secondaryRootsPending: false,
+  threadId: THREAD_ID,
+} satisfies ThreadCheckoutFolders;
+
 interface SeededThread {
   readonly id: string;
   readonly metadata: Record<string, unknown>;
@@ -222,6 +244,14 @@ function seedThreads(threads: readonly SeededThread[], selectedId: string) {
 
 function seedThread(metadata: Record<string, unknown>) {
   seedThreads([{ id: THREAD_ID, metadata }], THREAD_ID);
+}
+
+function openSecondaryRootsGate(): { promise: Promise<void>; release: () => void } {
+  let release = (): void => undefined;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
 }
 
 function copyPathOf(props: { readonly onCopyPath?: ((path: string) => void) | undefined }) {
@@ -267,6 +297,8 @@ beforeEach(() => {
   currentFs = fs;
   liveRootMisses.clear();
   liveRootGate = null;
+  secondaryRootsError = null;
+  secondaryRootsGate = null;
   useChangesLiveRefreshStore.getState().reset();
   clipboardWriteText.mockReset();
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
@@ -411,7 +443,6 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
 
     await act(async () => {
       result.current.onMakePrimary('r-missing');
-      result.current.onRemoveSecondary('r-docs');
     });
 
     await waitFor(() =>
@@ -421,11 +452,97 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
         variant: 'destructive',
       })
     );
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
+
+    await act(async () => {
+      result.current.onRemoveSecondary('r-docs');
+    });
     await waitFor(() =>
       expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
         secondaryRootIds: [],
       })
     );
+  });
+
+  it('rejects Make primary when the requested secondary root cannot be resolved', () => {
+    expect(() => deriveMakePrimary(MAKE_PRIMARY_FOLDERS, 'r-missing')).toThrow(
+      'Could not make primary: secondary root r-missing is unknown or has no path.'
+    );
+  });
+
+  it('rejects Make primary when the current primary root cannot be resolved', () => {
+    // No organic end-to-end path reaches this branch: `primaryRoot` and
+    // `primaryRootId` are always derived together in this codebase's data
+    // flow, so the inconsistency below is a defensive invariant guard, not a
+    // state the live hook can produce. This synchronous throw is its complete
+    // pin.
+    expect(() =>
+      deriveMakePrimary(
+        {
+          ...MAKE_PRIMARY_FOLDERS,
+          primaryRoot: undefined,
+        },
+        'r-docs'
+      )
+    ).toThrow('Could not make primary: current primary root r-main-db is unknown or has no path.');
+  });
+
+  it('reports a retryable Make primary refusal while secondary roots are still loading', async () => {
+    secondaryRootsGate = openSecondaryRootsGate();
+    const { result } = await setup({
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'r-main-db',
+      operatingRootPath: '/ws/brainstrike',
+      secondaryRootIds: ['r-docs'],
+    });
+
+    await act(async () => {
+      result.current.onMakePrimary('r-docs');
+    });
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'Folders are still loading — try again in a moment.',
+        title: 'Make primary failed',
+        variant: 'destructive',
+      })
+    );
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
+
+    await act(async () => {
+      secondaryRootsGate?.release();
+    });
+  });
+
+  it('reports an honest Make primary refusal when secondary roots failed to load', async () => {
+    secondaryRootsError = new Error('secondary roots query failed');
+    const { result } = await setup({
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'r-main-db',
+      operatingRootPath: '/ws/brainstrike',
+      secondaryRootIds: ['r-docs'],
+    });
+    await waitFor(() =>
+      expect(loggerMock.error).toHaveBeenCalledWith(
+        'failed to load the thread secondary roots',
+        expect.anything()
+      )
+    );
+
+    await act(async () => {
+      result.current.onMakePrimary('r-docs');
+    });
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'Folders failed to load — reopen the thread or restart to retry.',
+        title: 'Make primary failed',
+        variant: 'destructive',
+      })
+    );
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(updateThreadMetadata).not.toHaveBeenCalled();
   });
 
   it('refuses a folder write while the selected thread metadata is still loading', async () => {
@@ -445,6 +562,21 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
     );
     await act(async () => {});
 
+    // Same capture as the no-active-thread refusal in use-workspace-bar.test.tsx:
+    // `enqueueThreadFoldersWrite`'s own promise is never exposed publicly, so
+    // the write-queue's REJECTION (not a silent resolve) is proven through the
+    // toast its `.catch` raises, which fires with the exact message
+    // `refuseWriteBeforeThreadMetadata` throws.
+    const writeOutcome = new Promise<void>((_resolve, reject) => {
+      toastSpy.mockImplementationOnce(({ description }: { description: string }) => {
+        reject(new Error(description));
+      });
+    });
+    // The real assertion is the `await expect(writeOutcome).rejects...` below;
+    // this stops Node from flagging the interim window (the promise rejects
+    // inside `act()`, before that line attaches a handler) as unhandled.
+    writeOutcome.catch(() => undefined);
+
     await act(async () => {
       result.current.onAddFolder();
     });
@@ -454,11 +586,18 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
     expect(loggerMock.error).toHaveBeenCalledWith(
       'Cannot update thread folders before the selected thread metadata is loaded'
     );
+    expect(toastSpy).toHaveBeenCalledTimes(1);
     expect(toastSpy).toHaveBeenCalledWith({
       description: expect.stringContaining('moment'),
-      title: 'Thread is still loading',
+      title: 'Add folder failed',
       variant: 'destructive',
     });
+    // Last on purpose: a deleted production throw fails this as an immediate,
+    // readable assertion diff on the line above instead of a 5s `rejects`
+    // timeout with no other signal.
+    await expect(writeOutcome).rejects.toThrow(
+      "This thread's folders have not loaded yet — try again in a moment."
+    );
   });
 
   it('says nothing when Copy path succeeds', async () => {

@@ -72,6 +72,8 @@ export type WorktreeExternalTool = 'claude-code' | 'codex' | 'cursor';
 export interface WorktreeListEntry {
   readonly branch: string | null;
   readonly containment: readonly string[] | 'outside-roots';
+  /** Ledger creation stamp (ISO-8601); null for a purely scanned worktree. */
+  readonly createdAt: string | null;
   readonly detached: boolean;
   /** Non-null exactly when `usable` is false. */
   readonly disabledReason: string | null;
@@ -82,12 +84,40 @@ export interface WorktreeListEntry {
   readonly managed: boolean;
   readonly name: string;
   readonly path: string;
+  /**
+   * True when this checkout is the repository's MAIN worktree, not a linked
+   * one. `git worktree list` enumerates it, so it reaches every consumer of
+   * this list; the Worktree Map renders it as the lane's first card, and the
+   * Mode chip's picker refuses it as a checkout target (a thread that wants
+   * the primary checkout is in Local mode, by definition).
+   */
+  readonly primary: boolean;
   readonly provenance: WorktreeProvenance;
   /** The action that would make an unusable row usable, or null. */
   readonly remedy: 'grant-access' | null;
+  /**
+   * Realpath'd git common dir — the repository identity `brainstrike_worktrees`
+   * and `brainstrike_forge_prs` both key on. Distinct from `repositoryRoot`
+   * (the main worktree path): the PR cache joins on THIS.
+   */
+  readonly repoCommonDir: string;
   readonly repositoryRoot: string;
   /** Durable id of the first live workspace root containing this worktree. */
   readonly rootId: string | null;
+  /**
+   * `true` exactly when `rootId` is a root whose path IS this checkout's own
+   * path (an exact mount) — never a broader root that merely CONTAINS it
+   * (the primary checkout inside a larger open folder, or a worktree nested
+   * inside another mounted root). `rootId` keeps its existing "first
+   * containing root" contract unchanged (bot review, PR #2664 finding 1):
+   * this flag is the ADDITIVE signal a consumer needs before treating
+   * `rootId` as "this worktree's own workspace root" — e.g. before
+   * persisting a root-scoped preference like the background-indexing
+   * opt-in, which would otherwise mutate the WRONG root's setting while
+   * showing no effect on the checkout actually displayed. Meaningless when
+   * `rootId` is `null`.
+   */
+  readonly rootIdIsExactMount: boolean;
   readonly setupReason: string | null;
   readonly setupStatus: ManagedWorktreeSetupStatus;
   readonly trust: 'unvalidated' | 'validated';
@@ -152,6 +182,36 @@ export interface WorktreeCreateParams {
   /** Present ⇒ a durable timeline row is written for this operation. */
   readonly runId?: string;
   readonly threadId?: string;
+}
+
+/**
+ * Record an EXISTING on-disk worktree in the ledger (spec §10 "Add as root" /
+ * the Mode-chip picker's adoption path). Adoption is what gives an externally
+ * created worktree — Claude Code's, Codex's, Cursor's, or one the agent made
+ * in a shell — the durable id a thread checkout binds to.
+ */
+export interface WorktreeAdoptParams {
+  readonly createdBy: ManagedWorktreeCreator;
+  /** Absolute path of the worktree, as the inventory reports it (realpath'd). */
+  readonly path: string;
+  /** Present ⇒ a durable timeline row is written for this operation. */
+  readonly runId?: string;
+  readonly threadId?: string;
+}
+
+/**
+ * One checkout's working-tree and upstream state, read on demand (spec §10's
+ * dirty / ahead-behind glyphs). Deliberately NOT part of `WorktreeListEntry`:
+ * `list()` is called on every picker open and every Map refresh, and folding N
+ * `git status` subprocesses into it would make an orientation surface expensive.
+ */
+export interface WorktreeCheckoutStatus {
+  /** Commits ahead of upstream, or null when the branch has no upstream. */
+  readonly ahead: number | null;
+  readonly behind: number | null;
+  readonly clean: boolean;
+  readonly path: string;
+  readonly upstream: string | null;
 }
 
 export interface WorktreeSetupOutcome {

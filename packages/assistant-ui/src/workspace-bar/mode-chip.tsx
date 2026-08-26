@@ -16,7 +16,7 @@ import {
   Layers,
   Plus,
 } from 'lucide-react';
-import { type ReactElement, useState } from 'react';
+import { type ReactElement, useLayoutEffect, useRef, useState } from 'react';
 import type { WorkspaceBarMode, WorkspaceBarWorktreeSummary } from './workspace-bar';
 import { WorktreeCreateDialog } from './worktree-create-dialog';
 import { WorktreePickerDialog } from './worktree-picker-dialog';
@@ -172,15 +172,23 @@ const DiagnosticOnlyModeChip = ({
  */
 export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactElement => {
   const [createOpen, setCreateOpen] = useState(false);
+  const chipTriggerRef = useRef<HTMLButtonElement>(null);
+  const shouldRestoreCreateFocusRef = useRef(false);
   const { worktree } = mode;
   const label = worktree ? worktree.name : 'Local';
-  const title =
-    mode.disabledReason ??
-    (worktree ? worktree.path : `Edits land in ${mode.localPath ?? 'this folder'}`);
+
+  useLayoutEffect(() => {
+    if (createOpen || !shouldRestoreCreateFocusRef.current) {
+      return;
+    }
+    shouldRestoreCreateFocusRef.current = false;
+    chipTriggerRef.current?.focus();
+  }, [createOpen]);
 
   if (mode.disabledReason) {
     return <DiagnosticOnlyModeChip label={label} mode={mode} reason={mode.disabledReason} />;
   }
+  const title = worktree ? worktree.path : `Edits land in ${mode.localPath ?? 'this folder'}`;
 
   return (
     <>
@@ -190,6 +198,7 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
           className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
           data-setup={worktree?.setupStatus ?? 'none'}
           data-testid="workspace-bar-mode-chip"
+          ref={chipTriggerRef}
           title={title}
         >
           <Layers aria-hidden="true" className="size-3 shrink-0" />
@@ -246,9 +255,21 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
         </DropdownMenuContent>
       </DropdownMenu>
       {createOpen ? (
-        <WorktreeCreateDialog mode={mode} onOpenChange={setCreateOpen} open={createOpen} />
+        <WorktreeCreateDialog
+          mode={mode}
+          onOpenChange={(next: boolean) => {
+            if (!next) {
+              shouldRestoreCreateFocusRef.current = true;
+            }
+            setCreateOpen(next);
+            if (!next) {
+              chipTriggerRef.current?.focus();
+            }
+          }}
+          open={createOpen}
+        />
       ) : null}
-      <WorktreePickerDialog picker={mode.picker} />
+      <WorktreePickerDialog picker={mode.picker} triggerRef={chipTriggerRef} />
     </>
   );
 };

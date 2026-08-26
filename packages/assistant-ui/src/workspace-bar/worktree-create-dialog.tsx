@@ -58,6 +58,7 @@ export function WorktreeCreateDialog({
 }: WorktreeCreateDialogProps): ReactElement {
   const [name, setName] = useState(mode.defaultName);
   const [branch, setBranch] = useState(`${mode.defaultBranchPrefix}${mode.defaultName}`);
+  const [branchTouched, setBranchTouched] = useState(false);
   const [detached, setDetached] = useState(false);
   const [baseRef, setBaseRef] = useState(mode.baseRefs[0].value);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +67,11 @@ export function WorktreeCreateDialog({
   const nameError = worktreeNameError(name);
   const repositorySetupConsent = mode.repositorySetupConsent;
   const consentRequired = repositorySetupConsent?.decision === null;
+  const derivedBranch = branchTouched
+    ? branch
+    : `${mode.defaultBranchPrefix}${trimmedName || mode.defaultName}`;
+  const pathSeparator = mode.managedParentPath.includes('\\') ? '\\' : '/';
+  const locationName = nameError === null ? trimmedName : '...';
 
   const submit = (): void => {
     if (nameError || mode.pending || submitting || consentRequired) {
@@ -76,7 +82,7 @@ export function WorktreeCreateDialog({
     mode
       .onCreate({
         baseRef,
-        branch: detached ? { detached: true } : { name: branch.trim() },
+        branch: detached ? { detached: true } : { name: derivedBranch.trim() },
         name: trimmedName,
       })
       .then(() => {
@@ -152,9 +158,10 @@ export function WorktreeCreateDialog({
                 id="worktree-branch"
                 onChange={(event) => {
                   setBranch(event.target.value);
+                  setBranchTouched(true);
                   setError(null);
                 }}
-                value={branch}
+                value={derivedBranch}
               />
             </div>
           )}
@@ -164,7 +171,7 @@ export function WorktreeCreateDialog({
               className="break-all font-mono text-muted-foreground text-xs"
               data-testid="worktree-create-location"
             >
-              {`${mode.managedParentPath}/${trimmedName || mode.defaultName}`}
+              {`${mode.managedParentPath}${pathSeparator}${locationName}`}
             </p>
             <p className="text-muted-foreground text-xs">
               Change the location in Settings → Workspace.

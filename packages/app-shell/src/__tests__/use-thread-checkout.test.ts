@@ -42,6 +42,8 @@ const enqueue = vi.fn(
       primaryRootId: 'r-local',
       secondaryRootIds: [],
       secondaryRoots: [],
+      secondaryRootsError: false,
+      secondaryRootsPending: false,
       threadId: 't-1',
     });
   }
@@ -64,6 +66,7 @@ describe('useThreadCheckout', () => {
   it('reads Local when the thread has no checkout metadata', () => {
     const { result } = renderHook(() => useThreadCheckout(ARGS));
     expect(result.current.checkout).toEqual({
+      branch: null,
       mode: 'local',
       worktreeId: null,
       worktreePath: null,
@@ -84,6 +87,7 @@ describe('useThreadCheckout', () => {
       })
     );
     expect(result.current.checkout).toEqual({
+      branch: 'bs/bright-fox',
       mode: 'worktree',
       worktreeId: 'w-1',
       worktreePath: '/managed/app/bright-fox',
@@ -111,6 +115,8 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-local',
       secondaryRootIds: [],
       secondaryRoots: [],
+      secondaryRootsError: false,
+      secondaryRootsPending: false,
       threadId: 't-1',
     });
     expect(write.binding).toEqual({
@@ -148,6 +154,8 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-local',
       secondaryRootIds: [],
       secondaryRoots: [],
+      secondaryRootsError: false,
+      secondaryRootsPending: false,
       threadId: 't-1',
     });
     expect(write.ids).toContain('r-local');
@@ -189,6 +197,8 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-worktree',
       secondaryRootIds: ['r-local'],
       secondaryRoots: [{ displayName: 'app', path: '/work/app', rootId: 'r-local' }],
+      secondaryRootsError: false,
+      secondaryRootsPending: false,
       threadId: 't-1',
     });
     expect(write.binding).toMatchObject({
@@ -235,6 +245,8 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-worktree',
       secondaryRootIds: [],
       secondaryRoots: [],
+      secondaryRootsError: false,
+      secondaryRootsPending: false,
       threadId: 't-1',
     };
     expect(derive?.(current)).toEqual({
@@ -272,12 +284,83 @@ describe('useThreadCheckout', () => {
         primaryRootId: 'r-worktree',
         secondaryRootIds: ['r-local'],
         secondaryRoots: [],
+        secondaryRootsError: false,
+        secondaryRootsPending: false,
         threadId: 't-1',
       })
     ).toThrow(
       'Could not hand off to Local: the tracked local folder (root r-local) is no longer available. Add it back as a folder to try again.'
     );
     expect(loggerErrorSpy).toHaveBeenCalled();
+  });
+
+  it('reports a retryable hand-off while secondary root rows are still loading', async () => {
+    const { result } = renderHook(() => useThreadCheckout(ARGS));
+    await result.current.handOffToLocal();
+    const derive = enqueue.mock.calls[0]?.[1];
+
+    expect(() =>
+      derive?.({
+        checkoutLocalRootId: 'r-local',
+        checkoutMode: 'worktree',
+        metadataPending: false,
+        primaryRoot: { displayName: 'bright-fox', rootId: 'r-worktree' },
+        primaryRootId: 'r-worktree',
+        secondaryRootIds: ['r-local'],
+        secondaryRoots: [],
+        secondaryRootsError: false,
+        secondaryRootsPending: true,
+        threadId: 't-1',
+      })
+    ).toThrow('Folders are still loading — try again in a moment.');
+    expect(loggerErrorSpy).not.toHaveBeenCalled();
+  });
+
+  it('reports an honest hand-off failure when the secondary roots query already failed', async () => {
+    const { result } = renderHook(() => useThreadCheckout(ARGS));
+    await result.current.handOffToLocal();
+    const derive = enqueue.mock.calls[0]?.[1];
+
+    expect(() =>
+      derive?.({
+        checkoutLocalRootId: 'r-local',
+        checkoutMode: 'worktree',
+        metadataPending: false,
+        primaryRoot: { displayName: 'bright-fox', rootId: 'r-worktree' },
+        primaryRootId: 'r-worktree',
+        secondaryRootIds: ['r-local'],
+        secondaryRoots: [],
+        secondaryRootsError: true,
+        secondaryRootsPending: false,
+        threadId: 't-1',
+      })
+    ).toThrow('Folders failed to load — reopen the thread or restart to retry.');
+    expect(loggerErrorSpy).not.toHaveBeenCalled();
+  });
+
+  it('preserves unresolved secondary membership when selecting a worktree', async () => {
+    const { result } = renderHook(() => useThreadCheckout(ARGS));
+    await result.current.selectWorktree({
+      branch: null,
+      path: '/managed/app/bright-fox',
+      worktreeId: 'w-1',
+    });
+    const derive = enqueue.mock.calls[0]?.[1];
+
+    expect(
+      derive?.({
+        checkoutLocalRootId: undefined,
+        checkoutMode: 'local',
+        metadataPending: false,
+        primaryRoot: { displayName: 'app', path: '/work/app', rootId: 'r-local' },
+        primaryRootId: 'r-local',
+        secondaryRootIds: ['r-unresolved'],
+        secondaryRoots: [],
+        secondaryRootsError: false,
+        secondaryRootsPending: false,
+        threadId: 't-1',
+      })
+    ).toMatchObject({ ids: ['r-unresolved', 'r-local'] });
   });
 
   it('preserves the original primary across a pre-existing secondary and hands back to it', async () => {
@@ -296,6 +379,8 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-local',
       secondaryRootIds: ['r-docs'],
       secondaryRoots: [{ displayName: 'docs', path: '/work/docs', rootId: 'r-docs' }],
+      secondaryRootsError: false,
+      secondaryRootsPending: false,
       threadId: 't-1',
     });
 
@@ -325,6 +410,8 @@ describe('useThreadCheckout', () => {
         { displayName: 'docs', path: '/work/docs', rootId: 'r-docs' },
         { displayName: 'app', path: '/work/app', rootId: 'r-local' },
       ],
+      secondaryRootsError: false,
+      secondaryRootsPending: false,
       threadId: 't-1',
     });
 
@@ -355,6 +442,8 @@ describe('useThreadCheckout', () => {
         primaryRootId: 'r-local',
         secondaryRootIds: [],
         secondaryRoots: [],
+        secondaryRootsError: false,
+        secondaryRootsPending: false,
         threadId: 't-1',
       })
     ).toThrow('Could not switch worktrees: the current primary folder is no longer available.');
@@ -383,6 +472,8 @@ describe('useThreadCheckout', () => {
         primaryRootId: 'r-worktree',
         secondaryRootIds: [],
         secondaryRoots: [],
+        secondaryRootsError: false,
+        secondaryRootsPending: false,
         threadId: 't-1',
       })
     ).toThrow(

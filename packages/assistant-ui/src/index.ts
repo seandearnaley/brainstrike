@@ -99,6 +99,7 @@ export {
   type WorkspaceBarMode,
   type WorkspaceBarProps,
   type WorkspaceBarRecentRoot,
+  type WorkspaceBarRepositorySetupConsent,
   type WorkspaceBarReveal,
   type WorkspaceBarRoot,
   type WorkspaceBarWorktreeOption,

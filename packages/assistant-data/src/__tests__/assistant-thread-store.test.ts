@@ -807,6 +807,42 @@ describe('useAssistantThreadStore tab sessions', () => {
     ).toEqual(new Date('2026-04-22T10:00:00Z'));
   });
 
+  it('removes checkout-only keys from loaded state on a Local transition', async () => {
+    const thread = makeCuratedThread();
+    const repository = createRepository([
+      {
+        ...thread,
+        metadata: {
+          ...thread.metadata,
+          checkoutBranch: 'bs/bright-fox',
+          checkoutLocalRootId: 'r-local',
+          checkoutMode: 'worktree',
+          checkoutWorktreeId: 'w-1',
+          checkoutWorktreePath: '/managed/bright-fox',
+        },
+      },
+    ]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+
+    await useAssistantThreadStore
+      .getState()
+      .updateThreadMetadata(repository, workspaceId, 'thread-curated', { checkoutMode: 'local' });
+
+    const metadata =
+      useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata;
+    expect(metadata).toMatchObject({
+      checkoutMode: 'local',
+      color: 'blue',
+      icon: 'message',
+      model: 'gpt-5.2',
+      provider: 'openai',
+    });
+    expect(metadata?.checkoutBranch).toBeUndefined();
+    expect(metadata?.checkoutLocalRootId).toBeUndefined();
+    expect(metadata?.checkoutWorktreeId).toBeUndefined();
+    expect(metadata?.checkoutWorktreePath).toBeUndefined();
+  });
+
   it('removes checkout-only keys from loaded metadata after a Local transition persists', async () => {
     const thread = {
       ...makeCuratedThread(),

@@ -105,6 +105,7 @@ import {
   createDesktopDimensionIndexMaintenanceScheduler,
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
+import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createForgeIpcHandlers, createForgeRepositoryResolver } from './forge-ipc-handlers';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
@@ -191,10 +192,6 @@ const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
 // schemes: Electron honors a single registerSchemesAsPrivileged call per
 // launch (see privileged-schemes.ts).
 registerPrivilegedSchemes();
-
-function isElectronE2ETestMode(): boolean {
-  return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
-}
 
 function readExplicitE2eUserDataDir(): string | null {
   const candidate = process.env[E2E_USER_DATA_DIR_ENV]?.trim();
@@ -2055,6 +2052,7 @@ if (singleInstanceLockAcquired) {
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
+          resolveWorktreeService: () => worktreeService,
           // T1 injection point (BST-1164): the run-persistence seam's snapshot
           // deps — threaded, not yet consumed (T2's turn-boundary triggers
           // consume them without editing main.ts).

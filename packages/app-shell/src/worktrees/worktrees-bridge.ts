@@ -10,7 +10,9 @@ import type {
   GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
+  WorktreeAdoptParams,
   WorktreeArchiveResult,
+  WorktreeCheckoutStatus,
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
@@ -34,11 +36,13 @@ export type {
 const logger = createLogger('WorktreesBridge');
 
 export interface WorktreesBridge {
+  adopt: (params: WorktreeAdoptParams) => Promise<GitResult<ManagedWorktreeRow>>;
   archive: (params: {
     force?: boolean;
     runId?: string;
     worktreeId: string;
   }) => Promise<GitResult<WorktreeArchiveResult>>;
+  checkoutStatus: (params: { readonly path: string }) => Promise<GitResult<WorktreeCheckoutStatus>>;
   create: (params: WorktreeCreateParams) => Promise<GitResult<WorktreeCreateResult>>;
   createBranchHere: (params: {
     branch: string;
@@ -58,7 +62,9 @@ export interface WorktreesBridge {
 // Compile-time exact-set proof: a missing key fails the build, an excess key is
 // rejected — so the pin can never silently become a subset of the interface.
 const WORKTREES_BRIDGE_REQUIRED_METHOD_SET = {
+  adopt: true,
   archive: true,
+  checkoutStatus: true,
   create: true,
   createBranchHere: true,
   createContext: true,

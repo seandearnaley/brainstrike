@@ -1,0 +1,175 @@
+/**
+ * Everything the Worktree Map renders, composed from surfaces that already
+ * exist. The ONLY new read is `worktrees.list()`; the PR pills, thread
+ * occupancy, run state and indexing opt-ins all come from live queries and
+ * stores the app already maintains for other surfaces, so the Map can never
+ * disagree with the composer chip or the thread list about the same fact.
+ *
+ * Refresh is EVENT-TRIGGERED, exactly like W4's forge reads: the shared
+ * `changes:invalidated` nonce (`anyInvalidationNonce`) is the only repeat
+ * trigger, plus an explicit user refresh. No timer.
+ */
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { type AssistantMemoryThread, useAssistantThreadStore } from '@brainstrike/assistant-data';
+import type { DbHandle } from '@brainstrike/db/react';
+import { createLogger } from '@brainstrike/logging';
+import type { WorktreeListEntry } from '@brainstrike/types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
+import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
+import { useForgePrCache } from '../hooks/use-forge-pr-cache';
+import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
+import {
+  useWorktreeCheckoutStatuses,
+  type WorktreeCheckoutStatusState,
+} from './use-worktree-checkout-status';
+import { buildWorktreeMap, type WorktreeMapRepositoryModel } from './worktree-map-model';
+
+const logger = createLogger('WorktreeMap');
+
+/**
+ * Module scope, ABOVE the hook: a zustand selector that allocated `[]` inline
+ * would return a fresh array identity on every render and re-run every
+ * downstream `useMemo` forever (the identity-churn class recorded in
+ * `project_file_tree_perf`). Declared before its only reader so the reference
+ * is initialized when the hook first runs, never in a TDZ window.
+ */
+const EMPTY_THREADS: readonly AssistantMemoryThread[] = [];
+
+export interface UseWorktreeMapInput {
+  /** `null` until the PGlite handle resolves; the PR-cache query stays disabled. */
+  readonly database: DbHandle | null;
+  readonly resourceId: string;
+  readonly runningThreadIds: ReadonlySet<string>;
+}
+
+export interface WorktreeMapState {
+  readonly error: string | null;
+  readonly loading: boolean;
+  readonly refresh: () => Promise<void>;
+  readonly repositories: readonly WorktreeMapRepositoryModel[];
+  readonly statusByPath: ReadonlyMap<string, WorktreeCheckoutStatusState>;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
+  const bridge = useMemo(() => resolveWorktreesBridge(), []);
+  const [entries, setEntries] = useState<readonly WorktreeListEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [manualNonce, setManualNonce] = useState(0);
+
+  // Hold the shared dual-source live-refresh owner while the Map is mounted;
+  // no Git-scope registration, because the Map is repository-wide.
+  useChangesLiveRefreshSubscription();
+  const invalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
+  const refreshNonce = invalidationNonce + manualNonce;
+
+  const load = useCallback(
+    // A `.then()` chain, not `async`/`await`: an `async` function's body runs
+    // SYNCHRONOUSLY up to its first `await`, so `setLoading(true)` would fire
+    // in the SAME tick as whichever caller invoked this — including the mount
+    // effect below, which is exactly what `react-hooks/set-state-in-effect`
+    // flags. Chaining on `Promise.resolve()` instead defers every state
+    // update to a real microtask, matching `use-worktree-mode.ts`'s
+    // `refreshList` shape (this hook's other caller, the manual `refresh()`
+    // below, is an event handler, where the one-microtask delay is
+    // unobservable either way).
+    (isCancelled?: () => boolean): Promise<void> =>
+      Promise.resolve()
+        .then(() => {
+          if (!bridge) {
+            setLoading(false);
+            return null;
+          }
+          setLoading(true);
+          return bridge.list();
+        })
+        .then((result) => {
+          if (result === null || isCancelled?.()) {
+            return;
+          }
+          if (result.ok) {
+            setEntries(result.value);
+            setError(null);
+            return;
+          }
+          // A failed list is a stated failure, never an empty Map: an empty
+          // Map is the honest rendering of "no worktrees", a different fact.
+          setEntries([]);
+          setError(result.error);
+        })
+        .catch((caught: unknown) => {
+          logger.error('worktree map list threw', { error: caught });
+          if (!isCancelled?.()) {
+            setEntries([]);
+            setError(errorMessage(caught));
+          }
+        })
+        .finally(() => {
+          if (!isCancelled?.()) {
+            setLoading(false);
+          }
+        }),
+    [bridge]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [load, refreshNonce]);
+
+  const prCache = useForgePrCache({ database: input.database, enabled: bridge !== null });
+  const threads = useAssistantThreadStore(
+    (state) => state.threadsByResourceId[input.resourceId] ?? EMPTY_THREADS
+  );
+  const indexingOptInByRootId = useBackgroundIndexingPreferencesStore(
+    (state) => state.worktreeRootIndexingOptInById
+  );
+
+  const repositories = useMemo(
+    () =>
+      buildWorktreeMap({
+        entries,
+        indexingOptInByRootId,
+        prCache: prCache.byRepoBranch,
+        runningThreadIds: input.runningThreadIds,
+        threads,
+      }),
+    [entries, indexingOptInByRootId, prCache.byRepoBranch, input.runningThreadIds, threads]
+  );
+
+  const paths = useMemo(
+    () =>
+      repositories.flatMap((repository) =>
+        repository.cards
+          // A ghost row has no directory to run git in; asking would produce a
+          // confusing "not a git repository" beside a card that already says
+          // "missing on disk".
+          .filter((card) => card.entry.provenance !== 'agent-reported')
+          .map((card) => card.entry.path)
+      ),
+    [repositories]
+  );
+  const statusByPath = useWorktreeCheckoutStatuses({ bridge, paths, refreshNonce });
+
+  const refresh = useCallback(async (): Promise<void> => {
+    setManualNonce((previous) => previous + 1);
+    await load();
+  }, [load]);
+
+  return {
+    error:
+      error ?? (prCache.error ? `Pull-request cache unavailable: ${prCache.error.message}` : null),
+    loading,
+    refresh,
+    repositories,
+    statusByPath,
+  };
+}

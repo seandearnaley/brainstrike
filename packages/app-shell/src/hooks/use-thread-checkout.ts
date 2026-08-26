@@ -7,6 +7,7 @@ import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-fo
 const logger = createLogger('ThreadCheckout');
 
 export interface ThreadCheckoutState {
+  readonly branch: string | null;
   readonly mode: 'local' | 'worktree';
   readonly worktreeId: string | null;
   readonly worktreePath: string | null;
@@ -55,12 +56,14 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
   } = args;
   const checkout = useMemo<ThreadCheckoutState>(
     () => ({
+      branch: threadMetadata?.checkoutBranch ?? null,
       mode: threadMetadata?.checkoutMode ?? 'local',
       worktreeId: threadMetadata?.checkoutWorktreeId ?? null,
       worktreePath: threadMetadata?.checkoutWorktreePath ?? null,
     }),
     [
       threadMetadata?.checkoutMode,
+      threadMetadata?.checkoutBranch,
       threadMetadata?.checkoutWorktreeId,
       threadMetadata?.checkoutWorktreePath,
     ]
@@ -146,7 +149,10 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
             operatingRootPath: worktree.path,
           },
           checkoutLocalRootId,
-          ids: secondaryRoots.map((root) => root.rootId),
+          ids: [
+            ...current.secondaryRootIds.filter((id) => id !== rootId),
+            ...demoted.map((root) => root.rootId),
+          ],
           primaryRoot: nextRoot,
           primaryRootId: rootId,
           secondaryRoots,
@@ -178,6 +184,12 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
       const localRoot = current.secondaryRoots.find((root) => root.rootId === localId);
       const localPath = localRoot?.path;
       if (!(localRoot && localPath)) {
+        if (current.secondaryRootsError) {
+          throw new Error('Folders failed to load — reopen the thread or restart to retry.');
+        }
+        if (current.secondaryRootsPending) {
+          throw new Error('Folders are still loading — try again in a moment.');
+        }
         logger.error('Hand off to local: remembered root is unknown or has no path', {
           rootId: localId,
         });
@@ -194,7 +206,7 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
           operatingRootPath: localPath,
         },
         checkoutLocalRootId: undefined,
-        ids: secondaryRoots.map((root) => root.rootId),
+        ids: current.secondaryRootIds.filter((id) => id !== localId),
         primaryRoot: { ...localRoot, path: localPath },
         primaryRootId: localRoot.rootId,
         secondaryRoots,

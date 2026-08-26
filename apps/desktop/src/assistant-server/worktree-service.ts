@@ -23,11 +23,12 @@ import type {
   GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
+  WorktreeAdoptParams,
   WorktreeArchiveResult,
+  WorktreeCheckoutStatus,
   WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
-  WorktreeDescriptor,
   WorktreeListEntry,
   WorktreeSettings,
   WorktreeSetupOutcome,
@@ -41,6 +42,12 @@ import {
 } from './git-service';
 import { generateWorkspaceSnapshotId } from './snapshot-repository';
 import {
+  adoptWorktree,
+  ghostListEntry,
+  inventoryListEntry,
+  readCheckoutStatus,
+} from './worktree-adopt';
+import {
   captureArchiveSnapshot,
   captureMissingArchiveSnapshot,
   inspectWorktreeSafety,
@@ -49,12 +56,12 @@ import {
 import { createWorktreeLedger, type WorktreeLedgerDatabase } from './worktree-ledger';
 import {
   assertWorktreeTargetOutsideRoots,
-  externalToolForPath,
   generateWorktreeName,
   repositorySlug,
   resolveWorktreeTargetPath,
 } from './worktree-paths';
 import {
+  emitWorktreeAdoptedEvent,
   emitWorktreeArchivedEvent,
   emitWorktreeCreateEvents,
   type WorktreeRunEventDeps,
@@ -114,6 +121,36 @@ function createMutex(): <T>(task: () => Promise<T>) => Promise<T> {
     tail = result.catch(() => undefined);
     return result;
   };
+}
+
+/**
+ * Root id keyed by REALPATH'D path — the same canonical basis
+ * `git-inventory-service.ts` already uses for `descriptor.path` (and, by
+ * extension, for `WorktreeListEntry.path`/`row.path`, which the ledger
+ * writes from that same canonical path). A root whose path no longer
+ * resolves (deleted/moved since it was mounted) cannot be an exact mount for
+ * anything, so it is OMITTED rather than keyed on a raw, possibly-stale
+ * path — consistent with this file's "never throw across the boundary"
+ * contract, this degrades that one root's exact-match lookup, never the
+ * whole list.
+ */
+async function buildRootIdByRealPath(
+  roots: readonly { readonly id: string; readonly path: string }[]
+): Promise<ReadonlyMap<string, string>> {
+  const resolved = await Promise.all(
+    roots.map(async (root): Promise<readonly [string, string] | null> => {
+      try {
+        return [await fsPromises.realpath(root.path), root.id];
+      } catch (error) {
+        logger.warn('worktree list: root path could not be resolved for exact-mount matching', {
+          error,
+          rootId: root.id,
+        });
+        return null;
+      }
+    })
+  );
+  return new Map(resolved.filter((entry): entry is readonly [string, string] => entry !== null));
 }
 
 export function createWorktreeService(deps: WorktreeServiceDeps) {
@@ -350,7 +387,14 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       deps.resolveRootPaths(),
     ]);
     const rowsByPath = new Map(rows.map((row) => [row.path, row]));
-    const rootIdByPath = new Map(roots.map((root) => [root.path, root.id]));
+    // Realpath'd, matching the basis `descriptor.path` and `row.path` already
+    // use (git-inventory-service.ts canonicalizes worktree paths before
+    // building descriptors; ledger rows are written from that same
+    // canonical path) — a raw, non-canonical `root.path` would silently miss
+    // an exact-mount match through a symlink and, before this fix, fall
+    // through to the containment fallback that conflated "exact mount" with
+    // "merely contains" (bot review, PR #2664 finding 1).
+    const rootIdByPath = await buildRootIdByRealPath(roots);
     const seenPaths = new Set<string>();
     const entries: WorktreeListEntry[] = [];
 
@@ -359,7 +403,13 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         seenPaths.add(descriptor.path);
         const row = rowsByPath.get(descriptor.path) ?? null;
         entries.push(
-          inventoryListEntry(descriptor, row, repository.identity.repositoryRoot, rootIdByPath)
+          inventoryListEntry(
+            descriptor,
+            row,
+            repository.identity.repositoryRoot,
+            repository.identity.gitCommonDir,
+            rootIdByPath
+          )
         );
       }
     }
@@ -715,6 +765,29 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   return {
+    async adopt(params: WorktreeAdoptParams): Promise<GitResult<ManagedWorktreeRow>> {
+      return await serialize(async () => {
+        try {
+          const adopted = await adoptWorktree(
+            {
+              ledger,
+              readSettings: deps.readSettings,
+              resolveInventory: deps.resolveInventory,
+              resolveRootPaths: deps.resolveRootPaths,
+              run: deps.run,
+            },
+            params
+          );
+          if (adopted.ok) {
+            await emitWorktreeAdoptedEvent(deps, params.runId ?? null, adopted.value);
+          }
+          return adopted;
+        } catch (error) {
+          logger.error('worktree adopt failed', { error, path: params.path });
+          return { error: toErrorMessage(error), ok: false };
+        }
+      });
+    },
     /**
      * Snapshot, then remove. ORDER IS THE CONTRACT: the snapshot is captured
      * BEFORE the safety verdict is acted on and before `git worktree remove`
@@ -731,6 +804,25 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return { error: toErrorMessage(error), ok: false };
         }
       });
+    },
+    async checkoutStatus(params: {
+      readonly path: string;
+    }): Promise<GitResult<WorktreeCheckoutStatus>> {
+      try {
+        return await readCheckoutStatus(
+          {
+            ledger,
+            readSettings: deps.readSettings,
+            resolveInventory: deps.resolveInventory,
+            resolveRootPaths: deps.resolveRootPaths,
+            run: deps.run,
+          },
+          params
+        );
+      } catch (error) {
+        logger.error('worktree checkout status failed', { error, path: params.path });
+        return { error: toErrorMessage(error), ok: false };
+      }
     },
     /** Create a managed worktree, record it, and run its setup. */
     async create(params: WorktreeCreateParams): Promise<GitResult<WorktreeCreateResult>> {
@@ -899,121 +991,3 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 }
 
 export type WorktreeService = ReturnType<typeof createWorktreeService>;
-
-interface UsabilityGate {
-  readonly disabledReason: string | null;
-  readonly remedy: 'grant-access' | null;
-  readonly usable: boolean;
-}
-
-function inventoryListEntry(
-  descriptor: WorktreeDescriptor,
-  row: ManagedWorktreeRow | null,
-  repositoryRoot: string,
-  rootIdByPath: ReadonlyMap<string, string>
-): WorktreeListEntry {
-  const gate = resolveUsability(descriptor, row);
-  return {
-    branch: descriptor.branch,
-    containment: descriptor.containment,
-    detached: descriptor.detached,
-    disabledReason: gate.disabledReason,
-    externalTool: externalToolForPath(descriptor.path),
-    id: row?.id ?? null,
-    lockedReason: descriptor.lockedReason,
-    managed: row !== null,
-    name: descriptor.name,
-    path: descriptor.path,
-    // The FIRST producer of anything but 'scanned' (see
-    // docs/agents/changeset-diff.md): a scanned worktree that also has a
-    // ledger row is known from BOTH sides.
-    provenance: row ? 'both' : 'scanned',
-    remedy: gate.remedy,
-    repositoryRoot,
-    rootId:
-      rootIdByPath.get(descriptor.path) ??
-      (descriptor.containment === 'outside-roots' ? null : (descriptor.containment[0] ?? null)),
-    setupReason: row?.setupReason ?? null,
-    setupStatus: row?.setupStatus ?? 'none',
-    trust: descriptor.trust,
-    trustReason: descriptor.trustReason,
-    usable: gate.usable,
-  };
-}
-
-function ghostListEntry(
-  row: ManagedWorktreeRow,
-  rootIdByPath: ReadonlyMap<string, string>
-): WorktreeListEntry {
-  return {
-    branch: row.branch,
-    containment: 'outside-roots',
-    detached: row.branch === null,
-    disabledReason: 'Worktree is missing on disk — restore it or archive it.',
-    externalTool: externalToolForPath(row.path),
-    id: row.id,
-    lockedReason: null,
-    managed: true,
-    name: path.basename(row.path),
-    path: row.path,
-    provenance: 'agent-reported',
-    remedy: null,
-    repositoryRoot: repositoryRootFromCommonDir(row.repoCommonDir),
-    rootId: rootIdByPath.get(row.path) ?? null,
-    setupReason: row.setupReason,
-    setupStatus: row.setupStatus,
-    trust: 'unvalidated',
-    trustReason: 'missing on disk',
-    usable: false,
-  };
-}
-
-/**
- * Whether this worktree can be USED as a thread's checkout, and if not, why —
- * ordered most-specific-cause first. NO SILENT HIDING and NO SILENT DISABLE:
- * an unusable row is still returned, still carries its reason, and names the
- * remedy when one exists.
- *
- * `outside-roots` is NOT terminal: a managed worktree is authorized by the
- * ledger, and any other outside-roots worktree becomes usable once the user
- * grants it through the OS picker — which is what `remedy: 'grant-access'`
- * tells the UI to offer (the picker-only ruling in
- * `changes-context-actions.ts` still holds: no caller-supplied path).
- */
-function resolveUsability(
-  descriptor: WorktreeDescriptor,
-  row: ManagedWorktreeRow | null
-): UsabilityGate {
-  if (descriptor.prunableReason !== null) {
-    return {
-      disabledReason: `Worktree is prunable: ${descriptor.prunableReason}`,
-      remedy: null,
-      usable: false,
-    };
-  }
-  if (descriptor.trust === 'unvalidated') {
-    return {
-      disabledReason:
-        descriptor.trustReason ?? 'This worktree could not be verified against its own .git.',
-      remedy: null,
-      usable: false,
-    };
-  }
-  if (descriptor.lockedReason !== null) {
-    return { disabledReason: `Locked: ${descriptor.lockedReason}`, remedy: null, usable: false };
-  }
-  if (descriptor.containment !== 'outside-roots' || row !== null) {
-    return { disabledReason: null, remedy: null, usable: true };
-  }
-  return {
-    disabledReason:
-      "This worktree isn't inside any workspace folder yet — grant access to use it here.",
-    remedy: 'grant-access',
-    usable: false,
-  };
-}
-
-/** Non-bare repositories use `<main-worktree>/.git`; bare common dirs stay as-is. */
-function repositoryRootFromCommonDir(repoCommonDir: string): string {
-  return path.basename(repoCommonDir) === '.git' ? path.dirname(repoCommonDir) : repoCommonDir;
-}

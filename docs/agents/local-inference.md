@@ -171,6 +171,12 @@ Vector device preference is ONE canonical record (BST-1380):
 
 - `packages/embeddings/src/__tests__/embedding-queue-load.integration.test.ts`
   runs a serialized real-PGlite matrix with 1, 2, 4, and 16 polling loops.
+- All scenarios share ONE lazily created `memory://` PGlite closed in
+  `afterAll`, with per-scenario state kept disjoint by scenario-prefixed ids
+  and dedupe-key-scoped SQL. Do not return to a fresh instance per scenario:
+  PGlite close leaves WASM teardown to GC, and the teardown-overlapping-
+  instantiation churn was BST-1221's reproducible V8 fatal trigger on the
+  PKU-enabled Linux x64 CI runners (see docs/agents/ci-quality.md).
 - It records exact peak claimed jobs, vectors and UTF-8 input bytes in flight,
   effective claim limits and returned batch sizes, lease claim count, maximum
   attempts, and completion latency. Absolute latency

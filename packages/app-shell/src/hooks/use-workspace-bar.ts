@@ -1,4 +1,7 @@
-import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
+import type {
+  AssistantThreadMetadata,
+  AssistantThreadRepository,
+} from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type {
   WorkspaceBarBranchMenu,
@@ -26,14 +29,26 @@ import { resolvePlatformBridge } from '../platform-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
-import type {
-  ThreadCheckoutFolders,
-  ThreadCheckoutRoot,
-  ThreadCheckoutWrite,
-} from './use-thread-folders-write';
+import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
 import { useWorkspaceBarForge } from './use-workspace-bar-forge';
 import { useWorkspaceBarMode } from './use-workspace-bar-mode';
+import {
+  deriveMakePrimary,
+  MakePrimaryDerivationError,
+  persistedCheckoutMode,
+  type ResolvedSecondaryRoots,
+  refuseWriteBeforeThreadMetadata,
+  secondaryRootsStatus,
+  type ThreadFoldersWriteTail,
+  writeStartingPoint,
+} from './use-workspace-bar-write-derive';
 import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
+
+// Re-exported (not just imported) so existing test imports of
+// `deriveMakePrimary` from this module keep working unchanged — the pure
+// derive logic moved to `use-workspace-bar-write-derive.ts` purely to stay
+// under Biome's file-line cap; this module's public surface did not change.
+export { deriveMakePrimary };
 
 const logger = createLogger('WorkspaceBar');
 
@@ -68,18 +83,6 @@ const NO_RECENT_ENTRIES: readonly RecentRootEntry[] = [];
 // and must change with it.)
 const SECONDARY_ID_SEPARATOR = ' ';
 const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off returns to.';
-
-/** What a queued write persisted, for the next write in the queue to chain on. */
-interface ThreadFoldersWriteTail {
-  readonly checkoutLocalRootId: string | undefined;
-  readonly checkoutMode: 'local' | 'worktree';
-  readonly ids: readonly string[];
-  readonly primaryRoot: ThreadCheckoutRoot | undefined;
-  readonly primaryRootId: string | undefined;
-  readonly secondaryRoots: readonly ThreadCheckoutRoot[];
-  /** The thread the ids belong to — they are meaningless for any other. */
-  readonly threadId: string;
-}
 
 /**
  * A folder's durable `roots` row is written by the roots-reconciliation effect
@@ -129,104 +132,6 @@ function describeFailure(error: unknown): string {
 }
 
 /**
- * A folder write raised before the selected thread's row reached the store.
- * Refusing is the same rule `persistThreadRootBinding` applies — an absent
- * folder set is indistinguishable from an empty one — but unlike a thread
- * switch the user asked for this, so it is both logged and surfaced.
- */
-function refuseWriteBeforeThreadMetadata(): void {
-  logger.error('Cannot update thread folders before the selected thread metadata is loaded');
-  toast({
-    description: "This thread's folders have not loaded yet — try again in a moment.",
-    title: 'Thread is still loading',
-    variant: 'destructive',
-  });
-}
-
-/**
- * The folder set a queued write derives its next value from. Only a tail from
- * THIS thread describes this write's starting point — the hook is long-lived,
- * so the ref outlives a thread switch and an unconditional chain would write
- * thread A's folder set onto thread B. A chained tail is never "pending": it
- * describes a write that already landed.
- */
-function writeStartingPoint(
-  live: ThreadCheckoutFolders,
-  tail: ThreadFoldersWriteTail | null,
-  startedForThreadId: string
-): ThreadCheckoutFolders {
-  return tail?.threadId === startedForThreadId
-    ? {
-        checkoutLocalRootId: tail.checkoutLocalRootId,
-        checkoutMode: tail.checkoutMode,
-        metadataPending: false,
-        primaryRoot: tail.primaryRoot,
-        primaryRootId: tail.primaryRootId,
-        secondaryRootIds: tail.ids,
-        secondaryRoots: tail.secondaryRoots,
-        threadId: live.threadId,
-      }
-    : live;
-}
-
-function persistedCheckoutMode(
-  current: ThreadCheckoutFolders,
-  request: ThreadCheckoutWrite
-): 'local' | 'worktree' {
-  const requested = request.binding?.['checkoutMode'];
-  if (requested === 'local' || requested === 'worktree') {
-    return requested;
-  }
-  return current.checkoutMode;
-}
-
-function makePrimaryWrite(current: ThreadCheckoutFolders, rootId: string): ThreadCheckoutWrite {
-  const next = current.secondaryRoots.find((root) => root.rootId === rootId);
-  const nextPath = next?.path;
-  if (!(next && nextPath)) {
-    logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
-    throw new Error(`Could not make primary: secondary root ${rootId} is unknown or has no path.`);
-  }
-  const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
-  const currentPrimaryPath = current.primaryRoot?.path;
-  if (
-    demotesPrimary &&
-    (!current.primaryRoot ||
-      current.primaryRoot.rootId !== current.primaryRootId ||
-      !currentPrimaryPath)
-  ) {
-    logger.error('Make primary: current primary root is unknown or has no path', {
-      rootId: current.primaryRootId,
-    });
-    throw new Error(
-      `Could not make primary: current primary root ${current.primaryRootId ?? '(unknown)'} is unknown or has no path.`
-    );
-  }
-  const leavesWorktree = current.checkoutMode === 'worktree';
-  const demoted =
-    !leavesWorktree && demotesPrimary && current.primaryRoot && currentPrimaryPath
-      ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
-      : [];
-  const secondaryRoots = [
-    ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
-    ...demoted,
-  ];
-  return {
-    binding: {
-      ...(leavesWorktree ? { checkoutMode: 'local' } : {}),
-      operatingRootDisplayName: next.displayName,
-      operatingRootId: rootId,
-      operatingRootPath: nextPath,
-    },
-    checkoutLocalRootId: leavesWorktree ? undefined : current.checkoutLocalRootId,
-    ids: secondaryRoots.map((root) => root.rootId),
-    primaryRoot: { ...next, path: nextPath },
-    primaryRootId: rootId,
-    secondaryRoots,
-  };
-}
-
-/**
  * Gated on `primaryRoot`, not just on `checkout`: the branch chip describes
  * the primary folder, so it must never outlive the row it describes — a
  * resolved id whose `operatingRoot` has not landed yet would otherwise render
@@ -262,6 +167,43 @@ function forgeEntry(forge: WorkspaceBarForge | undefined): { readonly forge?: Wo
 
 function modeEntry(mode: WorkspaceBarMode | undefined): { readonly mode?: WorkspaceBarMode } {
   return mode ? { mode } : {};
+}
+
+/**
+ * BST-1456: while checked out into a worktree, the secondary named by
+ * `checkoutLocalRootId` is where a later hand-off returns to — its Remove
+ * action must render disabled with a visible reason rather than let removal
+ * silently strand that "return to". Pulled out (like `checkoutEntry` above)
+ * so the hook's own cognitive-complexity budget stays untouched by this
+ * decoration.
+ */
+
+/**
+ * The thread's `checkoutLocalRootId` reads as meaningful ONLY while
+ * `checkoutMode` is `'worktree'` — a stale value left over from a prior
+ * worktree checkout must not leak into Local mode (S7). Pulled out for the
+ * same reason as `decorateHandOffReturnRoot` above.
+ */
+function checkoutLocalRootIdFor(
+  checkoutMode: 'local' | 'worktree',
+  metadata: AssistantThreadMetadata | undefined
+): string | undefined {
+  return checkoutMode === 'worktree' ? metadata?.checkoutLocalRootId : undefined;
+}
+
+function decorateHandOffReturnRoot(
+  loadedSecondaryRoots: readonly WorkspaceBarRoot[],
+  checkoutMode: 'local' | 'worktree',
+  checkoutLocalRootId: string | undefined
+): readonly WorkspaceBarRoot[] {
+  if (!(checkoutMode === 'worktree' && checkoutLocalRootId)) {
+    return loadedSecondaryRoots;
+  }
+  return loadedSecondaryRoots.map((root) =>
+    root.rootId === checkoutLocalRootId
+      ? { ...root, removeDisabledReason: HAND_OFF_RETURN_ROOT_REMOVE_REASON }
+      : root
+  );
 }
 
 /**
@@ -396,8 +338,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const selectedThread = selectedMemoryThreadId
     ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
     : undefined;
-  const checkoutLocalRootId = selectedThread?.metadata?.checkoutLocalRootId;
   const checkoutMode = selectedThread?.metadata?.checkoutMode ?? 'local';
+  const checkoutLocalRootId = checkoutLocalRootIdFor(checkoutMode, selectedThread?.metadata);
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
   // Watching is opt-out. This matches useForgeRunEvents, so a thread created
   // before the metadata field existed still receives forge observations.
@@ -518,25 +460,29 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // Id-list-tagged, for the same reason `mainRootRow` is path-tagged: a
   // resolution for one id list is never rendered under another, and a bail-out
   // needs no clearing setState (react-hooks/set-state-in-effect).
-  const [resolvedSecondaries, setResolvedSecondaries] = useState<{
-    readonly key: string;
-    readonly roots: readonly WorkspaceBarRoot[];
-  } | null>(null);
+  const [resolvedSecondaries, setResolvedSecondaries] = useState<ResolvedSecondaryRoots | null>(
+    null
+  );
   const loadedSecondaryRoots =
     database && resolvedSecondaries?.key === secondaryRootIdsKey
       ? resolvedSecondaries.roots
       : NO_ROOTS;
-  const secondaryRoots = useMemo<readonly WorkspaceBarRoot[]>(
-    () =>
-      checkoutMode === 'worktree' && checkoutLocalRootId
-        ? loadedSecondaryRoots.map((root) =>
-            root.rootId === checkoutLocalRootId
-              ? { ...root, removeDisabledReason: HAND_OFF_RETURN_ROOT_REMOVE_REASON }
-              : root
-          )
-        : loadedSecondaryRoots,
+  // Display-only decoration (BST-1456): the hand-off return folder's Remove
+  // action must be disabled with a visible reason while it is what a later
+  // hand-off would return TO — the write-queue's own view of the secondary
+  // list (`loadedSecondaryRoots`, below) stays undecorated, since a derive
+  // reads `rootId`/`path`/`displayName`, never this UI-only field.
+  const secondaryRoots = useMemo(
+    () => decorateHandOffReturnRoot(loadedSecondaryRoots, checkoutMode, checkoutLocalRootId),
     [checkoutLocalRootId, checkoutMode, loadedSecondaryRoots]
   );
+  const resolvedSecondaryRootsStatus = secondaryRootsStatus(
+    secondaryRootIds,
+    secondaryRootIdsKey,
+    resolvedSecondaries
+  );
+  const secondaryRootsError = resolvedSecondaryRootsStatus === 'error';
+  const secondaryRootsPending = resolvedSecondaryRootsStatus === 'pending';
   useEffect(() => {
     if (!(database && secondaryRootIds.length > 0)) {
       return;
@@ -553,6 +499,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
         const byId = new Map(result.rows.map((row) => [row.id, row]));
         setResolvedSecondaries({
+          error: false,
           key: secondaryRootIdsKey,
           roots: secondaryRootIds.flatMap((id) => {
             const row = byId.get(id);
@@ -575,7 +522,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           logger.error('failed to load the thread secondary roots', { error });
           // Tagged with the key it failed for, so the failure is not retried on
           // every render and no other id list inherits an empty result.
-          setResolvedSecondaries({ key: secondaryRootIdsKey, roots: NO_ROOTS });
+          setResolvedSecondaries({ error: true, key: secondaryRootIdsKey, roots: NO_ROOTS });
         }
       });
     return () => {
@@ -676,6 +623,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     primaryRootId,
     secondaryRootIds,
     secondaryRoots: loadedSecondaryRoots,
+    secondaryRootsError,
+    secondaryRootsPending,
     threadId: selectedMemoryThreadId,
   });
   useEffect(() => {
@@ -687,6 +636,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       primaryRootId,
       secondaryRootIds,
       secondaryRoots: loadedSecondaryRoots,
+      secondaryRootsError,
+      secondaryRootsPending,
       threadId: selectedMemoryThreadId,
     };
   }, [
@@ -696,6 +647,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     primaryRootId,
     secondaryRootIds,
     loadedSecondaryRoots,
+    secondaryRootsError,
+    secondaryRootsPending,
     selectedMemoryThreadId,
     selectedThreadMetadataPending,
   ]);
@@ -745,7 +698,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         // makes "the folder did not attach" look like a UI glitch.
         if (!startedForThreadId) {
           logger.error('Cannot update thread folders without an active thread');
-          return tail;
+          throw new Error('Cannot update thread folders without an active thread.');
         }
         // A thread switch or an unmount, by contrast, is the ordinary reason a
         // queued write no longer applies — the state it would derive from is no
@@ -760,7 +713,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         // asked for this and has to be told it did not happen.
         if (live.metadataPending) {
           refuseWriteBeforeThreadMetadata();
-          return tail;
         }
         const current = writeStartingPoint(live, tail, startedForThreadId);
         const request = derive(current);
@@ -934,14 +886,28 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       // primary still listed as a secondary. These are the same three
       // operatingRoot* keys persistThreadRootBinding writes (the sanitizer's
       // all-or-nothing rule), through the same store action — the global MAIN
-      // root is deliberately untouched.
+      // root is deliberately untouched. `deriveMakePrimary` folds the
+      // worktree-to-Local switch (BST-1456) into this SAME write when it
+      // applies, rather than leaving checkoutMode stuck at 'worktree' with no
+      // worktree behind it (see its docblock).
       let localTransitionPrimaryName: string | null = null;
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
-        const request = makePrimaryWrite(current, rootId);
-        if (request.binding?.['checkoutMode'] === 'local') {
-          localTransitionPrimaryName = request.primaryRoot?.displayName ?? null;
+        try {
+          const request = deriveMakePrimary(current, rootId);
+          if (request.binding?.['checkoutMode'] === 'local') {
+            localTransitionPrimaryName = request.primaryRoot?.displayName ?? null;
+          }
+          return request;
+        } catch (error) {
+          if (error instanceof MakePrimaryDerivationError) {
+            const message =
+              error.reason === 'secondary'
+                ? 'Make primary: unknown secondary root, or a root with no path'
+                : 'Make primary: current primary root is unknown or has no path';
+            logger.error(message, { rootId: error.rootId });
+          }
+          throw error;
         }
-        return request;
       })
         .then(() => {
           if (localTransitionPrimaryName) {
@@ -965,6 +931,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const onRemoveSecondary = useCallback(
     (rootId: string) => {
+      // BST-1456: the UI disables this row (with a visible reason) while it is
+      // the hand-off return folder — this is the backstop for a call that
+      // bypasses that disable, so removal never silently strands a "return to"
+      // that no longer exists.
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
         if (current.checkoutMode === 'worktree' && current.checkoutLocalRootId === rootId) {
           throw new Error(HAND_OFF_RETURN_ROOT_REMOVE_REASON);
@@ -1038,6 +1008,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onSelectWorktree,
     primaryRootId,
     primaryRootPath,
+    selectedMemoryThreadId,
     selectedThread,
     worktreeCheckout,
   });

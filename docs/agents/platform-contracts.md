@@ -199,6 +199,23 @@ fresh start:
   `apps/desktop/src/assistant-server/worktree-settings.ts`) — the user-chosen
   managed-worktree directory path plus the setup command executed on worktree
   creation. Reset must not leave either a stale custom directory or command.
+
+Managed worktree DIRECTORIES themselves (BST-1390) live OUTSIDE `userData` —
+the default is `~/.brainstrike/worktrees` [D3] — so the wholesale userData
+wipe above does not cover them, and neither does clearing `worktreeSettings`
+(that only clears the STORED preference, not the directory it names). Factory
+reset does clear the `brainstrike_worktrees` LEDGER: it is one of the 21
+`brainstrike_*` relations in `BRAINSTRIKE_RESET_TABLES`
+(`packages/db/src/reset-table-registry.ts`), the set every table-enumerating
+reset path clears (see the reset-table registry section below). It does NOT
+delete the worktree directories on disk: they can hold uncommitted work, and a
+reset silently removing a folder full of it is exactly the failure mode
+`archive`'s snapshot gate exists to prevent. Deleting them is a separate,
+explicitly confirmed action — and today's reset result carries no path or
+count for them either way: `DesktopFactoryResetResult`
+(`apps/desktop/src/desktop-reset-platform.ts`) is just `{ success, message? }`,
+so a caller who wants to know what happened to the managed directory has to
+read it themselves, not read the reset result.
 - `lastFolderPath` — presentation-only.
 
 That coverage is pinned by
@@ -285,6 +302,18 @@ keys inside the SAME persisted store
 `resetNotificationPreferencesStoreToDefaults` already resets from
 `clearBrowserStorage` (FACTORY RESET CONTRACT), covered by construction since
 `defaultEvents()` sets every key in `NOTIFICATION_EVENT_KINDS`.
+
+`background-indexing-preferences-store` (`background-indexing-preferences.v1`,
+owning the per-root `worktreeRootIndexingOptInById` opt-in map PR #2655 /
+BST-1453 added) was persisted and purged from storage, but its LIVE in-memory
+copy was never in `clearPersistentUiState`'s re-default list — a reset without
+a reload (the web path) left a stale opt-in in memory, so the BST-1392 Worktree
+Map could render "Indexing enabled" for a root the user just wiped. Fixed by
+BST-1392 Layer 2 Step 0: `resetBackgroundIndexingPreferencesStoreToDefaults()`
+(mirrors `resetHookTrustStoreToDefaults` / `resetWorkspaceInstructionsPreferencesStoreToDefaults`
+— clears persisted storage, then resets the live store via its own `reset()`
+action) is now called from `clearPersistentUiState`, covered by
+`packages/app-state/src/__tests__/factory-reset-background-indexing-preferences.test.ts`.
 
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:

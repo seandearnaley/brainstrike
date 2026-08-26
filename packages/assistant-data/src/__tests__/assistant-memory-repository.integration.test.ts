@@ -4303,6 +4303,17 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ]);
   });
 
+  it('rejects checkout transitions through the bulk metadata writer', async () => {
+    pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-checkout-metadata');
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await expect(
+      repository.updateThreadsMetadata([thread.id], { checkoutMode: 'local' })
+    ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout state.');
+  });
+
   it('rejects an unknown bulk metadata id without changing known threads', async () => {
     pgliteDataDir = createPgliteTestDataDir('assistant-thread-bulk-metadata-unknown');
     const db = await wasmLoader.createPGlite(pgliteDataDir);

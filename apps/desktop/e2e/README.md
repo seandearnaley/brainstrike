@@ -176,6 +176,27 @@ The web counterpart is `apps/web/e2e/threads-panel-folders.test.ts`
 (one test, `@web-smoke`), which pins the option, the "No folder" catch-all, and
 the absence of both the branch badge and the `window.changes` bridge.
 
+### 6. Composer Worktree Mode (`worktree-mode.desktop.test.ts`)
+Drives the composer's Mode and branch chips against REAL on-disk Git worktrees
+and the real PGlite-backed managed-worktree ledger — `window.worktrees`, Git,
+picker-less mounting, and thread checkout persistence are not mocked:
+- A plain Git checkout shows the enabled `Local` mode chip.
+- The create sheet runs a real `git worktree add`, then moves the thread's
+  primary folder and branch chips into the created checkout.
+- A real worktree below `.codex/worktrees` appears in the existing-worktree
+  picker as a disabled `Codex` row with its reason and **Grant access…** action.
+- Archiving a clean managed worktree removes the real checkout, records its
+  archive ref, and hands the thread back to `Local`.
+- The selected worktree, folder, and branch survive a renderer reload.
+- The branch chip switches the real local checkout to another branch.
+
+Only the Local-chip test is `@smoke`; the other five run in the `regression`
+project. Repository and external-worktree fixtures come from the shared
+`utils/git-fixtures.ts`, while root/PGlite setup uses `utils/seed-root.ts`, the
+same production-chain helpers as `git-panel.desktop.test.ts` and
+`workspace-bar.desktop.test.ts`. The managed directory is redirected to a
+tracked temp directory through the E2E-only `BRAINSTRIKE_E2E_WORKTREE_DIR` hook.
+
 ## 🛠 Key Features
 
 ### Dialog Mocking

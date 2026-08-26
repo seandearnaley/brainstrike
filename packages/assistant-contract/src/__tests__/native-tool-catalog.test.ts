@@ -18,10 +18,12 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.inspectCommandSessions',
   'brainstrike.listEmbeddingSpaces',
   'brainstrike.listWorkspaceContext',
+  'brainstrike.listWorktrees',
   'brainstrike.lspInspect',
   'brainstrike.manageCanvas',
   'brainstrike.manageTaskList',
   'brainstrike.manageCommandSession',
+  'brainstrike.manageWorktree',
   'brainstrike.queryDiagnostics',
   'brainstrike.queryEmbeddingSpace',
   'brainstrike.querySelf',
@@ -81,7 +83,7 @@ describe('native tool catalog', () => {
       sorted([...EXPECTED_DESKTOP_NATIVE_TOOL_IDS, ...EXPECTED_SKILL_NATIVE_TOOL_IDS])
     );
     expect(new Set(nativeIds).size).toBe(nativeIds.length);
-    expect(desktopIds).toHaveLength(34);
+    expect(desktopIds).toHaveLength(36);
     expect(skillIds).toHaveLength(3);
     expect(nonDurableOutputIds).toEqual([
       'brainstrike.inspectCommandSessions',
@@ -94,8 +96,10 @@ describe('native tool catalog', () => {
           id !== 'brainstrike.browserNavigate' &&
           id !== 'brainstrike.browserReadPage' &&
           id !== 'brainstrike.inspectCommandSessions' &&
+          id !== 'brainstrike.listWorktrees' &&
           id !== 'brainstrike.manageCanvas' &&
           id !== 'brainstrike.manageCommandSession' &&
+          id !== 'brainstrike.manageWorktree' &&
           id !== 'brainstrike.queryDiagnostics' &&
           id !== 'brainstrike.querySelf' &&
           id !== 'brainstrike.runPython' &&

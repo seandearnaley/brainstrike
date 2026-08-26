@@ -21,6 +21,7 @@ import {
 // startup check does not defeat the lazy code-split in terminal-page-content.tsx.
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
+import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
@@ -38,6 +39,7 @@ import ContextExplorerPageContent from './context-explorer-page-content';
 import GitPageContent from './git-page-content';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
+import { WorktreeMapPageContent } from './worktree-map-page-content';
 
 const BROWSER_NAVIGATION_ITEM: NavigationItem = { icon: Globe, name: 'Browser', path: '/browser' };
 const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
@@ -103,6 +105,9 @@ export default function RootLayoutContent() {
   // Capability gate: only surface the Terminal tab when the desktop
   // `window.terminal` pty bridge is present (no isElectron check). Resolved once.
   const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  // Capability gate: only surface the Worktrees tab when the desktop
+  // `window.worktrees` bridge is present. Resolved once.
+  const worktreesAvailable = useMemo(() => isWorktreesBridgeAvailable(), []);
   // Capability gate: only surface the Notes tab when the File System Access
   // directory picker exists in this renderer (Electron >= 30). Resolved once.
   const notesAvailable = useMemo(() => isNotesVaultAvailable(), []);
@@ -143,6 +148,7 @@ export default function RootLayoutContent() {
     ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
     ...(notesAvailable ? { notesPageContent: <NotesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
+    ...(worktreesAvailable ? { worktreeMapPageContent: <WorktreeMapPageContent /> } : {}),
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;

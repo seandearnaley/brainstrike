@@ -379,17 +379,25 @@ end-to-end in BST-1161 (bridge, preload, IPC channel, handler,
 
 ## THE `worktrees` IPC DOMAIN
 
-`apps/desktop/src/ipc-worktrees.ts` registers the seven-method `worktrees`
+`apps/desktop/src/ipc-worktrees.ts` registers the eleven-method `worktrees`
 domain against the narrowing boundary in `worktrees-ipc-handlers.ts`; preload
 exposes the same exact method set as `window.worktrees`, and
 `packages/app-shell/src/worktrees/worktrees-bridge.ts` rejects a
-present-but-incomplete bridge wholesale. All seven methods (`create`, `list`,
-`getSettings`, `setSettings`, `archive`, `createBranchHere`, and `restore`) are
+present-but-incomplete bridge wholesale. All eleven methods — `adopt`,
+`archive`, `checkoutStatus`, `create`, `createBranchHere`, `createContext`,
+`getSettings`, `list`, `listManagedPaths`, `restore`, `setSettings` — are
 implemented and the lifecycle mutations call real `WorktreeService` methods.
-Managed-directory settings persist through `assistant-server/worktree-settings.ts`,
-with `null` recomputed as the home-relative default on every read. The exact
-bridge set, IPC narrowing, preload parity, and settings persistence are pinned
-by the corresponding `worktrees-*` and preload-runtime contract tests.
+`adopt` and `checkoutStatus` (BST-1392, W5) are the two most recent additions:
+`adopt` records an existing on-disk worktree the live inventory already
+reports into the ledger (refusing an unvalidated, prunable, locked, primary,
+unreachable, or already-managed/archived target — never a caller-supplied
+path outside that inventory); `checkoutStatus` is a lazy, per-checkout
+`git status` read (ahead/behind/clean/upstream) kept OUTSIDE the mutation
+mutex, since it is a read and must not queue behind a create. Managed-directory
+settings persist through `assistant-server/worktree-settings.ts`, with `null`
+recomputed as the home-relative default on every read. The exact bridge set,
+IPC narrowing, preload parity, and settings persistence are pinned by the
+corresponding `worktrees-*` and preload-runtime contract tests.
 
 ### SETUP HOOKS / PER-WORKTREE SETUP — granted roots only
 
@@ -631,6 +639,16 @@ reconcile registers at least one root, and once after each mid-session
 `registerRoot`, so roots added after app-ready get their git-metadata watcher
 without a Changes surface ever being opened (this is what keeps the composer
 workspace bar's Branch chip live — see `docs/agents/workspace-context.md`).
+It is not only "Add Folder" and Recents that hit this path: mounting a
+BrainStrike-managed worktree through the composer bar's Mode chip
+(BST-1390 — "New worktree…" / "Use existing worktree…") also mounts by
+calling `addRootDirectoryByPath`, which runs the exact same mid-session
+`registerRoot`, so a freshly-created or freshly-selected worktree root's OWN
+Branch chip is live immediately rather than needing a reload. The Mode chip's
+worktree LIST itself is unrelated to any of this — it reads the
+`window.worktrees` bridge, not `window.git` inventory (see the Mode chip
+entry in `docs/agents/workspace-context.md`) — so only that root's Branch
+chip, not the picker's contents, depends on this refresh.
 
 `maxAgeMs: 0` is load-bearing, not decoration. A plain `inventory()` would be
 served the 5s TTL cache, or coalesced onto an in-flight build whose

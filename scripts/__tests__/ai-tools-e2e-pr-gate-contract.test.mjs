@@ -36,6 +36,7 @@ const DESKTOP_SMOKE_COMMAND = [
   'e2e/threads-panel-folders.desktop.test.ts',
   'e2e/tools-settings.desktop.test.ts',
   'e2e/workspace-bar.desktop.test.ts',
+  'e2e/worktree-mode.desktop.test.ts',
   '--project=smoke',
   '--workers=1',
   '--retries=0',

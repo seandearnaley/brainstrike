@@ -72,6 +72,14 @@ describe('migration 109: managed worktree ledger', () => {
     return migration;
   }
 
+  function getMigration112() {
+    const migration = migrations.find((candidate) => candidate.version === 112);
+    if (!migration) {
+      throw new Error('Migration 112 is missing');
+    }
+    return migration;
+  }
+
   it('creates the ledger table', { timeout: 60_000 }, async () => {
     await runner.runMigration(getMigration109());
     expect(await countTable(db)).toBe(1);
@@ -80,7 +88,36 @@ describe('migration 109: managed worktree ledger', () => {
        FROM information_schema.columns
        WHERE table_name = '${TABLE}'`
     );
-    expect(columns.rows).toContainEqual({ column_name: 'setup_reason', is_nullable: 'YES' });
+    expect(columns.rows).toContainEqual({ column_name: 'setup_output', is_nullable: 'YES' });
+  });
+
+  it('adds setup_reason to an upgraded profile without losing ledger rows', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.runMigration(getMigration109());
+    await db.query(
+      `INSERT INTO ${TABLE} (id, repo_common_dir, path, base_ref, created_by, setup_status)
+       VALUES ('w-upgrade', '/repo/.git', '/wt/upgrade', 'main', 'user', 'none')`
+    );
+    const before = await db.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_name = '${TABLE}' AND column_name = 'setup_reason'`
+    );
+    expect(before.rows).toEqual([]);
+
+    await runner.runMigration(getMigration112());
+
+    const after = await db.query<{ column_name: string; is_nullable: string }>(
+      `SELECT column_name, is_nullable
+       FROM information_schema.columns
+       WHERE table_name = '${TABLE}' AND column_name = 'setup_reason'`
+    );
+    expect(after.rows).toEqual([{ column_name: 'setup_reason', is_nullable: 'YES' }]);
+    const survivingRows = await db.query<{ id: string }>(
+      `SELECT id FROM ${TABLE} WHERE id = 'w-upgrade'`
+    );
+    expect(survivingRows.rows).toEqual([{ id: 'w-upgrade' }]);
   });
 
   it('enforces a UNIQUE path so one directory can never have two ledger rows', {
