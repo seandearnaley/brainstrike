@@ -68,6 +68,16 @@ describe('createForgeIpcHandlers', () => {
     expect(forge.refresh).not.toHaveBeenCalled();
   });
 
+  it('refuses a renderer-supplied "shell" refresh reason', async () => {
+    const forge = service();
+    const handlers = createForgeIpcHandlers({ service: forge });
+    const result = await handlers.refresh('root-1', { reason: 'shell' });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('"invalidation", "user" or "window"');
+    expect(forge.refresh).not.toHaveBeenCalled();
+  });
+
   it('forwards a valid refresh', async () => {
     const forge = service();
     const handlers = createForgeIpcHandlers({ service: forge });

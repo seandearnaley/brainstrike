@@ -6,8 +6,10 @@
  * changed" — and nothing downstream trusts it for anything else. It extracts no
  * path and no PR number: `git worktree add "$DIR/$(date +%s)"` is unparseable
  * in principle, so the reconciler re-reads the real inventory instead. A false
- * positive therefore costs one inventory read; a false negative costs a
- * timeline breadcrumb, which the ledger's own row and the Map still show.
+ * positive therefore costs one bounded inventory reconcile against the
+ * caller's pre-command worktree snapshot; it never blindly adopts an unmanaged
+ * checkout that already existed. A false negative costs a timeline breadcrumb,
+ * which the ledger's own row and the Map still show.
  *
  * The scan window mirrors `run-verdict.ts`'s discipline: bounded input, no
  * excerpt of the command ever reaches a log or a run event.

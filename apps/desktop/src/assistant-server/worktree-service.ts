@@ -46,6 +46,9 @@ import {
   ghostListEntry,
   inventoryListEntry,
   readCheckoutStatus,
+  reconcileWorktreesFromShell,
+  type WorktreeAdoptDeps,
+  type WorktreeShellReconcileResult,
 } from './worktree-adopt';
 import {
   captureArchiveSnapshot,
@@ -64,6 +67,7 @@ import {
   emitWorktreeAdoptedEvent,
   emitWorktreeArchivedEvent,
   emitWorktreeCreateEvents,
+  emitWorktreeShellCreatedEvent,
   type WorktreeRunEventDeps,
 } from './worktree-run-events';
 import {
@@ -167,6 +171,16 @@ async function buildRootIdByRealPath(
 export function createWorktreeService(deps: WorktreeServiceDeps) {
   const ledger = createWorktreeLedger(deps.getDatabase);
   const serialize = createMutex();
+
+  function adoptDeps(): WorktreeAdoptDeps {
+    return {
+      ledger,
+      readSettings: deps.readSettings,
+      resolveInventory: deps.resolveInventory,
+      resolveRootPaths: deps.resolveRootPaths,
+      run: deps.run,
+    };
+  }
 
   function invokeIn(cwd: string) {
     return (args: readonly string[], timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS) =>
@@ -779,16 +793,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     async adopt(params: WorktreeAdoptParams): Promise<GitResult<ManagedWorktreeRow>> {
       return await serialize(async () => {
         try {
-          const adopted = await adoptWorktree(
-            {
-              ledger,
-              readSettings: deps.readSettings,
-              resolveInventory: deps.resolveInventory,
-              resolveRootPaths: deps.resolveRootPaths,
-              run: deps.run,
-            },
-            params
-          );
+          const adopted = await adoptWorktree(adoptDeps(), params);
           if (adopted.ok) {
             await emitWorktreeAdoptedEvent(deps, params.runId ?? null, adopted.value);
           }
@@ -820,16 +825,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       readonly path: string;
     }): Promise<GitResult<WorktreeCheckoutStatus>> {
       try {
-        return await readCheckoutStatus(
-          {
-            ledger,
-            readSettings: deps.readSettings,
-            resolveInventory: deps.resolveInventory,
-            resolveRootPaths: deps.resolveRootPaths,
-            run: deps.run,
-          },
-          params
-        );
+        return await readCheckoutStatus(adoptDeps(), params);
       } catch (error) {
         logger.error('worktree checkout status failed', { error, path: params.path });
         return { error: toErrorMessage(error), ok: false };
@@ -984,6 +980,30 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         logger.error('managed worktree path list failed', { error });
         return { error: toErrorMessage(error), ok: false };
       }
+    },
+    async reconcileFromShell(params: {
+      readonly precedingWorktreePaths: ReadonlySet<string> | undefined;
+      readonly repoCommonDir: string;
+      readonly runId?: string;
+      readonly threadId?: string;
+    }): Promise<GitResult<WorktreeShellReconcileResult>> {
+      return await serialize(async () => {
+        try {
+          const reconciled = await reconcileWorktreesFromShell(adoptDeps(), params);
+          if (reconciled.ok) {
+            for (const row of reconciled.value.adopted) {
+              await emitWorktreeShellCreatedEvent(deps, params.runId ?? null, row);
+            }
+          }
+          return reconciled;
+        } catch (error) {
+          logger.error('worktree shell reconcile failed', { error, ...params });
+          return { error: toErrorMessage(error), ok: false };
+        }
+      });
+    },
+    async repositoryContextForRoot(rootId: string): Promise<GitResult<RepositoryContext>> {
+      return await resolveRepositoryContext(rootId);
     },
     /** Recreate an archived worktree and replay its durable archive snapshot. */
     async restore(params: {

@@ -23,8 +23,17 @@ export interface ForgeRemoteIdentity {
   readonly repo: string;
 }
 
-/** Which event asked for a refresh. Each carries its own minimum interval. */
-export type ForgeRefreshReason = 'invalidation' | 'user' | 'window';
+/** Which RENDERER event asked for a refresh. Each carries its own minimum interval. */
+export type ForgeRendererRefreshReason = 'invalidation' | 'user' | 'window';
+
+/**
+ * Every reason the SERVICE accepts. `'shell'` is main-only: it is raised by the
+ * shell-output correlator when the agent's own command ran `gh pr create`, an
+ * event that moves no ref and therefore never reaches the git-metadata watcher.
+ * It is deliberately NOT part of {@link ForgeRendererRefreshReason} — a
+ * renderer claiming it would be claiming an observation it cannot have made.
+ */
+export type ForgeRefreshReason = ForgeRendererRefreshReason | 'shell';
 
 /**
  * The forge identity of one repository, plus the reason there is none.

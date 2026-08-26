@@ -12,7 +12,7 @@ import type {
   ForgeIdentityState,
   ForgePrStatus,
   ForgePrUpdatedEvent,
-  ForgeRefreshReason,
+  ForgeRendererRefreshReason,
   ForgeResult,
 } from '@brainstrike/types';
 
@@ -25,7 +25,7 @@ export interface ForgeBridge {
   prStatus: (rootId: string) => Promise<ForgeResult<ForgePrStatus>>;
   refresh: (
     rootId: string,
-    params: { readonly reason: ForgeRefreshReason }
+    params: { readonly reason: ForgeRendererRefreshReason }
   ) => Promise<ForgeResult<ForgePrStatus>>;
 }
 

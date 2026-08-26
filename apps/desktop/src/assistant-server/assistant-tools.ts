@@ -67,8 +67,8 @@ import {
   runInspectCommandSessions,
   runManageCommandSession,
 } from './command-session-tools';
+import { runExecuteCommandWithShellCorrelation } from './execute-command-correlation';
 import { projectExecuteCommandModelOutput } from './execute-command-model-projection';
-import { runExecuteCommand } from './execute-command-tool';
 import {
   runDeleteWorkspaceFile,
   runRenameWorkspaceFile,
@@ -94,6 +94,7 @@ import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runSkillScript } from './run-skill-script-tool';
+import type { ShellCorrelationCapability } from './shell-worktree-correlation';
 import { withRepeatedCallGuard } from './tool-call-loop-guards';
 import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import {
@@ -148,6 +149,12 @@ export interface DesktopAssistantToolDependencies {
    * bounded by the tool call's own timeout/Stop (PR #2205 review).
    */
   resolvePythonExecutable?: ((signal?: AbortSignal) => Promise<string>) | undefined;
+  /**
+   * Request-scoped shell correlation (BST-1392). Absent means no correlation,
+   * which is the honest state for a session with no worktree/forge service:
+   * the command still runs and its result is unchanged.
+   */
+  shellCorrelation?: ShellCorrelationCapability | undefined;
   skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
   /**
@@ -917,10 +924,14 @@ export function buildDesktopAssistantTools(
         logToolFailure('executeCommand output streaming failed', error, resolvedInput);
       });
       try {
-        return await runExecuteCommand(resolvedInput, runtimeData, {
-          signal: options?.abortSignal,
-          ...(stream ? { stream } : {}),
-        });
+        // Mis-attribution guard (BST-1392 review) lives in
+        // execute-command-correlation.ts (this file's own 1000-line ceiling).
+        return await runExecuteCommandWithShellCorrelation(
+          resolvedInput,
+          runtimeData,
+          { signal: options?.abortSignal, ...(stream ? { stream } : {}) },
+          dependencies
+        );
       } catch (error) {
         logToolFailure('executeCommand failed', error, resolvedInput);
         throw error;

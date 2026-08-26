@@ -15,7 +15,9 @@ describe('scanShellCommandForGitSignals', () => {
 
   it.each([
     'git status',
+    'git worktree list',
     'git log --oneline worktree',
+    '# git worktree add ../wt',
     'echo "git worktree add" >> notes.md',
     'rg "worktree add" src',
   ])('does not flag %s', (command) => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adoptWorktree,
   readCheckoutStatus,
+  reconcileWorktreesFromShell,
   type WorktreeAdoptDeps,
 } from '../../assistant-server/worktree-adopt';
 
@@ -337,5 +338,181 @@ describe('readCheckoutStatus', () => {
       error: 'fatal: not a git repository (or any of the parent directories): .git',
       ok: false,
     });
+  });
+});
+
+describe('reconcileWorktreesFromShell', () => {
+  it('adopts every on-disk worktree of the repository that has no live ledger row', async () => {
+    const inserted: ManagedWorktreeRow[] = [];
+    const deps = {
+      ledger: {
+        getByPath: vi.fn(async (target: string) =>
+          target === '/repo/known'
+            ? ({ archivedAt: null, id: 'known-1', path: '/repo/known' } as never)
+            : null
+        ),
+        insert: vi.fn(async (row: ManagedWorktreeRow) => {
+          inserted.push(row);
+          return row;
+        }),
+        listActive: vi.fn(async () => [
+          { id: 'known-1', path: '/repo/known', repoCommonDir: '/repo/.git' } as never,
+          { id: 'gone-1', path: '/repo/gone', repoCommonDir: '/repo/.git' } as never,
+        ]),
+      } as never,
+      readSettings: () => Promise.resolve(SETTINGS),
+      resolveInventory: () =>
+        Promise.resolve(
+          inventory([{ path: '/repo' }, { path: '/repo/known' }, { path: '/repo/new' }])
+        ),
+      resolveRootPaths: () => Promise.resolve([{ id: 'root-1', path: '/repo' }]),
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        stderr: '',
+        stdout: 'deadbeef\n',
+        timedOut: false,
+      })),
+    };
+
+    const result = await reconcileWorktreesFromShell(deps, {
+      precedingWorktreePaths: new Set(['/repo', '/repo/known']),
+      repoCommonDir: '/repo/.git',
+      runId: 'run-1',
+      threadId: 'thread-1',
+    });
+
+    expect(result.ok).toBe(true);
+    // Only the NEW linked worktree is adopted: the primary checkout is not a
+    // managed worktree, and the known one already has a row.
+    expect(inserted.map((row) => row.path)).toEqual(['/repo/new']);
+    expect(inserted[0]?.createdBy).toBe('agent');
+    expect(inserted[0]?.runId).toBe('run-1');
+    expect(inserted[0]?.threadId).toBe('thread-1');
+    expect(result.ok && result.value.adopted).toHaveLength(1);
+  });
+
+  it('reports ledger rows that vanished from disk without archiving or deleting them', async () => {
+    const insert = vi.fn();
+    const deps = {
+      ledger: {
+        getByPath: vi.fn(async () => null),
+        insert,
+        listActive: vi.fn(async () => [
+          { id: 'gone-1', path: '/repo/gone', repoCommonDir: '/repo/.git' } as never,
+        ]),
+      } as never,
+      readSettings: () => Promise.resolve(SETTINGS),
+      resolveInventory: () => Promise.resolve(inventory([{ path: '/repo' }])),
+      resolveRootPaths: () => Promise.resolve([{ id: 'root-1', path: '/repo' }]),
+      run: vi.fn(),
+    };
+
+    const result = await reconcileWorktreesFromShell(deps, {
+      precedingWorktreePaths: new Set(),
+      repoCommonDir: '/repo/.git',
+    });
+
+    expect(result.ok && result.value.vanishedLedgerIds).toEqual(['gone-1']);
+    // A `git worktree remove` in a shell is NOT an archive: there is no
+    // snapshot, so pretending it was one would make `restore` promise
+    // something it cannot deliver. The ghost row is the honest surface.
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('does not adopt a pre-existing unmanaged worktree, even though it has no ledger row', async () => {
+    const inserted: ManagedWorktreeRow[] = [];
+    const deps = {
+      ledger: {
+        getByPath: vi.fn(async () => null),
+        insert: vi.fn(async (row: ManagedWorktreeRow) => {
+          inserted.push(row);
+          return row;
+        }),
+        listActive: vi.fn(async () => []),
+      } as never,
+      readSettings: () => Promise.resolve(SETTINGS),
+      resolveInventory: () =>
+        Promise.resolve(inventory([{ path: '/repo' }, { path: '/repo/external' }])),
+      resolveRootPaths: () => Promise.resolve([{ id: 'root-1', path: '/repo' }]),
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        stderr: '',
+        stdout: 'deadbeef\n',
+        timedOut: false,
+      })),
+    };
+
+    const result = await reconcileWorktreesFromShell(deps, {
+      precedingWorktreePaths: new Set(['/repo', '/repo/external']),
+      repoCommonDir: '/repo/.git',
+      runId: 'run-1',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(inserted).toHaveLength(0);
+    expect(result.ok && result.value.adopted).toHaveLength(0);
+  });
+
+  it('adopts a worktree that appeared after the pre-command snapshot, attributed to this run', async () => {
+    const inserted: ManagedWorktreeRow[] = [];
+    const deps = {
+      ledger: {
+        getByPath: vi.fn(async () => null),
+        insert: vi.fn(async (row: ManagedWorktreeRow) => {
+          inserted.push(row);
+          return row;
+        }),
+        listActive: vi.fn(async () => []),
+      } as never,
+      readSettings: () => Promise.resolve(SETTINGS),
+      resolveInventory: () =>
+        Promise.resolve(inventory([{ path: '/repo' }, { path: '/repo/just-created' }])),
+      resolveRootPaths: () => Promise.resolve([{ id: 'root-1', path: '/repo' }]),
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        stderr: '',
+        stdout: 'deadbeef\n',
+        timedOut: false,
+      })),
+    };
+
+    const result = await reconcileWorktreesFromShell(deps, {
+      precedingWorktreePaths: new Set(['/repo']),
+      repoCommonDir: '/repo/.git',
+      runId: 'run-1',
+      threadId: 'thread-1',
+    });
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]?.path).toBe('/repo/just-created');
+    expect(inserted[0]?.createdBy).toBe('agent');
+    expect(inserted[0]?.runId).toBe('run-1');
+    expect(inserted[0]?.threadId).toBe('thread-1');
+    expect(result.ok && result.value.adopted).toHaveLength(1);
+  });
+
+  it('adopts nothing and logs, rather than adopting everything, when no pre-command snapshot is available', async () => {
+    const insert = vi.fn();
+    const deps = {
+      ledger: {
+        getByPath: vi.fn(async () => null),
+        insert,
+        listActive: vi.fn(async () => []),
+      } as never,
+      readSettings: () => Promise.resolve(SETTINGS),
+      resolveInventory: () =>
+        Promise.resolve(inventory([{ path: '/repo' }, { path: '/repo/mystery' }])),
+      resolveRootPaths: () => Promise.resolve([{ id: 'root-1', path: '/repo' }]),
+      run: vi.fn(),
+    };
+
+    const result = await reconcileWorktreesFromShell(deps, {
+      precedingWorktreePaths: undefined,
+      repoCommonDir: '/repo/.git',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value.adopted).toHaveLength(0);
+    expect(insert).not.toHaveBeenCalled();
   });
 });

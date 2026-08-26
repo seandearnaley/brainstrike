@@ -195,6 +195,98 @@ export async function adoptWorktree(
   return { ok: true, value: row };
 }
 
+export interface WorktreeShellReconcileResult {
+  readonly adopted: readonly ManagedWorktreeRow[];
+  /**
+   * Live ledger rows whose directory is no longer on disk. Reported, NOT
+   * archived: an archive carries a restorable snapshot, and a `git worktree
+   * remove` run in a shell produced none. `list()` already renders these as
+   * ghost rows reading "missing on disk — restore it or archive it", which is
+   * the honest surface for a removal the app did not perform.
+   */
+  readonly vanishedLedgerIds: readonly string[];
+}
+
+/**
+ * Re-derive the ledger for ONE repository after the agent's shell touched
+ * worktrees (spec §6.4). Nothing here trusts the command text: the live
+ * inventory is the authority for what exists, so an unparseable
+ * `git worktree add "$DIR/$(date +%s)"` reconciles exactly as well as a literal
+ * path would.
+ *
+ * Adoption is limited to the delta from a verified pre-command snapshot. A
+ * worktree that already existed before this command is not attributable to
+ * this run, even when it has no ledger row. Without that snapshot the safe
+ * result is to report vanished rows while adopting nothing.
+ */
+export async function reconcileWorktreesFromShell(
+  deps: WorktreeAdoptDeps,
+  params: {
+    readonly precedingWorktreePaths: ReadonlySet<string> | undefined;
+    readonly repoCommonDir: string;
+    readonly runId?: string;
+    readonly threadId?: string;
+  }
+): Promise<GitResult<WorktreeShellReconcileResult>> {
+  const inventory = await deps.resolveInventory();
+  const repository = inventory.repositories.find(
+    (candidate) => candidate.identity.gitCommonDir === params.repoCommonDir
+  );
+  if (!repository) {
+    return {
+      error: `No repository with common dir "${params.repoCommonDir}" is in the workspace inventory.`,
+      ok: false,
+    };
+  }
+  const onDiskPaths = new Set(repository.worktrees.map((descriptor) => descriptor.path));
+  const activeRows = await deps.ledger.listActive();
+  const vanishedLedgerIds = activeRows
+    .filter((row) => row.repoCommonDir === params.repoCommonDir && !onDiskPaths.has(row.path))
+    .map((row) => row.id);
+
+  const adopted: ManagedWorktreeRow[] = [];
+  if (params.precedingWorktreePaths === undefined) {
+    // Mis-attribution guard (BST-1392 review): without a verified pre-command
+    // snapshot, there is no honest way to tell "this run created it" from
+    // "this was already sitting on disk" — a scanner false positive
+    // (quote-blindness on a heredoc/quoted string) plus an unconditional
+    // adopt-everything-unmanaged pass would durably attribute a user's own
+    // externally-created checkout (Claude Code, Codex, ...) to this run.
+    // Fail closed: report what vanished (safe either way), adopt nothing.
+    logger.warn('shell reconcile skipped adoption: no pre-command worktree snapshot was captured', {
+      repoCommonDir: params.repoCommonDir,
+    });
+  } else {
+    for (const descriptor of repository.worktrees) {
+      // The primary checkout is not a managed worktree; adopting it would put
+      // the user's own clone under archive/restore machinery.
+      if (descriptor.path === repository.identity.repositoryRoot) {
+        continue;
+      }
+      if (params.precedingWorktreePaths.has(descriptor.path)) {
+        // Existed BEFORE this command ran — not this run's doing, whatever it
+        // is. Never attribute it here, even if it is genuinely unmanaged.
+        continue;
+      }
+      const result = await adoptWorktree(deps, {
+        createdBy: 'agent',
+        path: descriptor.path,
+        ...(params.runId ? { runId: params.runId } : {}),
+        ...(params.threadId ? { threadId: params.threadId } : {}),
+      });
+      if (result.ok) {
+        adopted.push(result.value);
+        continue;
+      }
+      logger.debug('shell reconcile skipped a worktree', {
+        path: descriptor.path,
+        reason: result.error,
+      });
+    }
+  }
+  return { ok: true, value: { adopted, vanishedLedgerIds } };
+}
+
 /**
  * The working-tree + upstream state of ONE checkout. The path must be a
  * worktree the live inventory reports — the same authority `adoptWorktree`
