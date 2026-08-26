@@ -6,6 +6,7 @@ export interface ThreadCheckoutRoot {
 
 export interface ThreadCheckoutFolders {
   readonly checkoutLocalRootId: string | undefined;
+  readonly checkoutMode?: 'local' | 'worktree' | undefined;
   readonly metadataPending: boolean;
   readonly primaryRoot: ThreadCheckoutRoot | undefined;
   readonly primaryRootId: string | undefined;

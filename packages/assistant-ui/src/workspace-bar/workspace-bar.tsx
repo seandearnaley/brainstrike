@@ -9,6 +9,8 @@ export interface WorkspaceBarRoot {
   readonly displayName: string;
   /** Absolute path (desktop); absent for web FSA roots. */
   readonly path?: string | undefined;
+  /** Non-null when this secondary must stay attached; rendered on its disabled Remove action. */
+  readonly removeDisabledReason?: string | undefined;
   readonly rootId: string;
 }
 

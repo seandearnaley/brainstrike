@@ -1030,6 +1030,11 @@ additional explorer/status chrome):
     `setMainRoot` — the global MAIN root is a workspace-wide ordering choice
     and stays untouched. "Remove from thread" likewise only edits
     `secondaryRootIds`; it never disconnects the folder from the workspace.
+    While checkout mode is Worktree, making a secondary primary includes the
+    Local checkout transition in that SAME write, so the operating root and
+    checkout record never disagree. The secondary named by
+    `checkoutLocalRootId` keeps its Remove action visibly disabled with “This
+    folder is where Hand off returns to.”; other secondary actions are unchanged.
   - "Add folder…" adds the folder GLOBALLY (the existing multi-root
     `addRootDirectory` flow) AND records it as a thread secondary. The durable
     `roots` row is written by the roots-reconciliation effect, so the id

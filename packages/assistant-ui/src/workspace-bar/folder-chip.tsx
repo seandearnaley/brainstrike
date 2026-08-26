@@ -26,6 +26,7 @@ import type { WorkspaceBarProps, WorkspaceBarRoot } from './workspace-bar';
 type FolderChipProps = Omit<WorkspaceBarProps, 'checkout'>;
 
 interface RootAction {
+  readonly disabledReason: string | null;
   readonly icon: LucideIcon;
   readonly label: string;
   readonly onSelect: () => void;
@@ -45,6 +46,7 @@ function rootActions(
   const actions: RootAction[] = [];
   if (!isPrimary) {
     actions.push({
+      disabledReason: null,
       icon: Star,
       label: 'Make primary',
       onSelect: () => handlers.onMakePrimary(root.rootId),
@@ -56,6 +58,7 @@ function rootActions(
     const { onCopyPath, reveal } = handlers;
     if (reveal) {
       actions.push({
+        disabledReason: null,
         icon: FolderOpen,
         // The platform names its own file manager; this package never does.
         label: reveal.label,
@@ -65,6 +68,7 @@ function rootActions(
     }
     if (onCopyPath) {
       actions.push({
+        disabledReason: null,
         icon: ClipboardCopy,
         label: 'Copy path',
         onSelect: () => onCopyPath(path),
@@ -74,6 +78,7 @@ function rootActions(
   }
   if (!isPrimary) {
     actions.push({
+      disabledReason: root.removeDisabledReason ?? null,
       icon: X,
       label: 'Remove from thread',
       onSelect: () => handlers.onRemoveSecondary(root.rootId),
@@ -140,10 +145,20 @@ const RootRow = ({
         <RootRowContent isPrimary={isPrimary} root={root} />
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
-        {actions.map(({ icon: Icon, label, onSelect, testId: actionTestId }) => (
-          <DropdownMenuItem data-testid={actionTestId} key={actionTestId} onSelect={onSelect}>
+        {actions.map(({ disabledReason, icon: Icon, label, onSelect, testId: actionTestId }) => (
+          <DropdownMenuItem
+            data-testid={actionTestId}
+            disabled={disabledReason !== null}
+            key={actionTestId}
+            onSelect={onSelect}
+          >
             <Icon aria-hidden="true" className="size-3.5" />
-            {label}
+            <span className="flex min-w-0 flex-col">
+              <span>{label}</span>
+              {disabledReason ? (
+                <span className="text-[11px] text-muted-foreground">{disabledReason}</span>
+              ) : null}
+            </span>
           </DropdownMenuItem>
         ))}
       </DropdownMenuSubContent>

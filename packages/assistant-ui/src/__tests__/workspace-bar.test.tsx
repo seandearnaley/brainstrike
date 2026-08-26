@@ -280,6 +280,33 @@ describe('WorkspaceBar', () => {
     expect(onRemoveSecondary).toHaveBeenCalledWith('r-docs');
   });
 
+  it('visibly disables Remove when a secondary carries a removal reason', async () => {
+    const user = setup();
+    const onRemoveSecondary = vi.fn();
+    render(
+      <WorkspaceBar
+        {...baseProps({
+          onRemoveSecondary,
+          secondaryRoots: [
+            {
+              displayName: 'brainstrike',
+              removeDisabledReason: 'This folder is where Hand off returns to.',
+              rootId: 'r-local',
+            },
+          ],
+        })}
+      />
+    );
+
+    await openFolderMenu(user);
+    await openRootSubmenu(user, 'r-local');
+    const remove = await screen.findByTestId('workspace-bar-remove-secondary-r-local');
+    expect(remove).toHaveAttribute('data-disabled');
+    expect(remove).toHaveTextContent('This folder is where Hand off returns to.');
+    await user.click(remove);
+    expect(onRemoveSecondary).not.toHaveBeenCalled();
+  });
+
   it('offers Reveal / Copy path per root only when the platform supplies the handlers', async () => {
     const user = setup();
     const onCopyPath = vi.fn();
