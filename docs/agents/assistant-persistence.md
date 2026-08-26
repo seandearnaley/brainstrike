@@ -966,7 +966,7 @@ path only): `apps/desktop/src/__tests__/assistant-server/run-event-schema-proven
 ### WORKTREE LIFECYCLE KINDS (BST-1390)
 
 `worktree.created`, `worktree.archived` and `worktree.setup` are additive
-`ASSISTANT_RUN_EVENT_KINDS` members, emitted by `worktree-service.ts` through
+`ASSISTANT_RUN_EVENT_KINDS` members, emitted by `worktree-run-events.ts` through
 the SAME `recordDesktopAssistantRunEvent` writer (exported for this purpose —
 do not add a second INSERT) and therefore under the same documented `if (runId)`
 gate as every other main-process writer.
