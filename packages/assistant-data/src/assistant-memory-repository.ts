@@ -3957,6 +3957,10 @@ export function createPgliteAssistantThreadRepository(
     ): Promise<void> {
       requireAssistantThreadIds(threadIds);
       requireNonemptyThreadMetadata(metadata);
+      if ('checkoutMode' in metadata) {
+        throw new Error('Bulk assistant thread metadata updates cannot change checkout mode.');
+      }
+      assertPersistableThreadMetadata(metadata);
       const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
       const metadataParameter = threadIds.length + 1;

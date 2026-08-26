@@ -8,6 +8,7 @@ import type {
   AssistantThreadRepository,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
+import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge';
 
 type AssistantThreadModelSettings = RuntimeModelSettings;
 
@@ -939,10 +940,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               thread.id === threadId
                 ? {
                     ...thread,
-                    metadata: {
-                      ...(thread.metadata ?? {}),
-                      ...metadata,
-                    },
+                    metadata: mergeAssistantThreadMetadata(thread.metadata, metadata),
                   }
                 : thread
             ),
@@ -967,10 +965,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
               updatedThreadIds.has(thread.id)
                 ? {
                     ...thread,
-                    metadata: {
-                      ...(thread.metadata ?? {}),
-                      ...metadata,
-                    },
+                    metadata: mergeAssistantThreadMetadata(thread.metadata, metadata),
                   }
                 : thread
             ),
