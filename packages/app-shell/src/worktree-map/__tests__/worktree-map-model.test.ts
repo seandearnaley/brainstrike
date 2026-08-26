@@ -48,6 +48,7 @@ function entry(overrides: Partial<WorktreeListEntry> = {}): WorktreeListEntry {
     repoCommonDir: '/repo/.git',
     repositoryRoot: '/repo',
     rootId: 'root-1',
+    rootIdIsExactMount: true,
     setupReason: null,
     setupStatus: 'none',
     trust: 'validated',
@@ -284,14 +285,30 @@ describe('buildWorktreeMap', () => {
     expect(model[0]?.cards[0]?.lastActivityLabel).toBe('Created at an unreadable time');
   });
 
-  it('reports indexing state only for a mounted root, never guessing for an unmounted worktree', () => {
+  it('reports indexing state only for an EXACT root mount, never a containing-only one, and never guessing for an unmounted worktree', () => {
+    // (bot review fix, PR #2664 finding 1) `rootId: 'root-d'` alone must NOT
+    // be enough to toggle indexing: `rootIdIsExactMount: false` means this
+    // root only CONTAINS the checkout (the primary inside a larger open
+    // folder, or a worktree nested inside another mounted root), never that
+    // it IS this checkout's own root. `indexingOptInByRootId` deliberately
+    // carries a `true` entry for 'root-d' too, so this only passes if the
+    // model actually gates on the flag — an absent opt-in would pass by
+    // accident.
     const model = buildWorktreeMap({
       entries: [
         entry({ id: 'a', managed: true, path: '/a', primary: false, rootId: 'root-a' }),
         entry({ id: 'b', managed: true, path: '/b', primary: false, rootId: 'root-b' }),
         entry({ id: 'c', managed: true, path: '/c', primary: false, rootId: null }),
+        entry({
+          id: 'd',
+          managed: true,
+          path: '/d',
+          primary: false,
+          rootId: 'root-d',
+          rootIdIsExactMount: false,
+        }),
       ],
-      indexingOptInByRootId: { 'root-a': true },
+      indexingOptInByRootId: { 'root-a': true, 'root-d': true },
       prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
@@ -300,6 +317,7 @@ describe('buildWorktreeMap', () => {
     expect(model[0]?.cards.map((card) => card.indexing)).toEqual([
       'included',
       'excluded',
+      'not-a-root',
       'not-a-root',
     ]);
   });

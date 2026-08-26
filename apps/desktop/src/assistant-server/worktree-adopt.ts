@@ -299,6 +299,11 @@ export function inventoryListEntry(
     rootId:
       rootIdByPath.get(descriptor.path) ??
       (descriptor.containment === 'outside-roots' ? null : (descriptor.containment[0] ?? null)),
+    // (bot review fix, PR #2664 finding 1) `rootId` above keeps its existing
+    // "first CONTAINING root" contract — this is the additive, honest signal
+    // for whether that root is an EXACT mount of this checkout's own path,
+    // never conflated with the containment fallback.
+    rootIdIsExactMount: rootIdByPath.get(descriptor.path) !== undefined,
     setupReason: row?.setupReason ?? null,
     setupStatus: row?.setupStatus ?? 'none',
     trust: descriptor.trust,
@@ -329,6 +334,11 @@ export function ghostListEntry(
     repoCommonDir: row.repoCommonDir,
     repositoryRoot: repositoryRootFromCommonDir(row.repoCommonDir),
     rootId: rootIdByPath.get(row.path) ?? null,
+    // A ghost row's `rootId` is ALREADY exact-match-or-null (no containment
+    // fallback exists here — a missing-on-disk row has no live git
+    // descriptor to compute containment from), so this is computed the same
+    // way, honestly, rather than defaulted to `false`.
+    rootIdIsExactMount: rootIdByPath.get(row.path) !== undefined,
     setupReason: row.setupReason,
     setupStatus: row.setupStatus,
     trust: 'unvalidated',

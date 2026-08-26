@@ -83,7 +83,16 @@ function indexingFor(
   entry: WorktreeListEntry,
   optInByRootId: Readonly<Record<string, true>>
 ): WorktreeMapCardModel['indexing'] {
-  if (entry.rootId === null) {
+  // (bot review fix, PR #2664 finding 1) `rootId` alone is NOT "this
+  // checkout's own root" — it can be the first root that merely CONTAINS
+  // this path (the primary checkout inside a larger open folder, or a
+  // worktree nested inside another mounted root). Toggling indexing on that
+  // containing root would silently mutate a DIFFERENT root's preference
+  // while showing no effect on the checkout actually displayed. Only an
+  // EXACT mount (`rootIdIsExactMount`) is index-toggleable; a
+  // containing-only root renders the honest 'not-a-root' tri-state, same as
+  // no root at all.
+  if (entry.rootId === null || !entry.rootIdIsExactMount) {
     return 'not-a-root';
   }
   return optInByRootId[entry.rootId] === true ? 'included' : 'excluded';

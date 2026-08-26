@@ -117,6 +117,36 @@ function createMutex(): <T>(task: () => Promise<T>) => Promise<T> {
   };
 }
 
+/**
+ * Root id keyed by REALPATH'D path — the same canonical basis
+ * `git-inventory-service.ts` already uses for `descriptor.path` (and, by
+ * extension, for `WorktreeListEntry.path`/`row.path`, which the ledger
+ * writes from that same canonical path). A root whose path no longer
+ * resolves (deleted/moved since it was mounted) cannot be an exact mount for
+ * anything, so it is OMITTED rather than keyed on a raw, possibly-stale
+ * path — consistent with this file's "never throw across the boundary"
+ * contract, this degrades that one root's exact-match lookup, never the
+ * whole list.
+ */
+async function buildRootIdByRealPath(
+  roots: readonly { readonly id: string; readonly path: string }[]
+): Promise<ReadonlyMap<string, string>> {
+  const resolved = await Promise.all(
+    roots.map(async (root): Promise<readonly [string, string] | null> => {
+      try {
+        return [await fsPromises.realpath(root.path), root.id];
+      } catch (error) {
+        logger.warn('worktree list: root path could not be resolved for exact-mount matching', {
+          error,
+          rootId: root.id,
+        });
+        return null;
+      }
+    })
+  );
+  return new Map(resolved.filter((entry): entry is readonly [string, string] => entry !== null));
+}
+
 export function createWorktreeService(deps: WorktreeServiceDeps) {
   const ledger = createWorktreeLedger(deps.getDatabase);
   const serialize = createMutex();
@@ -350,7 +380,14 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       deps.resolveRootPaths(),
     ]);
     const rowsByPath = new Map(rows.map((row) => [row.path, row]));
-    const rootIdByPath = new Map(roots.map((root) => [root.path, root.id]));
+    // Realpath'd, matching the basis `descriptor.path` and `row.path` already
+    // use (git-inventory-service.ts canonicalizes worktree paths before
+    // building descriptors; ledger rows are written from that same
+    // canonical path) — a raw, non-canonical `root.path` would silently miss
+    // an exact-mount match through a symlink and, before this fix, fall
+    // through to the containment fallback that conflated "exact mount" with
+    // "merely contains" (bot review, PR #2664 finding 1).
+    const rootIdByPath = await buildRootIdByRealPath(roots);
     const seenPaths = new Set<string>();
     const entries: WorktreeListEntry[] = [];
 
