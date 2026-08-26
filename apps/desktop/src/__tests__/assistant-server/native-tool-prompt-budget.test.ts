@@ -148,8 +148,28 @@ vi.mock('../../db-main', () => ({
 // its search_tools recovery clause (tool OUTPUT, not counted here). Measured
 // full surface 9859 -> 9912. Trim-first was applied: the line names families,
 // not the 26 tool ids, and the "named but not loaded" sentence is stated once.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9930;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9630;
+// BST-1392 RAISE (+316/+316, band width 300 preserved).
+// `listWorktrees` and `manageWorktree` are a NEW isolated-checkout capability
+// for the agent: the one-field listing costs 113 authored definition tokens
+// and the seven-field management envelope 278, moving the measured full
+// hosted surface 9912 → 10246.
+//
+// TRIM CONSIDERED AND REJECTED — no existing definition is paying for
+// something this capability makes redundant, so this is a RAISE, not a
+// rebalance, and the trade is stated rather than hidden:
+//   * `brainstrike.executeCommand` cannot be trimmed: it is critical-tier and
+//     the correlator in W5 Layer 4 depends on it running unchanged.
+//   * No other tool overlaps worktree management; the nearest neighbour,
+//     `manageCanvas`, addresses a different store entirely.
+//   * The trim that WAS taken is structural: spec §6.4 named three tools
+//     (createWorktree/listWorktrees/archiveWorktree) and this ships two, with
+//     the mutations sharing one action envelope — roughly one tool definition
+//     saved against the literal reading of the spec.
+// If the raise pushes the aggregate band, do NOT widen the band: re-open the
+// two-vs-three decision, or defer `manageWorktree` to a follow-up and ship the
+// read-only listing first.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_246;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9946;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -512,6 +532,12 @@ describe('desktop native tool provider prompt budget', () => {
     if (!manageCanvasProviderTool) {
       throw new Error('manageCanvas provider definition is missing');
     }
+    const manageWorktreeProviderTool = eagerProviderTools.find((tool) =>
+      tool.function.name.includes('manageWorktree')
+    );
+    if (!manageWorktreeProviderTool) {
+      throw new Error('manageWorktree provider definition is missing');
+    }
     for (const tool of sessionProviderTools) {
       const properties = asRecord(asRecord(tool.function.parameters)?.['properties']);
       expect(
@@ -530,12 +556,13 @@ describe('desktop native tool provider prompt budget', () => {
     const criticalDefinitionTokens = countO200kTokens(JSON.stringify(criticalProviderTools));
     // BST-1176: +400/+400 with the three browser-pane tools (measured 8977;
     // ~150 headroom, width 300 — same doctrine as the authored pair above).
+    // BST-1392: +347/+347 for the two worktree tools (measured 9490; width 300).
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8843);
+    ).toBeGreaterThanOrEqual(9190);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      9143
+      9490
     );
     expect(
       criticalDefinitionTokens,
@@ -549,6 +576,7 @@ describe('desktop native tool provider prompt budget', () => {
       criticalToolCount: criticalProviderTools.length,
       eagerToolCount: eagerProviderTools.length,
       manageCanvasDefinitionTokens: countO200kTokens(JSON.stringify(manageCanvasProviderTool)),
+      manageWorktreeDefinitionTokens: countO200kTokens(JSON.stringify(manageWorktreeProviderTool)),
       queryDiagnosticsDefinitionTokens: countO200kTokens(
         JSON.stringify(queryDiagnosticsProviderTool)
       ),
@@ -587,12 +615,13 @@ describe('desktop native tool provider prompt budget', () => {
       // Recorded aggregates after BST-1173: eager 8593, critical
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
-      eagerToolCount: 37,
+      eagerToolCount: 39,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns
       // summaries, never content. Both are deliberate hardening spends.
       manageCanvasDefinitionTokens: 234,
+      manageWorktreeDefinitionTokens: 278,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
@@ -601,7 +630,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 9,630-9,930 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 9,946-10,246 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

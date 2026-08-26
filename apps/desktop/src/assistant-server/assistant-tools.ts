@@ -131,6 +131,7 @@ import {
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,
 } from './workspace-search-model-projections';
+import { buildWorktreeMastraTools, type WorktreeToolCapability } from './worktree-tools';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
@@ -158,6 +159,12 @@ export interface DesktopAssistantToolDependencies {
   /** Same injection seam as `webSearch`, for the webExtract tool. */
   webExtract?: WebExtractToolDependencies | undefined;
   webSearch?: WebSearchToolDependencies | undefined;
+  /**
+   * Request-scoped worktree capability (BST-1392). Built in
+   * `assistant-server.ts`, where the run id is in scope, so the ledger records
+   * `created_by='agent'` and the originating `run_id` by construction.
+   */
+  worktreeTools?: WorktreeToolCapability | undefined;
 }
 
 const logger = createLogger('DesktopAssistantTools');
@@ -848,6 +855,10 @@ export function buildDesktopAssistantTools(
             inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.inspectCommandSessions],
             transform: INSPECT_COMMAND_SESSIONS_TRANSFORM,
           },
+          // BST-1392. Gated with its neighbours: both worktree ids are absent
+          // from LOCAL_DESKTOP_NATIVE_TOOL_IDS, and this gate is what makes
+          // that exclusion real at runtime rather than only in the catalog.
+          ...buildWorktreeMastraTools(runtimeData, dependencies.worktreeTools),
         }),
   };
 

@@ -52,7 +52,7 @@ import {
   UpdateWorkspaceTapestrySelectionsInputSchema,
   WriteWorkspaceFileInputSchema,
 } from './schemas-workspace';
-import { ListWorktreesInputSchema, ManageWorktreeInputSchema } from './schemas-worktrees.js';
+import { ListWorktreesInputSchema, ManageWorktreeInputSchema } from './schemas-worktrees';
 
 export * from './schemas-browser';
 export * from './schemas-diagnostics';

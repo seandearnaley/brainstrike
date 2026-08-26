@@ -35,6 +35,12 @@ describe('ManageWorktreeInputSchema', () => {
     expect(ManageWorktreeInputSchema.safeParse({ action: 'archive' }).success).toBe(false);
   });
 
+  it('accepts an archive with a worktreeId', () => {
+    expect(() =>
+      ManageWorktreeInputSchema.parse({ action: 'archive', worktreeId: 'wt-9' })
+    ).not.toThrow();
+  });
+
   it('tolerates cross-action extras among the declared envelope keys', () => {
     // The settled manageCanvas ruling (2026-08-07): real models bundle fields,
     // and rejecting a VALID create that carries a stray worktreeId burns retry
