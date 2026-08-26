@@ -4311,7 +4311,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     await expect(
       repository.updateThreadsMetadata([thread.id], { checkoutMode: 'local' })
-    ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout mode.');
+    ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout state.');
   });
 
   it('rejects an unknown bulk metadata id without changing known threads', async () => {

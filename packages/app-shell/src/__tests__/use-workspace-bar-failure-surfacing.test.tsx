@@ -209,6 +209,7 @@ const rootDescriptors = {
 
 const MAKE_PRIMARY_FOLDERS = {
   checkoutLocalRootId: undefined,
+  checkoutMode: 'local',
   metadataPending: false,
   primaryRoot: { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'r-main-db' },
   primaryRootId: 'r-main-db',

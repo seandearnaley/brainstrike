@@ -7,6 +7,7 @@ import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useSta
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
 import { RootSectionHeader } from '../components/root-section-header';
 import { WatcherHealthChip } from '../components/watcher-health-chip';
+import { WorktreeIndexingControl } from '../components/worktree-indexing-control';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { getRootFolderId } from '../utils/get-root-folder-id';
@@ -739,7 +740,12 @@ const RootSectionInner = ({
         }
         // Watcher health surfaces per root (BST-568): renders nothing while
         // healthy or on platforms without the capability.
-        statusControl={<WatcherHealthChip rootPath={rootDirectoryHandle.path} />}
+        statusControl={
+          <span className="flex items-center gap-1">
+            <WorktreeIndexingControl rootId={rootIdentity} />
+            <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
+          </span>
+        }
       />
       <DisconnectRootDialog
         displayName={rootDirectoryHandle.name}
@@ -909,12 +915,13 @@ const FileExplorerSidebar = memo(
     return (
       <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
         {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
-        {/* Watcher health must surface in the DEFAULT one-folder workspace
-            too, not only in forest sections (PR #1774 review). The chip
-            renders nothing while healthy, so this row is invisible on the
-            golden path. */}
+        {/* Per-root status must surface in the DEFAULT one-folder workspace
+            too, not only in forest sections. Both controls render nothing
+            when healthy/eligible, so this row stays invisible on the golden
+            path. */}
         {rootDirectoryHandle && (
-          <div className="flex items-center px-2">
+          <div className="flex items-center gap-1 px-2">
+            <WorktreeIndexingControl rootId={singleRootFolderId} />
             <WatcherHealthChip rootPath={rootDirectoryHandle.path} />
           </div>
         )}

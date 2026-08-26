@@ -1,3 +1,7 @@
+import {
+  __resetBackgroundIndexingPreferencesStoreForTests,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import {
@@ -81,6 +85,7 @@ describe('FileExplorerSidebar', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    __resetBackgroundIndexingPreferencesStoreForTests();
   });
 
   it('renders with directory and files', () => {
@@ -175,6 +180,25 @@ describe('FileExplorerSidebar', () => {
 
     expect(screen.queryByTestId('root-section-header')).toBeNull();
     expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
+  });
+
+  it('shows the indexing control for an excluded single worktree root', () => {
+    useBackgroundIndexingPreferencesStore
+      .getState()
+      .setWorktreeRootIndexingState([
+        { adapterRootId: 'adapter-root', dbRootId: 'db-root', indexed: false },
+      ]);
+
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar
+          {...defaultProps}
+          rootIdByPath={new Map([['/test-directory', 'adapter-root']])}
+        />
+      );
+    });
+
+    expect(screen.getByRole('button', { name: /Not indexed/ })).toBeInTheDocument();
   });
 
   // Forest mode: two roots → two section headers + two treegrids (EXACTLY 2)

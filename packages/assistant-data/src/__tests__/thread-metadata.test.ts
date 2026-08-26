@@ -67,6 +67,20 @@ describe('checkout metadata', () => {
     expect(reloaded?.metadata?.checkoutWorktreePath).toBeUndefined();
   });
 
+  it('rejects checkout keys from bulk repository updates before writing', async () => {
+    pgliteDataDir = `memory://thread-metadata-bulk-checkout-${crypto.randomUUID()}`;
+    const db = await wasmLoader.createPGlite(pgliteDataDir);
+    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+    const thread = await repository.createThread('workspace-a');
+
+    await expect(
+      repository.updateThreadsMetadata?.([thread.id], { checkoutMode: 'local' })
+    ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout state.');
+
+    const [reloaded] = await repository.listThreads('workspace-a');
+    expect(reloaded?.metadata).toEqual({ source: 'brainstrike' });
+  });
+
   it('keeps a complete worktree checkout through the sanitizer', () => {
     const metadata = sanitizeThreadMetadataForTest({
       checkoutBranch: 'feature/x',

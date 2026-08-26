@@ -2,10 +2,11 @@ import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type {
-  AssistantMemoryThread,
-  AssistantThreadMetadata,
-  AssistantThreadRepository,
+import {
+  type AssistantMemoryThread,
+  type AssistantThreadMetadata,
+  type AssistantThreadRepository,
+  assertBulkThreadMetadataPatch,
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge';
@@ -954,6 +955,10 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         metadata: AssistantThreadMetadata
       ): Promise<void> => {
         requireThreadIdBatch(threadIds);
+        // Fail fast, before the load/repository round-trip: the repository
+        // rejects this too, but attributing it here names the reason (checkout
+        // state is a single-thread, atomic write) without wasting the trip.
+        assertBulkThreadMetadataPatch(metadata);
         const loadedThreads = get().threadsByResourceId[resourceId] ?? [];
         requireLoadedThreads(loadedThreads, threadIds);
         await requireBulkMetadataUpdate(repository)(threadIds, metadata);

@@ -197,7 +197,9 @@ const query = vi.fn(async (sql: string, params?: unknown[]) => {
 // The store action forwards to `repository.updateThreadMetadata(threadId,
 // metadata)`, so this spy sees the REPOSITORY signature — which is exactly the
 // persisted payload worth pinning.
-const updateThreadMetadata = vi.fn(async () => {});
+const updateThreadMetadata = vi.fn(
+  async (_threadId: string, _metadata: AssistantThreadMetadata) => {}
+);
 // The real store action, restored per test: one case below swaps it for a
 // persist-only forwarder to model the window where a write has landed in the
 // repository but its store update has not reached React yet.
@@ -344,6 +346,145 @@ afterEach(() => {
 });
 
 describe('useWorkspaceBar — write tail chaining', () => {
+  it('atomically leaves Worktree mode and rejects stale re-promotion of the detached worktree', async () => {
+    installWorktreesBridge();
+    const { result, unmount } = await setup({
+      checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'r-main-db',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/brainstrike/bright-fox',
+      operatingRootDisplayName: 'bright-fox',
+      operatingRootId: 'r-worktree-db',
+      operatingRootPath: '/managed/brainstrike/bright-fox',
+      secondaryRootIds: ['r-main-db', 'r-docs'],
+    });
+    await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(2));
+
+    act(() => {
+      result.current.onMakePrimary('r-docs');
+    });
+
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
+        checkoutMode: 'local',
+        operatingRootDisplayName: 'docs',
+        operatingRootId: 'r-docs',
+        operatingRootPath: '/ws/docs',
+        secondaryRootIds: ['r-main-db'],
+      })
+    );
+    expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: '“docs” is primary. The former worktree is no longer attached to this thread.',
+        title: 'Thread is Local again',
+      })
+    );
+    const stored = useAssistantThreadStore
+      .getState()
+      .threadsByResourceId[RESOURCE_ID]?.find((thread) => thread.id === THREAD_ID);
+    expect(stored?.metadata).toEqual({
+      checkoutMode: 'local',
+      operatingRootDisplayName: 'docs',
+      operatingRootId: 'r-docs',
+      operatingRootPath: '/ws/docs',
+      secondaryRootIds: ['r-main-db'],
+    });
+
+    act(() => {
+      result.current.onMakePrimary('r-worktree-db');
+    });
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description:
+          'Could not make primary: secondary root r-worktree-db is unknown or has no path.',
+        title: 'Make primary failed',
+        variant: 'destructive',
+      })
+    );
+    expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
+
+    const persistedMetadata = stored?.metadata;
+    if (!persistedMetadata) {
+      throw new Error('Make primary did not update the loaded thread metadata');
+    }
+    unmount();
+    // The assistant-data repository integration suite separately pins that a
+    // Local transition deletes these same checkout-only keys from the row.
+    const reloaded = await setup({ ...persistedMetadata });
+    await waitFor(() => expect(reloaded.result.current.primaryRoot?.rootId).toBe('r-docs'));
+    expect(reloaded.result.current.mode?.worktree).toBeNull();
+  });
+
+  it('preserves the worktree record and primary when the atomic transition fails', async () => {
+    const priorMetadata = {
+      checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'r-main-db',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/brainstrike/bright-fox',
+      operatingRootDisplayName: 'bright-fox',
+      operatingRootId: 'r-worktree-db',
+      operatingRootPath: '/managed/brainstrike/bright-fox',
+      secondaryRootIds: ['r-main-db', 'r-docs'],
+    } as const;
+    updateThreadMetadata.mockRejectedValueOnce(new Error('The thread database is read-only.'));
+    const { result } = await setup(priorMetadata);
+    await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(2));
+
+    act(() => {
+      result.current.onMakePrimary('r-docs');
+    });
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'The thread database is read-only.',
+        title: 'Make primary failed',
+        variant: 'destructive',
+      })
+    );
+    expect(result.current.primaryRoot?.rootId).toBe('r-worktree-db');
+    const stored = useAssistantThreadStore
+      .getState()
+      .threadsByResourceId[RESOURCE_ID]?.find((thread) => thread.id === THREAD_ID);
+    expect(stored?.metadata).toEqual(priorMetadata);
+  });
+
+  it('protects only the tracked Local secondary from removal in worktree mode', async () => {
+    const { result } = await setup({
+      checkoutLocalRootId: 'r-main-db',
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'w-1',
+      checkoutWorktreePath: '/managed/brainstrike/bright-fox',
+      operatingRootDisplayName: 'bright-fox',
+      operatingRootId: 'r-worktree-db',
+      operatingRootPath: '/managed/brainstrike/bright-fox',
+      secondaryRootIds: ['r-main-db', 'r-docs'],
+    });
+
+    await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(2));
+    expect(result.current.secondaryRoots).toEqual([
+      {
+        displayName: 'brainstrike',
+        path: '/ws/brainstrike',
+        removeDisabledReason: 'This folder is where Hand off returns to.',
+        rootId: 'r-main-db',
+      },
+      { displayName: 'docs', path: '/ws/docs', rootId: 'r-docs' },
+    ]);
+
+    act(() => {
+      result.current.onRemoveSecondary('r-docs');
+    });
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
+        secondaryRootIds: ['r-main-db'],
+      })
+    );
+  });
+
   it('chains Make primary back to the root the first click just demoted', async () => {
     vi.useFakeTimers();
     const { result } = await setup({

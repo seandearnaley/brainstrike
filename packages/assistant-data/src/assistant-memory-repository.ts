@@ -1847,6 +1847,19 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   }
 }
 
+/** Checkout transitions are single-thread writes because their key projection is atomic. */
+export function assertBulkThreadMetadataPatch(metadata: AssistantThreadMetadata): void {
+  if (
+    'checkoutBranch' in metadata ||
+    'checkoutLocalRootId' in metadata ||
+    'checkoutMode' in metadata ||
+    'checkoutWorktreeId' in metadata ||
+    'checkoutWorktreePath' in metadata
+  ) {
+    throw new Error('Bulk assistant thread metadata updates cannot change checkout state.');
+  }
+}
+
 /** Test-only seam for the sanitizer — see thread-metadata.test.ts. */
 export function sanitizeThreadMetadataForTest(value: unknown): AssistantThreadMetadata | undefined {
   return sanitizeThreadMetadata(value);
@@ -3957,9 +3970,12 @@ export function createPgliteAssistantThreadRepository(
     ): Promise<void> {
       requireAssistantThreadIds(threadIds);
       requireNonemptyThreadMetadata(metadata);
-      if ('checkoutMode' in metadata) {
-        throw new Error('Bulk assistant thread metadata updates cannot change checkout mode.');
-      }
+      // `assertBulkThreadMetadataPatch` first: it names the SPECIFIC reason
+      // (checkout state is a single-thread, atomic write) for the class of
+      // rejection a generic "invalid key" from the broader validator below
+      // would not explain. Both run — the second stays load-bearing beyond
+      // checkout keys (key whitelist, icon/color, string-shape checks).
+      assertBulkThreadMetadataPatch(metadata);
       assertPersistableThreadMetadata(metadata);
       const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();

@@ -38,9 +38,9 @@ function displayNameForPath(path: string): string {
 export function useThreadCheckout(args: UseThreadCheckoutArgs): {
   readonly checkout: ThreadCheckoutState;
   readonly handOffToLocal: () => Promise<void>;
-  /** Groundwork for deferred BST-1456 UI gating: the Local root a hand-off would
-   * return to, so Remove-secondary can protect that tracked root. `null` in Local
-   * mode or when no such root was ever recorded. */
+  /** The Local root a hand-off would return to, when the thread is currently checked
+   * out into a worktree — `null` in Local mode (nothing to "return to") or when no
+   * such root was ever recorded. */
   readonly localRootId: string | null;
   readonly selectWorktree: (worktree: {
     readonly branch: string | null;
