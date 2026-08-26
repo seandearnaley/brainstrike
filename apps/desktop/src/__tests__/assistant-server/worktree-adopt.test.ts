@@ -12,7 +12,13 @@ const SETTINGS: WorktreeSettings = {
   setupCommand: null,
 };
 
-function inventory(worktrees: readonly { path: string; trust?: 'unvalidated' | 'validated' }[]) {
+function inventory(
+  worktrees: readonly {
+    path: string;
+    lockedReason?: string | null;
+    trust?: 'unvalidated' | 'validated';
+  }[]
+) {
   return {
     errors: [],
     repositories: [
@@ -25,7 +31,7 @@ function inventory(worktrees: readonly { path: string; trust?: 'unvalidated' | '
           current: false,
           detached: false,
           head: 'abc123',
-          lockedReason: null,
+          lockedReason: worktree.lockedReason ?? null,
           name: worktree.path.split('/').at(-1) ?? '',
           path: worktree.path,
           provenance: 'scanned' as const,
@@ -180,6 +186,59 @@ describe('adoptWorktree', () => {
     expect(insert).not.toHaveBeenCalled();
   });
 
+  // `brainstrike_worktrees.path` is globally UNIQUE with no partial index, so
+  // an archived row at the same path (worktree archived, then recreated
+  // externally at the identical path) would hit that constraint on insert if
+  // this fell through — a raw Postgres error reaching the user instead of a
+  // stated refusal. The unit mock's `insert` is `async (row) => row`, so it
+  // can never surface the constraint itself; this only pins the REFUSAL.
+  it('refuses a path that has an archived ledger row, naming restore as the remedy', async () => {
+    const { deps, insert } = makeDeps({
+      getByPath: () =>
+        Promise.resolve({
+          archivedAt: '2026-08-20T00:00:00.000Z',
+          archiveSnapshotRef: 'refs/brainstrike/worktree-archive/existing',
+          baseRef: 'main',
+          branch: 'feature',
+          createdAt: '2026-08-01T00:00:00.000Z',
+          createdBy: 'user',
+          id: 'existing',
+          path: '/repo/wt',
+          repoCommonDir: '/repo/.git',
+          runId: null,
+          setupOutput: null,
+          setupReason: null,
+          setupStatus: 'none',
+          threadId: null,
+        }),
+    });
+
+    const result = await adoptWorktree(deps, { createdBy: 'user', path: '/repo/wt' });
+
+    expect(result).toEqual({
+      error:
+        'BrainStrike archived a worktree at "/repo/wt" — restore that one instead of adopting a new checkout at the same path.',
+      ok: false,
+    });
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('refuses a locked worktree, naming the lock reason and the unlock remedy', async () => {
+    const { deps, insert, run } = makeDeps({
+      inventoryValue: inventory([{ lockedReason: 'maintenance', path: '/repo/wt' }]),
+    });
+
+    const result = await adoptWorktree(deps, { createdBy: 'user', path: '/repo/wt' });
+
+    expect(result).toEqual({
+      error:
+        'The worktree at "/repo/wt" is locked (maintenance) and cannot be adopted — unlock it (`git worktree unlock`) first.',
+      ok: false,
+    });
+    expect(insert).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("refuses to adopt the repository's own primary checkout", async () => {
     const { deps, insert } = makeDeps({
       inventoryValue: inventory([{ path: '/repo' }]),
@@ -238,6 +297,23 @@ describe('readCheckoutStatus', () => {
 
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.error).toContain('not visible in the workspace inventory');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  // The inventory deliberately keeps a fabricated/unvalidated descriptor
+  // visible (so the user can SEE that something claims to live there), but
+  // `locate` finding one is not proof it is safe to run git in it — a
+  // descriptor could point at an entirely different real repository. Mirrors
+  // `adoptWorktree`'s own `trust === 'unvalidated'` refusal.
+  it('refuses an unvalidated worktree before running any git', async () => {
+    const { deps, run } = makeDeps({
+      inventoryValue: inventory([{ path: '/repo/wt', trust: 'unvalidated' }]),
+    });
+
+    const result = await readCheckoutStatus(deps, { path: '/repo/wt' });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain('could not be verified');
     expect(run).not.toHaveBeenCalled();
   });
 

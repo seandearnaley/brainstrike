@@ -872,6 +872,72 @@ describe('WorktreeService (real git + real PGlite)', () => {
     expect(ghost?.primary).toBe(false);
   });
 
+  // `brainstrike_worktrees.path` is globally UNIQUE with no partial index
+  // (migration 109) — an archived row at a path that gets recreated
+  // externally must be refused, not fall through into a raw constraint
+  // violation on insert. Real git + real PGlite: the archived row's path is
+  // genuinely gone from disk (service.archive() ran `git worktree remove`),
+  // then a real `git worktree add` recreates a DIFFERENT worktree at that
+  // SAME path, so the inventory reports it again while the ledger still
+  // holds the archived row.
+  it('refuses to adopt an externally recreated worktree at an archived path', async () => {
+    const service = buildService();
+    const created = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/archived-path-reuse' },
+      createdBy: 'user',
+      name: 'archived-path-reuse',
+      rootId: 'r-1',
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const worktreePath = created.value.worktree.path;
+    const archived = await service.archive({ worktreeId: created.value.worktree.id });
+    expect(archived.ok).toBe(true);
+    expect(existsSync(worktreePath)).toBe(false);
+
+    git(repo, ['worktree', 'add', '-b', 'bs/archived-path-reuse-external', worktreePath]);
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    const inventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: commonDir, repositoryRoot: repo },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'bs/archived-path-reuse-external',
+              containment: ['r-1'],
+              current: false,
+              detached: false,
+              head: '0123456789012345678901234567890123456789',
+              lockedReason: null,
+              name: 'archived-path-reuse',
+              path: worktreePath,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    } satisfies GitInventory;
+
+    const adopted = await buildService({
+      resolveInventory: () => Promise.resolve(inventory),
+    }).adopt({ createdBy: 'user', path: worktreePath });
+
+    expect(adopted).toEqual({
+      error: `BrainStrike archived a worktree at "${worktreePath}" — restore that one instead of adopting a new checkout at the same path.`,
+      ok: false,
+    });
+  });
+
   it.each([
     ['baseRef', null],
     ['repoCommonDir', 42],

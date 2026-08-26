@@ -137,14 +137,28 @@ export async function adoptWorktree(
       ok: false,
     };
   }
+  if (descriptor.lockedReason !== null) {
+    // A locked worktree adopts into a row that is neither usable
+    // (`resolveUsability` keeps reporting `Locked: <reason>`) nor archivable
+    // (`git worktree remove` refuses a locked worktree even with `--force`) —
+    // a dead-end row the user could only escape by unlocking out-of-band.
+    // Refuse loudly instead of minting it.
+    return {
+      error: `The worktree at "${params.path}" is locked (${descriptor.lockedReason}) and cannot be adopted — unlock it (\`git worktree unlock\`) first.`,
+      ok: false,
+    };
+  }
   const reachable = await assertReachable(deps, descriptor);
   if (!reachable.ok) {
     return reachable;
   }
   const existing = await deps.ledger.getByPath(descriptor.path);
-  if (existing !== null && existing.archivedAt === null) {
+  if (existing !== null) {
     return {
-      error: `BrainStrike already manages the worktree at "${descriptor.path}".`,
+      error:
+        existing.archivedAt === null
+          ? `BrainStrike already manages the worktree at "${descriptor.path}".`
+          : `BrainStrike archived a worktree at "${descriptor.path}" — restore that one instead of adopting a new checkout at the same path.`,
       ok: false,
     };
   }
@@ -194,9 +208,23 @@ export async function readCheckoutStatus(
   params: { readonly path: string }
 ): Promise<GitResult<WorktreeCheckoutStatus>> {
   const inventory = await deps.resolveInventory();
-  if (!locate(inventory, params.path)) {
+  const located = locate(inventory, params.path);
+  if (!located) {
     return {
       error: `The path "${params.path}" is not visible in the workspace inventory, so its status cannot be read.`,
+      ok: false,
+    };
+  }
+  // The inventory deliberately retains fabricated/unvalidated descriptors for
+  // visibility (a scanned worktree whose gitdir points somewhere it shouldn't
+  // still gets reported so the user can SEE it) — but that means `locate`
+  // finding an entry is not proof it is safe to run git in. Mirror
+  // `adoptWorktree`'s own trust gate before invoking anything.
+  if (located.descriptor.trust === 'unvalidated') {
+    return {
+      error:
+        located.descriptor.trustReason ??
+        `The worktree at "${params.path}" could not be verified against its own .git.`,
       ok: false,
     };
   }
