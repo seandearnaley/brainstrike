@@ -129,23 +129,29 @@ export function formatWorktreeActivity(at: Date, now: Date): string {
     // reads like a bug report in the middle of a card.
     return UNREADABLE_TIME;
   }
-  if (Math.abs(elapsed) > RELATIVE_LIMIT_MS) {
+  const magnitude = Math.abs(elapsed);
+  if (magnitude > RELATIVE_LIMIT_MS) {
     return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(at);
   }
-  // `elapsed < MINUTE_MS` alone is also true for any FUTURE timestamp (clock
-  // skew, or a store that has not settled yet): a negative `elapsed` up to a
-  // week ahead would otherwise render "just now" for something that hasn't
-  // happened. Require non-negative so a future stamp instead falls through to
-  // the relative-format branches below, which render "in N minutes/hours/days"
-  // via `Intl.RelativeTimeFormat`'s own sign handling.
-  if (elapsed >= 0 && elapsed < MINUTE_MS) {
+  // Bucket on MAGNITUDE, not on `elapsed`'s raw sign: a plain `elapsed <
+  // MINUTE_MS` is also true for any FUTURE timestamp up to a week ahead
+  // (clock skew, or a store that has not settled), which would render "just
+  // now" for something that hasn't happened. But gating on `elapsed >= 0`
+  // alone overcorrects — a 1ms future skew would then fall through to the
+  // relative branches and render "in 1 minute" via `-Math.floor(elapsed /
+  // MINUTE_MS)`, a 60,000x overstatement. Anything within a minute of now,
+  // past OR future, is indistinguishable from "now" to a human; only once the
+  // MAGNITUDE clears a full minute does relative tense ("in N
+  // minutes/hours/days" via `Intl.RelativeTimeFormat`'s own sign handling)
+  // become honest.
+  if (magnitude < MINUTE_MS) {
     return 'just now';
   }
   const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  if (elapsed < HOUR_MS) {
+  if (magnitude < HOUR_MS) {
     return relative.format(-Math.floor(elapsed / MINUTE_MS), 'minute');
   }
-  if (elapsed < DAY_MS) {
+  if (magnitude < DAY_MS) {
     return relative.format(-Math.floor(elapsed / HOUR_MS), 'hour');
   }
   return relative.format(-Math.floor(elapsed / DAY_MS), 'day');
@@ -172,19 +178,47 @@ function lastActivityLabelFor(
 }
 
 /**
+ * `AssistantMemoryThread.updatedAt` is typed as `Date`, but `threadFor` above
+ * defends against a malformed one with `instanceof Date` (degrading to
+ * `null`) rather than trusting the type — this comparator runs on the SAME
+ * data and must agree, or a malformed `updatedAt` on a tying thread would
+ * throw out of `.getTime()` here, inside `indexThreadsByWorktreeId`, before
+ * `threadFor` ever gets the chance to degrade it gracefully. `null` means
+ * "unreadable", never "epoch zero" — treating it as 0 would let a malformed
+ * candidate look OLDER than every real thread instead of simply losing every
+ * comparison, which changes today's answer with a bug that has nothing to do
+ * with time.
+ */
+function preferredTimeOf(thread: AssistantMemoryThread): number | null {
+  return thread.updatedAt instanceof Date ? thread.updatedAt.getTime() : null;
+}
+
+/**
  * `true` when `candidate` should occupy the worktree slot instead of
  * `existing`. Most-recently-updated wins; an exact `updatedAt` tie (same
  * millisecond) falls back to `id` ordering so the pick never depends on
  * `threads` array order — the store makes no ordering guarantee, and two
  * threads racing to claim one worktree is a real, user-visible scenario, not
- * a hypothetical.
+ * a hypothetical. A malformed `updatedAt` never displaces a well-formed one,
+ * and a well-formed one always displaces a malformed one — matching
+ * `threadFor`'s degrade-to-null direction so a bad value can never win by
+ * looking preferred.
  */
 function isMorePreferredThread(
   candidate: AssistantMemoryThread,
   existing: AssistantMemoryThread
 ): boolean {
-  const candidateTime = candidate.updatedAt.getTime();
-  const existingTime = existing.updatedAt.getTime();
+  const candidateTime = preferredTimeOf(candidate);
+  const existingTime = preferredTimeOf(existing);
+  if (candidateTime === null && existingTime === null) {
+    return candidate.id < existing.id;
+  }
+  if (candidateTime === null) {
+    return false;
+  }
+  if (existingTime === null) {
+    return true;
+  }
   if (candidateTime !== existingTime) {
     return candidateTime > existingTime;
   }

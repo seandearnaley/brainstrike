@@ -113,7 +113,17 @@ describe('useWorktreeMap', () => {
     expect(checkoutStatusMock).toHaveBeenCalledTimes(1);
     expect(checkoutStatusMock).toHaveBeenCalledWith({ path: '/repo' });
 
-    rerender();
+    // A plain `rerender()` would only fail open now: `use-worktree-map.ts`'s
+    // `load` and `use-worktree-checkout-status.ts`'s effect both defer their
+    // setState calls behind a `Promise.resolve().then()` microtask (to
+    // satisfy `react-hooks/set-state-in-effect`), so a synchronous assertion
+    // immediately after `rerender()` would always see "not yet called"
+    // regardless of whether a regression fired an extra read — the microtask
+    // hasn't had a turn yet. `await act(async () => ...)` flushes it first,
+    // restoring this assertion's ability to actually catch a regression.
+    await act(async () => {
+      rerender();
+    });
     expect(checkoutStatusMock).toHaveBeenCalledTimes(1);
 
     act(() => {

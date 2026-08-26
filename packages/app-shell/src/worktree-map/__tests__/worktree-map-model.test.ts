@@ -220,6 +220,40 @@ describe('buildWorktreeMap', () => {
     expect(buildFor([b, a])[0]?.cards[0]?.thread?.threadId).toBe('thread-a');
   });
 
+  it('never throws on a malformed updatedAt and always prefers the well-formed thread, regardless of array order', () => {
+    // `updatedAt` is TYPED as `Date`, but `threadFor` defends against a
+    // malformed one at runtime (degrading to `null`) rather than trusting
+    // the type — this deliberately violates that type to prove
+    // `isMorePreferredThread` degrades the same direction instead of
+    // throwing out of `.getTime()`.
+    const malformed: AssistantMemoryThread = {
+      ...thread({
+        id: 'thread-bad',
+        metadata: { checkoutMode: 'worktree', checkoutWorktreeId: 'wt-1' },
+      }),
+      updatedAt: 'not-a-date' as unknown as Date,
+    };
+    const wellFormed = thread({
+      id: 'thread-good',
+      metadata: { checkoutMode: 'worktree', checkoutWorktreeId: 'wt-1' },
+      updatedAt: new Date('2026-08-26T10:00:00.000Z'),
+    });
+    const buildFor = (threads: readonly AssistantMemoryThread[]) =>
+      buildWorktreeMap({
+        entries: [entry({ id: 'wt-1', managed: true, path: '/wt', primary: false })],
+        indexingOptInByRootId: {},
+        now: NOW,
+        prCache: new Map(),
+        runningThreadIds: new Set(),
+        threads,
+      });
+
+    expect(() => buildFor([malformed, wellFormed])).not.toThrow();
+    expect(() => buildFor([wellFormed, malformed])).not.toThrow();
+    expect(buildFor([malformed, wellFormed])[0]?.cards[0]?.thread?.threadId).toBe('thread-good');
+    expect(buildFor([wellFormed, malformed])[0]?.cards[0]?.thread?.threadId).toBe('thread-good');
+  });
+
   it('falls back to the ledger creation stamp, and renders nothing when neither fact exists', () => {
     const model = buildWorktreeMap({
       entries: [
@@ -340,10 +374,18 @@ describe('formatWorktreeActivity', () => {
     expect(formatWorktreeActivity(new Date(Number.NaN), NOW)).toBe('at an unreadable time');
   });
 
-  it('never renders "just now" for a future timestamp (clock skew), even within a minute', () => {
-    // 30s ahead of NOW would satisfy `elapsed < MINUTE_MS` if `elapsed` were
-    // allowed to go negative — it must fall through to the relative branches
-    // instead, which render future tense via Intl's own sign handling.
-    expect(formatWorktreeActivity(new Date('2026-08-26T12:00:30.000Z'), NOW)).toBe('in 1 minute');
+  it('treats a sub-minute future timestamp as "just now", not an overstated relative count', () => {
+    // 1ms of clock skew must not render as "in 1 minute" — a 60,000x
+    // overstatement that a plain `elapsed >= 0` gate would produce. Anything
+    // within a minute of now, past OR future, reads as "now" to a human.
+    expect(formatWorktreeActivity(new Date('2026-08-26T12:00:00.001Z'), NOW)).toBe('just now');
+    expect(formatWorktreeActivity(new Date('2026-08-26T12:00:30.000Z'), NOW)).toBe('just now');
+  });
+
+  it('renders honest future tense once a future timestamp is a full minute or more ahead', () => {
+    // Proves the magnitude clamp above does not swallow a GENUINELY future
+    // timestamp — a week-ahead stamp must not silently read as "just now"
+    // either (the original bug this guard exists for).
+    expect(formatWorktreeActivity(new Date('2026-08-26T12:01:30.000Z'), NOW)).toBe('in 2 minutes');
   });
 });
