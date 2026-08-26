@@ -482,26 +482,39 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       return;
     }
     setPending(true);
-    void bridge
-      .archive({ worktreeId, ...(args.runId ? { runId: args.runId } : {}) })
-      .then(async (result) => {
+    // Hand off FIRST, archive only once that resolves. Archiving first (the
+    // original order) could succeed and then leave a failed hand-off with
+    // the thread still bound to a now-archived worktree — `refreshList`
+    // turns that into a missing-worktree diagnostic chip, which offers no
+    // hand-off or picker action, stranding the thread with no recovery path.
+    // With this order: a failed hand-off archives nothing (thread stays
+    // safely on the still-live worktree; retry the hand-off/archive), and a
+    // failed archive after a successful hand-off leaves the thread safely
+    // Local with the worktree still on disk (retry Archive from the
+    // picker-side actions, or from the thread that still lists it).
+    void (async () => {
+      try {
+        await args.onHandOffToLocal();
+      } catch (error) {
+        toastFailure('Could not hand off to Local — worktree not archived', errorMessage(error));
+        return;
+      }
+      try {
+        const result = await bridge.archive({
+          worktreeId,
+          ...(args.runId ? { runId: args.runId } : {}),
+        });
         if (!result.ok) {
-          toastFailure('Worktree not archived', result.error);
+          toastFailure('Thread handed off — worktree not archived', result.error);
           return;
         }
-        try {
-          await args.onHandOffToLocal();
-        } catch (error) {
-          toastFailure('Worktree archived — thread not handed off', errorMessage(error));
-        }
         await refreshList();
-      })
-      .catch((error: unknown) => {
-        toastFailure('Worktree not archived', errorMessage(error));
-      })
-      .finally(() => {
-        setPending(false);
-      });
+      } catch (error) {
+        toastFailure('Thread handed off — worktree not archived', errorMessage(error));
+      }
+    })().finally(() => {
+      setPending(false);
+    });
   }, [args.checkout.worktreeId, args.onHandOffToLocal, args.runId, bridge, refreshList]);
 
   const onHandOffToLocal = useCallback((): void => {

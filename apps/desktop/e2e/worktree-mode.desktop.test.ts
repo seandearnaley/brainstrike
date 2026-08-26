@@ -155,11 +155,22 @@ test.describe('Worktree mode (desktop)', () => {
     await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText('Local', {
       timeout: 90_000,
     });
-    expect(existsSync(created.worktreePath)).toBe(false);
-    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(created.worktreePath);
-    expect(git(repo, ['for-each-ref', '--format=%(refname)', 'refs/brainstrike'])).toContain(
-      'refs/brainstrike/worktree-archive/'
-    );
+    // The chip flips to "Local" as soon as the hand-off resolves — hand-off
+    // now runs BEFORE archive (BST-1390: a failed write after a successful
+    // archive used to strand the thread on an archived worktree with no
+    // recovery path). Archive is a separate, sequential step that keeps
+    // running after the chip already reads "Local", so the on-disk removal
+    // and the archive ref land on their own timeline; poll for them instead
+    // of asserting the instant the chip text changes.
+    await expect.poll(() => existsSync(created.worktreePath), { timeout: 90_000 }).toBe(false);
+    await expect
+      .poll(() => git(repo, ['worktree', 'list', '--porcelain']), { timeout: 90_000 })
+      .not.toContain(created.worktreePath);
+    await expect
+      .poll(() => git(repo, ['for-each-ref', '--format=%(refname)', 'refs/brainstrike']), {
+        timeout: 90_000,
+      })
+      .toContain('refs/brainstrike/worktree-archive/');
 
     await page.getByTestId('workspace-bar-mode-chip').click();
     await page.getByTestId('workspace-bar-mode-pick-worktree').click();

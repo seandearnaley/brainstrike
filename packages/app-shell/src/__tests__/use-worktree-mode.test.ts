@@ -254,7 +254,7 @@ describe('useWorktreeMode', () => {
     expect(toastSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('toasts a hand-off failure truthfully after archive and still refreshes the list', async () => {
+  it('hands off before archiving, and archives nothing when the hand-off fails', async () => {
     onHandOffToLocal.mockRejectedValueOnce(new Error('handoff boom'));
     const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
@@ -264,14 +264,59 @@ describe('useWorktreeMode', () => {
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith({
         description: 'handoff boom',
-        title: 'Worktree archived — thread not handed off',
+        title: 'Could not hand off to Local — worktree not archived',
         variant: 'destructive',
       })
     );
-    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(3));
+    // A failed hand-off must never reach the archive call: a worktree
+    // archived out from under a thread that is NOT actually Local yet is
+    // exactly the stranded state this ordering exists to prevent.
+    expect(archiveSpy).not.toHaveBeenCalled();
+    expect(listSpy).toHaveBeenCalledTimes(2);
     expect(toastSpy).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Worktree not archived' })
+      expect.objectContaining({ title: 'Thread handed off — worktree not archived' })
     );
+  });
+
+  it('archives only after a successful hand-off, in that order', async () => {
+    const callOrder: string[] = [];
+    onHandOffToLocal.mockImplementationOnce(() => {
+      callOrder.push('handOff');
+      return Promise.resolve();
+    });
+    archiveSpy.mockImplementationOnce(() => {
+      callOrder.push('archive');
+      return Promise.resolve({ ok: true, value: null });
+    });
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
+
+    act(() => result.current?.onArchive?.());
+
+    await waitFor(() => expect(archiveSpy).toHaveBeenCalledTimes(1));
+    expect(callOrder).toEqual(['handOff', 'archive']);
+    expect(archiveSpy).toHaveBeenCalledWith({ worktreeId: 'w-1' });
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(3));
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it('toasts an honest failure when archiving fails after a successful hand-off', async () => {
+    archiveSpy.mockResolvedValueOnce({ error: 'worktree has uncommitted changes', ok: false });
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
+
+    act(() => result.current?.onArchive?.());
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'worktree has uncommitted changes',
+        title: 'Thread handed off — worktree not archived',
+        variant: 'destructive',
+      })
+    );
+    // The hand-off itself already landed — the thread is safely Local, so no
+    // second inventory read is needed for a mutation that never happened.
+    expect(listSpy).toHaveBeenCalledTimes(2);
   });
 
   it('rejects and toasts when the created worktree cannot be mounted', async () => {
