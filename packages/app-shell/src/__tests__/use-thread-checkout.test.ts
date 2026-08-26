@@ -32,6 +32,7 @@ const enqueue = vi.fn(
   ) => {
     derive({
       checkoutLocalRootId: undefined,
+      checkoutMode: 'local',
       metadataPending: false,
       primaryRoot: {
         displayName: 'app',
@@ -224,6 +225,7 @@ describe('useThreadCheckout', () => {
     const derive = enqueue.mock.calls[0]?.[1];
     const current: ThreadCheckoutFolders = {
       checkoutLocalRootId: undefined,
+      checkoutMode: 'worktree',
       metadataPending: false,
       primaryRoot: {
         displayName: 'bright-fox',
@@ -260,6 +262,7 @@ describe('useThreadCheckout', () => {
     expect(() =>
       derive?.({
         checkoutLocalRootId: 'r-local',
+        checkoutMode: 'worktree',
         metadataPending: false,
         primaryRoot: {
           displayName: 'bright-fox',
@@ -287,6 +290,7 @@ describe('useThreadCheckout', () => {
     const selectDerive = enqueue.mock.calls[0]?.[1];
     const selected = selectDerive?.({
       checkoutLocalRootId: undefined,
+      checkoutMode: 'local',
       metadataPending: false,
       primaryRoot: { displayName: 'app', path: '/work/app', rootId: 'r-local' },
       primaryRootId: 'r-local',
@@ -308,6 +312,7 @@ describe('useThreadCheckout', () => {
     const handOffDerive = enqueue.mock.calls[1]?.[1];
     const handedOff = handOffDerive?.({
       checkoutLocalRootId: 'r-local',
+      checkoutMode: 'worktree',
       metadataPending: false,
       primaryRoot: {
         displayName: 'bright-fox',
@@ -344,6 +349,7 @@ describe('useThreadCheckout', () => {
     expect(() =>
       derive?.({
         checkoutLocalRootId: undefined,
+        checkoutMode: 'local',
         metadataPending: false,
         primaryRoot: undefined,
         primaryRootId: 'r-local',
@@ -367,6 +373,7 @@ describe('useThreadCheckout', () => {
     expect(() =>
       derive?.({
         checkoutLocalRootId: undefined,
+        checkoutMode: 'worktree',
         metadataPending: false,
         primaryRoot: {
           displayName: 'bright-fox',

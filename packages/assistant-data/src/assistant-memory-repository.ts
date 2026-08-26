@@ -1847,6 +1847,19 @@ function assertPersistableThreadMetadata(metadata: AssistantThreadMetadata): voi
   }
 }
 
+/** Checkout transitions are single-thread writes because their key projection is atomic. */
+export function assertBulkThreadMetadataPatch(metadata: AssistantThreadMetadata): void {
+  if (
+    'checkoutBranch' in metadata ||
+    'checkoutLocalRootId' in metadata ||
+    'checkoutMode' in metadata ||
+    'checkoutWorktreeId' in metadata ||
+    'checkoutWorktreePath' in metadata
+  ) {
+    throw new Error('Bulk assistant thread metadata updates cannot change checkout state.');
+  }
+}
+
 /** Test-only seam for the sanitizer — see thread-metadata.test.ts. */
 export function sanitizeThreadMetadataForTest(value: unknown): AssistantThreadMetadata | undefined {
   return sanitizeThreadMetadata(value);
@@ -3957,6 +3970,7 @@ export function createPgliteAssistantThreadRepository(
     ): Promise<void> {
       requireAssistantThreadIds(threadIds);
       requireNonemptyThreadMetadata(metadata);
+      assertBulkThreadMetadataPatch(metadata);
       const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
       const metadataParameter = threadIds.length + 1;

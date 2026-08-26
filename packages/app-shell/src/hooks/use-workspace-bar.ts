@@ -67,10 +67,12 @@ const NO_RECENT_ENTRIES: readonly RecentRootEntry[] = [];
 // can contain a space, this key stops distinguishing `['a b']` from `['a','b']`
 // and must change with it.)
 const SECONDARY_ID_SEPARATOR = ' ';
+const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off returns to.';
 
 /** What a queued write persisted, for the next write in the queue to chain on. */
 interface ThreadFoldersWriteTail {
   readonly checkoutLocalRootId: string | undefined;
+  readonly checkoutMode: 'local' | 'worktree';
   readonly ids: readonly string[];
   readonly primaryRoot: ThreadCheckoutRoot | undefined;
   readonly primaryRootId: string | undefined;
@@ -156,6 +158,7 @@ function writeStartingPoint(
   return tail?.threadId === startedForThreadId
     ? {
         checkoutLocalRootId: tail.checkoutLocalRootId,
+        checkoutMode: tail.checkoutMode,
         metadataPending: false,
         primaryRoot: tail.primaryRoot,
         primaryRootId: tail.primaryRootId,
@@ -164,6 +167,63 @@ function writeStartingPoint(
         threadId: live.threadId,
       }
     : live;
+}
+
+function persistedCheckoutMode(
+  current: ThreadCheckoutFolders,
+  request: ThreadCheckoutWrite
+): 'local' | 'worktree' {
+  const requested = request.binding?.['checkoutMode'];
+  if (requested === 'local' || requested === 'worktree') {
+    return requested;
+  }
+  return current.checkoutMode;
+}
+
+function makePrimaryWrite(current: ThreadCheckoutFolders, rootId: string): ThreadCheckoutWrite {
+  const next = current.secondaryRoots.find((root) => root.rootId === rootId);
+  const nextPath = next?.path;
+  if (!(next && nextPath)) {
+    logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
+    throw new Error(`Could not make primary: secondary root ${rootId} is unknown or has no path.`);
+  }
+  const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
+  const currentPrimaryPath = current.primaryRoot?.path;
+  if (
+    demotesPrimary &&
+    (!current.primaryRoot ||
+      current.primaryRoot.rootId !== current.primaryRootId ||
+      !currentPrimaryPath)
+  ) {
+    logger.error('Make primary: current primary root is unknown or has no path', {
+      rootId: current.primaryRootId,
+    });
+    throw new Error(
+      `Could not make primary: current primary root ${current.primaryRootId ?? '(unknown)'} is unknown or has no path.`
+    );
+  }
+  const leavesWorktree = current.checkoutMode === 'worktree';
+  const demoted =
+    !leavesWorktree && demotesPrimary && current.primaryRoot && currentPrimaryPath
+      ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
+      : [];
+  const secondaryRoots = [
+    ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
+    ...demoted,
+  ];
+  return {
+    binding: {
+      ...(leavesWorktree ? { checkoutMode: 'local' } : {}),
+      operatingRootDisplayName: next.displayName,
+      operatingRootId: rootId,
+      operatingRootPath: nextPath,
+    },
+    checkoutLocalRootId: leavesWorktree ? undefined : current.checkoutLocalRootId,
+    ids: secondaryRoots.map((root) => root.rootId),
+    primaryRoot: { ...next, path: nextPath },
+    primaryRootId: rootId,
+    secondaryRoots,
+  };
 }
 
 /**
@@ -337,6 +397,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
     : undefined;
   const checkoutLocalRootId = selectedThread?.metadata?.checkoutLocalRootId;
+  const checkoutMode = selectedThread?.metadata?.checkoutMode ?? 'local';
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
   // Watching is opt-out. This matches useForgeRunEvents, so a thread created
   // before the metadata field existed still receives forge observations.
@@ -461,10 +522,21 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     readonly key: string;
     readonly roots: readonly WorkspaceBarRoot[];
   } | null>(null);
-  const secondaryRoots =
+  const loadedSecondaryRoots =
     database && resolvedSecondaries?.key === secondaryRootIdsKey
       ? resolvedSecondaries.roots
       : NO_ROOTS;
+  const secondaryRoots = useMemo<readonly WorkspaceBarRoot[]>(
+    () =>
+      checkoutMode === 'worktree' && checkoutLocalRootId
+        ? loadedSecondaryRoots.map((root) =>
+            root.rootId === checkoutLocalRootId
+              ? { ...root, removeDisabledReason: HAND_OFF_RETURN_ROOT_REMOVE_REASON }
+              : root
+          )
+        : loadedSecondaryRoots,
+    [checkoutLocalRootId, checkoutMode, loadedSecondaryRoots]
+  );
   useEffect(() => {
     if (!(database && secondaryRootIds.length > 0)) {
       return;
@@ -598,29 +670,32 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // deriving from the thread it was started for.
   const threadFoldersRef = useRef<ThreadCheckoutFolders>({
     checkoutLocalRootId,
+    checkoutMode,
     metadataPending: selectedThreadMetadataPending,
     primaryRoot,
     primaryRootId,
     secondaryRootIds,
-    secondaryRoots,
+    secondaryRoots: loadedSecondaryRoots,
     threadId: selectedMemoryThreadId,
   });
   useEffect(() => {
     threadFoldersRef.current = {
       checkoutLocalRootId,
+      checkoutMode,
       metadataPending: selectedThreadMetadataPending,
       primaryRoot,
       primaryRootId,
       secondaryRootIds,
-      secondaryRoots,
+      secondaryRoots: loadedSecondaryRoots,
       threadId: selectedMemoryThreadId,
     };
   }, [
     checkoutLocalRootId,
+    checkoutMode,
     primaryRoot,
     primaryRootId,
     secondaryRootIds,
-    secondaryRoots,
+    loadedSecondaryRoots,
     selectedMemoryThreadId,
     selectedThreadMetadataPending,
   ]);
@@ -687,13 +762,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           refuseWriteBeforeThreadMetadata();
           return tail;
         }
-        const request = derive(writeStartingPoint(live, tail, startedForThreadId));
+        const current = writeStartingPoint(live, tail, startedForThreadId);
+        const request = derive(current);
         if (!request) {
           return tail;
         }
         await writeThreadFolders(request.ids, request.binding);
         return {
           checkoutLocalRootId: request.checkoutLocalRootId,
+          checkoutMode: persistedCheckoutMode(current, request),
           ids: request.ids,
           primaryRoot: request.primaryRoot,
           primaryRootId: request.primaryRootId,
@@ -858,86 +935,48 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       // operatingRoot* keys persistThreadRootBinding writes (the sanitizer's
       // all-or-nothing rule), through the same store action — the global MAIN
       // root is deliberately untouched.
+      let localTransitionPrimaryName: string | null = null;
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
-        const next = current.secondaryRoots.find((root) => root.rootId === rootId);
-        const nextPath = next?.path;
-        if (!(next && nextPath)) {
-          logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
-          throw new Error(
-            `Could not make primary: secondary root ${rootId} is unknown or has no path.`
-          );
+        const request = makePrimaryWrite(current, rootId);
+        if (request.binding?.['checkoutMode'] === 'local') {
+          localTransitionPrimaryName = request.primaryRoot?.displayName ?? null;
         }
-        const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
-        const currentPrimaryPath = current.primaryRoot?.path;
-        if (
-          demotesPrimary &&
-          (!current.primaryRoot ||
-            current.primaryRoot.rootId !== current.primaryRootId ||
-            !currentPrimaryPath)
-        ) {
-          logger.error('Make primary: current primary root is unknown or has no path', {
-            rootId: current.primaryRootId,
+        return request;
+      })
+        .then(() => {
+          if (localTransitionPrimaryName) {
+            toast({
+              description: `“${localTransitionPrimaryName}” is primary. The former worktree is no longer attached to this thread.`,
+              title: 'Thread is Local again',
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          logger.error('Make primary failed', { error, rootId });
+          toast({
+            description: describeFailure(error),
+            title: 'Make primary failed',
+            variant: 'destructive',
           });
-          throw new Error(
-            `Could not make primary: current primary root ${current.primaryRootId ?? '(unknown)'} is unknown or has no path.`
-          );
-        }
-        const demoted =
-          demotesPrimary && current.primaryRoot && currentPrimaryPath
-            ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
-            : [];
-        const secondaryRoots = [
-          ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
-          ...demoted,
-        ];
-        // TODO(BST-1390): if the thread is currently in worktree checkout mode
-        // (metadata.checkoutMode === 'worktree'), promoting a plain secondary
-        // root to primary here leaves checkoutMode stuck at 'worktree' while
-        // the primary is no longer the worktree — a state-consistency bug.
-        // Deferred: fixing it needs either an implicit hand-off folded into
-        // this same write, or disabling "Make primary" for non-worktree
-        // secondaries while in worktree mode with a visible reason. Needs a
-        // decision, not just a patch — see the BST-1390 Task 17 reviewer
-        // addendum, item (a).
-        return {
-          binding: {
-            operatingRootDisplayName: next.displayName,
-            operatingRootId: rootId,
-            operatingRootPath: nextPath,
-          },
-          checkoutLocalRootId: current.checkoutLocalRootId,
-          ids: secondaryRoots.map((root) => root.rootId),
-          primaryRoot: { ...next, path: nextPath },
-          primaryRootId: rootId,
-          secondaryRoots,
-        };
-      }).catch((error: unknown) => {
-        logger.error('Make primary failed', { error, rootId });
-        toast({
-          description: describeFailure(error),
-          title: 'Make primary failed',
-          variant: 'destructive',
         });
-      });
     },
     [enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
 
   const onRemoveSecondary = useCallback(
     (rootId: string) => {
-      // TODO(BST-1390): this can remove the tracked Local root while the
-      // thread is checked out into a worktree (the row a later "Hand off to
-      // Local" would return to). Deferred: either disable that row in the UI
-      // with a visible reason ("This folder is where Hand off returns to") or
-      // clear-and-warn on removal. See the BST-1390 Task 17 reviewer
-      // addendum, item (b).
-      void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => ({
-        checkoutLocalRootId: current.checkoutLocalRootId,
-        ids: current.secondaryRootIds.filter((id) => id !== rootId),
-        primaryRoot: current.primaryRoot,
-        primaryRootId: current.primaryRootId,
-        secondaryRoots: current.secondaryRoots.filter((root) => root.rootId !== rootId),
-      })).catch((error: unknown) => {
+      void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
+        if (current.checkoutMode === 'worktree' && current.checkoutLocalRootId === rootId) {
+          throw new Error(HAND_OFF_RETURN_ROOT_REMOVE_REASON);
+        }
+        return {
+          checkoutLocalRootId: current.checkoutLocalRootId,
+          ids: current.secondaryRootIds.filter((id) => id !== rootId),
+          primaryRoot: current.primaryRoot,
+          primaryRootId: current.primaryRootId,
+          secondaryRoots: current.secondaryRoots.filter((root) => root.rootId !== rootId),
+        };
+      }).catch((error: unknown) => {
         logger.error('Remove secondary failed', { error, rootId });
         toast({
           description: describeFailure(error),
