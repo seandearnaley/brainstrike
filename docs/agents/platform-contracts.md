@@ -301,6 +301,18 @@ keys inside the SAME persisted store
 `clearBrowserStorage` (FACTORY RESET CONTRACT), covered by construction since
 `defaultEvents()` sets every key in `NOTIFICATION_EVENT_KINDS`.
 
+`background-indexing-preferences-store` (`background-indexing-preferences.v1`,
+owning the per-root `worktreeRootIndexingOptInById` opt-in map PR #2655 /
+BST-1453 added) was persisted and purged from storage, but its LIVE in-memory
+copy was never in `clearPersistentUiState`'s re-default list — a reset without
+a reload (the web path) left a stale opt-in in memory, so the BST-1392 Worktree
+Map could render "Indexing enabled" for a root the user just wiped. Fixed by
+BST-1392 Layer 2 Step 0: `resetBackgroundIndexingPreferencesStoreToDefaults()`
+(mirrors `resetHookTrustStoreToDefaults` / `resetWorkspaceInstructionsPreferencesStoreToDefaults`
+— clears persisted storage, then resets the live store via its own `reset()`
+action) is now called from `clearPersistentUiState`, covered by
+`packages/app-state/src/__tests__/factory-reset-background-indexing-preferences.test.ts`.
+
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
 
