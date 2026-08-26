@@ -138,7 +138,9 @@ Implementation:
   - Ensure clearPersistentUiState() includes:
     - All new persistent UI store keys (e.g. `hook-trust-store` — the
       security-sensitive per-root hook approvals; reset drops every approval so a
-      re-mounted repo's hooks require fresh review — see TOOL-LIFECYCLE HOOKS).
+      re-mounted repo's hooks require fresh review — see TOOL-LIFECYCLE HOOKS;
+      and `worktree-setup-consent.v1` — per-repository approvals and denials for
+      `.brainstrike/worktree-setup.sh`, keyed by Git common directory).
     - Electron renderer storage bridge.
     - IndexedDB (enumerated + fallback list).
     - CacheStorage.

@@ -13,6 +13,7 @@ import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { WorktreeSetupOutcome, WorktreeSetupSkippedCopy } from '@brainstrike/types';
+import { sha256OfBuffer } from './hooks/trust';
 import { isPathWithin } from './worktree-paths';
 import type { WorktreeSetupInput } from './worktree-service';
 
@@ -24,7 +25,7 @@ export const WORKTREE_SETUP_TIMEOUT_MS = 300_000;
 export const WORKTREE_SETUP_TERMINATION_GRACE_MS = 2000;
 export const WORKTREE_INCLUDE_MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const WORKTREE_INCLUDE_FILE = '.worktreeinclude';
-const REPOSITORY_SETUP_SCRIPT = path.join('.brainstrike', 'worktree-setup.sh');
+export const REPOSITORY_SETUP_SCRIPT = path.join('.brainstrike', 'worktree-setup.sh');
 const PORT_BASE = 3000;
 const PORT_SPAN = 2000;
 const brainstrikePortEnvironmentVariable = 'BRAINSTRIKE_PORT';
@@ -315,13 +316,42 @@ async function resolveSetupCommand(input: WorktreeSetupInput): Promise<ResolvedC
   }
 
   const script = path.join(input.sourcePath, REPOSITORY_SETUP_SCRIPT);
+  // Read the bytes (not just probe existence): a decision is pinned to the
+  // script's CONTENTS, so running it requires re-hashing disk here and
+  // comparing against the renderer-attested hash — the same read serves both
+  // the ENOENT check and the re-hash (mirrors the hooks trust precedent).
+  let scriptBytes: Buffer;
   try {
-    await fsPromises.access(script);
+    scriptBytes = await fsPromises.readFile(script);
   } catch (error) {
     if (hasErrorCode(error, 'ENOENT')) {
       return null;
     }
     throw error;
+  }
+  const decision = input.repositorySetupDecision;
+  // A decision pinned to a DIFFERENT hash than what's on disk right now is
+  // treated as no decision at all — fail closed to a visible skip rather than
+  // running (or staying skipped) under a stale grant made against different
+  // script contents (pull / branch switch / rebase since the decision).
+  if (decision && decision.scriptSha256 !== sha256OfBuffer(scriptBytes)) {
+    return {
+      argv: [],
+      reason:
+        'Repository setup script consent is required before it can run: the script changed since you last decided.',
+    };
+  }
+  if (decision?.decision === 'denied') {
+    return {
+      argv: [],
+      reason: 'Repository setup script was skipped because you denied permission.',
+    };
+  }
+  if (decision?.decision !== 'approved') {
+    return {
+      argv: [],
+      reason: 'Repository setup script consent is required before it can run.',
+    };
   }
   if (process.platform === 'win32') {
     return {

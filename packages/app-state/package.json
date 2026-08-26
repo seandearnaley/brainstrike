@@ -198,6 +198,10 @@
     "./stores/workspace-instructions-preferences-store": {
       "types": "./dist/stores/workspace-instructions-preferences-store.d.ts",
       "import": "./dist/stores/workspace-instructions-preferences-store.js"
+    },
+    "./stores/worktree-setup-consent-store": {
+      "types": "./dist/stores/worktree-setup-consent-store.d.ts",
+      "import": "./dist/stores/worktree-setup-consent-store.js"
     }
   },
   "files": [

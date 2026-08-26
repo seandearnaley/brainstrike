@@ -1,3 +1,4 @@
+import type { WorktreeRepositorySetupDecision } from '@brainstrike/types';
 import type { ReactElement } from 'react';
 import { BranchChip } from './branch-chip';
 import { FolderChip } from './folder-chip';
@@ -87,6 +88,13 @@ export interface WorkspaceBarBaseRefOption {
   readonly value: string;
 }
 
+export interface WorkspaceBarRepositorySetupConsent {
+  readonly decision: WorktreeRepositorySetupDecision | null;
+  readonly onDecision: (decision: WorktreeRepositorySetupDecision) => void;
+  readonly repositoryPath: string;
+  readonly scriptPath: string;
+}
+
 export interface WorkspaceBarMode {
   /** Base refs the create sheet offers, most useful first. */
   readonly baseRefs: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOption[]];
@@ -109,6 +117,8 @@ export interface WorkspaceBarMode {
   readonly onReveal: (() => void) | undefined;
   readonly pending: boolean;
   readonly picker: WorkspaceBarWorktreePicker;
+  /** Present only while this repository's fallback script needs a decision. */
+  readonly repositorySetupConsent: WorkspaceBarRepositorySetupConsent | null;
   readonly setupSummary: string;
   readonly worktree: WorkspaceBarWorktreeSummary | null;
 }

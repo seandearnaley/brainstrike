@@ -410,10 +410,21 @@ After creation it is the sole caller of `runSetupSafely` → `deps.runSetup` →
 have no path to setup execution. This is the Conductor / Claude Code convention:
 `setupCommand` is tri-state: an argv array runs that explicit command, `null`
 falls back to `.brainstrike/worktree-setup.sh` when present, and `'disabled'`
-does not run or probe any setup command. Repository scripts and configured argv
-are trusted only at the already-granted workspace-root boundary. Per-repository
-consent/trust records before first execution of a repository script are filed
-as follow-up **BST-1455** and are not implemented yet.
+does not run or probe any setup command. Explicit argv and `'disabled'` bypass
+repository-script consent because neither executes the repository fallback.
+
+Before the first repository-script execution, `createContext` reports the
+repository root, absolute script path, and repository identity (the Git common
+directory). The create sheet blocks until the user allows or skips that script
+and warns that it runs local shell code with `BRAINSTRIKE_WORKSPACE_*` variables
+and that `.worktreeinclude` can copy gitignored files. Both decisions persist in
+the renderer's `worktree-setup-consent.v1` store, keyed by Git common directory,
+so later creates and app restarts do not prompt again. Factory reset clears the
+store. Create IPC carries the renderer decision plus repository identity; main
+pins that identity to its freshly resolved common directory before forwarding
+the decision. Missing or mismatched consent fails closed to a visible `skipped`
+setup outcome while worktree creation continues. A denial behaves the same way
+and never executes the script.
 
 `.worktreeinclude` copies gitignored source files into the new worktree, one
 root-relative glob pattern per non-comment line. Absolute and `..`-escaping

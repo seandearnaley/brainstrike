@@ -45,6 +45,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
     open: false,
     options: [],
   },
+  repositorySetupConsent: null,
   setupSummary: '.worktreeinclude: 1 pattern · setup script: present',
   worktree: null,
   ...overrides,

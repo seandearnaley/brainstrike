@@ -133,6 +133,23 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
       ok: false,
     };
   }
+  const repositorySetupDecision = payload['repositorySetupDecision'];
+  if (
+    repositorySetupDecision !== undefined &&
+    !(
+      isRecord(repositorySetupDecision) &&
+      nonEmptyString(repositorySetupDecision['repositoryId']) &&
+      nonEmptyString(repositorySetupDecision['scriptSha256']) &&
+      (repositorySetupDecision['decision'] === 'approved' ||
+        repositorySetupDecision['decision'] === 'denied')
+    )
+  ) {
+    return {
+      error:
+        'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
+      ok: false,
+    };
+  }
   return {
     ok: true,
     value: {
@@ -143,6 +160,15 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
       createdBy: payload['createdBy'],
       name: payload['name'],
       rootId: payload['rootId'],
+      ...(isRecord(repositorySetupDecision)
+        ? {
+            repositorySetupDecision: {
+              decision: repositorySetupDecision['decision'] as 'approved' | 'denied',
+              repositoryId: repositorySetupDecision['repositoryId'] as string,
+              scriptSha256: repositorySetupDecision['scriptSha256'] as string,
+            },
+          }
+        : {}),
       // Schema-stability field: forwarded now but intentionally inert until
       // the worktree timeline lands in Task 18.
       ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
