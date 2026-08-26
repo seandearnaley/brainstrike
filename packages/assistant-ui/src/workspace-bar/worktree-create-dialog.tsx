@@ -210,7 +210,10 @@ export function WorktreeCreateDialog({
                   </span>
                 </p>
                 <p>Runs local shell code with BRAINSTRIKE_WORKSPACE_* environment variables.</p>
-                <p>.worktreeinclude copies may include gitignored files.</p>
+                <p>
+                  Separately, .worktreeinclude copies — which may include gitignored files — run for
+                  every new worktree regardless of this choice.
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
