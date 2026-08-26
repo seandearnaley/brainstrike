@@ -37,6 +37,7 @@ export * from './run-events.js';
 export * from './run-usage.js';
 export * from './runtime-data.js';
 export * from './secret-read-error.js';
+export * from './shell-git-correlation.js';
 export * from './shell-output.js';
 export * from './skills.js';
 export * from './thread-history-adapter.js';
