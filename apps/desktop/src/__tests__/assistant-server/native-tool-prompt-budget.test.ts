@@ -172,11 +172,15 @@ vi.mock('../../db-main', () => ({
 // HEADROOM RESTORATION (review round, same day): the raise above landed the
 // measured surface EXACTLY at the new MAX (10246/10246) — zero headroom, the
 // hair-trigger failure mode BST-927's band doctrine exists to prevent (any
-// one-word description edit would fail this suite at this line). Both bounds
-// move +18 (10246 → 10264, 9946 → 9964), width 300 unchanged, re-centering so
-// the unchanged 10246 measurement has real (if modest) headroom on both sides.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_264;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9964;
+// one-word description edit would fail this suite at this line). A first
+// attempt at this fix moved both bounds by only +18 (10246 → 10264), leaving
+// the measurement at 94% of the band — the SAME hair trigger under a new
+// name. Re-reviewed and corrected to match the BST-1176 precedent (~150
+// headroom): both bounds move +150 from the ORIGINAL post-raise values
+// (10246 → 10396, 9946 → 10096), width 300 unchanged, putting the unchanged
+// 10246 measurement at the band's MIDPOINT.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_396;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_096;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -566,16 +570,18 @@ describe('desktop native tool provider prompt budget', () => {
     // BST-1392: +347/+347 for the two worktree tools (measured 9490; width 300).
     // HEADROOM RESTORATION (review round, same day): that raise landed
     // measured EXACTLY at the new MAX (9490/9490) — zero headroom, same
-    // hair-trigger failure mode as the authored band above. Both bounds move
-    // +18 (9490 → 9508, 9190 → 9208), width 300 unchanged, mirroring the
-    // authored band's own +18 restoration so the unchanged 9490 measurement
-    // gets real headroom on both sides.
+    // hair-trigger failure mode as the authored band above. A first attempt
+    // moved both bounds by only +18, leaving the measurement at 94% of the
+    // band; re-reviewed and corrected to the BST-1176 precedent (~150
+    // headroom): both bounds move +150 from the ORIGINAL post-raise values
+    // (9490 → 9640, 9190 → 9340), width 300 unchanged, putting the unchanged
+    // 9490 measurement at the band's MIDPOINT.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(9208);
+    ).toBeGreaterThanOrEqual(9340);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      9508
+      9640
     );
     expect(
       criticalDefinitionTokens,
@@ -643,7 +649,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 9,964-10,264 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 10,096-10,396 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
