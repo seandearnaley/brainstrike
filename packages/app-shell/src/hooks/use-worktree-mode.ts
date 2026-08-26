@@ -20,7 +20,7 @@ import type {
   WorktreeSettings,
 } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { resolveWorktreesBridge, type WorktreesBridge } from '../worktrees/worktrees-bridge';
 
@@ -200,6 +200,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [createSheetContext, setCreateSheetContext] = useState<WorktreeCreateContext | null>(null);
+  const retriedAfterListErrorRef = useRef(false);
 
   useEffect(() => {
     if (!bridge) {
@@ -232,27 +233,38 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     };
   }, [bridge]);
 
-  const refreshList = useCallback(async (): Promise<void> => {
-    if (!bridge) {
-      return;
-    }
-    setListing(true);
-    try {
-      const result = await bridge.list();
-      if (result.ok) {
-        setEntries(result.value);
-        setListError(null);
+  const refreshList = useCallback(
+    async (isCancelled?: () => boolean): Promise<void> => {
+      if (!bridge || isCancelled?.()) {
         return;
       }
-      setEntries([]);
-      setListError(result.error);
-    } catch (error) {
-      setEntries([]);
-      setListError(errorMessage(error));
-    } finally {
-      setListing(false);
-    }
-  }, [bridge]);
+      setListing(true);
+      try {
+        const result = await bridge.list();
+        if (isCancelled?.()) {
+          return;
+        }
+        if (result.ok) {
+          setEntries(result.value);
+          setListError(null);
+          return;
+        }
+        setEntries([]);
+        setListError(result.error);
+      } catch (error) {
+        if (isCancelled?.()) {
+          return;
+        }
+        setEntries([]);
+        setListError(errorMessage(error));
+      } finally {
+        if (!isCancelled?.()) {
+          setListing(false);
+        }
+      }
+    },
+    [bridge]
+  );
 
   const onPickerOpenChange = useCallback(
     (open: boolean): void => {
@@ -272,10 +284,27 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   // correctly. The list is read-only and cheap, so loading it on mount is
   // the same eager pattern `settings` already uses just above.
   useEffect(() => {
-    void refreshList();
+    let cancelled = false;
+    void refreshList(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
   }, [refreshList]);
 
   const currentWorktreeId = args.checkout.mode === 'worktree' ? args.checkout.worktreeId : null;
+
+  useEffect(() => {
+    if (listError === null || currentWorktreeId === null || retriedAfterListErrorRef.current) {
+      return;
+    }
+    retriedAfterListErrorRef.current = true;
+    let cancelled = false;
+    void refreshList(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentWorktreeId, listError, refreshList]);
+
   const currentEntry = useMemo(
     () => entries.find((entry) => entry.id !== null && entry.id === currentWorktreeId) ?? null,
     [currentWorktreeId, entries]

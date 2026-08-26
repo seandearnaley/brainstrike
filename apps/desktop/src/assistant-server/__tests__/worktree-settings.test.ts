@@ -47,6 +47,20 @@ describe('worktree settings', () => {
     expect(readDefaultDirectory(HOME_DIRECTORY)).toBe('/tmp/brainstrike-e2e-worktrees');
   });
 
+  it('throws for a relative managed-directory override in desktop E2E test mode', async () => {
+    process.argv = ORIGINAL_ARGV.filter((argument) => argument !== '--test-mode');
+    vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
+    vi.stubEnv('BRAINSTRIKE_E2E_WORKTREE_DIR', 'relative/worktrees');
+    vi.resetModules();
+    const { defaultManagedWorktreeDirectory: readDefaultDirectory } = await import(
+      '../worktree-settings'
+    );
+
+    expect(() => readDefaultDirectory(HOME_DIRECTORY)).toThrow(
+      'BRAINSTRIKE_E2E_WORKTREE_DIR must be an absolute path.'
+    );
+  });
+
   it('ignores the managed-directory override outside desktop E2E test mode', async () => {
     process.argv = ORIGINAL_ARGV.filter((argument) => argument !== '--test-mode');
     vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');

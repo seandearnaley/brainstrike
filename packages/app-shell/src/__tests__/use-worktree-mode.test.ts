@@ -442,6 +442,50 @@ describe('useWorktreeMode', () => {
     expect(listSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('retries a failed mount list once for a bound worktree and stops after success', async () => {
+    listSpy.mockRejectedValueOnce(new Error('IPC is not ready')).mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          branch: 'bs/bright-fox',
+          containment: ['r-1'],
+          detached: false,
+          disabledReason: null,
+          externalTool: null,
+          id: 'w-1',
+          lockedReason: null,
+          managed: true,
+          name: 'bright-fox',
+          path: '/managed/app/bright-fox',
+          provenance: 'both',
+          remedy: null,
+          repositoryRoot: '/work/app',
+          rootId: 'r-1',
+          setupReason: null,
+          setupStatus: 'none',
+          trust: 'validated',
+          trustReason: null,
+          usable: true,
+        },
+      ],
+    });
+    const { result, rerender } = renderHook(() =>
+      useWorktreeMode({ ...ARGS, checkout: { mode: 'worktree', worktreeId: 'w-1' } })
+    );
+
+    await waitFor(() =>
+      expect(result.current?.worktree).toMatchObject({ name: 'bright-fox', worktreeId: 'w-1' })
+    );
+    expect(listSpy).toHaveBeenCalledTimes(2);
+
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(listSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('wires createBranchHere only for the current managed detached worktree', async () => {
     const detached: WorktreeListEntry = {
       branch: null,

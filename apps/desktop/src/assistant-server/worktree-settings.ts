@@ -8,6 +8,7 @@
 import path from 'node:path';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
+import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
 import { assertWorktreeTargetOutsideRoots } from './worktree-paths';
 
 export const WORKTREE_SETTINGS_STORAGE_KEY = 'worktreeSettings' as const;
@@ -17,8 +18,7 @@ interface StoredWorktreeSettings {
   readonly setupCommand: WorktreeSetupCommand;
 }
 
-const DESKTOP_TEST_MODE =
-  process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
+const DESKTOP_TEST_MODE = isElectronE2ETestMode();
 
 /**
  * `~/.brainstrike/worktrees` [D3]. In desktop E2E the location is redirected
@@ -28,10 +28,13 @@ const DESKTOP_TEST_MODE =
  */
 export function defaultManagedWorktreeDirectory(homeDirectory: string): string {
   const override = DESKTOP_TEST_MODE ? process.env['BRAINSTRIKE_E2E_WORKTREE_DIR'] : undefined;
-  if (override && path.isAbsolute(override)) {
-    return override;
+  if (override === undefined) {
+    return path.join(homeDirectory, '.brainstrike', 'worktrees');
   }
-  return path.join(homeDirectory, '.brainstrike', 'worktrees');
+  if (!path.isAbsolute(override)) {
+    throw new Error('BRAINSTRIKE_E2E_WORKTREE_DIR must be an absolute path.');
+  }
+  return override;
 }
 
 function parseStored(raw: string | null): StoredWorktreeSettings {

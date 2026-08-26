@@ -55,7 +55,7 @@ async function createAndUseWorktree(page: Page): Promise<CreatedWorktree> {
   const dialog = page.getByTestId('worktree-create-dialog');
   await expect(dialog).toBeVisible({ timeout: 30_000 });
   const branchField = dialog.getByTestId('worktree-create-branch');
-  await expect(branchField).toHaveValue(/^bs\//u);
+  await expect(branchField).toHaveValue(/^bs\/.+/u);
   const branch = (await branchField.inputValue()).trim();
   const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
   const worktreePath = (await dialog.getByTestId('worktree-create-location').innerText()).trim();
@@ -160,6 +160,58 @@ test.describe('Worktree mode (desktop)', () => {
     expect(git(repo, ['for-each-ref', '--format=%(refname)', 'refs/brainstrike'])).toContain(
       'refs/brainstrike/worktree-archive/'
     );
+
+    await page.getByTestId('workspace-bar-mode-chip').click();
+    await page.getByTestId('workspace-bar-mode-pick-worktree').click();
+    const dialog = page.getByTestId('worktree-picker-dialog');
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
+    // The row's testid is keyed by `worktreeId ?? path` (worktree-picker-dialog.tsx); a
+    // MANAGED worktree always carries a real id, so the row testid is that id, not the
+    // path — asserting on a path-keyed testid here would be vacuous (it would never have
+    // matched even before archiving). Assert on the row's visible name text instead,
+    // scoped to the open dialog, mirroring the scoped-menu text checks in
+    // workspace-bar.desktop.test.ts.
+    //
+    // The picker's option list is fetched once per open (`useWorktreeMode`'s
+    // `onPickerOpenChange` refetches on `open`, not on a live subscription), so a
+    // single open can race the git-inventory watcher's own settle latency after
+    // `git worktree remove` runs. Close and reopen — forcing a fresh fetch — until
+    // the archived worktree's row is gone, bounded so a real regression still fails.
+    let archivedRowGone = false;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      archivedRowGone = (await dialog.getByText(created.name, { exact: true }).count()) === 0;
+      if (archivedRowGone) {
+        break;
+      }
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden({ timeout: 10_000 });
+      await page.waitForTimeout(1000);
+      await page.getByTestId('workspace-bar-mode-chip').click();
+      await page.getByTestId('workspace-bar-mode-pick-worktree').click();
+      await expect(dialog).toBeVisible({ timeout: 30_000 });
+    }
+    expect(archivedRowGone).toBe(true);
+    await page.keyboard.press('Escape');
+  });
+
+  test('hands off to Local and the chip stays Local across a reload', async ({ window: page }) => {
+    test.setTimeout(240_000);
+    await seedRoot(page, freshRepo('handoff'));
+    await openComposer(page);
+    await createAndUseWorktree(page);
+
+    await page.getByTestId('workspace-bar-mode-chip').click();
+    await page.getByTestId('workspace-bar-mode-handoff').click();
+    await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText('Local', {
+      timeout: 90_000,
+    });
+
+    await page.reload();
+    await openComposer(page);
+    await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText('Local', {
+      timeout: 90_000,
+    });
   });
 
   test('persists the worktree checkout across a reload', async ({ window: page }) => {
