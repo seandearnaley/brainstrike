@@ -1887,12 +1887,17 @@ describe('buildWorktreeMap', () => {
 });
 
 describe('describeWorktreeProvenance', () => {
+  // (corrected at execution: fixture defaulted primary: true against its own
+  // precedence rule; never executed as written — counts corrected) `primary:
+  // false` overrides the fixture default so each case exercises the
+  // externalTool/managed branch it names, not the primary short-circuit — see
+  // the dedicated precedence test below for that.
   it.each([
-    [{ externalTool: 'claude-code' as const, managed: false }, 'Claude Code'],
-    [{ externalTool: 'codex' as const, managed: false }, 'Codex'],
-    [{ externalTool: 'cursor' as const, managed: false }, 'Cursor'],
-    [{ externalTool: null, managed: true }, 'Managed'],
-    [{ externalTool: null, managed: false }, 'External'],
+    [{ externalTool: 'claude-code' as const, managed: false, primary: false }, 'Claude Code'],
+    [{ externalTool: 'codex' as const, managed: false, primary: false }, 'Codex'],
+    [{ externalTool: 'cursor' as const, managed: false, primary: false }, 'Cursor'],
+    [{ externalTool: null, managed: true, primary: false }, 'Managed'],
+    [{ externalTool: null, managed: false, primary: false }, 'External'],
   ])('labels %o as %s', (overrides, expected) => {
     expect(describeWorktreeProvenance(entry(overrides))).toBe(expected);
   });
@@ -1901,6 +1906,12 @@ describe('describeWorktreeProvenance', () => {
     expect(describeWorktreeProvenance(entry({ managed: true, primary: true }))).toBe(
       'Primary checkout'
     );
+  });
+
+  it('labels the primary checkout as the primary even when an externalTool is set', () => {
+    expect(
+      describeWorktreeProvenance(entry({ externalTool: 'claude-code', primary: true }))
+    ).toBe('Primary checkout');
   });
 
   it('labels a ledger row missing on disk as agent-reported', () => {
@@ -2203,7 +2214,7 @@ export function buildWorktreeMap(input: {
 pnpm --filter @brainstrike/app-shell vitest run src/worktree-map/__tests__/worktree-map-model.test.ts
 ```
 
-Expected: 19 passed (7 `buildWorktreeMap`, 6 `describeWorktreeProvenance` cases, 6 `formatWorktreeActivity`).
+Expected: 23 passed (9 `buildWorktreeMap`, 8 `describeWorktreeProvenance` cases, 6 `formatWorktreeActivity`). (corrected at execution: the original "19 passed" text was never checked against the test file it describes — the file as written defines 23 cases, and 5 of the original 22 failed outright because the fixture's `primary: true` default beat the `describeWorktreeProvenance` it.each block's externalTool/managed cases; see the it.each block above for the fix and the added precedence-pinning case.)
 
 - [ ] **Step 5: Commit**
 
