@@ -185,6 +185,12 @@ function writeStartingPoint(
     : live;
 }
 
+/**
+ * Carries which of `deriveMakePrimary`'s two refusal branches fired, and the
+ * root id it fired for, so `onMakePrimary`'s wrapper can reproduce the two
+ * distinct `logger.error` calls the derive itself used to make inline —
+ * without the pure function knowing about the logger.
+ */
 class MakePrimaryDerivationError extends Error {
   readonly reason: 'current-primary' | 'secondary';
   readonly rootId: string | undefined;
@@ -201,6 +207,7 @@ class MakePrimaryDerivationError extends Error {
   }
 }
 
+/** Exported so both refusal branches are directly unit-testable without going through `onMakePrimary`'s own swallowed `.catch`. */
 export function deriveMakePrimary(
   current: ThreadCheckoutFolders,
   rootId: string

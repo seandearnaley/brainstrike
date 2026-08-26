@@ -469,7 +469,7 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
     );
   });
 
-  it('rejects Make primary when the current primary root cannot be resolved', () => {
+  it('rejects Make primary when the current primary root cannot be resolved', async () => {
     expect(() =>
       deriveMakePrimary(
         {
@@ -479,6 +479,16 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
         'r-docs'
       )
     ).toThrow('Could not make primary: current primary root r-main-db is unknown or has no path.');
+    // End-to-end pin mirroring the 'secondary' branch's rejection coverage
+    // above: the same throw, awaited as a promise rather than caught
+    // synchronously, so it is pinned the same way `enqueueThreadFoldersWrite`
+    // callers actually observe it — a rejection, not a value.
+    await expect(
+      (async () =>
+        deriveMakePrimary({ ...MAKE_PRIMARY_FOLDERS, primaryRoot: undefined }, 'r-docs'))()
+    ).rejects.toThrow(
+      'Could not make primary: current primary root r-main-db is unknown or has no path.'
+    );
   });
 
   it('reports a retryable Make primary refusal while secondary roots are still loading', async () => {
@@ -556,6 +566,21 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
     );
     await act(async () => {});
 
+    // Same capture as the no-active-thread refusal in use-workspace-bar.test.tsx:
+    // `enqueueThreadFoldersWrite`'s own promise is never exposed publicly, so
+    // the write-queue's REJECTION (not a silent resolve) is proven through the
+    // toast its `.catch` raises, which fires with the exact message
+    // `refuseWriteBeforeThreadMetadata` throws.
+    const writeOutcome = new Promise<void>((_resolve, reject) => {
+      toastSpy.mockImplementationOnce(({ description }: { description: string }) => {
+        reject(new Error(description));
+      });
+    });
+    // The real assertion is the `await expect(writeOutcome).rejects...` below;
+    // this stops Node from flagging the interim window (the promise rejects
+    // inside `act()`, before that line attaches a handler) as unhandled.
+    writeOutcome.catch(() => undefined);
+
     await act(async () => {
       result.current.onAddFolder();
     });
@@ -564,6 +589,9 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
     expect(updateThreadMetadata).not.toHaveBeenCalled();
     expect(loggerMock.error).toHaveBeenCalledWith(
       'Cannot update thread folders before the selected thread metadata is loaded'
+    );
+    await expect(writeOutcome).rejects.toThrow(
+      "This thread's folders have not loaded yet — try again in a moment."
     );
     expect(toastSpy).toHaveBeenCalledTimes(1);
     expect(toastSpy).toHaveBeenCalledWith({

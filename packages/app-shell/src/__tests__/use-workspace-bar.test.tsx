@@ -841,20 +841,35 @@ describe('useWorkspaceBar', () => {
     expect(showItemInFolder).toHaveBeenCalledWith('/ws/brainstrike');
   });
 
-  it('logs instead of silently skipping a folder write with no active thread', async () => {
+  it('rejects and logs a folder write with no active thread, instead of silently skipping it', async () => {
     const { rerender, result } = await setup({ secondaryRootIds: ['r-docs'] });
     rerender({ selectedMemoryThreadId: undefined });
 
+    // The write-queue's promise is never exposed publicly, so its REJECTION
+    // (not the silent resolve the thread-switch branch above it uses) is
+    // captured through the toast it produces.
+    const writeOutcome = new Promise<void>((_resolve, reject) => {
+      toastSpy.mockImplementationOnce(({ description }: { description: string }) =>
+        reject(new Error(description))
+      );
+    });
+    writeOutcome.catch(() => undefined);
     await act(async () => {
       result.current.onRemoveSecondary('r-docs');
     });
-
-    // A write fired with nothing selected is a caller bug, not the ordinary
-    // thread-switch skip — it must be loud, and it must not write.
+    // A caller bug, not the ordinary thread-switch skip — must be loud, must not write.
     expect(loggerMock.error).toHaveBeenCalledWith(
       'Cannot update thread folders without an active thread'
     );
     expect(updateThreadMetadata).not.toHaveBeenCalled();
+    await expect(writeOutcome).rejects.toThrow(
+      'Cannot update thread folders without an active thread.'
+    );
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Cannot update thread folders without an active thread.',
+      title: 'Remove folder failed',
+      variant: 'destructive',
+    });
   });
 
   it('offers no recents and no re-mount affordance on web (capabilities absent)', async () => {
