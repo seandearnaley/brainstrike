@@ -95,6 +95,7 @@ describe('resolveToolRiskCategory', () => {
       for (const id of [
         NATIVE_TOOL_ID.executeCommand,
         NATIVE_TOOL_ID.manageCommandSession,
+        NATIVE_TOOL_ID.manageWorktree,
         NATIVE_TOOL_ID.runSkillScript,
       ] as const) {
         const metadata = NATIVE_TOOL_DEFAULTS[id];
@@ -118,6 +119,7 @@ describe('resolveToolRiskCategory', () => {
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
         'brainstrike.manageCommandSession',
+        NATIVE_TOOL_ID.manageWorktree,
         'brainstrike.runPython',
         'brainstrike.runSkillScript',
       ]);
@@ -170,6 +172,7 @@ describe('buildNativeToolRiskMap', () => {
     }
     expect(riskByTool['brainstrike.executeCommand']).toBe('execute');
     expect(riskByTool['brainstrike.manageCommandSession']).toBe('execute');
+    expect(riskByTool['brainstrike.manageWorktree']).toBe('execute');
     expect(riskByTool['brainstrike.runSkillScript']).toBe('execute');
     expect(riskByTool['brainstrike.runPython']).toBe('execute');
 
@@ -177,6 +180,7 @@ describe('buildNativeToolRiskMap', () => {
       ...EDIT_TOOLS,
       'brainstrike.executeCommand',
       'brainstrike.manageCommandSession',
+      'brainstrike.manageWorktree',
       'brainstrike.runPython',
       'brainstrike.runSkillScript',
     ]);

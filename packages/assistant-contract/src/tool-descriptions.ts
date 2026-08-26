@@ -42,6 +42,8 @@ export const TOOL_DESCRIPTIONS = {
     'List available embedding spaces, workspace-index status, and optional coverage statistics',
   [NATIVE_TOOL_ID.listWorkspaceContext]:
     'Inspect open workspace roots, the Main operating-root path, Focused-root selected context, and workspace index hint without reading file contents; compact summary by default, detail: true for per-file Tapestry ranges',
+  [NATIVE_TOOL_ID.listWorktrees]:
+    'List every git worktree the workspace knows about: path, branch, whether BrainStrike manages it, whether it is usable, and if not, why. Read-only.',
   [NATIVE_TOOL_ID.lspInspect]:
     "LSP (Language Server Protocol) semantic code inspection for TypeScript/JavaScript: the inferred TYPE (hover), line diagnostics, the symbol's DEFINITION location, and its IMPLEMENTATIONS. Give the file path, 1-based line, and `match`: prefer the unique identifier itself (for example `computeTotal`); when it repeats on that line, pass a unique line fragment with exactly one `<<<` immediately before the intended occurrence. Wrong-line identifiers return bounded candidate lines for an explicit retry; ambiguous targets never guess. Read-only; returns a clear 'unavailable' note (not an error) for unsupported file types or when no server is available",
   [NATIVE_TOOL_ID.manageCanvas]:
@@ -50,6 +52,8 @@ export const TOOL_DESCRIPTIONS = {
     'Start, write to, stop, or remove a persistent PTY command session in one open workspace root. Pass exactly one typed operation. Use this for servers and interactive commands that must outlive one tool call; use executeCommand for normal bounded commands. Arbitrary execution with no sandbox; requires approval by default',
   [NATIVE_TOOL_ID.manageTaskList]:
     'Record and update a structured plan for the current thread as a task list (whole-list replace). Each task has content (imperative label), activeForm (present-tense in-progress label), and status pending/in_progress/completed. Keep exactly one task in_progress; mark tasks completed as you finish them. The list is re-shown to you every turn and rendered to the user as a progress checklist',
+  [NATIVE_TOOL_ID.manageWorktree]:
+    'Create an isolated git worktree for the current repository, or archive one. create takes a branch name and a base ref; archive takes the worktree id from listWorktrees and refuses a dirty or in-use worktree unless force is set. Archiving always captures a restorable snapshot first.',
   [NATIVE_TOOL_ID.queryEmbeddingSpace]:
     'Query semantic workspace context; omit embeddingSetId to use the Workspace Index by default',
   [NATIVE_TOOL_ID.queryDiagnostics]:
