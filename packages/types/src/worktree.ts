@@ -45,6 +45,8 @@ export interface ManagedWorktreeRow {
   readonly runId: string | null;
   /** Bounded captured setup report/output (≤ 32 KiB), or null. */
   readonly setupOutput: string | null;
+  /** User-facing reason for a failed or skipped setup, or null. */
+  readonly setupReason: string | null;
   readonly setupStatus: ManagedWorktreeSetupStatus;
   /** Owning thread; null for a worktree that outlived (or never had) one. */
   readonly threadId: string | null;
@@ -86,6 +88,8 @@ export interface WorktreeListEntry {
   readonly repositoryRoot: string;
   /** Durable id of the first live workspace root containing this worktree. */
   readonly rootId: string | null;
+  readonly setupReason: string | null;
+  readonly setupStatus: ManagedWorktreeSetupStatus;
   readonly trust: 'unvalidated' | 'validated';
   readonly trustReason: string | null;
   readonly usable: boolean;
@@ -109,6 +113,15 @@ export interface WorktreeSettings {
    * setup command or probe for the repository fallback.
    */
   readonly setupCommand: WorktreeSetupCommand;
+}
+
+/**
+ * Live parent-path + suggested-name preview for the create sheet, resolved
+ * server-side so the renderer never recomputes the slug or word lists.
+ */
+export interface WorktreeCreateContext {
+  readonly managedParentPath: string;
+  readonly suggestedName: string;
 }
 
 /** `{ detached: true }` [D2] or the branch to create at `baseRef`. */

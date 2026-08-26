@@ -24,6 +24,7 @@ import type {
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeArchiveResult,
+  WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
   WorktreeDescriptor,
@@ -49,6 +50,7 @@ import { createWorktreeLedger, type WorktreeLedgerDatabase } from './worktree-le
 import {
   assertWorktreeTargetOutsideRoots,
   externalToolForPath,
+  generateWorktreeName,
   repositorySlug,
   resolveWorktreeTargetPath,
 } from './worktree-paths';
@@ -211,6 +213,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         repoCommonDir: context.commonDir,
         runId: params.runId ?? null,
         setupOutput: null,
+        setupReason: null,
         setupStatus: 'none',
         threadId: params.threadId ?? null,
       });
@@ -775,6 +778,47 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         }
       });
     },
+    /** Resolve the create sheet preview from the same main-owned policy as create(). */
+    async createContext(params: {
+      readonly rootId: string;
+    }): Promise<GitResult<WorktreeCreateContext>> {
+      try {
+        const context = await resolveRepositoryContext(params.rootId);
+        if (!context.ok) {
+          return context;
+        }
+        const [settings, rows, inventory] = await Promise.all([
+          deps.readSettings(),
+          ledger.listActive(),
+          deps.resolveInventory(),
+        ]);
+        const slug = repositorySlug(context.value.repositoryRoot, context.value.commonDir);
+        const taken = new Set<string>();
+        for (const row of rows) {
+          if (row.repoCommonDir === context.value.commonDir) {
+            taken.add(path.basename(row.path));
+          }
+        }
+        for (const repository of inventory.repositories) {
+          if (repository.identity.repositoryRoot !== context.value.repositoryRoot) {
+            continue;
+          }
+          for (const worktree of repository.worktrees) {
+            taken.add(worktree.name);
+          }
+        }
+        return {
+          ok: true,
+          value: {
+            managedParentPath: path.join(settings.managedDirectory, slug),
+            suggestedName: generateWorktreeName(taken),
+          },
+        };
+      } catch (error) {
+        logger.error('worktree create context failed', { error, rootId: params.rootId });
+        return { error: toErrorMessage(error), ok: false };
+      }
+    },
     /**
      * The ONE sanctioned picker-less grant besides recents (spec §6.2): a path
      * is authorized only when it is a LIVE ledger row whose realpath sits under
@@ -872,6 +916,8 @@ function inventoryListEntry(
     rootId:
       rootIdByPath.get(descriptor.path) ??
       (descriptor.containment === 'outside-roots' ? null : (descriptor.containment[0] ?? null)),
+    setupReason: row?.setupReason ?? null,
+    setupStatus: row?.setupStatus ?? 'none',
     trust: descriptor.trust,
     trustReason: descriptor.trustReason,
     usable: gate.usable,
@@ -897,6 +943,8 @@ function ghostListEntry(
     remedy: null,
     repositoryRoot: repositoryRootFromCommonDir(row.repoCommonDir),
     rootId: rootIdByPath.get(row.path) ?? null,
+    setupReason: row.setupReason,
+    setupStatus: row.setupStatus,
     trust: 'unvalidated',
     trustReason: 'missing on disk',
     usable: false,

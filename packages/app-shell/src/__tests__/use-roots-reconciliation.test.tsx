@@ -91,6 +91,7 @@ function installWorktreesBridgeWithManagedPaths(
     archive: vi.fn(),
     create: vi.fn(),
     createBranchHere: vi.fn(),
+    createContext: vi.fn(),
     getSettings: vi.fn(),
     list: vi.fn(),
     listManagedPaths,

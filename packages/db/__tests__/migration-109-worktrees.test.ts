@@ -75,6 +75,12 @@ describe('migration 109: managed worktree ledger', () => {
   it('creates the ledger table', { timeout: 60_000 }, async () => {
     await runner.runMigration(getMigration109());
     expect(await countTable(db)).toBe(1);
+    const columns = await db.query<{ column_name: string; is_nullable: string }>(
+      `SELECT column_name, is_nullable
+       FROM information_schema.columns
+       WHERE table_name = '${TABLE}'`
+    );
+    expect(columns.rows).toContainEqual({ column_name: 'setup_reason', is_nullable: 'YES' });
   });
 
   it('enforces a UNIQUE path so one directory can never have two ledger rows', {
@@ -187,6 +193,12 @@ describe('migration 109 in the drizzle runner (both runners invariant)', () => {
       expect(indexes.rows.map((row) => row.indexname)).toContain(
         'brainstrike_worktrees_repo_active_idx'
       );
+      const columns = await db.query<{ column_name: string; is_nullable: string }>(
+        `SELECT column_name, is_nullable
+         FROM information_schema.columns
+         WHERE table_name = '${TABLE}'`
+      );
+      expect(columns.rows).toContainEqual({ column_name: 'setup_reason', is_nullable: 'YES' });
     },
     DRIZZLE_RUN_TIMEOUT_MS
   );

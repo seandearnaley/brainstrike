@@ -5,6 +5,7 @@ const service = {
   archive: vi.fn(),
   create: vi.fn(),
   createBranchHere: vi.fn(),
+  createContext: vi.fn(),
   isManagedWorktreePath: vi.fn(),
   list: vi.fn(),
   listManagedPaths: vi.fn(),
@@ -115,6 +116,24 @@ describe('worktrees IPC handlers', () => {
     const params = { branch: 'bs/attached', worktreeId: 'wt-1' };
     await handlers().createBranchHere(params);
     expect(service.createBranchHere).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed createContext payload at the boundary', async () => {
+    expect(await handlers().createContext({ rootId: '' })).toEqual({
+      error: 'worktrees:createContext requires { rootId }.',
+      ok: false,
+    });
+    expect(service.createContext).not.toHaveBeenCalled();
+  });
+
+  it('forwards a validated createContext to the service', async () => {
+    service.createContext.mockResolvedValue({
+      ok: true,
+      value: { managedParentPath: '/managed/app-slug', suggestedName: 'bright-fox' },
+    });
+    const params = { rootId: 'r-1' };
+    await handlers().createContext(params);
+    expect(service.createContext).toHaveBeenCalledWith(params);
   });
 
   it('rejects a malformed restore payload at the boundary', async () => {

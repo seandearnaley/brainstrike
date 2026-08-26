@@ -111,6 +111,7 @@ const BranchMenuRow = ({
         </span>
       </DropdownMenuItem>
       {showsWorktreeAction ? (
+        // Follow-up: checkout-existing-branch create mode replaces this detached-at-tip stopgap.
         <DropdownMenuItem
           className="pl-8 text-[11px]"
           data-testid={`workspace-bar-branch-worktree-${row.name}`}
@@ -118,7 +119,7 @@ const BranchMenuRow = ({
           onSelect={() => onSwitchInNewWorktree(row.name)}
         >
           <SplitSquareHorizontal aria-hidden="true" className="size-3.5" />
-          Switch in a new worktree
+          Switch in a new worktree (detached at this branch&apos;s tip)
         </DropdownMenuItem>
       ) : null}
     </>

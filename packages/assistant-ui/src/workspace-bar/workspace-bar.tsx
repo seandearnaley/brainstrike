@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { BranchChip } from './branch-chip';
 import { FolderChip } from './folder-chip';
+import { ModeChip } from './mode-chip';
 import { PrChip, type WorkspaceBarForge } from './pr-chip';
 
 /** A folder mounted in this thread's workspace (primary or secondary). */
@@ -35,6 +36,79 @@ export interface WorkspaceBarCheckout {
   /** null = detached HEAD */
   readonly branch: string | null;
   readonly dirty: boolean;
+}
+
+export interface WorkspaceBarWorktreeSummary {
+  readonly branch: string | null;
+  readonly detached: boolean;
+  readonly name: string;
+  readonly path: string;
+  readonly setupReason: string | null;
+  readonly setupStatus: 'failed' | 'none' | 'skipped' | 'succeeded';
+  readonly worktreeId: string;
+}
+
+type WorkspaceBarWorktreeUsability =
+  | { readonly disabledReason: null; readonly usable: true }
+  | { readonly disabledReason: string; readonly usable: false };
+
+export type WorkspaceBarWorktreeOption = {
+  readonly branch: string | null;
+  readonly current: boolean;
+  readonly externalTool: 'claude-code' | 'codex' | 'cursor' | null;
+  readonly managed: boolean;
+  readonly name: string;
+  readonly path: string;
+  readonly remedy: 'grant-access' | null;
+  readonly repositoryName: string;
+  readonly worktreeId: string | null;
+} & WorkspaceBarWorktreeUsability;
+
+export interface WorkspaceBarWorktreePicker {
+  readonly error: string | null;
+  readonly loading: boolean;
+  readonly onGrantAccess: (() => void) | undefined;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onSelect: (option: WorkspaceBarWorktreeOption) => void;
+  readonly open: boolean;
+  readonly options: readonly WorkspaceBarWorktreeOption[];
+}
+
+export interface WorkspaceBarCreateWorktreeRequest {
+  readonly baseRef: string;
+  readonly branch: { readonly detached: true } | { readonly name: string };
+  readonly name: string;
+}
+
+export interface WorkspaceBarBaseRefOption {
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface WorkspaceBarMode {
+  /** Base refs the create sheet offers, most useful first. */
+  readonly baseRefs: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOption[]];
+  readonly createDisabledReason: string | null;
+  readonly defaultBranchPrefix: string;
+  readonly defaultName: string;
+  /** Non-null ⇒ the chip opens a diagnostic-only menu that says why (spec §4.5). */
+  readonly disabledReason: string | null;
+  readonly localPath: string | null;
+  /** Resolved `<managedDirectory>/<slug>` parent used for the create sheet's live Location preview. */
+  readonly managedParentPath: string;
+  readonly onArchive: (() => void) | undefined;
+  readonly onCreate: (request: WorkspaceBarCreateWorktreeRequest) => Promise<void>;
+  readonly onCreateBranchHere: ((branch: string) => Promise<void>) | undefined;
+  readonly onHandOffToLocal: (() => void) | undefined;
+  /** Refreshes main-owned create defaults; rejection keeps the sheet closed. */
+  readonly onOpenCreateSheet: () => Promise<void>;
+  /** Asks the caller to open the controlled "Use an existing worktree…" picker. */
+  readonly onOpenPicker: () => void;
+  readonly onReveal: (() => void) | undefined;
+  readonly pending: boolean;
+  readonly picker: WorkspaceBarWorktreePicker;
+  readonly setupSummary: string;
+  readonly worktree: WorkspaceBarWorktreeSummary | null;
 }
 
 /** One local branch row, already gated by app-shell's `buildBranchSwitchModel`. */
@@ -84,6 +158,8 @@ export interface WorkspaceBarProps {
    * reason on the BranchChip instead.
    */
   readonly forge?: WorkspaceBarForge | undefined;
+  /** Desktop only — Local / Worktree selection [D1]. Absent ⇒ no chip. */
+  readonly mode?: WorkspaceBarMode | undefined;
   readonly onAddFolder: () => void;
   /** Present only when the platform can re-mount a recent folder without a picker (desktop). */
   readonly onAddRecent?: ((path: string) => void) | undefined;
@@ -140,6 +216,7 @@ export const WorkspaceBar = ({
   branchMenu,
   checkout,
   forge,
+  mode,
   ...folder
 }: WorkspaceBarProps): ReactElement => {
   const forgeDiagnostic = forgeDiagnosticOf(forge);
@@ -157,6 +234,7 @@ export const WorkspaceBar = ({
         />
       ) : null}
       {forge ? <PrChip forge={forge} /> : null}
+      {mode ? <ModeChip mode={mode} /> : null}
     </div>
   );
 };

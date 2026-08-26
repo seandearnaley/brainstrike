@@ -11,6 +11,7 @@ import type {
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeArchiveResult,
+  WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
   WorktreeListEntry,
@@ -21,6 +22,7 @@ export type {
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
   WorktreeArchiveResult,
+  WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
   WorktreeExternalTool,
@@ -42,6 +44,7 @@ export interface WorktreesBridge {
     branch: string;
     worktreeId: string;
   }) => Promise<GitResult<ManagedWorktreeRow>>;
+  createContext: (params: { rootId: string }) => Promise<GitResult<WorktreeCreateContext>>;
   getSettings: () => Promise<GitResult<WorktreeSettings>>;
   list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
   listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;
@@ -58,6 +61,7 @@ const WORKTREES_BRIDGE_REQUIRED_METHOD_SET = {
   archive: true,
   create: true,
   createBranchHere: true,
+  createContext: true,
   getSettings: true,
   list: true,
   listManagedPaths: true,

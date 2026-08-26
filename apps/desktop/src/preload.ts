@@ -125,6 +125,7 @@ const CHANGES_INVALIDATED_EVENT = 'changes:invalidated' as const;
 const WORKTREES_ARCHIVE_CHANNEL = 'worktrees:archive' as const;
 const WORKTREES_CREATE_CHANNEL = 'worktrees:create' as const;
 const WORKTREES_CREATE_BRANCH_HERE_CHANNEL = 'worktrees:createBranchHere' as const;
+const WORKTREES_CREATE_CONTEXT_CHANNEL = 'worktrees:createContext' as const;
 const WORKTREES_GET_SETTINGS_CHANNEL = 'worktrees:getSettings' as const;
 const WORKTREES_LIST_CHANNEL = 'worktrees:list' as const;
 const WORKTREES_MANAGED_PATHS_CHANNEL = 'worktrees:managedPaths' as const;
@@ -1381,6 +1382,8 @@ if (shouldExposeBridge('worktrees')) {
     create: (params: unknown) => ipcRenderer.invoke(WORKTREES_CREATE_CHANNEL, params),
     createBranchHere: (params: { branch: string; worktreeId: string }) =>
       ipcRenderer.invoke(WORKTREES_CREATE_BRANCH_HERE_CHANNEL, params),
+    createContext: (params: { rootId: string }) =>
+      ipcRenderer.invoke(WORKTREES_CREATE_CONTEXT_CHANNEL, params),
     getSettings: () => ipcRenderer.invoke(WORKTREES_GET_SETTINGS_CHANNEL),
     list: () => ipcRenderer.invoke(WORKTREES_LIST_CHANNEL),
     listManagedPaths: () => ipcRenderer.invoke(WORKTREES_MANAGED_PATHS_CHANNEL),

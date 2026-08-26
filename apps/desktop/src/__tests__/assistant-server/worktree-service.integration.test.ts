@@ -144,6 +144,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
       repoCommonDir: commonDir,
       runId: null,
       setupOutput: null,
+      setupReason: null,
       setupStatus: 'none',
       threadId: null,
     });
@@ -159,6 +160,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
       repoCommonDir: commonDir,
       runId: null,
       setupOutput: null,
+      setupReason: null,
       setupStatus: 'none',
       threadId: null,
     });
@@ -237,6 +239,48 @@ describe('WorktreeService (real git + real PGlite)', () => {
     }
   });
 
+  it('resolves the create parent and suggests a name outside the live ledger set', async () => {
+    const service = buildService();
+    const first = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/bright-fox' },
+      createdBy: 'user',
+      name: 'bright-fox',
+      rootId: 'r-1',
+    });
+    const second = await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/quiet-otter' },
+      createdBy: 'user',
+      name: 'quiet-otter',
+      rootId: 'r-1',
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!(first.ok && second.ok)) {
+      return;
+    }
+
+    const context = await service.createContext({ rootId: 'r-1' });
+
+    expect(context.ok).toBe(true);
+    if (!context.ok) {
+      return;
+    }
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    const expectedParent = path.join(
+      managedDirectory,
+      repositorySlug(realpathSync(repo), commonDir)
+    );
+    expect(context.value.managedParentPath).toBe(expectedParent);
+    expect(realpathSync(context.value.managedParentPath)).toBe(
+      realpathSync(path.dirname(first.value.worktree.path))
+    );
+    expect(context.value.suggestedName).not.toBe('bright-fox');
+    expect(context.value.suggestedName).not.toBe('quiet-otter');
+  });
+
   it('refuses a branch name that already exists rather than reusing it', async () => {
     const service = buildService();
     await service.create({
@@ -306,6 +350,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
       repoCommonDir: commonDir,
       runId: null,
       setupOutput: null,
+      setupReason: null,
       setupStatus: 'none',
       threadId: null,
     });
@@ -395,9 +440,10 @@ describe('WorktreeService (real git + real PGlite)', () => {
   });
 
   it('records a thrown setup runner error without blocking worktree creation', async () => {
-    const created = await buildService({
+    const service = buildService({
       runSetup: () => Promise.reject(new Error('setup runner exploded')),
-    }).create({
+    });
+    const created = await service.create({
       baseRef: 'main',
       branch: { name: 'bs/setup-throw' },
       createdBy: 'user',
@@ -417,11 +463,21 @@ describe('WorktreeService (real git + real PGlite)', () => {
       status: 'failed',
       truncated: false,
     });
+    expect(created.value.worktree.setupReason).toBe('setup runner exploded');
     expect(created.value.worktree.setupStatus).toBe('failed');
     const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
     await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
+      setupReason: 'setup runner exploded',
       setupStatus: 'failed',
     });
+    const listed = await service.list();
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.value.find((entry) => entry.id === created.value.worktree.id)).toMatchObject({
+        setupReason: 'setup runner exploded',
+        setupStatus: 'failed',
+      });
+    }
   });
 
   it('logs a setup-status write failure and returns the previously inserted worktree', async () => {
@@ -463,6 +519,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     const ledger = createWorktreeLedger(() => Promise.resolve(underlying));
     await expect(ledger.get(created.value.worktree.id)).resolves.toMatchObject({
       setupOutput: null,
+      setupReason: null,
       setupStatus: 'none',
     });
     expect(loggerErrorSpy).toHaveBeenCalledWith('could not record worktree setup outcome', {
@@ -661,6 +718,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     ['baseRef', null],
     ['repoCommonDir', 42],
     ['createdBy', 'robot'],
+    ['setupReason', 42],
     ['setupStatus', 'maybe'],
     ['branch', 42],
   ])('rejects a malformed ledger %s value instead of coercing it', async (field, value) => {
@@ -676,6 +734,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
       repoCommonDir: '/repo/.git',
       runId: null,
       setupOutput: null,
+      setupReason: null,
       setupStatus: 'none',
       threadId: null,
       [field]: value,

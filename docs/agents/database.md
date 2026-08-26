@@ -548,7 +548,10 @@ created (`created_by IN ('agent','user')`), keyed by its `path` (UNIQUE) and
 its realpath'd `repo_common_dir`. It is the authorization source for the ONE
 sanctioned picker-less root mount besides recents (`isManagedWorktreePath`,
 `workspace-recent-roots.ts`) and the provenance source the git inventory joins
-to produce `'both'` / `'agent-reported'`.
+to produce `'both'` / `'agent-reported'`. Setup outcomes persist their closed
+status, bounded output, and nullable user-facing reason so later inventory
+reads can explain failed or skipped setup without reconstructing create-time
+state.
 
 Boot-time root reconciliation reads active ledger identities through
 `WorktreeService.listManagedPaths()`, which returns only `{ id, path }` and

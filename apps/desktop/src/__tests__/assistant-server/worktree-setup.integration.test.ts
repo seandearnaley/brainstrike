@@ -98,6 +98,7 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
         repoCommonDir: path.join(repo, '.git'),
         runId: null,
         setupOutput: null,
+        setupReason: null,
         setupStatus: 'none',
         threadId: null,
       },

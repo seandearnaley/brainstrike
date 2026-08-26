@@ -44,6 +44,7 @@ import type {
   StructuredFileDiff,
   StructuredFileDiffParams,
   WorktreeArchiveResult,
+  WorktreeCreateContext,
   WorktreeCreateParams,
   WorktreeCreateResult,
   WorktreeListEntry,
@@ -681,6 +682,7 @@ declare global {
         branch: string;
         worktreeId: string;
       }) => Promise<GitResult<ManagedWorktreeRow>>;
+      createContext: (params: { rootId: string }) => Promise<GitResult<WorktreeCreateContext>>;
       getSettings: () => Promise<GitResult<WorktreeSettings>>;
       list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
       listManagedPaths: () => Promise<GitResult<readonly ManagedWorktreePathEntry[]>>;

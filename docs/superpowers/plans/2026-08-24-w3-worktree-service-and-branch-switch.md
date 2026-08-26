@@ -7005,11 +7005,15 @@ describe('ModeChip', () => {
     expect(chip).toHaveAttribute('title', '/managed/app/bright-fox');
   });
 
-  it('is DISABLED with the stated reason for a non-repository folder (spec §4.5)', () => {
+  // M3 ruling: the visible-reason diagnostic-menu convention overrides disabled+tooltip copy.
+  it('opens a diagnostic menu with the stated reason for a non-repository folder', async () => {
+    const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode({ disabledReason: 'Not a git repository' })} />);
     const chip = screen.getByTestId('workspace-bar-mode-chip');
-    expect(chip).toBeDisabled();
-    expect(chip).toHaveAttribute('title', 'Not a git repository');
+    await user.click(chip);
+    expect(await screen.findByTestId('workspace-bar-mode-diagnostic')).toHaveTextContent(
+      'Not a git repository'
+    );
   });
 
   it('opens the create sheet with an auto-generated, EDITABLE bs/ branch name [D2]', async () => {
