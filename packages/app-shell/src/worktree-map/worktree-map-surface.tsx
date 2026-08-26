@@ -202,11 +202,11 @@ export function WorktreeMapSurface(): ReactElement {
       {repositories.length === 0 && !error ? (
         <p className="text-muted-foreground text-sm">{EMPTY_STATE}</p>
       ) : null}
-      {repositories.map((repository) => (
-        <section className="flex min-w-0 flex-col gap-2" key={repository.repoCommonDir}>
-          <h2 className="font-medium text-sm">{repository.repositoryName}</h2>
+      {repositories.map((repositoryModel) => (
+        <section className="flex min-w-0 flex-col gap-2" key={repositoryModel.repoCommonDir}>
+          <h2 className="font-medium text-sm">{repositoryModel.repositoryName}</h2>
           <div className="flex gap-3 overflow-x-auto pb-2">
-            {repository.cards.map((card) => (
+            {repositoryModel.cards.map((card) => (
               <WorktreeMapCard
                 card={card}
                 key={card.entry.path}

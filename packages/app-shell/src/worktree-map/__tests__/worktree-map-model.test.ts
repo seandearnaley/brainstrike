@@ -386,6 +386,14 @@ describe('formatWorktreeActivity', () => {
     // Proves the magnitude clamp above does not swallow a GENUINELY future
     // timestamp — a week-ahead stamp must not silently read as "just now"
     // either (the original bug this guard exists for).
-    expect(formatWorktreeActivity(new Date('2026-08-26T12:01:30.000Z'), NOW)).toBe('in 2 minutes');
+    expect(formatWorktreeActivity(new Date('2026-08-26T12:01:30.000Z'), NOW)).toBe('in 1 minute');
+  });
+
+  it('rounds a future timestamp toward zero the same way it rounds a past one', () => {
+    // `Math.floor` rounds a negative (future) elapsed AWAY from zero, which
+    // would make 90s future read "in 2 minutes" while 90s past reads
+    // "1 minute ago" — an asymmetric rounding rule for the same magnitude.
+    expect(formatWorktreeActivity(new Date('2026-08-26T12:01:30.000Z'), NOW)).toBe('in 1 minute');
+    expect(formatWorktreeActivity(new Date('2026-08-26T11:58:30.000Z'), NOW)).toBe('1 minute ago');
   });
 });

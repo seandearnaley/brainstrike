@@ -148,13 +148,17 @@ export function formatWorktreeActivity(at: Date, now: Date): string {
     return 'just now';
   }
   const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  // `Math.trunc`, not `Math.floor`: they agree for positive (past) `elapsed`,
+  // but `floor` rounds a negative (future) `elapsed` AWAY from zero — 90s
+  // future would read "in 2 minutes" while 90s past reads "1 minute ago".
+  // `trunc` rounds toward zero either way, so the two stay symmetric.
   if (magnitude < HOUR_MS) {
-    return relative.format(-Math.floor(elapsed / MINUTE_MS), 'minute');
+    return relative.format(-Math.trunc(elapsed / MINUTE_MS), 'minute');
   }
   if (magnitude < DAY_MS) {
-    return relative.format(-Math.floor(elapsed / HOUR_MS), 'hour');
+    return relative.format(-Math.trunc(elapsed / HOUR_MS), 'hour');
   }
-  return relative.format(-Math.floor(elapsed / DAY_MS), 'day');
+  return relative.format(-Math.trunc(elapsed / DAY_MS), 'day');
 }
 
 function lastActivityLabelFor(

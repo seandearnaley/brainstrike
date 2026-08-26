@@ -177,9 +177,12 @@ export function WorktreeMapCard({
               action (spec §10 "Add as root" / A7), the only surface that ever
               calls `worktrees.adopt` for real: the Mode chip's picker never
               could (every unmanaged row is `usable: false`, so its select
-              button stays disabled — see A1's correction). New thread here /
-              Archive… stay disabled until this card is adopted; nothing here
-              is silently skipped.
+              button stays disabled — see A1's correction). New thread here
+              stays present-but-disabled until this card is adopted (its
+              `disabled={!entry.usable}` above); Archive… is ABSENT from the
+              menu entirely until then (`entry.managed ? ... : null` below) —
+              nothing here is silently skipped, one is greyed out and the
+              other doesn't apply yet.
             */}
             {entry.managed ? null : (
               <DropdownMenuItem onSelect={() => onAdopt(card)}>Adopt</DropdownMenuItem>
