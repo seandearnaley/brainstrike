@@ -4080,6 +4080,8 @@ Expected: green; React Doctor reports no NEW error-severity findings in the touc
 
 - [ ] **Step 7: CDT verification (definition of done for this task)**
 
+(Step 7 routed to Task 14's CDT pass — coordinator ruling)
+
 Attach to the running renderer and report COMPUTED VALUES — not impressions:
 
 1. Open the "+" workspace add menu; assert `Worktrees` is listed with the tree icon.
