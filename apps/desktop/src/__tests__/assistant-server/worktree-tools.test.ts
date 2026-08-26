@@ -74,7 +74,7 @@ describe('runListWorktrees', () => {
     });
   });
 
-  it('scopes to one root when `root` is supplied', async () => {
+  it('scopes by repository identity (repoCommonDir), not path equality, when `root` is the primary checkout', async () => {
     const caps = capability({
       list: vi.fn().mockResolvedValue({
         ok: true,
@@ -82,11 +82,13 @@ describe('runListWorktrees', () => {
           {
             branch: null,
             disabledReason: null,
-            id: 'a',
+            id: null,
             name: 'a',
-            path: '/a',
-            primary: false,
+            path: '/repo',
+            primary: true,
+            repoCommonDir: '/repo/.git',
             repositoryRoot: '/repo',
+            rootId: 'root-1',
             usable: true,
           },
           {
@@ -94,9 +96,11 @@ describe('runListWorktrees', () => {
             disabledReason: null,
             id: 'b',
             name: 'b',
-            path: '/b',
+            path: '/other',
             primary: false,
+            repoCommonDir: '/other/.git',
             repositoryRoot: '/other',
+            rootId: null,
             usable: true,
           },
         ],
@@ -106,6 +110,110 @@ describe('runListWorktrees', () => {
     const result = await runListWorktrees({ root: 'brainstrike' }, RUNTIME, caps as never);
 
     expect(result.worktrees.map((worktree) => worktree.name)).toEqual(['a']);
+  });
+
+  it('returns every sibling worktree of the repository, including the primary, when `root` is a worktree-mounted root (the W5 scenario)', async () => {
+    // The bot review this pins (PR #2666): a thread bound to a WORKTREE
+    // checkout, not the primary. `root.path` is the worktree's own path;
+    // `entry.repositoryRoot` for every row is the PRIMARY checkout's path
+    // (never equal to root.path), and `rootId` is null on every entry except
+    // the one that IS the granted root — assertWorktreeTargetOutsideRoots
+    // keeps every OTHER managed worktree, and the primary, outside every
+    // granted root by policy. The old `repositoryRoot === root.path ||
+    // rootId === root.rootId` filter returned exactly one row here (the
+    // worktree itself); repoCommonDir scoping must return all three.
+    const worktreeRuntime = {
+      workspaceRoots: [{ displayName: 'fox', path: '/managed/fox', rootId: 'root-fox' }],
+    } as never;
+    const caps = capability({
+      list: vi.fn().mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            branch: 'main',
+            disabledReason: null,
+            id: null,
+            name: 'repo',
+            path: '/repo',
+            primary: true,
+            repoCommonDir: '/repo/.git',
+            repositoryRoot: '/repo',
+            rootId: null,
+            usable: true,
+          },
+          {
+            branch: 'bs/fox',
+            disabledReason: null,
+            id: 'wt-fox',
+            name: 'fox',
+            path: '/managed/fox',
+            primary: false,
+            repoCommonDir: '/repo/.git',
+            repositoryRoot: '/repo',
+            rootId: 'root-fox',
+            usable: true,
+          },
+          {
+            branch: 'bs/badger',
+            disabledReason: null,
+            id: 'wt-badger',
+            name: 'badger',
+            path: '/managed/badger',
+            primary: false,
+            repoCommonDir: '/repo/.git',
+            repositoryRoot: '/repo',
+            rootId: null,
+            usable: true,
+          },
+          {
+            branch: null,
+            disabledReason: null,
+            id: null,
+            name: 'unrelated',
+            path: '/other',
+            primary: true,
+            repoCommonDir: '/other/.git',
+            repositoryRoot: '/other',
+            rootId: null,
+            usable: true,
+          },
+        ],
+      }),
+    });
+
+    const result = await runListWorktrees({ root: 'fox' }, worktreeRuntime, caps as never);
+
+    expect(result.worktrees.map((worktree) => worktree.name).sort()).toEqual([
+      'badger',
+      'fox',
+      'repo',
+    ]);
+  });
+
+  it('throws a stated error naming the root when no entry identifies it, rather than returning an empty list', async () => {
+    const caps = capability({
+      list: vi.fn().mockResolvedValue({
+        ok: true,
+        value: [
+          {
+            branch: null,
+            disabledReason: null,
+            id: null,
+            name: 'a',
+            path: '/elsewhere',
+            primary: true,
+            repoCommonDir: '/elsewhere/.git',
+            repositoryRoot: '/elsewhere',
+            rootId: null,
+            usable: true,
+          },
+        ],
+      }),
+    });
+
+    await expect(runListWorktrees({ root: 'brainstrike' }, RUNTIME, caps as never)).rejects.toThrow(
+      'Could not resolve workspace root "brainstrike" to a worktree entry.'
+    );
   });
 
   it('throws a stated error when the capability is absent — never an empty list', async () => {

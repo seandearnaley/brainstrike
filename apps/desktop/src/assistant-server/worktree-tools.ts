@@ -114,11 +114,41 @@ export async function runListWorktrees(
     return { worktrees: listed.value.map(project) };
   }
   const root = resolveWorkspaceRoot(runtimeData, input.root);
-  return {
-    worktrees: listed.value
-      .filter((entry) => entry.repositoryRoot === root.path || entry.rootId === root.rootId)
-      .map(project),
-  };
+  // Scope by REPOSITORY IDENTITY (`repoCommonDir`), never by path equality or
+  // per-checkout `rootId` comparison — both are dead for the primary W5
+  // scenario (bot review, PR #2666): `root.path` is only `path.resolve()`'d
+  // (normalizeRoot in workspace-roots.ts) while `entry.repositoryRoot` is
+  // realpath'd (git-inventory-service.ts), so a symlinked grant never matches
+  // on path; and `entry.rootId` is `null` on every sibling worktree AND the
+  // primary checkout once the granted root is a MANAGED worktree —
+  // `assertWorktreeTargetOutsideRoots` keeps managed worktrees outside every
+  // granted root by policy, so only the one entry that IS the granted root
+  // (exact realpath mount) ever carries a matching `rootId`.
+  //
+  // The service already resolved that exact-mount question correctly when it
+  // built `rootId` (`buildRootIdByRealPath` in worktree-service.ts) — reusing
+  // it here, rather than re-deriving root identity with a second realpath/git
+  // call in this module, keeps exactly one seam that knows root→commonDir.
+  // Find the entry that IS the granted root, then every entry sharing its
+  // `repoCommonDir` (the realpath'd join key `WorktreeListEntry` documents
+  // for precisely this) is a worktree of that same repository, primary
+  // included.
+  const boundEntry = listed.value.find((entry) => entry.rootId === root.rootId);
+  if (!boundEntry) {
+    // NO SILENT HIDING (spec §13): an empty list here would read as "this
+    // workspace has no worktrees" when the real fact is "root isn't
+    // resolvable to a worktree entry" — a different, honest error instead.
+    throw new Error(`Could not resolve workspace root "${root.displayName}" to a worktree entry.`);
+  }
+  // Single pass (react-doctor js-combine-iterations): filter+map would walk
+  // the list twice for what a bounded worktree count never needs to.
+  const worktrees: ListedWorktree[] = [];
+  for (const entry of listed.value) {
+    if (entry.repoCommonDir === boundEntry.repoCommonDir) {
+      worktrees.push(project(entry));
+    }
+  }
+  return { worktrees };
 }
 
 /** `bs/bright-fox` → `bright-fox`: a directory name may not contain a slash. */
