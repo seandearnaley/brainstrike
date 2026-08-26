@@ -43,18 +43,23 @@ vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => mockDatabase 
 vi.mock('../../use-active-assistant-thread-ids', () => ({
   useActiveAssistantThreadIds: () => ({ error: null, loading: false, threadIds: new Set() }),
 }));
+// (bot review fix, PR #2664) Controllable so a test can prove the hand-off
+// item only renders for the card whose thread IS the selected thread.
+let mockSelectedThreadByResourceId: Record<string, string> = {};
 vi.mock('@brainstrike/assistant-data', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/assistant-data')>()),
   createPgliteAssistantThreadRepository: createPgliteAssistantThreadRepositoryMock,
   useAssistantThreadStore: (
     selector: (state: {
       createThread: typeof createThreadMock;
+      selectedThreadByResourceId: Record<string, string>;
       selectThread: typeof selectThreadMock;
       threadsByResourceId: Record<string, readonly unknown[]>;
     }) => unknown
   ) =>
     selector({
       createThread: createThreadMock,
+      selectedThreadByResourceId: mockSelectedThreadByResourceId,
       selectThread: selectThreadMock,
       threadsByResourceId: {},
     }),
@@ -146,6 +151,7 @@ describe('WorktreeMapSurface', () => {
     }
     createPgliteAssistantThreadRepositoryMock.mockReturnValue(SENTINEL_REPOSITORY);
     mockDatabase = SENTINEL_DATABASE;
+    mockSelectedThreadByResourceId = {};
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
     adoptMock.mockResolvedValue({ ok: true, value: {} });
     archiveMock.mockResolvedValue({ ok: true, value: {} });
@@ -285,6 +291,81 @@ describe('WorktreeMapSurface', () => {
     expect(selectThreadMock).not.toHaveBeenCalled();
   });
 
+  // (bot review fix, PR #2664) onHandOffToLocal was never passed to any
+  // card, so "Hand off to Local" never rendered and the null-worktree
+  // checkout-intent path (`use-workspace-bar-mode.ts`'s
+  // `intent.worktreeId ? onSelectWorktree(...) : onHandOffToLocal()`) was
+  // dead. These three pin: present + publishes on the selected-and-bound
+  // card, absent on a differently-bound card, absent with no selection.
+  it('shows Hand off to Local on the card bound to the selected thread, and publishes the hand-off intent', async () => {
+    mockSelectedThreadByResourceId = { 'brainstrike:workspace': 'thread-selected' };
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [
+            card({
+              thread: {
+                running: false,
+                threadId: 'thread-selected',
+                title: 'Selected',
+                updatedAt: null,
+              },
+            }),
+          ],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /hand off to local/iu }));
+
+    expect(publishMock).toHaveBeenCalledTimes(1);
+    expect(publishMock).toHaveBeenCalledWith({
+      branch: 'bs/bright-fox',
+      path: '/wt',
+      threadId: 'thread-selected',
+      worktreeId: null,
+    });
+  });
+
+  it('does not show Hand off to Local on a card bound to a thread OTHER than the selected one', async () => {
+    mockSelectedThreadByResourceId = { 'brainstrike:workspace': 'thread-selected' };
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [
+            card({
+              thread: {
+                running: false,
+                threadId: 'thread-not-selected',
+                title: 'Not selected',
+                updatedAt: null,
+              },
+            }),
+          ],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+
+    expect(screen.queryByRole('menuitem', { name: /hand off to local/iu })).not.toBeInTheDocument();
+  });
+
+  it('does not show Hand off to Local anywhere when no thread is selected', async () => {
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+
+    expect(screen.queryByRole('menuitem', { name: /hand off to local/iu })).not.toBeInTheDocument();
+  });
+
   it('toggles indexing through the durable-root setter, never the adapter-keyed one', async () => {
     render(<WorktreeMapSurface />);
 
@@ -398,6 +479,31 @@ describe('WorktreeMapSurface', () => {
       'Could not adopt "bright-fox": The worktree at "/wt" is outside every open folder. Grant access to its folder first, then adopt it.'
     );
     expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  // (bot review fix, PR #2664) The service unconditionally refuses adopting
+  // a repository's primary checkout, so offering Adopt on a primary card was
+  // a guaranteed error. Role-absent, matching the "Open in Terminal"
+  // tripwire idiom below — not disabled, not present in any form.
+  it('offers no Adopt action on a primary, unmanaged card (the service always refuses it)', async () => {
+    useWorktreeMapMock.mockReturnValue({
+      ...BASE_STATE,
+      repositories: [
+        {
+          ...BASE_STATE.repositories[0],
+          cards: [
+            card({
+              entry: { ...card().entry, id: null, managed: false, primary: true, usable: false },
+            }),
+          ],
+        },
+      ],
+    });
+    render(<WorktreeMapSurface />);
+
+    await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
+
+    expect(screen.queryByRole('menuitem', { name: /^adopt$/iu })).not.toBeInTheDocument();
   });
 
   // TRIPWIRE (coordinator ruling, 2026-08-26). W3's A6 ruling deferred the

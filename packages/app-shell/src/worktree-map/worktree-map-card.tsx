@@ -183,8 +183,15 @@ export function WorktreeMapCard({
               menu entirely until then (`entry.managed ? ... : null` below) —
               nothing here is silently skipped, one is greyed out and the
               other doesn't apply yet.
+
+              `entry.primary` is EXCLUDED here too (bot review fix, PR #2664):
+              the service unconditionally refuses adopting the repository's
+              primary checkout (`worktree-adopt.ts`'s
+              "...use Hand off to Local instead" gate), so offering Adopt on
+              a primary card would be a guaranteed error, never a real
+              action.
             */}
-            {entry.managed ? null : (
+            {entry.managed || entry.primary ? null : (
               <DropdownMenuItem onSelect={() => onAdopt(card)}>Adopt</DropdownMenuItem>
             )}
             <DropdownMenuItem onSelect={() => onReveal(entry.path)}>Reveal</DropdownMenuItem>

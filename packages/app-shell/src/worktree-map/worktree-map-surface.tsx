@@ -38,6 +38,10 @@ export function WorktreeMapSurface(): ReactElement {
   const database = usePGliteDatabase();
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
+  const selectedThreadByResourceId = useAssistantThreadStore(
+    (state) => state.selectedThreadByResourceId
+  );
+  const selectedThreadId = selectedThreadByResourceId[resourceId];
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const selectThread = useAssistantThreadStore((state) => state.selectThread);
   const setWorktreeRootIndexingEnabled = useBackgroundIndexingPreferencesStore(
@@ -156,6 +160,37 @@ export function WorktreeMapSurface(): ReactElement {
     [worktrees]
   );
 
+  // (bot review fix, PR #2664) Hand off publishes the SAME checkout-intent
+  // seam as onNewThread, but with `worktreeId: null` — the null-worktree
+  // branch `use-workspace-bar-mode.ts` already consumes
+  // (`intent.worktreeId ? onSelectWorktree(...) : onHandOffToLocal()`), which
+  // was dead until this surface actually supplied the prop. Bound to the
+  // SELECTED thread's id, not the card's own thread field: the card only
+  // renders this item when its `thread` IS the selected thread (see the
+  // render below), so `card.thread.threadId` and `selectedThreadId` agree by
+  // construction, but reading `card.thread` keeps this callback correct even
+  // if a future caller wires it differently.
+  const onHandOffToLocal = useCallback(
+    (card: WorktreeMapCardModel) => {
+      const threadId = card.thread?.threadId;
+      if (!threadId) {
+        // The card only renders "Hand off to Local" when it has a bound
+        // thread (see the render below), so reaching here is a wiring bug
+        // worth stating, never a silent no-op.
+        setActionError(`"${card.entry.name}" has no thread bound to hand off.`);
+        return;
+      }
+      setActionError(null);
+      publishIntent({
+        branch: card.entry.branch,
+        path: card.entry.path,
+        threadId,
+        worktreeId: null,
+      });
+    },
+    [publishIntent]
+  );
+
   // The FIRST real caller of `worktrees.adopt` (Task 2 shipped the service
   // and bridge method, but the picker's own call turned out unreachable and
   // was removed — A1/A7). `WorktreeAdoptParams` takes `createdBy` + `path`
@@ -213,6 +248,13 @@ export function WorktreeMapSurface(): ReactElement {
                 onAddAsRoot={onAddAsRoot}
                 onAdopt={onAdopt}
                 onArchive={onArchive}
+                // Present only for the card holding the SELECTED thread's
+                // checkout [A11] — every other card renders no such item.
+                onHandOffToLocal={
+                  card.thread && card.thread.threadId === selectedThreadId
+                    ? () => onHandOffToLocal(card)
+                    : undefined
+                }
                 onNewThread={onNewThread}
                 onOpenPullRequest={(url) => {
                   void platform?.openExternal(url);
