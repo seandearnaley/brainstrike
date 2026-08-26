@@ -436,6 +436,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     if (!(bridge && args.primaryRootId)) {
       throw new Error('Worktrees are not available here.');
     }
+    if (args.hasSentFirstRequest) {
+      rejectWithToast('Could not open worktree creation', FIRST_REQUEST_CREATE_REASON);
+    }
     let result: Awaited<ReturnType<WorktreesBridge['createContext']>>;
     try {
       result = await bridge.createContext({ rootId: args.primaryRootId });
@@ -448,7 +451,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       rejectWithToast('Could not prepare worktree creation', result.error);
     }
     setCreateSheetContext(result.value);
-  }, [args.primaryRootId, bridge]);
+  }, [args.hasSentFirstRequest, args.primaryRootId, bridge]);
 
   const managedParentPath =
     createSheetContext?.managedParentPath ??

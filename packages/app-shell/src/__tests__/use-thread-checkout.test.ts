@@ -354,6 +354,33 @@ describe('useThreadCheckout', () => {
     ).toThrow('Could not switch worktrees: the current primary folder is no longer available.');
   });
 
+  it('refuses to record the local root as the worktree itself on a degenerate re-select (BST-1390)', async () => {
+    resolveRootIdForPath.mockResolvedValue('r-worktree');
+    const { result } = renderHook(() => useThreadCheckout(ARGS));
+    await result.current.selectWorktree({
+      branch: null,
+      path: '/managed/app/bright-fox',
+      worktreeId: 'w-1',
+    });
+    const derive = enqueue.mock.calls[0]?.[1];
+
+    expect(() =>
+      derive?.({
+        checkoutLocalRootId: undefined,
+        metadataPending: false,
+        primaryRoot: {
+          displayName: 'bright-fox',
+          path: '/managed/app/bright-fox',
+          rootId: 'r-worktree',
+        },
+        primaryRootId: 'r-worktree',
+        secondaryRootIds: [],
+        secondaryRoots: [],
+        threadId: 't-1',
+      })
+    ).toThrow('Could not switch worktrees: the current primary folder is no longer available.');
+  });
+
   it('fails visibly when the worktree root never reconciled', async () => {
     resolveRootIdForPath.mockRejectedValue(new Error('no roots row'));
     const { result } = renderHook(() => useThreadCheckout(ARGS));

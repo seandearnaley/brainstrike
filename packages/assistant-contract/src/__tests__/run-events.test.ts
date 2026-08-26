@@ -41,4 +41,18 @@ describe('ASSISTANT_RUN_EVENT_KINDS', () => {
       expect(terminals).toHaveLength(1);
     }
   });
+
+  it('declares the three worktree lifecycle kinds (BST-1390)', () => {
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('worktree.archived');
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('worktree.created');
+    expect(ASSISTANT_RUN_EVENT_KINDS).toContain('worktree.setup');
+  });
+
+  it('keeps the worktree kinds OUT of the `.started` lifecycle namespace', () => {
+    // They are standalone breadcrumbs — a worktree create is atomic from the
+    // timeline's point of view, so a `.started` spelling would demand a
+    // terminal the operation never emits and the row would spin forever.
+    const worktreeKinds = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.startsWith('worktree.'));
+    expect(worktreeKinds.some((kind) => kind.endsWith('.started'))).toBe(false);
+  });
 });

@@ -890,6 +890,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
           ...demoted,
         ];
+        // TODO(BST-1390): if the thread is currently in worktree checkout mode
+        // (metadata.checkoutMode === 'worktree'), promoting a plain secondary
+        // root to primary here leaves checkoutMode stuck at 'worktree' while
+        // the primary is no longer the worktree — a state-consistency bug.
+        // Deferred: fixing it needs either an implicit hand-off folded into
+        // this same write, or disabling "Make primary" for non-worktree
+        // secondaries while in worktree mode with a visible reason. Needs a
+        // decision, not just a patch — see the BST-1390 Task 17 reviewer
+        // addendum, item (a).
         return {
           binding: {
             operatingRootDisplayName: next.displayName,
@@ -916,6 +925,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const onRemoveSecondary = useCallback(
     (rootId: string) => {
+      // TODO(BST-1390): this can remove the tracked Local root while the
+      // thread is checked out into a worktree (the row a later "Hand off to
+      // Local" would return to). Deferred: either disable that row in the UI
+      // with a visible reason ("This folder is where Hand off returns to") or
+      // clear-and-warn on removal. See the BST-1390 Task 17 reviewer
+      // addendum, item (b).
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => ({
         checkoutLocalRootId: current.checkoutLocalRootId,
         ids: current.secondaryRootIds.filter((id) => id !== rootId),

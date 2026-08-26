@@ -54,6 +54,11 @@ import {
   repositorySlug,
   resolveWorktreeTargetPath,
 } from './worktree-paths';
+import {
+  emitWorktreeArchivedEvent,
+  emitWorktreeCreateEvents,
+  type WorktreeRunEventDeps,
+} from './worktree-run-events';
 
 const logger = createLogger('WorktreeService');
 
@@ -70,7 +75,7 @@ export interface WorktreeSetupInput {
   readonly worktree: ManagedWorktreeRow;
 }
 
-export interface WorktreeServiceDeps {
+export interface WorktreeServiceDeps extends WorktreeRunEventDeps {
   readonly getDatabase: () => Promise<WorktreeLedgerDatabase>;
   readonly readSettings: () => Promise<WorktreeSettings>;
   /** The cached inventory snapshot — the same one `window.changes.inventory()` serves. */
@@ -311,17 +316,18 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       sourcePath: context.value.repositoryRoot,
       worktree: row,
     });
+    let worktree = row;
     try {
-      const worktree = await ledger.recordSetup(row.id, setup);
-      return { ok: true, value: { setup, worktree } };
+      worktree = await ledger.recordSetup(row.id, setup);
     } catch (error) {
       logger.error('could not record worktree setup outcome', {
         error,
         setupStatus: setup.status,
         worktreeId: row.id,
       });
-      return { ok: true, value: { setup, worktree: row } };
     }
+    await emitWorktreeCreateEvents(deps, params.runId, worktree, setup);
+    return { ok: true, value: { setup, worktree } };
   }
 
   /**
@@ -483,6 +489,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
     try {
       const worktree = await ledger.markArchived(row.id, snapshot.value);
+      await emitWorktreeArchivedEvent(deps, params.runId, row, snapshot.value);
       return { ok: true, value: { snapshotRef: snapshot.value, worktree } };
     } catch (error) {
       logger.error('worktree was removed but its archive ledger write failed', {

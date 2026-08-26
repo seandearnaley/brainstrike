@@ -79,7 +79,16 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
       await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
         // Preserve the original Local root across worktree-to-worktree switches;
         // only a transition from Local establishes a new one.
-        const checkoutLocalRootId = current.checkoutLocalRootId ?? current.primaryRootId;
+        const rawLocalRootId = current.checkoutLocalRootId ?? current.primaryRootId;
+        // A local root that resolves to the WORKTREE we are switching into is
+        // degenerate (BST-1390): it happens after "Folder didn't follow" hands
+        // off without ever recording a real Local root (leaving `primaryRootId`
+        // still pointing at the worktree), followed by re-selecting that SAME
+        // worktree. Recording it as "the Local root to return to" would make a
+        // later hand-off return to the worktree itself. Refuse it here and let
+        // the existing no-tracked-root guard below treat it the same as never
+        // having recorded one.
+        const checkoutLocalRootId = rawLocalRootId === rootId ? undefined : rawLocalRootId;
         if (!checkoutLocalRootId) {
           logger.error('Select worktree: current primary root id is unknown', {
             primaryRootId: current.primaryRootId,

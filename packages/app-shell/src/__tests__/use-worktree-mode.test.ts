@@ -280,6 +280,25 @@ describe('useWorktreeMode', () => {
     expect(result.current?.defaultName).toBe('quiet-otter');
   });
 
+  it('refuses to open the create sheet after the first request, with a toast (BST-1390)', async () => {
+    const { result, rerender } = renderHook(
+      ({ hasSentFirstRequest }) => useWorktreeMode({ ...ARGS, hasSentFirstRequest }),
+      { initialProps: { hasSentFirstRequest: false } }
+    );
+    await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
+    rerender({ hasSentFirstRequest: true });
+
+    await expect(result.current?.onOpenCreateSheet()).rejects.toThrow(
+      'Create a worktree before sending the first request.'
+    );
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Create a worktree before sending the first request.',
+      title: 'Could not open worktree creation',
+      variant: 'destructive',
+    });
+    expect(createContextSpy).not.toHaveBeenCalled();
+  });
+
   it('rejects a create-context failure, toasts it, and keeps the last good context', async () => {
     const { result } = renderHook(() => useWorktreeMode(ARGS));
     await act(async () => {

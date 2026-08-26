@@ -65,6 +65,7 @@ export function buildTestService(
         managedDirectory: ctx.managedDirectory,
         setupCommand: null,
       }),
+    recordRunEvent: () => Promise.resolve(),
     resolveInventory: () => Promise.resolve({ errors: [], repositories: [] }),
     resolveRootCwd: (rootId: string) =>
       Promise.resolve(

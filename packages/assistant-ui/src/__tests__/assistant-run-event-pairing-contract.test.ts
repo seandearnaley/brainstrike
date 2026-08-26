@@ -166,6 +166,12 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'tool.completed',
     'tool.failed',
     'tool.resume.unsupported',
+    // BST-1390's worktree lifecycle. All three are emitted `status: 'info'`
+    // (`worktree.setup` uses `'failed'` when setup failed) — never `running` —
+    // so none needs a terminal of its own.
+    'worktree.archived',
+    'worktree.created',
+    'worktree.setup',
   ] as const;
 
   it('tables exactly the non-.started kinds the contract declares', () => {
