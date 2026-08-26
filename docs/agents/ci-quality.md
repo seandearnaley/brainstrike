@@ -893,6 +893,18 @@ flags, 2026-08-18). Do not "fix" BST-1221 by lowering worker counts; the
 evidence says it is not concurrency-driven. The crash itself remains upstream
 (Node/V8); this reporter only guarantees it can never read as success.
 
+The required Unit test and integration steps additionally run through
+`scripts/run-test-command.mjs`. The wrapper streams stdout/stderr unchanged,
+preserves the command's non-zero result, and recognizes only the complete
+three-marker native signature: the exact `jit_page_` allocation assertion,
+`V8_Fatal`, and `ThreadIsolation::UnregisterWasmAllocation`. When all three are
+present it emits the machine-readable
+`BRAINSTRIKE_CI_VERDICT=V8_WASM_JIT_TEARDOWN_FATAL` verdict with explicit
+BST-1221 guidance. A generic worker exit, lost file, assertion failure, or
+partial V8 text is not classified as this defect. This is deliberately not a
+retry or suppression: the required lane stays red, but the native fatal can no
+longer be mistaken for an ordinary test assertion or a resolved rerun.
+
 #### Codecov statuses are non-gating (settled 2026-07-26 — do not relitigate)
 
 The ruleset requires exactly five contexts — `Static`, `Unit`, `Build`,
