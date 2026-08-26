@@ -168,8 +168,15 @@ vi.mock('../../db-main', () => ({
 // If the raise pushes the aggregate band, do NOT widen the band: re-open the
 // two-vs-three decision, or defer `manageWorktree` to a follow-up and ship the
 // read-only listing first.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_246;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9946;
+//
+// HEADROOM RESTORATION (review round, same day): the raise above landed the
+// measured surface EXACTLY at the new MAX (10246/10246) — zero headroom, the
+// hair-trigger failure mode BST-927's band doctrine exists to prevent (any
+// one-word description edit would fail this suite at this line). Both bounds
+// move +18 (10246 → 10264, 9946 → 9964), width 300 unchanged, re-centering so
+// the unchanged 10246 measurement has real (if modest) headroom on both sides.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_264;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9964;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -557,12 +564,18 @@ describe('desktop native tool provider prompt budget', () => {
     // BST-1176: +400/+400 with the three browser-pane tools (measured 8977;
     // ~150 headroom, width 300 — same doctrine as the authored pair above).
     // BST-1392: +347/+347 for the two worktree tools (measured 9490; width 300).
+    // HEADROOM RESTORATION (review round, same day): that raise landed
+    // measured EXACTLY at the new MAX (9490/9490) — zero headroom, same
+    // hair-trigger failure mode as the authored band above. Both bounds move
+    // +18 (9490 → 9508, 9190 → 9208), width 300 unchanged, mirroring the
+    // authored band's own +18 restoration so the unchanged 9490 measurement
+    // gets real headroom on both sides.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(9190);
+    ).toBeGreaterThanOrEqual(9208);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      9490
+      9508
     );
     expect(
       criticalDefinitionTokens,
@@ -630,7 +643,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 9,946-10,246 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 9,964-10,264 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);
