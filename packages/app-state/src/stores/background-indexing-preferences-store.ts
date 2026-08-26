@@ -446,6 +446,26 @@ export async function ensureBackgroundIndexingPreferencesHydrated(options?: {
   return useBackgroundIndexingPreferencesStore.getState();
 }
 
+/**
+ * Resets the live store to defaults AND clears its persisted slice. Invoked by
+ * the factory-reset pipeline so a stale per-root `worktreeRootIndexingOptInById`
+ * entry never survives a reset without a reload (web path) (FACTORY RESET
+ * CONTRACT).
+ */
+export function resetBackgroundIndexingPreferencesStoreToDefaults(): void {
+  try {
+    const persistApi = (
+      useBackgroundIndexingPreferencesStore as typeof useBackgroundIndexingPreferencesStore & {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {
+    // Best effort: storage errors must not block the reset of in-memory state.
+  }
+  useBackgroundIndexingPreferencesStore.getState().reset();
+}
+
 export function __resetBackgroundIndexingPreferencesStoreForTests(): void {
   try {
     useBackgroundIndexingPreferencesStore.setState({

@@ -603,7 +603,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     expect(ghost?.repositoryRoot).toBe(realpathSync(repo));
   });
 
-  it('joins a realistic inventory with ledger provenance, labels, gates, and containing root ids', async () => {
+  it('joins a realistic inventory with ledger provenance, labels, gates, containing root ids, and exact-mount status', async () => {
     const created = await buildService().create({
       baseRef: 'main',
       branch: { name: 'bs/inventory-both' },
@@ -675,6 +675,15 @@ describe('WorktreeService (real git + real PGlite)', () => {
               trust: 'unvalidated',
               trustReason: null,
             }),
+            // (bot review fix, PR #2664 finding 1) A worktree whose path IS
+            // exactly a mounted root's own path — as opposed to the fixture
+            // above, whose path only sits INSIDE `r-container`. Both produce
+            // a non-null `rootId`; only this one is an exact mount.
+            descriptor({
+              containment: ['r-container'],
+              name: 'root-container-itself',
+              path: realpathSync(managedDirectory),
+            }),
           ],
         },
       ],
@@ -696,7 +705,17 @@ describe('WorktreeService (real git + real PGlite)', () => {
       managed: true,
       provenance: 'both',
       rootId: 'r-container',
+      // Contained by r-container, not an exact mount of it (bot review fix,
+      // PR #2664 finding 1) — rootId keeps its existing "first containing
+      // root" meaning unchanged; this is the additive, honest signal.
+      rootIdIsExactMount: false,
       usable: true,
+    });
+    expect(
+      listed.value.find((entry) => entry.path === realpathSync(managedDirectory))
+    ).toMatchObject({
+      rootId: 'r-container',
+      rootIdIsExactMount: true,
     });
     expect(listed.value.find((entry) => entry.path === externalPath)).toMatchObject({
       externalTool: 'codex',

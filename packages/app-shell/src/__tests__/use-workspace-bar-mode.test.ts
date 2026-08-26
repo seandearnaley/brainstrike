@@ -28,7 +28,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   toast: toastSpy,
 }));
 
-import { useWorkspaceBarMode } from '../hooks/use-workspace-bar-mode';
+import { type UseWorkspaceBarModeArgs, useWorkspaceBarMode } from '../hooks/use-workspace-bar-mode';
+import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 
 const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   baseRefs: [{ label: 'Current branch', value: 'HEAD' }],
@@ -176,5 +177,77 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderComposition();
 
     expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toBeUndefined();
+  });
+});
+
+describe('useWorkspaceBarMode worktree map checkout intent', () => {
+  const onHandOffToLocal = vi.fn(() => Promise.resolve());
+  const onSelectWorktree = vi.fn(() => Promise.resolve());
+  const args = {
+    checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+    onHandOffToLocal,
+    onSelectWorktree,
+    primaryRootId: 'r-1',
+    primaryRootPath: '/work/app',
+    selectedMemoryThreadId: thread.id,
+    selectedThread: thread,
+    worktreeCheckout: {
+      branch: null,
+      mode: 'local',
+      worktreeId: null,
+      worktreePath: null,
+    },
+  } satisfies UseWorkspaceBarModeArgs;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    branchSwitcherSpy.mockReturnValue(undefined);
+    worktreeModeSpy.mockReturnValue(mode());
+    useWorktreeCheckoutIntentStore.setState({ pending: null });
+  });
+
+  it('binds the published worktree to the selected thread exactly once', async () => {
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'bs/bright-fox',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'wt-1',
+    });
+
+    const { rerender } = renderHook(() => useWorkspaceBarMode(args));
+    await waitFor(() => expect(onSelectWorktree).toHaveBeenCalledTimes(1));
+    expect(onSelectWorktree).toHaveBeenCalledWith({
+      branch: 'bs/bright-fox',
+      path: '/wt',
+      worktreeId: 'wt-1',
+    });
+    expect(onHandOffToLocal).not.toHaveBeenCalled();
+
+    rerender();
+    expect(onSelectWorktree).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands off to Local when the intent carries a null worktree id', async () => {
+    useWorktreeCheckoutIntentStore
+      .getState()
+      .publish({ branch: null, path: '/repo', threadId: 'thread-1', worktreeId: null });
+
+    renderHook(() => useWorkspaceBarMode(args));
+
+    await waitFor(() => expect(onHandOffToLocal).toHaveBeenCalledTimes(1));
+    expect(onSelectWorktree).not.toHaveBeenCalled();
+  });
+
+  it('ignores an intent published for a different thread', async () => {
+    useWorktreeCheckoutIntentStore
+      .getState()
+      .publish({ branch: null, path: '/wt', threadId: 'other', worktreeId: 'wt-9' });
+
+    renderHook(() => useWorkspaceBarMode(args));
+
+    await Promise.resolve();
+    expect(onSelectWorktree).not.toHaveBeenCalled();
+    expect(onHandOffToLocal).not.toHaveBeenCalled();
+    expect(useWorktreeCheckoutIntentStore.getState().pending).not.toBeNull();
   });
 });

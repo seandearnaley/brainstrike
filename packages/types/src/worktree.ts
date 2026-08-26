@@ -104,6 +104,20 @@ export interface WorktreeListEntry {
   readonly repositoryRoot: string;
   /** Durable id of the first live workspace root containing this worktree. */
   readonly rootId: string | null;
+  /**
+   * `true` exactly when `rootId` is a root whose path IS this checkout's own
+   * path (an exact mount) — never a broader root that merely CONTAINS it
+   * (the primary checkout inside a larger open folder, or a worktree nested
+   * inside another mounted root). `rootId` keeps its existing "first
+   * containing root" contract unchanged (bot review, PR #2664 finding 1):
+   * this flag is the ADDITIVE signal a consumer needs before treating
+   * `rootId` as "this worktree's own workspace root" — e.g. before
+   * persisting a root-scoped preference like the background-indexing
+   * opt-in, which would otherwise mutate the WRONG root's setting while
+   * showing no effect on the checkout actually displayed. Meaningless when
+   * `rootId` is `null`.
+   */
+  readonly rootIdIsExactMount: boolean;
   readonly setupReason: string | null;
   readonly setupStatus: ManagedWorktreeSetupStatus;
   readonly trust: 'unvalidated' | 'validated';
