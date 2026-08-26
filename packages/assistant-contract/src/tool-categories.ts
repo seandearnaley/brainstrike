@@ -268,7 +268,10 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   // WorktreeService.list() is inventory ⋈ ledger.
   [NATIVE_TOOL_ID.listWorktrees]: {
     category: 'analysis',
-    estimatedTokens: 90,
+    // Measured 113 authored definition tokens (native-tool-prompt-budget.test.ts,
+    // BST-1392) — matching neighbours are honest about the real cost since the
+    // settings Tools page renders this verbatim (unified-tools-settings.tsx).
+    estimatedTokens: 115,
     loadingTier: 'deferred',
     requiresApproval: false,
     riskCategory: 'read',
@@ -331,7 +334,10 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
   // (`listWorktrees`) precisely so this classification can stay strict.
   [NATIVE_TOOL_ID.manageWorktree]: {
     category: 'action',
-    estimatedTokens: 190,
+    // Measured 278 authored definition tokens (native-tool-prompt-budget.test.ts,
+    // BST-1392) — matching neighbours are honest about the real cost since the
+    // settings Tools page renders this verbatim (unified-tools-settings.tsx).
+    estimatedTokens: 280,
     loadingTier: 'deferred',
     requiresApproval: true,
     riskCategory: 'execute',
