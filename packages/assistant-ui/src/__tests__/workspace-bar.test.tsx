@@ -280,7 +280,7 @@ describe('WorkspaceBar', () => {
     expect(onRemoveSecondary).toHaveBeenCalledWith('r-docs');
   });
 
-  it('visibly disables Remove when a secondary carries a removal reason', async () => {
+  it('keeps a disabled Remove reason readable and keyboard-accessible', async () => {
     const user = setup();
     const onRemoveSecondary = vi.fn();
     render(
@@ -301,9 +301,15 @@ describe('WorkspaceBar', () => {
     await openFolderMenu(user);
     await openRootSubmenu(user, 'r-local');
     const remove = await screen.findByTestId('workspace-bar-remove-secondary-r-local');
-    expect(remove).toHaveAttribute('data-disabled');
-    expect(remove).toHaveTextContent('This folder is where Hand off returns to.');
-    await user.click(remove);
+    expect(remove).toHaveAttribute('aria-disabled', 'true');
+    expect(remove).toHaveAccessibleDescription('This folder is where Hand off returns to.');
+    const reason = screen.getByText('This folder is where Hand off returns to.');
+    expect(reason).toHaveClass('text-foreground');
+    expect(remove).not.toHaveClass('opacity-50');
+
+    await user.keyboard('{End}');
+    expect(remove).toHaveFocus();
+    await user.keyboard('{Enter}');
     expect(onRemoveSecondary).not.toHaveBeenCalled();
   });
 

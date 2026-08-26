@@ -177,7 +177,7 @@ function persistedCheckoutMode(
   if (requested === 'local' || requested === 'worktree') {
     return requested;
   }
-  return current.checkoutMode ?? 'local';
+  return current.checkoutMode;
 }
 
 function makePrimaryWrite(current: ThreadCheckoutFolders, rootId: string): ThreadCheckoutWrite {
@@ -675,7 +675,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     primaryRoot,
     primaryRootId,
     secondaryRootIds,
-    secondaryRoots,
+    secondaryRoots: loadedSecondaryRoots,
     threadId: selectedMemoryThreadId,
   });
   useEffect(() => {
@@ -686,7 +686,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       primaryRoot,
       primaryRootId,
       secondaryRootIds,
-      secondaryRoots,
+      secondaryRoots: loadedSecondaryRoots,
       threadId: selectedMemoryThreadId,
     };
   }, [
@@ -695,7 +695,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     primaryRoot,
     primaryRootId,
     secondaryRootIds,
-    secondaryRoots,
+    loadedSecondaryRoots,
     selectedMemoryThreadId,
     selectedThreadMetadataPending,
   ]);
@@ -935,16 +935,30 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       // operatingRoot* keys persistThreadRootBinding writes (the sanitizer's
       // all-or-nothing rule), through the same store action — the global MAIN
       // root is deliberately untouched.
-      void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) =>
-        makePrimaryWrite(current, rootId)
-      ).catch((error: unknown) => {
-        logger.error('Make primary failed', { error, rootId });
-        toast({
-          description: describeFailure(error),
-          title: 'Make primary failed',
-          variant: 'destructive',
+      let localTransitionPrimaryName: string | null = null;
+      void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
+        const request = makePrimaryWrite(current, rootId);
+        if (request.binding?.['checkoutMode'] === 'local') {
+          localTransitionPrimaryName = request.primaryRoot?.displayName ?? null;
+        }
+        return request;
+      })
+        .then(() => {
+          if (localTransitionPrimaryName) {
+            toast({
+              description: `“${localTransitionPrimaryName}” is primary. The worktree remains attached as a secondary folder.`,
+              title: 'Thread is Local again',
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          logger.error('Make primary failed', { error, rootId });
+          toast({
+            description: describeFailure(error),
+            title: 'Make primary failed',
+            variant: 'destructive',
+          });
         });
-      });
     },
     [enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );

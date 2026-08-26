@@ -1032,9 +1032,16 @@ additional explorer/status chrome):
     `secondaryRootIds`; it never disconnects the folder from the workspace.
     While checkout mode is Worktree, making a secondary primary includes the
     Local checkout transition in that SAME write, so the operating root and
-    checkout record never disagree. The secondary named by
+    checkout record never disagree. This role swap preserves the folder set:
+    the selected secondary becomes primary, the former worktree primary becomes
+    a secondary, and every other secondary remains attached. A success toast
+    makes the implicit Local transition and retained worktree explicit. The
+    secondary named by
     `checkoutLocalRootId` keeps its Remove action visibly disabled with “This
     folder is where Hand off returns to.”; other secondary actions are unchanged.
+    A failed write retains the prior folder set and checkout record. The
+    disabled return action remains keyboard-focusable and exposes its
+    full-contrast reason as an accessible description.
   - "Add folder…" adds the folder GLOBALLY (the existing multi-root
     `addRootDirectory` flow) AND records it as a thread secondary. The durable
     `roots` row is written by the roots-reconciliation effect, so the id

@@ -807,6 +807,40 @@ describe('useAssistantThreadStore tab sessions', () => {
     ).toEqual(new Date('2026-04-22T10:00:00Z'));
   });
 
+  it('removes checkout-only keys from loaded metadata after a Local transition persists', async () => {
+    const thread = {
+      ...makeCuratedThread(),
+      metadata: {
+        checkoutBranch: 'bs/bright-fox',
+        checkoutLocalRootId: 'r-local',
+        checkoutMode: 'worktree' as const,
+        checkoutWorktreeId: 'w-1',
+        checkoutWorktreePath: '/managed/bright-fox',
+        operatingRootId: 'r-worktree',
+      },
+    };
+    const repository = createRepository([thread]);
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore
+      .getState()
+      .updateThreadMetadata(repository, workspaceId, thread.id, {
+        checkoutMode: 'local',
+        operatingRootId: 'r-local',
+      });
+
+    expect(repository.updateThreadMetadata).toHaveBeenCalledWith(thread.id, {
+      checkoutMode: 'local',
+      operatingRootId: 'r-local',
+    });
+    expect(
+      useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]?.metadata
+    ).toEqual({
+      checkoutMode: 'local',
+      operatingRootId: 'r-local',
+    });
+  });
+
   it('updates many thread colors in one repository call and one recency-preserving transition', async () => {
     const threadA = makeThread('thread-a', '2026-04-22T11:00:00Z');
     const threadB = makeThread('thread-b', '2026-04-22T10:00:00Z');

@@ -376,12 +376,31 @@ describe('useWorkspaceBar — write tail chaining', () => {
     );
     expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
 
-    const persistedPatch = updateThreadMetadata.mock.calls[0]?.[1];
-    if (!persistedPatch) {
-      throw new Error('Make primary did not persist its atomic checkout transition');
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: '“docs” is primary. The worktree remains attached as a secondary folder.',
+        title: 'Thread is Local again',
+      })
+    );
+    const stored = useAssistantThreadStore
+      .getState()
+      .threadsByResourceId[RESOURCE_ID]?.find((thread) => thread.id === THREAD_ID);
+    expect(stored?.metadata).toEqual({
+      checkoutMode: 'local',
+      operatingRootDisplayName: 'docs',
+      operatingRootId: 'r-docs',
+      operatingRootPath: '/ws/docs',
+      secondaryRootIds: ['r-main-db', 'r-worktree-db'],
+    });
+
+    const persistedMetadata = stored?.metadata;
+    if (!persistedMetadata) {
+      throw new Error('Make primary did not update the loaded thread metadata');
     }
     unmount();
-    const reloaded = await setup({ ...persistedPatch });
+    // The assistant-data repository integration suite separately pins that a
+    // Local transition deletes these same checkout-only keys from the row.
+    const reloaded = await setup({ ...persistedMetadata });
     await waitFor(() => expect(reloaded.result.current.primaryRoot?.rootId).toBe('r-docs'));
     expect(reloaded.result.current.mode?.worktree).toBeNull();
   });

@@ -20,7 +20,7 @@ import {
   Star,
   X,
 } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { type ReactElement, useId } from 'react';
 import type { WorkspaceBarProps, WorkspaceBarRoot } from './workspace-bar';
 
 type FolderChipProps = Omit<WorkspaceBarProps, 'checkout'>;
@@ -124,6 +124,7 @@ const RootRow = ({
   'onCopyPath' | 'onMakePrimary' | 'onRemoveSecondary' | 'reveal'
 >): ReactElement => {
   const actions = rootActions(root, isPrimary, handlers);
+  const disabledReasonIdPrefix = useId();
   const testId = `workspace-bar-root-${root.rootId}`;
   const titleProps = root.path ? { title: root.path } : {};
 
@@ -145,22 +146,46 @@ const RootRow = ({
         <RootRowContent isPrimary={isPrimary} root={root} />
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
-        {actions.map(({ disabledReason, icon: Icon, label, onSelect, testId: actionTestId }) => (
-          <DropdownMenuItem
-            data-testid={actionTestId}
-            disabled={disabledReason !== null}
-            key={actionTestId}
-            onSelect={onSelect}
-          >
-            <Icon aria-hidden="true" className="size-3.5" />
-            <span className="flex min-w-0 flex-col">
-              <span>{label}</span>
-              {disabledReason ? (
-                <span className="text-[11px] text-muted-foreground">{disabledReason}</span>
-              ) : null}
-            </span>
-          </DropdownMenuItem>
-        ))}
+        {actions.map(
+          ({ disabledReason, icon: Icon, label, onSelect, testId: actionTestId }, index) => {
+            const disabledReasonId = `${disabledReasonIdPrefix}-${index}`;
+            return (
+              <DropdownMenuItem
+                {...(disabledReason
+                  ? {
+                      'aria-describedby': disabledReasonId,
+                      'aria-disabled': true,
+                      className: 'cursor-not-allowed',
+                    }
+                  : {})}
+                data-testid={actionTestId}
+                key={actionTestId}
+                onSelect={(event) => {
+                  if (disabledReason) {
+                    event.preventDefault();
+                    return;
+                  }
+                  onSelect();
+                }}
+              >
+                <Icon
+                  aria-hidden="true"
+                  className={disabledReason ? 'size-3.5 text-muted-foreground' : 'size-3.5'}
+                />
+                <span className="flex min-w-0 flex-col">
+                  <span className={disabledReason ? 'text-muted-foreground' : undefined}>
+                    {label}
+                  </span>
+                  {disabledReason ? (
+                    <span className="text-foreground text-xs" id={disabledReasonId}>
+                      {disabledReason}
+                    </span>
+                  ) : null}
+                </span>
+              </DropdownMenuItem>
+            );
+          }
+        )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
