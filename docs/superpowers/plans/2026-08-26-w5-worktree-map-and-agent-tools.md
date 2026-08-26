@@ -198,7 +198,7 @@ gh stack init --base integration/workspace-checkout-awareness seandearnaley/bst-
 **Files:**
 - Modify: `packages/types/src/worktree.ts`
 - Modify: `apps/desktop/src/assistant-server/worktree-service.ts`
-- Modify: `apps/desktop/src/__tests__/assistant-server/worktree-service.test.ts`
+- Modify: `apps/desktop/src/__tests__/assistant-server/worktree-service.integration.test.ts`
 - Modify: `packages/app-shell/src/hooks/use-worktree-mode.ts`
 - Modify: `packages/app-shell/src/__tests__/use-worktree-mode.test.ts`
 
@@ -210,68 +210,159 @@ gh stack init --base integration/workspace-checkout-awareness seandearnaley/bst-
     - `readonly primary: boolean;` — this checkout IS the repository's main worktree.
     - `readonly repoCommonDir: string;` — realpath'd git common dir; the `brainstrike_forge_prs` join key.
 
+> **(corrected at execution: the mocked unit suite never existed; integration lane is the convention.)**
+> `apps/desktop/src/__tests__/assistant-server/worktree-service.test.ts` and its `describe('createWorktreeService')`
+> block, `makeService()` helper, and `worktreeDescriptor`/`managedRow` fixture builders do not exist anywhere in this
+> repository's history — this plan's Step 1 was drafted against an imagined mocked seam. The repo's actual
+> convention (see `worktree-service.integration.test.ts`'s own header comment) is real git + real PGlite via the
+> shared fixture kit in `worktree-service.shared.ts` (`createTestWorkspace()`, `buildTestService()`,
+> `asLedgerDatabase()`, `git(cwd, args)`). Steps 1-2 below target `worktree-service.integration.test.ts` instead,
+> keeping every assertion value from the original brief — only the fixture mechanics changed from mocked
+> `GitInventory`/`ManagedWorktreeRow` literals to a real repo + real ledger rows.
+
 - [ ] **Step 1: Write the failing test**
 
-Append to `apps/desktop/src/__tests__/assistant-server/worktree-service.test.ts` (inside the existing `describe('createWorktreeService')` block — reuse that file's existing `makeService()` helper and inventory fixture builders):
+Append to `apps/desktop/src/__tests__/assistant-server/worktree-service.integration.test.ts` (inside the existing
+`describe('WorktreeService (real git + real PGlite)')` block — reuse that file's existing `buildService()` closure,
+`workspace`/`repo`/`managedDirectory` fixtures, and the `descriptor(...)` builder pattern already used by the
+"joins a realistic inventory" test):
 
 ```ts
   it('marks the repository main worktree as the primary and refuses it as a checkout target', async () => {
-    const service = makeService({
-      inventory: {
-        errors: [],
-        repositories: [
-          {
-            identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
-            worktrees: [
-              worktreeDescriptor({ containment: ['root-1'], name: 'repo', path: '/repo' }),
-              worktreeDescriptor({ containment: ['root-1'], name: 'feature', path: '/repo-wt' }),
-            ],
-          },
-        ],
-      },
+    const created = await buildService().create({
+      baseRef: 'main',
+      branch: { name: 'bs/primary-gate' },
+      createdBy: 'user',
+      name: 'primary-gate',
+      rootId: 'r-1',
     });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const inventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: created.value.worktree.repoCommonDir, repositoryRoot: repo },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'main',
+              containment: ['r-1'],
+              current: false,
+              detached: false,
+              head: '0123456789012345678901234567890123456789',
+              lockedReason: null,
+              name: 'repo',
+              path: repo,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+            {
+              bare: false,
+              branch: 'bs/primary-gate',
+              containment: ['r-1'],
+              current: false,
+              detached: false,
+              head: '0123456789012345678901234567890123456789',
+              lockedReason: null,
+              name: 'primary-gate',
+              path: created.value.worktree.path,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    } satisfies GitInventory;
 
-    const result = await service.list();
+    const listed = await buildService({ resolveInventory: () => Promise.resolve(inventory) }).list();
 
-    expect(result.ok).toBe(true);
-    const entries = result.ok ? result.value : [];
-    const primary = entries.find((entry) => entry.path === '/repo');
+    expect(listed.ok).toBe(true);
+    const entries = listed.ok ? listed.value : [];
+    const primary = entries.find((entry) => entry.path === repo);
     expect(primary?.primary).toBe(true);
     expect(primary?.usable).toBe(false);
     expect(primary?.disabledReason).toBe(
       "This is the repository's primary checkout — use Hand off to Local instead."
     );
-    expect(entries.find((entry) => entry.path === '/repo-wt')?.primary).toBe(false);
+    expect(entries.find((entry) => entry.path === created.value.worktree.path)?.primary).toBe(false);
   });
 
   it('carries the repository common dir and the ledger creation stamp onto every entry', async () => {
-    const service = makeService({
-      inventory: {
-        errors: [],
-        repositories: [
-          {
-            identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
-            worktrees: [worktreeDescriptor({ containment: ['root-1'], name: 'wt', path: '/wt' })],
-          },
-        ],
-      },
-      ledgerRows: [
-        managedRow({ createdAt: '2026-08-26T00:00:00.000Z', id: 'wt-1', path: '/wt' }),
-        managedRow({ createdAt: '2026-08-25T00:00:00.000Z', id: 'ghost-1', path: '/gone' }),
-      ],
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    const created = await buildService().create({
+      baseRef: 'main',
+      branch: { name: 'bs/carries-stamp' },
+      createdBy: 'user',
+      name: 'carries-stamp',
+      rootId: 'r-1',
     });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const ledger = createWorktreeLedger(() => Promise.resolve(asLedgerDatabase(db)));
+    await ledger.insert({
+      archivedAt: null,
+      archiveSnapshotRef: null,
+      baseRef: 'main',
+      branch: 'bs/ghost-stamp',
+      createdAt: '2026-08-25T00:00:00.000Z',
+      createdBy: 'user',
+      id: '01993a12-0000-7000-8000-000000000021',
+      path: '/gone',
+      repoCommonDir: '/elsewhere/.git',
+      runId: null,
+      setupOutput: null,
+      setupReason: null,
+      setupStatus: 'none',
+      threadId: null,
+    });
+    const inventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: created.value.worktree.repoCommonDir, repositoryRoot: repo },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'bs/carries-stamp',
+              containment: ['r-1'],
+              current: false,
+              detached: false,
+              head: '0123456789012345678901234567890123456789',
+              lockedReason: null,
+              name: 'carries-stamp',
+              path: created.value.worktree.path,
+              provenance: 'scanned' as const,
+              prunableReason: null,
+              trust: 'validated' as const,
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    } satisfies GitInventory;
 
-    const result = await service.list();
+    const listed = await buildService({ resolveInventory: () => Promise.resolve(inventory) }).list();
 
-    expect(result.ok).toBe(true);
-    const entries = result.ok ? result.value : [];
-    const scanned = entries.find((entry) => entry.path === '/wt');
-    expect(scanned?.repoCommonDir).toBe('/repo/.git');
-    expect(scanned?.createdAt).toBe('2026-08-26T00:00:00.000Z');
+    expect(listed.ok).toBe(true);
+    const entries = listed.ok ? listed.value : [];
+    const scanned = entries.find((entry) => entry.path === created.value.worktree.path);
+    expect(scanned?.repoCommonDir).toBe(commonDir);
+    expect(scanned?.createdAt).toBe(created.value.worktree.createdAt);
     const ghost = entries.find((entry) => entry.path === '/gone');
     // The ghost row keeps the LEDGER's own common dir — the inventory has no
     // descriptor for it, so there is nothing else that could be honest here.
-    expect(ghost?.repoCommonDir).toBe(managedRow({ id: 'ghost-1', path: '/gone' }).repoCommonDir);
+    expect(ghost?.repoCommonDir).toBe('/elsewhere/.git');
     expect(ghost?.primary).toBe(false);
   });
 ```
@@ -279,7 +370,7 @@ Append to `apps/desktop/src/__tests__/assistant-server/worktree-service.test.ts`
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-pnpm --filter @brainstrike/desktop vitest run src/__tests__/assistant-server/worktree-service.test.ts
+pnpm --filter @brainstrike/desktop vitest run src/__tests__/assistant-server/worktree-service.integration.test.ts
 ```
 
 Expected: both new cases fail — `Property 'primary' does not exist on type 'WorktreeListEntry'` at type-check, and at runtime `expect(primary?.primary).toBe(true)` receives `undefined`.
@@ -466,7 +557,7 @@ Update that file's `entry(...)` fixture factory to supply the three new fields (
 - [ ] **Step 6: Run the tests to verify they pass**
 
 ```bash
-pnpm --filter @brainstrike/desktop vitest run src/__tests__/assistant-server/worktree-service.test.ts
+pnpm --filter @brainstrike/desktop vitest run src/__tests__/assistant-server/worktree-service.integration.test.ts
 pnpm --filter @brainstrike/app-shell vitest run src/__tests__/use-worktree-mode.test.ts
 ```
 
@@ -478,7 +569,7 @@ Expected: all green, including the two new desktop cases and the new app-shell c
 pnpm run type-check
 ```
 
-Expected: clean. Every `WorktreeListEntry` literal in the repo must now supply the three fields — the compiler enumerates the ones you missed. At the time of writing that is exactly two production sites (`inventoryListEntry`, `ghostListEntry`) plus the fixture factories in `apps/desktop/src/__tests__/assistant-server/worktree-service.test.ts` and `packages/app-shell/src/__tests__/use-worktree-mode.test.ts`. The desktop E2E suites build no such literal, and the `assistant-ui` picker/chip tests build `WorkspaceBarWorktreeOption`, a different type this task does not touch — do not go looking for edits there.
+Expected: clean. Every `WorktreeListEntry` literal in the repo must now supply the three fields — the compiler enumerates the ones you missed. At the time of writing that is exactly two production sites (`inventoryListEntry`, `ghostListEntry`) plus the fixture factory in `packages/app-shell/src/__tests__/use-worktree-mode.test.ts`. `worktree-service.integration.test.ts` builds `WorktreeDescriptor`/`GitInventory` literals, not `WorktreeListEntry` ones (its assertions read `WorktreeListEntry` values back from the real `service.list()` call), so the compiler will not flag anything there. The desktop E2E suites build no `WorktreeListEntry` literal either, and the `assistant-ui` picker/chip tests build `WorkspaceBarWorktreeOption`, a different type this task does not touch — do not go looking for edits there.
 
 - [ ] **Step 8: Commit**
 
