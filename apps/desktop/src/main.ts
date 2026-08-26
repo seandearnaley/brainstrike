@@ -2052,6 +2052,7 @@ if (singleInstanceLockAcquired) {
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
+          resolveWorktreeService: () => worktreeService,
           // T1 injection point (BST-1164): the run-persistence seam's snapshot
           // deps — threaded, not yet consumed (T2's turn-boundary triggers
           // consume them without editing main.ts).

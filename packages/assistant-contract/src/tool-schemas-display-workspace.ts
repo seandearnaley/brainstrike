@@ -66,6 +66,24 @@ export const WORKSPACE_TOOL_SCHEMAS = {
     toolId: 'brainstrike.listWorkspaceContext',
   },
 
+  'brainstrike.listWorktrees': {
+    description:
+      'List every git worktree the workspace knows about, with its usability and the reason when it is not usable.',
+    parameters: [
+      {
+        description:
+          'Workspace root id or display name to scope the listing to; omit to list every open root',
+        minLength: 1,
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'worktrees[]: { branch, detached, disabledReason, externalTool, managed, name, path, primary, provenance, repositoryRoot, usable, worktreeId }. An unusable worktree is listed with its reason, never omitted.',
+    toolId: 'brainstrike.listWorktrees',
+  },
+
   'brainstrike.manageCanvas': {
     description:
       'Create, list, or write a new version of an HTML Canvas document persisted for the current thread.',
@@ -115,6 +133,65 @@ export const WORKSPACE_TOOL_SCHEMAS = {
     returns:
       'Create/update/rewrite returns canvasId and new version; list returns each canvas latest version. Missing or non-unique matches return a structured error.',
     toolId: 'brainstrike.manageCanvas',
+  },
+
+  'brainstrike.manageWorktree': {
+    description: 'Create an isolated git worktree, or archive one with a restorable snapshot.',
+    parameters: [
+      {
+        description: 'Operation: create a new worktree, or archive an existing one',
+        enumValues: ['create', 'archive'],
+        name: 'action',
+        required: true,
+        type: 'enum',
+      },
+      {
+        description: 'Branch to create in the new worktree; required for create',
+        minLength: 1,
+        name: 'branch',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Base ref to start the new worktree from; defaults to HEAD',
+        minLength: 1,
+        name: 'baseRef',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Directory name for the new worktree; defaults to the branch name',
+        minLength: 1,
+        name: 'name',
+        required: false,
+        type: 'string',
+      },
+      {
+        description:
+          'Workspace root id or display name the worktree belongs to; omit when one folder is open',
+        minLength: 1,
+        name: 'root',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Worktree id from listWorktrees; required for archive',
+        minLength: 1,
+        name: 'worktreeId',
+        required: false,
+        type: 'string',
+      },
+      {
+        description:
+          'Archive a dirty or unpushed worktree anyway; the snapshot is captured either way. Never overrides an active run',
+        name: 'force',
+        required: false,
+        type: 'boolean',
+      },
+    ],
+    returns:
+      'create returns { worktreeId, path, branch, setupStatus, setupReason }; archive returns { worktreeId, snapshotRef }. A refusal returns its reason verbatim.',
+    toolId: 'brainstrike.manageWorktree',
   },
 
   'brainstrike.readWorkspaceContext': {

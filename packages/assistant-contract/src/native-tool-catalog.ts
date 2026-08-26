@@ -20,10 +20,12 @@ const DESKTOP_NATIVE_TOOL_ID = {
   inspectCommandSessions: 'brainstrike.inspectCommandSessions',
   listEmbeddingSpaces: 'brainstrike.listEmbeddingSpaces',
   listWorkspaceContext: 'brainstrike.listWorkspaceContext',
+  listWorktrees: 'brainstrike.listWorktrees',
   lspInspect: 'brainstrike.lspInspect',
   manageCanvas: 'brainstrike.manageCanvas',
   manageCommandSession: 'brainstrike.manageCommandSession',
   manageTaskList: 'brainstrike.manageTaskList',
+  manageWorktree: 'brainstrike.manageWorktree',
   queryDiagnostics: 'brainstrike.queryDiagnostics',
   queryEmbeddingSpace: 'brainstrike.queryEmbeddingSpace',
   querySelf: 'brainstrike.querySelf',
@@ -64,8 +66,10 @@ export type WebNativeToolId = Exclude<
   | typeof NATIVE_TOOL_ID.browserNavigate
   | typeof NATIVE_TOOL_ID.browserReadPage
   | typeof NATIVE_TOOL_ID.inspectCommandSessions
+  | typeof NATIVE_TOOL_ID.listWorktrees
   | typeof NATIVE_TOOL_ID.manageCanvas
   | typeof NATIVE_TOOL_ID.manageCommandSession
+  | typeof NATIVE_TOOL_ID.manageWorktree
   | typeof NATIVE_TOOL_ID.queryDiagnostics
   | typeof NATIVE_TOOL_ID.querySelf
   | typeof NATIVE_TOOL_ID.runPython
@@ -106,8 +110,10 @@ export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = Object.freeze(
       id !== NATIVE_TOOL_ID.browserNavigate &&
       id !== NATIVE_TOOL_ID.browserReadPage &&
       id !== NATIVE_TOOL_ID.inspectCommandSessions &&
+      id !== NATIVE_TOOL_ID.listWorktrees &&
       id !== NATIVE_TOOL_ID.manageCanvas &&
       id !== NATIVE_TOOL_ID.manageCommandSession &&
+      id !== NATIVE_TOOL_ID.manageWorktree &&
       id !== NATIVE_TOOL_ID.queryDiagnostics &&
       id !== NATIVE_TOOL_ID.querySelf &&
       id !== NATIVE_TOOL_ID.runPython &&

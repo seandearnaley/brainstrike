@@ -113,6 +113,7 @@ import {
   getWorkspaceRoots,
 } from './assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
+import type { WorktreeToolCapability } from './assistant-server/worktree-tools';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { loadMcpConfig } from './mcp-loader';
@@ -513,6 +514,40 @@ function resolveTurnBoundariesForRun(
   });
 }
 
+/**
+ * `createdBy: 'agent'` and the run/thread ids are bound HERE, never taken from
+ * tool input: provenance the model can set is provenance the model can forge.
+ */
+function buildWorktreeToolDependency(
+  options: AssistantServerOptions,
+  // `runId` matches StreamInitializer's actual param shape (ports.ts): a
+  // REQUIRED key whose value may be undefined, not an optional key — under
+  // exactOptionalPropertyTypes the two are not interchangeable, and the real
+  // `core` passed at the call site always carries the key.
+  core: { readonly runId: string | undefined; readonly runtimeData?: RuntimeData }
+): { worktreeTools?: WorktreeToolCapability } {
+  const service = options.resolveWorktreeService?.() ?? null;
+  if (!service) {
+    return {};
+  }
+  const runId = core.runId;
+  const threadId = core.runtimeData?.memory?.threadId;
+  return {
+    worktreeTools: {
+      archive: (params) => service.archive({ ...params, ...(runId ? { runId } : {}) }),
+      create: (params) =>
+        service.create({
+          ...params,
+          branch: { name: params.branch },
+          createdBy: 'agent',
+          ...(runId ? { runId } : {}),
+          ...(threadId ? { threadId } : {}),
+        }),
+      list: () => service.list(),
+    },
+  };
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -644,6 +679,7 @@ async function handleAssistantPost(
           toolDependencies: {
             embeddingHostManager: options.embeddingHostManager,
             llmHostManager: options.llmHostManager,
+            ...buildWorktreeToolDependency(options, core),
           },
           toolProjectionRewriteLookup,
           toolResumeAction: core.toolResumeAction,
