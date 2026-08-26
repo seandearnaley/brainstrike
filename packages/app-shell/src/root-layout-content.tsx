@@ -221,6 +221,13 @@ export interface RootLayoutContentProps {
    * launcher card, or "+"-menu entry renders at all.
    */
   readonly terminalPageContent?: ReactNode;
+  /**
+   * Optional Worktree Map surface (desktop-only). Supplied by the desktop
+   * wrapper when the `window.worktrees` bridge is present; web never constructs
+   * it. Registered as a closable singleton workspace app tab (BST-1392); when
+   * absent, no Worktrees tab, launcher card, or "+"-menu entry renders at all.
+   */
+  readonly worktreeMapPageContent?: ReactNode;
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
@@ -469,6 +476,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
   terminalPageContent,
+  worktreeMapPageContent,
   visible,
 }: {
   readonly canvasPanelContent?: ReactNode;
@@ -479,6 +487,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
   readonly terminalPageContent?: ReactNode;
+  readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
@@ -503,6 +512,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           />
         ),
         ...(terminalPageContent ? { terminalPageContent } : {}),
+        ...(worktreeMapPageContent ? { worktreeMapPageContent } : {}),
       }),
     [
       contextExplorerPageContent,
@@ -511,6 +521,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       changesPageContent,
       canvasPanelContent,
       terminalPageContent,
+      worktreeMapPageContent,
     ]
   );
 
@@ -585,6 +596,7 @@ export function RootLayoutContent({
   gitPageContent,
   notesPageContent,
   terminalPageContent,
+  worktreeMapPageContent,
   navigationItems,
   loadEmbeddingQueue = null,
   loadLocalLlmBackend,
@@ -739,6 +751,7 @@ export function RootLayoutContent({
                         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
                         terminalPageContent={terminalPageContent}
                         visible={shellTab === 'explorer'}
+                        worktreeMapPageContent={worktreeMapPageContent}
                       />
                     </PanelLayoutProvider>
                   </div>

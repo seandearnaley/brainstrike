@@ -111,6 +111,10 @@
       "types": "./dist/user-commands-bridge.d.ts",
       "import": "./dist/user-commands-bridge.js"
     },
+    "./worktree-map": {
+      "types": "./dist/worktree-map/index.d.ts",
+      "import": "./dist/worktree-map/index.js"
+    },
     "./worktrees/availability": {
       "types": "./dist/worktrees/availability.d.ts",
       "import": "./dist/worktrees/availability.js"
