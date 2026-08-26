@@ -124,6 +124,16 @@ const DAY_MS = 24 * HOUR_MS;
 /** Beyond a week, "last month" stops being informative — show the date instead. */
 const RELATIVE_LIMIT_MS = 7 * DAY_MS;
 const UNREADABLE_TIME = 'at an unreadable time';
+// Module scope, not rebuilt per call (React Doctor): both formatters are
+// stateless and locale-only — the `undefined` locale argument means "use the
+// runtime's current locale" every time `.format()` runs, so hoisting them
+// changes nothing about the rendered output, only how often they're
+// constructed.
+const ABSOLUTE_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  day: 'numeric',
+  month: 'short',
+});
+const RELATIVE_TIME_FORMAT = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
 /**
  * A human "last activity", not a machine timestamp. `Intl` does the localizing,
@@ -140,7 +150,7 @@ export function formatWorktreeActivity(at: Date, now: Date): string {
   }
   const magnitude = Math.abs(elapsed);
   if (magnitude > RELATIVE_LIMIT_MS) {
-    return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' }).format(at);
+    return ABSOLUTE_DATE_FORMAT.format(at);
   }
   // Bucket on MAGNITUDE, not on `elapsed`'s raw sign: a plain `elapsed <
   // MINUTE_MS` is also true for any FUTURE timestamp up to a week ahead
@@ -156,18 +166,17 @@ export function formatWorktreeActivity(at: Date, now: Date): string {
   if (magnitude < MINUTE_MS) {
     return 'just now';
   }
-  const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
   // `Math.trunc`, not `Math.floor`: they agree for positive (past) `elapsed`,
   // but `floor` rounds a negative (future) `elapsed` AWAY from zero — 90s
   // future would read "in 2 minutes" while 90s past reads "1 minute ago".
   // `trunc` rounds toward zero either way, so the two stay symmetric.
   if (magnitude < HOUR_MS) {
-    return relative.format(-Math.trunc(elapsed / MINUTE_MS), 'minute');
+    return RELATIVE_TIME_FORMAT.format(-Math.trunc(elapsed / MINUTE_MS), 'minute');
   }
   if (magnitude < DAY_MS) {
-    return relative.format(-Math.trunc(elapsed / HOUR_MS), 'hour');
+    return RELATIVE_TIME_FORMAT.format(-Math.trunc(elapsed / HOUR_MS), 'hour');
   }
-  return relative.format(-Math.trunc(elapsed / DAY_MS), 'day');
+  return RELATIVE_TIME_FORMAT.format(-Math.trunc(elapsed / DAY_MS), 'day');
 }
 
 function lastActivityLabelFor(
