@@ -338,7 +338,18 @@ let sharedLoadDb: PGlite | undefined;
 async function acquireSharedLoadDb(): Promise<PGlite> {
   if (!sharedLoadDb) {
     const db = await wasmLoader.createPGlite('memory://embedding-queue-load');
-    await migrate(db);
+    try {
+      await migrate(db);
+    } catch (error) {
+      // A failed migration must not leak this instance: `sharedLoadDb` is
+      // still unset, so `afterAll` has nothing to close, and PGlite's own
+      // teardown is GC-driven finalization that lands during the NEXT test
+      // file's WASM instantiation — exactly the interleaved-teardown fatal
+      // this shared-instance pattern exists to eliminate. Close it here and
+      // rethrow the migrate error UNCHANGED; never swallow it.
+      await db.close();
+      throw error;
+    }
     sharedLoadDb = db;
   }
   return sharedLoadDb;
