@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { type ReactElement, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkspaceBarMode } from '../workspace-bar/workspace-bar';
 import { WorkspaceBar } from '../workspace-bar/workspace-bar';
@@ -145,6 +146,21 @@ describe('ModeChip', () => {
     expect(screen.getByTestId('worktree-create-setup-note')).toHaveTextContent(
       'including gitignored ones'
     );
+  });
+
+  it('returns focus to the mode chip when Escape closes the create sheet', async () => {
+    const user = setup();
+    render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
+    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    expect(await screen.findByTestId('worktree-create-dialog')).toBeVisible();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('worktree-create-dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('workspace-bar-mode-chip')).toHaveFocus();
   });
 
   it('awaits fresh create context before mounting the sheet with its live defaults', async () => {
@@ -454,6 +470,54 @@ describe('ModeChip', () => {
     expect(value.onCreateBranchHere).not.toHaveBeenCalled();
     expect(value.onHandOffToLocal).not.toHaveBeenCalled();
     expect(value.onReveal).not.toHaveBeenCalled();
+  });
+
+  it('returns focus to the mode chip when Escape closes the worktree picker', async () => {
+    const user = setup();
+    const value = mode({
+      picker: {
+        ...mode().picker,
+        options: [
+          {
+            branch: 'bs/ready',
+            current: false,
+            disabledReason: null,
+            externalTool: null,
+            managed: true,
+            name: 'ready',
+            path: '/managed/app/ready',
+            remedy: null,
+            repositoryName: 'app',
+            usable: true,
+            worktreeId: 'w-ready',
+          },
+        ],
+      },
+    });
+    const PickerHarness = (): ReactElement => {
+      const [open, setOpen] = useState(false);
+      return (
+        <WorkspaceBar
+          {...baseBarProps}
+          mode={{
+            ...value,
+            onOpenPicker: () => setOpen(true),
+            picker: { ...value.picker, onOpenChange: setOpen, open },
+          }}
+        />
+      );
+    };
+    render(<PickerHarness />);
+    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-pick-worktree'));
+    expect(await screen.findByTestId('worktree-picker-dialog')).toBeVisible();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('worktree-picker-dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('workspace-bar-mode-chip')).toHaveFocus();
   });
 
   it('wires Hand off to Local only to its own handler', async () => {

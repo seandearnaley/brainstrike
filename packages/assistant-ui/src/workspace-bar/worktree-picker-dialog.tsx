@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@brainstrike/ui';
-import type { ReactElement } from 'react';
+import type { ReactElement, RefObject } from 'react';
 import type { WorkspaceBarWorktreeOption, WorkspaceBarWorktreePicker } from './workspace-bar';
 
 const TOOL_LABELS: Record<NonNullable<WorkspaceBarWorktreeOption['externalTool']>, string> = {
@@ -91,12 +91,21 @@ const PickerRow = ({
  */
 export function WorktreePickerDialog({
   picker,
+  triggerRef,
 }: {
   readonly picker: WorkspaceBarWorktreePicker;
+  readonly triggerRef?: RefObject<HTMLButtonElement | null>;
 }): ReactElement {
   return (
     <Dialog onOpenChange={picker.onOpenChange} open={picker.open}>
-      <DialogContent className="sm:max-w-2xl" data-testid="worktree-picker-dialog">
+      <DialogContent
+        className="sm:max-w-2xl"
+        data-testid="worktree-picker-dialog"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          triggerRef?.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Use an existing worktree</DialogTitle>
           <DialogDescription>
