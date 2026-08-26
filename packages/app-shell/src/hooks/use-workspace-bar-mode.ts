@@ -5,11 +5,13 @@ import type {
   WorkspaceBarCheckout,
   WorkspaceBarMode,
 } from '@brainstrike/assistant-ui';
-import { toast } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/logging';
 import { useCallback } from 'react';
 import { useBranchSwitcher } from './use-branch-switcher';
 import type { ThreadCheckoutState } from './use-thread-checkout';
 import { useWorktreeMode } from './use-worktree-mode';
+
+const logger = createLogger('WorkspaceBarMode');
 
 export interface UseWorkspaceBarModeArgs {
   readonly checkout: WorkspaceBarCheckout | undefined;
@@ -72,11 +74,7 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
           name: branchToName(branch),
         })
         .catch((error: unknown) => {
-          toast({
-            description: error instanceof Error ? error.message : String(error),
-            title: 'Switch in a new worktree failed',
-            variant: 'destructive',
-          });
+          logger.error('Switch in a new worktree failed', { error });
         });
     },
     [mode]

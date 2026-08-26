@@ -202,7 +202,26 @@ describe('useWorktreeMode', () => {
       title: 'Worktree creation failed',
       variant: 'destructive',
     });
+    expect(toastSpy).toHaveBeenCalledTimes(1);
     expect(onSelectWorktree).not.toHaveBeenCalled();
+  });
+
+  it('rejects and toasts exactly once when binding fails after creation', async () => {
+    onSelectWorktree.mockRejectedValueOnce(new Error('bind boom'));
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
+
+    await act(async () => {
+      await expect(result.current?.onCreate(CREATE_REQUEST)).rejects.toThrow('bind boom');
+    });
+
+    expect(addRootByPathSpy).toHaveBeenCalledWith('/managed/app/bright-fox');
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'Created the worktree, but binding the thread failed: bind boom',
+      title: 'Worktree created, but binding failed',
+      variant: 'destructive',
+    });
+    expect(toastSpy).toHaveBeenCalledTimes(1);
   });
 
   it('rejects and toasts when the created worktree cannot be mounted', async () => {

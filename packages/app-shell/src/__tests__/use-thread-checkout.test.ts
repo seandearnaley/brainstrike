@@ -1,10 +1,29 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  type ThreadCheckoutFolders,
-  type ThreadCheckoutWrite,
-  useThreadCheckout,
-} from '../hooks/use-thread-checkout';
+import { useThreadCheckout } from '../hooks/use-thread-checkout';
+import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from '../hooks/use-thread-folders-write';
+
+const { loggerErrorSpy, loggerWarnSpy, toastSpy } = vi.hoisted(() => ({
+  loggerErrorSpy: vi.fn(),
+  loggerWarnSpy: vi.fn(),
+  toastSpy: vi.fn(),
+}));
+
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({
+    debug: vi.fn(),
+    error: loggerErrorSpy,
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: loggerWarnSpy,
+  }),
+}));
+vi.mock('@brainstrike/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/ui')>()),
+  toast: toastSpy,
+}));
 
 const enqueue = vi.fn(
   async (
@@ -12,6 +31,7 @@ const enqueue = vi.fn(
     derive: (current: ThreadCheckoutFolders) => ThreadCheckoutWrite | null
   ) => {
     derive({
+      checkoutLocalRootId: undefined,
       metadataPending: false,
       primaryRoot: {
         displayName: 'app',
@@ -55,6 +75,7 @@ describe('useThreadCheckout', () => {
         ...ARGS,
         threadMetadata: {
           checkoutBranch: 'bs/bright-fox',
+          checkoutLocalRootId: 'r-local',
           checkoutMode: 'worktree',
           checkoutWorktreeId: 'w-1',
           checkoutWorktreePath: '/managed/app/bright-fox',
@@ -79,6 +100,7 @@ describe('useThreadCheckout', () => {
       binding: Record<string, string>;
     };
     const write = derive({
+      checkoutLocalRootId: undefined,
       metadataPending: false,
       primaryRoot: {
         displayName: 'app',
@@ -92,6 +114,7 @@ describe('useThreadCheckout', () => {
     });
     expect(write.binding).toEqual({
       checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'r-local',
       checkoutMode: 'worktree',
       checkoutWorktreeId: 'w-1',
       checkoutWorktreePath: '/managed/app/bright-fox',
@@ -109,10 +132,12 @@ describe('useThreadCheckout', () => {
       worktreeId: 'w-1',
     });
     const derive = enqueue.mock.calls[0]?.[1] as (current: unknown) => {
+      checkoutLocalRootId: string | undefined;
       ids: readonly string[];
       secondaryRoots: readonly { rootId: string }[];
     };
     const write = derive({
+      checkoutLocalRootId: undefined,
       metadataPending: false,
       primaryRoot: {
         displayName: 'app',
@@ -125,6 +150,7 @@ describe('useThreadCheckout', () => {
       threadId: 't-1',
     });
     expect(write.ids).toContain('r-local');
+    expect(write.checkoutLocalRootId).toBe('r-local');
     expect(write.secondaryRoots).toContainEqual({
       displayName: 'app',
       path: '/work/app',
@@ -137,6 +163,7 @@ describe('useThreadCheckout', () => {
       useThreadCheckout({
         ...ARGS,
         threadMetadata: {
+          checkoutLocalRootId: 'r-local',
           checkoutMode: 'worktree',
           checkoutWorktreeId: 'w-1',
           checkoutWorktreePath: '/managed/app/bright-fox',
@@ -147,9 +174,11 @@ describe('useThreadCheckout', () => {
     await result.current.handOffToLocal();
     const derive = enqueue.mock.calls[0]?.[1] as (current: unknown) => {
       binding: Record<string, string | null>;
+      checkoutLocalRootId: string | undefined;
       ids: readonly string[];
     };
     const write = derive({
+      checkoutLocalRootId: 'r-local',
       metadataPending: false,
       primaryRoot: {
         displayName: 'bright-fox',
@@ -169,6 +198,7 @@ describe('useThreadCheckout', () => {
     });
     expect(write.binding['checkoutWorktreeId']).toBeUndefined();
     expect(write.binding['checkoutWorktreePath']).toBeUndefined();
+    expect(write.checkoutLocalRootId).toBeUndefined();
     expect(write.ids).toEqual([]);
   });
 
@@ -177,6 +207,7 @@ describe('useThreadCheckout', () => {
       useThreadCheckout({
         ...ARGS,
         threadMetadata: {
+          checkoutLocalRootId: 'r-local',
           checkoutMode: 'worktree',
           checkoutWorktreeId: 'w-1',
           checkoutWorktreePath: '/managed/app/bright-fox',
@@ -192,6 +223,7 @@ describe('useThreadCheckout', () => {
     await result.current.handOffToLocal();
     const derive = enqueue.mock.calls[0]?.[1];
     const current: ThreadCheckoutFolders = {
+      checkoutLocalRootId: undefined,
       metadataPending: false,
       primaryRoot: {
         displayName: 'bright-fox',
@@ -205,10 +237,19 @@ describe('useThreadCheckout', () => {
     };
     expect(derive?.(current)).toEqual({
       binding: { checkoutMode: 'local' },
+      checkoutLocalRootId: undefined,
       ids: [],
       primaryRoot: current.primaryRoot,
       primaryRootId: 'r-worktree',
       secondaryRoots: [],
+    });
+    expect(loggerWarnSpy).toHaveBeenCalledWith(
+      'Hand-off to Local has no recorded Local root; retaining the current folder'
+    );
+    expect(toastSpy).toHaveBeenCalledWith({
+      description:
+        'Thread is Local again, but its folder is still the worktree — add a folder to move it.',
+      title: "Folder didn't follow",
     });
   });
 
@@ -216,8 +257,9 @@ describe('useThreadCheckout', () => {
     const { result } = renderHook(() => useThreadCheckout(ARGS));
     await result.current.handOffToLocal();
     const derive = enqueue.mock.calls[0]?.[1];
-    expect(
+    expect(() =>
       derive?.({
+        checkoutLocalRootId: 'r-local',
         metadataPending: false,
         primaryRoot: {
           displayName: 'bright-fox',
@@ -229,7 +271,87 @@ describe('useThreadCheckout', () => {
         secondaryRoots: [],
         threadId: 't-1',
       })
-    ).toBeNull();
+    ).toThrow(
+      'Could not hand off to Local: the tracked local folder (root r-local) is no longer available. Add it back as a folder to try again.'
+    );
+    expect(loggerErrorSpy).toHaveBeenCalled();
+  });
+
+  it('preserves the original primary across a pre-existing secondary and hands back to it', async () => {
+    const { result } = renderHook(() => useThreadCheckout(ARGS));
+    await result.current.selectWorktree({
+      branch: null,
+      path: '/managed/app/bright-fox',
+      worktreeId: 'w-1',
+    });
+    const selectDerive = enqueue.mock.calls[0]?.[1];
+    const selected = selectDerive?.({
+      checkoutLocalRootId: undefined,
+      metadataPending: false,
+      primaryRoot: { displayName: 'app', path: '/work/app', rootId: 'r-local' },
+      primaryRootId: 'r-local',
+      secondaryRootIds: ['r-docs'],
+      secondaryRoots: [{ displayName: 'docs', path: '/work/docs', rootId: 'r-docs' }],
+      threadId: 't-1',
+    });
+
+    expect(selected).toMatchObject({
+      checkoutLocalRootId: 'r-local',
+      ids: ['r-docs', 'r-local'],
+      secondaryRoots: [
+        { displayName: 'docs', path: '/work/docs', rootId: 'r-docs' },
+        { displayName: 'app', path: '/work/app', rootId: 'r-local' },
+      ],
+    });
+
+    await result.current.handOffToLocal();
+    const handOffDerive = enqueue.mock.calls[1]?.[1];
+    const handedOff = handOffDerive?.({
+      checkoutLocalRootId: 'r-local',
+      metadataPending: false,
+      primaryRoot: {
+        displayName: 'bright-fox',
+        path: '/managed/app/bright-fox',
+        rootId: 'r-worktree',
+      },
+      primaryRootId: 'r-worktree',
+      secondaryRootIds: ['r-docs', 'r-local'],
+      secondaryRoots: [
+        { displayName: 'docs', path: '/work/docs', rootId: 'r-docs' },
+        { displayName: 'app', path: '/work/app', rootId: 'r-local' },
+      ],
+      threadId: 't-1',
+    });
+
+    expect(handedOff).toMatchObject({
+      checkoutLocalRootId: undefined,
+      ids: ['r-docs'],
+      primaryRoot: { displayName: 'app', path: '/work/app', rootId: 'r-local' },
+      primaryRootId: 'r-local',
+      secondaryRoots: [{ displayName: 'docs', path: '/work/docs', rootId: 'r-docs' }],
+    });
+  });
+
+  it('rejects selecting a worktree when the current primary root cannot be resolved', async () => {
+    const { result } = renderHook(() => useThreadCheckout(ARGS));
+    await result.current.selectWorktree({
+      branch: null,
+      path: '/managed/app/bright-fox',
+      worktreeId: 'w-1',
+    });
+    const derive = enqueue.mock.calls[0]?.[1];
+
+    expect(() =>
+      derive?.({
+        checkoutLocalRootId: undefined,
+        metadataPending: false,
+        primaryRoot: undefined,
+        primaryRootId: 'r-local',
+        secondaryRootIds: [],
+        secondaryRoots: [],
+        threadId: 't-1',
+      })
+    ).toThrow('Could not switch worktrees: the current primary folder is no longer available.');
   });
 
   it('fails visibly when the worktree root never reconciled', async () => {

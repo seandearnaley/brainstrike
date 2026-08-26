@@ -400,6 +400,34 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
     );
   });
 
+  it('toasts a refused Make primary without poisoning the next queued write', async () => {
+    const { result } = await setup({
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'r-main-db',
+      operatingRootPath: '/ws/brainstrike',
+      secondaryRootIds: ['r-docs'],
+    });
+    await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(1));
+
+    await act(async () => {
+      result.current.onMakePrimary('r-missing');
+      result.current.onRemoveSecondary('r-docs');
+    });
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'Could not make primary: secondary root r-missing is unknown or has no path.',
+        title: 'Make primary failed',
+        variant: 'destructive',
+      })
+    );
+    await waitFor(() =>
+      expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, {
+        secondaryRootIds: [],
+      })
+    );
+  });
+
   it('refuses a folder write while the selected thread metadata is still loading', async () => {
     // The thread is selected but its row has not arrived in the store yet, so
     // `secondaryRootIds` reads as EMPTY — writing now would persist an empty

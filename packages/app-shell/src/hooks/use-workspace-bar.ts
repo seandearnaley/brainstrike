@@ -24,13 +24,13 @@ import {
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
-import {
-  type ThreadCheckoutFolders,
-  type ThreadCheckoutRoot,
-  type ThreadCheckoutWrite,
-  useThreadCheckout,
-} from './use-thread-checkout';
+import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
+import type {
+  ThreadCheckoutFolders,
+  ThreadCheckoutRoot,
+  ThreadCheckoutWrite,
+} from './use-thread-folders-write';
 import { useWorkspaceBarForge } from './use-workspace-bar-forge';
 import { useWorkspaceBarMode } from './use-workspace-bar-mode';
 import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
@@ -70,6 +70,7 @@ const SECONDARY_ID_SEPARATOR = ' ';
 
 /** What a queued write persisted, for the next write in the queue to chain on. */
 interface ThreadFoldersWriteTail {
+  readonly checkoutLocalRootId: string | undefined;
   readonly ids: readonly string[];
   readonly primaryRoot: ThreadCheckoutRoot | undefined;
   readonly primaryRootId: string | undefined;
@@ -154,6 +155,7 @@ function writeStartingPoint(
 ): ThreadCheckoutFolders {
   return tail?.threadId === startedForThreadId
     ? {
+        checkoutLocalRootId: tail.checkoutLocalRootId,
         metadataPending: false,
         primaryRoot: tail.primaryRoot,
         primaryRootId: tail.primaryRootId,
@@ -334,6 +336,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const selectedThread = selectedMemoryThreadId
     ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
     : undefined;
+  const checkoutLocalRootId = selectedThread?.metadata?.checkoutLocalRootId;
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
   // Watching is opt-out. This matches useForgeRunEvents, so a thread created
   // before the metadata field existed still receives forge observations.
@@ -594,6 +597,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   // It carries the thread it describes, so a queued write can prove it is still
   // deriving from the thread it was started for.
   const threadFoldersRef = useRef<ThreadCheckoutFolders>({
+    checkoutLocalRootId,
     metadataPending: selectedThreadMetadataPending,
     primaryRoot,
     primaryRootId,
@@ -603,6 +607,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   });
   useEffect(() => {
     threadFoldersRef.current = {
+      checkoutLocalRootId,
       metadataPending: selectedThreadMetadataPending,
       primaryRoot,
       primaryRootId,
@@ -611,6 +616,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       threadId: selectedMemoryThreadId,
     };
   }, [
+    checkoutLocalRootId,
     primaryRoot,
     primaryRootId,
     secondaryRootIds,
@@ -647,6 +653,11 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const enqueueThreadFoldersWrite = useCallback(
     (
       startedForThreadId: string | undefined,
+      // Contract for every derive passed to this queue: returning null is a
+      // deliberate no-op only for a write that was never asked for by the user
+      // this tick (an idempotent dedup or a thread-switch/unmount race). A
+      // refusal of an explicit click must throw: null resolves the caller's
+      // promise successfully, while a rejection is visible to its catch.
       derive: (current: ThreadCheckoutFolders) => ThreadCheckoutWrite | null
     ): Promise<void> => {
       const previous = writeTailRef.current;
@@ -682,6 +693,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         }
         await writeThreadFolders(request.ids, request.binding);
         return {
+          checkoutLocalRootId: request.checkoutLocalRootId,
           ids: request.ids,
           primaryRoot: request.primaryRoot,
           primaryRootId: request.primaryRootId,
@@ -783,6 +795,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           return null;
         }
         return {
+          checkoutLocalRootId: current.checkoutLocalRootId,
           ids: [...current.secondaryRootIds, lookup.rootId],
           primaryRoot: current.primaryRoot,
           primaryRootId: current.primaryRootId,
@@ -850,7 +863,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         const nextPath = next?.path;
         if (!(next && nextPath)) {
           logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
-          return null;
+          throw new Error(
+            `Could not make primary: secondary root ${rootId} is unknown or has no path.`
+          );
         }
         const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
         const currentPrimaryPath = current.primaryRoot?.path;
@@ -863,28 +878,29 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
           logger.error('Make primary: current primary root is unknown or has no path', {
             rootId: current.primaryRootId,
           });
-          return null;
+          throw new Error(
+            `Could not make primary: current primary root ${current.primaryRootId ?? '(unknown)'} is unknown or has no path.`
+          );
         }
         const demoted =
           demotesPrimary && current.primaryRoot && currentPrimaryPath
             ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
             : [];
+        const secondaryRoots = [
+          ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
+          ...demoted,
+        ];
         return {
           binding: {
             operatingRootDisplayName: next.displayName,
             operatingRootId: rootId,
             operatingRootPath: nextPath,
           },
-          ids: [
-            ...current.secondaryRootIds.filter((id) => id !== rootId),
-            ...demoted.map((root) => root.rootId),
-          ],
+          checkoutLocalRootId: current.checkoutLocalRootId,
+          ids: secondaryRoots.map((root) => root.rootId),
           primaryRoot: { ...next, path: nextPath },
           primaryRootId: rootId,
-          secondaryRoots: [
-            ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
-            ...demoted,
-          ],
+          secondaryRoots,
         };
       }).catch((error: unknown) => {
         logger.error('Make primary failed', { error, rootId });
@@ -901,6 +917,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const onRemoveSecondary = useCallback(
     (rootId: string) => {
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => ({
+        checkoutLocalRootId: current.checkoutLocalRootId,
         ids: current.secondaryRootIds.filter((id) => id !== rootId),
         primaryRoot: current.primaryRoot,
         primaryRootId: current.primaryRootId,

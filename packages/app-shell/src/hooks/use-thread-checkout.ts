@@ -1,6 +1,8 @@
 import type { AssistantThreadMetadata } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
-import { useCallback } from 'react';
+import { toast } from '@brainstrike/ui';
+import { useCallback, useMemo } from 'react';
+import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
 
 const logger = createLogger('ThreadCheckout');
 
@@ -8,29 +10,6 @@ export interface ThreadCheckoutState {
   readonly mode: 'local' | 'worktree';
   readonly worktreeId: string | null;
   readonly worktreePath: string | null;
-}
-
-export interface ThreadCheckoutRoot {
-  readonly displayName: string;
-  readonly path?: string | undefined;
-  readonly rootId: string;
-}
-
-export interface ThreadCheckoutFolders {
-  readonly metadataPending: boolean;
-  readonly primaryRoot: ThreadCheckoutRoot | undefined;
-  readonly primaryRootId: string | undefined;
-  readonly secondaryRootIds: readonly string[];
-  readonly secondaryRoots: readonly ThreadCheckoutRoot[];
-  readonly threadId: string | undefined;
-}
-
-export interface ThreadCheckoutWrite {
-  readonly binding?: Record<string, string>;
-  readonly ids: readonly string[];
-  readonly primaryRoot: ThreadCheckoutRoot | undefined;
-  readonly primaryRootId: string | undefined;
-  readonly secondaryRoots: readonly ThreadCheckoutRoot[];
 }
 
 export interface UseThreadCheckoutArgs {
@@ -74,13 +53,20 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
     selectedMemoryThreadId,
     threadMetadata,
   } = args;
-  const checkout: ThreadCheckoutState = {
-    mode: threadMetadata?.checkoutMode ?? 'local',
-    worktreeId: threadMetadata?.checkoutWorktreeId ?? null,
-    worktreePath: threadMetadata?.checkoutWorktreePath ?? null,
-  };
+  const checkout = useMemo<ThreadCheckoutState>(
+    () => ({
+      mode: threadMetadata?.checkoutMode ?? 'local',
+      worktreeId: threadMetadata?.checkoutWorktreeId ?? null,
+      worktreePath: threadMetadata?.checkoutWorktreePath ?? null,
+    }),
+    [
+      threadMetadata?.checkoutMode,
+      threadMetadata?.checkoutWorktreeId,
+      threadMetadata?.checkoutWorktreePath,
+    ]
+  );
   const localRootId =
-    checkout.mode === 'worktree' ? (threadMetadata?.secondaryRootIds?.[0] ?? null) : null;
+    checkout.mode === 'worktree' ? (threadMetadata?.checkoutLocalRootId ?? null) : null;
 
   const selectWorktree = useCallback(
     async (worktree: {
@@ -91,6 +77,18 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
       const displayName = displayNameForPath(worktree.path);
       const rootId = await resolveRootIdForPath(worktree.path, displayName);
       await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
+        // Preserve the original Local root across worktree-to-worktree switches;
+        // only a transition from Local establishes a new one.
+        const checkoutLocalRootId = current.checkoutLocalRootId ?? current.primaryRootId;
+        if (!checkoutLocalRootId) {
+          logger.error('Select worktree: current primary root is unknown or has no path', {
+            primaryRootId: current.primaryRootId,
+            worktreeId: worktree.worktreeId,
+          });
+          throw new Error(
+            'Could not switch worktrees: the current primary folder is no longer available.'
+          );
+        }
         const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
         const currentPrimaryPath = current.primaryRoot?.path;
         if (
@@ -103,16 +101,23 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
             primaryRootId: current.primaryRootId,
             worktreeId: worktree.worktreeId,
           });
-          return null;
+          throw new Error(
+            'Could not switch worktrees: the current primary folder is no longer available.'
+          );
         }
         const demoted =
           demotesPrimary && current.primaryRoot && currentPrimaryPath
             ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
             : [];
         const nextRoot = { displayName, path: worktree.path, rootId };
+        const secondaryRoots = [
+          ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
+          ...demoted,
+        ];
         return {
           binding: {
             ...(worktree.branch ? { checkoutBranch: worktree.branch } : {}),
+            checkoutLocalRootId,
             checkoutMode: 'worktree',
             checkoutWorktreeId: worktree.worktreeId,
             checkoutWorktreePath: worktree.path,
@@ -120,16 +125,11 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
             operatingRootId: rootId,
             operatingRootPath: worktree.path,
           },
-          ids: [
-            ...current.secondaryRootIds.filter((secondaryRootId) => secondaryRootId !== rootId),
-            ...demoted.map((root) => root.rootId),
-          ],
+          checkoutLocalRootId,
+          ids: secondaryRoots.map((root) => root.rootId),
           primaryRoot: nextRoot,
           primaryRootId: rootId,
-          secondaryRoots: [
-            ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
-            ...demoted,
-          ],
+          secondaryRoots,
         };
       });
     },
@@ -138,10 +138,17 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
 
   const handOffToLocal = useCallback(async () => {
     await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
-      const localId = current.secondaryRootIds[0];
+      const localId = current.checkoutLocalRootId;
       if (!localId) {
+        logger.warn('Hand-off to Local has no recorded Local root; retaining the current folder');
+        toast({
+          description:
+            'Thread is Local again, but its folder is still the worktree — add a folder to move it.',
+          title: "Folder didn't follow",
+        });
         return {
           binding: { checkoutMode: 'local' },
+          checkoutLocalRootId: undefined,
           ids: current.secondaryRootIds,
           primaryRoot: current.primaryRoot,
           primaryRootId: current.primaryRootId,
@@ -154,8 +161,11 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
         logger.error('Hand off to local: remembered root is unknown or has no path', {
           rootId: localId,
         });
-        return null;
+        throw new Error(
+          `Could not hand off to Local: the tracked local folder (root ${localId}) is no longer available. Add it back as a folder to try again.`
+        );
       }
+      const secondaryRoots = current.secondaryRoots.filter((root) => root.rootId !== localId);
       return {
         binding: {
           checkoutMode: 'local',
@@ -163,10 +173,11 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
           operatingRootId: localRoot.rootId,
           operatingRootPath: localPath,
         },
-        ids: current.secondaryRootIds.filter((rootId) => rootId !== localId),
+        checkoutLocalRootId: undefined,
+        ids: secondaryRoots.map((root) => root.rootId),
         primaryRoot: { ...localRoot, path: localPath },
         primaryRootId: localRoot.rootId,
-        secondaryRoots: current.secondaryRoots.filter((root) => root.rootId !== localId),
+        secondaryRoots,
       };
     });
   }, [enqueueThreadFoldersWrite, selectedMemoryThreadId]);

@@ -3331,6 +3331,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     await repository.updateThreadMetadata(thread.id, {
       checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'root-local',
       checkoutMode: 'worktree',
       checkoutWorktreeId: 'w-1',
       checkoutWorktreePath: '/managed/repo/bright-fox',
@@ -3339,6 +3340,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const [reloaded] = await repository.listThreads('r');
     expect(reloaded?.metadata).toMatchObject({
       checkoutBranch: 'bs/bright-fox',
+      checkoutLocalRootId: 'root-local',
       checkoutMode: 'worktree',
       checkoutWorktreeId: 'w-1',
       checkoutWorktreePath: '/managed/repo/bright-fox',
@@ -3349,6 +3351,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     const [local] = await repository.listThreads('r');
     expect(local?.metadata).toMatchObject({ checkoutMode: 'local' });
     expect(local?.metadata?.checkoutBranch).toBeUndefined();
+    expect(local?.metadata?.checkoutLocalRootId).toBeUndefined();
     expect(local?.metadata?.checkoutWorktreeId).toBeUndefined();
     expect(local?.metadata?.checkoutWorktreePath).toBeUndefined();
   });
@@ -3374,6 +3377,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
     await expect(
       repository.updateThreadMetadata(thread.id, {
+        checkoutLocalRootId: 'root-local',
         checkoutMode: 'worktree',
         checkoutWorktreePath: '/managed/repo/bright-fox',
       })

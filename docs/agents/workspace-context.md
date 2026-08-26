@@ -1034,15 +1034,18 @@ additional explorer/status chrome):
     a worktree first resolves its mounted path to a durable live `roots.id`, then
     uses the workspace bar's serialized folder-write queue to persist the
     `checkout*` fields, full `operatingRoot*` triple, and secondary-root demotion
-    in ONE metadata write. The queue tail carries resolved primary and secondary
-    root objects as well as ids, so an overlapping hand-off can promote the
-    remembered Local root without using stale render state or writing an
-    incomplete binding. A reconciliation failure rejects before enqueueing.
-    Hand-off promotes the first secondary when it has a complete roots row; a
-    missing remembered row is logged and refused, while a thread with no
-    secondary still clears checkout mode and keeps its current primary. The
-    repository's atomic Local transition removes `checkoutBranch` together with
-    both worktree keys, so the Local chip cannot retain a stale worktree branch.
+    in ONE metadata write. `checkoutLocalRootId` durably records the Local
+    `roots.id` at entry; secondary-list position has no semantic meaning. The
+    queue tail carries that id plus resolved primary and secondary root objects,
+    so an overlapping hand-off can promote the remembered Local root without
+    using stale render state or writing an incomplete binding. A reconciliation
+    failure rejects before enqueueing. Hand-off promotes the tracked Local root
+    when it has a complete roots row; a disconnected tracked root is logged and
+    refused, while legacy partial state with no tracked Local root clears checkout
+    mode, warns/toasts that the folder did not follow, and keeps its current
+    primary. Every checkout-mode transition atomically strips `checkoutBranch`;
+    the Local transition also removes both worktree keys and
+    `checkoutLocalRootId`, so no stale checkout authority survives the hand-off.
   - Recents come from main's `recentRootsList` ledger
     (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`, read through
     `fs:listRecentRoots`), minus folders already mounted in this workspace.
