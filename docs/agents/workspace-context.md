@@ -1138,6 +1138,43 @@ additional explorer/status chrome):
     snapshot that predates the new `roots` row. Without that nudge a mid-session
     Add Folder / Recents root gets no metadata push at all and the chip only
     updates on reload.
+  - **Mode chip (W3, BST-1390): Local / Worktree [D1].** Local means the
+    thread works in the primary root's own checkout; Worktree means an
+    isolated linked worktree BrainStrike created, recorded in
+    `brainstrike_worktrees`, mounted as a `kind='worktree'` root through the
+    managed-worktree grant (see `roots.kind = 'worktree'` above), and bound as
+    the thread's PRIMARY through the same `operatingRoot*` metadata triple
+    `persistThreadRootBinding` writes — which is what makes the server's
+    existing `boundWorkspaceRootId`-first ordering
+    (`orderWorkspaceRootsForRuntime`) resolve hooks, tools and the terminal
+    into the worktree with NO server change. "Cloud" is deliberately omitted,
+    not stubbed — there is no environment story to explain. A non-repository
+    primary root gets a DISABLED chip stating "Not a git repository", never an
+    absent one (`packages/app-shell/src/hooks/use-worktree-mode.ts`). The
+    chip's own list of worktrees comes from the `window.worktrees` bridge's
+    `list()` (the ledger + a live `git worktree list` merge in
+    `apps/desktop/src/assistant-server/worktree-service.ts`), NOT from
+    `window.git` inventory, so it refreshes independently of the Branch
+    chip's git-status read above — eagerly on mount, and again after every
+    create/select/archive mutation. The existing-worktree picker
+    (`worktree-picker-dialog.tsx`) lists EVERY worktree the ledger reports —
+    including ones another tool created (`~/.codex/worktrees`,
+    `~/.cursor/worktrees`), labelled by tool — each usable or disabled with
+    its reason and, where remediable, a "Grant access…" button that opens the
+    OS folder picker. "New worktree…" opens a create sheet
+    (`worktree-create-dialog.tsx`) with a read-only Location, a `bs/<name>`
+    branch default (editable, or "Detached — name the branch later"), and a
+    Setup summary; a creation failure renders IN the sheet and leaves the
+    thread on Local rather than partially switching it. Both dialogs are
+    written INSIDE `ModeChip`'s own JSX rather than hoisted, so their
+    `<Dialog>` nesting depth stays 1 and their panel paints at `z-[51]`
+    (`packages/ui/src/layers.ts`) — above nothing else the chip owns, since
+    the dropdown menu that opens them (`z-[70]`, `POPUP_LAYER_CLASS`) has
+    already closed by the time either one mounts. **Live-verified gap
+    (BST-1390, not yet filed as its own follow-up):** closing either dialog
+    with Escape leaves focus on `document.body` rather than returning it to
+    the Mode chip trigger — confirmed against the running app, not assumed;
+    fix or file before relying on keyboard flow through this chip.
 - DEFERRED (v1 ruling): a root-header right-click context action ("Set as
   main" / Disconnect / Copy path / Reveal) — root headers have no
   ContextTarget kind yet; it is a coherent follow-up surface.
@@ -1169,6 +1206,12 @@ zero/unavailable state, exact ids, Main/Focused priority) +
 (ledger + `addRootByPath` authorization) +
 `apps/desktop/e2e/workspace-bar.desktop.test.ts` +
 `apps/web/e2e/workspace-bar.test.ts` (chips, recents re-mount, web omission),
+`packages/assistant-ui/src/__tests__/mode-chip.test.tsx` +
+`worktree-picker-dialog.test.tsx` (Mode chip rendering, picker rows) +
+`packages/app-shell/src/__tests__/use-worktree-mode.test.ts` (bridge wiring,
+create/select/archive, disabled reasons) +
+`apps/desktop/e2e/worktree-mode.desktop.test.ts` (real git worktrees, real
+ledger, create/use/archive against the built app),
 `apps/desktop/src/__tests__/assistant-server/workspace-roots.test.ts`
 (orderWorkspaceRoots + enrichment reorder), and the
 `hooks primaryCwd follows the declared main root` describe in

@@ -620,6 +620,16 @@ reconcile registers at least one root, and once after each mid-session
 `registerRoot`, so roots added after app-ready get their git-metadata watcher
 without a Changes surface ever being opened (this is what keeps the composer
 workspace bar's Branch chip live — see `docs/agents/workspace-context.md`).
+It is not only "Add Folder" and Recents that hit this path: mounting a
+BrainStrike-managed worktree through the composer bar's Mode chip
+(BST-1390 — "New worktree…" / "Use existing worktree…") also mounts by
+calling `addRootDirectoryByPath`, which runs the exact same mid-session
+`registerRoot`, so a freshly-created or freshly-selected worktree root's OWN
+Branch chip is live immediately rather than needing a reload. The Mode chip's
+worktree LIST itself is unrelated to any of this — it reads the
+`window.worktrees` bridge, not `window.git` inventory (see the Mode chip
+entry in `docs/agents/workspace-context.md`) — so only that root's Branch
+chip, not the picker's contents, depends on this refresh.
 
 `maxAgeMs: 0` is load-bearing, not decoration. A plain `inventory()` would be
 served the 5s TTL cache, or coalesced onto an in-flight build whose
