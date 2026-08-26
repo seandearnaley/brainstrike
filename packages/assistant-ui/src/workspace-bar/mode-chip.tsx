@@ -176,9 +176,6 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
   const shouldRestoreCreateFocusRef = useRef(false);
   const { worktree } = mode;
   const label = worktree ? worktree.name : 'Local';
-  const title =
-    mode.disabledReason ??
-    (worktree ? worktree.path : `Edits land in ${mode.localPath ?? 'this folder'}`);
 
   useLayoutEffect(() => {
     if (createOpen || !shouldRestoreCreateFocusRef.current) {
@@ -191,6 +188,7 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
   if (mode.disabledReason) {
     return <DiagnosticOnlyModeChip label={label} mode={mode} reason={mode.disabledReason} />;
   }
+  const title = worktree ? worktree.path : `Edits land in ${mode.localPath ?? 'this folder'}`;
 
   return (
     <>

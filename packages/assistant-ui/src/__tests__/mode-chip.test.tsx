@@ -428,6 +428,52 @@ describe('ModeChip', () => {
     expect(screen.getByTestId('worktree-create-submit')).toBeEnabled();
   });
 
+  it('keeps the generated branch aligned with the folder name until the branch is edited', async () => {
+    const user = setup();
+    const value = mode();
+    render(<WorktreeCreateDialog mode={value} onOpenChange={vi.fn()} open />);
+    const name = screen.getByTestId('worktree-create-name');
+    const branch = screen.getByTestId('worktree-create-branch');
+
+    await user.clear(name);
+    await user.type(name, 'payment-retry');
+    expect(branch).toHaveValue('bs/payment-retry');
+
+    await user.clear(branch);
+    await user.type(branch, 'custom/payment-retry');
+    await user.clear(name);
+    await user.type(name, 'payment-retry-v2');
+    expect(branch).toHaveValue('custom/payment-retry');
+
+    await user.click(screen.getByTestId('worktree-create-submit'));
+    expect(value.onCreate).toHaveBeenCalledWith({
+      baseRef: 'main',
+      branch: { name: 'custom/payment-retry' },
+      name: 'payment-retry-v2',
+    });
+  });
+
+  it('uses the parent path separator and shows an honest placeholder for an invalid name', async () => {
+    const user = setup();
+    render(
+      <WorktreeCreateDialog
+        mode={mode({ managedParentPath: 'C:\\Users\\me\\worktrees\\app' })}
+        onOpenChange={vi.fn()}
+        open
+      />
+    );
+    expect(screen.getByTestId('worktree-create-location')).toHaveTextContent(
+      'C:\\Users\\me\\worktrees\\app\\bright-fox'
+    );
+
+    const name = screen.getByTestId('worktree-create-name');
+    await user.clear(name);
+    await user.type(name, 'a/b');
+    expect(screen.getByTestId('worktree-create-location')).toHaveTextContent(
+      'C:\\Users\\me\\worktrees\\app\\...'
+    );
+  });
+
   it('offers the in-worktree menu items ONLY when their handlers exist', async () => {
     const user = setup();
     const worktree = {
