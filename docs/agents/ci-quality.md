@@ -895,9 +895,11 @@ evidence says it is not concurrency-driven. The crash itself remains upstream
 
 The required Unit test and integration steps additionally run through
 `scripts/run-test-command.mjs`. The wrapper streams stdout/stderr unchanged,
-preserves the command's non-zero result, and recognizes only the complete
-three-marker native signature: the exact `jit_page_` allocation assertion,
-`V8_Fatal`, and `ThreadIsolation::UnregisterWasmAllocation`. When all three are
+preserves the command's exit status except that a classified fatal fails the
+lane even if the wrapped command exited zero, and recognizes only the complete
+three-marker native signature in one bounded output region: the exact
+`jit_page_` allocation assertion, `V8_Fatal`, and
+`ThreadIsolation::UnregisterWasmAllocation`. When all three are
 present it emits the machine-readable
 `BRAINSTRIKE_CI_VERDICT=V8_WASM_JIT_TEARDOWN_FATAL` verdict with explicit
 BST-1221 guidance. A generic worker exit, lost file, assertion failure, or

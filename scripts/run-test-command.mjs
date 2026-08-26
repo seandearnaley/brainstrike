@@ -13,21 +13,17 @@ const REQUIRED_FATAL_MARKERS = [
 export const V8_WASM_JIT_FATAL_VERDICT = 'V8_WASM_JIT_TEARDOWN_FATAL';
 
 export function createTestFailureClassifier() {
-  const seenMarkers = new Set();
+  let fatalDetected = false;
   let outputWindow = '';
 
   return {
     push(chunk) {
       const candidate = `${outputWindow}${chunk}`;
-      for (const marker of REQUIRED_FATAL_MARKERS) {
-        if (candidate.includes(marker)) {
-          seenMarkers.add(marker);
-        }
-      }
+      fatalDetected ||= REQUIRED_FATAL_MARKERS.every((marker) => candidate.includes(marker));
       outputWindow = candidate.slice(-OUTPUT_WINDOW_SIZE);
     },
     verdict() {
-      return seenMarkers.size === REQUIRED_FATAL_MARKERS.length ? V8_WASM_JIT_FATAL_VERDICT : null;
+      return fatalDetected ? V8_WASM_JIT_FATAL_VERDICT : null;
     },
   };
 }
@@ -50,6 +46,7 @@ export async function runTestCommand(argv = process.argv, options = {}) {
   const stdout = options.stdout ?? process.stdout;
   const spawnImpl = options.spawn ?? spawn;
   const processSource = options.process ?? process;
+  const env = options.env ?? process.env;
 
   if (separatorIndex === -1 || separatorIndex === argv.length - 1) {
     stderr.write('Usage: node scripts/run-test-command.mjs -- <command> [args...]\n');
@@ -67,7 +64,7 @@ export async function runTestCommand(argv = process.argv, options = {}) {
 
   return await new Promise((resolve) => {
     const child = spawnImpl(invocation.command, invocation.args, {
-      env: process.env,
+      env: stdout.isTTY && env.FORCE_COLOR === undefined ? { ...env, FORCE_COLOR: '1' } : env,
       shell: invocation.shell,
       stdio: ['inherit', 'pipe', 'pipe'],
     });

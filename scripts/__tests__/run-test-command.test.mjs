@@ -36,10 +36,19 @@ test('classifies the exact V8 WASM JIT teardown fatal across output chunks', () 
 test('classifies an exact fatal when one output chunk exceeds the rolling window', () => {
   const classifier = createTestFailureClassifier();
   classifier.push(
-    `Check failed: jit_page_->allocations_.erase(addr) == 1.${' stack'.repeat(1000)}V8_Fatal\nThreadIsolation::UnregisterWasmAllocation`
+    `${'prefix'.repeat(1000)}Check failed: jit_page_->allocations_.erase(addr) == 1.\nV8_Fatal\nThreadIsolation::UnregisterWasmAllocation`
   );
 
   assert.equal(classifier.verdict(), V8_WASM_JIT_FATAL_VERDICT);
+});
+
+test('does not combine markers from unrelated output regions', () => {
+  const classifier = createTestFailureClassifier();
+  classifier.push('Check failed: jit_page_->allocations_.erase(addr) == 1.');
+  classifier.push('unrelated output'.repeat(500));
+  classifier.push('V8_Fatal\nThreadIsolation::UnregisterWasmAllocation');
+
+  assert.equal(classifier.verdict(), null);
 });
 
 test('does not classify an ordinary assertion failure or generic worker exit as the native fatal', () => {
@@ -92,4 +101,54 @@ test('forwards termination signals to the child and removes signal listeners', a
   assert.deepEqual(signals, ['SIGTERM']);
   assert.equal(signalSource.listenerCount('SIGINT'), 0);
   assert.equal(signalSource.listenerCount('SIGTERM'), 0);
+});
+
+test('fails and annotates a classified fatal even when the child exits zero', async () => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => true;
+  const stderr = new PassThrough();
+  let stderrText = '';
+  stderr.on('data', (chunk) => {
+    stderrText += chunk.toString();
+  });
+
+  const run = runTestCommand(['node', 'run-test-command.mjs', '--', 'test-command'], {
+    process: new EventEmitter(),
+    spawn: () => child,
+    stderr,
+  });
+  child.stdout.write(
+    'Check failed: jit_page_->allocations_.erase(addr) == 1.\nV8_Fatal\nThreadIsolation::UnregisterWasmAllocation'
+  );
+  child.emit('close', 0, null);
+
+  assert.equal(await run, 1);
+  assert.match(stderrText, /BRAINSTRIKE_CI_VERDICT=V8_WASM_JIT_TEARDOWN_FATAL/u);
+});
+
+test('preserves a clean zero exit and forwards color intent for a TTY', async () => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => true;
+  const stdout = new PassThrough();
+  stdout.isTTY = true;
+  let spawnOptions;
+
+  const run = runTestCommand(['node', 'run-test-command.mjs', '--', 'test-command'], {
+    env: {},
+    process: new EventEmitter(),
+    spawn: (_command, _args, options) => {
+      spawnOptions = options;
+      return child;
+    },
+    stdout,
+  });
+  child.stdout.write('all tests passed');
+  child.emit('close', 0, null);
+
+  assert.equal(await run, 0);
+  assert.equal(spawnOptions?.env.FORCE_COLOR, '1');
 });
