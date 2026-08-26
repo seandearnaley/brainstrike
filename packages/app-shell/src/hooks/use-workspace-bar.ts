@@ -112,15 +112,18 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function areSecondaryRootsPending(
+function secondaryRootsStatus(
   secondaryRootIds: readonly string[],
   secondaryRootIdsKey: string,
   resolvedSecondaries: ResolvedSecondaryRoots | null
-): boolean {
+): 'error' | 'pending' | 'ready' {
   if (secondaryRootIds.length === 0) {
-    return false;
+    return 'ready';
   }
-  return resolvedSecondaries?.key !== secondaryRootIdsKey || resolvedSecondaries.error;
+  if (resolvedSecondaries?.key !== secondaryRootIdsKey) {
+    return 'pending';
+  }
+  return resolvedSecondaries.error ? 'error' : 'ready';
 }
 
 /**
@@ -147,15 +150,11 @@ function describeFailure(error: unknown): string {
  * A folder write raised before the selected thread's row reached the store.
  * Refusing is the same rule `persistThreadRootBinding` applies — an absent
  * folder set is indistinguishable from an empty one — but unlike a thread
- * switch the user asked for this, so it is both logged and surfaced.
+ * switch the user asked for this, so it is logged and rejected for the
+ * action-specific caller to surface.
  */
 function refuseWriteBeforeThreadMetadata(): never {
   logger.error('Cannot update thread folders before the selected thread metadata is loaded');
-  toast({
-    description: "This thread's folders have not loaded yet — try again in a moment.",
-    title: 'Thread is still loading',
-    variant: 'destructive',
-  });
   throw new Error("This thread's folders have not loaded yet — try again in a moment.");
 }
 
@@ -179,10 +178,85 @@ function writeStartingPoint(
         primaryRootId: tail.primaryRootId,
         secondaryRootIds: tail.ids,
         secondaryRoots: tail.secondaryRoots,
+        secondaryRootsError: false,
         secondaryRootsPending: false,
         threadId: live.threadId,
       }
     : live;
+}
+
+class MakePrimaryDerivationError extends Error {
+  readonly reason: 'current-primary' | 'secondary';
+  readonly rootId: string | undefined;
+
+  constructor(
+    message: string,
+    reason: 'current-primary' | 'secondary',
+    rootId: string | undefined
+  ) {
+    super(message);
+    this.name = 'MakePrimaryDerivationError';
+    this.reason = reason;
+    this.rootId = rootId;
+  }
+}
+
+export function deriveMakePrimary(
+  current: ThreadCheckoutFolders,
+  rootId: string
+): ThreadCheckoutWrite {
+  const next = current.secondaryRoots.find((root) => root.rootId === rootId);
+  const nextPath = next?.path;
+  if (!(next && nextPath)) {
+    if (current.secondaryRootsError) {
+      throw new Error('Folders failed to load — reopen the thread or restart to retry.');
+    }
+    if (current.secondaryRootsPending) {
+      throw new Error('Folders are still loading — try again in a moment.');
+    }
+    throw new MakePrimaryDerivationError(
+      `Could not make primary: secondary root ${rootId} is unknown or has no path.`,
+      'secondary',
+      rootId
+    );
+  }
+  const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
+  const currentPrimaryPath = current.primaryRoot?.path;
+  if (
+    demotesPrimary &&
+    (!current.primaryRoot ||
+      current.primaryRoot.rootId !== current.primaryRootId ||
+      !currentPrimaryPath)
+  ) {
+    throw new MakePrimaryDerivationError(
+      `Could not make primary: current primary root ${current.primaryRootId ?? '(unknown)'} is unknown or has no path.`,
+      'current-primary',
+      current.primaryRootId
+    );
+  }
+  const demoted =
+    demotesPrimary && current.primaryRoot && currentPrimaryPath
+      ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
+      : [];
+  const secondaryRoots = [
+    ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
+    ...demoted,
+  ];
+  return {
+    binding: {
+      operatingRootDisplayName: next.displayName,
+      operatingRootId: rootId,
+      operatingRootPath: nextPath,
+    },
+    checkoutLocalRootId: current.checkoutLocalRootId,
+    ids: [
+      ...current.secondaryRootIds.filter((id) => id !== rootId),
+      ...demoted.map((root) => root.rootId),
+    ],
+    primaryRoot: { ...next, path: nextPath },
+    primaryRootId: rootId,
+    secondaryRoots,
+  };
 }
 
 /**
@@ -486,11 +560,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     database && resolvedSecondaries?.key === secondaryRootIdsKey
       ? resolvedSecondaries.roots
       : NO_ROOTS;
-  const secondaryRootsPending = areSecondaryRootsPending(
+  const resolvedSecondaryRootsStatus = secondaryRootsStatus(
     secondaryRootIds,
     secondaryRootIdsKey,
     resolvedSecondaries
   );
+  const secondaryRootsError = resolvedSecondaryRootsStatus === 'error';
+  const secondaryRootsPending = resolvedSecondaryRootsStatus === 'pending';
   useEffect(() => {
     if (!(database && secondaryRootIds.length > 0)) {
       return;
@@ -630,6 +706,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     primaryRootId,
     secondaryRootIds,
     secondaryRoots,
+    secondaryRootsError,
     secondaryRootsPending,
     threadId: selectedMemoryThreadId,
   });
@@ -641,6 +718,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       primaryRootId,
       secondaryRootIds,
       secondaryRoots,
+      secondaryRootsError,
       secondaryRootsPending,
       threadId: selectedMemoryThreadId,
     };
@@ -650,6 +728,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     primaryRootId,
     secondaryRootIds,
     secondaryRoots,
+    secondaryRootsError,
     secondaryRootsPending,
     selectedMemoryThreadId,
     selectedThreadMetadataPending,
@@ -888,40 +967,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       // all-or-nothing rule), through the same store action — the global MAIN
       // root is deliberately untouched.
       void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
-        const next = current.secondaryRoots.find((root) => root.rootId === rootId);
-        const nextPath = next?.path;
-        if (!(next && nextPath)) {
-          if (current.secondaryRootsPending) {
-            throw new Error('Folders are still loading — try again in a moment.');
-          }
-          logger.error('Make primary: unknown secondary root, or a root with no path', { rootId });
-          throw new Error(
-            `Could not make primary: secondary root ${rootId} is unknown or has no path.`
-          );
-        }
-        const demotesPrimary = Boolean(current.primaryRootId && current.primaryRootId !== rootId);
-        const currentPrimaryPath = current.primaryRoot?.path;
-        if (
-          demotesPrimary &&
-          (!current.primaryRoot ||
-            current.primaryRoot.rootId !== current.primaryRootId ||
-            !currentPrimaryPath)
-        ) {
-          logger.error('Make primary: current primary root is unknown or has no path', {
-            rootId: current.primaryRootId,
-          });
-          throw new Error(
-            `Could not make primary: current primary root ${current.primaryRootId ?? '(unknown)'} is unknown or has no path.`
-          );
-        }
-        const demoted =
-          demotesPrimary && current.primaryRoot && currentPrimaryPath
-            ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
-            : [];
-        const secondaryRoots = [
-          ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
-          ...demoted,
-        ];
         // TODO(BST-1390): if the thread is currently in worktree checkout mode
         // (metadata.checkoutMode === 'worktree'), promoting a plain secondary
         // root to primary here leaves checkoutMode stuck at 'worktree' while
@@ -931,21 +976,18 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         // secondaries while in worktree mode with a visible reason. Needs a
         // decision, not just a patch — see the BST-1390 Task 17 reviewer
         // addendum, item (a).
-        return {
-          binding: {
-            operatingRootDisplayName: next.displayName,
-            operatingRootId: rootId,
-            operatingRootPath: nextPath,
-          },
-          checkoutLocalRootId: current.checkoutLocalRootId,
-          ids: [
-            ...current.secondaryRootIds.filter((id) => id !== rootId),
-            ...demoted.map((root) => root.rootId),
-          ],
-          primaryRoot: { ...next, path: nextPath },
-          primaryRootId: rootId,
-          secondaryRoots,
-        };
+        try {
+          return deriveMakePrimary(current, rootId);
+        } catch (error) {
+          if (error instanceof MakePrimaryDerivationError) {
+            const message =
+              error.reason === 'secondary'
+                ? 'Make primary: unknown secondary root, or a root with no path'
+                : 'Make primary: current primary root is unknown or has no path';
+            logger.error(message, { rootId: error.rootId });
+          }
+          throw error;
+        }
       }).catch((error: unknown) => {
         logger.error('Make primary failed', { error, rootId });
         toast({
@@ -1034,6 +1076,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onSelectWorktree,
     primaryRootId,
     primaryRootPath,
+    selectedMemoryThreadId,
     selectedThread,
     worktreeCheckout,
   });

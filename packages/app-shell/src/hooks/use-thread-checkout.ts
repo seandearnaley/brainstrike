@@ -184,6 +184,9 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
       const localRoot = current.secondaryRoots.find((root) => root.rootId === localId);
       const localPath = localRoot?.path;
       if (!(localRoot && localPath)) {
+        if (current.secondaryRootsError) {
+          throw new Error('Folders failed to load — reopen the thread or restart to retry.');
+        }
         if (current.secondaryRootsPending) {
           throw new Error('Folders are still loading — try again in a moment.');
         }

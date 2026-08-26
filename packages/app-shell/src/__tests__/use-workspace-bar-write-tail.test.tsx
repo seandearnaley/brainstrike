@@ -478,4 +478,92 @@ describe('useWorkspaceBar — write tail chaining', () => {
       secondaryRootIds: [],
     });
   });
+
+  it('resolves a queued worktree selection when a thread switch makes the write obsolete', async () => {
+    installWorktreesBridge();
+    worktreeCreateSpy.mockResolvedValue({
+      ok: true,
+      value: {
+        setup: {
+          copiedPaths: [],
+          output: '',
+          reason: null,
+          skippedCopies: [],
+          status: 'none',
+          truncated: false,
+        },
+        worktree: {
+          archivedAt: null,
+          archiveSnapshotRef: null,
+          baseRef: 'main',
+          branch: 'bs/bright-fox',
+          createdAt: '2026-08-25T00:00:00.000Z',
+          createdBy: 'user',
+          id: 'w-1',
+          path: '/managed/brainstrike/bright-fox',
+          repoCommonDir: '/ws/brainstrike/.git',
+          runId: null,
+          setupOutput: null,
+          setupReason: null,
+          setupStatus: 'none',
+          threadId: THREAD_ID,
+        },
+      },
+    });
+    let releaseFirstWrite = (): void => undefined;
+    const firstWriteGate = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    useAssistantThreadStore.setState({
+      updateThreadMetadata: async (
+        repository: AssistantThreadRepository,
+        _resourceId: string,
+        threadId: string,
+        metadata: AssistantThreadMetadata
+      ) => {
+        await repository.updateThreadMetadata(threadId, metadata);
+        await firstWriteGate;
+      },
+    });
+    const { rerender, result } = await setup({
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'r-main-db',
+      operatingRootPath: '/ws/brainstrike',
+      secondaryRootIds: ['r-docs'],
+    });
+    await waitFor(() => expect(result.current.secondaryRoots).toHaveLength(1));
+    await waitFor(() => expect(result.current.mode?.createDisabledReason).toBeNull());
+
+    act(() => {
+      result.current.onMakePrimary('r-docs');
+    });
+    await waitFor(() => expect(updateThreadMetadata).toHaveBeenCalledTimes(1));
+
+    let createPromise: Promise<void> | undefined;
+    act(() => {
+      createPromise = result.current.mode?.onCreate({
+        baseRef: 'main',
+        branch: { name: 'bs/bright-fox' },
+        name: 'bright-fox',
+      });
+    });
+    await waitFor(() =>
+      expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM roots'), [
+        '/managed/brainstrike/bright-fox',
+      ])
+    );
+    await act(async () => {});
+
+    act(() => {
+      rerender({ selectedMemoryThreadId: 'thread-2' });
+    });
+    releaseFirstWrite();
+
+    await act(async () => {
+      await expect(createPromise).resolves.toBeUndefined();
+    });
+    expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(loggerMock.error).not.toHaveBeenCalled();
+  });
 });

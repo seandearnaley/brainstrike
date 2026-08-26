@@ -23,6 +23,7 @@ export interface UseWorkspaceBarModeArgs {
   }) => Promise<void>;
   readonly primaryRootId: string | undefined;
   readonly primaryRootPath: string | undefined;
+  readonly selectedMemoryThreadId: string | undefined;
   readonly selectedThread: AssistantMemoryThread | undefined;
   readonly worktreeCheckout: ThreadCheckoutState;
 }
@@ -44,17 +45,20 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     onSelectWorktree,
     primaryRootId,
     primaryRootPath,
+    selectedMemoryThreadId,
     selectedThread,
     worktreeCheckout,
   } = args;
   // `latestRun` is populated from the durable run ledger after the first request.
-  // An absent thread is still hydrating, not evidence that no request was sent.
+  // A known id with no row is still hydrating, not evidence that no request was sent.
   const firstRequestState =
-    selectedThread === undefined
-      ? 'loading'
-      : selectedThread.latestRun === undefined
-        ? 'unsent'
-        : 'sent';
+    selectedMemoryThreadId === undefined
+      ? 'no-thread'
+      : selectedThread === undefined
+        ? 'loading'
+        : selectedThread.latestRun === undefined
+          ? 'unsent'
+          : 'sent';
   const activeRunId =
     selectedThread?.latestRun?.status === 'running' ? selectedThread.latestRun.id : null;
 

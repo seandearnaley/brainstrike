@@ -77,6 +77,7 @@ function renderComposition() {
       onSelectWorktree: vi.fn(),
       primaryRootId: 'r-1',
       primaryRootPath: '/work/app',
+      selectedMemoryThreadId: thread.id,
       selectedThread: thread,
       worktreeCheckout: {
         branch: null,
@@ -103,6 +104,7 @@ describe('useWorkspaceBarMode branch escape', () => {
         onSelectWorktree: vi.fn(),
         primaryRootId: 'r-1',
         primaryRootPath: '/work/app',
+        selectedMemoryThreadId: 'thread-1',
         selectedThread: undefined,
         worktreeCheckout: {
           branch: null,
@@ -115,6 +117,32 @@ describe('useWorkspaceBarMode branch escape', () => {
 
     expect(worktreeModeSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ firstRequestState: 'loading' })
+    );
+    expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toBeUndefined();
+  });
+
+  it('treats no selected thread as unselected, not as loading', () => {
+    worktreeModeSpy.mockReturnValue(mode({ createDisabledReason: 'No thread selected.' }));
+    renderHook(() =>
+      useWorkspaceBarMode({
+        checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        onHandOffToLocal: vi.fn(),
+        onSelectWorktree: vi.fn(),
+        primaryRootId: 'r-1',
+        primaryRootPath: '/work/app',
+        selectedMemoryThreadId: undefined,
+        selectedThread: undefined,
+        worktreeCheckout: {
+          branch: null,
+          mode: 'local',
+          worktreeId: null,
+          worktreePath: null,
+        },
+      })
+    );
+
+    expect(worktreeModeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ firstRequestState: 'no-thread' })
     );
     expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toBeUndefined();
   });

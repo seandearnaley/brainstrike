@@ -966,6 +966,9 @@ function ghostListEntry(
  * an unusable row is still returned, still carries its reason, and names the
  * remedy when one exists.
  *
+ * An in-root worktree with no ledger row is unusable because BrainStrike did
+ * not create it, independently of the trust, lock, and prune gates above.
+ *
  * `outside-roots` is NOT terminal: a managed worktree is authorized by the
  * ledger, and any other outside-roots worktree becomes usable once the user
  * grants it through the OS picker — which is what `remedy: 'grant-access'`
@@ -1001,7 +1004,10 @@ function resolveUsability(
       usable: false,
     };
   }
-  if (descriptor.containment !== 'outside-roots' || row !== null) {
+  // `row !== null` alone is correct here: the branch above already ruled
+  // out `row === null && containment !== 'outside-roots'`, so reaching
+  // this line with containment !== 'outside-roots' implies row !== null.
+  if (row !== null) {
     return { disabledReason: null, remedy: null, usable: true };
   }
   return {

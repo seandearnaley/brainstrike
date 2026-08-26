@@ -45,7 +45,7 @@ export interface UseWorktreeModeArgs {
     readonly worktreeId: string | null;
     readonly worktreePath: string | null;
   };
-  readonly firstRequestState: 'loading' | 'sent' | 'unsent';
+  readonly firstRequestState: 'loading' | 'no-thread' | 'sent' | 'unsent';
   readonly isRepository: boolean;
   readonly onHandOffToLocal: () => Promise<void>;
   readonly onSelectWorktree: (worktree: {
@@ -177,6 +177,9 @@ function createDisabledReason(
   firstRequestState: UseWorktreeModeArgs['firstRequestState'],
   settings: SettingsState
 ): string | null {
+  if (firstRequestState === 'no-thread') {
+    return 'No thread selected.';
+  }
   if (firstRequestState === 'loading') {
     return 'Thread is still loading.';
   }
@@ -340,6 +343,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       if (!(bridge && args.primaryRootId)) {
         rejectWithToast('Could not create a worktree', 'Worktrees are not available here.');
       }
+      if (args.firstRequestState === 'no-thread') {
+        rejectWithToast('Could not create a worktree', 'No thread selected.');
+      }
       if (args.firstRequestState === 'loading') {
         rejectWithToast('Could not create a worktree', 'Thread is still loading.');
       }
@@ -365,7 +371,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           const message = errorMessage(error);
           toastFailure(
             'Worktree created, but binding failed',
-            `Created the worktree at ${worktree.path}, but binding the thread failed: ${message} Use "Use existing worktree…" to reconnect this thread to it.`
+            `Created the worktree at ${worktree.path}, but binding the thread failed: ${message}. Use "Use existing worktree…" to reconnect this thread to it.`
           );
           throw error instanceof Error ? error : new Error(message);
         }
@@ -504,6 +510,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const onOpenCreateSheet = useCallback(async (): Promise<void> => {
     if (!(bridge && args.primaryRootId)) {
       throw new Error('Worktrees are not available here.');
+    }
+    if (args.firstRequestState === 'no-thread') {
+      rejectWithToast('Could not open worktree creation', 'No thread selected.');
     }
     if (args.firstRequestState === 'loading') {
       rejectWithToast('Could not open worktree creation', 'Thread is still loading.');

@@ -174,6 +174,24 @@ describe('useWorktreeMode', () => {
     expect(result.current?.onHandOffToLocal).toBeDefined();
   });
 
+  it('disables and rejects worktree creation when no thread is selected', async () => {
+    const { result } = renderHook(() =>
+      useWorktreeMode({ ...ARGS, firstRequestState: 'no-thread' })
+    );
+    await waitFor(() => expect(result.current?.createDisabledReason).toBe('No thread selected.'));
+
+    await act(async () => {
+      await expect(result.current?.onCreate(CREATE_REQUEST)).rejects.toThrow('No thread selected.');
+    });
+
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'No thread selected.',
+      title: 'Could not create a worktree',
+      variant: 'destructive',
+    });
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
   it('mounts the created worktree as a root and then binds the thread to it', async () => {
     const { result } = renderHook(() => useWorktreeMode(ARGS));
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
@@ -229,7 +247,7 @@ describe('useWorktreeMode', () => {
     expect(addRootByPathSpy).toHaveBeenCalledWith('/managed/app/bright-fox');
     expect(toastSpy).toHaveBeenCalledWith({
       description:
-        'Created the worktree at /managed/app/bright-fox, but binding the thread failed: bind boom Use "Use existing worktree…" to reconnect this thread to it.',
+        'Created the worktree at /managed/app/bright-fox, but binding the thread failed: bind boom. Use "Use existing worktree…" to reconnect this thread to it.',
       title: 'Worktree created, but binding failed',
       variant: 'destructive',
     });
@@ -325,6 +343,21 @@ describe('useWorktreeMode', () => {
     );
     expect(toastSpy).toHaveBeenCalledWith({
       description: 'Create a worktree before sending the first request.',
+      title: 'Could not open worktree creation',
+      variant: 'destructive',
+    });
+    expect(createContextSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses to open the create sheet when no thread is selected', async () => {
+    const { result } = renderHook(() =>
+      useWorktreeMode({ ...ARGS, firstRequestState: 'no-thread' })
+    );
+    await waitFor(() => expect(result.current?.createDisabledReason).toBe('No thread selected.'));
+
+    await expect(result.current?.onOpenCreateSheet()).rejects.toThrow('No thread selected.');
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'No thread selected.',
       title: 'Could not open worktree creation',
       variant: 'destructive',
     });

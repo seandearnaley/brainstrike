@@ -41,6 +41,7 @@ const enqueue = vi.fn(
       primaryRootId: 'r-local',
       secondaryRootIds: [],
       secondaryRoots: [],
+      secondaryRootsError: false,
       secondaryRootsPending: false,
       threadId: 't-1',
     });
@@ -113,6 +114,7 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-local',
       secondaryRootIds: [],
       secondaryRoots: [],
+      secondaryRootsError: false,
       secondaryRootsPending: false,
       threadId: 't-1',
     });
@@ -151,6 +153,7 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-local',
       secondaryRootIds: [],
       secondaryRoots: [],
+      secondaryRootsError: false,
       secondaryRootsPending: false,
       threadId: 't-1',
     });
@@ -193,6 +196,7 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-worktree',
       secondaryRootIds: ['r-local'],
       secondaryRoots: [{ displayName: 'app', path: '/work/app', rootId: 'r-local' }],
+      secondaryRootsError: false,
       secondaryRootsPending: false,
       threadId: 't-1',
     });
@@ -239,6 +243,7 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-worktree',
       secondaryRootIds: [],
       secondaryRoots: [],
+      secondaryRootsError: false,
       secondaryRootsPending: false,
       threadId: 't-1',
     };
@@ -276,6 +281,7 @@ describe('useThreadCheckout', () => {
         primaryRootId: 'r-worktree',
         secondaryRootIds: ['r-local'],
         secondaryRoots: [],
+        secondaryRootsError: false,
         secondaryRootsPending: false,
         threadId: 't-1',
       })
@@ -298,10 +304,32 @@ describe('useThreadCheckout', () => {
         primaryRootId: 'r-worktree',
         secondaryRootIds: ['r-local'],
         secondaryRoots: [],
+        secondaryRootsError: false,
         secondaryRootsPending: true,
         threadId: 't-1',
       })
     ).toThrow('Folders are still loading — try again in a moment.');
+    expect(loggerErrorSpy).not.toHaveBeenCalled();
+  });
+
+  it('reports an honest hand-off failure when the secondary roots query already failed', async () => {
+    const { result } = renderHook(() => useThreadCheckout(ARGS));
+    await result.current.handOffToLocal();
+    const derive = enqueue.mock.calls[0]?.[1];
+
+    expect(() =>
+      derive?.({
+        checkoutLocalRootId: 'r-local',
+        metadataPending: false,
+        primaryRoot: { displayName: 'bright-fox', rootId: 'r-worktree' },
+        primaryRootId: 'r-worktree',
+        secondaryRootIds: ['r-local'],
+        secondaryRoots: [],
+        secondaryRootsError: true,
+        secondaryRootsPending: false,
+        threadId: 't-1',
+      })
+    ).toThrow('Folders failed to load — reopen the thread or restart to retry.');
     expect(loggerErrorSpy).not.toHaveBeenCalled();
   });
 
@@ -322,6 +350,7 @@ describe('useThreadCheckout', () => {
         primaryRootId: 'r-local',
         secondaryRootIds: ['r-unresolved'],
         secondaryRoots: [],
+        secondaryRootsError: false,
         secondaryRootsPending: false,
         threadId: 't-1',
       })
@@ -343,6 +372,7 @@ describe('useThreadCheckout', () => {
       primaryRootId: 'r-local',
       secondaryRootIds: ['r-docs'],
       secondaryRoots: [{ displayName: 'docs', path: '/work/docs', rootId: 'r-docs' }],
+      secondaryRootsError: false,
       secondaryRootsPending: false,
       threadId: 't-1',
     });
@@ -372,6 +402,7 @@ describe('useThreadCheckout', () => {
         { displayName: 'docs', path: '/work/docs', rootId: 'r-docs' },
         { displayName: 'app', path: '/work/app', rootId: 'r-local' },
       ],
+      secondaryRootsError: false,
       secondaryRootsPending: false,
       threadId: 't-1',
     });
@@ -402,6 +433,7 @@ describe('useThreadCheckout', () => {
         primaryRootId: 'r-local',
         secondaryRootIds: [],
         secondaryRoots: [],
+        secondaryRootsError: false,
         secondaryRootsPending: false,
         threadId: 't-1',
       })
@@ -430,6 +462,7 @@ describe('useThreadCheckout', () => {
         primaryRootId: 'r-worktree',
         secondaryRootIds: [],
         secondaryRoots: [],
+        secondaryRootsError: false,
         secondaryRootsPending: false,
         threadId: 't-1',
       })
