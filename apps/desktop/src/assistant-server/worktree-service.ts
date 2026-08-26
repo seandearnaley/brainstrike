@@ -352,7 +352,13 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         seenPaths.add(descriptor.path);
         const row = rowsByPath.get(descriptor.path) ?? null;
         entries.push(
-          inventoryListEntry(descriptor, row, repository.identity.repositoryRoot, rootIdByPath)
+          inventoryListEntry(
+            descriptor,
+            row,
+            repository.identity.repositoryRoot,
+            repository.identity.gitCommonDir,
+            rootIdByPath
+          )
         );
       }
     }
@@ -892,6 +898,19 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
 
 export type WorktreeService = ReturnType<typeof createWorktreeService>;
 
+/**
+ * The primary checkout is enumerated by `git worktree list` like any other
+ * worktree, but it is NOT a worktree-mode target: a thread that operates in
+ * the user's own clone is in Local mode. Selecting it would write
+ * `checkoutMode: 'worktree'` pointing at the primary, which the hand-off path
+ * would then refuse to leave. Stated, never hidden (spec §13).
+ */
+const PRIMARY_CHECKOUT_GATE: UsabilityGate = {
+  disabledReason: "This is the repository's primary checkout — use Hand off to Local instead.",
+  remedy: null,
+  usable: false,
+};
+
 interface UsabilityGate {
   readonly disabledReason: string | null;
   readonly remedy: 'grant-access' | null;
@@ -902,12 +921,15 @@ function inventoryListEntry(
   descriptor: WorktreeDescriptor,
   row: ManagedWorktreeRow | null,
   repositoryRoot: string,
+  repoCommonDir: string,
   rootIdByPath: ReadonlyMap<string, string>
 ): WorktreeListEntry {
-  const gate = resolveUsability(descriptor, row);
+  const primary = descriptor.path === repositoryRoot;
+  const gate = primary ? PRIMARY_CHECKOUT_GATE : resolveUsability(descriptor, row);
   return {
     branch: descriptor.branch,
     containment: descriptor.containment,
+    createdAt: row?.createdAt ?? null,
     detached: descriptor.detached,
     disabledReason: gate.disabledReason,
     externalTool: externalToolForPath(descriptor.path),
@@ -916,11 +938,13 @@ function inventoryListEntry(
     managed: row !== null,
     name: descriptor.name,
     path: descriptor.path,
+    primary,
     // The FIRST producer of anything but 'scanned' (see
     // docs/agents/changeset-diff.md): a scanned worktree that also has a
     // ledger row is known from BOTH sides.
     provenance: row ? 'both' : 'scanned',
     remedy: gate.remedy,
+    repoCommonDir,
     repositoryRoot,
     rootId:
       rootIdByPath.get(descriptor.path) ??
@@ -940,6 +964,7 @@ function ghostListEntry(
   return {
     branch: row.branch,
     containment: 'outside-roots',
+    createdAt: row.createdAt,
     detached: row.branch === null,
     disabledReason: 'Worktree is missing on disk — restore it or archive it.',
     externalTool: externalToolForPath(row.path),
@@ -948,8 +973,10 @@ function ghostListEntry(
     managed: true,
     name: path.basename(row.path),
     path: row.path,
+    primary: false,
     provenance: 'agent-reported',
     remedy: null,
+    repoCommonDir: row.repoCommonDir,
     repositoryRoot: repositoryRootFromCommonDir(row.repoCommonDir),
     rootId: rootIdByPath.get(row.path) ?? null,
     setupReason: row.setupReason,

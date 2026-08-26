@@ -28,6 +28,7 @@ const {
   loggerErrorSpy: vi.fn(),
   toastSpy: vi.fn(),
 }));
+const listMock = listSpy;
 
 vi.mock('../worktrees/worktrees-bridge', () => ({
   resolveWorktreesBridge: () => ({
@@ -76,6 +77,7 @@ const ARGS = {
   primaryRootPath: '/work/app',
   runId: null,
 };
+const args = ARGS;
 
 const WORKTREE_CHECKOUT = {
   branch: 'bs/bright-fox',
@@ -89,6 +91,34 @@ const CREATE_REQUEST = {
   branch: { name: 'bs/bright-fox' },
   name: 'bright-fox',
 } as const;
+
+function entry(overrides: Partial<WorktreeListEntry> = {}): WorktreeListEntry {
+  return {
+    branch: 'main',
+    containment: ['r-1'],
+    createdAt: null,
+    detached: false,
+    disabledReason: null,
+    externalTool: null,
+    id: 'w-1',
+    lockedReason: null,
+    managed: true,
+    name: 'bright-fox',
+    path: '/managed/app/bright-fox',
+    primary: false,
+    provenance: 'both',
+    remedy: null,
+    repoCommonDir: '/repo/.git',
+    repositoryRoot: '/work/app',
+    rootId: 'r-1',
+    setupReason: null,
+    setupStatus: 'none',
+    trust: 'validated',
+    trustReason: null,
+    usable: true,
+    ...overrides,
+  };
+}
 
 describe('useWorktreeMode', () => {
   beforeEach(() => {
@@ -438,6 +468,7 @@ describe('useWorktreeMode', () => {
         {
           branch: null,
           containment: 'outside-roots',
+          createdAt: null,
           detached: true,
           disabledReason:
             "This worktree isn't inside any workspace folder yet — grant access to use it here.",
@@ -447,8 +478,10 @@ describe('useWorktreeMode', () => {
           managed: false,
           name: 'codex-one',
           path: '/Users/me/.codex/worktrees/codex-one',
+          primary: false,
           provenance: 'scanned',
           remedy: 'grant-access',
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: null,
           setupReason: null,
@@ -472,6 +505,32 @@ describe('useWorktreeMode', () => {
     });
   });
 
+  it('renders the primary checkout as a disabled picker row with its stated reason', async () => {
+    listMock.mockResolvedValue({
+      ok: true,
+      value: [
+        entry({
+          disabledReason:
+            "This is the repository's primary checkout — use Hand off to Local instead.",
+          id: null,
+          name: 'brainstrike',
+          path: '/repo',
+          primary: true,
+          usable: false,
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() => useWorktreeMode(args));
+    await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
+
+    const [option] = result.current?.picker.options ?? [];
+    expect(option?.usable).toBe(false);
+    expect(option?.disabledReason).toBe(
+      "This is the repository's primary checkout — use Hand off to Local instead."
+    );
+  });
+
   it('uses persisted setup status and reason for the selected worktree summary', async () => {
     listSpy.mockResolvedValue({
       ok: true,
@@ -479,6 +538,7 @@ describe('useWorktreeMode', () => {
         {
           branch: 'bs/bright-fox',
           containment: ['r-1'],
+          createdAt: null,
           detached: false,
           disabledReason: null,
           externalTool: null,
@@ -487,8 +547,10 @@ describe('useWorktreeMode', () => {
           managed: true,
           name: 'bright-fox',
           path: '/managed/app/bright-fox',
+          primary: false,
           provenance: 'both',
           remedy: null,
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: 'r-1',
           setupReason: 'Setup command exited with code 3.',
@@ -521,6 +583,7 @@ describe('useWorktreeMode', () => {
         {
           branch: 'bs/bright-fox',
           containment: ['r-1'],
+          createdAt: null,
           detached: false,
           disabledReason: null,
           externalTool: null,
@@ -529,8 +592,10 @@ describe('useWorktreeMode', () => {
           managed: true,
           name: 'bright-fox',
           path: '/managed/app/bright-fox',
+          primary: false,
           provenance: 'both',
           remedy: null,
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: 'r-1',
           setupReason: null,
@@ -555,6 +620,7 @@ describe('useWorktreeMode', () => {
         {
           branch: 'bs/bright-fox',
           containment: ['r-1'],
+          createdAt: null,
           detached: false,
           disabledReason: null,
           externalTool: null,
@@ -563,8 +629,10 @@ describe('useWorktreeMode', () => {
           managed: true,
           name: 'bright-fox',
           path: '/managed/app/bright-fox',
+          primary: false,
           provenance: 'both',
           remedy: null,
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: 'r-1',
           setupReason: null,
@@ -620,6 +688,7 @@ describe('useWorktreeMode', () => {
     const detached: WorktreeListEntry = {
       branch: null,
       containment: ['r-1'],
+      createdAt: null,
       detached: true,
       disabledReason: null,
       externalTool: null,
@@ -628,8 +697,10 @@ describe('useWorktreeMode', () => {
       managed: true,
       name: 'bright-fox',
       path: '/managed/app/bright-fox',
+      primary: false,
       provenance: 'both',
       remedy: null,
+      repoCommonDir: '/repo/.git',
       repositoryRoot: '/work/app',
       rootId: 'r-1',
       setupReason: null,
@@ -684,6 +755,7 @@ describe('useWorktreeMode', () => {
         {
           branch: null,
           containment: ['r-1'],
+          createdAt: null,
           detached: true,
           disabledReason: null,
           externalTool: null,
@@ -692,8 +764,10 @@ describe('useWorktreeMode', () => {
           managed: true,
           name: 'bright-fox',
           path: '/managed/app/bright-fox',
+          primary: false,
           provenance: 'both',
           remedy: null,
+          repoCommonDir: '/repo/.git',
           repositoryRoot: '/work/app',
           rootId: 'r-1',
           setupReason: null,
@@ -739,6 +813,7 @@ describe('useWorktreeMode', () => {
           {
             branch: null,
             containment: ['r-1'],
+            createdAt: null,
             detached: true,
             externalTool: null,
             id: 'w-broken',
@@ -746,8 +821,10 @@ describe('useWorktreeMode', () => {
             managed: true,
             name: 'broken',
             path: '/managed/app/broken',
+            primary: false,
             provenance: 'both',
             remedy: null,
+            repoCommonDir: '/repo/.git',
             repositoryRoot: '/work/app',
             rootId: 'r-1',
             setupReason: null,
