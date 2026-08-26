@@ -88,6 +88,46 @@ describe('worktrees IPC handlers', () => {
     expect(service.create).toHaveBeenCalledWith(params);
   });
 
+  it('forwards a validated repository setup decision to the service', async () => {
+    service.create.mockResolvedValue({ ok: true, value: { setup: null, worktree: null } });
+    const params = {
+      baseRef: 'main',
+      branch: { name: 'bs/x' },
+      createdBy: 'user',
+      name: 'x',
+      repositorySetupDecision: {
+        decision: 'denied',
+        repositoryId: '/work/app/.git',
+      },
+      rootId: 'r',
+    };
+
+    await handlers().create(params);
+
+    expect(service.create).toHaveBeenCalledWith(params);
+  });
+
+  it('rejects a malformed repository setup decision at the boundary', async () => {
+    const result = await handlers().create({
+      baseRef: 'main',
+      branch: { name: 'bs/x' },
+      createdBy: 'user',
+      name: 'x',
+      repositorySetupDecision: {
+        decision: 'sometimes',
+        repositoryId: '/work/app/.git',
+      },
+      rootId: 'r',
+    });
+
+    expect(result).toEqual({
+      error:
+        'worktrees:create repositorySetupDecision must identify a repository and be approved or denied.',
+      ok: false,
+    });
+    expect(service.create).not.toHaveBeenCalled();
+  });
+
   it('rejects a malformed archive payload at the boundary', async () => {
     expect(await handlers().archive({ worktreeId: 42 })).toEqual({
       error: 'worktrees:archive requires { worktreeId }.',
@@ -129,7 +169,11 @@ describe('worktrees IPC handlers', () => {
   it('forwards a validated createContext to the service', async () => {
     service.createContext.mockResolvedValue({
       ok: true,
-      value: { managedParentPath: '/managed/app-slug', suggestedName: 'bright-fox' },
+      value: {
+        managedParentPath: '/managed/app-slug',
+        repositorySetup: null,
+        suggestedName: 'bright-fox',
+      },
     });
     const params = { rootId: 'r-1' };
     await handlers().createContext(params);

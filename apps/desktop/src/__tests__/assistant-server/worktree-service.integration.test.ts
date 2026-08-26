@@ -3,7 +3,15 @@
  * add` actually runs and the ledger actually persists — a mocked runner would
  * prove only that the arguments were assembled.
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runDrizzleMigrations as runMigrations } from '@brainstrike/db';
@@ -279,6 +287,85 @@ describe('WorktreeService (real git + real PGlite)', () => {
     );
     expect(context.value.suggestedName).not.toBe('bright-fox');
     expect(context.value.suggestedName).not.toBe('quiet-otter');
+  });
+
+  it('reports the repository and script path when repository setup needs consent', async () => {
+    mkdirSync(path.join(repo, '.brainstrike'));
+    writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), '#!/bin/sh\n');
+
+    const context = await buildService().createContext({ rootId: 'r-1' });
+
+    expect(context.ok).toBe(true);
+    if (!context.ok) {
+      return;
+    }
+    const repositoryPath = realpathSync(repo);
+    const repositoryId = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+    expect(context.value.repositorySetup).toEqual({
+      repositoryId,
+      repositoryPath,
+      scriptPath: path.join(repositoryPath, '.brainstrike', 'worktree-setup.sh'),
+    });
+  });
+
+  it('pins repository setup consent to main-resolved repository identity', async () => {
+    const runSetup = vi.fn<Parameters<typeof createWorktreeService>[0]['runSetup']>(() =>
+      Promise.resolve({
+        copiedPaths: [],
+        output: '',
+        reason: null,
+        skippedCopies: [],
+        status: 'none' as const,
+        truncated: false,
+      })
+    );
+    const service = buildService({ runSetup });
+    const commonDir = realpathSync(
+      git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim()
+    );
+
+    await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/mismatched-consent' },
+      createdBy: 'user',
+      name: 'mismatched-consent',
+      repositorySetupDecision: {
+        decision: 'approved',
+        repositoryId: '/different/repository/.git',
+      },
+      rootId: 'r-1',
+    });
+    expect(runSetup.mock.calls[0]?.[0]).not.toHaveProperty('repositorySetupDecision');
+
+    await service.create({
+      baseRef: 'main',
+      branch: { name: 'bs/matched-consent' },
+      createdBy: 'user',
+      name: 'matched-consent',
+      repositorySetupDecision: { decision: 'approved', repositoryId: commonDir },
+      rootId: 'r-1',
+    });
+    expect(runSetup.mock.calls[1]?.[0]).toMatchObject({ repositorySetupDecision: 'approved' });
+  });
+
+  it.each([
+    { label: 'disabled', setupCommand: 'disabled' as const },
+    { label: 'configured argv', setupCommand: ['pnpm', 'install'] as const },
+  ])('does not request repository-script consent for $label', async ({ setupCommand }) => {
+    mkdirSync(path.join(repo, '.brainstrike'));
+    writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), '#!/bin/sh\n');
+    const context = await buildService({
+      readSettings: () =>
+        Promise.resolve({
+          isDefaultDirectory: true,
+          managedDirectory,
+          setupCommand,
+        }),
+    }).createContext({ rootId: 'r-1' });
+
+    expect(context.ok && context.value.repositorySetup).toBeNull();
   });
 
   it('refuses a branch name that already exists rather than reusing it', async () => {

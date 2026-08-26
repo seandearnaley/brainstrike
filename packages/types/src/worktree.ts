@@ -98,6 +98,9 @@ export interface WorktreeListEntry {
 /** Main-owned worktree settings (Settings → Workspace). */
 export type WorktreeSetupCommand = readonly string[] | null | 'disabled';
 
+/** Durable user decision for a repository-committed worktree setup script. */
+export type WorktreeRepositorySetupDecision = 'approved' | 'denied';
+
 export interface WorktreeSettings {
   /**
    * True when nothing has been persisted for `managedDirectory` — the user has
@@ -121,6 +124,12 @@ export interface WorktreeSettings {
  */
 export interface WorktreeCreateContext {
   readonly managedParentPath: string;
+  /** Present only when the repository fallback script needs a durable decision. */
+  readonly repositorySetup: {
+    readonly repositoryId: string;
+    readonly repositoryPath: string;
+    readonly scriptPath: string;
+  } | null;
   readonly suggestedName: string;
 }
 
@@ -133,6 +142,11 @@ export interface WorktreeCreateParams {
   readonly createdBy: ManagedWorktreeCreator;
   /** Directory name under `<managedDirectory>/<repo-slug>/`. */
   readonly name: string;
+  /** Renderer-attested durable choice, pinned to main's resolved repository id. */
+  readonly repositorySetupDecision?: {
+    readonly decision: WorktreeRepositorySetupDecision;
+    readonly repositoryId: string;
+  };
   /** Durable `roots.id` of the checkout the worktree is created FROM. */
   readonly rootId: string;
   /** Present ⇒ a durable timeline row is written for this operation. */

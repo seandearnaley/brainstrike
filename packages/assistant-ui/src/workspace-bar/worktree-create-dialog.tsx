@@ -64,9 +64,11 @@ export function WorktreeCreateDialog({
   const [submitting, setSubmitting] = useState(false);
   const trimmedName = name.trim();
   const nameError = worktreeNameError(name);
+  const repositorySetupConsent = mode.repositorySetupConsent;
+  const consentRequired = repositorySetupConsent?.decision === null;
 
   const submit = (): void => {
-    if (nameError || mode.pending || submitting) {
+    if (nameError || mode.pending || submitting || consentRequired) {
       return;
     }
     setSubmitting(true);
@@ -181,6 +183,48 @@ export function WorktreeCreateDialog({
               files listed in .worktreeinclude — including gitignored ones — are copied in.
             </p>
           </div>
+          {repositorySetupConsent ? (
+            <div
+              className="space-y-2 rounded-md border p-3"
+              data-testid="worktree-repository-setup-consent"
+            >
+              <p className="font-medium text-sm">Run repository setup script?</p>
+              <div className="space-y-1 text-muted-foreground text-xs">
+                <p>
+                  Repository:{' '}
+                  <span className="break-all font-mono text-foreground">
+                    {repositorySetupConsent.repositoryPath}
+                  </span>
+                </p>
+                <p>
+                  Script:{' '}
+                  <span className="break-all font-mono text-foreground">
+                    {repositorySetupConsent.scriptPath}
+                  </span>
+                </p>
+                <p>Runs local shell code with BRAINSTRIKE_WORKSPACE_* environment variables.</p>
+                <p>.worktreeinclude copies may include gitignored files.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => repositorySetupConsent.onDecision('approved')}
+                  size="sm"
+                  type="button"
+                  variant={repositorySetupConsent.decision === 'approved' ? 'default' : 'outline'}
+                >
+                  Allow script
+                </Button>
+                <Button
+                  onClick={() => repositorySetupConsent.onDecision('denied')}
+                  size="sm"
+                  type="button"
+                  variant={repositorySetupConsent.decision === 'denied' ? 'default' : 'outline'}
+                >
+                  Skip script
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {mode.pending ? (
             <p className="text-muted-foreground text-xs" data-testid="worktree-create-pending">
               Worktree operation in progress.
@@ -202,7 +246,7 @@ export function WorktreeCreateDialog({
           </Button>
           <Button
             data-testid="worktree-create-submit"
-            disabled={submitting || mode.pending || nameError !== null}
+            disabled={submitting || mode.pending || nameError !== null || consentRequired}
             onClick={submit}
             type="button"
           >

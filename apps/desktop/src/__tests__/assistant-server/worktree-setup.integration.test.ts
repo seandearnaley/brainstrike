@@ -211,9 +211,49 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
       path.join(repo, '.brainstrike', 'worktree-setup.sh'),
       '#!/bin/sh\necho "name=$BRAINSTRIKE_WORKSPACE_NAME"\n'
     );
-    const outcome = await runWorktreeSetup(baseInput());
+    const outcome = await runWorktreeSetup({
+      ...baseInput(),
+      repositorySetupDecision: 'approved',
+    });
     expect(outcome.status).toBe('succeeded');
     expect(outcome.output).toContain('name=bright-fox');
+  });
+
+  it('never runs a repository script before a consent decision is present', async () => {
+    mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
+    const marker = path.join(tempRoot, 'must-not-exist');
+    writeFileSync(
+      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
+      `#!/bin/sh\necho executed > "${marker}"\n`
+    );
+
+    const outcome = await runWorktreeSetup(baseInput());
+
+    expect(existsSync(marker)).toBe(false);
+    expect(outcome).toMatchObject({
+      reason: 'Repository setup script consent is required before it can run.',
+      status: 'skipped',
+    });
+  });
+
+  it('returns a visible skipped outcome when repository setup is denied', async () => {
+    mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
+    const marker = path.join(tempRoot, 'must-not-exist');
+    writeFileSync(
+      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
+      `#!/bin/sh\necho executed > "${marker}"\n`
+    );
+
+    const outcome = await runWorktreeSetup({
+      ...baseInput(),
+      repositorySetupDecision: 'denied',
+    });
+
+    expect(existsSync(marker)).toBe(false);
+    expect(outcome).toMatchObject({
+      reason: 'Repository setup script was skipped because you denied permission.',
+      status: 'skipped',
+    });
   });
 
   it('reports a FAILING script as failed WITH its output, and does not throw', async () => {
@@ -222,7 +262,10 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
       path.join(repo, '.brainstrike', 'worktree-setup.sh'),
       '#!/bin/sh\necho "boom" >&2\nexit 3\n'
     );
-    const outcome = await runWorktreeSetup(baseInput());
+    const outcome = await runWorktreeSetup({
+      ...baseInput(),
+      repositorySetupDecision: 'approved',
+    });
     expect(outcome.status).toBe('failed');
     expect(outcome.reason).toBe('Setup command exited with code 3.');
     expect(outcome.output).toContain('boom');
@@ -301,7 +344,10 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
       '#!/bin/sh\ncat config/setup-token\n'
     );
 
-    const outcome = await runWorktreeSetup(baseInput());
+    const outcome = await runWorktreeSetup({
+      ...baseInput(),
+      repositorySetupDecision: 'approved',
+    });
 
     expect(outcome.status).toBe('succeeded');
     expect(outcome.output).toContain('copied-before-command');
@@ -313,7 +359,10 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
       path.join(repo, '.brainstrike', 'worktree-setup.sh'),
       '#!/bin/sh\nfor i in $(seq 1 4000); do echo "0123456789"; done\n'
     );
-    const outcome = await runWorktreeSetup(baseInput());
+    const outcome = await runWorktreeSetup({
+      ...baseInput(),
+      repositorySetupDecision: 'approved',
+    });
     expect(outcome.truncated).toBe(true);
     expect(Buffer.byteLength(outcome.output, 'utf8')).toBeLessThanOrEqual(
       WORKTREE_SETUP_OUTPUT_CAP_BYTES

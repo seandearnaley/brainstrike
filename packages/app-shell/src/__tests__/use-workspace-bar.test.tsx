@@ -247,6 +247,7 @@ function installWorktreesBridge(): void {
       ok: true as const,
       value: {
         managedParentPath: '/managed/brainstrike-slug',
+        repositorySetup: null,
         suggestedName: 'bright-fox',
       },
     })),

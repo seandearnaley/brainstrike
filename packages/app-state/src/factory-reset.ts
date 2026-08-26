@@ -12,6 +12,7 @@ import { resetSelfImprovementSignalPreferencesStoreToDefaults } from './stores/s
 import { resetSkillsPreferencesStoreToDefaults } from './stores/skills-preferences-store';
 import { resetSubagentPersonasStoreToDefaults } from './stores/subagent-personas-store';
 import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from './stores/workspace-instructions-preferences-store';
+import { resetWorktreeSetupConsentStoreToDefaults } from './stores/worktree-setup-consent-store';
 
 const logger = createLogger('FactoryReset');
 
@@ -390,6 +391,14 @@ function resetExperimentAssignmentPreferences(): void {
   }
 }
 
+function resetWorktreeSetupConsent(): void {
+  try {
+    resetWorktreeSetupConsentStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset worktree setup consent store', { error });
+  }
+}
+
 function clearBrowserStorage(): void {
   // The Explorer tree-grid layout AND its ordering are persisted and also live
   // in singleton stores. Web factory reset need not reload, so clear both
@@ -446,6 +455,10 @@ function clearBrowserStorage(): void {
   } catch (error) {
     logger.warn('Failed to reset hook trust store', { error });
   }
+
+  // Repository-script approvals and denials are security-sensitive local
+  // decisions. A fresh start must require a new choice for every repository.
+  resetWorktreeSetupConsent();
 
   // Same rationale as the notification store above: `masterEnabled` and the
   // per-root oversized opt-in map are live in-memory state a reset without a

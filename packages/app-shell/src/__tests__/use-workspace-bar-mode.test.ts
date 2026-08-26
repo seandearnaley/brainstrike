@@ -55,6 +55,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
     open: false,
     options: [],
   },
+  repositorySetupConsent: null,
   setupSummary: '',
   worktree: null,
   ...overrides,

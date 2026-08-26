@@ -5,6 +5,11 @@
  * bind the thread. Binding earlier would leave the thread pointing at a root
  * the renderer cannot use.
  */
+
+import {
+  ensureWorktreeSetupConsentHydrated,
+  useWorktreeSetupConsentStore,
+} from '@brainstrike/app-state/stores/worktree-setup-consent-store';
 import type {
   WorkspaceBarBaseRefOption,
   WorkspaceBarCreateWorktreeRequest,
@@ -17,6 +22,7 @@ import type {
   WorktreeCreateContext,
   WorktreeCreateResult,
   WorktreeListEntry,
+  WorktreeRepositorySetupDecision,
   WorktreeSettings,
 } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
@@ -74,7 +80,10 @@ async function createWorktree(
   bridge: WorktreesBridge,
   primaryRootId: string,
   request: WorkspaceBarCreateWorktreeRequest,
-  runId: string | null
+  runId: string | null,
+  repositorySetupDecision:
+    | { readonly decision: WorktreeRepositorySetupDecision; readonly repositoryId: string }
+    | undefined
 ): Promise<WorktreeCreateResult> {
   let created: Awaited<ReturnType<WorktreesBridge['create']>>;
   try {
@@ -84,6 +93,7 @@ async function createWorktree(
       createdBy: 'user',
       name: request.name,
       rootId: primaryRootId,
+      ...(repositorySetupDecision ? { repositorySetupDecision } : {}),
       ...(runId ? { runId } : {}),
     });
   } catch (error) {
@@ -95,6 +105,25 @@ async function createWorktree(
     rejectWithToast('Worktree creation failed', created.error);
   }
   return created.value;
+}
+
+function repositorySetupDecisionFor(
+  context: WorktreeCreateContext | null
+):
+  | { readonly decision: WorktreeRepositorySetupDecision; readonly repositoryId: string }
+  | undefined {
+  const repositorySetup = context?.repositorySetup ?? null;
+  if (!repositorySetup) {
+    return;
+  }
+  const decision =
+    useWorktreeSetupConsentStore.getState().decisionsByRepositoryId[repositorySetup.repositoryId];
+  if (!decision) {
+    throw new Error(
+      'Choose whether to allow the repository setup script before creating the worktree.'
+    );
+  }
+  return { decision, repositoryId: repositorySetup.repositoryId };
 }
 
 async function mountWorktree(
@@ -200,6 +229,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [createSheetContext, setCreateSheetContext] = useState<WorktreeCreateContext | null>(null);
+  const decisionsByRepositoryId = useWorktreeSetupConsentStore(
+    (state) => state.decisionsByRepositoryId
+  );
 
   useEffect(() => {
     if (!bridge) {
@@ -284,7 +316,8 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           bridge,
           args.primaryRootId,
           request,
-          args.runId
+          args.runId,
+          repositorySetupDecisionFor(createSheetContext)
         );
         await mountWorktree(addRootDirectoryByPath, worktree.path);
         try {
@@ -319,6 +352,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       args.primaryRootId,
       args.runId,
       bridge,
+      createSheetContext,
       refreshList,
     ]
   );
@@ -441,6 +475,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     }
     let result: Awaited<ReturnType<WorktreesBridge['createContext']>>;
     try {
+      await ensureWorktreeSetupConsentHydrated();
       result = await bridge.createContext({ rootId: args.primaryRootId });
     } catch (error) {
       const message = errorMessage(error);
@@ -457,6 +492,19 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     createSheetContext?.managedParentPath ??
     (settings.kind === 'ready' ? settings.value.managedDirectory : '');
   const defaultName = createSheetContext?.suggestedName ?? currentEntry?.name ?? '';
+  const repositorySetup = createSheetContext?.repositorySetup ?? null;
+  const repositorySetupDecision = repositorySetup
+    ? (decisionsByRepositoryId[repositorySetup.repositoryId] ?? null)
+    : null;
+  const onRepositorySetupDecision = useCallback(
+    (decision: WorktreeRepositorySetupDecision): void => {
+      if (!repositorySetup) {
+        throw new Error('Repository setup consent context is unavailable.');
+      }
+      useWorktreeSetupConsentStore.getState().decide(repositorySetup.repositoryId, decision);
+    },
+    [repositorySetup]
+  );
   const createBranchHereHandler =
     currentEntry?.id && currentEntry.managed && currentEntry.detached
       ? onCreateBranchHere
@@ -493,6 +541,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           open: false,
           options: [],
         },
+        repositorySetupConsent: null,
         setupSummary: '',
         worktree: null,
       };
@@ -527,6 +576,15 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         open: pickerOpen,
         options: entries.map((entry) => toOption(entry, currentWorktreeId)),
       },
+      repositorySetupConsent:
+        repositorySetup && repositorySetupDecision === null
+          ? {
+              decision: null,
+              onDecision: onRepositorySetupDecision,
+              repositoryPath: repositorySetup.repositoryPath,
+              scriptPath: repositorySetup.scriptPath,
+            }
+          : null,
       setupSummary: describeSetup(settings),
       worktree:
         currentEntry?.id && currentWorktreeId
@@ -561,10 +619,13 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     onHandOffToLocal,
     onOpenCreateSheet,
     onPickerOpenChange,
+    onRepositorySetupDecision,
     onSelectExisting,
     pending,
     pickerOpen,
     platform,
+    repositorySetup,
+    repositorySetupDecision,
     settings,
   ]);
 }

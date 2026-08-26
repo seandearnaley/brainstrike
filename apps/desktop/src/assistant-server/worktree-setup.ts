@@ -24,7 +24,7 @@ export const WORKTREE_SETUP_TIMEOUT_MS = 300_000;
 export const WORKTREE_SETUP_TERMINATION_GRACE_MS = 2000;
 export const WORKTREE_INCLUDE_MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const WORKTREE_INCLUDE_FILE = '.worktreeinclude';
-const REPOSITORY_SETUP_SCRIPT = path.join('.brainstrike', 'worktree-setup.sh');
+export const REPOSITORY_SETUP_SCRIPT = path.join('.brainstrike', 'worktree-setup.sh');
 const PORT_BASE = 3000;
 const PORT_SPAN = 2000;
 const brainstrikePortEnvironmentVariable = 'BRAINSTRIKE_PORT';
@@ -322,6 +322,18 @@ async function resolveSetupCommand(input: WorktreeSetupInput): Promise<ResolvedC
       return null;
     }
     throw error;
+  }
+  if (input.repositorySetupDecision === 'denied') {
+    return {
+      argv: [],
+      reason: 'Repository setup script was skipped because you denied permission.',
+    };
+  }
+  if (input.repositorySetupDecision !== 'approved') {
+    return {
+      argv: [],
+      reason: 'Repository setup script consent is required before it can run.',
+    };
   }
   if (process.platform === 'win32') {
     return {

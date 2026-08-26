@@ -1,3 +1,7 @@
+import {
+  __resetWorktreeSetupConsentStoreForTests,
+  useWorktreeSetupConsentStore,
+} from '@brainstrike/app-state/stores/worktree-setup-consent-store';
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -83,6 +87,7 @@ const CREATE_REQUEST = {
 describe('useWorktreeMode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetWorktreeSetupConsentStoreForTests();
     getSettingsSpy.mockResolvedValue({
       ok: true,
       value: {
@@ -95,7 +100,11 @@ describe('useWorktreeMode', () => {
     createBranchHereSpy.mockResolvedValue({ ok: true, value: null });
     createContextSpy.mockResolvedValue({
       ok: true,
-      value: { managedParentPath: '/managed/app-slug', suggestedName: 'bright-fox' },
+      value: {
+        managedParentPath: '/managed/app-slug',
+        repositorySetup: null,
+        suggestedName: 'bright-fox',
+      },
     });
     createSpy.mockResolvedValue({
       ok: true,
@@ -271,13 +280,92 @@ describe('useWorktreeMode', () => {
 
     createContextSpy.mockResolvedValueOnce({
       ok: true,
-      value: { managedParentPath: '/managed/app-slug', suggestedName: 'quiet-otter' },
+      value: {
+        managedParentPath: '/managed/app-slug',
+        repositorySetup: null,
+        suggestedName: 'quiet-otter',
+      },
     });
     await act(async () => {
       await result.current?.onOpenCreateSheet();
     });
     expect(createContextSpy).toHaveBeenCalledTimes(2);
     expect(result.current?.defaultName).toBe('quiet-otter');
+  });
+
+  it('requires a repository setup decision and forwards the durable approval', async () => {
+    createContextSpy.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        managedParentPath: '/managed/app-slug',
+        repositorySetup: {
+          repositoryId: '/work/app/.git',
+          repositoryPath: '/work/app',
+          scriptPath: '/work/app/.brainstrike/worktree-setup.sh',
+        },
+        suggestedName: 'bright-fox',
+      },
+    });
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+
+    await act(async () => {
+      await result.current?.onOpenCreateSheet();
+    });
+    expect(result.current?.repositorySetupConsent).toMatchObject({
+      decision: null,
+      repositoryPath: '/work/app',
+    });
+
+    act(() => {
+      result.current?.repositorySetupConsent?.onDecision('approved');
+    });
+    expect(result.current?.repositorySetupConsent).toBeNull();
+    await act(async () => {
+      await result.current?.onCreate(CREATE_REQUEST);
+    });
+
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositorySetupDecision: {
+          decision: 'approved',
+          repositoryId: '/work/app/.git',
+        },
+      })
+    );
+  });
+
+  it('suppresses the prompt and forwards a persisted denial for the same repository', async () => {
+    useWorktreeSetupConsentStore.getState().decide('/work/app/.git', 'denied');
+    createContextSpy.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        managedParentPath: '/managed/app-slug',
+        repositorySetup: {
+          repositoryId: '/work/app/.git',
+          repositoryPath: '/work/app',
+          scriptPath: '/work/app/.brainstrike/worktree-setup.sh',
+        },
+        suggestedName: 'bright-fox',
+      },
+    });
+    const { result } = renderHook(() => useWorktreeMode(ARGS));
+
+    await act(async () => {
+      await result.current?.onOpenCreateSheet();
+    });
+    expect(result.current?.repositorySetupConsent).toBeNull();
+    await act(async () => {
+      await result.current?.onCreate(CREATE_REQUEST);
+    });
+
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repositorySetupDecision: {
+          decision: 'denied',
+          repositoryId: '/work/app/.git',
+        },
+      })
+    );
   });
 
   it('refuses to open the create sheet after the first request, with a toast (BST-1390)', async () => {

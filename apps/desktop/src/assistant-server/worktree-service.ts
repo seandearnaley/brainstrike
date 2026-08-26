@@ -59,6 +59,10 @@ import {
   emitWorktreeCreateEvents,
   type WorktreeRunEventDeps,
 } from './worktree-run-events';
+import {
+  repositorySetupDecisionInput,
+  resolveRepositorySetupContext,
+} from './worktree-setup-consent';
 
 const logger = createLogger('WorktreeService');
 
@@ -66,6 +70,8 @@ const logger = createLogger('WorktreeService');
 export interface WorktreeSetupInput {
   /** Test seam; production uses `WORKTREE_INCLUDE_MAX_TOTAL_BYTES`. */
   readonly copyMaxBytes?: number;
+  /** Required only for the repository-committed fallback script. */
+  readonly repositorySetupDecision?: 'approved' | 'denied';
   readonly settings: WorktreeSettings;
   readonly sourcePath: string;
   /** Test seam; production allows a two-second SIGTERM grace period. */
@@ -312,6 +318,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     // Setup failure is VISIBLE and does NOT block using the worktree (§6.3):
     // the outcome rides back on the result and is persisted on the row.
     const setup = await runSetupSafely({
+      ...repositorySetupDecisionInput(params, context.value.commonDir),
       settings,
       sourcePath: context.value.repositoryRoot,
       worktree: row,
@@ -820,6 +827,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           ok: true,
           value: {
             managedParentPath: path.join(settings.managedDirectory, slug),
+            repositorySetup: await resolveRepositorySetupContext(settings, context.value),
             suggestedName: generateWorktreeName(taken),
           },
         };
