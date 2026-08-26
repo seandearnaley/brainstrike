@@ -448,20 +448,19 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       }
       setPending(true);
       void Promise.resolve(addRootDirectoryByPath?.(option.path))
-        .then(async (mounted) => {
+        .then((mounted) => {
           if (!mounted) {
             throw new Error(`The worktree at ${option.path} could not be mounted.`);
           }
-          if (option.worktreeId) {
-            return option.worktreeId;
+          if (!option.worktreeId) {
+            // Unreachable in practice: `resolveUsability` never marks a row
+            // without a ledger id `usable`, so the picker never renders it
+            // selectable. Adoption lives on the Worktree Map's card action
+            // (Task 6) and the `worktrees:adopt` agent tool (Task 10) —
+            // never here. Thrown, not silently skipped, if that ever changes.
+            throw new Error(`The worktree at ${option.path} is not yet managed.`);
           }
-          // Not managed yet: adopt it so the thread checkout has a durable id
-          // to bind to. A refusal surfaces verbatim — never a silent skip.
-          const adopted = await bridge.adopt({ createdBy: 'user', path: option.path });
-          if (!adopted.ok) {
-            throw new Error(adopted.error);
-          }
-          return adopted.value.id;
+          return option.worktreeId;
         })
         .then((worktreeId) =>
           args.onSelectWorktree({ branch: option.branch, path: option.path, worktreeId })

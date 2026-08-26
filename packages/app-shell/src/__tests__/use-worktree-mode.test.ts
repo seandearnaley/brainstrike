@@ -864,55 +864,19 @@ describe('useWorktreeMode', () => {
     expect(addRootByPathSpy).not.toHaveBeenCalled();
   });
 
-  it('adopts an unmanaged worktree before binding the thread, and binds the returned id', async () => {
-    adoptSpy.mockResolvedValue({
-      ok: true,
-      value: { id: 'adopted-1', path: '/repo/.claude/worktrees/x' },
-    });
+  // Selecting an unmanaged row is unreachable through the real picker
+  // (`resolveUsability` never marks a row without a ledger id `usable`, and
+  // the picker UI disables every unusable option), but `onSelect` itself
+  // takes whatever option it is given — this pins the defensive refusal
+  // rather than a silent adopt-on-select, now that adoption lives on the
+  // Worktree Map's card action (Task 6) and the agent tool (Task 10), not
+  // here. A directly-constructed unmanaged option (bypassing the picker's
+  // own disabling) still refuses loudly instead of quietly binding a
+  // nonexistent worktree id.
+  it('refuses to bind an unmanaged option instead of silently adopting it', async () => {
     listSpy.mockResolvedValue({
       ok: true,
-      value: [
-        entry({
-          branch: 'feature',
-          id: null,
-          managed: false,
-          name: 'x',
-          path: '/repo/.claude/worktrees/x',
-        }),
-      ],
-    });
-
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
-    await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
-    act(() => {
-      result.current?.picker.onSelect(result.current.picker.options[0] as never);
-    });
-
-    await waitFor(() => expect(adoptSpy).toHaveBeenCalledTimes(1));
-    expect(adoptSpy).toHaveBeenCalledWith({
-      createdBy: 'user',
-      path: '/repo/.claude/worktrees/x',
-    });
-    expect(onSelectWorktree).toHaveBeenCalledTimes(1);
-    expect(onSelectWorktree).toHaveBeenCalledWith({
-      branch: 'feature',
-      path: '/repo/.claude/worktrees/x',
-      worktreeId: 'adopted-1',
-    });
-    // Falsifier: binding must not have gone through any sibling bridge call.
-    expect(createSpy).not.toHaveBeenCalled();
-    expect(restoreSpy).not.toHaveBeenCalled();
-    expect(archiveSpy).not.toHaveBeenCalled();
-  });
-
-  it('surfaces an adoption refusal verbatim and never binds the thread', async () => {
-    adoptSpy.mockResolvedValue({
-      error: 'Grant access to its folder first, then adopt it.',
-      ok: false,
-    });
-    listSpy.mockResolvedValue({
-      ok: true,
-      value: [entry({ id: null, managed: false, name: 'x', path: '/tmp/x' })],
+      value: [entry({ id: null, managed: false, name: 'x', path: '/repo/.claude/worktrees/x' })],
     });
 
     const { result } = renderHook(() => useWorktreeMode(ARGS));
@@ -923,11 +887,12 @@ describe('useWorktreeMode', () => {
 
     await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
     expect(toastSpy).toHaveBeenCalledWith({
-      description: 'Grant access to its folder first, then adopt it.',
+      description: 'The worktree at /repo/.claude/worktrees/x is not yet managed.',
       title: 'Could not use that worktree',
       variant: 'destructive',
     });
     expect(onSelectWorktree).not.toHaveBeenCalled();
+    expect(adoptSpy).not.toHaveBeenCalled();
   });
 
   it('surfaces a list failure on the picker instead of an empty list', async () => {
