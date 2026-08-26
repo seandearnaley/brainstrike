@@ -871,6 +871,27 @@ describe('useAssistantThreadStore tab sessions', () => {
     ]);
   });
 
+  it('rejects checkout metadata from bulk updates before persistence', async () => {
+    const threadA = makeThread('thread-a', '2026-04-22T11:00:00Z');
+    const threadB = makeThread('thread-b', '2026-04-22T10:00:00Z');
+    const repository = createRepository([threadA, threadB]);
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+
+    await expect(
+      useAssistantThreadStore
+        .getState()
+        .updateThreadsMetadata(repository, workspaceId, ['thread-a', 'thread-b'], {
+          checkoutMode: 'local',
+        })
+    ).rejects.toThrow('Bulk assistant thread metadata updates cannot change checkout state.');
+
+    expect(repository.updateThreadsMetadata).not.toHaveBeenCalled();
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]).toEqual([
+      threadA,
+      threadB,
+    ]);
+  });
+
   it('rejects an unknown bulk metadata target before persistence', async () => {
     const repository = createRepository();
     await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);

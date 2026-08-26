@@ -41,6 +41,9 @@ thread store as the repository row: setting a mode removes `checkoutBranch`,
 and setting Local additionally removes `checkoutLocalRootId`,
 `checkoutWorktreeId`, and `checkoutWorktreePath` before the patch is merged.
 The store changes only after the repository write succeeds.
+Bulk metadata updates reject every `checkout*` key: checkout transitions require
+the single-thread writer's atomic deletion projection and must never raw-merge a
+partial checkout record across threads.
 Malformed persisted ids never sanitize to "unbound" and cannot silently rebind
 the thread. Server-side native tools validate only the id against the live root
 inventory; the stored path is never an authority or fallback.

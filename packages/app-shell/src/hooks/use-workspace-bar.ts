@@ -202,15 +202,15 @@ function makePrimaryWrite(current: ThreadCheckoutFolders, rootId: string): Threa
       `Could not make primary: current primary root ${current.primaryRootId ?? '(unknown)'} is unknown or has no path.`
     );
   }
+  const leavesWorktree = current.checkoutMode === 'worktree';
   const demoted =
-    demotesPrimary && current.primaryRoot && currentPrimaryPath
+    !leavesWorktree && demotesPrimary && current.primaryRoot && currentPrimaryPath
       ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
       : [];
   const secondaryRoots = [
     ...current.secondaryRoots.filter((root) => root.rootId !== rootId),
     ...demoted,
   ];
-  const leavesWorktree = current.checkoutMode === 'worktree';
   return {
     binding: {
       ...(leavesWorktree ? { checkoutMode: 'local' } : {}),
@@ -946,7 +946,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         .then(() => {
           if (localTransitionPrimaryName) {
             toast({
-              description: `“${localTransitionPrimaryName}” is primary. The worktree remains attached as a secondary folder.`,
+              description: `“${localTransitionPrimaryName}” is primary. The former worktree is no longer attached to this thread.`,
               title: 'Thread is Local again',
             });
           }

@@ -1032,11 +1032,12 @@ additional explorer/status chrome):
     `secondaryRootIds`; it never disconnects the folder from the workspace.
     While checkout mode is Worktree, making a secondary primary includes the
     Local checkout transition in that SAME write, so the operating root and
-    checkout record never disagree. This role swap preserves the folder set:
-    the selected secondary becomes primary, the former worktree primary becomes
-    a secondary, and every other secondary remains attached. A success toast
-    makes the implicit Local transition and retained worktree explicit. The
-    secondary named by
+    checkout record never disagree. The selected secondary becomes primary,
+    every existing secondary except that selected root remains attached, and
+    the former worktree primary is removed from the thread. That removal keeps
+    a stale action from re-promoting a managed worktree while the checkout mode
+    remains Local; re-entering it goes through the worktree picker. A success
+    toast makes the implicit Local transition and worktree removal explicit. The secondary named by
     `checkoutLocalRootId` keeps its Remove action visibly disabled with “This
     folder is where Hand off returns to.”; other secondary actions are unchanged.
     A failed write retains the prior folder set and checkout record. The

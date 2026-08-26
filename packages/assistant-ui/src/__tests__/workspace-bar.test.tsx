@@ -305,7 +305,7 @@ describe('WorkspaceBar', () => {
     expect(remove).toHaveAccessibleDescription('This folder is where Hand off returns to.');
     const reason = screen.getByText('This folder is where Hand off returns to.');
     expect(reason).toHaveClass('text-foreground');
-    expect(remove).not.toHaveClass('opacity-50');
+    expect(remove).not.toHaveAttribute('data-disabled');
 
     await user.keyboard('{End}');
     expect(remove).toHaveFocus();

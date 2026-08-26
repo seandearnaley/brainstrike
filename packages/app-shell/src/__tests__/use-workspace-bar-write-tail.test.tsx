@@ -346,7 +346,7 @@ afterEach(() => {
 });
 
 describe('useWorkspaceBar — write tail chaining', () => {
-  it('atomically makes a secondary primary and clears worktree checkout state', async () => {
+  it('atomically leaves Worktree mode and rejects stale re-promotion of the detached worktree', async () => {
     installWorktreesBridge();
     const { result, unmount } = await setup({
       checkoutBranch: 'bs/bright-fox',
@@ -371,14 +371,14 @@ describe('useWorkspaceBar — write tail chaining', () => {
         operatingRootDisplayName: 'docs',
         operatingRootId: 'r-docs',
         operatingRootPath: '/ws/docs',
-        secondaryRootIds: ['r-main-db', 'r-worktree-db'],
+        secondaryRootIds: ['r-main-db'],
       })
     );
     expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
 
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith({
-        description: '“docs” is primary. The worktree remains attached as a secondary folder.',
+        description: '“docs” is primary. The former worktree is no longer attached to this thread.',
         title: 'Thread is Local again',
       })
     );
@@ -390,8 +390,21 @@ describe('useWorkspaceBar — write tail chaining', () => {
       operatingRootDisplayName: 'docs',
       operatingRootId: 'r-docs',
       operatingRootPath: '/ws/docs',
-      secondaryRootIds: ['r-main-db', 'r-worktree-db'],
+      secondaryRootIds: ['r-main-db'],
     });
+
+    act(() => {
+      result.current.onMakePrimary('r-worktree-db');
+    });
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description:
+          'Could not make primary: secondary root r-worktree-db is unknown or has no path.',
+        title: 'Make primary failed',
+        variant: 'destructive',
+      })
+    );
+    expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
 
     const persistedMetadata = stored?.metadata;
     if (!persistedMetadata) {
