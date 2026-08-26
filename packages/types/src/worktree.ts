@@ -159,6 +159,14 @@ export interface WorktreeCreateContext {
     readonly repositoryId: string;
     readonly repositoryPath: string;
     readonly scriptPath: string;
+    /**
+     * SHA-256 of the script's bytes at read time. Consent is pinned to this
+     * hash, not just the repository — main re-hashes disk before running the
+     * script and refuses a mismatch, so a script that changed after approval
+     * (pull / branch switch / rebase) re-prompts instead of silently running
+     * under a stale grant.
+     */
+    readonly scriptSha256: string;
   } | null;
   readonly suggestedName: string;
 }
@@ -172,10 +180,15 @@ export interface WorktreeCreateParams {
   readonly createdBy: ManagedWorktreeCreator;
   /** Directory name under `<managedDirectory>/<repo-slug>/`. */
   readonly name: string;
-  /** Renderer-attested durable choice, pinned to main's resolved repository id. */
+  /**
+   * Renderer-attested durable choice, pinned to main's resolved repository id
+   * AND the script's SHA-256 at decision time. Main re-hashes disk and treats
+   * a mismatch as no decision (fail closed to a visible skipped setup).
+   */
   readonly repositorySetupDecision?: {
     readonly decision: WorktreeRepositorySetupDecision;
     readonly repositoryId: string;
+    readonly scriptSha256: string;
   };
   /** Durable `roots.id` of the checkout the worktree is created FROM. */
   readonly rootId: string;

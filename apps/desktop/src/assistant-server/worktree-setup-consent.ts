@@ -3,9 +3,10 @@ import path from 'node:path';
 import type {
   WorktreeCreateContext,
   WorktreeCreateParams,
-  WorktreeRepositorySetupDecision,
   WorktreeSettings,
 } from '@brainstrike/types';
+import { sha256OfBuffer } from './hooks/trust';
+import type { RepositorySetupDecisionInput } from './worktree-service';
 import { REPOSITORY_SETUP_SCRIPT } from './worktree-setup';
 
 interface RepositorySetupIdentity {
@@ -21,8 +22,14 @@ export async function resolveRepositorySetupContext(
     return null;
   }
   const scriptPath = path.join(context.repositoryRoot, REPOSITORY_SETUP_SCRIPT);
+  // Read the bytes rather than just probing existence: the same read backs
+  // both the ENOENT check and the SHA-256 the renderer pins its decision to,
+  // byte-identically to the re-hash `resolveSetupCommand` does at run time —
+  // a utf8-decoded-string hash would diverge for BOM/non-utf8 scripts and an
+  // approval would silently never take (mirrors the hooks trust precedent).
+  let bytes: Buffer;
   try {
-    await fsPromises.access(scriptPath);
+    bytes = await fsPromises.readFile(scriptPath);
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return null;
@@ -33,15 +40,21 @@ export async function resolveRepositorySetupContext(
     repositoryId: context.commonDir,
     repositoryPath: context.repositoryRoot,
     scriptPath,
+    scriptSha256: sha256OfBuffer(bytes),
   };
 }
 
 export function repositorySetupDecisionInput(
   params: WorktreeCreateParams,
   repositoryId: string
-): { readonly repositorySetupDecision?: WorktreeRepositorySetupDecision } {
+): { readonly repositorySetupDecision?: RepositorySetupDecisionInput } {
   if (params.repositorySetupDecision?.repositoryId !== repositoryId) {
     return {};
   }
-  return { repositorySetupDecision: params.repositorySetupDecision.decision };
+  return {
+    repositorySetupDecision: {
+      decision: params.repositorySetupDecision.decision,
+      scriptSha256: params.repositorySetupDecision.scriptSha256,
+    },
+  };
 }

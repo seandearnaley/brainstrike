@@ -139,13 +139,14 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
     !(
       isRecord(repositorySetupDecision) &&
       nonEmptyString(repositorySetupDecision['repositoryId']) &&
+      nonEmptyString(repositorySetupDecision['scriptSha256']) &&
       (repositorySetupDecision['decision'] === 'approved' ||
         repositorySetupDecision['decision'] === 'denied')
     )
   ) {
     return {
       error:
-        'worktrees:create repositorySetupDecision must identify a repository and be approved or denied.',
+        'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
       ok: false,
     };
   }
@@ -164,6 +165,7 @@ function validateCreate(payload: unknown): GitResult<WorktreeCreateParams> {
             repositorySetupDecision: {
               decision: repositorySetupDecision['decision'] as 'approved' | 'denied',
               repositoryId: repositorySetupDecision['repositoryId'] as string,
+              scriptSha256: repositorySetupDecision['scriptSha256'] as string,
             },
           }
         : {}),

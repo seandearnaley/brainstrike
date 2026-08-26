@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
@@ -19,6 +20,11 @@ import {
   WORKTREE_SETUP_OUTPUT_CAP_BYTES,
   worktreeSetupEnvironment,
 } from '../../assistant-server/worktree-setup';
+
+/** Mirrors the byte-hash `resolveSetupCommand` re-computes on disk. */
+function sha256(scriptContent: string): string {
+  return createHash('sha256').update(scriptContent, 'utf8').digest('hex');
+}
 
 describe('parseWorktreeInclude', () => {
   it('keeps one pattern per line and drops comments and blanks', () => {
@@ -206,17 +212,39 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
   });
 
   it('runs .brainstrike/worktree-setup.sh with the BRAINSTRIKE_* env and captures its output', async () => {
+    const script = '#!/bin/sh\necho "name=$BRAINSTRIKE_WORKSPACE_NAME"\n';
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
-    writeFileSync(
-      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
-      '#!/bin/sh\necho "name=$BRAINSTRIKE_WORKSPACE_NAME"\n'
-    );
+    writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
     const outcome = await runWorktreeSetup({
       ...baseInput(),
-      repositorySetupDecision: 'approved',
+      repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(script) },
     });
     expect(outcome.status).toBe('succeeded');
     expect(outcome.output).toContain('name=bright-fox');
+  });
+
+  it('fails closed to a visible skip when the standing decision is pinned to a DIFFERENT hash than what is on disk', async () => {
+    const marker = path.join(tempRoot, 'must-not-exist');
+    mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
+    writeFileSync(
+      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
+      `#!/bin/sh\necho executed > "${marker}"\n`
+    );
+
+    const outcome = await runWorktreeSetup({
+      ...baseInput(),
+      // Pinned to a hash that does not match the script now on disk — as if
+      // the script changed (pull / branch switch / rebase) after the
+      // decision was made.
+      repositorySetupDecision: { decision: 'approved', scriptSha256: sha256('a different script') },
+    });
+
+    expect(existsSync(marker)).toBe(false);
+    expect(outcome).toMatchObject({
+      reason:
+        'Repository setup script consent is required before it can run: the script changed since you last decided.',
+      status: 'skipped',
+    });
   });
 
   it('never runs a repository script before a consent decision is present', async () => {
@@ -239,14 +267,12 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
   it('returns a visible skipped outcome when repository setup is denied', async () => {
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
     const marker = path.join(tempRoot, 'must-not-exist');
-    writeFileSync(
-      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
-      `#!/bin/sh\necho executed > "${marker}"\n`
-    );
+    const script = `#!/bin/sh\necho executed > "${marker}"\n`;
+    writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
 
     const outcome = await runWorktreeSetup({
       ...baseInput(),
-      repositorySetupDecision: 'denied',
+      repositorySetupDecision: { decision: 'denied', scriptSha256: sha256(script) },
     });
 
     expect(existsSync(marker)).toBe(false);
@@ -257,14 +283,12 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
   });
 
   it('reports a FAILING script as failed WITH its output, and does not throw', async () => {
+    const script = '#!/bin/sh\necho "boom" >&2\nexit 3\n';
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
-    writeFileSync(
-      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
-      '#!/bin/sh\necho "boom" >&2\nexit 3\n'
-    );
+    writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
     const outcome = await runWorktreeSetup({
       ...baseInput(),
-      repositorySetupDecision: 'approved',
+      repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(script) },
     });
     expect(outcome.status).toBe('failed');
     expect(outcome.reason).toBe('Setup command exited with code 3.');
@@ -339,14 +363,12 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     writeFileSync(path.join(repo, 'config', 'setup-token'), 'copied-before-command\n');
     writeFileSync(path.join(repo, '.worktreeinclude'), 'config/setup-token\n');
     mkdirSync(path.join(repo, '.brainstrike'));
-    writeFileSync(
-      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
-      '#!/bin/sh\ncat config/setup-token\n'
-    );
+    const script = '#!/bin/sh\ncat config/setup-token\n';
+    writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
 
     const outcome = await runWorktreeSetup({
       ...baseInput(),
-      repositorySetupDecision: 'approved',
+      repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(script) },
     });
 
     expect(outcome.status).toBe('succeeded');
@@ -354,14 +376,12 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
   });
 
   it('truncates oversized output and SAYS it truncated', async () => {
+    const script = '#!/bin/sh\nfor i in $(seq 1 4000); do echo "0123456789"; done\n';
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
-    writeFileSync(
-      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
-      '#!/bin/sh\nfor i in $(seq 1 4000); do echo "0123456789"; done\n'
-    );
+    writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
     const outcome = await runWorktreeSetup({
       ...baseInput(),
-      repositorySetupDecision: 'approved',
+      repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(script) },
     });
     expect(outcome.truncated).toBe(true);
     expect(Buffer.byteLength(outcome.output, 'utf8')).toBeLessThanOrEqual(

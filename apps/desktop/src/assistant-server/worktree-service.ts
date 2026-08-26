@@ -73,12 +73,23 @@ import {
 
 const logger = createLogger('WorktreeService');
 
+/**
+ * A renderer-attested decision, pinned to the script's hash at decision time.
+ * `resolveSetupCommand` re-hashes disk and refuses a mismatch (fail closed to
+ * a visible skipped setup) rather than trusting a decision made against
+ * different script contents.
+ */
+export interface RepositorySetupDecisionInput {
+  readonly decision: 'approved' | 'denied';
+  readonly scriptSha256: string;
+}
+
 /** What `runSetup` needs to run `.worktreeinclude` copy + the setup command. */
 export interface WorktreeSetupInput {
   /** Test seam; production uses `WORKTREE_INCLUDE_MAX_TOTAL_BYTES`. */
   readonly copyMaxBytes?: number;
   /** Required only for the repository-committed fallback script. */
-  readonly repositorySetupDecision?: 'approved' | 'denied';
+  readonly repositorySetupDecision?: RepositorySetupDecisionInput;
   readonly settings: WorktreeSettings;
   readonly sourcePath: string;
   /** Test seam; production allows a two-second SIGTERM grace period. */

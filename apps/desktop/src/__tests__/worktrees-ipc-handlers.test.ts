@@ -196,6 +196,7 @@ describe('worktrees IPC handlers', () => {
       repositorySetupDecision: {
         decision: 'denied',
         repositoryId: '/work/app/.git',
+        scriptSha256: 'hash-1',
       },
       rootId: 'r',
     };
@@ -214,13 +215,35 @@ describe('worktrees IPC handlers', () => {
       repositorySetupDecision: {
         decision: 'sometimes',
         repositoryId: '/work/app/.git',
+        scriptSha256: 'hash-1',
       },
       rootId: 'r',
     });
 
     expect(result).toEqual({
       error:
-        'worktrees:create repositorySetupDecision must identify a repository and be approved or denied.',
+        'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
+      ok: false,
+    });
+    expect(service.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a repository setup decision missing its script hash at the boundary', async () => {
+    const result = await handlers().create({
+      baseRef: 'main',
+      branch: { name: 'bs/x' },
+      createdBy: 'user',
+      name: 'x',
+      repositorySetupDecision: {
+        decision: 'approved',
+        repositoryId: '/work/app/.git',
+      },
+      rootId: 'r',
+    });
+
+    expect(result).toEqual({
+      error:
+        'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
       ok: false,
     });
     expect(service.create).not.toHaveBeenCalled();

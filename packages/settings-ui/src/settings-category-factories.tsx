@@ -24,6 +24,7 @@ import {
   WorktreeSettingsSection,
   type WorktreeSettingsSectionProps,
 } from './settings/system/worktree-settings-section';
+import { WorktreeSetupConsentSettingsSection } from './settings/system/worktree-setup-consent-settings-section';
 import type { SettingsCategory } from './settings-page-content';
 
 export function createAppearanceSettingsCategory(): SettingsCategory {
@@ -99,17 +100,29 @@ export function createWorkspaceSettingsCategory(
 ): SettingsCategory {
   return {
     content: (
-      <WorktreeSettingsSection
-        onSave={options.onSave}
-        settings={options.settings}
-        status={options.status}
-      />
+      <div className="space-y-6">
+        <WorktreeSettingsSection
+          onSave={options.onSave}
+          settings={options.settings}
+          status={options.status}
+        />
+        <WorktreeSetupConsentSettingsSection />
+      </div>
     ),
     description:
-      'Choose where BrainStrike creates managed worktrees, and set an optional per-worktree setup command.',
+      'Choose where BrainStrike creates managed worktrees, set an optional per-worktree setup command, and review repository setup-script consent.',
     icon: FolderTree,
     id: 'workspace',
-    keywords: ['worktree', 'worktrees', 'managed directory', 'workspace', 'git', 'setup command'],
+    keywords: [
+      'worktree',
+      'worktrees',
+      'managed directory',
+      'workspace',
+      'git',
+      'setup command',
+      'consent',
+      'revoke',
+    ],
     title: 'Workspace',
   };
 }

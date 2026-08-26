@@ -58,16 +58,25 @@ describe('WorktreeCreateDialog repository setup consent', () => {
     expect(screen.getByText('/work/brainstrike')).toBeVisible();
     expect(screen.getByText('/work/brainstrike/.brainstrike/worktree-setup.sh')).toBeVisible();
     expect(screen.getByText(/local shell code with BRAINSTRIKE_WORKSPACE_\*/i)).toBeVisible();
-    expect(
-      screen.getByText(/\.worktreeinclude copies may include gitignored files/i)
-    ).toBeVisible();
+    // .worktreeinclude copies happen UNCONDITIONALLY (copyIncludedFiles runs
+    // before the setup command regardless of Allow/Skip) — the copy must not
+    // read as a consequence of allowing the script.
+    expect(screen.getByText(/regardless of this choice/i)).toBeVisible();
     expect(screen.getByTestId('worktree-create-submit')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Allow script' })).toHaveAttribute(
+      'data-variant',
+      'outline'
+    );
+    expect(screen.getByRole('button', { name: 'Skip script' })).toHaveAttribute(
+      'data-variant',
+      'outline'
+    );
 
     await userEvent.click(screen.getByRole('button', { name: 'Allow script' }));
     expect(onDecision).toHaveBeenCalledWith('approved');
   });
 
-  it('enables create after an approval or denial is recorded', () => {
+  it('enables create after an approval or denial is recorded, and reflects the standing decision', () => {
     render(
       <WorktreeCreateDialog
         mode={mode({
@@ -84,5 +93,17 @@ describe('WorktreeCreateDialog repository setup consent', () => {
     );
 
     expect(screen.getByTestId('worktree-create-submit')).toBeEnabled();
+    // The consent block stays visible and reflects the standing choice — a
+    // decision no longer instantly hides it, so the user can change their
+    // mind before creating without a separate revoke action.
+    expect(screen.getByTestId('worktree-repository-setup-consent')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Skip script' })).toHaveAttribute(
+      'data-variant',
+      'default'
+    );
+    expect(screen.getByRole('button', { name: 'Allow script' })).toHaveAttribute(
+      'data-variant',
+      'outline'
+    );
   });
 });

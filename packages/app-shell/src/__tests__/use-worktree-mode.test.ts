@@ -1,7 +1,4 @@
-import {
-  __resetWorktreeSetupConsentStoreForTests,
-  useWorktreeSetupConsentStore,
-} from '@brainstrike/app-state/stores/worktree-setup-consent-store';
+import { __resetWorktreeSetupConsentStoreForTests } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -423,80 +420,11 @@ describe('useWorktreeMode', () => {
     expect(result.current?.defaultName).toBe('quiet-otter');
   });
 
-  it('requires a repository setup decision and forwards the durable approval', async () => {
-    createContextSpy.mockResolvedValueOnce({
-      ok: true,
-      value: {
-        managedParentPath: '/managed/app-slug',
-        repositorySetup: {
-          repositoryId: '/work/app/.git',
-          repositoryPath: '/work/app',
-          scriptPath: '/work/app/.brainstrike/worktree-setup.sh',
-        },
-        suggestedName: 'bright-fox',
-      },
-    });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
-
-    await act(async () => {
-      await result.current?.onOpenCreateSheet();
-    });
-    expect(result.current?.repositorySetupConsent).toMatchObject({
-      decision: null,
-      repositoryPath: '/work/app',
-    });
-
-    act(() => {
-      result.current?.repositorySetupConsent?.onDecision('approved');
-    });
-    expect(result.current?.repositorySetupConsent).toBeNull();
-    await act(async () => {
-      await result.current?.onCreate(CREATE_REQUEST);
-    });
-
-    expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        repositorySetupDecision: {
-          decision: 'approved',
-          repositoryId: '/work/app/.git',
-        },
-      })
-    );
-  });
-
-  it('suppresses the prompt and forwards a persisted denial for the same repository', async () => {
-    useWorktreeSetupConsentStore.getState().decide('/work/app/.git', 'denied');
-    createContextSpy.mockResolvedValueOnce({
-      ok: true,
-      value: {
-        managedParentPath: '/managed/app-slug',
-        repositorySetup: {
-          repositoryId: '/work/app/.git',
-          repositoryPath: '/work/app',
-          scriptPath: '/work/app/.brainstrike/worktree-setup.sh',
-        },
-        suggestedName: 'bright-fox',
-      },
-    });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
-
-    await act(async () => {
-      await result.current?.onOpenCreateSheet();
-    });
-    expect(result.current?.repositorySetupConsent).toBeNull();
-    await act(async () => {
-      await result.current?.onCreate(CREATE_REQUEST);
-    });
-
-    expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        repositorySetupDecision: {
-          decision: 'denied',
-          repositoryId: '/work/app/.git',
-        },
-      })
-    );
-  });
+  // Repository setup script consent (BST-1455) — the create sheet's
+  // Allow/Skip gate, standing-decision persistence, hash-staleness
+  // re-prompting, and the branch-menu create path — is covered in
+  // `use-worktree-mode-repository-setup-consent.test.ts` (split out to keep
+  // both files under the line-count ceiling).
 
   it('refuses to open the create sheet after the first request, with a toast (BST-1390)', async () => {
     const { result, rerender } = renderHook(
