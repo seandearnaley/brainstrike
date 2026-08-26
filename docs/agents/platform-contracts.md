@@ -197,6 +197,23 @@ fresh start:
   `apps/desktop/src/assistant-server/worktree-settings.ts`) — the user-chosen
   managed-worktree directory path plus the setup command executed on worktree
   creation. Reset must not leave either a stale custom directory or command.
+
+Managed worktree DIRECTORIES themselves (BST-1390) live OUTSIDE `userData` —
+the default is `~/.brainstrike/worktrees` [D3] — so the wholesale userData
+wipe above does not cover them, and neither does clearing `worktreeSettings`
+(that only clears the STORED preference, not the directory it names). Factory
+reset does clear the `brainstrike_worktrees` LEDGER: it is one of the 21
+`brainstrike_*` relations in `BRAINSTRIKE_RESET_TABLES`
+(`packages/db/src/reset-table-registry.ts`), the set every table-enumerating
+reset path clears (see the reset-table registry section below). It does NOT
+delete the worktree directories on disk: they can hold uncommitted work, and a
+reset silently removing a folder full of it is exactly the failure mode
+`archive`'s snapshot gate exists to prevent. Deleting them is a separate,
+explicitly confirmed action — and today's reset result carries no path or
+count for them either way: `DesktopFactoryResetResult`
+(`apps/desktop/src/desktop-reset-platform.ts`) is just `{ success, message? }`,
+so a caller who wants to know what happened to the managed directory has to
+read it themselves, not read the reset result.
 - `lastFolderPath` — presentation-only.
 
 That coverage is pinned by

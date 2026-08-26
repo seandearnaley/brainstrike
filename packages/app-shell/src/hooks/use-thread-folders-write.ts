@@ -12,6 +12,8 @@ export interface ThreadCheckoutFolders {
   readonly primaryRootId: string | undefined;
   readonly secondaryRootIds: readonly string[];
   readonly secondaryRoots: readonly ThreadCheckoutRoot[];
+  readonly secondaryRootsError: boolean;
+  readonly secondaryRootsPending: boolean;
   readonly threadId: string | undefined;
 }
 

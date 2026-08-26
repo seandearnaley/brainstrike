@@ -573,6 +573,8 @@ Registered in both runners and in `BRAINSTRIKE_RESET_TABLES`. Factory reset
 clears the ROWS; deleting the worktree DIRECTORIES is a separate, explicitly
 confirmed step (see `platform-contracts.md`).
 
+Any migration merged to a long-lived branch counts as shipped and must never be amended in place, because execution on a shared branch cannot be disproven even if no production profile is known to have run it. Corrections must use a new, additive, forward-only migration; `112-worktree-setup-reason.ts` is the concrete example.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

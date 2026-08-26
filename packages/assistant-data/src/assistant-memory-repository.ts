@@ -3970,7 +3970,13 @@ export function createPgliteAssistantThreadRepository(
     ): Promise<void> {
       requireAssistantThreadIds(threadIds);
       requireNonemptyThreadMetadata(metadata);
+      // `assertBulkThreadMetadataPatch` first: it names the SPECIFIC reason
+      // (checkout state is a single-thread, atomic write) for the class of
+      // rejection a generic "invalid key" from the broader validator below
+      // would not explain. Both run — the second stays load-bearing beyond
+      // checkout keys (key whitelist, icon/color, string-shape checks).
       assertBulkThreadMetadataPatch(metadata);
+      assertPersistableThreadMetadata(metadata);
       const normalized = normalizeThreadMetadataForPersistence(metadata);
       await initialize();
       const metadataParameter = threadIds.length + 1;

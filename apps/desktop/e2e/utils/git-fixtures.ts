@@ -14,7 +14,7 @@
  * `afterAll` delete another file's still-in-use temp dirs.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -64,6 +64,41 @@ export function freshRepo({ label, prefix, tracker }: FreshDirOptions): string {
   git(dir, ['add', '.']);
   git(dir, ['commit', '-m', 'initial commit']);
   return dir;
+}
+
+export interface FreshRepoWithExternalWorktreeOptions extends FreshDirOptions {
+  /** Relative directory that simulates another tool's worktree home, e.g. `.codex/worktrees`. */
+  readonly toolDirectory: string;
+}
+
+/**
+ * A real repo plus a real linked worktree below a simulated external-tool
+ * directory outside the repo. The inventory therefore has to verify the
+ * worktree bidirectionally instead of trusting a hand-written descriptor.
+ *
+ * `home` is resolved through `realpathSync` before anything is joined onto
+ * it: on macOS `os.tmpdir()` lives under `/var`, a symlink to `/private/var`,
+ * and `git worktree add` always registers the CANONICAL path. Without this,
+ * every path this fixture hands back to a test would differ from the one
+ * `git worktree list --porcelain` (and the app's own git-backed inventory)
+ * reports, for a reason that has nothing to do with the behavior under test.
+ */
+export function freshRepoWithExternalWorktree({
+  label,
+  prefix,
+  toolDirectory,
+  tracker,
+}: FreshRepoWithExternalWorktreeOptions): {
+  readonly repo: string;
+  readonly worktree: string;
+} {
+  const repo = freshRepo({ label, prefix, tracker });
+  const home = realpathSync(
+    tracker.track(mkdtempSync(path.join(tmpdir(), `${prefix}${label}-home-`)))
+  );
+  const worktree = path.join(home, toolDirectory, `${label}-external`);
+  git(repo, ['worktree', 'add', '-b', `${label}/external`, worktree, 'HEAD']);
+  return { repo, worktree };
 }
 
 export interface FreshRepoWithRemoteOptions extends FreshDirOptions {

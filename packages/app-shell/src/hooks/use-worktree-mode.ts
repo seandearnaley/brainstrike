@@ -20,7 +20,7 @@ import type {
   WorktreeSettings,
 } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { resolveWorktreesBridge, type WorktreesBridge } from '../worktrees/worktrees-bridge';
 
@@ -40,10 +40,12 @@ type SettingsState =
 
 export interface UseWorktreeModeArgs {
   readonly checkout: {
+    readonly branch: string | null;
     readonly mode: 'local' | 'worktree';
     readonly worktreeId: string | null;
+    readonly worktreePath: string | null;
   };
-  readonly hasSentFirstRequest: boolean;
+  readonly firstRequestState: 'loading' | 'no-thread' | 'sent' | 'unsent';
   readonly isRepository: boolean;
   readonly onHandOffToLocal: () => Promise<void>;
   readonly onSelectWorktree: (worktree: {
@@ -172,10 +174,16 @@ function describeSetup(settings: SettingsState): string {
 }
 
 function createDisabledReason(
-  hasSentFirstRequest: boolean,
+  firstRequestState: UseWorktreeModeArgs['firstRequestState'],
   settings: SettingsState
 ): string | null {
-  if (hasSentFirstRequest) {
+  if (firstRequestState === 'no-thread') {
+    return 'No thread selected.';
+  }
+  if (firstRequestState === 'loading') {
+    return 'Thread is still loading.';
+  }
+  if (firstRequestState === 'sent') {
     return FIRST_REQUEST_CREATE_REASON;
   }
   if (settings.kind === 'loading') {
@@ -200,6 +208,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [createSheetContext, setCreateSheetContext] = useState<WorktreeCreateContext | null>(null);
+  const [listRevision, setListRevision] = useState(0);
 
   useEffect(() => {
     if (!bridge) {
@@ -232,27 +241,53 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     };
   }, [bridge]);
 
-  const refreshList = useCallback(async (): Promise<void> => {
-    if (!bridge) {
-      return;
-    }
-    setListing(true);
-    try {
-      const result = await bridge.list();
-      if (result.ok) {
-        setEntries(result.value);
-        setListError(null);
-        return;
+  const refreshList = useCallback(
+    // A `.then()` chain, not `async`/`await`: an `async` function's body runs
+    // SYNCHRONOUSLY up to its first `await`, so `setListing(true)` would fire
+    // in the SAME tick as whichever caller invoked this — including the
+    // mount effect below, which is exactly what
+    // `react-hooks/set-state-in-effect` flags. Chaining on `Promise.resolve()`
+    // instead defers every state update to a real microtask, matching the
+    // `settings` effect's already-safe `bridge.getSettings().then(...)` shape,
+    // for every caller (this hook's OTHER callers are event handlers, where
+    // the one-microtask delay is unobservable either way).
+    (isCancelled?: () => boolean): Promise<void> => {
+      if (!bridge || isCancelled?.()) {
+        return Promise.resolve();
       }
-      setEntries([]);
-      setListError(result.error);
-    } catch (error) {
-      setEntries([]);
-      setListError(errorMessage(error));
-    } finally {
-      setListing(false);
-    }
-  }, [bridge]);
+      return Promise.resolve()
+        .then(() => {
+          setListing(true);
+          return bridge.list();
+        })
+        .then((result) => {
+          if (isCancelled?.()) {
+            return;
+          }
+          if (result.ok) {
+            setEntries(result.value);
+            setListError(null);
+            return;
+          }
+          setEntries([]);
+          setListError(result.error);
+        })
+        .catch((error: unknown) => {
+          if (isCancelled?.()) {
+            return;
+          }
+          setEntries([]);
+          setListError(errorMessage(error));
+        })
+        .finally(() => {
+          if (!isCancelled?.()) {
+            setListing(false);
+            setListRevision((revision) => revision + 1);
+          }
+        });
+    },
+    [bridge]
+  );
 
   const onPickerOpenChange = useCallback(
     (open: boolean): void => {
@@ -264,19 +299,102 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     [refreshList]
   );
 
+  // Eager, once per bridge: without this, `entries` starts empty and stays
+  // empty until the user opens the picker or runs a create/archive/branch
+  // mutation. A thread that reloads already bound to a worktree would then
+  // show "Local" indefinitely — `currentEntry` can never match anything in
+  // an empty list — even though its checkout metadata was persisted
+  // correctly. The list is read-only and cheap, so loading it on mount is
+  // the same eager pattern `settings` already uses just above.
+  useEffect(() => {
+    let cancelled = false;
+    void refreshList(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshList]);
+
   const currentWorktreeId = args.checkout.mode === 'worktree' ? args.checkout.worktreeId : null;
+
   const currentEntry = useMemo(
     () => entries.find((entry) => entry.id !== null && entry.id === currentWorktreeId) ?? null,
     [currentWorktreeId, entries]
   );
 
+  // Retry bookkeeping stays in REFS, read only inside this effect (never
+  // during render) — deliberately unchanged from before: any restructuring
+  // tried here (state instead of refs, deferring the write, adding an extra
+  // gate) made eslint-plugin-react-hooks newly flag the `refreshList` call
+  // below for `set-state-in-effect`, even with zero new setState calls of
+  // its own — the exact opposite of the goal. `missingWorktreeReason` below
+  // no longer reads these; see `hasAttemptedForCurrentId` for its
+  // render-safe replacement.
+  const retriedAfterListErrorRef = useRef<string | null>(null);
+  const refreshedMissingWorktreeIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (currentWorktreeId === null || listRevision === 0) {
+      return;
+    }
+    const retryingListError =
+      listError !== null && retriedAfterListErrorRef.current !== currentWorktreeId;
+    const refreshingMissingEntry =
+      listError === null &&
+      currentEntry === null &&
+      refreshedMissingWorktreeIdRef.current !== currentWorktreeId;
+    if (!(retryingListError || refreshingMissingEntry)) {
+      return;
+    }
+    if (retryingListError) {
+      retriedAfterListErrorRef.current = currentWorktreeId;
+      // This retry also refreshes the missing-id evidence; a successful empty
+      // result must not trigger a redundant third inventory read.
+      refreshedMissingWorktreeIdRef.current = currentWorktreeId;
+    }
+    if (refreshingMissingEntry) {
+      refreshedMissingWorktreeIdRef.current = currentWorktreeId;
+    }
+    let cancelled = false;
+    void refreshList(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentEntry, currentWorktreeId, listError, listRevision, refreshList]);
+
+  // `missingWorktreeReason` below needs to know "has a refresh completed for
+  // this id" WITHOUT reading the refs above during render (that is the
+  // `react-hooks/refs` finding this replaces). `listRevision` is already the
+  // durable, React-visible signal that a refresh landed — `refreshList`'s own
+  // body bumps it, outside this component-level code — so the only new state
+  // is a baseline revision "as of when `currentWorktreeId` last changed",
+  // maintained with React's OWN "adjusting state while rendering" pattern
+  // (blessed exactly for this: derive one piece of state from a prop change,
+  // no effect, no ref). Once `listRevision` has advanced past that baseline,
+  // treat a refresh as attempted for this id — for either retry reason,
+  // matching the refs' shared "also counts as attempted" comment above.
+  const [attemptBaseline, setAttemptBaseline] = useState({
+    id: currentWorktreeId,
+    revision: listRevision,
+  });
+  if (currentWorktreeId !== attemptBaseline.id) {
+    setAttemptBaseline({ id: currentWorktreeId, revision: listRevision });
+  }
+  const hasAttemptedForCurrentId =
+    attemptBaseline.id === currentWorktreeId && listRevision > attemptBaseline.revision;
+
   const onCreate = useCallback(
     async (request: WorkspaceBarCreateWorktreeRequest): Promise<void> => {
       if (!(bridge && args.primaryRootId)) {
-        throw new Error('Worktrees are not available here.');
+        rejectWithToast('Could not create a worktree', 'Worktrees are not available here.');
       }
-      if (args.hasSentFirstRequest) {
-        throw new Error(FIRST_REQUEST_CREATE_REASON);
+      if (args.firstRequestState === 'no-thread') {
+        rejectWithToast('Could not create a worktree', 'No thread selected.');
+      }
+      if (args.firstRequestState === 'loading') {
+        rejectWithToast('Could not create a worktree', 'Thread is still loading.');
+      }
+      if (args.firstRequestState === 'sent') {
+        rejectWithToast('Could not create a worktree', FIRST_REQUEST_CREATE_REASON);
       }
       setPending(true);
       try {
@@ -297,7 +415,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           const message = errorMessage(error);
           toastFailure(
             'Worktree created, but binding failed',
-            `Created the worktree, but binding the thread failed: ${message}`
+            `Created the worktree at ${worktree.path}, but binding the thread failed: ${message}. Use "Use existing worktree…" to reconnect this thread to it.`
           );
           throw error instanceof Error ? error : new Error(message);
         }
@@ -314,7 +432,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     },
     [
       addRootDirectoryByPath,
-      args.hasSentFirstRequest,
+      args.firstRequestState,
       args.onSelectWorktree,
       args.primaryRootId,
       args.runId,
@@ -327,12 +445,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     (option: WorkspaceBarWorktreeOption): void => {
       const { worktreeId } = option;
       if (!worktreeId) {
-        toast({
-          description:
-            'This worktree was created outside BrainStrike. Adopting one is coming with the Worktree Map.',
-          title: 'Not a managed worktree yet',
-        });
-        return;
+        throw new Error(
+          'Unreachable worktree picker state: a usable worktree must have a managed ledger id.'
+        );
       }
       setPending(true);
       void Promise.resolve(addRootDirectoryByPath?.(option.path))
@@ -367,22 +482,39 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       return;
     }
     setPending(true);
-    void bridge
-      .archive({ worktreeId, ...(args.runId ? { runId: args.runId } : {}) })
-      .then(async (result) => {
+    // Hand off FIRST, archive only once that resolves. Archiving first (the
+    // original order) could succeed and then leave a failed hand-off with
+    // the thread still bound to a now-archived worktree — `refreshList`
+    // turns that into a missing-worktree diagnostic chip, which offers no
+    // hand-off or picker action, stranding the thread with no recovery path.
+    // With this order: a failed hand-off archives nothing (thread stays
+    // safely on the still-live worktree; retry the hand-off/archive), and a
+    // failed archive after a successful hand-off leaves the thread safely
+    // Local with the worktree still on disk (retry Archive from the
+    // picker-side actions, or from the thread that still lists it).
+    void (async () => {
+      try {
+        await args.onHandOffToLocal();
+      } catch (error) {
+        toastFailure('Could not hand off to Local — worktree not archived', errorMessage(error));
+        return;
+      }
+      try {
+        const result = await bridge.archive({
+          worktreeId,
+          ...(args.runId ? { runId: args.runId } : {}),
+        });
         if (!result.ok) {
-          toastFailure('Worktree not archived', result.error);
+          toastFailure('Thread handed off — worktree not archived', result.error);
           return;
         }
-        await args.onHandOffToLocal();
         await refreshList();
-      })
-      .catch((error: unknown) => {
-        toastFailure('Worktree not archived', errorMessage(error));
-      })
-      .finally(() => {
-        setPending(false);
-      });
+      } catch (error) {
+        toastFailure('Thread handed off — worktree not archived', errorMessage(error));
+      }
+    })().finally(() => {
+      setPending(false);
+    });
   }, [args.checkout.worktreeId, args.onHandOffToLocal, args.runId, bridge, refreshList]);
 
   const onHandOffToLocal = useCallback((): void => {
@@ -436,7 +568,13 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     if (!(bridge && args.primaryRootId)) {
       throw new Error('Worktrees are not available here.');
     }
-    if (args.hasSentFirstRequest) {
+    if (args.firstRequestState === 'no-thread') {
+      rejectWithToast('Could not open worktree creation', 'No thread selected.');
+    }
+    if (args.firstRequestState === 'loading') {
+      rejectWithToast('Could not open worktree creation', 'Thread is still loading.');
+    }
+    if (args.firstRequestState === 'sent') {
       rejectWithToast('Could not open worktree creation', FIRST_REQUEST_CREATE_REASON);
     }
     let result: Awaited<ReturnType<WorktreesBridge['createContext']>>;
@@ -451,7 +589,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       rejectWithToast('Could not prepare worktree creation', result.error);
     }
     setCreateSheetContext(result.value);
-  }, [args.hasSentFirstRequest, args.primaryRootId, bridge]);
+  }, [args.firstRequestState, args.primaryRootId, bridge]);
 
   const managedParentPath =
     createSheetContext?.managedParentPath ??
@@ -461,12 +599,23 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     currentEntry?.id && currentEntry.managed && currentEntry.detached
       ? onCreateBranchHere
       : undefined;
+  const missingWorktreePath =
+    currentWorktreeId && currentEntry === null ? args.checkout.worktreePath : null;
+  const missingWorktreeName = missingWorktreePath
+    ? (missingWorktreePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? missingWorktreePath)
+    : null;
+  const missingWorktreeReason =
+    missingWorktreeName && listRevision > 0 && !listing && hasAttemptedForCurrentId
+      ? listError
+        ? `Could not verify the bound worktree because the worktree list is unavailable: ${listError}`
+        : `The bound worktree ${currentWorktreeId ?? '(unknown)'} is missing from the refreshed worktree list.`
+      : null;
 
   return useMemo(() => {
     if (!(bridge && args.primaryRootId)) {
       return;
     }
-    const disabled = createDisabledReason(args.hasSentFirstRequest, settings);
+    const disabled = createDisabledReason(args.firstRequestState, settings);
     if (!args.isRepository) {
       return {
         baseRefs: BASE_REFS,
@@ -502,7 +651,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       createDisabledReason: disabled,
       defaultBranchPrefix: 'bs/',
       defaultName,
-      disabledReason: null,
+      disabledReason: missingWorktreeReason,
       localPath: args.primaryRootPath,
       managedParentPath,
       onArchive: currentWorktreeId ? onArchive : undefined,
@@ -539,10 +688,21 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
               setupStatus: currentEntry.setupStatus,
               worktreeId: currentEntry.id,
             }
-          : null,
+          : missingWorktreeName && missingWorktreePath && currentWorktreeId
+            ? {
+                branch: args.checkout.branch,
+                detached: args.checkout.branch === null,
+                name: missingWorktreeName,
+                path: missingWorktreePath,
+                setupReason: missingWorktreeReason,
+                setupStatus: 'none',
+                worktreeId: currentWorktreeId,
+              }
+            : null,
     };
   }, [
-    args.hasSentFirstRequest,
+    args.checkout.branch,
+    args.firstRequestState,
     args.isRepository,
     args.primaryRootId,
     args.primaryRootPath,
@@ -555,6 +715,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     listError,
     listing,
     managedParentPath,
+    missingWorktreeName,
+    missingWorktreePath,
+    missingWorktreeReason,
     onArchive,
     onCreate,
     onGrantAccess,
